@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ED:Finder — Service Unavailable</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0d0d0f;
+      color: #c8c8d0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .card {
+      background: #1a1a20;
+      border: 1px solid #2a2a35;
+      border-radius: 12px;
+      padding: 2.5rem 3rem;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    .icon { font-size: 3rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.4rem; color: #e8b04b; margin-bottom: .75rem; }
+    p  { font-size: .95rem; line-height: 1.6; color: #9090a0; }
+    .retry {
+      display: inline-block;
+      margin-top: 1.5rem;
+      padding: .6rem 1.4rem;
+      background: #e8b04b;
+      color: #0d0d0f;
+      border-radius: 6px;
+      font-weight: 600;
+      text-decoration: none;
+      font-size: .9rem;
+    }
+    .retry:hover { background: #f0c060; }
+  </style>
+</head>
+<body>
+  <div class="card" role="main">
+    <div class="icon" aria-hidden="true">🚀</div>
+    <h1>Backend Temporarily Unavailable</h1>
+    <p>
+      The ED:Finder API is starting up or restarting.
+      This usually takes less than 30 seconds.
+    </p>
+    <a class="retry" href="/" onclick="setTimeout(()=>location.reload(),2000);return false;">
+      Retry
+    </a>
+  </div>
+</body>
+</html>

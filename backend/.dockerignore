@@ -1,0 +1,25 @@
+# ── ED:Finder — Docker build context exclusions ───────────────────────────
+# Prevents test files, caches and editor artefacts from being sent to the
+# Docker daemon (faster builds, smaller context, no accidental inclusions).
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Tests — not needed in the production image
+../test_backend.py
+../test_frontend.py
+
+# Local dev / editor
+*.swp
+*.swo
+.DS_Store
+.env
+.env.*
+
+# git
+../.git
+../.gitignore
