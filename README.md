@@ -1,264 +1,201 @@
-# ED:Finder v3.18 - Complete Working Solution
+# ED:Finder — Self-Hosted Colony Finder
 
-## 📦 What's Included
+A self-hosted Elite Dangerous system finder for locating uncolonised candidates.
+Runs as two Docker containers (FastAPI backend + Nginx frontend) on any Linux host
+including Raspberry Pi.
 
-This package contains a **fully working** ED:Finder deployment that fixes all known issues with v3.20:
+---
 
-- ✅ **Complete JavaScript frontend** (6,895 lines, all 84 functions present)
-- ✅ **Working FastAPI backend** (1,176 lines, all endpoints functional)
-- ✅ **Fixed imports** (Starlette instead of FastAPI middleware)
-- ✅ **cgroup v2 compatible** (no memory limits that break on Raspberry Pi)
-- ✅ **Bridge networking** (proper container communication)
-- ✅ **Automated deployment script** (ULTIMATE_FIX.sh)
+## Current Status
 
-## 🚀 Quick Start
+| Component | Status |
+|-----------|--------|
+| Frontend  | ✅ 7,507 lines, 110 functions |
+| Backend   | ✅ 1,240 lines, all endpoints functional |
+| Git       | ✅ `main` branch — latest commit: audit fixes |
 
-### Option 1: Direct Deployment on Raspberry Pi (Recommended)
+---
 
-1. **Transfer the archive to your Pi:**
-   ```cmd
-   scp "%USERPROFILE%\Downloads\ed-finder-FINAL-COMPLETE.tar.gz" mightyraith@192.168.0.115:~/
-   ```
+## Features Implemented
 
-2. **SSH into your Pi and run:**
-   ```bash
-   cd ~
-   tar -xzf ed-finder-FINAL-COMPLETE.tar.gz
-   cd ed-finder-FINAL-COMPLETE
-   ./ULTIMATE_FIX.sh
-   ```
+### Finder Tab
+- **Search** — distance-filtered system search via Spansh API
+- **Deep Scan** — distance-band slicing (up to 10 bands × 10k = 100k systems scanned)
+- **Uncolonised filter** — multi-signal heuristic (population, factions, is_colonised, is_being_colonised)
+- **Body-type sliders** — dual min/max range for ELW, Water worlds, Rocky, Icy, Ammonia, etc.
+- **Rating score range** — dual min/max slider (0–100)
+- **Economy filter** — AI-inferred economy type (Refinery, Agriculture, Industrial, High Tech, Military, Tourism)
+- **Slot filters** — min landable bodies, min signal count
+- **Toggle filters** — Bio, Geo, Ring, Terraformable, Volcanism, No Tidal Lock, Zero Population
+- **Sort** — Rating ↓ (default), Distance ↑, Economy A-Z, Body Count ↓, Population ↓
+- **Export** — CSV and JSON download of current results
+- **Re-filter** — re-apply filters to already-loaded results without a new API call
+- **Share URL** — shareable link with all filter state encoded in hash
+- **Search history** — last 20 searches with restore and preset save/load
 
-3. **Access your installation:**
-   - http://raspberrypi.local
-   - http://192.168.0.115
+### System Cards
+- Rating score (0–100) with colour-coded badge
+- Economy suggestion with confidence indicator
+- Population potential estimate
+- Colonised/Free status pill using full heuristic
+- Body pills with detail popovers (gravity, signals, rings, tidal lock)
+- Warning tags (tidal lock Agriculture risk, volcanism, ELW/Water worlds, exotic stars)
+- Score breakdown mini-bar (Slots, Body Quality, Compactness, Signal Quality, Orbital Safety)
+- Pin to Pinned tab
+- Add to Compare (up to 6 systems side-by-side radar chart)
+- Personal notes (stored in backend SQLite)
+- Add to Watchlist
+- Open in Optimizer
 
-### Option 2: Manual Deployment
+### Optimizer Tab
+- Auto-suggest best economy based on body composition
+- Plan A (low disruption), Plan B (moderate), Plan C (maximum output)
+- Step-by-step build order with cargo cost breakdown
+- Contamination warnings for conflicting structures
 
-If the automated script fails, run these commands:
+### Route Planner Tab
+- Multi-hop waypoint route builder
+- Per-hop system search within radius
+- Best Pick suggestion per hop (uses full colonisation heuristic)
+- "Load into Finder" for any hop
+- Save / load route to localStorage
 
+### Watchlist Tab
+- Track systems for colonisation status and population changes
+- Per-system alert config (notify on colonised, notify when pop exceeds threshold)
+- Background poll every 5 minutes with browser notifications
+- Change log with diff display
+
+### Galactic Map Tab
+- Canvas-based 2D projection (XZ/XY/YZ planes)
+- Zoom (mouse wheel), pan (drag), double-click to reset
+- Colour modes: rating, economy, distance
+- Pinned and watchlist system overlays
+- PNG export
+
+### Compare Tab
+- Side-by-side table with winner highlighting
+- Radar chart (score dimensions)
+- CSV export
+
+### Guide / Cache Analytics
+- API connection status with latency
+- Cache hit/miss counts
+- Cache clear and manual refresh
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/status` | Backend health + Spansh reachability |
+| GET | `/api/health` | Simple health check |
+| POST | `/api/systems/search` | Proxy Spansh systems/search |
+| GET | `/api/system/{id64}` | Fetch + cache single system |
+| POST | `/api/systems/batch` | Batch fetch up to 100 systems |
+| GET | `/api/autocomplete?q=` | System name autocomplete |
+| GET | `/api/watchlist` | List watched systems |
+| POST | `/api/watchlist/{id64}` | Add system to watchlist |
+| DELETE | `/api/watchlist/{id64}` | Remove from watchlist |
+| GET | `/api/watchlist/changes` | Check for status changes |
+| PATCH | `/api/watchlist/{id64}/alert` | Update alert config |
+| GET | `/api/notes` | List all notes |
+| GET | `/api/note/{id64}` | Get note for system |
+| PUT | `/api/note/{id64}` | Upsert note |
+| DELETE | `/api/note/{id64}` | Delete note |
+| GET | `/api/cache/stats` | Cache analytics |
+| POST | `/api/cache/clear` | Invalidate cache |
+| POST | `/api/refresh` | Trigger background refresh |
+
+---
+
+## Bug Fixes Log (most recent first)
+
+### Audit commit `a060e22` — Full HTML/JS/backend audit
+- **[CRITICAL] resetFilters()** was orphaned code running at parse time — button did nothing on click. Fixed by wrapping in proper function declaration.
+- **applySearchParams** referenced non-existent element `min-rating-val` — caused silent TypeError on preset/URL restore. Fixed with null guard.
+- **Route planner bestCandidate** used `is_colonised` (broken Spansh field) — all legacy systems were incorrectly excluded. Fixed with full multi-signal heuristic.
+- **appendSearch Load More** button never re-enabled on success path. Fixed with `finally` block.
+- **_refilterInPlace / _doFilterLiveBadge** double-filtered (passesBodyFilters already checks rating + economy). Simplified to single pass.
+- **showTab()** called `.style` on potentially null element for invalid tab IDs. Added null guard.
+- **backend X-Cache-Age** always returned `0` even for cached responses. Now returns real age so "📦 cached Xh Ym ago" banner works correctly.
+
+### Previous notable fixes
+- Colonised filter removed from Spansh API call (only works for new colonies) — rely on client-side heuristic
+- `buildCardBody` received `sysIsInhabited` as parameter (was ReferenceError causing cards not to render)
+- ELW slider max set to 4
+- Toggle knob symmetrical margins (left:30px ON position)
+- Results now default-sort by Rating descending
+- Deep Scan feature added (distance-band slicing)
+- Rating Score Range dual slider added
+
+---
+
+## Deployment
+
+### Prerequisites
+- Docker + Docker Compose
+- Linux host (Raspberry Pi 4+ recommended, or any AMD64/ARM64 server)
+
+### Quick Start
 ```bash
 cd ~/ed-finder-FINAL-COMPLETE
-
-# Fix the FastAPI import
-sed -i 's/from fastapi.middleware.base import BaseHTTPMiddleware/from starlette.middleware.base import BaseHTTPMiddleware/g' backend/main.py
-
-# Stop old containers
-docker ps -a | grep ed-finder | awk '{print $1}' | xargs -r docker rm -f
-
-# Build and start
-docker compose build --no-cache
 docker compose up -d
-
-# Verify
-docker compose ps
-curl http://localhost/api/status
 ```
 
-## 🔍 Verification
+### Access
+- **Local network:** `http://<your-server-ip>`
+- **Custom domain:** See below
 
-After deployment, check:
+### Custom Domain (Cloudflare)
+See *Custom Domain Setup* section at the bottom of this README.
 
-1. **Container Status:**
-   ```bash
-   docker compose ps
-   ```
-   Both `ed-finder-api` and `ed-finder-web` should be "Up" and "healthy"
-
-2. **API Test:**
-   ```bash
-   curl http://localhost/api/status
-   ```
-   Should return: `{"status":"online",...}`
-
-3. **Browser Test:**
-   - Open http://192.168.0.115
-   - Clear cache (Ctrl+Shift+Delete)
-   - Hard refresh (Ctrl+Shift+R)
-   - Status light should be **green**
-   - All tabs should be clickable
-   - Search should show suggestions
-
-4. **Console Test:**
-   Open browser console and run:
-   ```javascript
-   fetch('/api/status').then(r=>r.json()).then(d=>console.log(d))
-   ```
-   Should show: `{status: "online", ...}`
-
-## 🐛 Known Issues & Fixes
-
-### Issue 1: FastAPI Import Error
-**Symptom:** `ModuleNotFoundError: No module named 'fastapi.middleware.base'`
-
-**Fix:** The ULTIMATE_FIX.sh script automatically fixes this. Manual fix:
+### Update after git pull
 ```bash
-cd ~/ed-finder-FINAL-COMPLETE/backend
-sed -i 's/from fastapi.middleware.base/from starlette.middleware.base/g' main.py
+cd ~/ed-finder-FINAL-COMPLETE
+git pull
+docker compose restart web   # frontend-only change
+# OR
+docker compose restart       # backend + frontend
 ```
 
-### Issue 2: Container Name Conflict
-**Symptom:** `Conflict. The container name "/ed-finder-api" is already in use`
+---
 
-**Fix:**
-```bash
-docker ps -a | grep ed-finder | awk '{print $1}' | xargs -r docker rm -f
-```
-
-### Issue 3: cgroup v2 Errors
-**Symptom:** `unknown or invalid runtime name: nvidia` or cgroup memory errors
-
-**Fix:** Already fixed! This package has no cgroup limits in docker-compose.yml
-
-### Issue 4: Port 80 Already in Use
-**Symptom:** `bind: address already in use`
-
-**Fix:**
-```bash
-# Check what's using port 80
-sudo lsof -i :80
-
-# If it's InfluxDB:
-sudo systemctl stop influxd
-sudo systemctl disable influxd
-```
-
-## 📋 Useful Commands
-
-```bash
-# View logs
-docker compose logs api     # API logs
-docker compose logs web     # Nginx logs
-docker compose logs -f      # Follow all logs
-
-# Container management
-docker compose ps           # Status
-docker compose restart      # Restart all
-docker compose down         # Stop all
-docker compose up -d        # Start all
-
-# Troubleshooting
-docker compose exec api python3 -c "import fastapi; print(fastapi.__version__)"
-docker compose exec api curl http://localhost:8000/api/health
-curl -v http://localhost/api/status
-```
-
-## 📂 Project Structure
+## Project Structure
 
 ```
 ed-finder-FINAL-COMPLETE/
 ├── backend/
-│   ├── main.py              # FastAPI application (FIXED import)
-│   ├── requirements.txt     # Python dependencies
-│   └── Dockerfile           # Backend container definition
+│   ├── main.py              # FastAPI backend (1,240 lines)
+│   ├── requirements.txt
+│   └── Dockerfile
 ├── frontend/
-│   ├── index.html           # Complete UI (6,895 lines, 84 functions)
-│   └── 50x.html             # Error page
-├── docker-compose.yml       # Service orchestration (cgroup v2 compatible)
-├── nginx.conf               # Reverse proxy config
-├── .env                     # Environment variables
-├── ULTIMATE_FIX.sh          # Automated deployment script
-├── README.md                # This file
-├── KNOWN_ISSUES.md          # Detailed troubleshooting guide
-└── QUICK_START.md           # One-page deployment guide
+│   ├── index.html           # Full SPA (7,507 lines, 110 functions)
+│   └── 50x.html
+├── docker-compose.yml
+├── nginx.conf
+├── .env
+└── README.md
 ```
-
-## 🔄 What Changed from v3.20
-
-### Fixed Issues:
-1. ✅ Missing JavaScript (v3.20 had empty `<script>` tags)
-2. ✅ FastAPI import error (switched to Starlette)
-3. ✅ cgroup v2 incompatibility (removed memory limits)
-4. ✅ Container naming conflicts (proper cleanup in script)
-5. ✅ Bridge networking (containers can communicate)
-
-### Preserved Features:
-- ✅ All original search functionality
-- ✅ Autocomplete system names
-- ✅ Body filters (planets, landable, materials)
-- ✅ Distance calculation from reference system
-- ✅ Caching for performance
-- ✅ Responsive UI with Tailwind CSS
-
-## 🆘 Troubleshooting
-
-### Yellow "Connecting..." Status
-**Cause:** API container still starting
-**Solution:** Wait 30-60 seconds, then refresh
-
-### Blank White Page
-**Cause:** Browser cache
-**Solution:** Clear cache (Ctrl+Shift+Delete) and hard refresh (Ctrl+Shift+R)
-
-### JavaScript Console Errors
-**Cause:** Old cached JavaScript
-**Solution:** Hard refresh (Ctrl+Shift+R) or try incognito mode
-
-### No Search Suggestions
-**Cause:** API not reachable
-**Solution:**
-```bash
-# Check API health
-docker compose logs api
-curl http://localhost/api/health
-
-# Restart if needed
-docker compose restart api
-```
-
-## 📞 Support
-
-If you encounter issues:
-
-1. **Check container status:**
-   ```bash
-   docker compose ps
-   docker compose logs
-   ```
-
-2. **Verify API:**
-   ```bash
-   curl http://localhost/api/status
-   ```
-
-3. **Check browser console:**
-   - Press F12
-   - Look for errors in Console and Network tabs
-
-4. **Collect diagnostic info:**
-   ```bash
-   docker compose ps > status.txt
-   docker compose logs > logs.txt
-   curl -v http://localhost/api/status > api-test.txt 2>&1
-   ```
-
-## 🎯 Next Steps
-
-Once v3.18 is working, you can:
-
-1. **Keep v3.18** - Stable, proven solution
-2. **Upgrade to v3.20** - Add performance improvements (uvloop, optimized SQLite)
-3. **Customize** - Modify UI colors, filters, or add new features
-
-## 🏆 Success Criteria
-
-Your deployment is successful when:
-
-- ✅ Status light is **green**
-- ✅ "Backend online" message appears
-- ✅ All tabs are clickable
-- ✅ System search shows suggestions
-- ✅ Search results display as cards
-- ✅ No console errors in browser
-- ✅ `docker compose ps` shows both containers healthy
-
-## 📄 License & Attribution
-
-This is a working deployment of ED:Finder, built on the Elite Dangerous community data.
-
-- Data source: Spansh API (https://spansh.co.uk)
-- Game: Elite Dangerous © Frontier Developments plc
-- Package: Working v3.18 solution by MightyRaith & GenSpark AI
 
 ---
 
-**Happy exploring, Commander! o7** 🚀
+## Scoring System (0–100)
+
+| Dimension | Max | Description |
+|-----------|-----|-------------|
+| Slots | 25 | Landable + orbital body count |
+| Body Quality | 25 | ELW (+10), Water world (+8), exotic stars (+6), Ammonia (+5) etc. |
+| Compactness | 20 | Max planet distance: ≤500 ls = 20pts … >250k ls = 0pts |
+| Signal Quality | 15 | Bio-only, Geo-only, Both, Pure Rocky bodies |
+| Orbital Safety | 15 | Close binary/parent pairs penalty |
+
+---
+
+## Custom Domain Setup (Cloudflare)
+See the section below for step-by-step instructions once you are ready to connect your domain.
+
+---
+
+**Happy exploring, Commander! o7**
