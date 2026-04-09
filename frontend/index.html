@@ -637,6 +637,10 @@ input[type="range"]:focus-visible {
 
 .result-card:hover { border-color: var(--orange-dk); }
 
+/* QOL-6: de-emphasise colonised systems when toggle is active */
+body.hide-colonised .result-card.is-colonised { display: none; }
+body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale(0.6); order: 999; }
+
 .result-card-hdr {
   background: var(--bg4);
   padding: 12px 16px;
@@ -1706,6 +1710,16 @@ input[type="range"]:focus-visible {
           <label for="tog-pop-zero">Population = 0 Only</label>
           <label class="toggle"><input type="checkbox" id="tog-pop-zero" onchange="updateFilterBadge()"><span class="track"></span></label>
         </div>
+        <!-- QOL-6: colonised system display mode -->
+        <div class="field" style="margin-top:10px">
+          <label style="font-size:11px;color:var(--text-dim)">Colonised Systems</label>
+          <select id="colonised-display" onchange="_applyColonisedDisplay()"
+            style="width:100%;margin-top:4px;background:var(--bg4);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px">
+            <option value="show">Show normally</option>
+            <option value="dim">Dim &amp; push to bottom</option>
+            <option value="hide">Hide completely</option>
+          </select>
+        </div>
         <!-- #2 Economy filter -->
         <div class="field" style="margin-top:10px">
           <label style="font-size:11px;color:var(--text-dim)">Target Economy</label>
@@ -2139,6 +2153,27 @@ const COMMODITIES = [
 // API handled server-side — no browser proxies needed
 
 let refSystem = { name:'Sol', x:0, y:0, z:0 };
+// QOL-2: restore last used reference system from localStorage
+(function() {
+  try {
+    const saved = localStorage.getItem('ed_last_ref');
+    if (saved) {
+      const r = JSON.parse(saved);
+      if (r && r.name && typeof r.x === 'number') {
+        refSystem = r;
+        // Pre-populate the input fields (DOM may not be ready yet — handled again in init)
+        document.addEventListener('DOMContentLoaded', () => {
+          const inp = document.getElementById('ref-input');
+          const nm  = document.getElementById('ref-name');
+          const co  = document.getElementById('ref-coords');
+          if (inp) inp.value = r.name;
+          if (nm)  nm.textContent = r.name;
+          if (co)  co.textContent = `${Math.round(r.x*10)/10}, ${Math.round(r.y*10)/10}, ${Math.round(r.z*10)/10}`;
+        });
+      }
+    }
+  } catch(e) { /* ignore bad localStorage */ }
+})();
 let currentResults = [];
 let currentPage = 0;
 let totalResults = 0;
@@ -2366,6 +2401,15 @@ function countActiveFilters() {
   return n;
 }
 
+// QOL-6: apply colonised display mode (show / dim / hide) via body class
+function _applyColonisedDisplay() {
+  const val = document.getElementById('colonised-display')?.value || 'show';
+  document.body.classList.remove('hide-colonised', 'dim-colonised');
+  if (val === 'hide') document.body.classList.add('hide-colonised');
+  if (val === 'dim')  document.body.classList.add('dim-colonised');
+  try { localStorage.setItem('ed_colonised_display', val); } catch(e) {}
+}
+
 function updateFilterBadge() {
   const n = countActiveFilters();
   const btn = document.getElementById('reset-filters-btn');
@@ -2404,7 +2448,19 @@ async function checkApiConnection() {
       const lastRefresh = d.last_refresh_end && d.last_refresh_end !== 'never'
         ? ' · Last sync: ' + new Date(d.last_refresh_end).toLocaleString()
         : '';
-      statusEl.textContent = `Backend online · ${d.cache_entries} cached${spanshPart}${lastRefresh}`;
+      // QOL-1: show AC cache count alongside general cache count
+      const acPart = d.ac_cache_entries != null ? ` · ${d.ac_cache_entries} AC` : '';
+      statusEl.textContent = `Backend online · ${d.cache_entries} cached${acPart}${spanshPart}${lastRefresh}`;
+      // QOL-8: store full stats for the expandable tooltip
+      statusEl.title = [
+        `Search cache: ${d.cache_entries} entries`,
+        `Autocomplete cache: ${d.ac_cache_entries ?? '?'} entries`,
+        `Spansh latency: ${d.spansh_latency_ms != null ? d.spansh_latency_ms+'ms' : 'n/a'}`,
+        `Circuit breaker: ${d.circuit_breaker ?? 'closed'}`,
+        `Last data sync: ${d.last_refresh_end && d.last_refresh_end !== 'never' ? new Date(d.last_refresh_end).toLocaleString() : 'never'}`,
+        `Last cache cleanup: ${d.last_cache_cleanup && d.last_cache_cleanup !== 'never' ? new Date(d.last_cache_cleanup).toLocaleString() : 'never'}`,
+      ].join('\n');
+      statusEl.style.cursor = 'help';
       document.getElementById('last-refresh').textContent = lastRefresh || ' · Never synced yet';
       return;
     }
@@ -2516,6 +2572,8 @@ async function fetchAutoComplete(q, mode) {
 function selectSystem(name, x, y, z, mode) {
   if (mode === 'ref') {
     refSystem = { name, x, y, z };
+    // QOL-2: persist so next session opens to the same reference system
+    try { localStorage.setItem('ed_last_ref', JSON.stringify(refSystem)); } catch(e) {}
     document.getElementById('ref-input').value = name;
     document.getElementById('ref-name').textContent = name;
     document.getElementById('ref-coords').textContent = `${Math.round(x*10)/10}, ${Math.round(y*10)/10}, ${Math.round(z*10)/10}`;
@@ -2952,10 +3010,10 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
     <span style="color:var(--text-dim);font-size:11px">(${total.toLocaleString()} total found)</span>
     ${ageHtml}
     <label style="font-size:11px;color:var(--text-dim);margin-left:${cacheAge !== null ? '0' : 'auto'}">Sort:</label>
-    <select id="result-sort" onchange="applySortAndRender()"
+    <select id="result-sort" onchange="applySortAndRender(); try{localStorage.setItem('ed_sort_pref',this.value)}catch(e){}"
       style="background:var(--bg4);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-size:11px;cursor:pointer">
-      <option value="distance">Distance ↑</option>
       <option value="rating">Rating ↓</option>
+      <option value="distance">Distance ↑</option>
       <option value="economy">Economy A-Z</option>
       <option value="bodies">Body Count ↓</option>
       <option value="population">Population ↓</option>
@@ -3078,9 +3136,13 @@ function renderResults(systems, page, total) {
     <button onclick="exportResults('json')" class="btn btn-secondary icon-btn" title="Export current results as JSON" aria-label="Export as JSON">⬇️ JSON</button>
   `;
   content.appendChild(bar);
-  // store for sort re-render
   window._lastResults = { systems: [...systems], page, total };
   currentResults = window._lastResults.systems;  // FIX #12
+  // QOL-5: persist last results to sessionStorage so tab switches don't lose your place
+  try {
+    sessionStorage.setItem('ed_last_results', JSON.stringify({ systems, page, total }));
+    sessionStorage.setItem('ed_last_ref_snap', JSON.stringify(refSystem));
+  } catch(e) { /* quota exceeded — not critical */ }
   reconcilePendingCompare(); // FIX-5f: re-attach persisted compare
 
   systems.forEach((sys, idx) => {
@@ -3114,7 +3176,7 @@ function buildSystemCard(sys, idx) {
   const isCompared = typeof compareList !== 'undefined' && compareList.some(c => c.id64 === sys.id64);
 
   const card = document.createElement('div');
-  card.className = 'result-card';
+  card.className = 'result-card' + (sys.is_colonised ? ' is-colonised' : '');
 
   const ratingClass = getRatingClass(rating.total);
   const ratingLabel = getRatingLabel(rating.total);
@@ -3141,6 +3203,7 @@ function buildSystemCard(sys, idx) {
       </label>
       <span style="color:var(--text-dim);font-family:Orbitron,monospace;font-size:11px;min-width:24px">#${idx+1}</span>
       <div class="sys-name">${sys.name || 'Unknown System'}</div>
+      <button onclick="event.stopPropagation();_copySystemName('${(sys.name||'').replace(/'/g,"\\'")}',this)" title="Copy system name to clipboard" style="background:none;border:none;cursor:pointer;font-size:12px;padding:0 3px;color:var(--text-dim);line-height:1" aria-label="Copy name">📋</button>
       <span class="sys-dist">${dist} LY</span>
       ${ecoHdrPill}
       ${ecoSpecBars}
@@ -3183,6 +3246,19 @@ function toggleCard(hdr) {
 }
 
 // ── G4: Quick-copy coordinates ────────────────────────────────────
+// QOL-4: copy just the system name (for pasting into the in-game galaxy map)
+function _copySystemName(name, btn) {
+  navigator.clipboard.writeText(name).then(() => {
+    if (btn) { const orig = btn.textContent; btn.textContent = '✓'; setTimeout(() => { btn.textContent = orig; }, 1500); }
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = name; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (btn) { const orig = btn.textContent; btn.textContent = '✓'; setTimeout(() => { btn.textContent = orig; }, 1500); }
+  });
+}
+
 function _copyCoords(name, x, y, z, btn) {
   const text = `${name} | ${parseFloat(x).toFixed(2)}, ${parseFloat(y).toFixed(2)}, ${parseFloat(z).toFixed(2)}`;
   navigator.clipboard.writeText(text).then(() => {
@@ -4812,13 +4888,14 @@ function _updateFilterLiveBadge(total, matching) {
 }
 
 function applySortAndRender() {
-  // L-4-FIX: Pagination is painted inside setTimeout callbacks (40ms * idx).
-  // Capturing content.lastChild before cards finish rendering often grabs a
-  // card, not the pagination div, so savedPag was null and pagination vanished.
-  // Solution: regenerate pagination from _lastResults metadata — no DOM capture.
   if (!window._lastResults) return;
   const sel = document.getElementById('result-sort');
-  const mode = sel ? sel.value : 'distance';
+  // QOL-7: fall back to saved pref, then rating, then distance
+  let mode = sel ? sel.value : null;
+  if (!mode) {
+    try { mode = localStorage.getItem('ed_sort_pref'); } catch(e) {}
+  }
+  mode = mode || 'rating';
   const sorted = sortSystems(window._lastResults.systems, mode);
 
   const content = document.getElementById('finder-content');
@@ -4855,6 +4932,13 @@ function applySortAndRender() {
   // Restore select value (bar was rebuilt, so look for the fresh element)
   const newSel = document.getElementById('result-sort');
   if (newSel) newSel.value = mode;
+  // QOL-7: also apply saved pref when first building the bar (mode='distance' default overridden)
+  if (!sel) {
+    try {
+      const pref = localStorage.getItem('ed_sort_pref');
+      if (pref && newSel) { newSel.value = pref; }
+    } catch(e) {}
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -5025,6 +5109,15 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault();
         runSearch(0);
       }
+    }
+  }
+
+  // QOL-3: Enter from anywhere on Finder tab (not in an input) triggers search
+  if (e.key === 'Enter' && !inInput) {
+    const finderTab = document.getElementById('tab-finder');
+    if (finderTab && (finderTab.classList.contains('active') || finderTab.style.display !== 'none')) {
+      e.preventDefault();
+      runSearch(0);
     }
   }
 });
@@ -6801,9 +6894,40 @@ document.addEventListener('DOMContentLoaded', () => {
   // FIX-5e: restore compareList from localStorage
   restoreCompareList();
 
+  // QOL-6: restore colonised display preference
+  try {
+    const cdPref = localStorage.getItem('ed_colonised_display');
+    if (cdPref) {
+      const sel = document.getElementById('colonised-display');
+      if (sel) { sel.value = cdPref; _applyColonisedDisplay(); }
+    }
+  } catch(e) {}
+
+  // QOL-5: restore last search results if session has them (tab switch / F5 reload)
+  try {
+    const savedRes = sessionStorage.getItem('ed_last_results');
+    const savedRef = sessionStorage.getItem('ed_last_ref_snap');
+    if (savedRes) {
+      const { systems, page, total } = JSON.parse(savedRes);
+      if (systems && systems.length) {
+        // Restore ref system display if we have a snap
+        if (savedRef) {
+          const r = JSON.parse(savedRef);
+          refSystem = r;
+          const inp = document.getElementById('ref-input');
+          const nm  = document.getElementById('ref-name');
+          const co  = document.getElementById('ref-coords');
+          if (inp) inp.value = r.name;
+          if (nm)  nm.textContent = r.name;
+          if (co)  co.textContent = `${Math.round(r.x*10)/10}, ${Math.round(r.y*10)/10}, ${Math.round(r.z*10)/10}`;
+        }
+        renderResultsProgressive(systems, page, total, null);
+      }
+    }
+  } catch(e) { /* bad storage — ignore */ }
+
   // inject cache stats panel into guide tab
-  const guideTab = document.getElementById('tab-guide');
-  if (guideTab) {
+  const guideTab = document.getElementById('tab-guide');  if (guideTab) {
     const statsDiv = document.createElement('div');
     statsDiv.id = 'cache-stats-panel';
     statsDiv.style.cssText = 'margin:20px 16px 0;padding:16px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;max-width:460px';
