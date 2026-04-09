@@ -2870,12 +2870,23 @@ function passesBodyFilters(sys) {
   const bodies = sys.bodies || [];
   const counts = countBodyTypes(bodies);
 
-  // POST-ENRICH COLONISATION RE-CHECK: Spansh's search index can be stale —
-  // a system may pass the server-side `colonised:{value:false}` filter but
-  // then reveal is_colonised=true once the full record is enriched.
-  // Re-apply the toggle here so stale-index colonised systems are excluded.
+  // COLONISATION RE-CHECK: Spansh's is_colonised field is ONLY set for new
+  // player-founded colonisation mechanic systems. All pre-existing inhabited
+  // systems (Sol, Procyon, Alpha Centauri etc.) have is_colonised=false even
+  // though they are clearly occupied. Use a multi-signal heuristic instead:
+  //   - is_colonised=true (new colonies Spansh does track)
+  //   - controlling_minor_faction present (has an established faction)
+  //   - minor_faction_presences.length > 0 (factions present)
+  //   - is_being_colonised=true (colonisation in progress)
   const uncolonisedToggle = document.getElementById('tog-uncolonised')?.checked;
-  if (uncolonisedToggle && sys.is_colonised) return false;
+  if (uncolonisedToggle) {
+    const isInhabited =
+      sys.is_colonised ||
+      sys.is_being_colonised ||
+      (sys.controlling_minor_faction != null && sys.controlling_minor_faction !== '') ||
+      (Array.isArray(sys.minor_faction_presences) && sys.minor_faction_presences.length > 0);
+    if (isInhabited) return false;
+  }
 
   for (const s of BODY_SLIDERS) {
     const val = counts[s.key] || 0;
@@ -3183,7 +3194,11 @@ function buildSystemCard(sys, idx) {
   const isCompared = typeof compareList !== 'undefined' && compareList.some(c => c.id64 === sys.id64);
 
   const card = document.createElement('div');
-  card.className = 'result-card' + (sys.is_colonised ? ' is-colonised' : '');
+  // Use multi-signal heuristic - Spansh's is_colonised is broken for old systems
+  const sysIsInhabited = !!(sys.is_colonised || sys.is_being_colonised ||
+    (sys.controlling_minor_faction != null && sys.controlling_minor_faction !== '') ||
+    (Array.isArray(sys.minor_faction_presences) && sys.minor_faction_presences.length > 0));
+  card.className = 'result-card' + (sysIsInhabited ? ' is-colonised' : '');
 
   const ratingClass = getRatingClass(rating.total);
   const ratingLabel = getRatingLabel(rating.total);
@@ -3192,7 +3207,7 @@ function buildSystemCard(sys, idx) {
 
   // FIX-B: rich header — show eco icon, pop tier, colonised status at a glance
   const pp = estimatePopulation(sys);
-  const colonisedPill = sys.is_colonised
+  const colonisedPill = sysIsInhabited
     ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:rgba(255,80,0,0.18);color:var(--red);border:1px solid rgba(255,80,0,0.35)">COL</span>`
     : `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:rgba(61,220,132,0.18);color:var(--green);border:1px solid rgba(61,220,132,0.35)">FREE</span>`;
   const popPill = `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${pp.color}22;color:${pp.color};border:1px solid ${pp.color}55" title="Population potential: ${pp.tier}">${pp.formatted}</span>`;
@@ -3225,7 +3240,7 @@ function buildSystemCard(sys, idx) {
       ${buildCardBody(sys, rating, economy, build)}
       <div style="padding:4px 0 2px">
         <button class="btn btn-secondary wl-btn" style="font-size:10px;padding:3px 8px"
-          onclick="addToWatchlist(${sys.id64},{name:'${(sys.name||'').replace(/'/g,'')}',x:${sys.x||0},y:${sys.y||0},z:${sys.z||0},is_colonised:${sys.is_colonised?1:0},population:${sys.population||0}})">👁️ Watch</button>
+          onclick="addToWatchlist(${sys.id64},{name:'${(sys.name||'').replace(/'/g,'')}',x:${sys.x||0},y:${sys.y||0},z:${sys.z||0},is_colonised:${sysIsInhabited?1:0},population:${sys.population||0}})">👁️ Watch</button>
         <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;margin-left:4px"
           onclick="openInOptimizer('${(sys.name||'').replace(/'/g,'')}',${sys.x||0},${sys.y||0},${sys.z||0})">⚙️ Optimise</button>
         <button class="note-btn" id="notebtn-${sys.id64}" style="margin-left:4px"
@@ -3306,7 +3321,7 @@ function buildCardBody(sys, rating, economy, build) {
       </div>
       <div class="info-cell">
         <div class="ic-label">Colonised</div>
-        <div class="ic-val" style="color:${sys.is_colonised ? 'var(--red)':'var(--green)'}">${sys.is_colonised ? 'YES' : 'NO'}</div>
+        <div class="ic-val" style="color:${sysIsInhabited ? 'var(--red)':'var(--green)'}">${sysIsInhabited ? 'YES' : 'NO'}</div>
       </div>
       <div class="info-cell" style="grid-column:1/-1">
         <div class="ic-label">Coordinates
@@ -6827,7 +6842,9 @@ function drawGalacticMap() {
     const r = s._rating   || rateSystem(s);
     const e = s._economy  || suggestEconomy(s);
     const pp = estimatePopulation(s);
-    const colonised = s.is_colonised || false;  // B-3-FIX: was s.colonised (undefined); Spansh field is is_colonised
+    const colonised = !!(s.is_colonised || s.is_being_colonised ||  // multi-signal heuristic
+      (s.controlling_minor_faction != null && s.controlling_minor_faction !== '') ||
+      (Array.isArray(s.minor_faction_presences) && s.minor_faction_presences.length > 0));
 
     let color;
     if (colourMode === 'economy') color = ECO_MAP_COLORS[e.primary] || '#7a8599';
@@ -7032,7 +7049,10 @@ function drawGalacticMap() {
         }[b.subtype] || 1;
         return score > (best.score || 0) ? { name: b.subtype, score } : best;
       }, {}).name || 'Rocky / Gas';
-      const colStatus = s.is_colonised ? '🟠 Colonised' : '🟢 Unclaimed';
+      const colStatus = (s.is_colonised || s.is_being_colonised ||
+        (s.controlling_minor_faction != null && s.controlling_minor_faction !== '') ||
+        (Array.isArray(s.minor_faction_presences) && s.minor_faction_presences.length > 0))
+        ? '🟠 Colonised' : '🟢 Unclaimed';
       tip.style.display = 'block';
       const tipW = 260, tipH = 150;
       const tx = Math.min(ev.clientX + 14, window.innerWidth - tipW - 6);
