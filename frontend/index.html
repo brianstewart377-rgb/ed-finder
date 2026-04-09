@@ -538,20 +538,21 @@ input[type="range"]:focus-visible {
 
 .toggle {
   position: relative;
-  width: 48px; height: 26px;
+  width: 52px; height: 28px;
   flex-shrink: 0;
 }
 
-.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
 
 .toggle .track {
   position: absolute;
   inset: 0;
   background: var(--bg4);
-  border-radius: 13px;
+  border-radius: 14px;
   cursor: pointer;
   transition: background 0.2s;
   border: 1px solid var(--border);
+  display: block;
 }
 
 .toggle input:checked + .track { background: var(--orange-dk); border-color: var(--orange); }
@@ -559,15 +560,15 @@ input[type="range"]:focus-visible {
 .toggle .track::after {
   content: '';
   position: absolute;
-  left: 3px; top: 3px;
+  left: 4px; top: 4px;
   width: 18px; height: 18px;
   background: var(--text-dim);
   border-radius: 50%;
-  transition: transform 0.2s, background 0.2s;
+  transition: left 0.2s, background 0.2s;
 }
 
 .toggle input:checked + .track::after {
-  transform: translateX(22px);
+  left: 28px;
   background: var(--orange);
 }
 
