@@ -1192,12 +1192,15 @@ async def batch_systems(body: Dict[str, Any]):
 
     results: Dict[str, Any] = {}
     misses: List[int] = []
+    max_cache_age: float = 0.0  # BUG-FIX-H: track oldest cache entry to report real age
 
     for id64 in id64s:
         key = f"system:{id64}"
-        cached = cache_get(key)
+        cached, age = cache_get_with_age(key)
         if cached is not None:
             results[str(id64)] = cached
+            if age is not None and age > max_cache_age:
+                max_cache_age = age
         else:
             misses.append(id64)
 
@@ -1216,10 +1219,12 @@ async def batch_systems(body: Dict[str, Any]):
         await asyncio.gather(*[_fetch(i) for i in misses])
 
     all_cached = len(misses) == 0
+    # Report real cache age (seconds) so frontend can show "cached Xh Ym ago" vs "live data"
+    reported_age = int(max_cache_age) if all_cached and max_cache_age > 0 else 0
     return JSONResponse(
         content={"systems": results, "cached": len(id64s) - len(misses), "fetched": len(misses)},
         headers={
-            "X-Cache-Age":    "0",
+            "X-Cache-Age":    str(reported_age),
             "X-Cache-Status": "HIT" if all_cached else "PARTIAL",
         },
     )
