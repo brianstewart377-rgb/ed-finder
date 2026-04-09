@@ -326,6 +326,15 @@ def init_db() -> None:
                 note       TEXT NOT NULL DEFAULT '',
                 updated_at REAL NOT NULL DEFAULT 0
             );
+            -- AC-1: persistent autocomplete cache (30-day TTL)
+            -- Separate from the general cache table so cache clears don't wipe
+            -- system name lookups that took real internet round-trips to build.
+            CREATE TABLE IF NOT EXISTS autocomplete_cache (
+                query      TEXT PRIMARY KEY,       -- normalised lowercase query string
+                results    TEXT NOT NULL,           -- full JSON response from Spansh
+                cached_at  REAL NOT NULL            -- unix timestamp
+            );
+            CREATE INDEX IF NOT EXISTS idx_ac_cached_at ON autocomplete_cache(cached_at);
         """)
         conn.commit()
         # PERF-2: refresh query planner statistics (no-op if stats are fresh)
@@ -387,6 +396,38 @@ def meta_get(key: str, default: str = "") -> str:
     with db_conn() as conn:
         row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else default
+
+
+# ─── Autocomplete cache helpers (AC-1) ───────────────────────────────────────
+TTL_AC_PERSISTENT = 30 * 86400  # 30 days — survives cache clears and reboots
+
+def ac_cache_get(query: str) -> Optional[Any]:
+    """Return cached autocomplete result for `query`, or None if missing/expired."""
+    key = query.lower().strip()
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT results, cached_at FROM autocomplete_cache WHERE query = ?", (key,)
+        ).fetchone()
+    if not row:
+        return None
+    age = time.time() - row["cached_at"]
+    if age > TTL_AC_PERSISTENT:
+        return None   # expired — let it refresh from Spansh
+    return json.loads(row["results"])
+
+def ac_cache_set(query: str, data: Any) -> None:
+    """Store autocomplete result for `query` in the persistent cache."""
+    key = query.lower().strip()
+    with db_conn() as conn:
+        conn.execute(
+            """INSERT INTO autocomplete_cache (query, results, cached_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(query) DO UPDATE SET
+                   results   = excluded.results,
+                   cached_at = excluded.cached_at""",
+            (key, json.dumps(data), time.time()),
+        )
+        conn.commit()
 
 
 # ─── Spansh HTTP helpers ──────────────────────────────────────────────────────
@@ -530,6 +571,15 @@ async def cache_cleanup_task() -> None:
                 conn.commit()
                 if cur2.rowcount:
                     log.info("Changelog cleanup: removed %d old rows", cur2.rowcount)
+            # AC-1: prune autocomplete cache entries older than 30 days
+            with db_conn() as conn:
+                ac_cutoff = time.time() - TTL_AC_PERSISTENT
+                cur3 = conn.execute(
+                    "DELETE FROM autocomplete_cache WHERE cached_at < ?", (ac_cutoff,)
+                )
+                conn.commit()
+                if cur3.rowcount:
+                    log.info("Autocomplete cache cleanup: removed %d expired entries", cur3.rowcount)
         except Exception as exc:
             log.warning("Cache cleanup error: %s", exc)
         await asyncio.sleep(86400)
@@ -1028,6 +1078,12 @@ async def api_status():
             "SELECT COUNT(*) FROM cache WHERE created_at + ttl > ?", (time.time(),)
         ).fetchone()
         cache_count = _row[0] if _row is not None else 0
+        # AC-1: count persistent autocomplete entries
+        _ac_row = conn.execute(
+            "SELECT COUNT(*) FROM autocomplete_cache WHERE cached_at > ?",
+            (time.time() - TTL_AC_PERSISTENT,)
+        ).fetchone()
+        ac_count = _ac_row[0] if _ac_row is not None else 0
 
     spansh_ok = False
     spansh_latency_ms = None
@@ -1044,6 +1100,7 @@ async def api_status():
         "version": "3.16.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "cache_entries": cache_count,
+        "ac_cache_entries": ac_count,
         "last_refresh_start": meta_get("last_refresh_start", "never"),
         "last_refresh_end":   meta_get("last_refresh_end",   "never"),
         "watchlist_last_checked": meta_get("watchlist_last_checked", "never"),
@@ -1059,14 +1116,23 @@ async def api_status():
 
 @app.get("/api/search")
 async def autocomplete(q: str = Query(..., min_length=2, max_length=200)):
-    """System name autocomplete — cached 1 hour."""
+    """System name autocomplete — persistent 30-day local cache, falls back to Spansh."""
+    # AC-1: check persistent autocomplete cache first (survives reboots + cache clears)
+    persistent = ac_cache_get(q)
+    if persistent is not None:
+        return persistent
+
+    # AC-1: short-lived general cache (1 hour) as second layer
     key = f"ac:{q.lower()}"
     cached = cache_get(key)
     if cached:
         return cached
+
+    # AC-1: not cached at all — fetch from Spansh and store in both caches
     try:
         data = await spansh_get("search", {"q": q})
-        cache_set(key, data, ttl=TTL_AUTOCOMPLETE)
+        ac_cache_set(q, data)                    # persistent 30-day store
+        cache_set(key, data, ttl=TTL_AUTOCOMPLETE)  # short-lived general cache
         return data
     except Exception as exc:
         raise HTTPException(502, f"Spansh API error: {exc}")
