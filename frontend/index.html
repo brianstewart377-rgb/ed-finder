@@ -2870,6 +2870,13 @@ function passesBodyFilters(sys) {
   const bodies = sys.bodies || [];
   const counts = countBodyTypes(bodies);
 
+  // POST-ENRICH COLONISATION RE-CHECK: Spansh's search index can be stale —
+  // a system may pass the server-side `colonised:{value:false}` filter but
+  // then reveal is_colonised=true once the full record is enriched.
+  // Re-apply the toggle here so stale-index colonised systems are excluded.
+  const uncolonisedToggle = document.getElementById('tog-uncolonised')?.checked;
+  if (uncolonisedToggle && sys.is_colonised) return false;
+
   for (const s of BODY_SLIDERS) {
     const val = counts[s.key] || 0;
     const state = sliderState[s.key];
