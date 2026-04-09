@@ -2280,6 +2280,10 @@ function onDualSlider(key, which) {
   if (which === 'min' && minV > maxV) { minV = maxV; minEl.value = minV; }
   if (which === 'max' && maxV < minV) { maxV = minV; maxEl.value = maxV; }
 
+  // When min thumb reaches max, raise its z-index so it stays grabbable above the max thumb
+  minEl.style.zIndex = (minV >= maxV) ? 3 : 1;
+  maxEl.style.zIndex = (minV >= maxV) ? 2 : 3;
+
   sliderState[key] = { min: minV, max: maxV };
   document.getElementById(`sv-${key}`).textContent = `${minV} – ${maxV}`;
   updateDualFill(key, minV, maxV, cfg.max);
