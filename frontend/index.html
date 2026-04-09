@@ -3440,7 +3440,7 @@ function buildScoreMiniBar(rating) {
   const parts = segs.map(s => {
     const val  = rating[s.k] || 0;
     const pct  = Math.round((val / s.max) * 100);
-    const col  = pct >= 80 ? '#3ddc84' : pct >= 60 ? '#ffd700' : pct >= 40 ? '#ff8c00' : pct >= 20 ? '#ff6a00' : '#ff4455';
+    const col  = pct >= 80 ? '#3ddc84' : pct >= 60 ? '#ffd700' : pct >= 40 ? '#ff9500' : pct >= 20 ? '#ff4500' : '#ff1744';
     const fill = Math.max(2, Math.round(40 * val / s.max));
     return `<span class="sms-seg" title="${s.tip.replace(/<br>/g,' ')}: ${val}/${s.max}">` +
       `<span class="sms-lbl">${s.tip}</span>` +
