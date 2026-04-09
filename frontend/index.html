@@ -2057,7 +2057,7 @@ const BODY_SLIDERS = [
   { key:'neutron',    label:'Neutron Stars',            max:2,  color:'#e0f2fe', tip:'Neutron stars — HiTech/Tourism bonus' },
   { key:'whiteDwarf', label:'White Dwarves',            max:1,  color:'#ddd6fe', tip:'White dwarfs' },
   { key:'otherStars', label:'Other Stars',              max:20, color:  '#fde68a', tip:'Companion stars (Military economy)' },
-  { key:'elw',        label:'Earth-like Worlds',        max:1,  color:'#4ade80', tip:'Best body for Agriculture/HiTech. 40x pop multiplier!' },
+  { key:'elw',        label:'Earth-like Worlds',        max:4,  color:'#4ade80', tip:'Best body for Agriculture/HiTech. 40x pop multiplier!' },
   { key:'ww',         label:'Water Worlds',             max:4,  color:'#60a5fa', tip:'Excellent for Agriculture/Tourism. 30x pop multiplier' },
   { key:'ammonia',    label:'Ammonia Worlds',           max:3,  color:'#fb923c', tip:'Best for High Tech economy (H.E. Suits)' },
   { key:'gasGiant',   label:'Gas Giants',               max:15, color:'#fbbf24', tip:'HiTech/Industrial economy base' },
@@ -4678,6 +4678,9 @@ document.addEventListener('click', (e) => {
     <label style="font-size:11px;color:var(--text-dim)" title="Overlay pinned systems as ★ on the map">
       <input type="checkbox" id="map-show-pinned" onchange="drawGalacticMap()" checked style="vertical-align:middle"> 📌 Pinned
     </label>
+    <label style="font-size:11px;color:var(--text-dim)" title="Overlay watchlisted systems as 👁 on the map">
+      <input type="checkbox" id="map-show-watchlist" onchange="drawGalacticMap()" checked style="vertical-align:middle"> 👁 Watchlist
+    </label>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="saveMapPNG()" title="Save map as PNG image">💾 PNG</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="resetMapView()" title="Reset zoom & pan">⊙ Reset</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="drawGalacticMap()">↺ Redraw</button>
@@ -5561,12 +5564,136 @@ function renderComparePanel() {
         ✕ Clear All
       </button>
     </div>
+    <div style="margin-bottom:16px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px">
+      <div style="font-family:Orbitron,monospace;font-size:10px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px">📡 SCORE RADAR</div>
+      <canvas id="compare-radar" width="480" height="260" style="display:block;margin:0 auto;max-width:100%"></canvas>
+    </div>
     <div style="overflow-x:auto">
       <table class="compare-table">
         <thead><tr><th>Metric</th>${cols.map(c=>`<th>${c.sys.name}</th>`).join('')}</tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>
     </div>`;
+
+  // P2-3: draw radar chart after DOM is updated
+  requestAnimationFrame(() => _drawCompareRadar(cols));
+}
+
+// P2-3: Radar chart for compare panel
+const _RADAR_AXES = [
+  { key: 'slots',         label: 'Slots',    max: 25 },
+  { key: 'bodyQuality',   label: 'Bodies',   max: 25 },
+  { key: 'compactness',   label: 'Compact',  max: 20 },
+  { key: 'signalQuality', label: 'Signals',  max: 15 },
+  { key: 'orbitalSafety', label: 'Orbital',  max: 15 },
+];
+const _RADAR_COLORS = ['#ff6a00','#3ddc84','#4da6ff','#a855f7','#ffd700','#f87171'];
+
+function _drawCompareRadar(cols) {
+  const canvas = document.getElementById('compare-radar');
+  if (!canvas) return;
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  const N = _RADAR_AXES.length;
+  const cx = W * 0.42, cy = H / 2;
+  const R  = Math.min(cx - 36, cy - 36);
+  const angleStep = (Math.PI * 2) / N;
+  const startAngle = -Math.PI / 2;
+
+  // Helper: get [x,y] for axis i at fraction t
+  function axisPoint(i, t) {
+    const a = startAngle + i * angleStep;
+    return [cx + Math.cos(a) * R * t, cy + Math.sin(a) * R * t];
+  }
+
+  // Draw grid rings (5 rings = 20%, 40%, 60%, 80%, 100%)
+  for (let ring = 1; ring <= 5; ring++) {
+    const t = ring / 5;
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const [px, py] = axisPoint(i, t);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = ring === 5 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Draw axis spokes + labels
+  _RADAR_AXES.forEach((ax, i) => {
+    const [x1, y1] = axisPoint(i, 0);
+    const [x2, y2] = axisPoint(i, 1);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+
+    // label slightly beyond radius
+    const [lx, ly] = axisPoint(i, 1.22);
+    ctx.fillStyle = '#8899aa';
+    ctx.font = 'bold 9px Orbitron,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ax.label, lx, ly);
+  });
+
+  // Draw each system's polygon
+  cols.forEach((col, ci) => {
+    const r = col.r;
+    const vals = _RADAR_AXES.map(ax => Math.min(1, (r[ax.key] || 0) / ax.max));
+    const color = _RADAR_COLORS[ci % _RADAR_COLORS.length];
+
+    ctx.beginPath();
+    vals.forEach((t, i) => {
+      const [px, py] = axisPoint(i, t);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    ctx.fillStyle = color + '2a';
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    // Dots at vertices
+    vals.forEach((t, i) => {
+      const [px, py] = axisPoint(i, t);
+      ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI*2);
+      ctx.fillStyle = color; ctx.fill();
+    });
+  });
+
+  // Centre dot
+  ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fill();
+
+  // Legend — drawn to the right
+  const legX = W * 0.86, legStartY = cy - (cols.length * 18) / 2;
+  ctx.textAlign = 'left'; ctx.font = '10px monospace'; ctx.textBaseline = 'middle';
+  cols.forEach((col, ci) => {
+    const color = _RADAR_COLORS[ci % _RADAR_COLORS.length];
+    const ly = legStartY + ci * 20;
+    ctx.fillStyle = color;
+    ctx.fillRect(legX, ly - 5, 12, 10);
+    ctx.fillStyle = '#c0ccd8';
+    const label = (col.sys.name || '').slice(0, 14) + (col.sys.name?.length > 14 ? '…' : '');
+    ctx.fillText(label, legX + 16, ly);
+  });
+
+  // Total score labels inside chart
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.font = 'bold 9px monospace';
+  cols.forEach((col, ci) => {
+    const r = col.r;
+    // position label near center of each system's polygon centroid
+    const vals = _RADAR_AXES.map(ax => Math.min(1, (r[ax.key] || 0) / ax.max));
+    const avgT = vals.reduce((a,b)=>a+b,0) / vals.length;
+    const [lx, ly] = axisPoint(ci % N, avgT * 0.55);
+    ctx.fillStyle = _RADAR_COLORS[ci % _RADAR_COLORS.length];
+    ctx.fillText(r.total + '/100', lx, ly - 5);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -5849,6 +5976,9 @@ function _saveWlAlert(id64) {
   if (btn) btn.title = `Alert: colonised=${cfg.notifyColonised}, pop>${cfg.popThreshold.toLocaleString()}`;
 }
 
+// P2-2: cache watchlist systems for map overlay
+window._watchlistCache = [];
+
 async function loadWatchlist() {
   const el = document.getElementById('watchlist-list'); if (!el) return;
   try {
@@ -5857,6 +5987,7 @@ async function loadWatchlist() {
     const d = await r.json();
     // FIX-WL2: API returns {watchlist:[...]}, not {systems:[...], count:N}
     const list = d.watchlist || d.systems || [];
+    window._watchlistCache = list; // P2-2: keep in memory for map overlay
     const badge = document.getElementById('watch-count-badge');
     if (badge) { badge.textContent = list.length; badge.style.display = list.length ? 'inline':'none'; }
     if (!list.length) {
@@ -6237,12 +6368,42 @@ async function runRouteSearch() {
       noSys.textContent = 'No systems passed filters in range.';
       hopDiv.appendChild(noSys);
     } else {
+      // P2-4: auto-suggest best candidate before listing all systems
+      const scored = hop.systems.map(s => ({
+        s,
+        r: s._rating  = s._rating  || rateSystem(s),
+        e: s._economy = s._economy || suggestEconomy(s),
+      }));
+      const bestCandidate = scored
+        .filter(x => !x.s.is_colonised)
+        .sort((a, b) => b.r.total - a.r.total)[0]
+        || scored.sort((a, b) => b.r.total - a.r.total)[0];
+
+      if (bestCandidate) {
+        const bc = bestCandidate.s;
+        const br = bestCandidate.r;
+        const be = bestCandidate.e;
+        const safeCopyName = (bc.name||'').replace(/'/g,"&#39;");
+        const ecoIcon = getEcoIcon ? getEcoIcon(be.primary) : '';
+        const suggestion = document.createElement('div');
+        suggestion.style.cssText = 'margin-bottom:12px;padding:10px 14px;background:rgba(255,106,0,0.07);border:1px solid rgba(255,106,0,0.35);border-radius:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+        suggestion.innerHTML = `
+          <span style="font-family:Orbitron,monospace;font-size:10px;color:var(--orange);letter-spacing:1px;flex-shrink:0">⭐ BEST PICK</span>
+          <span style="font-weight:700;color:var(--text);font-size:13px">${bc.name || '?'}</span>
+          <span style="font-size:11px;color:var(--text-dim)">${ecoIcon} ${be.primary}</span>
+          <span class="${getRatingClass ? getRatingClass(br.total) : ''}" style="font-size:11px;font-weight:700">${br.total}/100</span>
+          ${bc.is_colonised ? '<span style="color:var(--red);font-size:10px">Already colonised</span>' : '<span style="color:var(--green);font-size:10px">✓ Available</span>'}
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn btn-secondary" style="font-size:10px;padding:3px 9px"
+              onclick="navigator.clipboard?.writeText('${safeCopyName}').then(()=>{this.textContent='✓ Copied';setTimeout(()=>{this.textContent='📋 Copy'},1500)}).catch(()=>{})">📋 Copy</button>
+            <a href="https://spansh.co.uk/system/${bc.id64}" target="_blank" rel="noopener"
+              class="btn btn-secondary" style="font-size:10px;padding:3px 9px">🌐 Spansh</a>
+          </span>`;
+        hopDiv.appendChild(suggestion);
+      }
+
       // Append each system card (which IS a DOM element)
-      hop.systems.forEach((s, idx) => {
-        s._rating  = s._rating  || rateSystem(s);
-        s._economy = s._economy || suggestEconomy(s);
-        hopDiv.appendChild(buildSystemCard(s, idx));
-      });
+      scored.forEach(({ s }, idx) => hopDiv.appendChild(buildSystemCard(s, idx)));
     }
 
     el.appendChild(hopDiv);
@@ -6419,9 +6580,11 @@ function _showMapDetail(d) {
     ? '<span style="color:var(--orange)">Colonised</span>'
     : '<span style="color:var(--green)">Unclaimed ✓</span>';
   const safeName = (s.name||'').replace(/'/g, '&apos;').replace(/"/g, '&quot;');  // L-8-FIX: \' is invalid in HTML attribute; use &apos;
+  const pinnedBadge   = d.pinned      ? '<span style="color:#ffd700;font-size:11px">★ Pinned</span>' : '';
+  const wlBadge       = d.watchlisted ? '<span style="color:#00e5ff;font-size:11px">👁 Watchlisted</span>' : '';
   panel.style.display = 'block';
   panel.innerHTML = `
-    <div class="mdp-name">⬡ ${s.name}</div>
+    <div class="mdp-name">⬡ ${s.name} ${pinnedBadge} ${wlBadge}</div>
     <div class="mdp-grid">
       <div class="mdp-row">Rating <strong>${rating.total}/100</strong></div>
       <div class="mdp-row">Economy <strong>${getEcoIcon(eco.primary)} ${eco.primary}${eco.secondary ? ' / '+eco.secondary : ''}</strong></div>
@@ -6726,6 +6889,37 @@ function drawGalacticMap() {
     });
   }
 
+  // P2-2: draw watchlist systems as cyan 👁 overlay
+  const showWatchlist = document.getElementById('map-show-watchlist')?.checked ?? true;
+  if (showWatchlist) {
+    const wlSystems = window._watchlistCache || [];
+    wlSystems.forEach(p => {
+      if (!p.x && !p.z && !p.y) return; // skip if no coords
+      const a = plane === 'yz' ? (p.y||0) : (p.x||0);
+      const b_coord = plane === 'xy' ? (p.y||0) : (p.z||0);
+      const [cx, cy] = toCanvas(a, b_coord);
+      ctx.save();
+      ctx.font = '14px sans-serif';
+      ctx.fillStyle = '#00e5ff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.9)';
+      ctx.shadowBlur = 6;
+      ctx.fillText('👁', cx, cy);
+      ctx.restore();
+      // draw a subtle cyan ring
+      ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI*2);
+      ctx.strokeStyle = p.is_colonised ? 'rgba(255,80,80,0.7)' : 'rgba(0,229,255,0.55)';
+      ctx.lineWidth = 1.5; ctx.stroke();
+      if (!window._mapDots) window._mapDots = [];
+      const fakePop = estimatePopulation(p);
+      window._mapDots.push({ cx, cy, radius: 10, sys: p,
+        rating: { total: 0, slots:0, bodyQuality:0, compactness:0, signalQuality:0, orbitalSafety:0 },
+        economy: { primary: '', confidence:'—', reason:'' },
+        pop: fakePop, colonised: !!p.is_colonised, watchlisted: true });
+    });
+  }
+
   // IMP-6: draw name labels for top-N systems by rating
   const topN = parseInt(document.getElementById('map-top-n')?.value || '5');
   if (topN > 0) {
@@ -6760,16 +6954,18 @@ function drawGalacticMap() {
   if (legendEl) {
     const refDot = '<span class="map-legend-item"><span class="map-legend-dot" style="background:#fff;border:2px solid #ff6a00"></span>Reference</span>';
     const colonyNote = showColonyShape ? '<span class="map-legend-item" style="font-size:10px;opacity:0.6">● colonised &nbsp; ○ uncolonised</span>' : '';
+    const pinnedNote = (document.getElementById('map-show-pinned')?.checked) ? '<span class="map-legend-item" style="font-size:10px">★ Pinned</span>' : '';
+    const wlNote = (document.getElementById('map-show-watchlist')?.checked) ? '<span class="map-legend-item" style="font-size:10px;color:#00e5ff">👁 Watchlist</span>' : '';
     if (colourMode === 'economy') {
       const ecos = [...new Set(systems.map(s => (s._economy||suggestEconomy(s)).primary))].sort();
       legendEl.innerHTML = ecos.map(e =>
         `<span class="map-legend-item"><span class="map-legend-dot" style="background:${ECO_MAP_COLORS[e]||'#999'}"></span>${e}</span>`
-      ).join('') + refDot + colonyNote;
+      ).join('') + refDot + colonyNote + pinnedNote + wlNote;
     } else if (colourMode === 'population') {
       legendEl.innerHTML = ['Mega (≥1B)','High (≥500M)','Medium (≥100M)','Low'].map((l,i) => {
         const c = ['#ffd700','#3ddc84','#4da6ff','#7a8599'][i];
         return `<span class="map-legend-item"><span class="map-legend-dot" style="background:${c}"></span>${l}</span>`;
-      }).join('') + refDot + colonyNote;
+      }).join('') + refDot + colonyNote + pinnedNote + wlNote;
     } else if (colourMode === 'rating_heat') {
       // G7: heat gradient legend
       legendEl.innerHTML = '<span class="map-legend-item" style="gap:0">' +
@@ -6782,17 +6978,17 @@ function drawGalacticMap() {
           else{const f=(t-0.8)/0.2;c=`rgb(${Math.round(60-f*30)},${Math.round(220-f*40)},${Math.round(140+f*100)})`;}
           return `<span style="display:inline-block;width:18px;height:10px;background:${c}"></span>`;
         }).join('') +
-        '</span><span style="font-size:9px;color:var(--text-dim)">0 → 100</span>' + refDot + colonyNote;
+        '</span><span style="font-size:9px;color:var(--text-dim)">0 → 100</span>' + refDot + colonyNote + pinnedNote + wlNote;
     } else if (colourMode === 'distance') {
       legendEl.innerHTML = ['Near','Mid','Far'].map((l,i) => {
         const c = ['#4da6ff','#ffd700','#ff4455'][i];
         return `<span class="map-legend-item"><span class="map-legend-dot" style="background:${c}"></span>${l}</span>`;
-      }).join('') + refDot + colonyNote;
+      }).join('') + refDot + colonyNote + pinnedNote + wlNote;
     } else {
       legendEl.innerHTML = ['Excellent (80+)','Good (60+)','Average (40+)','Poor (20+)','Low'].map((l,i) => {
         const c = ['#ffd700','#3ddc84','#4da6ff','#ff6a00','#ff4455'][i];
         return `<span class="map-legend-item"><span class="map-legend-dot" style="background:${c}"></span>${l}</span>`;
-      }).join('') + refDot + colonyNote;
+      }).join('') + refDot + colonyNote + pinnedNote + wlNote;
     }
   }
 
@@ -6946,7 +7142,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (id === 'compare')   renderComparePanel();
       if (id === 'watchlist') loadWatchlist();
       if (id === 'guide')     loadCacheStats();
-      if (id === 'map')       drawGalacticMap();
+      if (id === 'map')       { loadWatchlist().then(() => drawGalacticMap()); } // P2-2: refresh watchlist cache before drawing
     });
   });
 });
