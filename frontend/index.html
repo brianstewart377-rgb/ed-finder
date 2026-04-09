@@ -1782,9 +1782,12 @@ input[type="range"]:focus-visible {
       🔗 Share Search URL
     </button>
 
-    <button class="btn btn-secondary" id="reset-filters-btn" onclick="resetFilters()" style="width:100%;margin-bottom:8px">
+    <button class="btn btn-secondary" id="reset-filters-btn" onclick="resetFilters()" style="width:100%;margin-bottom:4px">
       ↺ Reset Filters <span id="reset-filters-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px;font-weight:700"></span>
     </button>
+    <div id="filter-badge-wrap" style="text-align:center;min-height:16px">
+      <span id="filter-live-badge" class="filter-live-badge" style="display:none"></span>
+    </div>
 
   </div><!-- /sidebar -->
 
@@ -2368,7 +2371,10 @@ function updateFilterBadge() {
     if (badge) { badge.textContent = ''; badge.style.display = 'none'; }
     btn.style.borderColor = '';
   }
-  _scheduleFilterLiveBadge(); // G10: update live count badge
+  // G10: only update live count badge if results are already loaded, never during slider interaction
+  if (window._lastResults?.systems?.length) {
+    _scheduleFilterLiveBadge();
+  }
 }
 
 async function checkApiConnection() {
@@ -4791,15 +4797,10 @@ function _doFilterLiveBadge() {
   _updateFilterLiveBadge(all.length, count);
 }
 function _updateFilterLiveBadge(total, matching) {
-  let badge = document.getElementById('filter-live-badge');
-  if (!badge) {
-    badge = document.createElement('span');
-    badge.id = 'filter-live-badge';
-    badge.className = 'filter-live-badge';
-    const fb = document.getElementById('filter-badge-wrap') || document.querySelector('[onclick*="resetFilters"]')?.parentNode;
-    if (fb) fb.appendChild(badge);
-  }
+  const badge = document.getElementById('filter-live-badge');
+  if (!badge) return;
   badge.textContent = `${matching} / ${total} match`;
+  badge.style.display = 'inline-block';
   badge.className = 'filter-live-badge ' + (matching === 0 ? 'red' : matching >= total * 0.5 ? 'green' : '');
 }
 
