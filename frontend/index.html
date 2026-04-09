@@ -3270,6 +3270,14 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
 
   window._lastResults = { systems: [...systems], page, total };
   currentResults = window._lastResults.systems;  // FIX #12
+
+  // Sort before rendering — use saved pref, default to rating desc
+  let _initSortMode = 'rating';
+  try { _initSortMode = localStorage.getItem('ed_sort_pref') || 'rating'; } catch(e) {}
+  const _sorted = (typeof sortSystems === 'function') ? sortSystems([...systems], _initSortMode) : systems;
+  // Sync the dropdown to match (bar is already in DOM by this point)
+  setTimeout(() => { const sel = document.getElementById('result-sort'); if (sel) sel.value = _initSortMode; }, 0);
+
   reconcilePendingCompare(); // FIX-5f: re-attach persisted compare
   setTimeout(_restoreNoteStates, 200); // G9: restore note button states
   if (typeof updateFilterBadge === 'function') updateFilterBadge(); // FIX-BUG5
@@ -3279,7 +3287,7 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
   }
 
   // Stagger cards at 40 ms each for the "streaming" feel
-  systems.forEach((sys, idx) => {
+  _sorted.forEach((sys, idx) => {
     setTimeout(() => {
       content.appendChild(buildSystemCard(sys, idx));
       // Pagination / Load More appended after last card
