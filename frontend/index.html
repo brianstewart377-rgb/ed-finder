@@ -14,10 +14,10 @@
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── F1: Score mini-bars on card header ── */
-.score-mini-wrap { display:inline-flex; align-items:center; gap:5px; margin-left:6px; cursor:default; }
-.sms-seg { display:inline-flex; align-items:center; gap:2px; }
-.sms-lbl { font-size:11px; color:var(--text-dim); font-family:monospace; min-width:18px; text-align:right; line-height:1; }
-.sms-track { display:inline-block; width:36px; height:6px; background:var(--bg3); border-radius:3px; vertical-align:middle; }
+.score-mini-wrap { display:inline-flex; align-items:flex-end; gap:6px; margin-left:8px; cursor:default; }
+.sms-seg { display:inline-flex; flex-direction:column; align-items:center; gap:3px; }
+.sms-lbl { font-size:10px; color:var(--text-dim); font-family:monospace; text-align:center; line-height:1; white-space:nowrap; }
+.sms-track { display:inline-block; width:40px; height:6px; background:var(--bg3); border-radius:3px; }
 .sms-fill  { display:block; height:6px; border-radius:3px; }
 
 /* ── F8: Body pill detail popover ── */
@@ -3441,9 +3441,9 @@ function buildScoreMiniBar(rating) {
     const val  = rating[s.k] || 0;
     const pct  = Math.round((val / s.max) * 100);
     const col  = pct >= 80 ? '#ffd700' : pct >= 60 ? '#3ddc84' : pct >= 40 ? '#4da6ff' : pct >= 20 ? '#ff6a00' : '#ff4455';
-    const fill = Math.max(2, Math.round(36 * val / s.max));
+    const fill = Math.max(2, Math.round(40 * val / s.max));
     return `<span class="sms-seg" title="${s.tip}: ${val}/${s.max}">` +
-      `<span class="sms-lbl">${s.lbl}</span>` +
+      `<span class="sms-lbl">${s.tip}</span>` +
       `<span class="sms-track"><span class="sms-fill" style="width:${fill}px;background:${col}"></span></span>` +
       `</span>`;
   }).join('');
