@@ -1783,7 +1783,7 @@ input[type="range"]:focus-visible {
     </button>
 
     <button class="btn btn-secondary" id="reset-filters-btn" onclick="resetFilters()" style="width:100%;margin-bottom:8px">
-      ↺ Reset Filters
+      ↺ Reset Filters <span id="reset-filters-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px;font-weight:700"></span>
     </button>
 
   </div><!-- /sidebar -->
@@ -2359,12 +2359,13 @@ function countActiveFilters() {
 function updateFilterBadge() {
   const n = countActiveFilters();
   const btn = document.getElementById('reset-filters-btn');
+  const badge = document.getElementById('reset-filters-badge');
   if (!btn) return;
   if (n > 0) {
-    btn.innerHTML = `↺ Reset Filters <span style="background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px;font-weight:700">${n}</span>`;
+    if (badge) { badge.textContent = n; badge.style.display = 'inline'; }
     btn.style.borderColor = 'var(--orange)';
   } else {
-    btn.innerHTML = '↺ Reset Filters';
+    if (badge) { badge.textContent = ''; badge.style.display = 'none'; }
     btn.style.borderColor = '';
   }
   _scheduleFilterLiveBadge(); // G10: update live count badge
