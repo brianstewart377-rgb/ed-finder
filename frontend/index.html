@@ -3242,7 +3242,7 @@ function buildSystemCard(sys, idx) {
     </div>
     <div class="result-card-body" style="display:none">
       <div style="margin-bottom:8px">${popBadge(sys)}</div>
-      ${buildCardBody(sys, rating, economy, build)}
+      ${buildCardBody(sys, rating, economy, build, sysIsInhabited)}
       <div style="padding:4px 0 2px">
         <button class="btn btn-secondary wl-btn" style="font-size:10px;padding:3px 8px"
           onclick="addToWatchlist(${sys.id64},{name:'${(sys.name||'').replace(/'/g,'')}',x:${sys.x||0},y:${sys.y||0},z:${sys.z||0},is_colonised:${sysIsInhabited?1:0},population:${sys.population||0}})">👁️ Watch</button>
@@ -3304,7 +3304,7 @@ function _copyCoords(name, x, y, z, btn) {
   });
 }
 
-function buildCardBody(sys, rating, economy, build) {
+function buildCardBody(sys, rating, economy, build, sysIsInhabited) {
   const bodies = sys.bodies || [];
   const bodyPills = buildBodyPills(bodies);
   const warningTags = buildWarningTags(sys, economy);
