@@ -1795,6 +1795,12 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
       <span>🔍</span> SEARCH SYSTEMS
     </button>
 
+    <button class="btn btn-secondary" id="deep-scan-btn" onclick="runDeepScan()"
+      style="width:100%;margin-bottom:8px"
+      title="Splits your distance range into bands and searches each one separately — checks up to 5× more systems than a standard search. Slower but finds rarer systems.">
+      🔭 DEEP SCAN <span style="font-size:9px;opacity:0.7">(up to 5× more systems)</span>
+    </button>
+
     <button class="btn btn-secondary" onclick="shareSearchURL(event)" style="width:100%;margin-bottom:6px" title="Copy shareable link">
       🔗 Share Search URL
     </button>
@@ -2843,6 +2849,153 @@ async function runSearch(page = 0) {
 
   btn.disabled = false;
   btn.innerHTML = '<span>🔍</span> SEARCH SYSTEMS';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  DEEP SCAN — distance-band slicing to exceed the 10,000 Spansh cap
+//  Splits [minDist, maxDist] into N bands, queries each in parallel,
+//  deduplicates by id64, applies all client-side filters, renders combined.
+// ═══════════════════════════════════════════════════════════════════
+async function runDeepScan() {
+  const btn     = document.getElementById('deep-scan-btn');
+  const content = document.getElementById('finder-content');
+  const maxDist = parseInt(document.getElementById('dist-slider').value);
+  const minDist = parseInt(document.getElementById('min-dist-slider').value);
+  const uncolonised = document.getElementById('tog-uncolonised').checked;
+
+  if (!refSystem || !refSystem.x) {
+    alert('Please select a reference system first.');
+    return;
+  }
+
+  // Work out band size: aim for ~5 bands, each ≤ 100 LY so each gets its own 10k window
+  const range    = maxDist - minDist;
+  const numBands = Math.min(10, Math.max(2, Math.ceil(range / 100)));
+  const bandSize = range / numBands;
+  const bands    = [];
+  for (let i = 0; i < numBands; i++) {
+    bands.push({
+      min: Math.round(minDist + i * bandSize),
+      max: Math.round(minDist + (i + 1) * bandSize)
+    });
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Deep Scanning…';
+
+  content.innerHTML = `<div class="loading-wrap">
+    <div class="spinner"></div>
+    <div class="loading-text" id="deep-scan-progress">Scanning ${numBands} distance bands (0–${maxDist} LY)…</div>
+    <div style="color:var(--text-dim);font-size:11px">Checking up to ${(numBands * 10000).toLocaleString()} systems</div>
+  </div>`;
+
+  try {
+    // Fire all band searches in parallel
+    const bandResults = await Promise.all(bands.map(async (band, bi) => {
+      const filters = { distance: { min: band.min, max: band.max } };
+      if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
+
+      const data = await spanshPost(API_BASE + '/systems/search', {
+        filters,
+        reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
+        sort: [{ distance: { direction: 'asc' } }],
+        size: 500,   // max per request; we page up to 10k per band below
+        from: 0
+      });
+
+      const bandTotal = Math.min(data?.count || 0, 10000);
+      const rawAll = data?.results || [];
+
+      // Page through remaining results for this band (up to 10k)
+      const pages = Math.min(Math.ceil(bandTotal / 500), 20);
+      const extraPages = await Promise.all(
+        Array.from({ length: pages - 1 }, (_, pi) =>
+          spanshPost(API_BASE + '/systems/search', {
+            filters,
+            reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
+            sort: [{ distance: { direction: 'asc' } }],
+            size: 500,
+            from: (pi + 1) * 500
+          }).then(d => d?.results || []).catch(() => [])
+        )
+      );
+      extraPages.forEach(p => rawAll.push(...p));
+
+      const prog = document.getElementById('deep-scan-progress');
+      if (prog) prog.textContent = `Band ${bi + 1}/${numBands} done — ${rawAll.length.toLocaleString()} systems fetched so far…`;
+
+      return rawAll;
+    }));
+
+    // Flatten and deduplicate by id64
+    const seen   = new Set();
+    const unique = [];
+    for (const band of bandResults) {
+      for (const sys of band) {
+        const key = String(sys.id64);
+        if (!seen.has(key)) { seen.add(key); unique.push(sys); }
+      }
+    }
+
+    const prog = document.getElementById('deep-scan-progress');
+    if (prog) prog.textContent = `Enriching ${unique.length.toLocaleString()} unique systems…`;
+
+    // Batch-enrich in chunks of 100
+    const CHUNK = 100;
+    const enrichedMap = {};
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk  = unique.slice(i, i + CHUNK);
+      const id64s  = chunk.map(s => s.id64).filter(Boolean);
+      try {
+        const resp = await fetch(`${API_BASE}/systems/batch`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id64s }),
+          signal: AbortSignal.timeout(20000)
+        });
+        if (resp.ok) {
+          const bd = await resp.json();
+          Object.assign(enrichedMap, bd.systems || {});
+        }
+      } catch(e) { /* batch miss — fall back to raw */ }
+      if (prog) prog.textContent = `Enriching… ${Math.min(i + CHUNK, unique.length)}/${unique.length}`;
+    }
+
+    // Merge enriched data
+    const systems = unique.map(sys => {
+      const full = enrichedMap[String(sys.id64)];
+      if (full) { const rec = full.record || full; return { ...sys, ...rec, _enriched: true }; }
+      return sys;
+    });
+
+    // Memoize ratings
+    systems.forEach(sys => {
+      sys._rating  = sys._rating  || rateSystem(sys);
+      sys._economy = sys._economy || suggestEconomy(sys);
+      sys._build   = sys._build   || suggestBuild(sys._economy, sys);
+    });
+
+    // Client-side filters
+    const filtered = systems.filter(sys => passesBodyFilters(sys));
+
+    // Sort by rating desc (default) then render
+    filtered.sort((a, b) => (b._rating?.total || 0) - (a._rating?.total || 0));
+    renderResultsProgressive(filtered, 0, filtered.length, 0);
+
+    const totalChecked = unique.length;
+    // Append a deep-scan info banner under the results bar
+    const infoBanner = document.createElement('div');
+    infoBanner.style.cssText = 'margin-bottom:10px;padding:6px 12px;background:rgba(80,200,255,0.08);border:1px solid rgba(80,200,255,0.25);border-radius:5px;font-size:11px;color:var(--text-dim)';
+    infoBanner.innerHTML = `🔭 <strong style="color:var(--text)">Deep Scan</strong> — checked <strong style="color:var(--orange)">${totalChecked.toLocaleString()}</strong> systems across ${numBands} distance bands, found <strong style="color:var(--green)">${filtered.length}</strong> matching your filters.`;
+    const firstCard = content.querySelector('.result-card');
+    if (firstCard) content.insertBefore(infoBanner, firstCard);
+    else content.appendChild(infoBanner);
+
+  } catch(err) {
+    content.innerHTML = `<div class="error-banner">⚠️ <strong>Deep Scan Error:</strong> ${err.message}</div>`;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '🔭 DEEP SCAN <span style="font-size:9px;opacity:0.7">(up to 5× more systems)</span>';
 }
 
 async function enrichSystem(sys) {
