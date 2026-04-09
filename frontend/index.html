@@ -1734,13 +1734,18 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
             <option value="Tourism">Tourism</option>
           </select>
         </div>
-        <!-- #3 Min-rating slider -->
+        <!-- #3 Rating Score range filter -->
         <div class="field" style="margin-top:10px">
-          <label for="min-rating-slider" style="font-size:11px;color:var(--text-dim)">Min Rating Score (0 = any)</label>
-          <div class="slider-wrap">
+          <label style="font-size:11px;color:var(--text-dim)">
+            Rating Score Range &nbsp;<span id="rating-range-val" style="color:var(--orange);font-weight:600">0 – 100</span>
+          </label>
+          <div class="dual-slider-container" id="sc-rating" style="margin-top:6px">
+            <div class="dual-slider-track"></div>
+            <div class="dual-slider-fill" id="sf-rating"></div>
             <input type="range" id="min-rating-slider" min="0" max="100" step="5" value="0"
-              oninput="document.getElementById('min-rating-val').textContent=this.value" onchange="updateFilterBadge()">
-            <div class="slider-val" id="min-rating-val">0</div>
+              oninput="onRatingSlider()" onchange="updateFilterBadge()" style="z-index:1">
+            <input type="range" id="max-rating-slider" min="0" max="100" step="5" value="100"
+              oninput="onRatingSlider()" onchange="updateFilterBadge()" style="z-index:3">
           </div>
         </div>
       </div>
@@ -2259,6 +2264,9 @@ function srAnnounce(msg) {
 
 document.addEventListener('DOMContentLoaded', () => {
   buildBodySliders();
+  // Init rating range fill bar to full width (0–100)
+  const rFill = document.getElementById('sf-rating');
+  if (rFill) { rFill.style.left = '0%'; rFill.style.width = '100%'; }
   buildCommoditiesTable();
   checkApiConnection();
   // L-6-FIX: replaced fixed setInterval with exponential back-off scheduler.
@@ -2345,7 +2353,22 @@ function updateDualFill(key, minV, maxV, total) {
   fill.style.width = (right - left) + '%';
 }
 
-function resetFilters() {
+function onRatingSlider() {
+  const minEl = document.getElementById('min-rating-slider');
+  const maxEl = document.getElementById('max-rating-slider');
+  let minV = parseInt(minEl.value);
+  let maxV = parseInt(maxEl.value);
+  if (minV > maxV) { minV = maxV; minEl.value = minV; }
+  if (maxV < minV) { maxV = minV; maxEl.value = maxV; }
+  minEl.style.zIndex = (minV >= maxV) ? 3 : 1;
+  maxEl.style.zIndex = (minV >= maxV) ? 2 : 3;
+  document.getElementById('rating-range-val').textContent = `${minV} – ${maxV}`;
+  // Update fill bar
+  const fill = document.getElementById('sf-rating');
+  if (fill) { fill.style.left = minV + '%'; fill.style.width = (maxV - minV) + '%'; }
+  clearTimeout(window._ratingSliderTimer);
+  window._ratingSliderTimer = setTimeout(updateFilterBadge, 400);
+}
   BODY_SLIDERS.forEach(s => {
     sliderState[s.key] = { min: 0, max: s.max };
     document.getElementById(`smin-${s.key}`).value = 0;
@@ -2363,7 +2386,10 @@ function resetFilters() {
   document.getElementById('size-val').textContent = '50';
   document.getElementById('filter-economy').value = 'any';
   document.getElementById('min-rating-slider').value = 0;
-  document.getElementById('min-rating-val').textContent = '0';
+  document.getElementById('max-rating-slider').value = 100;
+  document.getElementById('rating-range-val').textContent = '0 – 100';
+  const rFill = document.getElementById('sf-rating');
+  if (rFill) { rFill.style.left = '0%'; rFill.style.width = '100%'; }
   document.getElementById('sl-land').value = 0;
   document.getElementById('sl-land-v').textContent = '0';
   document.getElementById('sl-sig').value = 0;
@@ -2388,8 +2414,9 @@ function countActiveFilters() {
   toggles.forEach(id => { if (document.getElementById(id)?.checked) n++; });
   // Economy filter
   if ((document.getElementById('filter-economy')?.value || 'any') !== 'any') n++;
-  // Min rating slider
-  if (parseInt(document.getElementById('min-rating-slider')?.value||0) > 0) n++;
+  // Rating range slider
+  if (parseInt(document.getElementById('min-rating-slider')?.value||0) > 0 ||
+      parseInt(document.getElementById('max-rating-slider')?.value||100) < 100) n++;
   // Min dist
   if (parseInt(document.getElementById('min-dist-slider')?.value||0) > 0) n++;
   // Max dist non-default (15)
@@ -3096,11 +3123,12 @@ function passesBodyFilters(sys) {
     if (!primMatch && !secMatch) return false;
   }
 
-  // #3 Min-rating filter — use cached rating (#8)
+  // #3 Rating score range filter
   const minRating = parseInt(document.getElementById('min-rating-slider')?.value || '0');
-  if (minRating > 0) {
+  const maxRating = parseInt(document.getElementById('max-rating-slider')?.value || '100');
+  if (minRating > 0 || maxRating < 100) {
     const rating = sys._rating || rateSystem(sys);
-    if (rating.total < minRating) return false;
+    if (rating.total < minRating || rating.total > maxRating) return false;
   }
 
   return true;
@@ -3212,7 +3240,8 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
     const eco = document.getElementById('filter-economy')?.value;
     if (eco && eco !== 'any') activeItems.push(`Economy: ${eco}`);
     const minR = parseInt(document.getElementById('min-rating-slider')?.value||0);
-    if (minR > 0) activeItems.push(`Min rating: ${minR}`);
+    const maxR = parseInt(document.getElementById('max-rating-slider')?.value||100);
+    if (minR > 0 || maxR < 100) activeItems.push(`Rating: ${minR}–${maxR}`);
     const minDist = parseInt(document.getElementById('min-dist-slider')?.value||0);
     const maxDist = parseInt(document.getElementById('dist-slider')?.value||15);
     if (minDist > 0) activeItems.push(`Min dist: ${minDist} LY`);
@@ -5026,11 +5055,12 @@ function _refilterInPlace() {
   if (!all || !all.length) { alert('No results loaded yet — run a search first.'); return; }
   const filtered = all.filter(s => passesBodyFilters(s));
   const minRating = parseInt(document.getElementById('min-rating-slider')?.value || 0);
+  const maxRating = parseInt(document.getElementById('max-rating-slider')?.value || 100);
   const eco = document.getElementById('filter-economy')?.value;
   const final = filtered.filter(s => {
-    if (minRating > 0) {
+    if (minRating > 0 || maxRating < 100) {
       const r = s._rating || rateSystem(s);
-      if (r.total < minRating) return false;
+      if (r.total < minRating || r.total > maxRating) return false;
     }
     if (eco && eco !== 'any') {
       const e = s._economy || suggestEconomy(s);
@@ -5053,10 +5083,11 @@ function _doFilterLiveBadge() {
   const all = window._lastResults?.systems;
   if (!all || !all.length) return;
   const minRating = parseInt(document.getElementById('min-rating-slider')?.value || 0);
+  const maxRating = parseInt(document.getElementById('max-rating-slider')?.value || 100);
   const eco = document.getElementById('filter-economy')?.value;
   const count = all.filter(s => {
     if (!passesBodyFilters(s)) return false;
-    if (minRating > 0) { const r = s._rating||rateSystem(s); if(r.total<minRating) return false; }
+    if (minRating > 0 || maxRating < 100) { const r = s._rating||rateSystem(s); if(r.total<minRating||r.total>maxRating) return false; }
     if (eco && eco !== 'any') { const e = s._economy||suggestEconomy(s); if(e.primary.toLowerCase()!==eco.toLowerCase()) return false; }
     return true;
   }).length;
@@ -5898,6 +5929,7 @@ function getSearchParams() {
     popZero:    document.getElementById('tog-pop-zero')?.checked,
     econFilter: document.getElementById('filter-economy')?.value || 'any',
     minRating:  document.getElementById('min-rating-slider')?.value || '0',
+    maxRating:  document.getElementById('max-rating-slider')?.value || '100',
     land:       document.getElementById('sl-land')?.value || '0',
     sig:        document.getElementById('sl-sig')?.value || '0',
     // FIX-3: include body slider state in params for preset save/restore
@@ -5924,6 +5956,19 @@ function applySearchParams(p) {
   Object.entries(sliders).forEach(([k, id]) => {
     if (p[k] != null) { const el = document.getElementById(id); if (el) { el.value = p[k]; document.getElementById(vals[k]).textContent = p[k]; } }
   });
+  // Restore max rating slider
+  if (p.maxRating != null) {
+    const el = document.getElementById('max-rating-slider');
+    if (el) { el.value = p.maxRating; }
+  }
+  // Sync rating range label and fill bar after restore
+  { const minV = parseInt(document.getElementById('min-rating-slider')?.value||0);
+    const maxV = parseInt(document.getElementById('max-rating-slider')?.value||100);
+    const lbl = document.getElementById('rating-range-val');
+    if (lbl) lbl.textContent = `${minV} – ${maxV}`;
+    const fill = document.getElementById('sf-rating');
+    if (fill) { fill.style.left = minV + '%'; fill.style.width = (maxV - minV) + '%'; }
+  }
   // FIX-BUG2: 'popZero' stored in params but HTML id is 'tog-pop-zero'
   //            (hyphenated). Use a mapping so all toggles restore correctly.
   const _togMap = {
