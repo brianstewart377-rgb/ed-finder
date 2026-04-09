@@ -538,7 +538,7 @@ input[type="range"]:focus-visible {
 
 .toggle {
   position: relative;
-  width: 34px; height: 18px;
+  width: 48px; height: 26px;
   flex-shrink: 0;
 }
 
@@ -548,7 +548,7 @@ input[type="range"]:focus-visible {
   position: absolute;
   inset: 0;
   background: var(--bg4);
-  border-radius: 9px;
+  border-radius: 13px;
   cursor: pointer;
   transition: background 0.2s;
   border: 1px solid var(--border);
@@ -559,15 +559,15 @@ input[type="range"]:focus-visible {
 .toggle .track::after {
   content: '';
   position: absolute;
-  left: 3px; top: 2px;
-  width: 12px; height: 12px;
+  left: 3px; top: 3px;
+  width: 18px; height: 18px;
   background: var(--text-dim);
   border-radius: 50%;
   transition: transform 0.2s, background 0.2s;
 }
 
 .toggle input:checked + .track::after {
-  transform: translateX(15px);
+  transform: translateX(22px);
   background: var(--orange);
 }
 
