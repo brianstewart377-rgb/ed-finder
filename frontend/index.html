@@ -16,7 +16,7 @@
 /* ── F1: Score mini-bars on card header ── */
 .score-mini-wrap { display:inline-flex; align-items:flex-end; gap:6px; margin-left:8px; cursor:default; }
 .sms-seg { display:inline-flex; flex-direction:column; align-items:center; gap:3px; }
-.sms-lbl { font-size:10px; color:var(--text-dim); font-family:monospace; text-align:center; line-height:1; white-space:nowrap; }
+.sms-lbl { font-size:10px; color:var(--text-dim); font-family:monospace; text-align:center; line-height:1.3; white-space:nowrap; }
 .sms-track { display:inline-block; width:40px; height:6px; background:var(--bg3); border-radius:3px; }
 .sms-fill  { display:block; height:6px; border-radius:3px; }
 
@@ -3432,17 +3432,17 @@ function buildWarningTags(sys, economy) {
 function buildScoreMiniBar(rating) {
   const segs = [
     { k:'slots',         max:25, lbl:'S',  tip:'Slots' },
-    { k:'bodyQuality',   max:25, lbl:'BQ', tip:'Body Quality' },
+    { k:'bodyQuality',   max:25, lbl:'BQ', tip:'Body<br>Quality' },
     { k:'compactness',   max:20, lbl:'C',  tip:'Compactness' },
-    { k:'signalQuality', max:15, lbl:'Sg', tip:'Signals' },
-    { k:'orbitalSafety', max:15, lbl:'O',  tip:'Orbital Safety' },
+    { k:'signalQuality', max:15, lbl:'Sg', tip:'Signal<br>Quality' },
+    { k:'orbitalSafety', max:15, lbl:'O',  tip:'Orbital<br>Safety' },
   ];
   const parts = segs.map(s => {
     const val  = rating[s.k] || 0;
     const pct  = Math.round((val / s.max) * 100);
     const col  = pct >= 80 ? '#ffd700' : pct >= 60 ? '#3ddc84' : pct >= 40 ? '#4da6ff' : pct >= 20 ? '#ff6a00' : '#ff4455';
     const fill = Math.max(2, Math.round(40 * val / s.max));
-    return `<span class="sms-seg" title="${s.tip}: ${val}/${s.max}">` +
+    return `<span class="sms-seg" title="${s.tip.replace(/<br>/g,' ')}: ${val}/${s.max}">` +
       `<span class="sms-lbl">${s.tip}</span>` +
       `<span class="sms-track"><span class="sms-fill" style="width:${fill}px;background:${col}"></span></span>` +
       `</span>`;
