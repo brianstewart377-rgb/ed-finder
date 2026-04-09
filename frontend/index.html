@@ -2609,7 +2609,10 @@ async function appendSearch(page) {
 
   try {
     const filters = {};
-    if (uncolonised) filters.colonised = { value: false };
+    // NOTE: Do NOT send colonised:{value:false} to Spansh — their index only
+    // tracks new player-colonisation colonies; all legacy bubble systems return
+    // is_colonised=false regardless of population/factions. Client-side heuristic
+    // in passesBodyFilters() handles inhabited detection correctly instead.
     // FIX #5 — population zero also applied server-side in Load More
     if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
     filters.distance = { min: minDist, max: maxDist };
@@ -2734,7 +2737,7 @@ async function runSearch(page = 0) {
   try {
     const filters = {};
 
-    if (uncolonised) filters.colonised = { value: false };
+    // NOTE: colonised filter removed — see appendSearch comment for explanation.
 
     // FIX #5 — send population=0 filter to Spansh when pop-zero toggle is active
     const togPopZeroSearch = document.getElementById('tog-pop-zero')?.checked;
@@ -2874,17 +2877,19 @@ function passesBodyFilters(sys) {
   // player-founded colonisation mechanic systems. All pre-existing inhabited
   // systems (Sol, Procyon, Alpha Centauri etc.) have is_colonised=false even
   // though they are clearly occupied. Use a multi-signal heuristic instead:
-  //   - is_colonised=true (new colonies Spansh does track)
-  //   - controlling_minor_faction present (has an established faction)
-  //   - minor_faction_presences.length > 0 (factions present)
-  //   - is_being_colonised=true (colonisation in progress)
+  //   - is_colonised=true          (new colonies Spansh does track)
+  //   - is_being_colonised=true    (colonisation in progress)
+  //   - controlling_minor_faction  (established faction present)
+  //   - minor_faction_presences    (any faction present)
+  //   - population > 0             (has inhabitants — always in search results)
   const uncolonisedToggle = document.getElementById('tog-uncolonised')?.checked;
   if (uncolonisedToggle) {
     const isInhabited =
       sys.is_colonised ||
       sys.is_being_colonised ||
       (sys.controlling_minor_faction != null && sys.controlling_minor_faction !== '') ||
-      (Array.isArray(sys.minor_faction_presences) && sys.minor_faction_presences.length > 0);
+      (Array.isArray(sys.minor_faction_presences) && sys.minor_faction_presences.length > 0) ||
+      ((sys.population ?? 0) > 0);
     if (isInhabited) return false;
   }
 
@@ -6314,7 +6319,8 @@ async function runRouteSearch() {
         const body = {
           filters: {
             distance: { min: 0, max: radius },
-            colonised: { value: false }   // B-4-FIX: was is_colonised:{value:0}; Spansh filter field is 'colonised' with boolean false
+            // colonised filter removed — Spansh only tracks new player colonies;
+            // passesBodyFilters() heuristic handles inhabited detection client-side
           },
           reference_coords: { x: wp.x, y: wp.y, z: wp.z },
           sort: [{ distance: { direction: 'asc' } }],
