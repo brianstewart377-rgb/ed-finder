@@ -372,15 +372,10 @@ input[type="range"]:focus-visible {
 }
 
 .slider-wrap input[type=range] {
-  -webkit-appearance: none;
   flex: 1;
   height: 20px;
-  background: transparent;
-  border-radius: 2px;
-  outline: none;
   cursor: pointer;
-  padding: 0;
-  margin: 0;
+  accent-color: var(--orange);
 }
 
 .slider-wrap input[type=range]::-webkit-slider-runnable-track {
@@ -415,7 +410,7 @@ input[type="range"]:focus-visible {
   box-shadow: 0 0 6px rgba(255,106,0,0.5);
 }
 
-.slider-wrap input[type=range]:hover::-webkit-slider-thumb { background: var(--orange-lt); transform: scale(1.15); }
+.slider-wrap input[type=range]:hover::-webkit-slider-thumb { background: var(--orange-lt); }
 .slider-wrap input[type=range]:hover::-moz-range-thumb { background: var(--orange-lt); }
 
 .slider-val {
