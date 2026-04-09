@@ -94,7 +94,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -472,11 +472,9 @@ async def _prewarm_one(system_name: str, radius: int) -> None:
 
         body = {
             "filters": {
-                "distance_from_coords": {
-                    "min": 0, "max": radius,
-                    "coords": {"x": x, "y": y, "z": z},
-                }
+                "distance": {"min": 0, "max": radius},
             },
+            "reference_coords": {"x": x, "y": y, "z": z},
             "sort": [{"distance": {"direction": "asc"}}],
             "size": 100, "from": 0,
         }

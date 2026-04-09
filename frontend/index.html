@@ -169,6 +169,7 @@ body {
   padding: 20px 16px;
   overflow-y: auto;
   max-height: calc(100vh - 105px);
+  overscroll-behavior: contain;
 }
 
 /* ── Content ── */
@@ -185,7 +186,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
   margin-bottom: 16px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .panel-hdr {
@@ -197,6 +198,7 @@ body {
   gap: 8px;
   cursor: pointer;
   user-select: none;
+  border-radius: 6px 6px 0 0;
 }
 
 .panel-hdr .panel-icon {
@@ -327,7 +329,7 @@ input[type="range"]:focus-visible {
   border: 1px solid var(--orange-dk);
   border-top: none;
   border-radius: 0 0 4px 4px;
-  z-index: 200;
+  z-index: 1000;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -372,24 +374,49 @@ input[type="range"]:focus-visible {
 .slider-wrap input[type=range] {
   -webkit-appearance: none;
   flex: 1;
-  height: 4px;
-  background: var(--bg4);
+  height: 20px;
+  background: transparent;
   border-radius: 2px;
   outline: none;
   cursor: pointer;
+  padding: 0;
+  margin: 0;
+}
+
+.slider-wrap input[type=range]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--bg4);
+  border-radius: 2px;
+}
+
+.slider-wrap input[type=range]::-moz-range-track {
+  height: 4px;
+  background: var(--bg4);
+  border-radius: 2px;
 }
 
 .slider-wrap input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 16px; height: 16px;
+  width: 20px; height: 20px;
   background: var(--orange);
   border-radius: 50%;
   cursor: pointer;
   box-shadow: 0 0 6px rgba(255,106,0,0.5);
   transition: background 0.2s;
+  margin-top: -8px;
 }
 
-.slider-wrap input[type=range]:hover::-webkit-slider-thumb { background: var(--orange-lt); }
+.slider-wrap input[type=range]::-moz-range-thumb {
+  width: 20px; height: 20px;
+  background: var(--orange);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 6px rgba(255,106,0,0.5);
+}
+
+.slider-wrap input[type=range]:hover::-webkit-slider-thumb { background: var(--orange-lt); transform: scale(1.15); }
+.slider-wrap input[type=range]:hover::-moz-range-thumb { background: var(--orange-lt); }
 
 .slider-val {
   font-family: 'Orbitron', monospace;
@@ -443,7 +470,7 @@ input[type="range"]:focus-visible {
   -webkit-appearance: none;
   position: absolute;
   width: 100%;
-  height: 4px;
+  height: 20px;
   background: none;
   outline: none;
   pointer-events: none;
@@ -451,11 +478,21 @@ input[type="range"]:focus-visible {
 
 .dual-slider-container input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 14px; height: 14px;
+  width: 18px; height: 18px;
   background: var(--orange);
   border-radius: 50%;
   pointer-events: all;
   cursor: pointer;
+  box-shadow: 0 0 5px rgba(255,106,0,0.5);
+}
+
+.dual-slider-container input[type=range]::-moz-range-thumb {
+  width: 18px; height: 18px;
+  background: var(--orange);
+  border-radius: 50%;
+  pointer-events: all;
+  cursor: pointer;
+  border: none;
   box-shadow: 0 0 5px rgba(255,106,0,0.5);
 }
 
@@ -1597,22 +1634,22 @@ input[type="range"]:focus-visible {
         <div class="field">
           <label for="dist-slider">Max Distance (LY)</label>
           <div class="slider-wrap">
-            <input type="range" id="dist-slider" min="0" max="250" value="15" oninput="document.getElementById('dist-val').textContent=this.value;updateFilterBadge()">
-            <div class="slider-val" id="dist-val">15</div>
+            <input type="range" id="dist-slider" min="0" max="500" value="50" oninput="document.getElementById('dist-val').textContent=this.value;updateFilterBadge()">
+            <div class="slider-val" id="dist-val">50</div>
           </div>
         </div>
         <div class="field">
           <label for="min-dist-slider">Min Distance (LY)</label>
           <div class="slider-wrap">
-            <input type="range" id="min-dist-slider" min="0" max="250" value="0" oninput="document.getElementById('min-dist-val').textContent=this.value;updateFilterBadge()">
+            <input type="range" id="min-dist-slider" min="0" max="500" value="0" oninput="document.getElementById('min-dist-val').textContent=this.value;updateFilterBadge()">
             <div class="slider-val" id="min-dist-val">0</div>
           </div>
         </div>
         <div class="field">
           <label for="size-slider">Results Per Page</label>
           <div class="slider-wrap">
-            <input type="range" id="size-slider" min="5" max="100" step="5" value="20" oninput="document.getElementById('size-val').textContent=this.value">
-            <div class="slider-val" id="size-val">20</div>
+            <input type="range" id="size-slider" min="5" max="100" step="5" value="50" oninput="document.getElementById('size-val').textContent=this.value">
+            <div class="slider-val" id="size-val">50</div>
           </div>
         </div>
       </div>
@@ -2268,14 +2305,14 @@ function resetFilters() {
     document.getElementById(`sv-${s.key}`).textContent = `0 – ${s.max}`;
     updateDualFill(s.key, 0, s.max, s.max);
   });
-  document.getElementById('dist-slider').value = 15;
-  document.getElementById('dist-val').textContent = '15';
+  document.getElementById('dist-slider').value = 50;
+  document.getElementById('dist-val').textContent = '50';
   document.getElementById('min-dist-slider').value = 0;
   document.getElementById('min-dist-val').textContent = '0';
   updateFilterBadge(); // FIX-C: refresh badge after reset
   // FIX #2 — reset size-slider, economy, min-rating, slot sliders
-  document.getElementById('size-slider').value = 20;
-  document.getElementById('size-val').textContent = '20';
+  document.getElementById('size-slider').value = 50;
+  document.getElementById('size-val').textContent = '50';
   document.getElementById('filter-economy').value = 'any';
   document.getElementById('min-rating-slider').value = 0;
   document.getElementById('min-rating-val').textContent = '0';
@@ -2448,7 +2485,8 @@ async function fetchAutoComplete(q, mode) {
 
     list.innerHTML = systems.map((s, _acIdx) => {
       const rec = s.record;
-      const dist = rec.x !== undefined ? Math.round(Math.sqrt(rec.x*rec.x + rec.y*rec.y + rec.z*rec.z) * 10) / 10 : '?';
+      const dx = rec.x - refSystem.x, dy = rec.y - refSystem.y, dz = rec.z - refSystem.z;
+      const dist = rec.x !== undefined ? Math.round(Math.sqrt(dx*dx + dy*dy + dz*dz) * 10) / 10 : '?';
       const x = rec.x || 0, y = rec.y || 0, z = rec.z || 0;
       return `<div class="autocomplete-item" role="option" id="ac-item-${listId}-${_acIdx}" aria-selected="false" onclick="selectSystem('${rec.name.replace(/'/g,"\\'")}',${x},${y},${z},'${mode}')">
         📍 ${rec.name}
@@ -2505,12 +2543,11 @@ async function appendSearch(page) {
     if (uncolonised) filters.colonised = { value: false };
     // FIX #5 — population zero also applied server-side in Load More
     if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
-    filters.distance_from_coords = {
-      min: minDist, max: maxDist,
-      coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z }
-    };
+    filters.distance = { min: minDist, max: maxDist };
     const data = await spanshPost(API_BASE + '/systems/search', {
-      filters, sort: [{ distance: { direction: 'asc' } }], size, from: page * size
+      filters,
+      reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
+      sort: [{ distance: { direction: 'asc' } }], size, from: page * size
     });
     if (!data || !data.results) return;
 
@@ -2635,16 +2672,13 @@ async function runSearch(page = 0) {
     if (togPopZeroSearch) filters.population = { value: 0, comparison: 'equal' };
 
     // Distance from reference system coords
-    filters.distance_from_coords = {
-      min: minDist,
-      max: maxDist,
-      coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z }
-    };
+    filters.distance = { min: minDist, max: maxDist };
 
     const sort = [{ distance: { direction: 'asc' } }];
 
     const data = await spanshPost(API_BASE + '/systems/search', {
       filters,
+      reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
       sort,
       size,
       from: page * size
@@ -4429,6 +4463,7 @@ document.addEventListener('click', (e) => {
   });
   }
 });
+</script>
 
 <!-- ══════════════════════════════════════
      TAB: PINNED SYSTEMS
@@ -4570,6 +4605,7 @@ document.addEventListener('click', (e) => {
   </div>
 </div>
 <div id="map-tooltip"></div>
+<script>
 
 // ═══════════════════════════════════════════════════════════════════
 
@@ -5440,6 +5476,9 @@ function renderComparePanel() {
 function getSearchParams() {
   return {
     ref:        document.getElementById('ref-name')?.textContent || 'Sol',
+    refX:       refSystem.x || 0,
+    refY:       refSystem.y || 0,
+    refZ:       refSystem.z || 0,
     dist:       document.getElementById('dist-slider')?.value || '15',
     minDist:    document.getElementById('min-dist-slider')?.value || '0',
     size:       document.getElementById('size-slider')?.value || '20',
@@ -5462,7 +5501,14 @@ function getSearchParams() {
   };
 }
 function applySearchParams(p) {
-  if (p.ref) { document.getElementById('ref-input').value = p.ref; document.getElementById('ref-name').textContent = p.ref; }
+  if (p.ref) {
+    document.getElementById('ref-input').value = p.ref;
+    document.getElementById('ref-name').textContent = p.ref;
+    // Restore coords so refSystem is correct when search runs
+    if (p.refX != null || p.refY != null || p.refZ != null) {
+      selectSystem(p.ref, p.refX || 0, p.refY || 0, p.refZ || 0, 'ref');
+    }
+  }
   // FIX-BUG3: getSearchParams() stores min-rating as key 'minRating',
   //            but applySearchParams expected 'rating' → slider never restored.
   //            Accept both keys so legacy shared URLs still work.
@@ -6015,9 +6061,10 @@ async function runRouteSearch() {
       try {
         const body = {
           filters: {
-            distance_from_coords: { min: 0, max: radius, coords: { x: wp.x, y: wp.y, z: wp.z } },
+            distance: { min: 0, max: radius },
             colonised: { value: false }   // B-4-FIX: was is_colonised:{value:0}; Spansh filter field is 'colonised' with boolean false
           },
+          reference_coords: { x: wp.x, y: wp.y, z: wp.z },
           sort: [{ distance: { direction: 'asc' } }],
           size: 10, from: 0
         };

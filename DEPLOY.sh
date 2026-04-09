@@ -34,13 +34,20 @@ echo ""
 # Step 3: Extract the WORKING version
 echo "📦 Step 3: Deploying WORKING version..."
 cd ~
-tar -xzf ed-finder-WORKING.tar.gz
+if [ -f ed-finder-FINAL-COMPLETE.tar.gz ]; then
+    tar -xzf ed-finder-FINAL-COMPLETE.tar.gz
+elif [ -f ed-finder-WORKING.tar.gz ]; then
+    tar -xzf ed-finder-WORKING.tar.gz
+else
+    echo "❌ Archive not found! Please ensure ed-finder-FINAL-COMPLETE.tar.gz is in your home directory."
+    exit 1
+fi
 echo "✅ Files extracted"
 echo ""
 
 # Step 4: Build and start containers
 echo "🔨 Step 4: Building Docker containers (this may take 2-3 minutes)..."
-cd ~/ed-finder-WORKING
+cd ~/ed-finder-FINAL-COMPLETE
 docker compose build --no-cache
 echo "✅ Containers built"
 echo ""
@@ -104,15 +111,15 @@ echo "    • All tabs clickable (Search, Route, Watchlist, Colonise, Commoditie
 echo "    • Search functionality working"
 echo ""
 echo "📊 Monitor logs with:"
-echo "    cd ~/ed-finder-WORKING"
+echo "    cd ~/ed-finder-FINAL-COMPLETE"
 echo "    docker compose logs -f"
 echo ""
 echo "🛑 Stop services with:"
-echo "    cd ~/ed-finder-WORKING"
+echo "    cd ~/ed-finder-FINAL-COMPLETE"
 echo "    docker compose down"
 echo ""
 echo "♻️  Restart services with:"
-echo "    cd ~/ed-finder-WORKING"
+echo "    cd ~/ed-finder-FINAL-COMPLETE"
 echo "    docker compose restart"
 echo ""
 echo "💡 If you still see issues:"

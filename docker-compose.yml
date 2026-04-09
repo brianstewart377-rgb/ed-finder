@@ -27,10 +27,6 @@ services:
       - ./data:/data
     networks:
       - internal
-    deploy:
-      resources:
-        limits:
-          memory: ${API_MEMORY_LIMIT:-512m}
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/health\")'"]
       interval: 30s
