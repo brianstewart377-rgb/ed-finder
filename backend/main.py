@@ -74,7 +74,7 @@ from __future__ import annotations
 # ── LOCAL-DB: optional galaxy.db integration ─────────────────────────────────
 import sys as _sys
 import os as _os
-_localdb_path = _os.path.join(_os.path.dirname(__file__), "..", "localdb")
+_localdb_path = _os.path.join(_os.path.dirname(__file__), "localdb")
 if _os.path.isdir(_localdb_path) and _localdb_path not in _sys.path:
     _sys.path.insert(0, _os.path.abspath(_localdb_path))
 try:
