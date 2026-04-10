@@ -1,20 +1,20 @@
 # ── ED:Finder Backend ──────────────────────────────────────────────────────
 # Multi-arch: works on linux/amd64 (Hetzner) and linux/arm64 (Pi 5)
 # v3.17 — Added local galaxy DB integration (local_search.py, EDDN listener)
+# Build context: repo root (so COPY localdb/ works)
 FROM python:3.12-slim
 
 WORKDIR /app
 
 # Install deps first (cached layer)
-COPY requirements.txt .
+# Path is relative to build context (repo root)
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source
-COPY main.py .
+COPY backend/main.py .
 
-# Copy local DB search module (optional — API works without it via Spansh proxy)
-# localdb/ is copied from the project root (build context is set to repo root
-# in docker-compose.yml) so it appears at /app/localdb/ inside the container.
+# Copy local DB modules into the image
 COPY localdb/ ./localdb/
 
 # Create data directory (will be overridden by bind mount in compose)
