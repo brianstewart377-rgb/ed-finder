@@ -1561,7 +1561,7 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.18</div>
+  <div class="version">v3.19</div>
 </div>
 
 <!-- ═══════ STATUS BAR ═══════ -->
@@ -1569,6 +1569,7 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
   <div class="status-dot checking" id="api-dot"></div>
   <span id="api-status">Connecting to ED:Finder backend...</span>
   <div class="spacer" style="flex:1"></div>
+  <span id="local-db-badge" style="display:none;font-size:11px;margin-right:10px;cursor:help;padding:2px 8px;border-radius:4px;background:rgba(0,0,0,0.3)"></span>
   <span id="result-count" style="color:var(--text-dim)"></span>
 </div>
 <!-- PERSIST: storage health warning banner (hidden by default) -->
@@ -2057,6 +2058,51 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
 const API_BASE = '/api';   // FastAPI backend served on same origin via Nginx
 // ────────────────────────────────────────────────────────────────────────────
 
+// ─── LOCAL DB STATE ─────────────────────────────────────────────────────────
+// Set to true once /api/local/status confirms galaxy.db is populated.
+// When true, searches go to /api/local/search (no Spansh, no 10k cap).
+let _localDbAvailable = false;
+let _localDbSystems   = 0;   // total systems in local DB (for UI display)
+
+async function checkLocalDb() {
+  try {
+    const r = await fetch(`${API_BASE}/local/status`, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) { _localDbAvailable = false; return; }
+    const d = await r.json();
+    _localDbAvailable = !!(d.available && d.systems_count > 0);
+    _localDbSystems   = d.systems_count || 0;
+    _updateLocalDbBadge(d);
+  } catch {
+    _localDbAvailable = false;
+  }
+}
+
+function _updateLocalDbBadge(d) {
+  const badge = document.getElementById('local-db-badge');
+  if (!badge) return;
+  if (d && d.available && d.systems_count > 0) {
+    const m = (d.systems_count / 1e6).toFixed(1);
+    badge.textContent = `🗄️ Local DB: ${m}M systems`;
+    badge.title = [
+      `Systems:  ${d.systems_count.toLocaleString()}`,
+      `Bodies:   ${(d.body_count||0).toLocaleString()}`,
+      `DB size:  ${d.db_size_mb} MB`,
+      `EDDN last seen: ${d.eddn_last_seen ? new Date(d.eddn_last_seen).toLocaleString() : 'not connected'}`,
+      `Import done:    ${d.systems_import_done || 'in progress'}`,
+      '',
+      'Searches use local DB — no Spansh limit!',
+    ].join('\n');
+    badge.style.display = 'inline-flex';
+    badge.style.color = '#4ade80';
+  } else {
+    badge.textContent = '📡 Using Spansh';
+    badge.title = d?.reason || 'Local DB not yet imported. Run import_systems.py to enable.';
+    badge.style.display = 'inline-flex';
+    badge.style.color = '#94a3b8';
+  }
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 // ═══════════════════════════════════════════════════════════════════
 //  CONSTANTS & DATA
 // ═══════════════════════════════════════════════════════════════════
@@ -2269,6 +2315,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (rFill) { rFill.style.left = '0%'; rFill.style.width = '100%'; }
   buildCommoditiesTable();
   checkApiConnection();
+  // Check local DB availability on startup (updates badge asynchronously)
+  checkLocalDb();
   // L-6-FIX: replaced fixed setInterval with exponential back-off scheduler.
   // Polling: 30s while online → doubles on each miss → caps at 300s → resets to 30s on recovery.
   _scheduleApiPoll(false);
@@ -2506,6 +2554,8 @@ async function checkApiConnection() {
       ].join('\n');
       statusEl.style.cursor = 'help';
       document.getElementById('last-refresh').textContent = lastRefresh || ' · Never synced yet';
+      // Also check local DB availability each time we poll the API
+      checkLocalDb();
       return;
     }
   } catch(e) { /* backend not reachable */ }
@@ -2658,11 +2708,15 @@ async function appendSearch(page) {
     const togPopZeroAppend = document.getElementById('tog-pop-zero')?.checked;
     if (!uncolonised && togPopZeroAppend) filters.population = { value: 0, comparison: 'equal' };
     filters.distance = { min: minDist, max: maxDist };
-    const data = await spanshPost(API_BASE + '/systems/search', {
+    const appendBody = {
       filters,
       reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
       sort: [{ distance: { direction: 'asc' } }], size, from: page * size
-    });
+    };
+    // Use local DB if available, otherwise Spansh via backend proxy
+    const data = _localDbAvailable
+      ? await spanshPost(API_BASE + '/local/search', appendBody)
+      : await spanshPost(API_BASE + '/systems/search', appendBody);
     if (!data || !data.results) return;
 
     const rawResults = data.results.slice(0, size);
@@ -2775,8 +2829,10 @@ async function runSearch(page = 0) {
 
   content.innerHTML = `<div class="loading-wrap">
     <div class="spinner"></div>
-    <div class="loading-text">Querying Spansh Database...</div>
-    <div style="color:var(--text-dim);font-size:12px">Fetching live data from spansh.co.uk</div>
+    <div class="loading-text">${_localDbAvailable ? '🗄️ Searching local database...' : 'Querying Spansh Database...'}</div>
+    <div style="color:var(--text-dim);font-size:12px">${_localDbAvailable
+      ? `Local DB: ${(_localDbSystems/1e6).toFixed(1)}M systems · no rate limits`
+      : 'Fetching live data from spansh.co.uk'}</div>
   </div>`;
 
   try {
@@ -2798,14 +2854,21 @@ async function runSearch(page = 0) {
     filters.distance = { min: minDist, max: maxDist };
 
     const sort = [{ distance: { direction: 'asc' } }];
-
-    const data = await spanshPost(API_BASE + '/systems/search', {
+    const searchBody = {
       filters,
       reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
       sort,
       size,
       from: page * size
-    }, searchSignal);
+    };
+
+    // ── LOCAL DB PATH — no Spansh, no 10k cap, sub-100ms queries ────────────
+    let data;
+    if (_localDbAvailable) {
+      data = await spanshPost(API_BASE + '/local/search', searchBody, searchSignal);
+    } else {
+      data = await spanshPost(API_BASE + '/systems/search', searchBody, searchSignal);
+    }
 
     if (!data || !data.results) throw new Error('No results from API');
 
@@ -2898,8 +2961,8 @@ async function runSearch(page = 0) {
 
 // ═══════════════════════════════════════════════════════════════════
 //  DEEP SCAN — distance-band slicing to exceed the 10,000 Spansh cap
-//  Splits [minDist, maxDist] into N bands, queries each in parallel,
-//  deduplicates by id64, applies all client-side filters, renders combined.
+//  When local DB is available: single /api/local/search call (no cap)
+//  When using Spansh: splits [minDist, maxDist] into N sequential bands
 // ═══════════════════════════════════════════════════════════════════
 async function runDeepScan() {
   const btn     = document.getElementById('deep-scan-btn');
@@ -2910,6 +2973,50 @@ async function runDeepScan() {
 
   if (!refSystem || !refSystem.x) {
     alert('Please select a reference system first.');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Deep Scanning…';
+
+  // ── LOCAL DB FAST PATH ───────────────────────────────────────────────────
+  // With local DB there is no 10k cap — just run a regular search with a
+  // higher size limit. Deep scan becomes equivalent to a large regular search.
+  if (_localDbAvailable) {
+    content.innerHTML = `<div class="loading-wrap">
+      <div class="spinner"></div>
+      <div class="loading-text" id="deep-scan-progress">🗄️ Searching local database (${(_localDbSystems/1e6).toFixed(1)}M systems)…</div>
+      <div style="color:var(--text-dim);font-size:11px">No Spansh rate limit — checking all systems in range</div>
+    </div>`;
+    try {
+      const filters = { distance: { min: minDist, max: maxDist } };
+      if (uncolonised) filters.population = { value: 0, comparison: 'equal' };
+      else if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
+      const data = await spanshPost(API_BASE + '/local/search', {
+        filters,
+        reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
+        sort: [{ distance: { direction: 'asc' } }],
+        size: 10000,
+        from: 0
+      }, AbortSignal.timeout(30000));
+
+      const rawAll = data?.results || [];
+      rawAll.forEach(s => {
+        s._rating  = s._rating  || rateSystem(s);
+        s._economy = s._economy || suggestEconomy(s);
+        s._build   = s._build   || suggestBuild(s._economy, s);
+      });
+      const filtered = rawAll.filter(sys => passesBodyFilters(sys));
+      renderResultsProgressive(filtered, 0, rawAll.length, null);
+      const info = document.createElement('div');
+      info.className = 'info-banner';
+      info.innerHTML = `🗄️ Local DB scan: <strong>${rawAll.length.toLocaleString()}</strong> systems checked · <strong>${filtered.length.toLocaleString()}</strong> matched filters · ${minDist}–${maxDist} LY`;
+      document.getElementById('finder-content').prepend(info);
+    } catch(err) {
+      content.innerHTML = `<div class="error-banner">⚠️ Local DB scan failed: ${err.message}</div>`;
+    }
+    btn.disabled = false;
+    btn.innerHTML = '🔭 Deep Scan';
     return;
   }
 
@@ -2924,9 +3031,6 @@ async function runDeepScan() {
       max: Math.round(minDist + (i + 1) * bandSize)
     });
   }
-
-  btn.disabled = true;
-  btn.innerHTML = '⏳ Deep Scanning…';
 
   content.innerHTML = `<div class="loading-wrap">
     <div class="spinner"></div>
@@ -6381,7 +6485,42 @@ async function loadCacheStats() {
     const d = await r.json();
     const total = d.total || 1;
     const bp = d.by_prefix || {};
+
+    // Load local DB status alongside cache stats
+    let localDbHtml = '';
+    try {
+      const lr = await fetch(`${API_BASE}/local/status`);
+      if (lr.ok) {
+        const ld = await lr.json();
+        if (ld.available && ld.systems_count > 0) {
+          const m = (ld.systems_count / 1e6).toFixed(1);
+          const eddn = ld.eddn_last_seen ? new Date(ld.eddn_last_seen).toLocaleString() : 'not connected';
+          const imp  = ld.systems_import_done ? ld.systems_import_done.slice(0,16).replace('T',' ') : 'in progress';
+          const galImp = ld.galaxy_import_done ? ld.galaxy_import_done.slice(0,16).replace('T',' ') : 'not yet';
+          localDbHtml = `
+          <div style="margin:12px 0 6px;padding:10px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.25);border-radius:6px;font-size:12px">
+            <div style="color:#4ade80;font-weight:700;margin-bottom:6px">🗄️ Local Galaxy DB — ACTIVE</div>
+            <div style="color:var(--text-dim)">Systems: <strong style="color:var(--text)">${ld.systems_count.toLocaleString()}</strong> (${m}M)</div>
+            <div style="color:var(--text-dim)">Bodies:  <strong style="color:var(--text)">${(ld.body_count||0).toLocaleString()}</strong></div>
+            <div style="color:var(--text-dim)">DB size: <strong style="color:var(--text)">${ld.db_size_mb} MB</strong></div>
+            <div style="color:var(--text-dim)">Systems import: <strong style="color:var(--text)">${imp}</strong></div>
+            <div style="color:var(--text-dim)">Galaxy import:  <strong style="color:var(--text)">${galImp}</strong></div>
+            <div style="color:var(--text-dim)">EDDN last seen: <strong style="color:var(--text)">${eddn}</strong></div>
+            <div style="color:var(--text-dim)">EDDN messages:  <strong style="color:var(--text)">${(ld.eddn_msg_count||0).toLocaleString()}</strong></div>
+          </div>`;
+        } else {
+          localDbHtml = `
+          <div style="margin:12px 0 6px;padding:10px;background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.2);border-radius:6px;font-size:12px">
+            <div style="color:var(--text-dim);font-weight:700;margin-bottom:4px">📡 Local Galaxy DB — not imported yet</div>
+            <div style="color:var(--text-dim)">Run <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px">python3 /app/localdb/import_systems.py --download</code> on the Pi to populate.</div>
+            ${ld.reason ? '<div style="color:var(--text-dim);margin-top:4px">Reason: '+ld.reason+'</div>' : ''}
+          </div>`;
+        }
+      }
+    } catch {}
+
     el.innerHTML = `
+      ${localDbHtml}
       <div class="stat-grid">
         <div class="stat-card"><div class="stat-num">${d.total||0}</div><div class="stat-lbl">Total Entries</div></div>
         <div class="stat-card"><div class="stat-num" style="color:var(--red)">${d.expiring_soon||0}</div><div class="stat-lbl">Expiring &lt;1h</div></div>

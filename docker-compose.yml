@@ -1,20 +1,26 @@
 # ══════════════════════════════════════════════════════════════════════════════
-#  ED:Finder — Docker Compose (WORKING VERSION with Bridge Networking)
-#  Tested and verified configuration
+#  ED:Finder — Docker Compose v3.17
+#  Services:
+#    api     — FastAPI caching proxy + local galaxy DB search
+#    web     — Nginx static frontend + API reverse proxy
+#    eddn    — EDDN ZeroMQ listener (keeps galaxy.db current in real-time)
+#  Bridge networking: web → api:8000
 # ══════════════════════════════════════════════════════════════════════════════
 
 services:
 
-  # ── FastAPI caching proxy ──────────────────────────────────────────────────
+  # ── FastAPI caching proxy + local galaxy DB ────────────────────────────────
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      # Build context is the repo root so the Dockerfile can COPY localdb/
+      context: .
+      dockerfile: backend/Dockerfile
     image: ed-finder-api:latest
     container_name: ed-finder-api
     restart: unless-stopped
     environment:
       DB_PATH:              /data/edfinder.db
+      GALAXY_DB_PATH:       /data/galaxy.db
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
       TTL_SEARCH:           ${TTL_SEARCH:-86400}
       TTL_AUTOCOMPLETE:     ${TTL_AUTOCOMPLETE:-3600}
@@ -61,6 +67,35 @@ services:
       options:
         max-size: "5m"
         max-file: "2"
+
+  # ── EDDN ZeroMQ listener — real-time colonisation updates ─────────────────
+  # Subscribes to tcp://eddn.edcd.io:9500 and writes FSDJump / Location
+  # events into galaxy.db (colonisation table).
+  # Remove or comment out this service if you don't want EDDN updates.
+  eddn:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: ed-finder-api:latest    # reuse the same image
+    container_name: ed-finder-eddn
+    restart: unless-stopped
+    command: ["python3", "/app/localdb/eddn_listener.py", "--db", "/data/galaxy.db"]
+    environment:
+      GALAXY_DB_PATH: /data/galaxy.db
+    volumes:
+      - ./data:/data
+    networks:
+      - internal                   # internal only — no port exposure needed
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+    # Only start EDDN listener once the API is healthy (ensures galaxy.db
+    # schema is initialised by the import script first)
+    depends_on:
+      api:
+        condition: service_healthy
 
 networks:
   internal:

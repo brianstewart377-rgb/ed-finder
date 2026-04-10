@@ -1,5 +1,5 @@
 """
-ED:Finder — Self-Hosted Backend  (v3.16)
+ED:Finder — Self-Hosted Backend  (v3.17)
 FastAPI caching proxy for Spansh API + SQLite persistence
 Works on x86 (Hetzner) and ARM64 (Raspberry Pi 5)
 
@@ -71,6 +71,19 @@ Changes in v3.16 (performance, observability, resilience):
 """
 from __future__ import annotations
 
+# ── LOCAL-DB: optional galaxy.db integration ─────────────────────────────────
+import sys as _sys
+import os as _os
+_localdb_path = _os.path.join(_os.path.dirname(__file__), "..", "localdb")
+if _os.path.isdir(_localdb_path) and _localdb_path not in _sys.path:
+    _sys.path.insert(0, _os.path.abspath(_localdb_path))
+try:
+    import local_search as _local_search
+    _LOCAL_DB_AVAILABLE = True
+except ImportError:
+    _local_search = None  # type: ignore
+    _LOCAL_DB_AVAILABLE = False
+
 # ── PERF-4: uvloop — must be set before any asyncio import in __main__ ────────
 # We apply the policy here at module load; uvloop is an optional dependency.
 try:
@@ -107,6 +120,7 @@ _background_tasks: set = set()
 # ─── Config ──────────────────────────────────────────────────────────────────
 LOG_LEVEL   = os.getenv("LOG_LEVEL", "INFO")
 DB_PATH     = os.getenv("DB_PATH", "/data/edfinder.db")
+GALAXY_DB   = os.getenv("GALAXY_DB_PATH", "/data/galaxy.db")
 SPANSH_BASE = "https://spansh.co.uk/api"
 
 # Cache TTLs (seconds)
@@ -668,7 +682,7 @@ async def lifespan(app: FastAPI):
     refresh_task   = asyncio.create_task(daily_refresh_task(),        name="daily_refresh")
     watchlist_task = asyncio.create_task(scheduled_watchlist_check(), name="watchlist_check")
     cleanup_task   = asyncio.create_task(cache_cleanup_task(),         name="cache_cleanup")
-    log.info("ED:Finder API v3.16 started — background tasks launched",
+    log.info("ED:Finder API v3.17 started — background tasks launched",
              extra={"x_uvloop": _UVLOOP_ACTIVE})
 
     yield  # ── App is running ─────────────────────────────────────────────
@@ -730,7 +744,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 app = FastAPI(
     title="ED:Finder API",
     description="Self-hosted caching proxy for Spansh data — ED:Finder",
-    version="3.16.0",
+    version="3.17.0",
     lifespan=lifespan,
 )
 
@@ -1102,7 +1116,7 @@ async def api_status():
 
     return {
         "status": "online",
-        "version": "3.16.0",
+        "version": "3.17.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "cache_entries": cache_count,
         "ac_cache_entries": ac_count,
@@ -1116,6 +1130,7 @@ async def api_status():
         "daily_systems": DAILY_SYSTEMS,
         "circuit_breaker": _circuit_breaker.state,
         "uvloop": _UVLOOP_ACTIVE,
+        "local_db": _LOCAL_DB_AVAILABLE and os.path.exists(GALAXY_DB),
     }
 
 
@@ -1248,3 +1263,91 @@ async def get_body(body_id: int):
         return data
     except Exception as exc:
         raise HTTPException(502, f"Spansh API error: {exc}")
+
+
+# ── LOCAL DB ROUTES ───────────────────────────────────────────────────────────
+# These endpoints serve data from the local galaxy.db (populated by
+# localdb/import_systems.py and kept current by localdb/eddn_listener.py).
+# They are always faster than Spansh and work offline.
+# The frontend auto-detects availability via /api/local/status.
+
+@app.get("/api/local/status")
+async def local_status():
+    """Return local galaxy DB availability and stats."""
+    if not _LOCAL_DB_AVAILABLE:
+        return {"available": False, "reason": "local_search module not installed"}
+    try:
+        status = _local_search.local_db_status()
+        return status
+    except Exception as exc:
+        return {"available": False, "reason": str(exc)}
+
+
+@app.post("/api/local/search")
+async def local_systems_search(body: Dict[str, Any]):
+    """
+    Search the local galaxy DB — same request/response shape as /api/systems/search.
+    Returns results from local SQLite; no Spansh call, no rate limits, no 10k cap.
+    Falls back to a 502 if the local DB is not available so the frontend can retry
+    via the Spansh path.
+    """
+    if not _LOCAL_DB_AVAILABLE:
+        raise HTTPException(503, "Local galaxy DB module not installed")
+    try:
+        loop = asyncio.get_event_loop()
+        # Run the synchronous SQLite query in a thread pool to avoid blocking the event loop
+        data = await loop.run_in_executor(None, _local_search.local_db_search, body)
+        return JSONResponse(
+            content=data,
+            headers={
+                "X-Cache-Age":    "0",
+                "X-Cache-Status": "LOCAL",
+                "X-Source":       "local_db",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("local_systems_search error: %s", exc)
+        raise HTTPException(502, f"Local DB search error: {exc}")
+
+
+@app.get("/api/local/system/{id64}")
+async def local_get_system(id64: int):
+    """
+    Full system data from local galaxy DB — same response shape as /api/system/{id64}.
+    Returns 404 if the system is not in the local DB (rare; use /api/system/{id64}
+    for Spansh fallback in that case).
+    """
+    if not _LOCAL_DB_AVAILABLE:
+        raise HTTPException(503, "Local galaxy DB module not installed")
+    try:
+        loop = asyncio.get_event_loop()
+        data = await loop.run_in_executor(None, _local_search.local_db_system, id64)
+        if data is None:
+            raise HTTPException(404, f"System {id64} not found in local DB")
+        return JSONResponse(
+            content=data,
+            headers={"X-Source": "local_db"},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("local_get_system error for %s: %s", id64, exc)
+        raise HTTPException(502, f"Local DB error: {exc}")
+
+
+@app.get("/api/local/autocomplete")
+async def local_autocomplete(q: str = Query(..., min_length=2, max_length=200)):
+    """
+    System name autocomplete from local DB — instant, no network round-trip.
+    Returns same shape as /api/search (Spansh autocomplete).
+    """
+    if not _LOCAL_DB_AVAILABLE:
+        raise HTTPException(503, "Local galaxy DB module not installed")
+    try:
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(None, _local_search.local_db_autocomplete, q)
+        return {"results": results, "source": "local_db"}
+    except Exception as exc:
+        raise HTTPException(502, f"Local autocomplete error: {exc}")
