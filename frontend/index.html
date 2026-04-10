@@ -2680,6 +2680,23 @@ function srAnnounce(msg) {
   requestAnimationFrame(() => { el.textContent = msg; });
 }
 
+// ── showToast: lightweight notification used by many features ────────
+function showToast(message, type) {
+  // type: 'success'|'warn'|'info' (default info)
+  const container = document.getElementById('toast-container');
+  if (!container) { console.warn('[showToast]', message); return; }
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-' + (type || 'info');
+  toast.textContent = message;
+  container.appendChild(toast);
+  // Auto-remove after 4s
+  setTimeout(() => {
+    toast.classList.add('toast-fade');
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 450);
+  }, 4000);
+  srAnnounce(message);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   buildBodySliders();
   // Init rating range fill bar to full width (0–100)
@@ -8924,7 +8941,7 @@ function findSimilarSystems(sysInfo) {
   if (finderBtn) finderBtn.click();
 
   setTimeout(() => {
-    const resultsEl = document.getElementById('results');
+    const resultsEl = document.getElementById('finder-content');
     if (!resultsEl) return;
     // Build a mini similar-systems panel
     const panel = document.createElement('div');
@@ -9347,6 +9364,14 @@ document.addEventListener('click', (e) => {
   if (pop && !e.target.closest('.rating-badge')) pop.style.display = 'none';
 });
 
+// FIX: hideScoreExplainer — called from onmouseleave on rating badges
+function hideScoreExplainer() {
+  const pop = document.getElementById('score-explain-pop');
+  if (!pop) return;
+  clearTimeout(pop._hideTimer);
+  pop._hideTimer = setTimeout(() => { pop.style.display = 'none'; }, 200);
+}
+
 // Patch buildSystemCard to make rating badge clickable for explainer
 // We hook into existing rating badge via event delegation
 document.addEventListener('click', (e) => {
@@ -9445,8 +9470,8 @@ function _histCollapseToggle() {
 // ────────────────────────────────────────────────────────────────────
 function openBriefing(id64) {
   const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64))
-           || (getPinned ? getPinned() : []).find(s => String(s.id64) === String(id64))
-           || (getWatchlist ? getWatchlist() : []).find(s => String(s.id64) === String(id64));
+           || (typeof getPinned === 'function' ? getPinned() : []).find(s => String(s.id64) === String(id64))
+           || (window._watchlistCache || []).find(s => String(s.id64) === String(id64));
   if (!sys) { showToast('System data not available. Search for it first.', 'warn'); return; }
   _renderBriefingModal(sys);
 }
@@ -10081,8 +10106,8 @@ function _connectSSE() {
 
 function _handleSSEUpdate(msg) {
   if (!msg || !msg.system_name) return;
-  // Check if it's in watchlist
-  const wl = typeof getWatchlist === 'function' ? getWatchlist() : [];
+  // Check if it's in the in-memory watchlist cache (watchlist is backend-managed)
+  const wl = window._watchlistCache || [];
   const match = wl.find(s => s.name === msg.system_name || String(s.id64) === String(msg.id64));
   if (!match) return;
 
@@ -10090,7 +10115,7 @@ function _handleSSEUpdate(msg) {
   if (msg.population != null && msg.population !== match.population) {
     const oldPop = match.population || 0;
     match.population = msg.population;
-    if (typeof saveWatchlist === 'function') saveWatchlist(wl);
+    // Refresh watchlist UI from backend (authoritative source)
     if (typeof loadWatchlist === 'function') loadWatchlist();
     showToast(`📡 EDDN: ${msg.system_name} population updated: ${oldPop.toLocaleString()} → ${msg.population.toLocaleString()}`);
   }
