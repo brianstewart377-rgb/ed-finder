@@ -1561,7 +1561,7 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.20</div>
+  <div class="version">v3.21</div>
 </div>
 
 <!-- ═══════ STATUS BAR ═══════ -->
@@ -2063,14 +2063,16 @@ const API_BASE = '/api';   // FastAPI backend served on same origin via Nginx
 // When true, searches go to /api/local/search (no Spansh, no 10k cap).
 let _localDbAvailable = false;
 let _localDbSystems   = 0;   // total systems in local DB (for UI display)
+let _localDbHasBodies = false; // true only after Phase 2 import completes
 
 async function checkLocalDb() {
   try {
     const r = await fetch(`${API_BASE}/local/status`, { signal: AbortSignal.timeout(5000) });
     if (!r.ok) { _localDbAvailable = false; return; }
     const d = await r.json();
-    _localDbAvailable = !!(d.available && d.systems_count > 0);
-    _localDbSystems   = d.systems_count || 0;
+    _localDbAvailable  = !!(d.available && d.systems_count > 0);
+    _localDbSystems    = d.systems_count || 0;
+    _localDbHasBodies  = !!(d.body_count && d.body_count > 0);
     _updateLocalDbBadge(d);
   } catch {
     _localDbAvailable = false;
@@ -2889,7 +2891,8 @@ async function runSearch(page = 0) {
 
     if (!data || !data.results) throw new Error('No results from API');
 
-    totalResults = data.count || 0;
+    totalResults = data.total || data.count || 0;
+    // Show raw count immediately, will update after filtering below
     document.getElementById('result-count').textContent = `${totalResults.toLocaleString()} systems found`;
     // L2-FIX: announce result count (including zero-results state)
     if (totalResults === 0) {
@@ -2949,6 +2952,36 @@ async function runSearch(page = 0) {
 
     // Apply body type filters (includes #2 economy, #3 min-rating, #9 pop-zero)
     const filtered = systems.filter(sys => passesBodyFilters(sys));
+
+    // Update count to show filtered vs total
+    const countEl = document.getElementById('result-count');
+    if (countEl) {
+      if (filtered.length < totalResults) {
+        countEl.textContent = `${filtered.length.toLocaleString()} of ${totalResults.toLocaleString()} systems (filtered)`;
+      } else {
+        countEl.textContent = `${filtered.length.toLocaleString()} systems found`;
+      }
+    }
+
+    // Warn if body-type sliders are set but Phase 2 isn't done yet
+    if (_localDbAvailable && !_localDbHasBodies) {
+      const hasBodySliders = BODY_SLIDERS.some(s => {
+        const st = sliderState[s.key];
+        return st && (st.min > 0 || st.max < s.max);
+      });
+      const hasBioGeoTerra = ['tog-bio','tog-geo','tog-terra','tog-ring'].some(
+        id => document.getElementById(id)?.checked
+      );
+      if (hasBodySliders || hasBioGeoTerra) {
+        const warn = document.createElement('div');
+        warn.className = 'info-banner';
+        warn.style.cssText = 'margin-bottom:10px;background:rgba(255,170,0,0.1);border-color:var(--orange)';
+        warn.innerHTML = '⚠️ <strong>Body filters are set but Phase 2 body import hasn\'t finished yet.</strong> ' +
+          'Body-type filters (Water Worlds, ELW, bio/geo signals etc.) will activate automatically once the overnight import completes. ' +
+          'Distance and colonisation filters are working correctly right now.';
+        content.prepend(warn);
+      }
+    }
 
     // ── #5 Progressive rendering — stagger card paint ───────────────────────
     renderResultsProgressive(filtered, page, totalResults, cacheAge);
@@ -3218,6 +3251,15 @@ async function enrichSystem(sys) {
 // ═══════════════════════════════════════════════════════════════════
 function passesBodyFilters(sys) {
   const bodies = sys.bodies || [];
+
+  // IMPORTANT: When using local DB without Phase 2 body data, systems come back
+  // with bodies:[] — skip ALL body-type slider filters in that case, otherwise
+  // every system fails the filter and results appear empty.
+  // Body-type filters (sliders, bio/geo/terra toggles) only apply when:
+  //   a) using Spansh (body data from batch enrichment), OR
+  //   b) local DB with Phase 2 complete (_localDbHasBodies=true)
+  const skipBodyFilters = _localDbAvailable && !_localDbHasBodies && bodies.length === 0;
+
   const counts = countBodyTypes(bodies);
 
   // COLONISATION RE-CHECK: Spansh's is_colonised field is ONLY set for new
@@ -3240,46 +3282,43 @@ function passesBodyFilters(sys) {
     if (isInhabited) return false;
   }
 
-  for (const s of BODY_SLIDERS) {
-    const val = counts[s.key] || 0;
-    const state = sliderState[s.key];
-    if (!state) continue;
-    // Only filter if user has set a non-default value
-    const cfg = BODY_SLIDERS.find(b => b.key === s.key);
-    if (state.min > 0 && val < state.min) return false;
-    if (state.max < cfg.max && val > state.max) return false;
+  // ── Body-type filters — skip when local DB has no body data yet ────────────
+  if (!skipBodyFilters) {
+    for (const s of BODY_SLIDERS) {
+      const val = counts[s.key] || 0;
+      const state = sliderState[s.key];
+      if (!state) continue;
+      const cfg = BODY_SLIDERS.find(b => b.key === s.key);
+      if (state.min > 0 && val < state.min) return false;
+      if (state.max < cfg.max && val > state.max) return false;
+    }
+
+    const togBio   = document.getElementById('tog-bio').checked;
+    const togGeo   = document.getElementById('tog-geo').checked;
+    const togRing  = document.getElementById('tog-ring').checked;
+    const togTerra = document.getElementById('tog-terra').checked;
+    const togVolc  = document.getElementById('tog-volc')?.checked;
+    const togNotidal = document.getElementById('tog-notidal')?.checked;
+
+    if (togBio   && !bodies.some(b => hasSignal(b, 'Biological'))) return false;
+    if (togGeo   && !bodies.some(b => hasSignal(b, 'Geological'))) return false;
+    if (togRing  && !bodies.some(b => b.rings && b.rings.length > 0)) return false;
+    if (togTerra && !bodies.some(b => b.terraforming_state && b.terraforming_state !== 'Not terraformable')) return false;
+    if (togVolc  && !bodies.some(b => b.volcanism_type && b.volcanism_type !== 'No volcanism' && b.volcanism_type !== '')) return false;
+    if (togNotidal && bodies.some(b => b.type === 'Planet' && b.is_rotational_period_tidally_locked)) return false;
+
+    const minLand = parseInt(document.getElementById('sl-land')?.value || '0');
+    const minSig  = parseInt(document.getElementById('sl-sig')?.value  || '0');
+    if (minLand > 0) {
+      if (bodies.filter(b => b.type === 'Planet' && b.is_landable).length < minLand) return false;
+    }
+    if (minSig > 0) {
+      if (bodies.filter(b => (b.signals || []).length > 0).length < minSig) return false;
+    }
   }
 
-  const togBio = document.getElementById('tog-bio').checked;
-  const togGeo = document.getElementById('tog-geo').checked;
-  const togRing = document.getElementById('tog-ring').checked;
-  const togTerra = document.getElementById('tog-terra').checked;
-
-  if (togBio && !bodies.some(b => hasSignal(b, 'Biological'))) return false;
-  if (togGeo && !bodies.some(b => hasSignal(b, 'Geological'))) return false;
-  if (togRing && !bodies.some(b => b.rings && b.rings.length > 0)) return false;
-  if (togTerra && !bodies.some(b => b.terraforming_state && b.terraforming_state !== 'Not terraformable')) return false;
-
-  const togVolc  = document.getElementById('tog-volc')?.checked;
-  const togNotidal = document.getElementById('tog-notidal')?.checked;
   const togPopZero = document.getElementById('tog-pop-zero')?.checked;
-
-  if (togVolc && !bodies.some(b => b.volcanism_type && b.volcanism_type !== 'No volcanism' && b.volcanism_type !== '')) return false;
-  if (togNotidal && bodies.some(b => b.type === 'Planet' && b.is_rotational_period_tidally_locked)) return false;
-  // #9 population zero — filter already handled server-side, but apply client-side too
-  if (togPopZero && (sys.population || 0) > 0) return false;  // L-7-FIX: was 'sys.population && sys.population > 0' — double-condition redundant and confusing
-
-  // FIX #1 — Min Slot Count sliders (sl-land / sl-sig) now wired
-  const minLand = parseInt(document.getElementById('sl-land')?.value || '0');
-  const minSig  = parseInt(document.getElementById('sl-sig')?.value  || '0');
-  if (minLand > 0) {
-    const landCount = bodies.filter(b => b.type === 'Planet' && b.is_landable).length;
-    if (landCount < minLand) return false;
-  }
-  if (minSig > 0) {
-    const sigCount = bodies.filter(b => (b.signals || []).length > 0).length;
-    if (sigCount < minSig) return false;
-  }
+  if (togPopZero && (sys.population || 0) > 0) return false;
 
   // #2 Economy filter — use cached economy (#8)
   const econFilter = document.getElementById('filter-economy')?.value || 'any';
