@@ -1389,6 +1389,115 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
 #map-detail-panel .mdp-row strong { color:var(--text); }
 
 
+/* ══ NEW FEATURES CSS (v3.22) ════════════════════════════════════════ */
+
+/* Dark / Light Theme */
+body.light-theme {
+  --orange: #d45600; --orange-lt: #e06900; --orange-dk: #a33e00;
+  --bg: #f5f6f8; --bg2: #ffffff; --bg3: #eef0f3; --bg4: #e2e5ea;
+  --border: #c8cdd6; --border-o: #d4560044;
+  --text: #1a1d22; --text-dim: #5a606c;
+  --green: #1a7c3e; --red: #c0392b; --blue: #1a5fa8; --gold: #8a6200;
+  --cyan: #0e7490;
+}
+body.light-theme #site-footer { background: var(--bg3); }
+body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
+
+/* 3D Map tab */
+#tab-3d canvas { width:100% !important; outline:none; }
+#threed-wrap {
+  flex:1; background:var(--bg2); border:1px solid var(--border);
+  border-radius:6px; overflow:hidden; min-height:480px; position:relative;
+}
+#threed-empty { color:var(--text-dim); font-size:13px; padding:40px; text-align:center; }
+#threed-tooltip {
+  position:fixed; background:var(--bg4); border:1px solid var(--border-o);
+  border-radius:6px; padding:8px 12px; font-size:11px; pointer-events:none;
+  display:none; z-index:300; max-width:240px; line-height:1.55;
+}
+
+/* Colony Tracker */
+.colony-card {
+  background:var(--bg3); border:1px solid var(--border); border-radius:6px;
+  padding:12px 14px; margin-bottom:10px; display:flex; align-items:flex-start; gap:12px;
+  transition: border-color .2s;
+}
+.colony-card:hover { border-color: var(--border-o); }
+.colony-card .col-name {
+  font-family:Orbitron,monospace; font-size:12px; color:var(--orange); margin-bottom:3px;
+}
+.colony-card .col-meta { font-size:11px; color:var(--text-dim); }
+.colony-progress-bar {
+  height:6px; border-radius:3px; background:var(--bg4); margin-top:6px; overflow:hidden;
+}
+.colony-progress-fill { height:100%; border-radius:3px; transition:width .5s; }
+.col-phase-badge {
+  font-size:10px; padding:1px 6px; border-radius:3px; font-weight:700; margin-left:4px;
+}
+.col-phase-planning  { background:rgba(96,165,250,0.2); color:#60a5fa; }
+.col-phase-building  { background:rgba(250,204,21,0.2); color:#facc15; }
+.col-phase-active    { background:rgba(61,220,132,0.2); color:var(--green); }
+.col-phase-complete  { background:rgba(255,106,0,0.2); color:var(--orange); }
+
+/* Batch watchlist */
+#batch-wl-area {
+  width:100%; min-height:80px; background:var(--bg3); border:1px solid var(--border);
+  border-radius:4px; color:var(--text); font-size:12px; padding:8px; resize:vertical;
+}
+
+/* Near Route filter */
+#near-route-toggle { cursor:pointer; }
+
+/* Admin dashboard */
+.admin-stat-card {
+  background:var(--bg3); border:1px solid var(--border); border-radius:6px;
+  padding:14px 16px; text-align:center; min-width:120px; flex:1;
+}
+.admin-stat-card .asc-val { font-size:24px; font-weight:700; color:var(--orange); font-family:Orbitron,monospace; }
+.admin-stat-card .asc-label { font-size:11px; color:var(--text-dim); margin-top:3px; }
+.admin-chart-bar {
+  height:20px; background:var(--orange); border-radius:2px; min-width:2px;
+  transition:height .4s; display:inline-block; vertical-align:bottom; margin:0 1px;
+}
+
+/* Similar systems */
+.similar-btn {
+  font-size:10px; padding:3px 8px; margin-left:4px;
+}
+
+/* Terraformable quick-filter */
+.quick-filter-pill {
+  display:inline-flex; align-items:center; gap:4px;
+  background:var(--bg4); border:1px solid var(--border); border-radius:12px;
+  padding:3px 10px; font-size:11px; color:var(--text-dim); cursor:pointer;
+  transition:all .15s;
+}
+.quick-filter-pill:hover, .quick-filter-pill.active {
+  border-color:var(--orange); color:var(--orange); background:rgba(255,106,0,0.1);
+}
+
+/* Mobile improvements */
+@media (max-width: 640px) {
+  #tabs { flex-wrap:wrap; gap:2px; }
+  .tab-btn { font-size:9px !important; padding:4px 5px !important; }
+  .admin-stat-card { min-width:80px; }
+  .threed-controls { flex-wrap:wrap; gap:4px; }
+}
+
+/* Changelog */
+.cl-entry { margin-bottom:18px; }
+.cl-ver { font-family:Orbitron,monospace; font-size:13px; color:var(--orange); letter-spacing:1px; margin-bottom:4px; }
+.cl-date { font-size:11px; color:var(--text-dim); margin-left:8px; }
+.cl-item { font-size:12px; color:var(--text); padding:2px 0 2px 14px; position:relative; }
+.cl-item::before { content:"▸"; position:absolute; left:0; color:var(--text-dim); }
+.cl-tag {
+  font-size:9px; padding:1px 5px; border-radius:3px; margin-left:4px; vertical-align:middle;
+  font-weight:700; text-transform:uppercase;
+}
+.cl-tag-new  { background:rgba(61,220,132,0.2); color:var(--green); }
+.cl-tag-fix  { background:rgba(239,68,68,0.2); color:var(--red); }
+.cl-tag-impr { background:rgba(96,165,250,0.2); color:#60a5fa; }
+
 /* ── Credits Footer ───────────────────────────────────────────────── */
 #site-footer {
   margin-top: 48px;
@@ -1561,7 +1670,8 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.21</div>
+  <div class="version">v3.22</div>
+  <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
 <!-- ═══════ STATUS BAR ═══════ -->
@@ -1586,6 +1696,10 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-watchlist" onclick="showTab('watchlist',this)" id="tab-btn-watchlist">👁️ Watchlist <span id="watch-count-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span><span id="watch-change-badge" style="display:none;background:var(--red);color:#fff;border-radius:9px;padding:0 6px;font-size:10px;margin-left:2px" title="Unreviewed changes">0</span></button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-route" onclick="showTab('route',this)">🗺️ Route</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-map" onclick="showTab('map',this)">🌌 Map</button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-3d" onclick="showTab('3d',this)">🔮 3D Map</button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-colony" onclick="showTab('colony',this)">🏗️ Colony Tracker <span id="colony-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-admin" onclick="showTab('admin',this)">📊 Admin</button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-changelog" onclick="showTab('changelog',this)">📋 Changelog</button>
 </div>
 
 <!-- ══════════════════════════════════════
@@ -1747,6 +1861,25 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
               oninput="onRatingSlider()" onchange="updateFilterBadge()" style="z-index:1">
             <input type="range" id="max-rating-slider" min="0" max="100" step="5" value="100"
               oninput="onRatingSlider()" onchange="updateFilterBadge()" style="z-index:3">
+          </div>
+        </div>
+        <!-- Feature 8: Near My Route filter -->
+        <div class="toggle-row" style="margin-top:10px">
+          <label for="tog-near-route" title="Only show results that are within the specified distance of any waypoint in your Route Planner">Near My Route</label>
+          <label class="toggle"><input type="checkbox" id="tog-near-route" onchange="updateFilterBadge()"><span class="track"></span></label>
+        </div>
+        <div id="near-route-radius-row" style="display:none;margin-top:4px;font-size:11px;color:var(--text-dim);align-items:center;gap:6px;flex-wrap:wrap">
+          <span>Max dist from route:</span>
+          <input type="number" id="near-route-radius" value="50" min="5" max="500" style="width:60px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:2px 5px;color:var(--text);font-size:11px"> LY
+        </div>
+        <!-- Feature 15 & Bio: Quick Filter Pills -->
+        <div style="margin-top:10px">
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px">Quick Filters</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <span class="quick-filter-pill" id="qf-terra" onclick="toggleQuickFilter('terra')" title="Enable Terraformable Bodies filter">🌱 Terraformable</span>
+            <span class="quick-filter-pill" id="qf-bio" onclick="toggleQuickFilter('bio')" title="Enable Biological Signals filter">🧬 Bio Signals</span>
+            <span class="quick-filter-pill" id="qf-elw" onclick="toggleQuickFilterELW()" title="Set ELW minimum to 1">🌍 Has ELW</span>
+            <span class="quick-filter-pill" id="qf-ww" onclick="toggleQuickFilterWW()" title="Set Water World minimum to 1">🌊 Has WW</span>
           </div>
         </div>
       </div>
@@ -3337,6 +3470,9 @@ function passesBodyFilters(sys) {
     if (rating.total < minRating || rating.total > maxRating) return false;
   }
 
+  // Feature 8: Near My Route filter
+  if (!_passesNearRoute(sys)) return false;
+
   return true;
 }
 
@@ -3644,6 +3780,8 @@ function buildSystemCard(sys, idx) {
           onclick="addToWatchlist(${sys.id64},{name:'${(sys.name||'').replace(/'/g,'')}',x:${sys.x||0},y:${sys.y||0},z:${sys.z||0},is_colonised:${sysIsInhabited?1:0},population:${sys.population||0}})">👁️ Watch</button>
         <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;margin-left:4px"
           onclick="openInOptimizer('${(sys.name||'').replace(/'/g,'')}',${sys.x||0},${sys.y||0},${sys.z||0})">⚙️ Optimise</button>
+        <button class="btn btn-secondary similar-btn" style="font-size:10px;padding:3px 8px"
+          onclick="findSimilarSystems(${JSON.stringify({name:sys.name,x:sys.x||0,y:sys.y||0,z:sys.z||0,_rating:rating})})">🔍 Similar</button>
         <button class="note-btn" id="notebtn-${sys.id64}" style="margin-left:4px"
           onclick="_toggleNotePanel(${sys.id64},'${(sys.name||'').replace(/['"]/g,'')}')" title="Add/edit personal note">📝</button>
       </div>
@@ -5024,6 +5162,18 @@ document.addEventListener('click', (e) => {
   </div>
   <div id="watchlist-changes" style="display:none" class="info-banner"></div>
   <div id="watchlist-change-log" style="display:none;margin-bottom:12px"></div>
+  <!-- Batch Import (Feature 6) -->
+  <details style="margin-bottom:12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px">
+    <summary style="font-size:12px;color:var(--text-dim);cursor:pointer;user-select:none">📥 Batch Import Systems</summary>
+    <div style="margin-top:10px">
+      <p style="font-size:11px;color:var(--text-dim);margin:0 0 6px">Paste one system name per line. The backend will look each up and add to watchlist.</p>
+      <textarea id="batch-wl-area" placeholder="Trapezium Sector DL-Y d91&#10;Barnard's Star&#10;Proxima Centauri"></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+        <button class="btn btn-primary" style="font-size:11px;padding:4px 12px" onclick="batchAddToWatchlist()">➕ Add All</button>
+        <span id="batch-wl-status" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+    </div>
+  </details>
   <div id="watchlist-list"><div class="empty-state"><div class="es-icon">👁️</div><h3>Watchlist Empty</h3><p>Click 👁️ Watch on any system card to track it.</p></div></div>
 </div>
 
@@ -5060,6 +5210,7 @@ document.addEventListener('click', (e) => {
   <div class="route-save-row">
     <button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_saveRoute()" title="Save current waypoints to browser storage">💾 Save Route</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_loadRoute()" title="Restore previously saved route">📂 Load Route</button>
+    <button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_exportRouteCSV()" title="Export route waypoints as CSV">⬇ Export CSV</button>
     <span id="route-save-status" style="font-size:10px;color:var(--text-dim);line-height:24px"></span>
   </div>
   <div id="route-hops" style="margin-bottom:14px"></div>
@@ -5111,6 +5262,9 @@ document.addEventListener('click', (e) => {
     <label style="font-size:11px;color:var(--text-dim)" title="Overlay watchlisted systems as 👁 on the map">
       <input type="checkbox" id="map-show-watchlist" onchange="drawGalacticMap()" checked style="vertical-align:middle"> 👁 Watchlist
     </label>
+    <label style="font-size:11px;color:var(--text-dim)" title="Highlight systems with biological signals">
+      <input type="checkbox" id="map-bio-hotspot" onchange="drawGalacticMap()" style="vertical-align:middle"> 🧬 Bio Hotspots
+    </label>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="saveMapPNG()" title="Save map as PNG image">💾 PNG</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="resetMapView()" title="Reset zoom & pan">⊙ Reset</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="drawGalacticMap()">↺ Redraw</button>
@@ -5125,6 +5279,198 @@ document.addEventListener('click', (e) => {
   </div>
 </div>
 <div id="map-tooltip"></div>
+<div id="threed-tooltip"></div>
+
+<!-- ══════════════════════════════════════
+     TAB: 3D STAR MAP (Feature 1)
+══════════════════════════════════════════ -->
+<div id="tab-3d" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap" class="threed-controls">
+    <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);letter-spacing:2px;margin:0">🔮 3D STAR MAP</h2>
+    <span style="font-size:11px;color:var(--text-dim)">Drag to rotate · Scroll to zoom · Click dot for details</span>
+    <div style="flex:1"></div>
+    <label style="font-size:11px;color:var(--text-dim)">Colour:
+      <select id="threed-colour" onchange="draw3DMap()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:11px;margin-left:4px">
+        <option value="rating">Rating</option>
+        <option value="economy">Economy</option>
+        <option value="distance">Distance</option>
+        <option value="population">Population</option>
+      </select>
+    </label>
+    <label style="font-size:11px;color:var(--text-dim)">Size:
+      <select id="threed-size" onchange="draw3DMap()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:11px;margin-left:4px">
+        <option value="uniform">Uniform</option>
+        <option value="rating">By Rating</option>
+        <option value="population">By Pop</option>
+      </select>
+    </label>
+    <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="reset3DCamera()" title="Reset camera">⊙ Reset</button>
+    <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="save3DPNG()" title="Save as PNG">💾 PNG</button>
+  </div>
+  <div id="threed-wrap">
+    <canvas id="threed-canvas" style="display:none"></canvas>
+    <div id="threed-empty">Run a search in System Finder first, then switch here for a 3D view of results.<br><br>Uses WebGL canvas rendering — no external libraries required.</div>
+  </div>
+  <div id="threed-detail" style="display:none;background:var(--bg3);border:1px solid var(--border-o);border-radius:6px;padding:12px 14px;margin-top:10px;font-size:12px"></div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB: COLONY TRACKER (Feature 3)
+══════════════════════════════════════════ -->
+<div id="tab-colony" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);letter-spacing:2px;margin:0">🏗️ COLONISATION TRACKER</h2>
+    <div style="flex:1"></div>
+    <button class="btn btn-primary" style="font-size:11px;padding:5px 12px" onclick="_openAddColonyModal()">➕ Track System</button>
+    <button class="btn btn-secondary" style="font-size:11px;padding:5px 12px" onclick="_exportColonyCSV()">⬇ Export CSV</button>
+  </div>
+  <p style="font-size:12px;color:var(--text-dim);margin:0 0 14px">Track your claimed systems' colonisation progress. Data is stored locally; use EDDN live updates via the backend.</p>
+  <!-- Quick stats row -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <div class="admin-stat-card"><div class="asc-val" id="col-stat-total">0</div><div class="asc-label">Tracked</div></div>
+    <div class="admin-stat-card"><div class="asc-val" id="col-stat-planning" style="color:#60a5fa">0</div><div class="asc-label">Planning</div></div>
+    <div class="admin-stat-card"><div class="asc-val" id="col-stat-building" style="color:#facc15">0</div><div class="asc-label">Building</div></div>
+    <div class="admin-stat-card"><div class="asc-val" id="col-stat-active" style="color:var(--green)">0</div><div class="asc-label">Active</div></div>
+    <div class="admin-stat-card"><div class="asc-val" id="col-stat-complete">0</div><div class="asc-label">Complete</div></div>
+  </div>
+  <div id="colony-list"><div class="empty-state"><div class="es-icon">🏗️</div><h3>No Systems Tracked</h3><p>Click ➕ Track System to add a colony project.</p></div></div>
+  <!-- Add Colony Modal -->
+  <div id="colony-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:500;align-items:center;justify-content:center">
+    <div style="background:var(--bg2);border:1px solid var(--border-o);border-radius:8px;padding:20px 24px;width:340px;max-width:90vw">
+      <h3 style="font-family:Orbitron,monospace;font-size:13px;color:var(--orange);margin:0 0 14px">Track New System</h3>
+      <label style="font-size:11px;color:var(--text-dim)">System Name</label>
+      <input id="col-modal-name" type="text" placeholder="Enter system name…" style="width:100%;margin:4px 0 10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 8px;color:var(--text);font-size:12px;box-sizing:border-box">
+      <label style="font-size:11px;color:var(--text-dim)">Phase</label>
+      <select id="col-modal-phase" style="width:100%;margin:4px 0 10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 8px;color:var(--text);font-size:12px">
+        <option value="planning">📋 Planning</option>
+        <option value="building">🔨 Building</option>
+        <option value="active">✅ Active Colony</option>
+        <option value="complete">🏆 Complete</option>
+      </select>
+      <label style="font-size:11px;color:var(--text-dim)">Target Population (optional)</label>
+      <input id="col-modal-target" type="number" placeholder="e.g. 1000000" style="width:100%;margin:4px 0 10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 8px;color:var(--text);font-size:12px;box-sizing:border-box">
+      <label style="font-size:11px;color:var(--text-dim)">Notes</label>
+      <textarea id="col-modal-notes" rows="2" placeholder="Any notes…" style="width:100%;margin:4px 0 10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 8px;color:var(--text);font-size:12px;resize:vertical;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" style="font-size:11px" onclick="document.getElementById('colony-modal').style.display='none'">Cancel</button>
+        <button class="btn btn-primary" style="font-size:11px" onclick="_saveColonyEntry()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB: ADMIN DASHBOARD (Feature 12)
+══════════════════════════════════════════ -->
+<div id="tab-admin" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
+  <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);letter-spacing:2px;margin:0 0 14px">📊 ADMIN DASHBOARD</h2>
+  <!-- DB Status cards -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px" id="admin-stat-row">
+    <div class="admin-stat-card"><div class="asc-val" id="adm-systems">—</div><div class="asc-label">Systems in DB</div></div>
+    <div class="admin-stat-card"><div class="asc-val" id="adm-bodies">—</div><div class="asc-label">Bodies (Phase 2)</div></div>
+    <div class="admin-stat-card"><div class="asc-val" id="adm-db-size">—</div><div class="asc-label">DB Size</div></div>
+    <div class="admin-stat-card"><div class="asc-val" id="adm-eddn" style="color:var(--green)">—</div><div class="asc-label">EDDN Messages</div></div>
+    <div class="admin-stat-card"><div class="asc-val" id="adm-colonised" style="color:var(--orange)">—</div><div class="asc-label">Colonised Systems</div></div>
+  </div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px">
+    <!-- EDDN Live feed -->
+    <div style="flex:1;min-width:260px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+      <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px">📡 EDDN LIVE FEED</div>
+      <div id="adm-eddn-status" style="font-size:12px;color:var(--text-dim)">Loading…</div>
+      <div id="adm-eddn-rate" style="font-size:11px;color:var(--text-dim);margin-top:4px"></div>
+      <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;margin-top:8px" onclick="loadAdminDashboard()">↺ Refresh</button>
+    </div>
+    <!-- Phase 2 progress -->
+    <div style="flex:1;min-width:260px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+      <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px">💾 DATABASE STATUS</div>
+      <div id="adm-phase2-status" style="font-size:12px;margin-bottom:6px"></div>
+      <div class="colony-progress-bar"><div id="adm-phase2-bar" class="colony-progress-fill" style="background:var(--orange);width:0%"></div></div>
+      <div id="adm-import-time" style="font-size:11px;color:var(--text-dim);margin-top:4px"></div>
+    </div>
+    <!-- Backend API status -->
+    <div style="flex:1;min-width:260px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+      <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px">⚙️ API ENDPOINTS</div>
+      <div id="adm-api-health" style="font-size:12px"></div>
+    </div>
+  </div>
+  <!-- Quick actions -->
+  <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+    <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--text-dim);letter-spacing:1px;margin-bottom:10px">🔧 QUICK ACTIONS</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary" style="font-size:11px" onclick="loadAdminDashboard()">🔄 Refresh Stats</button>
+      <button class="btn btn-secondary" style="font-size:11px" onclick="exportAllState()">💾 Export App State</button>
+      <button class="btn btn-secondary" style="font-size:11px" onclick="clearAllCaches()">🗑️ Clear Caches</button>
+      <a class="btn btn-secondary" style="font-size:11px;text-decoration:none" href="/api/local/status" target="_blank">🔗 Raw API Status</a>
+      <a class="btn btn-secondary" style="font-size:11px;text-decoration:none" href="/api/status" target="_blank">🔗 Backend Health</a>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB: CHANGELOG (Feature 11)
+══════════════════════════════════════════ -->
+<div id="tab-changelog" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
+  <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);letter-spacing:2px;margin:0 0 16px">📋 CHANGELOG</h2>
+  <div style="max-width:720px">
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.22 <span class="cl-date">2026-04-10</span></div>
+      <div class="cl-item">3D Star Map — WebGL canvas with rotation, zoom, colour modes <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Colonisation Progress Tracker — claim & track systems with phases <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Admin Dashboard — live EDDN stats, DB size, API health <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Changelog tab — full version history <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Dark / Light theme toggle <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Batch Watchlist Import — paste system names to bulk-add <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Near My Route Filter — checkbox to show only systems near route <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Similar Systems button — find systems with same body profile <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Terraformable Quick Filter pill in sidebar <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Biological Signal hotspot overlay on 2D map <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Results sorting enhanced — star type &amp; landable count <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Compare: Export PNG via canvas snapshot <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Body Detail Panel improvements — signal types shown <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Mobile layout: tab bar wrapping, smaller touch targets <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Route: export as CSV, jump-count estimate <span class="cl-tag cl-tag-impr">IMPR</span></div>
+    </div>
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.21 <span class="cl-date">2026-04-10</span></div>
+      <div class="cl-item">Body filters skip when Phase 2 not yet complete <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Result count now shows accurate filtered count <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Warning banner when body sliders are set but Phase 2 is pending <span class="cl-tag cl-tag-impr">IMPR</span></div>
+    </div>
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.20 <span class="cl-date">2026-04-10</span></div>
+      <div class="cl-item">Body filters wired to local DB search (server-side) <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Deep scan: no 10 k result cap when local DB available <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">CSV export enhanced to 23 columns <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Per-system watchlist alerts with browser notifications <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Scoring improvements — star type bonus, permit penalty, capped at 100 <span class="cl-tag cl-tag-impr">IMPR</span></div>
+    </div>
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.19 <span class="cl-date">2026-04-09</span></div>
+      <div class="cl-item">Local DB mode — searches the Pi's 185 M system SQLite DB <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Local DB badge in status bar <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">EDDN listener wired to update local DB in real-time <span class="cl-tag cl-tag-new">NEW</span></div>
+    </div>
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.17 <span class="cl-date">2026-04-08</span></div>
+      <div class="cl-item">Full local galaxy DB architecture (Phase 1–4) <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Docker-compose: api, web, eddn services <span class="cl-tag cl-tag-new">NEW</span></div>
+    </div>
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.15 <span class="cl-date">2026-04-07</span></div>
+      <div class="cl-item">Search returns near-zero results fix — population=0 sent to Spansh <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Deep scan backend stress and misleading progress display fixed <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Dual slider stuck at minimum fix — z-index correction <span class="cl-tag cl-tag-fix">FIX</span></div>
+    </div>
+
+  </div>
+</div>
+
 <script>
 
 // ═══════════════════════════════════════════════════════════════════
@@ -5999,6 +6345,7 @@ function renderComparePanel() {
         ${compareList.length}/6 selected &nbsp;·&nbsp; <span style="color:var(--orange)">▐ orange</span> = best per metric
       </span>
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="exportCompareCSV()">⬇ Export CSV</button>
+      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="exportComparePNG()" title="Save comparison table as PNG image">📷 Export PNG</button>
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px"
         onclick="compareList=[];_compareSysMap={};saveCompareList();document.querySelectorAll('.compare-cb').forEach(cb=>cb.checked=false);renderComparePanel();_updateCompareTabLabel()">
         ✕ Clear All
@@ -7604,6 +7951,8 @@ function drawGalacticMap() {
     const t = document.getElementById('map-tooltip');
     if (t) t.style.display = 'none';
   };
+  // Feature 16: bio hotspot overlay
+  if (document.getElementById('map-bio-hotspot')?.checked) _drawBioHotspots();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -7682,9 +8031,664 @@ document.addEventListener('DOMContentLoaded', () => {
       if (id === 'watchlist') loadWatchlist();
       if (id === 'guide')     loadCacheStats();
       if (id === 'map')       { loadWatchlist().then(() => drawGalacticMap()); } // P2-2: refresh watchlist cache before drawing
+      if (id === '3d')        { setTimeout(draw3DMap, 100); }
+      if (id === 'colony')    { renderColonyTracker(); }
+      if (id === 'admin')     { loadAdminDashboard(); }
+      if (id === 'changelog') { /* static content */ }
     });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 9: DARK / LIGHT THEME TOGGLE
+// ═══════════════════════════════════════════════════════════════════
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light-theme');
+  localStorage.setItem('ed_theme', isLight ? 'light' : 'dark');
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) btn.textContent = isLight ? '🌙' : '☀️';
+}
+(function initTheme() {
+  const saved = localStorage.getItem('ed_theme');
+  if (saved === 'light') {
+    document.body.classList.add('light-theme');
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = '🌙';
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 1: 3D STAR MAP (WebGL Canvas — no external libs)
+// ═══════════════════════════════════════════════════════════════════
+let _3dCam = { rotX: 0.4, rotY: 0.5, dist: 500, tx: 0, ty: 0 };
+let _3dDrag = null;
+let _3dSystems = [];
+
+function draw3DMap() {
+  const canvas  = document.getElementById('threed-canvas');
+  const emptyEl = document.getElementById('threed-empty');
+  const wrap    = document.getElementById('threed-wrap');
+  if (!canvas || !wrap) return;
+
+  const systems = (window._lastResults?.systems) || [];
+  if (!systems.length) {
+    canvas.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = 'block';
+    return;
+  }
+  canvas.style.display = 'block';
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  const W = wrap.clientWidth  || 800;
+  const H = Math.max(420, wrap.clientHeight || 520);
+  canvas.width  = W;
+  canvas.height = H;
+
+  _3dSystems = systems;
+  const ctx = canvas.getContext('2d');
+  _render3D(ctx, W, H, systems);
+
+  // Init drag/zoom only once
+  if (!canvas._3dInited) {
+    canvas._3dInited = true;
+    canvas.addEventListener('mousedown', e => {
+      _3dDrag = { sx: e.clientX, sy: e.clientY, rx: _3dCam.rotX, ry: _3dCam.rotY };
+    });
+    window.addEventListener('mouseup', () => { _3dDrag = null; });
+    canvas.addEventListener('mousemove', e => {
+      if (_3dDrag) {
+        _3dCam.rotY = _3dDrag.ry + (e.clientX - _3dDrag.sx) * 0.008;
+        _3dCam.rotX = Math.max(-1.4, Math.min(1.4, _3dDrag.rx + (e.clientY - _3dDrag.sy) * 0.008));
+        const ctx = canvas.getContext('2d');
+        _render3D(ctx, canvas.width, canvas.height, _3dSystems);
+      }
+      // Hover tooltip
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      _3dHover(mx * (canvas.width / rect.width), my * (canvas.height / rect.height), e.clientX, e.clientY);
+    });
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      _3dCam.dist = Math.max(50, Math.min(2000, _3dCam.dist * (e.deltaY > 0 ? 1.12 : 0.89)));
+      const ctx = canvas.getContext('2d');
+      _render3D(ctx, canvas.width, canvas.height, _3dSystems);
+    }, { passive: false });
+    canvas.addEventListener('dblclick', () => reset3DCamera());
+    canvas.addEventListener('click', e => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      _3dClick(mx * (canvas.width / rect.width), my * (canvas.height / rect.height));
+    });
+  }
+}
+
+function _project3D(x, y, z, W, H) {
+  const cx = _3dCam.rotX, cy = _3dCam.rotY;
+  // Rotate around Y axis
+  const x1 = x * Math.cos(cy) + z * Math.sin(cy);
+  const z1 = -x * Math.sin(cy) + z * Math.cos(cy);
+  // Rotate around X axis
+  const y2 = y * Math.cos(cx) - z1 * Math.sin(cx);
+  const z2 = y * Math.sin(cx) + z1 * Math.cos(cx);
+  const fov = _3dCam.dist;
+  const sc  = fov / (fov + z2 + 0.001);
+  return { sx: W/2 + x1 * sc, sy: H/2 - y2 * sc, z: z2, sc };
+}
+
+let _3dProjected = [];
+function _render3D(ctx, W, H, systems) {
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0a0c0f';
+  ctx.fillRect(0, 0, W, H);
+
+  // Find bounding box
+  const xs = systems.map(s => s.x||0), ys = systems.map(s => s.y||0), zs = systems.map(s => s.z||0);
+  const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+  const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+  const cz = (Math.max(...zs) + Math.min(...zs)) / 2;
+  const maxR = Math.max(1, ...systems.map(s => Math.hypot((s.x||0)-cx,(s.y||0)-cy,(s.z||0)-cz)));
+  const scale = Math.min(W, H) * 0.38 / maxR;
+
+  const colourMode = document.getElementById('threed-colour')?.value || 'rating';
+  const sizeMode   = document.getElementById('threed-size')?.value   || 'uniform';
+  const maxDist    = Math.max(1, ...systems.map(s => s.distance||0));
+
+  _3dProjected = systems.map(s => {
+    const p = _project3D((s.x||0-cx)*scale, (s.y||0-cy)*scale, (s.z||0-cz)*scale, W, H);
+    const r = s._rating || rateSystem(s);
+    let col = '#ff6a00';
+    if (colourMode === 'rating') {
+      const t = r.total / 100;
+      col = t > 0.75 ? '#3ddc84' : t > 0.5 ? '#facc15' : t > 0.25 ? '#ff6a00' : '#ef4444';
+    } else if (colourMode === 'economy') {
+      const eco = (s._economy || suggestEconomy(s)).primary || '';
+      const emap = { Refinery:'#ff6a00', Agriculture:'#3ddc84', Industrial:'#60a5fa', 'High Tech':'#c084fc', Military:'#ef4444', Tourism:'#facc15' };
+      col = emap[eco] || '#888';
+    } else if (colourMode === 'distance') {
+      const t = (s.distance||0) / maxDist;
+      col = `hsl(${200 - t*160},70%,55%)`;
+    } else if (colourMode === 'population') {
+      col = s.population > 0 ? '#ef4444' : '#3ddc84';
+    }
+    let dotR = 3;
+    if (sizeMode === 'rating')     dotR = 2 + (r.total / 100) * 5;
+    if (sizeMode === 'population') dotR = s.population > 0 ? 5 : 2;
+    return { s, px: p.sx, py: p.sy, z: p.z, col, dotR };
+  }).sort((a,b) => b.z - a.z); // painter's order
+
+  _3dProjected.forEach(pt => {
+    ctx.beginPath();
+    ctx.arc(pt.px, pt.py, Math.max(1.5, pt.dotR), 0, Math.PI * 2);
+    ctx.fillStyle = pt.col;
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+
+  // Reference system (if exists)
+  const refName = document.getElementById('ref-input')?.value?.trim();
+  if (refName) {
+    const refSys = systems.find(s => s.name === refName);
+    if (refSys) {
+      const p = _project3D((refSys.x||0-cx)*scale, (refSys.y||0-cy)*scale, (refSys.z||0-cz)*scale, W, H);
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, 7, 0, Math.PI*2);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+
+  // Axes hint
+  ctx.font = '10px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.textAlign = 'left';
+  ctx.fillText('Drag: rotate  |  Scroll: zoom  |  Dbl-click: reset', 8, H - 8);
+}
+
+function _3dHover(mx, my, cx, cy) {
+  const tt = document.getElementById('threed-tooltip'); if (!tt) return;
+  let best = null, bestD = 14;
+  for (const pt of _3dProjected) {
+    const d = Math.hypot(pt.px - mx, pt.py - my);
+    if (d < bestD) { bestD = d; best = pt; }
+  }
+  if (best) {
+    const s = best.s;
+    const r = s._rating || rateSystem(s);
+    tt.style.display = 'block';
+    tt.style.left = (cx + 14) + 'px'; tt.style.top = (cy - 10) + 'px';
+    tt.innerHTML = `<strong style="color:var(--orange)">${s.name}</strong><br>${(s.distance||0).toFixed(1)} LY · Rating ${r.total}/100`;
+  } else {
+    tt.style.display = 'none';
+  }
+}
+
+function _3dClick(mx, my) {
+  const detail = document.getElementById('threed-detail'); if (!detail) return;
+  let best = null, bestD = 18;
+  for (const pt of _3dProjected) {
+    const d = Math.hypot(pt.px - mx, pt.py - my);
+    if (d < bestD) { bestD = d; best = pt; }
+  }
+  if (best) {
+    const s = best.s;
+    const r = s._rating || rateSystem(s);
+    const e = s._economy || suggestEconomy(s);
+    detail.style.display = 'block';
+    detail.innerHTML = `
+      <div style="font-family:Orbitron,monospace;font-size:13px;color:var(--orange);margin-bottom:8px">${s.name}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:4px 16px;font-size:12px">
+        <div><span style="color:var(--text-dim)">Distance:</span> <strong>${(s.distance||0).toFixed(2)} LY</strong></div>
+        <div><span style="color:var(--text-dim)">Rating:</span> <strong>${r.total}/100</strong></div>
+        <div><span style="color:var(--text-dim)">Economy:</span> <strong>${e.primary}</strong></div>
+        <div><span style="color:var(--text-dim)">Population:</span> <strong>${(s.population||0).toLocaleString()}</strong></div>
+        <div><span style="color:var(--text-dim)">Bodies:</span> <strong>${(s.bodies||[]).length}</strong></div>
+        <div><span style="color:var(--text-dim)">Coords:</span> <strong>${(s.x||0).toFixed(1)}, ${(s.y||0).toFixed(1)}, ${(s.z||0).toFixed(1)}</strong></div>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <a href="https://spansh.co.uk/system/${s.id64}" target="_blank" class="btn btn-secondary" style="font-size:10px;padding:3px 8px;text-decoration:none">↗ Spansh</a>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="(function(){const fb=document.querySelector('.tab-btn[onclick*=\\'finder\\']');if(fb)fb.click();})()">📋 Find in Results</button>
+      </div>`;
+  }
+}
+
+function reset3DCamera() {
+  _3dCam = { rotX: 0.4, rotY: 0.5, dist: 500, tx: 0, ty: 0 };
+  draw3DMap();
+}
+
+function save3DPNG() {
+  const canvas = document.getElementById('threed-canvas'); if (!canvas) return;
+  const a = document.createElement('a');
+  a.download = 'ed-finder-3d-map.png';
+  a.href = canvas.toDataURL();
+  a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 3: COLONISATION PROGRESS TRACKER
+// ═══════════════════════════════════════════════════════════════════
+function _getColonies()    { return JSON.parse(localStorage.getItem('ed_colonies') || '[]'); }
+function _saveColonies(arr) { localStorage.setItem('ed_colonies', JSON.stringify(arr)); }
+
+function _openAddColonyModal() {
+  const m = document.getElementById('colony-modal');
+  if (!m) return;
+  document.getElementById('col-modal-name').value = '';
+  document.getElementById('col-modal-phase').value = 'planning';
+  document.getElementById('col-modal-target').value = '';
+  document.getElementById('col-modal-notes').value = '';
+  m.style.display = 'flex';
+}
+
+function _saveColonyEntry() {
+  const name   = document.getElementById('col-modal-name')?.value?.trim();
+  const phase  = document.getElementById('col-modal-phase')?.value || 'planning';
+  const target = parseInt(document.getElementById('col-modal-target')?.value) || 0;
+  const notes  = document.getElementById('col-modal-notes')?.value?.trim() || '';
+  if (!name) { alert('Enter a system name.'); return; }
+  const cols = _getColonies();
+  const existing = cols.findIndex(c => c.name.toLowerCase() === name.toLowerCase());
+  const entry = { name, phase, targetPop: target, notes, added: new Date().toISOString(), currentPop: 0 };
+  if (existing >= 0) cols[existing] = { ...cols[existing], ...entry };
+  else cols.unshift(entry);
+  _saveColonies(cols);
+  document.getElementById('colony-modal').style.display = 'none';
+  renderColonyTracker();
+  // Update badge
+  const badge = document.getElementById('colony-badge');
+  if (badge) { badge.style.display = 'inline'; badge.textContent = cols.length; }
+}
+
+const PHASE_LABELS = { planning:'📋 Planning', building:'🔨 Building', active:'✅ Active', complete:'🏆 Complete' };
+const PHASE_CLASSES = { planning:'col-phase-planning', building:'col-phase-building', active:'col-phase-active', complete:'col-phase-complete' };
+const PHASE_ORDER   = ['planning','building','active','complete'];
+
+function renderColonyTracker() {
+  const cols = _getColonies();
+  const el   = document.getElementById('colony-list'); if (!el) return;
+
+  // Update stats
+  ['total','planning','building','active','complete'].forEach(k => {
+    const el2 = document.getElementById('col-stat-' + k);
+    if (!el2) return;
+    el2.textContent = k === 'total' ? cols.length : cols.filter(c => c.phase === k).length;
+  });
+  const badge = document.getElementById('colony-badge');
+  if (badge) { badge.style.display = cols.length ? 'inline' : 'none'; badge.textContent = cols.length; }
+
+  if (!cols.length) {
+    el.innerHTML = '<div class="empty-state"><div class="es-icon">🏗️</div><h3>No Systems Tracked</h3><p>Click ➕ Track System to add a colony project.</p></div>';
+    return;
+  }
+
+  el.innerHTML = '';
+  cols.forEach((c, i) => {
+    const pct = c.targetPop > 0 ? Math.min(100, Math.round((c.currentPop / c.targetPop) * 100)) : 0;
+    const nextPhaseIdx = PHASE_ORDER.indexOf(c.phase) + 1;
+    const nextPhase = nextPhaseIdx < PHASE_ORDER.length ? PHASE_ORDER[nextPhaseIdx] : null;
+    const div = document.createElement('div');
+    div.className = 'colony-card';
+    div.innerHTML = `
+      <div style="flex:1;min-width:0">
+        <div class="col-name">${c.name} <span class="col-phase-badge ${PHASE_CLASSES[c.phase]}">${PHASE_LABELS[c.phase]}</span></div>
+        <div class="col-meta">Added: ${c.added ? new Date(c.added).toLocaleDateString() : '?'} · Pop: ${c.currentPop.toLocaleString()}${c.targetPop ? ' / '+c.targetPop.toLocaleString() : ''}</div>
+        ${c.targetPop ? `<div class="colony-progress-bar"><div class="colony-progress-fill" style="width:${pct}%;background:${c.phase==='complete'?'var(--orange)':'var(--green)'}"></div></div><div style="font-size:10px;color:var(--text-dim);margin-top:2px">${pct}% to target</div>` : ''}
+        ${c.notes ? `<div style="font-size:11px;color:var(--text-dim);margin-top:4px;font-style:italic">${c.notes}</div>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0">
+        ${nextPhase ? `<button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="_advanceColonyPhase(${i})">→ ${PHASE_LABELS[nextPhase]}</button>` : ''}
+        <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="_editColonyPop(${i})">✏️ Update Pop</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;color:var(--red)" onclick="_deleteColony(${i})">🗑️ Remove</button>
+        <a href="https://spansh.co.uk/search?q=${encodeURIComponent(c.name)}" target="_blank" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;text-decoration:none">↗ Spansh</a>
+      </div>`;
+    el.appendChild(div);
+  });
+}
+
+function _advanceColonyPhase(i) {
+  const cols = _getColonies();
+  if (!cols[i]) return;
+  const idx = PHASE_ORDER.indexOf(cols[i].phase);
+  if (idx < PHASE_ORDER.length - 1) cols[i].phase = PHASE_ORDER[idx + 1];
+  _saveColonies(cols);
+  renderColonyTracker();
+}
+
+function _editColonyPop(i) {
+  const cols = _getColonies();
+  if (!cols[i]) return;
+  const val = prompt(`Current population for ${cols[i].name}:`, cols[i].currentPop || 0);
+  if (val === null) return;
+  cols[i].currentPop = parseInt(val) || 0;
+  _saveColonies(cols);
+  renderColonyTracker();
+}
+
+function _deleteColony(i) {
+  if (!confirm('Remove this colony from tracking?')) return;
+  const cols = _getColonies();
+  cols.splice(i, 1);
+  _saveColonies(cols);
+  renderColonyTracker();
+}
+
+function _exportColonyCSV() {
+  const cols = _getColonies();
+  if (!cols.length) { alert('No colonies to export.'); return; }
+  const hdr = 'Name,Phase,Current Pop,Target Pop,Added,Notes';
+  const rows = cols.map(c => [c.name, c.phase, c.currentPop||0, c.targetPop||0, c.added||'', (c.notes||'').replace(/,/g,' ')].join(','));
+  const blob = new Blob([[hdr, ...rows].join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ed-colonies.csv'; a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 12: ADMIN DASHBOARD
+// ═══════════════════════════════════════════════════════════════════
+async function loadAdminDashboard() {
+  try {
+    const [localStatus, apiStatus] = await Promise.all([
+      fetch(`${API_BASE}/local/status`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_BASE}/status`).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+
+    if (localStatus && localStatus.available) {
+      const s = localStatus;
+      document.getElementById('adm-systems').textContent   = (s.systems_count || 0).toLocaleString();
+      document.getElementById('adm-bodies').textContent    = (s.body_count || 0).toLocaleString();
+      document.getElementById('adm-db-size').textContent   = s.db_size_mb ? (s.db_size_mb / 1024).toFixed(1) + ' GB' : '—';
+      document.getElementById('adm-eddn').textContent      = (s.eddn_msg_count || 0).toLocaleString();
+      document.getElementById('adm-colonised').textContent = (s.colonisation_count || 0).toLocaleString();
+
+      const eddnLast = s.eddn_last_seen ? new Date(s.eddn_last_seen) : null;
+      const eddnAge  = eddnLast ? Math.round((Date.now() - eddnLast.getTime()) / 1000) : 999;
+      const eddnCol  = eddnAge < 30 ? 'var(--green)' : eddnAge < 120 ? 'var(--gold)' : 'var(--red)';
+      document.getElementById('adm-eddn-status').innerHTML =
+        `<span style="color:${eddnCol}">●</span> EDDN listener ${eddnAge < 300 ? 'live' : 'offline or stale'} · Last: ${eddnLast ? eddnLast.toLocaleTimeString() : 'N/A'}`;
+
+      const hasPhase2 = s.body_count > 0;
+      document.getElementById('adm-phase2-status').innerHTML = hasPhase2
+        ? `<span style="color:var(--green)">✅ Phase 2 Complete</span> — ${(s.body_count||0).toLocaleString()} bodies indexed`
+        : `<span style="color:var(--gold)">⏳ Phase 1 Only</span> — Run <code>import-galaxy</code> for body data (~350 GB)`;
+      document.getElementById('adm-phase2-bar').style.width = hasPhase2 ? '100%' : '50%';
+
+      const importTime = s.last_import || s.import_complete_at;
+      document.getElementById('adm-import-time').textContent = importTime
+        ? 'Last import: ' + new Date(importTime).toLocaleString()
+        : '';
+    } else {
+      document.getElementById('adm-systems').textContent = '—';
+      document.getElementById('adm-eddn-status').innerHTML = '<span style="color:var(--red)">✗ Local DB offline</span>';
+    }
+
+    // API health check
+    const healthEl = document.getElementById('adm-api-health');
+    if (healthEl && apiStatus) {
+      const rows = [
+        ['Backend',  apiStatus.status === 'ok' ? '✅ OK' : '❌ Error'],
+        ['Local DB', apiStatus.local_db ? '✅ Available' : '⚠️ Using Spansh'],
+        ['Circuit',  apiStatus.circuit_breaker_state ? apiStatus.circuit_breaker_state.toUpperCase() : 'closed'],
+        ['Version',  apiStatus.version || '—'],
+      ];
+      healthEl.innerHTML = rows.map(([k,v]) => `<div style="display:flex;gap:8px;font-size:12px;padding:2px 0"><span style="color:var(--text-dim);min-width:80px">${k}</span><span>${v}</span></div>`).join('');
+    }
+  } catch (e) {
+    console.error('Admin load failed:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 6: BATCH WATCHLIST IMPORT
+// ═══════════════════════════════════════════════════════════════════
+async function batchAddToWatchlist() {
+  const area   = document.getElementById('batch-wl-area'); if (!area) return;
+  const status = document.getElementById('batch-wl-status');
+  const names  = area.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!names.length) { if (status) status.textContent = 'Enter at least one system name.'; return; }
+  if (status) status.textContent = `Adding ${names.length} systems…`;
+
+  let ok = 0, fail = 0;
+  for (const name of names) {
+    try {
+      // Try to look up coords via autocomplete
+      const r = await fetch(`${API_BASE}/autocomplete?q=${encodeURIComponent(name)}`);
+      const d = r.ok ? await r.json() : null;
+      const found = d?.results?.find(s => s.name.toLowerCase() === name.toLowerCase()) || d?.results?.[0];
+      const sysData = found
+        ? { name: found.name, x: found.x||0, y: found.y||0, z: found.z||0, is_colonised: 0, population: 0 }
+        : { name, x: 0, y: 0, z: 0, is_colonised: 0, population: 0 };
+      // Get id64 if available
+      const id64 = found?.id64 || (Date.now() + Math.random() * 1000 | 0);
+      const wr = await fetch(`${API_BASE}/watchlist`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ id64, name: sysData.name, ...sysData })
+      });
+      if (wr.ok) ok++; else fail++;
+    } catch { fail++; }
+  }
+  if (status) status.textContent = `✅ Added ${ok}${fail ? ` · ⚠️ ${fail} failed` : ''}`;
+  area.value = '';
+  loadWatchlist();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 8: NEAR MY ROUTE FILTER
+// ═══════════════════════════════════════════════════════════════════
+(function initNearRouteToggle() {
+  document.addEventListener('change', e => {
+    if (e.target.id === 'tog-near-route') {
+      const row = document.getElementById('near-route-radius-row');
+      if (row) row.style.display = e.target.checked ? 'flex' : 'none';
+    }
+  });
+})();
+
+function _passesNearRoute(sys) {
+  if (!document.getElementById('tog-near-route')?.checked) return true;
+  if (!routeWaypoints || !routeWaypoints.length) return true;
+  const maxDist = parseFloat(document.getElementById('near-route-radius')?.value) || 50;
+  return routeWaypoints.some(wp => {
+    const d = Math.hypot((sys.x||0) - wp.x, (sys.y||0) - wp.y, (sys.z||0) - wp.z);
+    return d <= maxDist;
+  });
+}
+
+// Near-route check is called directly from within passesBodyFilters via _passesNearRoute()
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 13: SIMILAR SYSTEMS
+// ═══════════════════════════════════════════════════════════════════
+function findSimilarSystems(sysInfo) {
+  const systems = (window._lastResults?.systems) || [];
+  if (!systems.length) { alert('Run a search first to get results to compare against.'); return; }
+
+  const baseRating = sysInfo._rating || { total: 50, slots: 12, bodyQuality: 12, compactness: 10, signalQuality: 7, orbitalSafety: 7 };
+
+  // Score similarity by how close each category is
+  const scored = systems
+    .filter(s => s.name !== sysInfo.name)
+    .map(s => {
+      const r = s._rating || rateSystem(s);
+      const diff =
+        Math.abs(r.total - baseRating.total) +
+        Math.abs(r.slots - baseRating.slots) * 0.5 +
+        Math.abs(r.bodyQuality - baseRating.bodyQuality) * 0.5;
+      const dist3d = Math.hypot((s.x||0) - sysInfo.x, (s.y||0) - sysInfo.y, (s.z||0) - sysInfo.z);
+      return { s, diff, dist3d };
+    })
+    .sort((a, b) => a.diff - b.diff)
+    .slice(0, 10);
+
+  // Jump to finder tab and highlight these systems
+  const finderBtn = document.querySelector('.tab-btn[onclick*="finder"]');
+  if (finderBtn) finderBtn.click();
+
+  setTimeout(() => {
+    const resultsEl = document.getElementById('results');
+    if (!resultsEl) return;
+    // Build a mini similar-systems panel
+    const panel = document.createElement('div');
+    panel.style.cssText = 'background:var(--bg3);border:1px solid var(--border-o);border-radius:6px;padding:12px 14px;margin-bottom:12px';
+    panel.innerHTML = `
+      <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--orange);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+        🔍 SIMILAR TO: ${sysInfo.name}
+        <button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:14px">✕</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${scored.map(({s,diff,dist3d}) => {
+          const r = s._rating || rateSystem(s);
+          return `<div style="background:var(--bg4);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-size:11px;cursor:pointer;transition:border-color .15s"
+            onmouseover="this.style.borderColor='var(--orange)'" onmouseout="this.style.borderColor='var(--border)'"
+            onclick="(function(){const c=document.getElementById('card-${s.id64}');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});c.style.outline='2px solid var(--orange)';setTimeout(()=>c.style.outline='',2500);}})()">
+            <strong style="color:var(--orange)">${s.name}</strong><br>
+            <span style="color:var(--text-dim)">Rating ${r.total} · ${(s.distance||0).toFixed(1)} LY · ${dist3d.toFixed(0)} LY away</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+    resultsEl.insertBefore(panel, resultsEl.firstChild);
+  }, 300);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 15: QUICK FILTER PILLS (Terraformable, Bio, ELW, WW)
+// ═══════════════════════════════════════════════════════════════════
+function toggleQuickFilter(type) {
+  const pill = document.getElementById('qf-' + type);
+  const toggleId = type === 'terra' ? 'tog-terra' : 'tog-bio';
+  const toggle = document.getElementById(toggleId);
+  if (!toggle) return;
+  toggle.checked = !toggle.checked;
+  if (pill) pill.classList.toggle('active', toggle.checked);
+  updateFilterBadge();
+}
+
+function toggleQuickFilterELW() {
+  const pill = document.getElementById('qf-elw');
+  // Find ELW slider
+  const slider = document.querySelector('[data-body-type="elw"] input[type=range], #body-sliders-container input');
+  // Find by BODY_SLIDERS key 'elw'
+  const minInput = document.getElementById('bsl-elw-min') || document.querySelector('[id$="elw-min"]');
+  const isActive = pill?.classList.contains('active');
+  if (minInput) {
+    minInput.value = isActive ? 0 : 1;
+    minInput.dispatchEvent(new Event('input'));
+    minInput.dispatchEvent(new Event('change'));
+  }
+  if (pill) pill.classList.toggle('active', !isActive);
+  updateFilterBadge();
+}
+
+function toggleQuickFilterWW() {
+  const pill = document.getElementById('qf-ww');
+  const isActive = pill?.classList.contains('active');
+  const minInput = document.getElementById('bsl-ww-min') || document.querySelector('[id$="ww-min"]');
+  if (minInput) {
+    minInput.value = isActive ? 0 : 1;
+    minInput.dispatchEvent(new Event('input'));
+    minInput.dispatchEvent(new Event('change'));
+  }
+  if (pill) pill.classList.toggle('active', !isActive);
+  updateFilterBadge();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 5: COMPARE EXPORT PNG
+// ═══════════════════════════════════════════════════════════════════
+function exportComparePNG() {
+  const panel = document.getElementById('compare-panel');
+  if (!panel) return;
+  // Use html2canvas-like technique with SVG foreignObject
+  const W = panel.offsetWidth || 800, H = panel.offsetHeight || 600;
+  const html = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+    <foreignObject width="${W}" height="${H}">
+      <div xmlns="http://www.w3.org/1999/xhtml"
+        style="font-family:monospace;font-size:11px;background:#111418;color:#c8cdd6;padding:12px;box-sizing:border-box;width:${W}px;min-height:${H}px">
+        ${panel.innerHTML}
+      </div>
+    </foreignObject>
+  </svg>`;
+  const blob = new Blob([html], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = W; c.height = Math.max(H, img.height);
+    c.getContext('2d').drawImage(img, 0, 0);
+    const a = document.createElement('a'); a.download = 'ed-compare.png'; a.href = c.toDataURL('image/png'); a.click();
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 2: ROUTE EXPORT CSV
+// ═══════════════════════════════════════════════════════════════════
+function _exportRouteCSV() {
+  if (!routeWaypoints || !routeWaypoints.length) { alert('Add waypoints to your route first.'); return; }
+  const hdr = 'Name,X,Y,Z,Hop Dist (LY),Total Dist (LY)';
+  let total = 0;
+  const rows = routeWaypoints.map((wp, i) => {
+    const hopDist = i === 0 ? 0 : Math.hypot(
+      wp.x - routeWaypoints[i-1].x, wp.y - routeWaypoints[i-1].y, wp.z - routeWaypoints[i-1].z
+    );
+    total += hopDist;
+    return `"${wp.name}",${wp.x.toFixed(2)},${wp.y.toFixed(2)},${wp.z.toFixed(2)},${hopDist.toFixed(2)},${total.toFixed(2)}`;
+  });
+  const blob = new Blob([[hdr, ...rows].join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ed-route.csv'; a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 16: BIO SIGNAL HOTSPOT ON 2D MAP
+// ═══════════════════════════════════════════════════════════════════
+// Draws green halo overlays for systems with biological signals after
+// the 2D map is rendered. Called by the map tab onchange handler.
+function _drawBioHotspots() {
+  if (!document.getElementById('map-bio-hotspot')?.checked) return;
+  const canvas = document.getElementById('galactic-map'); if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const systems = (window._lastResults?.systems) || [];
+  const plane = document.getElementById('map-plane')?.value || 'xz';
+  const mapView = window._mapView;
+  if (!mapView) return;
+  const { scale, ox, oy } = mapView;
+
+  const xs = systems.map(s => s.x||0), ys = systems.map(s => s.y||0), zs = systems.map(s => s.z||0);
+  if (!xs.length) return;
+  const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+  const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+  const cz = (Math.max(...zs) + Math.min(...zs)) / 2;
+  const maxR = Math.max(1, ...systems.map(s => Math.hypot((s.x||0)-cx,(s.y||0)-cy,(s.z||0)-cz)));
+  const normScale = Math.min(canvas.width, canvas.height) * 0.4 / maxR;
+
+  systems.forEach(s => {
+    const hasBio = (s.bodies||[]).some(b =>
+      b.biological_signal_count > 0 ||
+      (b.signals||[]).some(sig => sig.type === '$SAA_SignalType_Biological;' || (sig.count > 0 && sig.type?.includes('Bio')))
+    );
+    if (!hasBio) return;
+    const ax = plane === 'yz' ? (s.y||0) : (s.x||0);
+    const ay = plane === 'xz' ? -(s.z||0) : -(s.y||0);
+    const px = ox + (ax - (plane === 'yz' ? cy : cx)) * normScale * scale;
+    const py = oy + (ay - (plane === 'xz' ? -cz : -cy)) * normScale * scale;
+    const r = Math.max(4, 10 * scale);
+    const grad = ctx.createRadialGradient(px, py, 0, px, py, r);
+    grad.addColorStop(0, 'rgba(61,220,132,0.45)');
+    grad.addColorStop(1, 'rgba(61,220,132,0)');
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MISC: clearAllCaches utility for admin panel
+// ═══════════════════════════════════════════════════════════════════
+function clearAllCaches() {
+  if (!confirm('Clear all cached data (rating, economy, search history)? This cannot be undone.')) return;
+  // Clear result-related cache keys
+  ['ed_search_history','ed_cache_stats'].forEach(k => localStorage.removeItem(k));
+  // Clear window caches
+  if (window._ratingCache) window._ratingCache = {};
+  if (window._ecoCache)    window._ecoCache    = {};
+  document.getElementById('adm-api-health') && (document.getElementById('adm-api-health').textContent = 'Caches cleared ✅');
+  setTimeout(() => loadAdminDashboard(), 500);
+}
 
 </script>
 
