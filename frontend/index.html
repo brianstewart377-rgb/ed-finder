@@ -2653,12 +2653,10 @@ async function appendSearch(page) {
 
   try {
     const filters = {};
-    // NOTE: Do NOT send colonised:{value:false} to Spansh — their index only
-    // tracks new player-colonisation colonies; all legacy bubble systems return
-    // is_colonised=false regardless of population/factions. Client-side heuristic
-    // in passesBodyFilters() handles inhabited detection correctly instead.
-    // FIX #5 — population zero also applied server-side in Load More
-    if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
+    // Same population=0 server-side filter as runSearch — see comment there.
+    if (uncolonised) filters.population = { value: 0, comparison: 'equal' };
+    const togPopZeroAppend = document.getElementById('tog-pop-zero')?.checked;
+    if (!uncolonised && togPopZeroAppend) filters.population = { value: 0, comparison: 'equal' };
     filters.distance = { min: minDist, max: maxDist };
     const data = await spanshPost(API_BASE + '/systems/search', {
       filters,
@@ -2784,11 +2782,17 @@ async function runSearch(page = 0) {
   try {
     const filters = {};
 
-    // NOTE: colonised filter removed — see appendSearch comment for explanation.
-
-    // FIX #5 — send population=0 filter to Spansh when pop-zero toggle is active
+    // KEY FIX: Spansh caps results at 10,000 per query, sorted by distance.
+    // Without a server-side population filter the 10k returned are the closest
+    // systems — almost entirely the inhabited bubble — so the client-side
+    // uncolonised heuristic sees 90–95% rejected and returns near-zero results.
+    // Sending population=0 to Spansh whenever "Uncolonised Only" is checked
+    // means ALL 10k returned are empty systems; the client heuristic then just
+    // catches new colonies (is_being_colonised=true) that also have pop=0.
+    if (uncolonised) filters.population = { value: 0, comparison: 'equal' };
+    // Also honour the explicit pop-zero toggle if uncolonised is off
     const togPopZeroSearch = document.getElementById('tog-pop-zero')?.checked;
-    if (togPopZeroSearch) filters.population = { value: 0, comparison: 'equal' };
+    if (!uncolonised && togPopZeroSearch) filters.population = { value: 0, comparison: 'equal' };
 
     // Distance from reference system coords
     filters.distance = { min: minDist, max: maxDist };
@@ -2940,7 +2944,9 @@ async function runDeepScan() {
     for (let bi = 0; bi < bands.length; bi++) {
       const band = bands[bi];
       const filters = { distance: { min: band.min, max: band.max } };
-      if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
+      // Same population=0 server-side filter for deep scan bands
+      if (uncolonised) filters.population = { value: 0, comparison: 'equal' };
+      else if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
 
       const prog = document.getElementById('deep-scan-progress');
       if (prog) prog.textContent = `Band ${bi + 1}/${numBands}: ${band.min}–${band.max} LY… (${totalFetchedSoFar.toLocaleString()} fetched so far)`;
