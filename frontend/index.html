@@ -2332,9 +2332,14 @@ function onDualSlider(key, which) {
   if (which === 'min' && minV > maxV) { minV = maxV; minEl.value = minV; }
   if (which === 'max' && maxV < minV) { maxV = minV; maxEl.value = maxV; }
 
-  // When min thumb reaches max, raise its z-index so it stays grabbable above the max thumb
-  minEl.style.zIndex = (minV >= maxV) ? 3 : 1;
-  maxEl.style.zIndex = (minV >= maxV) ? 2 : 3;
+  // Z-index logic for overlapping thumbs:
+  // • Both at minimum (0): max thumb on top so it can be dragged right to escape
+  // • Both at maximum: min thumb on top so it can be dragged left to escape
+  // • Normal: max thumb on top (default)
+  const atMin = (minV === 0 && maxV === 0);
+  const atMax = (minV >= maxV && maxV > 0);
+  minEl.style.zIndex = atMax ? 3 : 1;
+  maxEl.style.zIndex = (atMax && !atMin) ? 2 : 3;
 
   sliderState[key] = { min: minV, max: maxV };
   document.getElementById(`sv-${key}`).textContent = `${minV} – ${maxV}`;
@@ -2360,8 +2365,10 @@ function onRatingSlider() {
   let maxV = parseInt(maxEl.value);
   if (minV > maxV) { minV = maxV; minEl.value = minV; }
   if (maxV < minV) { maxV = minV; maxEl.value = maxV; }
-  minEl.style.zIndex = (minV >= maxV) ? 3 : 1;
-  maxEl.style.zIndex = (minV >= maxV) ? 2 : 3;
+  const atMin = (minV === 0 && maxV === 0);
+  const atMax = (minV >= maxV && maxV > 0);
+  minEl.style.zIndex = atMax ? 3 : 1;
+  maxEl.style.zIndex = (atMax && !atMin) ? 2 : 3;
   document.getElementById('rating-range-val').textContent = `${minV} – ${maxV}`;
   // Update fill bar
   const fill = document.getElementById('sf-rating');
