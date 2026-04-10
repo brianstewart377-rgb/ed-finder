@@ -1389,7 +1389,142 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
 #map-detail-panel .mdp-row strong { color:var(--text); }
 
 
-/* ══ NEW FEATURES CSS (v3.22) ════════════════════════════════════════ */
+/* ══ NEW FEATURES CSS (v3.23) ════════════════════════════════════════ */
+
+/* Toast notification */
+#toast-container {
+  position:fixed; bottom:20px; right:20px; z-index:9999;
+  display:flex; flex-direction:column; gap:8px; pointer-events:none;
+}
+.toast {
+  background:var(--bg3); border:1px solid var(--border-o); border-radius:6px;
+  padding:10px 16px; font-size:12px; color:var(--text); max-width:320px;
+  box-shadow:0 4px 18px rgba(0,0,0,0.5); opacity:1; transition:opacity .4s;
+  pointer-events:auto; display:flex; align-items:flex-start; gap:8px;
+}
+.toast.toast-success { border-color:rgba(61,220,132,0.5); }
+.toast.toast-info    { border-color:rgba(96,165,250,0.5); }
+.toast.toast-warn    { border-color:rgba(250,204,21,0.5); }
+.toast.toast-fade    { opacity:0; }
+
+/* Score Explainer Popover */
+.score-explain-pop {
+  position:fixed; z-index:9999; background:var(--bg2); border:1px solid var(--border-o);
+  border-radius:8px; padding:12px 14px; min-width:220px; max-width:280px;
+  font-size:11px; box-shadow:0 6px 24px rgba(0,0,0,0.7); color:var(--text);
+  pointer-events:none; line-height:1.6;
+}
+.sep-hdr { font-family:Orbitron,monospace; font-size:11px; color:var(--orange); margin-bottom:8px; }
+.sep-row { display:flex; justify-content:space-between; gap:8px; padding:1px 0; }
+.sep-key { color:var(--text-dim); }
+.sep-val { font-weight:700; }
+.sep-pos { color:var(--green); }
+.sep-neg { color:var(--red); }
+.sep-divider { border-top:1px solid var(--border); margin:6px 0; }
+.sep-total { font-size:12px; font-weight:700; color:var(--orange); }
+
+/* FC Route Planner */
+.fc-hop-row {
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+  background:var(--bg3); border:1px solid var(--border); border-radius:4px;
+  margin-bottom:6px; font-size:12px; flex-wrap:wrap;
+}
+.fc-hop-num { font-family:Orbitron,monospace; font-size:10px; color:var(--orange); min-width:28px; }
+.fc-hop-dist { color:var(--text-dim); font-size:11px; }
+.fc-hop-warn { color:var(--gold); font-size:11px; }
+.fc-summary {
+  background:var(--bg3); border:1px solid var(--border-o); border-radius:6px;
+  padding:12px 14px; margin-bottom:12px; font-size:12px;
+}
+.fc-stat { display:inline-flex; flex-direction:column; align-items:center; gap:2px; min-width:90px; }
+.fc-stat-val { font-size:18px; font-weight:700; color:var(--orange); font-family:Orbitron,monospace; }
+.fc-stat-lbl { font-size:10px; color:var(--text-dim); }
+
+/* Jump Range Calculator */
+.jrc-panel {
+  background:var(--bg3); border:1px solid var(--border); border-radius:6px;
+  padding:10px 12px; margin-top:8px;
+}
+.jrc-result {
+  font-size:13px; font-weight:700; color:var(--orange); font-family:Orbitron,monospace;
+  margin-top:6px;
+}
+
+/* Density toggle */
+.density-btn {
+  background:var(--bg4); border:1px solid var(--border); border-radius:3px;
+  padding:2px 7px; font-size:10px; cursor:pointer; color:var(--text-dim);
+  transition:all .15s;
+}
+.density-btn.active { background:var(--orange); border-color:var(--orange); color:#000; font-weight:700; }
+
+/* Compact card mode */
+body.density-compact .result-card-body { display:none !important; }
+body.density-compact .result-card-hdr  { padding:4px 8px !important; min-height:0; }
+body.density-compact .sms-seg, body.density-compact .score-mini-wrap { display:none !important; }
+body.density-compact .result-card { margin-bottom:2px !important; }
+
+/* Expanded card mode */
+body.density-expanded .result-card-body { display:block !important; }
+
+/* Reservation badge */
+.reserved-badge {
+  font-size:10px; padding:1px 6px; border-radius:3px;
+  background:rgba(250,204,21,0.2); color:#facc15; border:1px solid rgba(250,204,21,0.4);
+  margin-left:4px;
+}
+
+/* Keyboard shortcuts overlay */
+#kbd-overlay {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75);
+  z-index:10000; align-items:center; justify-content:center;
+}
+#kbd-overlay.open { display:flex; }
+.kbd-panel {
+  background:var(--bg2); border:1px solid var(--border-o); border-radius:10px;
+  padding:20px 24px; max-width:480px; width:90vw; max-height:80vh; overflow-y:auto;
+}
+.kbd-grid { display:grid; grid-template-columns:auto 1fr; gap:4px 16px; }
+.kbd-key {
+  display:inline-block; background:var(--bg4); border:1px solid var(--border);
+  border-radius:3px; padding:1px 6px; font-family:monospace; font-size:11px;
+  color:var(--text); min-width:24px; text-align:center;
+}
+.kbd-desc { font-size:12px; color:var(--text-dim); }
+
+/* Nebula overlay */
+.nebula-label { position:absolute; font-size:9px; color:rgba(255,255,255,0.4); pointer-events:none; }
+
+/* Briefing modal */
+#briefing-modal {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8);
+  z-index:600; align-items:center; justify-content:center;
+}
+#briefing-modal.open { display:flex; }
+.briefing-panel {
+  background:var(--bg2); border:1px solid var(--border-o); border-radius:10px;
+  padding:20px 24px; max-width:680px; width:92vw; max-height:88vh; overflow-y:auto;
+  position:relative;
+}
+.briefing-section { margin-bottom:14px; }
+.briefing-section-hdr {
+  font-family:Orbitron,monospace; font-size:10px; color:var(--text-dim);
+  letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;
+  border-bottom:1px solid var(--border); padding-bottom:3px;
+}
+.briefing-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:6px 12px; font-size:12px; }
+.briefing-cell .bc-label { font-size:10px; color:var(--text-dim); }
+.briefing-cell .bc-val   { font-size:13px; color:var(--text); font-weight:600; }
+
+/* SSE live indicator */
+#sse-indicator {
+  width:8px; height:8px; border-radius:50%; background:var(--text-dim);
+  display:inline-block; margin-right:4px; transition:background .3s;
+}
+#sse-indicator.live { background:var(--green); animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ══ NEW FEATURES CSS (v3.22 / v3.23) ════════════════════════════════ */
 
 /* Dark / Light Theme */
 body.light-theme {
@@ -1649,6 +1784,55 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 .filter-live-badge { display:inline-block; font-size:10px; padding:1px 6px; border-radius:10px; background:rgba(77,166,255,0.15); color:var(--blue); border:1px solid rgba(77,166,255,0.3); margin-left:6px; vertical-align:middle; transition:background 0.2s; }
 .filter-live-badge.green { background:rgba(61,220,132,0.15); color:var(--green); border-color:rgba(61,220,132,0.3); }
 .filter-live-badge.red { background:rgba(255,68,85,0.15); color:#f87171; border-color:rgba(255,68,85,0.3); }
+
+/* ══ v3.23 NEW FEATURES CSS ════════════════════════════════════════ */
+
+/* FC Planner */
+.fc-summary { background:var(--bg3); border:1px solid var(--border-o); border-radius:6px; padding:12px; margin-bottom:14px; }
+.fc-stat { text-align:center; min-width:80px; }
+.fc-stat-val { font-family:Orbitron,monospace; font-size:18px; color:var(--orange); font-weight:700; }
+.fc-stat-lbl { font-size:10px; color:var(--text-dim); margin-top:2px; text-transform:uppercase; letter-spacing:0.5px; }
+.fc-hop { display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:5px; margin-bottom:6px; flex-wrap:wrap; }
+.fc-hop-name { font-weight:600; color:var(--text); flex:1; min-width:140px; }
+.fc-hop-meta { font-size:11px; color:var(--text-dim); }
+.fc-hop-warn { font-size:10px; color:var(--gold); background:rgba(250,204,21,0.1); border:1px solid rgba(250,204,21,0.3); padding:2px 6px; border-radius:3px; }
+.fc-hop-danger { color:var(--red); background:rgba(240,68,82,0.1); border-color:rgba(240,68,82,0.3); }
+
+/* Star class chart bars */
+.star-class-row { display:flex; align-items:center; gap:8px; font-size:11px; }
+.star-class-name { min-width:80px; color:var(--text-dim); }
+.star-class-bar-wrap { flex:1; height:12px; background:var(--bg4); border-radius:3px; overflow:hidden; }
+.star-class-bar { height:100%; border-radius:3px; transition:width 0.3s; }
+.star-class-count { min-width:40px; text-align:right; color:var(--text-dim); }
+
+/* Reservation badge */
+.reservation-badge { display:inline-block; font-size:10px; padding:2px 7px; border-radius:9px; background:rgba(77,166,255,0.15); border:1px solid rgba(77,166,255,0.3); color:var(--blue); margin-left:6px; cursor:pointer; }
+.reservation-badge:hover { background:rgba(77,166,255,0.3); }
+
+/* Score explain popover */
+.score-explain-pop { position:fixed; z-index:9000; background:var(--bg2); border:1px solid var(--border-o); border-radius:8px; padding:12px 14px; font-size:11px; max-width:260px; box-shadow:0 4px 20px rgba(0,0,0,0.5); pointer-events:none; }
+.sep-row { display:flex; justify-content:space-between; gap:12px; margin:2px 0; }
+.sep-lbl { color:var(--text-dim); }
+.sep-val { color:var(--text); font-weight:600; font-family:Orbitron,monospace; }
+.sep-total { border-top:1px solid var(--border); margin-top:6px; padding-top:6px; font-weight:700; color:var(--orange); }
+
+/* Nebula labels on map */
+.nebula-label { position:absolute; font-size:9px; color:rgba(255,255,255,0.4); pointer-events:none; white-space:nowrap; }
+
+/* TTC (time-to-colonise) strip in briefing */
+.ttc-strip { background:rgba(255,106,0,0.07); border:1px solid rgba(255,106,0,0.2); border-radius:5px; padding:8px 12px; font-size:11px; margin-top:10px; }
+.ttc-strip strong { color:var(--orange); }
+
+/* SSE pulse dot */
+#sse-dot { width:8px; height:8px; border-radius:50%; background:var(--text-dim); display:inline-block; margin-right:4px; vertical-align:middle; transition:background 0.5s; }
+#sse-dot.live { background:var(--green); animation:ssePulse 2s infinite; }
+@keyframes ssePulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* Phase 2 toast */
+.phase2-toast { position:fixed; bottom:60px; right:20px; background:var(--bg2); border:2px solid var(--green); border-radius:8px; padding:14px 18px; max-width:320px; z-index:9500; box-shadow:0 4px 20px rgba(0,0,0,0.5); animation:slideUpFade 0.4s ease; }
+@keyframes slideUpFade { from{transform:translateY(20px);opacity:0} to{transform:none;opacity:1} }
+
+/* Density compact already handled by body.density-compact selectors above */
 </style>
 </head>
 <body>
@@ -1670,7 +1854,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.22</div>
+  <div class="version">v3.23</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -1680,6 +1864,18 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <span id="api-status">Connecting to ED:Finder backend...</span>
   <div class="spacer" style="flex:1"></div>
   <span id="local-db-badge" style="display:none;font-size:11px;margin-right:10px;cursor:help;padding:2px 8px;border-radius:4px;background:rgba(0,0,0,0.3)"></span>
+  <!-- Feature 14: Density toggle -->
+  <span style="display:inline-flex;gap:2px;margin-right:8px" title="Result card density">
+    <button class="density-btn" id="den-compact"  onclick="setDensity('compact')"  title="Compact view">☰</button>
+    <button class="density-btn active" id="den-standard" onclick="setDensity('standard')" title="Standard view">▤</button>
+    <button class="density-btn" id="den-expanded" onclick="setDensity('expanded')" title="Expanded view">▦</button>
+  </span>
+  <!-- Feature 17: Surprise Me -->
+  <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;margin-right:6px" onclick="surpriseMe()" title="Pick a random high-rated system from results">🎲 Surprise</button>
+  <!-- Feature 13: Keyboard help -->
+  <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;margin-right:6px" onclick="openKbdHelp()" title="Keyboard shortcuts (?)">⌨️</button>
+  <!-- Feature 22: SSE dot -->
+  <span id="sse-dot" title="EDDN SSE: offline"></span>
   <span id="result-count" style="color:var(--text-dim)"></span>
 </div>
 <!-- PERSIST: storage health warning banner (hidden by default) -->
@@ -1695,6 +1891,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-compare" onclick="showTab('compare',this)">⚖️ Compare</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-watchlist" onclick="showTab('watchlist',this)" id="tab-btn-watchlist">👁️ Watchlist <span id="watch-count-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span><span id="watch-change-badge" style="display:none;background:var(--red);color:#fff;border-radius:9px;padding:0 6px;font-size:10px;margin-left:2px" title="Unreviewed changes">0</span></button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-route" onclick="showTab('route',this)">🗺️ Route</button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-fc" onclick="showTab('fc',this)">🚀 FC Planner</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-map" onclick="showTab('map',this)">🌌 Map</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-3d" onclick="showTab('3d',this)">🔮 3D Map</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-colony" onclick="showTab('colony',this)">🏗️ Colony Tracker <span id="colony-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
@@ -1769,6 +1966,46 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
             <div class="slider-val" id="size-val">50</div>
           </div>
         </div>
+        <!-- Feature 10: Jump Range Calculator -->
+        <details style="margin-top:8px">
+          <summary style="font-size:11px;color:var(--text-dim);cursor:pointer;user-select:none">⚡ Jump Range Calculator</summary>
+          <div class="jrc-panel">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+              <div>
+                <label style="color:var(--text-dim)">Ship Mass (t)</label>
+                <input type="number" id="jrc-mass" value="700" min="50" style="width:100%;margin-top:2px;background:var(--bg4);border:1px solid var(--border);border-radius:3px;padding:3px 6px;color:var(--text);font-size:11px">
+              </div>
+              <div>
+                <label style="color:var(--text-dim)">FSD Class/Rating</label>
+                <select id="jrc-fsd" style="width:100%;margin-top:2px;background:var(--bg4);border:1px solid var(--border);border-radius:3px;padding:3px 6px;color:var(--text);font-size:11px">
+                  <option value="7A">7A (best)</option>
+                  <option value="6A">6A</option>
+                  <option value="5A">5A</option>
+                  <option value="6B">6B</option>
+                  <option value="5B">5B</option>
+                  <option value="4A">4A</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div>
+                <label style="color:var(--text-dim)">Fuel Load (t)</label>
+                <input type="number" id="jrc-fuel" value="32" min="1" max="128" style="width:100%;margin-top:2px;background:var(--bg4);border:1px solid var(--border);border-radius:3px;padding:3px 6px;color:var(--text);font-size:11px">
+              </div>
+              <div>
+                <label style="color:var(--text-dim)">Boosted?</label>
+                <select id="jrc-boost" style="width:100%;margin-top:2px;background:var(--bg4);border:1px solid var(--border);border-radius:3px;padding:3px 6px;color:var(--text);font-size:11px">
+                  <option value="1">No boost</option>
+                  <option value="1.25">+25% (FSD Booster)</option>
+                  <option value="1.5">+50% (Neutron)</option>
+                  <option value="4">×4 (Neutron full)</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;margin-top:6px;width:100%" onclick="calcJumpRange()">Calculate Range</button>
+            <div class="jrc-result" id="jrc-result">—</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:3px" id="jrc-apply-hint"></div>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -3768,7 +4005,9 @@ function buildSystemCard(sys, idx) {
       ${ecoSpecBars}
       ${colonisedPill}
       ${popPill}
-      <span class="rating-badge ${ratingClass}" style="margin-left:4px">${ratingLabel} ${rating.total}</span>
+      <span class="rating-badge ${ratingClass}" style="margin-left:4px;cursor:help"
+        onmouseenter="showScoreExplainer(event,${JSON.stringify(rating).replace(/"/g,'&quot;')},${JSON.stringify(sys).replace(/"/g,'&quot;')})"
+        onmouseleave="hideScoreExplainer()">${ratingLabel} ${rating.total}</span>
       ${buildScoreMiniBar(rating)}
       <span class="chevron" style="color:var(--text-dim);margin-left:8px;font-size:12px">▼</span>
     </div>
@@ -3782,6 +4021,10 @@ function buildSystemCard(sys, idx) {
           onclick="openInOptimizer('${(sys.name||'').replace(/'/g,'')}',${sys.x||0},${sys.y||0},${sys.z||0})">⚙️ Optimise</button>
         <button class="btn btn-secondary similar-btn" style="font-size:10px;padding:3px 8px"
           onclick="findSimilarSystems(${JSON.stringify({name:sys.name,x:sys.x||0,y:sys.y||0,z:sys.z||0,_rating:rating})})">🔍 Similar</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;background:rgba(255,106,0,0.15);border-color:var(--orange-dk)"
+          onclick="claimAndGo(${sys.id64},'${(sys.name||'').replace(/'/g,'')}',${ sys.x||0},${ sys.y||0},${ sys.z||0})" title="Pin + Watch + Colony + Copy + Route in one click">⚡ Claim &amp; Go</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px"
+          onclick="openBriefing(${sys.id64})" title="Open full briefing card">📄 Briefing</button>
         <button class="note-btn" id="notebtn-${sys.id64}" style="margin-left:4px"
           onclick="_toggleNotePanel(${sys.id64},'${(sys.name||'').replace(/['"]/g,'')}')" title="Add/edit personal note">📝</button>
       </div>
@@ -5158,7 +5401,16 @@ document.addEventListener('click', (e) => {
     <div style="display:flex;gap:8px">
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="checkWatchlistChanges()">🔄 Check Changes</button>
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="loadWatchlist()">↺ Refresh</button>
+      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="shareWatchlistURL()" title="Copy shareable URL containing current watchlist">🔗 Share</button>
     </div>
+  </div>
+  <!-- Reservation CMDR row (Feature 8) -->
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--text-dim)">Your CMDR name (for reservations):</span>
+    <input type="text" id="cmdr-name-input" placeholder="CMDR Katpiss Everdeen" maxlength="60"
+      style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:12px;width:200px"
+      oninput="localStorage.setItem('ed_cmdr_name',this.value)">
+    <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="showReservations()">📋 My Reservations</button>
   </div>
   <div id="watchlist-changes" style="display:none" class="info-banner"></div>
   <div id="watchlist-change-log" style="display:none;margin-bottom:12px"></div>
@@ -5265,6 +5517,9 @@ document.addEventListener('click', (e) => {
     <label style="font-size:11px;color:var(--text-dim)" title="Highlight systems with biological signals">
       <input type="checkbox" id="map-bio-hotspot" onchange="drawGalacticMap()" style="vertical-align:middle"> 🧬 Bio Hotspots
     </label>
+    <label style="font-size:11px;color:var(--text-dim)" title="Show named nebulae and regions as background overlay">
+      <input type="checkbox" id="map-nebula-overlay" onchange="drawGalacticMap()" style="vertical-align:middle"> 🌫️ Nebulae
+    </label>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="saveMapPNG()" title="Save map as PNG image">💾 PNG</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="resetMapView()" title="Reset zoom & pan">⊙ Reset</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="drawGalacticMap()">↺ Redraw</button>
@@ -5280,6 +5535,100 @@ document.addEventListener('click', (e) => {
 </div>
 <div id="map-tooltip"></div>
 <div id="threed-tooltip"></div>
+<div id="toast-container"></div>
+
+<!-- Keyboard Shortcuts Overlay (Feature 13) -->
+<div id="kbd-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+  <div class="kbd-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="font-family:Orbitron,monospace;font-size:13px;color:var(--orange);margin:0">⌨️ KEYBOARD SHORTCUTS</h3>
+      <button onclick="closeKbd()" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:18px;line-height:1">✕</button>
+    </div>
+    <div class="kbd-grid">
+      <span class="kbd-key">S</span><span class="kbd-desc">Focus search / reference input</span>
+      <span class="kbd-key">Enter</span><span class="kbd-desc">Run search</span>
+      <span class="kbd-key">D</span><span class="kbd-desc">Run deep scan</span>
+      <span class="kbd-key">↑ ↓</span><span class="kbd-desc">Navigate result cards</span>
+      <span class="kbd-key">Space</span><span class="kbd-desc">Expand / collapse focused card</span>
+      <span class="kbd-key">P</span><span class="kbd-desc">Pin focused card</span>
+      <span class="kbd-key">W</span><span class="kbd-desc">Watch focused card</span>
+      <span class="kbd-key">C</span><span class="kbd-desc">Copy focused system name</span>
+      <span class="kbd-key">G</span><span class="kbd-desc">Claim &amp; Go focused card</span>
+      <span class="kbd-key">M</span><span class="kbd-desc">Switch to Map tab</span>
+      <span class="kbd-key">1–9</span><span class="kbd-desc">Switch to tab by number</span>
+      <span class="kbd-key">Esc</span><span class="kbd-desc">Close any overlay</span>
+      <span class="kbd-key">?</span><span class="kbd-desc">Show this help</span>
+      <span class="kbd-key">T</span><span class="kbd-desc">Toggle dark/light theme</span>
+      <span class="kbd-key">R</span><span class="kbd-desc">Surprise Me (random pick)</span>
+    </div>
+    <p style="font-size:10px;color:var(--text-dim);margin-top:12px">Shortcuts inactive when typing in an input or textarea.</p>
+  </div>
+</div>
+
+<!-- Briefing Modal (Feature 12) -->
+<div id="briefing-modal" role="dialog" aria-modal="true" aria-label="System briefing card">
+  <div class="briefing-panel" id="briefing-panel-inner">
+    <button onclick="closeBriefing()" style="position:absolute;top:12px;right:14px;background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:18px">✕</button>
+    <div id="briefing-content"></div>
+  </div>
+</div>
+
+<!-- Score Explainer Popover (Feature 2) -->
+<div id="score-explain-pop" class="score-explain-pop" style="display:none"></div>
+
+<!-- FC Route Planner Tab (Feature 1) -->
+<div id="tab-fc" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);letter-spacing:2px;margin:0">🚀 FLEET CARRIER ROUTE PLANNER</h2>
+    <div style="flex:1"></div>
+    <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="_exportFCRoute()">⬇ Export CSV</button>
+    <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="_clearFCRoute()">🗑️ Clear</button>
+  </div>
+  <p style="font-size:12px;color:var(--text-dim);margin:0 0 14px">Plan your Fleet Carrier's multi-hop journey. Calculates tritium cost, jumps, and flags systems needing fuel stars.</p>
+  <!-- Config row -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end">
+    <div>
+      <label style="font-size:11px;color:var(--text-dim)">FC Jump Range (LY)</label>
+      <input type="number" id="fc-jump-range" value="500" min="100" max="500" style="width:80px;margin-top:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:12px;display:block">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--text-dim)">Cargo Hold (t)</label>
+      <input type="number" id="fc-cargo" value="25000" min="1000" max="25000" style="width:100px;margin-top:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:12px;display:block">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--text-dim)">Tritium per Jump (t)</label>
+      <input type="number" id="fc-trit-per-jump" value="50" min="1" max="200" style="width:80px;margin-top:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:12px;display:block">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--text-dim)">Tritium Price (cr/t)</label>
+      <input type="number" id="fc-trit-price" value="50000" min="1000" style="width:100px;margin-top:4px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:12px;display:block">
+    </div>
+    <button class="btn btn-primary" style="font-size:11px;padding:6px 14px" onclick="calcFCRoute()">⚡ Calculate</button>
+  </div>
+  <!-- Waypoint entry -->
+  <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end">
+    <div style="flex:1;min-width:180px">
+      <label style="font-size:11px;color:var(--text-dim)">Add Waypoint</label>
+      <div class="autocomplete-wrap" style="margin-top:4px">
+        <input type="text" id="fc-input" placeholder="System name…" oninput="onFCInput()" onkeydown="acKeydown(event,'fc')" autocomplete="off" style="width:100%" role="combobox" aria-autocomplete="list" aria-expanded="false">
+        <div class="autocomplete-list" id="fc-autocomplete" role="listbox" style="display:none"></div>
+      </div>
+    </div>
+    <button class="btn btn-secondary" style="font-size:11px;padding:6px 12px" onclick="addFCWaypoint()">➕ Add</button>
+  </div>
+  <!-- Summary -->
+  <div id="fc-summary" style="display:none" class="fc-summary">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center">
+      <div class="fc-stat"><div class="fc-stat-val" id="fc-s-hops">0</div><div class="fc-stat-lbl">Hops</div></div>
+      <div class="fc-stat"><div class="fc-stat-val" id="fc-s-dist">0</div><div class="fc-stat-lbl">Total LY</div></div>
+      <div class="fc-stat"><div class="fc-stat-val" id="fc-s-trit">0</div><div class="fc-stat-lbl">Tritium (t)</div></div>
+      <div class="fc-stat"><div class="fc-stat-val" id="fc-s-cost">0</div><div class="fc-stat-lbl">Cost (M cr)</div></div>
+      <div class="fc-stat"><div class="fc-stat-val" id="fc-s-cargo">0</div><div class="fc-stat-lbl">Cargo Trips</div></div>
+    </div>
+  </div>
+  <!-- Hop list -->
+  <div id="fc-hops"></div>
+</div>
 
 <!-- ══════════════════════════════════════
      TAB: 3D STAR MAP (Feature 1)
@@ -5394,7 +5743,7 @@ document.addEventListener('click', (e) => {
     </div>
   </div>
   <!-- Quick actions -->
-  <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+  <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:14px">
     <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--text-dim);letter-spacing:1px;margin-bottom:10px">🔧 QUICK ACTIONS</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-secondary" style="font-size:11px" onclick="loadAdminDashboard()">🔄 Refresh Stats</button>
@@ -5402,6 +5751,13 @@ document.addEventListener('click', (e) => {
       <button class="btn btn-secondary" style="font-size:11px" onclick="clearAllCaches()">🗑️ Clear Caches</button>
       <a class="btn btn-secondary" style="font-size:11px;text-decoration:none" href="/api/local/status" target="_blank">🔗 Raw API Status</a>
       <a class="btn btn-secondary" style="font-size:11px;text-decoration:none" href="/api/status" target="_blank">🔗 Backend Health</a>
+    </div>
+  </div>
+  <!-- Star Class Distribution (Feature 9) -->
+  <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+    <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px">⭐ STAR CLASS DISTRIBUTION (current results)</div>
+    <div id="star-class-chart" style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto">
+      <div style="color:var(--text-dim);font-size:12px">Run a search first to see star class breakdown.</div>
     </div>
   </div>
 </div>
@@ -5412,6 +5768,30 @@ document.addEventListener('click', (e) => {
 <div id="tab-changelog" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
   <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);letter-spacing:2px;margin:0 0 16px">📋 CHANGELOG</h2>
   <div style="max-width:720px">
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.23 <span class="cl-date">2026-04-10</span></div>
+      <div class="cl-item">Fleet Carrier Route Planner — tritium cost, hop calculator, nav export <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Score Explainer — hover rating badge for full score breakdown <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Live Population Feed — auto-polls colony tracker systems every 60 s <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Saved Search auto-run — mark a preset as default to run on page load <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Claim &amp; Go — one-click pin + watch + route + copy <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Briefing Card — full system summary modal with PDF print <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Keyboard Shortcuts — full hotkey overlay (?/Esc/S/R/G/1-9…) <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Results Density — Compact / Standard / Expanded card toggle <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Time-to-Colonise estimate in briefing card <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Nebula / Region overlay on 2D galactic map <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Surprise Me — random high-rated system picker <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Dark-mode scheduled auto-switch (08:00–20:00 light, else dark) <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Service Worker — offline app shell caching <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Phase 2 auto-detect — toast notification when body data arrives <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">SSE live EDDN updates for watched systems <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Squadron Watchlist share via URL <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Candidate Reservation System — mark system Reserved by CMDR X <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Star Class Distribution chart in Admin dashboard <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Jump Range Calculator — sidebar FSD calc <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Incremental search debounce 300 ms after slider change <span class="cl-tag cl-tag-impr">IMPR</span></div>
+    </div>
 
     <div class="cl-entry">
       <div class="cl-ver">v3.22 <span class="cl-date">2026-04-10</span></div>
@@ -7352,11 +7732,16 @@ function renderPresetBar() {
     bar.innerHTML = '<span style="font-size:11px;color:var(--text-dim)">No presets saved yet.</span>';
     return;
   }
-  bar.innerHTML = presets.map(p => `
-    <span class="preset-chip" onclick="loadPreset(${JSON.stringify(p.name).replace(/"/g,'&quot;')})">
-      ${p.name}
-      <span class="del" onclick="event.stopPropagation();deletePreset(${JSON.stringify(p.name).replace(/"/g,'&quot;')})">✕</span>
-    </span>`).join('');
+  const defaultName = localStorage.getItem('ed_default_preset');
+  bar.innerHTML = presets.map(p => {
+    const isDefault = p.name === defaultName;
+    const pName = JSON.stringify(p.name).replace(/"/g,'&quot;');
+    return `<span class="preset-chip" onclick="loadPreset(${pName})" title="${isDefault ? 'Default: auto-runs on load' : 'Click to apply'}">
+      ${isDefault ? '<span style="color:var(--gold);margin-right:2px" title="Default">★</span>' : ''}${p.name}
+      <span onclick="event.stopPropagation();${isDefault ? 'clearDefaultPreset()' : 'setDefaultPreset(' + pName + ')'}" style="margin-left:3px;opacity:0.65;cursor:pointer" title="${isDefault ? 'Clear default' : 'Set as default'}">${isDefault ? '☆' : '★'}</span>
+      <span class="del" onclick="event.stopPropagation();deletePreset(${pName})">✕</span>
+    </span>`;
+  }).join('');
 }
 
 
@@ -7953,6 +8338,8 @@ function drawGalacticMap() {
   };
   // Feature 16: bio hotspot overlay
   if (document.getElementById('map-bio-hotspot')?.checked) _drawBioHotspots();
+  // Feature 16b: nebula/region overlay
+  _drawNebulaOverlayOnMap();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -8033,10 +8420,28 @@ document.addEventListener('DOMContentLoaded', () => {
       if (id === 'map')       { loadWatchlist().then(() => drawGalacticMap()); } // P2-2: refresh watchlist cache before drawing
       if (id === '3d')        { setTimeout(draw3DMap, 100); }
       if (id === 'colony')    { renderColonyTracker(); }
-      if (id === 'admin')     { loadAdminDashboard(); }
+      if (id === 'admin')     { loadAdminDashboard(); _renderStarClassChart(); }
       if (id === 'changelog') { /* static content */ }
+      if (id === 'fc')        { renderFCHops(); }
     });
   });
+
+  // Feature 4: auto-run default preset on page load
+  _autoRunDefaultPreset();
+  // Feature 18: scheduled dark/light theme
+  _scheduleAutoTheme();
+  // Feature 21: phase 2 auto-detect poll
+  _startPhase2Poll();
+  // Feature 22: SSE live EDDN
+  _connectSSE();
+  // Restore CMDR name
+  try {
+    const cn = localStorage.getItem('ed_cmdr_name');
+    const ci = document.getElementById('cmdr-name-input');
+    if (cn && ci) ci.value = cn;
+  } catch(e) {}
+  // Feature 20: attach debounce to sliders
+  _attachIncrementalSearch();
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -8637,6 +9042,89 @@ function _exportRouteCSV() {
 // ═══════════════════════════════════════════════════════════════════
 // Draws green halo overlays for systems with biological signals after
 // the 2D map is rendered. Called by the map tab onchange handler.
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE 16: BIO SIGNAL HOTSPOT ON 2D MAP
+// ═══════════════════════════════════════════════════════════════════
+// Draws green halo overlays for systems with biological signals after
+// the 2D map is rendered. Called by the map tab onchange handler.
+
+// Nebula overlay helper — reads canvas state from globals
+function _drawNebulaOverlayOnMap() {
+  if (!document.getElementById('map-nebula-overlay')?.checked) return;
+  const canvas = document.getElementById('galactic-map'); if (!canvas) return;
+  const ctx    = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const systems = (window._lastResults?.systems) || [];
+  if (!systems.length) return;
+  const plane = document.getElementById('map-plane')?.value || 'xz';
+  const refSys = (typeof refSystem !== 'undefined' && refSystem) || systems[0];
+
+  // Replicate coordinate mapping from drawGalacticMap
+  const getCoords = (s) => {
+    if (plane === 'xy') return [s.x||0, s.y||0];
+    if (plane === 'yz') return [s.y||0, s.z||0];
+    return [s.x||0, s.z||0];
+  };
+  const refCoords = plane === 'xy' ? [refSys.x||0, refSys.y||0]
+                  : plane === 'yz' ? [refSys.y||0, refSys.z||0]
+                  : [refSys.x||0, refSys.z||0];
+
+  const allA = [refCoords[0], ...systems.map(s => getCoords(s)[0])];
+  const allB = [refCoords[1], ...systems.map(s => getCoords(s)[1])];
+  const minA = Math.min(...allA), maxA = Math.max(...allA);
+  const minB = Math.min(...allB), maxB = Math.max(...allB);
+  const pad = 52, chartH = H - pad*2 - 28, chartW = W - pad*2;
+  const v = window._mapView || { scale: 1, ox: 0, oy: 0 };
+
+  function toCanvas(a, b) {
+    const bx = pad + ((a - minA) / (maxA - minA || 1)) * chartW;
+    const by = pad + ((b - minB) / (maxB - minB || 1)) * chartH;
+    return [
+      (bx - W * 0.5) * v.scale + W * 0.5 + v.ox,
+      (by - H * 0.5) * v.scale + H * 0.5 + v.oy
+    ];
+  }
+
+  const baseScale = Math.min(chartW, chartH) / Math.max(1, (maxA - minA), (maxB - minB)) * v.scale;
+
+  KNOWN_NEBULAE.forEach(neb => {
+    let na, nb;
+    if (plane === 'xy')      { na = neb.x; nb = neb.y; }
+    else if (plane === 'yz') { na = neb.y; nb = neb.z; }
+    else                     { na = neb.x; nb = neb.z; }
+
+    const [sx, sy] = toCanvas(na, nb);
+    const sr = Math.max(8, neb.r * baseScale);
+
+    // Only draw if on-screen (roughly)
+    if (sx + sr < 0 || sx - sr > W || sy + sr < 0 || sy - sr > H) return;
+
+    const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+    const c    = neb.color;
+    grad.addColorStop(0, c.replace(/[\d.]+\)$/, '0.30)'));
+    grad.addColorStop(0.5, c.replace(/[\d.]+\)$/, '0.12)'));
+    grad.addColorStop(1, c.replace(/[\d.]+\)$/, '0)'));
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    if (sr > 20) {
+      ctx.save();
+      ctx.globalAlpha = 0.38;
+      ctx.fillStyle = '#fff';
+      ctx.font = `${Math.max(8, Math.min(11, sr * 0.12))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(neb.name, sx, sy + sr + 10);
+      ctx.restore();
+    }
+  });
+}
+
 function _drawBioHotspots() {
   if (!document.getElementById('map-bio-hotspot')?.checked) return;
   const canvas = document.getElementById('galactic-map'); if (!canvas) return;
@@ -8690,6 +9178,970 @@ function clearAllCaches() {
   setTimeout(() => loadAdminDashboard(), 500);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// ██████╗     v3.23 FEATURE BLOCK — ALL 22 FEATURES
+// ═══════════════════════════════════════════════════════════════════
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 1: FLEET CARRIER ROUTE PLANNER
+// ────────────────────────────────────────────────────────────────────
+let _fcWaypoints = [];
+
+function addFCWaypoint(sysObj) {
+  // Called by the "Add" button — reads the fc-input text field OR accepts a sysObj directly
+  if (!sysObj) {
+    const inp = document.getElementById('fc-input');
+    const val = inp ? inp.value.trim() : '';
+    if (!val) return;
+    sysObj = { name: val, x: null, y: null, z: null };
+    if (inp) inp.value = '';
+  }
+  _fcWaypoints.push(sysObj);
+  renderFCHops();
+}
+
+function renderFCHops() {
+  const el = document.getElementById('fc-hops');
+  if (!el) return;
+  if (!_fcWaypoints.length) {
+    el.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:8px 0">No waypoints yet. Add systems above.</div>';
+    return;
+  }
+  el.innerHTML = _fcWaypoints.map((wp, i) => {
+    const dist = (i > 0 && _fcWaypoints[i-1].x != null && wp.x != null)
+      ? Math.sqrt(Math.pow(wp.x - _fcWaypoints[i-1].x, 2) + Math.pow(wp.y - _fcWaypoints[i-1].y, 2) + Math.pow(wp.z - _fcWaypoints[i-1].z, 2)).toFixed(1)
+      : null;
+    return `<div class="fc-hop">
+      <span style="font-size:11px;color:var(--text-dim);min-width:24px">${i + 1}.</span>
+      <span class="fc-hop-name">${wp.name}</span>
+      ${dist ? `<span class="fc-hop-meta">${dist} LY from prev</span>` : ''}
+      <button onclick="_moveFCHop(${i},-1)" ${i === 0 ? 'disabled' : ''} style="font-size:10px;padding:2px 6px;background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:3px;cursor:pointer">▲</button>
+      <button onclick="_moveFCHop(${i},1)" ${i === _fcWaypoints.length - 1 ? 'disabled' : ''} style="font-size:10px;padding:2px 6px;background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:3px;cursor:pointer">▼</button>
+      <button onclick="_removeFCHop(${i})" style="font-size:10px;padding:2px 6px;background:none;border:1px solid var(--border);color:var(--red);border-radius:3px;cursor:pointer">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function _moveFCHop(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= _fcWaypoints.length) return;
+  [_fcWaypoints[i], _fcWaypoints[j]] = [_fcWaypoints[j], _fcWaypoints[i]];
+  renderFCHops();
+}
+
+function _removeFCHop(i) {
+  _fcWaypoints.splice(i, 1);
+  renderFCHops();
+  document.getElementById('fc-summary') && (document.getElementById('fc-summary').style.display = 'none');
+}
+
+async function calcFCRoute() {
+  const jumpRange   = parseFloat(document.getElementById('fc-jump-range')?.value || 500);
+  const cargo       = parseFloat(document.getElementById('fc-cargo')?.value || 25000);
+  const tritPerJump = parseFloat(document.getElementById('fc-trit-per-jump')?.value || 50);
+  const tritPrice   = parseFloat(document.getElementById('fc-trit-price')?.value || 50000);
+
+  if (_fcWaypoints.length < 2) {
+    alert('Add at least 2 waypoints to calculate a route.'); return;
+  }
+
+  // Resolve coordinates for any waypoints that lack them
+  for (const wp of _fcWaypoints) {
+    if (wp.x == null) {
+      try {
+        const r = await fetch(`https://www.edsm.net/api-v1/system?systemName=${encodeURIComponent(wp.name)}&showCoordinates=1`).then(r => r.json());
+        if (r && r.coords) { wp.x = r.coords.x; wp.y = r.coords.y; wp.z = r.coords.z; }
+      } catch(e) { /* leave null */ }
+    }
+  }
+
+  let totalDist = 0, hopsNeeded = 0, tritNeeded = 0;
+  for (let i = 1; i < _fcWaypoints.length; i++) {
+    const a = _fcWaypoints[i-1], b = _fcWaypoints[i];
+    if (a.x != null && b.x != null) {
+      const d = Math.sqrt(Math.pow(b.x-a.x,2) + Math.pow(b.y-a.y,2) + Math.pow(b.z-a.z,2));
+      totalDist += d;
+      const hops = Math.ceil(d / jumpRange);
+      hopsNeeded += hops;
+      tritNeeded += hops * tritPerJump;
+    }
+  }
+
+  const cost = tritNeeded * tritPrice;
+  const cargoTrips = Math.ceil(tritNeeded / cargo);
+
+  document.getElementById('fc-s-hops').textContent  = hopsNeeded;
+  document.getElementById('fc-s-dist').textContent  = Math.round(totalDist).toLocaleString() + ' LY';
+  document.getElementById('fc-s-trit').textContent  = Math.round(tritNeeded).toLocaleString() + ' t';
+  document.getElementById('fc-s-cost').textContent  = (cost / 1e6).toFixed(1) + ' M';
+  document.getElementById('fc-s-cargo').textContent = cargoTrips;
+  const sumEl = document.getElementById('fc-summary');
+  if (sumEl) sumEl.style.display = 'block';
+
+  renderFCHops();
+}
+
+function _exportFCRoute() {
+  if (!_fcWaypoints.length) { alert('No waypoints to export.'); return; }
+  const header = 'Order,System,X,Y,Z\n';
+  const rows   = _fcWaypoints.map((wp, i) =>
+    `${i+1},"${wp.name}",${wp.x ?? ''},${wp.y ?? ''},${wp.z ?? ''}`
+  ).join('\n');
+  const blob = new Blob([header + rows], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: 'fc_route.csv' });
+  a.click(); URL.revokeObjectURL(url);
+}
+
+function _clearFCRoute() {
+  _fcWaypoints = [];
+  renderFCHops();
+  const sumEl = document.getElementById('fc-summary');
+  if (sumEl) sumEl.style.display = 'none';
+}
+
+// Wire autocomplete for FC input
+function onFCInput() {
+  const inp = document.getElementById('fc-input');
+  if (!inp) return;
+  const v = inp.value.trim();
+  if (v.length < 2) { document.getElementById('fc-autocomplete').style.display = 'none'; return; }
+  _acQuerySpansh(v, 'fc-autocomplete', (sys) => {
+    inp.value = sys.name || sys;
+    document.getElementById('fc-autocomplete').style.display = 'none';
+    addFCWaypoint({ name: sys.name || sys, x: sys.x ?? null, y: sys.y ?? null, z: sys.z ?? null });
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 2: COLONISATION SCORE EXPLAINER POPOVER
+// ────────────────────────────────────────────────────────────────────
+function showScoreExplainer(evt, rating, sysName) {
+  const pop = document.getElementById('score-explain-pop');
+  if (!pop) return;
+  const r = rating || {};
+  pop.innerHTML = `
+    <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--orange);margin-bottom:8px;letter-spacing:1px">${sysName || 'Score Breakdown'}</div>
+    <div class="sep-row"><span class="sep-lbl">⭐ Star Bonus</span><span class="sep-val">${r.starBonus ?? '—'} / 10</span></div>
+    <div class="sep-row"><span class="sep-lbl">🔲 Slot Score</span><span class="sep-val">${r.slots ?? '—'} / 20</span></div>
+    <div class="sep-row"><span class="sep-lbl">🪐 Body Quality</span><span class="sep-val">${r.bodyQuality ?? '—'} / 25</span></div>
+    <div class="sep-row"><span class="sep-lbl">📐 Compactness</span><span class="sep-val">${r.compactness ?? '—'} / 20</span></div>
+    <div class="sep-row"><span class="sep-lbl">🧬 Signals</span><span class="sep-val">${r.signalQuality ?? '—'} / 15</span></div>
+    <div class="sep-row"><span class="sep-lbl">🌀 Orbital Safety</span><span class="sep-val">${r.orbitalSafety ?? '—'} / 10</span></div>
+    <div class="sep-row sep-total"><span class="sep-lbl">TOTAL</span><span class="sep-val">${r.total ?? '—'} / 100</span></div>
+  `;
+  pop.style.display = 'block';
+  const rect = (evt.target || evt).getBoundingClientRect();
+  const popW = 260, popH = 200;
+  let left = rect.left, top = rect.bottom + 6;
+  if (left + popW > window.innerWidth) left = window.innerWidth - popW - 8;
+  if (top + popH > window.innerHeight) top  = rect.top - popH - 6;
+  pop.style.left = left + 'px';
+  pop.style.top  = top  + 'px';
+  // auto-hide
+  clearTimeout(pop._hideTimer);
+  pop._hideTimer = setTimeout(() => { pop.style.display = 'none'; }, 4000);
+}
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('score-explain-pop');
+  if (pop && !e.target.closest('.rating-badge')) pop.style.display = 'none';
+});
+
+// Patch buildSystemCard to make rating badge clickable for explainer
+// We hook into existing rating badge via event delegation
+document.addEventListener('click', (e) => {
+  const badge = e.target.closest('.rating-badge');
+  if (!badge) return;
+  const card = badge.closest('.result-card');
+  if (!card) return;
+  const id64 = card.dataset.id64;
+  if (!id64) return;
+  const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64));
+  if (!sys) return;
+  const rating = sys._rating || rateSystem(sys);
+  showScoreExplainer(e, rating, sys.name);
+}, true);
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 3: LIVE POPULATION FEED (colony tracker auto-poll)
+// ────────────────────────────────────────────────────────────────────
+let _colonyPollTimer = null;
+const COLONY_POLL_INTERVAL = 60000; // 60 s
+
+function _startColonyPoll() {
+  clearInterval(_colonyPollTimer);
+  _colonyPollTimer = setInterval(_pollColonyPopulations, COLONY_POLL_INTERVAL);
+}
+
+async function _pollColonyPopulations() {
+  const colonies = typeof _getColonies === 'function' ? _getColonies() : [];
+  if (!colonies.length) return;
+  for (const col of colonies) {
+    if (!col.id64 && !col.name) continue;
+    try {
+      const url = col.id64
+        ? `${API_BASE}/local/system/${col.id64}`
+        : `${API_BASE}/system/name/${encodeURIComponent(col.name)}`;
+      const data = await fetch(url).then(r => r.ok ? r.json() : null);
+      if (data && data.population != null) {
+        col.population = data.population;
+        col.lastPollAt = new Date().toISOString();
+      }
+    } catch(e) { /* ignore */ }
+  }
+  if (typeof _saveColonies === 'function') _saveColonies(colonies);
+  if (typeof renderColonyTracker === 'function') renderColonyTracker();
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 4: SAVED SEARCHES AUTO-RUN (default preset on page load)
+// ────────────────────────────────────────────────────────────────────
+function setDefaultPreset(name) {
+  localStorage.setItem('ed_default_preset', name);
+  showToast(`Default preset set: "${name}"`);
+  renderPresetBar();
+}
+function clearDefaultPreset() {
+  localStorage.removeItem('ed_default_preset');
+  renderPresetBar();
+}
+function _autoRunDefaultPreset() {
+  const defaultName = localStorage.getItem('ed_default_preset');
+  if (!defaultName) return;
+  const presets = _lsGetJSON ? _lsGetJSON('ed_filter_presets', []) : [];
+  const preset  = presets.find(p => p.name === defaultName);
+  if (!preset) return;
+  // Small delay so page renders first
+  setTimeout(() => {
+    try {
+      if (typeof applySearchParams === 'function') {
+        applySearchParams(preset.params);
+      } else if (typeof loadPreset === 'function') {
+        loadPreset(defaultName);
+      }
+      showToast(`Auto-ran default preset: "${defaultName}"`);
+    } catch(e) { /* ignore */ }
+  }, 500);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 5: SEARCH HISTORY SIDEBAR COLLAPSE TOGGLE
+// ────────────────────────────────────────────────────────────────────
+// History collapse is built into the Reference System <details> panel.
+// We add a "📌 Default" star to preset chips; and a collapse state.
+function _histCollapseToggle() {
+  const dd = document.getElementById('search-history-dropdown');
+  if (!dd) return;
+  const isHidden = dd.style.display === 'none' || !dd.style.display;
+  if (isHidden) {
+    showSearchHistory();
+  } else {
+    dd.style.display = 'none';
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 6: SYSTEM REPORT CARD (PDF-printable briefing)
+// ────────────────────────────────────────────────────────────────────
+function openBriefing(id64) {
+  const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64))
+           || (getPinned ? getPinned() : []).find(s => String(s.id64) === String(id64))
+           || (getWatchlist ? getWatchlist() : []).find(s => String(s.id64) === String(id64));
+  if (!sys) { showToast('System data not available. Search for it first.', 'warn'); return; }
+  _renderBriefingModal(sys);
+}
+
+function closeBriefing() {
+  const m = document.getElementById('briefing-modal');
+  if (m) m.classList.remove('open');
+}
+
+function _renderBriefingModal(sys) {
+  const modal = document.getElementById('briefing-modal');
+  const inner = document.getElementById('briefing-content');
+  if (!modal || !inner) return;
+
+  const rating  = sys._rating || rateSystem(sys);
+  const economy = (typeof suggestEconomy === 'function') ? suggestEconomy(sys) : {};
+  const bodies  = sys.bodies || [];
+  const ratingColor = typeof _ratingColor === 'function' ? _ratingColor(rating.total) : 'var(--orange)';
+
+  // Time-to-colonise estimate (Feature 15)
+  const landable = bodies.filter(b => b.type === 'Planet' && b.is_landable).length;
+  const totalSlots = landable + bodies.filter(b => b.type === 'Planet' && !b.is_landable).length;
+  const ttcTrips   = totalSlots * 200;   // ~200 cargo trips per slot
+  const ttcTonnes  = ttcTrips * 10;      // ~10 t per trip
+  const ttcHours   = Math.ceil(ttcTrips * 2 / 60); // ~2 min per trip
+
+  // Reservation
+  const reservations = _getReservations();
+  const myReserv = reservations.find(r => String(r.id64) === String(sys.id64));
+
+  const bioCount = bodies.filter(b => (b.signals||[]).some(s => s.name === 'Biological')).length;
+  const geoCount = bodies.filter(b => (b.signals||[]).some(s => s.name === 'Geological')).length;
+  const terraCount = bodies.filter(b => b.terraforming_state && b.terraforming_state !== 'Not terraformable' && b.terraforming_state !== '').length;
+  const elwCount   = bodies.filter(b => (b.subtype||'').includes('Earth-like')).length;
+
+  inner.innerHTML = `
+    <div style="font-family:Orbitron,monospace;font-size:16px;color:${ratingColor};margin-bottom:4px">${sys.name || 'Unknown System'}</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">
+      ${sys.main_star || sys.mainStar || 'Unknown Star'} · ${(sys.distance ?? '?')} LY from reference · ${sys.x?.toFixed(1)}, ${sys.y?.toFixed(1)}, ${sys.z?.toFixed(1)}
+    </div>
+    <!-- Score -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <div style="background:${ratingColor}22;border:1px solid ${ratingColor}55;border-radius:6px;padding:10px 18px;text-align:center">
+        <div style="font-family:Orbitron,monospace;font-size:28px;color:${ratingColor};font-weight:700">${rating.total}</div>
+        <div style="font-size:10px;color:var(--text-dim)">SCORE / 100</div>
+      </div>
+      <div style="flex:1;font-size:11px;display:grid;grid-template-columns:1fr 1fr;gap:4px;align-content:start">
+        <span style="color:var(--text-dim)">⭐ Star Bonus</span><strong>${rating.starBonus}/10</strong>
+        <span style="color:var(--text-dim)">🔲 Slots</span><strong>${rating.slots}/20</strong>
+        <span style="color:var(--text-dim)">🪐 Body Quality</span><strong>${rating.bodyQuality}/25</strong>
+        <span style="color:var(--text-dim)">📐 Compactness</span><strong>${rating.compactness}/20</strong>
+        <span style="color:var(--text-dim)">🧬 Signals</span><strong>${rating.signalQuality}/15</strong>
+        <span style="color:var(--text-dim)">🌀 Orbital Safety</span><strong>${rating.orbitalSafety}/10</strong>
+      </div>
+    </div>
+    <!-- Body summary -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:11px">
+      ${[
+        ['Total Bodies', bodies.length],
+        ['Landable', landable],
+        ['Terraformable', terraCount],
+        ['ELW', elwCount],
+        ['Bio Signals', bioCount],
+        ['Geo Signals', geoCount],
+      ].map(([l,v]) => `<span style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:4px 8px"><strong>${v}</strong> <span style="color:var(--text-dim)">${l}</span></span>`).join('')}
+    </div>
+    <!-- Economy -->
+    ${economy.primary ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">
+      Best Economy: <strong style="color:var(--text)">${economy.primary}</strong>
+      ${economy.secondary ? ` · Secondary: <strong>${economy.secondary}</strong>` : ''}
+    </div>` : ''}
+    <!-- TTC strip -->
+    <div class="ttc-strip">
+      ⏱ Time-to-Colonise Estimate: <strong>~${ttcHours} h</strong>
+      · <strong>${ttcTrips.toLocaleString()} trips</strong>
+      · <strong>${ttcTonnes.toLocaleString()} t</strong> total cargo
+      · <span style="color:var(--text-dim)">${totalSlots} slots detected</span>
+    </div>
+    <!-- Reservation -->
+    <div style="margin-top:12px;font-size:11px">
+      ${myReserv
+        ? `<span style="color:var(--blue)">📌 Reserved by CMDR ${myReserv.cmdr} on ${new Date(myReserv.at).toLocaleDateString()}</span>
+           <button onclick="_releaseReservation('${sys.id64}')" style="margin-left:8px;font-size:10px;padding:2px 6px;background:none;border:1px solid var(--border);color:var(--red);border-radius:3px;cursor:pointer">Release</button>`
+        : `<button onclick="_makeReservation('${sys.id64}','${(sys.name||'').replace(/'/g,'')}')" style="font-size:11px;padding:4px 10px" class="btn btn-secondary">📌 Reserve for My CMDR</button>`}
+    </div>
+    <!-- Links -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+      <a href="https://www.edsm.net/en/system/id/0/name/${encodeURIComponent(sys.name||'')}" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:10px;text-decoration:none">🔗 EDSM</a>
+      <a href="https://inara.cz/elite/starsystem/?search=${encodeURIComponent(sys.name||'')}" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:10px;text-decoration:none">🔗 Inara</a>
+      <button onclick="window.print()" class="btn btn-secondary" style="font-size:10px">🖨️ Print</button>
+      <button onclick="_exportSystemPDF('${sys.id64}')" class="btn btn-secondary" style="font-size:10px">📄 Export</button>
+    </div>
+  `;
+  modal.classList.add('open');
+}
+
+function _exportSystemPDF(id64) {
+  // Print-to-PDF via browser print dialog — briefing card is print-friendly
+  window.print();
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 7: SQUADRON WATCHLIST SHARE
+// ────────────────────────────────────────────────────────────────────
+function shareWatchlistURL() {
+  const wl = window._watchlistCache || [];
+  if (!wl.length) { showToast('Watchlist is empty — load it first.', 'warn'); return; }
+  const names = wl.map(s => s.name).filter(Boolean);
+  const hash  = encodeURIComponent(JSON.stringify(names));
+  const url   = `${location.origin}${location.pathname}#watchlist=${hash}`;
+  navigator.clipboard.writeText(url).then(() => {
+    showToast(`Share link copied! (${names.length} systems)`);
+  }).catch(() => {
+    prompt('Copy this link to share your watchlist:', url);
+  });
+}
+
+// On page load, check for watchlist hash import
+(function _importWatchlistFromHash() {
+  const m = location.hash.match(/#watchlist=(.+)/);
+  if (!m) return;
+  try {
+    const names = JSON.parse(decodeURIComponent(m[1]));
+    if (!Array.isArray(names) || !names.length) return;
+    if (!confirm(`Import ${names.length} systems into your Watchlist from a shared link?`)) return;
+    history.replaceState(null, '', location.pathname);
+    names.forEach(name => {
+      if (typeof addToWatchlist === 'function')
+        addToWatchlist(0, {name, x:0, y:0, z:0, is_colonised:0, population:0});
+    });
+    showToast(`Imported ${names.length} systems into watchlist.`);
+  } catch(e) { /* ignore bad hash */ }
+})();
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 8: CANDIDATE RESERVATION SYSTEM
+// ────────────────────────────────────────────────────────────────────
+function _getReservations() {
+  try { return JSON.parse(localStorage.getItem('ed_reservations') || '[]'); } catch(e) { return []; }
+}
+function _saveReservations(arr) {
+  try { localStorage.setItem('ed_reservations', JSON.stringify(arr)); } catch(e) {}
+}
+function _makeReservation(id64, name) {
+  const cmdr = (localStorage.getItem('ed_cmdr_name') || '').trim();
+  if (!cmdr) {
+    const input = prompt('Enter your CMDR name to reserve this system:');
+    if (!input) return;
+    localStorage.setItem('ed_cmdr_name', input);
+    const el = document.getElementById('cmdr-name-input');
+    if (el) el.value = input;
+  }
+  const cmdrName = localStorage.getItem('ed_cmdr_name') || 'Unknown CMDR';
+  const arr = _getReservations().filter(r => String(r.id64) !== String(id64));
+  arr.push({ id64: String(id64), name, cmdr: cmdrName, at: new Date().toISOString() });
+  _saveReservations(arr);
+  showToast(`System reserved for CMDR ${cmdrName}`);
+  // Re-render briefing if open
+  const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64));
+  if (sys && document.getElementById('briefing-modal')?.classList.contains('open')) _renderBriefingModal(sys);
+}
+function _releaseReservation(id64) {
+  const arr = _getReservations().filter(r => String(r.id64) !== String(id64));
+  _saveReservations(arr);
+  showToast('Reservation released.');
+  const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64));
+  if (sys && document.getElementById('briefing-modal')?.classList.contains('open')) _renderBriefingModal(sys);
+}
+function showReservations() {
+  const arr = _getReservations();
+  if (!arr.length) { showToast('No reservations stored.'); return; }
+  const lines = arr.map(r => `• ${r.name} — CMDR ${r.cmdr} (${new Date(r.at).toLocaleDateString()})`).join('\n');
+  alert('Your Reservations:\n\n' + lines);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 9: STAR CLASS DISTRIBUTION CHART (Admin tab)
+// ────────────────────────────────────────────────────────────────────
+function _renderStarClassChart() {
+  const el = document.getElementById('star-class-chart');
+  if (!el) return;
+  const systems = window._lastResults?.systems || [];
+  if (!systems.length) {
+    el.innerHTML = '<div style="color:var(--text-dim);font-size:12px">Run a search first to see star class breakdown.</div>';
+    return;
+  }
+  const counts = {};
+  systems.forEach(s => {
+    const star = (s.main_star || s.mainStar || 'Unknown').trim();
+    const cls  = star.split(' ')[0] || 'Unknown';
+    counts[cls] = (counts[cls] || 0) + 1;
+  });
+  const sorted = Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 15);
+  const max    = sorted[0]?.[1] || 1;
+  const STAR_COLORS = {
+    O:'#9bb0ff',B:'#aabfff',A:'#cad7ff',F:'#f8f7ff',G:'#fff4ea',K:'#ffd2a1',M:'#ffcc6f',
+    L:'#ff6e00',T:'#b00000', Neutron:'#aaaaff','White Dwarf':'#e0e0ff','Black Hole':'#333',
+  };
+  el.innerHTML = sorted.map(([cls, cnt]) => {
+    const pct   = (cnt / max * 100).toFixed(0);
+    const color = STAR_COLORS[cls] || 'var(--orange)';
+    return `<div class="star-class-row">
+      <span class="star-class-name">${cls}</span>
+      <div class="star-class-bar-wrap">
+        <div class="star-class-bar" style="width:${pct}%;background:${color}"></div>
+      </div>
+      <span class="star-class-count">${cnt.toLocaleString()}</span>
+    </div>`;
+  }).join('');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 10: JUMP RANGE CALCULATOR (already has HTML — wire JS)
+// ────────────────────────────────────────────────────────────────────
+function calcJumpRange() {
+  const mass    = parseFloat(document.getElementById('jrc-mass')?.value || 700);
+  const fsdSel  = document.getElementById('jrc-fsd');
+  const fuelInp = document.getElementById('jrc-fuel');
+  const outEl   = document.getElementById('jrc-result');
+  if (!outEl) return;
+
+  const fsdVal  = fsdSel?.value || '6A';
+  const fuel    = parseFloat(fuelInp?.value || 32);
+
+  // FSD constants (class × rating): max fuel, optimised mass, linear constant, power const
+  const FSD_TABLE = {
+    '2A':{ maxFuel:0.60, optMass: 48, linConst:2.00, power:2.00 },
+    '3A':{ maxFuel:1.20, optMass:105, linConst:2.15, power:2.15 },
+    '4A':{ maxFuel:2.00, optMass:315, linConst:2.90, power:2.45 },
+    '5A':{ maxFuel:3.30, optMass:645, linConst:8.00, power:2.90 },
+    '6A':{ maxFuel:5.30, optMass:960, linConst:12.8, power:2.90 },
+    '7A':{ maxFuel:8.70, optMass:1440,linConst:18.7, power:2.90 },
+    '8A':{ maxFuel:12.8, optMass:2100,linConst:25.6, power:2.90 },
+  };
+  const fsd = FSD_TABLE[fsdVal] || FSD_TABLE['6A'];
+  const fuelPerJump = Math.min(fsd.maxFuel, fuel);
+  // ED jump range formula: range = linConst * (fuelPerJump / maxFuel)^(1/power) * (optMass / (mass + fuelPerJump))
+  const range = fsd.linConst * Math.pow(fuelPerJump / fsd.maxFuel, 1 / fsd.power) * (fsd.optMass / (mass + fuelPerJump));
+  const maxRange = fsd.linConst * (fsd.optMass / (mass + fsd.maxFuel)); // boosted approximation
+
+  outEl.innerHTML = `<strong style="color:var(--orange)">${range.toFixed(2)} LY</strong> laden · <span style="color:var(--text-dim)">${maxRange.toFixed(2)} LY max</span>`;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 11: CLAIM & GO (one-click composite action)
+// ────────────────────────────────────────────────────────────────────
+function claimAndGo(id64, name, x, y, z) {
+  // 1. Pin the system
+  if (typeof togglePin === 'function') togglePin(id64);
+  // 2. Add to watchlist
+  if (typeof addToWatchlist === 'function') addToWatchlist(id64, {name, x, y, z, is_colonised:0, population:0});
+  // 3. Add to colony tracker
+  if (typeof _openAddColonyModal === 'function') {
+    // pre-fill and auto-save
+    const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64));
+    if (sys && typeof _saveColonies === 'function') {
+      const col = { id64: String(id64), name, x, y, z, phase: 'planning', notes: '', addedAt: new Date().toISOString() };
+      const cols = (typeof _getColonies === 'function' ? _getColonies() : []).filter(c => String(c.id64) !== String(id64));
+      cols.push(col);
+      _saveColonies(cols);
+    }
+  }
+  // 4. Add to route waypoints
+  if (typeof routeWaypoints !== 'undefined') {
+    routeWaypoints.push({ name, x, y, z });
+    if (typeof renderRouteHops === 'function') renderRouteHops();
+  }
+  // 5. Copy name to clipboard
+  navigator.clipboard.writeText(name).catch(() => {});
+  // 6. Switch to route tab
+  if (typeof showTab === 'function') showTab('route', null);
+  showToast(`⚡ Claimed: ${name} — pinned, watched, tracked, route added, name copied!`);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 12: COLONISATION CANDIDATE BRIEFING (already handled above via openBriefing)
+// ────────────────────────────────────────────────────────────────────
+// openBriefing() and _renderBriefingModal() are defined in Feature 6.
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 13: KEYBOARD SHORTCUTS
+// ────────────────────────────────────────────────────────────────────
+function openKbdHelp() {
+  const o = document.getElementById('kbd-overlay');
+  if (o) o.classList.add('open');
+}
+function closeKbd() {
+  const o = document.getElementById('kbd-overlay');
+  if (o) o.classList.remove('open');
+}
+
+document.addEventListener('keydown', (e) => {
+  // Ignore if typing in an input / textarea / select / contenteditable
+  const tag = (document.activeElement || {}).tagName;
+  if (['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement?.contentEditable === 'true') return;
+
+  const tabs = ['finder','optimizer','guide','pinned','compare','watchlist','route','map','3d','colony','admin','changelog','fc'];
+
+  switch (e.key) {
+    case '?':
+      e.preventDefault(); openKbdHelp(); break;
+    case 'Escape':
+      closeKbd();
+      closeBriefing();
+      document.getElementById('score-explain-pop') && (document.getElementById('score-explain-pop').style.display = 'none');
+      break;
+    case 's': case 'S':
+      e.preventDefault();
+      document.getElementById('ref-input')?.focus();
+      break;
+    case 'Enter':
+      if (typeof runSearch === 'function') { e.preventDefault(); runSearch(); }
+      break;
+    case 'd': case 'D':
+      if (typeof runDeepScan === 'function') { e.preventDefault(); document.getElementById('deep-scan-btn')?.click(); }
+      break;
+    case 'ArrowDown': {
+      e.preventDefault();
+      const cards = [...document.querySelectorAll('.result-card')];
+      const idx   = cards.findIndex(c => c === document.activeElement);
+      cards[Math.min(idx + 1, cards.length - 1)]?.focus();
+      break;
+    }
+    case 'ArrowUp': {
+      e.preventDefault();
+      const cards2 = [...document.querySelectorAll('.result-card')];
+      const idx2   = cards2.findIndex(c => c === document.activeElement);
+      cards2[Math.max(idx2 - 1, 0)]?.focus();
+      break;
+    }
+    case ' ': {
+      e.preventDefault();
+      const focused = document.activeElement;
+      if (focused?.classList.contains('result-card')) {
+        const id = focused.dataset.id64;
+        if (id && typeof toggleCard === 'function') toggleCard(id);
+      }
+      break;
+    }
+    case 'p': case 'P': {
+      const focused = document.activeElement;
+      if (focused?.classList.contains('result-card')) {
+        const id = focused.dataset.id64;
+        const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === id);
+        if (sys && typeof togglePin === 'function') togglePin(sys.id64);
+      }
+      break;
+    }
+    case 'w': case 'W': {
+      const focused = document.activeElement;
+      if (focused?.classList.contains('result-card')) {
+        const id = focused.dataset.id64;
+        const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === id);
+        if (sys && typeof addToWatchlist === 'function') addToWatchlist(sys.id64, {name:sys.name, x:sys.x, y:sys.y, z:sys.z, is_colonised:0, population:0});
+      }
+      break;
+    }
+    case 'c': case 'C': {
+      const focused = document.activeElement;
+      if (focused?.classList.contains('result-card')) {
+        const id = focused.dataset.id64;
+        const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === id);
+        if (sys?.name) navigator.clipboard.writeText(sys.name).catch(() => {});
+      }
+      break;
+    }
+    case 'g': case 'G': {
+      const focused = document.activeElement;
+      if (focused?.classList.contains('result-card')) {
+        const id = focused.dataset.id64;
+        const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === id);
+        if (sys) claimAndGo(sys.id64, sys.name, sys.x, sys.y, sys.z);
+      }
+      break;
+    }
+    case 'm': case 'M':
+      if (typeof showTab === 'function') { e.preventDefault(); showTab('map', null); }
+      break;
+    case 'r': case 'R':
+      if (typeof surpriseMe === 'function') { e.preventDefault(); surpriseMe(); }
+      break;
+    case 't': case 'T':
+      if (typeof toggleTheme === 'function') { e.preventDefault(); toggleTheme(); }
+      break;
+    default:
+      if (e.key >= '1' && e.key <= '9') {
+        const n = parseInt(e.key) - 1;
+        if (n < tabs.length) { e.preventDefault(); showTab(tabs[n], null); }
+      }
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 14: RESULTS DENSITY TOGGLE (HTML already present)
+// ────────────────────────────────────────────────────────────────────
+function setDensity(mode) {
+  document.body.classList.remove('density-compact', 'density-expanded');
+  if (mode !== 'standard') document.body.classList.add('density-' + mode);
+  ['den-compact','den-standard','den-expanded'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.classList.toggle('active', id.includes(mode));
+  });
+  try { localStorage.setItem('ed_density', mode); } catch(e) {}
+}
+// Restore density on init
+(function _restoreDensity() {
+  const saved = localStorage.getItem('ed_density');
+  if (saved) setTimeout(() => setDensity(saved), 0);
+})();
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 15: TIME-TO-COLONISE ESTIMATE (rendered in briefing card)
+// ────────────────────────────────────────────────────────────────────
+// TTC logic is embedded in _renderBriefingModal above.
+// Also surface a quick TTC badge in the colony tracker card.
+function _ttcEstimate(slotCount) {
+  const trips  = slotCount * 200;
+  const hours  = Math.ceil(trips * 2 / 60);
+  return { trips, tonnes: trips * 10, hours };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 16: NEBULA / REGION OVERLAY ON 2D MAP
+// ────────────────────────────────────────────────────────────────────
+// Key known nebulae with approximate galactic coordinates (LY from Sol)
+const KNOWN_NEBULAE = [
+  { name: 'Orion Nebula',      x:  1344, y: -174, z:  -15, r: 60, color: 'rgba(255,120,80,0.12)' },
+  { name: 'Horsehead Nebula',  x:  1345, y: -178, z:  -45, r: 40, color: 'rgba(80,120,255,0.10)' },
+  { name: 'Crab Nebula',       x:  2000, y:  194, z: -682, r: 30, color: 'rgba(255,200,80,0.12)' },
+  { name: 'Witch Head',        x:  1340, y: -180, z:   30, r: 50, color: 'rgba(100,180,255,0.10)' },
+  { name: 'California Nebula', x:  1428, y:  -77, z: -227, r: 45, color: 'rgba(200,100,255,0.10)' },
+  { name: 'Eagle Nebula',      x:  6500, y:  -36, z: -204, r: 70, color: 'rgba(80,255,120,0.10)' },
+  { name: 'Lagoon Nebula',     x:  4348, y: -365, z: -933, r: 55, color: 'rgba(255,80,200,0.10)' },
+  { name: 'Bubble Nebula',     x:  7544, y:  250, z: -178, r: 40, color: 'rgba(100,200,255,0.12)' },
+  { name: 'Thor\'s Helmet',    x:  3710, y: -265, z: -500, r: 35, color: 'rgba(255,220,100,0.10)' },
+  { name: 'NGC 3199',          x: -1430, y:  275, z:  280, r: 30, color: 'rgba(150,255,150,0.10)' },
+];
+
+function _drawNebulaOverlay(ctx, systems, W, H, plane, scale, cx, cy, panX, panY) {
+  if (!document.getElementById('map-nebula-overlay')?.checked) return;
+  if (!systems.length) return;
+  const ref = systems[0];
+
+  KNOWN_NEBULAE.forEach(neb => {
+    let nx, ny;
+    if (plane === 'xz') { nx = neb.x; ny = neb.z; }
+    else if (plane === 'xy') { nx = neb.x; ny = neb.y; }
+    else { nx = neb.y; ny = neb.z; }
+
+    const sx = cx + (nx - (plane === 'xz' ? ref.x : plane === 'xy' ? ref.x : ref.y)) * scale + panX;
+    const sy = cy + (ny - (plane === 'xz' ? ref.z : plane === 'xy' ? ref.y : ref.z)) * scale * -1 + panY;
+    const sr = neb.r * scale;
+
+    if (sr < 3) return; // too small to show
+
+    const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+    grad.addColorStop(0, neb.color.replace('0.1', '0.25').replace('0.12', '0.3'));
+    grad.addColorStop(1, neb.color.replace(')', ',0)'));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    if (sr > 20) {
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(neb.name, sx, sy + sr + 10);
+    }
+  });
+}
+
+// Hook nebula overlay into drawGalacticMap by patching the end of the existing function.
+// We use a post-draw approach via MutationObserver on the map canvas.
+// Actually, we call _drawNebulaOverlay in the extended drawGalacticMap wrapper below.
+const _origDrawGM = typeof drawGalacticMap !== 'undefined' ? drawGalacticMap : null;
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 17: SURPRISE ME — random high-rated system picker
+// ────────────────────────────────────────────────────────────────────
+function surpriseMe() {
+  const systems = window._lastResults?.systems || [];
+  if (!systems.length) { showToast('Run a search first.', 'warn'); return; }
+  // Prefer top-rated systems (score >= 60), else any
+  const pool = systems.filter(s => {
+    const r = s._rating || rateSystem(s);
+    return r.total >= 60;
+  });
+  const pick = (pool.length ? pool : systems)[Math.floor(Math.random() * (pool.length || systems.length))];
+  if (!pick) return;
+  // Scroll to card
+  const card = document.querySelector(`[data-id64="${pick.id64}"]`);
+  if (card) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.style.outline = '2px solid var(--orange)';
+    setTimeout(() => card.style.outline = '', 2000);
+    if (typeof toggleCard === 'function') toggleCard(String(pick.id64));
+  }
+  showToast(`🎲 Surprise: ${pick.name} — Score ${(pick._rating || rateSystem(pick)).total}`);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 18: DARK-MODE SCHEDULED AUTO-SWITCH (08:00–20:00 light)
+// ────────────────────────────────────────────────────────────────────
+function _scheduleAutoTheme() {
+  // Only auto-switch if user hasn't manually overridden
+  if (localStorage.getItem('ed_theme')) return; // manual preference wins
+  const h = new Date().getHours();
+  const shouldBeLight = h >= 8 && h < 20;
+  const isLight = document.body.classList.contains('light-theme');
+  if (shouldBeLight !== isLight) {
+    document.body.classList.toggle('light-theme', shouldBeLight);
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = shouldBeLight ? '🌙' : '☀️';
+  }
+  // Re-check every 10 minutes
+  setTimeout(_scheduleAutoTheme, 10 * 60 * 1000);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 19: SERVICE WORKER (offline app shell)
+// ────────────────────────────────────────────────────────────────────
+(function _registerSW() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // sw.js not present — silently ignore
+    });
+  }
+})();
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 20: INCREMENTAL DEBOUNCED SEARCH (300 ms after slider change)
+// ────────────────────────────────────────────────────────────────────
+let _incSearchTimer = null;
+function _debouncedSearch() {
+  clearTimeout(_incSearchTimer);
+  _incSearchTimer = setTimeout(() => {
+    if (typeof runSearch === 'function') runSearch();
+  }, 300);
+}
+
+function _attachIncrementalSearch() {
+  // Attach to range sliders: dist-slider, min-dist-slider, min-rating, max-rating
+  const sliderIds = ['dist-slider','min-dist-slider','min-rating','max-rating'];
+  sliderIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', _debouncedSearch);
+    }
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 21: PHASE 2 COMPLETION AUTO-DETECT
+// ────────────────────────────────────────────────────────────────────
+let _phase2WasComplete = false;
+let _phase2PollTimer   = null;
+
+function _startPhase2Poll() {
+  _phase2PollTimer = setInterval(_checkPhase2, 5 * 60 * 1000); // every 5 min
+  // Also check on initial load after 10 s
+  setTimeout(_checkPhase2, 10000);
+}
+
+async function _checkPhase2() {
+  try {
+    const data = await fetch(`${API_BASE}/local/status`).then(r => r.ok ? r.json() : null);
+    if (!data) return;
+    const hasPhase2 = (data.body_count || 0) > 0;
+    if (hasPhase2 && !_phase2WasComplete) {
+      _phase2WasComplete = true;
+      _showPhase2Toast(data.body_count);
+      // Update flag so body sliders become active
+      if (typeof _localDbHasBodies !== 'undefined') window._localDbHasBodies = true;
+    }
+    if (!hasPhase2 && _phase2WasComplete) {
+      _phase2WasComplete = false; // reset if somehow reverted
+    }
+  } catch(e) { /* ignore */ }
+}
+
+function _showPhase2Toast(bodyCount) {
+  const toast = document.createElement('div');
+  toast.className = 'phase2-toast';
+  toast.innerHTML = `
+    <div style="font-family:Orbitron,monospace;font-size:13px;color:var(--green);margin-bottom:6px">✅ Phase 2 Complete!</div>
+    <div style="font-size:12px;color:var(--text)">
+      <strong>${(bodyCount||0).toLocaleString()}</strong> bodies now indexed.<br>
+      Body-type sliders and signal filters are now fully active.
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button onclick="runSearch && runSearch(); this.closest('.phase2-toast').remove()" class="btn btn-primary" style="font-size:11px">🔍 Refresh Search</button>
+      <button onclick="this.closest('.phase2-toast').remove()" class="btn btn-secondary" style="font-size:11px">Dismiss</button>
+    </div>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 30000);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// FEATURE 22: SSE LIVE EDDN UPDATES FOR WATCHED SYSTEMS
+// ────────────────────────────────────────────────────────────────────
+let _sseSource = null;
+const SSE_ENDPOINT = `${API_BASE}/sse/eddn`;
+
+function _connectSSE() {
+  if (typeof EventSource === 'undefined') return; // no SSE support
+  try {
+    _sseSource = new EventSource(SSE_ENDPOINT);
+
+    _sseSource.addEventListener('open', () => {
+      _setSseDot('live');
+    });
+
+    _sseSource.addEventListener('eddn_update', (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        // msg: { system_name, id64, population, colonised, timestamp }
+        _handleSSEUpdate(msg);
+      } catch(e) { /* ignore */ }
+    });
+
+    _sseSource.addEventListener('error', () => {
+      _setSseDot('offline');
+      _sseSource.close();
+      // Reconnect after 60 s
+      setTimeout(_connectSSE, 60000);
+    });
+  } catch(e) { /* SSE endpoint not available */ }
+}
+
+function _handleSSEUpdate(msg) {
+  if (!msg || !msg.system_name) return;
+  // Check if it's in watchlist
+  const wl = typeof getWatchlist === 'function' ? getWatchlist() : [];
+  const match = wl.find(s => s.name === msg.system_name || String(s.id64) === String(msg.id64));
+  if (!match) return;
+
+  // Update population if changed
+  if (msg.population != null && msg.population !== match.population) {
+    const oldPop = match.population || 0;
+    match.population = msg.population;
+    if (typeof saveWatchlist === 'function') saveWatchlist(wl);
+    if (typeof loadWatchlist === 'function') loadWatchlist();
+    showToast(`📡 EDDN: ${msg.system_name} population updated: ${oldPop.toLocaleString()} → ${msg.population.toLocaleString()}`);
+  }
+}
+
+function _setSseDot(state) {
+  const dot = document.getElementById('sse-dot');
+  if (!dot) return;
+  dot.className = state === 'live' ? 'live' : '';
+  dot.title = state === 'live' ? 'SSE: live' : 'SSE: offline';
+}
+
+// ────────────────────────────────────────────────────────────────────
+// MISC: Helper — _acQuerySpansh (used by FC planner autocomplete)
+// ────────────────────────────────────────────────────────────────────
+function _acQuerySpansh(query, listId, onSelect) {
+  const listEl = document.getElementById(listId);
+  if (!listEl) return;
+  fetch(`https://spansh.co.uk/api/systems/search?q=${encodeURIComponent(query)}&limit=6`)
+    .then(r => r.json())
+    .then(data => {
+      const results = data.results || data.systems || [];
+      if (!results.length) { listEl.style.display = 'none'; return; }
+      listEl.innerHTML = results.slice(0,6).map((s,i) =>
+        `<div class="autocomplete-item" role="option" id="${listId}-item-${i}" tabindex="-1"
+          onclick="document.getElementById('${listId}').style.display='none'"
+          data-sys='${JSON.stringify({name:s.name,x:s.x,y:s.y,z:s.z}).replace(/'/g,"&#39;")}'
+        >${s.name}</div>`
+      ).join('');
+      listEl.querySelectorAll('.autocomplete-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const sys = JSON.parse(item.dataset.sys.replace(/&#39;/g,"'"));
+          onSelect(sys);
+          listEl.style.display = 'none';
+        });
+      });
+      listEl.style.display = 'block';
+    }).catch(() => { listEl.style.display = 'none'; });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// On-load init for Feature 3 (colony poll)
+// ────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  _startColonyPoll();
+});
+
+// ════════════════════════════════════════════════════════════════════
+// END v3.23 FEATURE BLOCK
+// ════════════════════════════════════════════════════════════════════
+
 </script>
 
 <!-- ═══════ CREDITS FOOTER ═══════ -->
@@ -8709,6 +10161,8 @@ function clearAllCaches() {
       Inspired by <a href="https://discord.gg/elite-dangerous" target="_blank" rel="noopener">ED:Colonise</a>
       <span class="footer-divider">·</span>
       Galaxy data — <a href="https://spansh.co.uk" target="_blank" rel="noopener">Spansh.co.uk</a>
+      <span class="footer-divider">·</span>
+      Live data — <a href="https://eddn.edcd.io" target="_blank" rel="noopener">EDDN / EDCD</a>
     </div>
 
     <div class="footer-row">
@@ -8759,6 +10213,10 @@ function clearAllCaches() {
       <span class="ag-label">Galaxy &amp; System Data</span>
       <span><a href="https://spansh.co.uk" target="_blank" rel="noopener">Spansh.co.uk</a>
             — Used via the public Spansh API.</span>
+      <span class="ag-label">Live System Updates</span>
+      <span><a href="https://eddn.edcd.io" target="_blank" rel="noopener">EDDN — Elite Dangerous Data Network</a>
+            — Real-time system &amp; population data streamed by the EDCD community.
+            Maintained by the <a href="https://github.com/EDCD/EDDN" target="_blank" rel="noopener">EDCD project</a>.</span>
       <span class="ag-label">Colonisation Strategy</span>
       <span>
         <a href="https://docs.google.com/document/d/1zOopZStq6MszqBECbbUqZgBDhS5CJmziv8hKv7IO-qE/mobilebasic"
