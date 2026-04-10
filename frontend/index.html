@@ -1561,7 +1561,7 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.19</div>
+  <div class="version">v3.20</div>
 </div>
 
 <!-- ═══════ STATUS BAR ═══════ -->
@@ -2854,12 +2854,29 @@ async function runSearch(page = 0) {
     filters.distance = { min: minDist, max: maxDist };
 
     const sort = [{ distance: { direction: 'asc' } }];
+
+    // Build body_filters for local DB — passes slider state server-side
+    // so Phase 2 body data can be filtered at DB level (much faster)
+    const localBodyFilters = {};
+    for (const s of BODY_SLIDERS) {
+      const state = sliderState[s.key];
+      if (!state) continue;
+      const hasMin = state.min > 0;
+      const hasMax = state.max < s.max;
+      if (hasMin || hasMax) localBodyFilters[s.key] = { min: state.min, max: state.max };
+    }
     const searchBody = {
       filters,
       reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
       sort,
-      size,
-      from: page * size
+      size: _localDbAvailable ? 50000 : size,  // No cap on local DB
+      from: page * size,
+      // Extra hints for local DB server-side filtering
+      body_filters:  Object.keys(localBodyFilters).length ? localBodyFilters : undefined,
+      require_bio:   document.getElementById('tog-bio')?.checked  || undefined,
+      require_geo:   document.getElementById('tog-geo')?.checked  || undefined,
+      require_terra: document.getElementById('tog-terra')?.checked || undefined,
+      min_rating:    parseInt(document.getElementById('min-rating-slider')?.value || '0') || undefined,
     };
 
     // ── LOCAL DB PATH — no Spansh, no 10k cap, sub-100ms queries ────────────
@@ -2992,13 +3009,28 @@ async function runDeepScan() {
       const filters = { distance: { min: minDist, max: maxDist } };
       if (uncolonised) filters.population = { value: 0, comparison: 'equal' };
       else if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
+
+      // Pass body filters server-side for Phase 2 DB filtering
+      const localBodyFilters = {};
+      for (const s of BODY_SLIDERS) {
+        const state = sliderState[s.key];
+        if (!state) continue;
+        if (state.min > 0 || state.max < s.max)
+          localBodyFilters[s.key] = { min: state.min, max: state.max };
+      }
+
       const data = await spanshPost(API_BASE + '/local/search', {
         filters,
         reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
         sort: [{ distance: { direction: 'asc' } }],
-        size: 10000,
-        from: 0
-      }, AbortSignal.timeout(30000));
+        size: 100000,  // No cap on local DB
+        from: 0,
+        body_filters:  Object.keys(localBodyFilters).length ? localBodyFilters : undefined,
+        require_bio:   document.getElementById('tog-bio')?.checked  || undefined,
+        require_geo:   document.getElementById('tog-geo')?.checked  || undefined,
+        require_terra: document.getElementById('tog-terra')?.checked || undefined,
+        min_rating:    parseInt(document.getElementById('min-rating-slider')?.value || '0') || undefined,
+      }, AbortSignal.timeout(60000));
 
       const rawAll = data?.results || [];
       rawAll.forEach(s => {
@@ -3897,13 +3929,28 @@ function buildScoreBar(label, val, max) {
 // ═══════════════════════════════════════════════════════════════════
 function rateSystem(sys) {
   const bodies = sys.bodies || [];
-  let slots = 0, bodyQuality = 0, compactness = 0, signalQuality = 0, orbitalSafety = 0;
+  let slots = 0, bodyQuality = 0, compactness = 0, signalQuality = 0, orbitalSafety = 0, starBonus = 0;
 
-  // -- SLOT SCORE (25 pts) --
+  // -- PERMIT PENALTY --
+  if (sys.needs_permit) return { total: 0, slots: 0, bodyQuality: 0, compactness: 0, signalQuality: 0, orbitalSafety: 0, starBonus: 0 };
+
+  // -- STAR TYPE BONUS (10 pts) --
+  // G/K/F stars are ideal for colonisation (habitable zone, stable)
+  // Neutron/White Dwarf have fuel scoop value but harsh for colonies
+  const mainStar = (sys.main_star || sys.mainStar || '').toUpperCase().trim();
+  const starClass = mainStar.split(' ')[0].charAt(0);  // first char of spectral class
+  if      (['G', 'K'].includes(starClass))       starBonus = 10;
+  else if (['F', 'M'].includes(starClass))        starBonus = 7;
+  else if (['A', 'B'].includes(starClass))        starBonus = 5;
+  else if (mainStar.includes('NEUTRON'))          starBonus = 4;  // fuel value
+  else if (mainStar.includes('WHITE DWARF'))      starBonus = 3;
+  else if (mainStar.includes('BLACK HOLE'))       starBonus = 2;
+  else                                            starBonus = 4;  // unknown/other
+
+  // -- SLOT SCORE (20 pts) --
   const landable = bodies.filter(b => b.type === 'Planet' && b.is_landable).length;
   const orbital  = bodies.filter(b => b.type === 'Planet' && !b.is_landable).length + bodies.filter(b=>b.type==='Star').length;
-  const total = bodies.length;
-  slots = Math.min(25, Math.round((Math.min(landable, 10) / 10 + Math.min(orbital, 10) / 10) * 12.5));
+  slots = Math.min(20, Math.round((Math.min(landable, 10) / 10 + Math.min(orbital, 10) / 10) * 10));
 
   // -- BODY QUALITY (25 pts) --
   bodies.forEach(b => {
@@ -3914,27 +3961,26 @@ function rateSystem(sys) {
 
     if (sub === 'Earth-like world') {
       bodyQuality += 10;
-      // bonus if primary port
       if (b.distance_to_arrival && b.distance_to_arrival < 5000) bodyQuality += 2;
     } else if (sub === 'Water world') {
       bodyQuality += 8;
       if (b.distance_to_arrival && b.distance_to_arrival < 5000) bodyQuality += 1;
-    } else if (sub === 'Ammonia world' && !(b.rings && b.rings.length)) {
+    } else if (sub === 'Ammonia world') {
       bodyQuality += 5;
     } else if (sub.includes('Black Hole') || sub.includes('Neutron') || sub.includes('White Dwarf')) {
-      bodyQuality += 6;
-    } else if (sub === 'Rocky body' && !hasGeo && !hasBio) {
-      bodyQuality += Math.min(8, (bodyQuality + 2));
-    } else if (sub === 'Icy body' && !hasGeo && !hasBio) {
-      bodyQuality += 2;
+      bodyQuality += 4;
+    } else if (sub === 'High metal content world' || sub === 'Metal-rich body') {
+      bodyQuality += hasBio ? 5 : (hasGeo ? 4 : 3);
+    } else if (sub === 'Rocky body') {
+      bodyQuality += hasBio ? 4 : (hasGeo ? 3 : 2);
     } else if (sub === 'Rocky Ice world') {
       bodyQuality += 3;
-    } else if ((sub === 'High metal content world' || sub === 'Metal-rich body') && !hasGeo && !hasBio) {
+    } else if (sub === 'Icy body') {
       bodyQuality += 2;
     }
-    // Terra + bio (no geo) is high value for Agriculture
-    if (b.terraforming_state && b.terraforming_state !== 'Not terraformable' && hasBio && !hasGeo) {
-      bodyQuality += 4;
+    // Terraformable bonus
+    if (b.terraforming_state && b.terraforming_state !== 'Not terraformable' && b.terraforming_state !== '') {
+      bodyQuality += hasBio ? 4 : 2;
     }
   });
   bodyQuality = Math.min(25, bodyQuality);
@@ -3951,41 +3997,32 @@ function rateSystem(sys) {
   else                       compactness = 0;
 
   // -- SIGNAL QUALITY (15 pts) --
-  const bioOnly = bodies.filter(b => {
-    const sigs = b.signals || [];
-    return sigs.some(s=>s.name==='Biological') && !sigs.some(s=>s.name==='Geological');
-  });
-  const geoOnly = bodies.filter(b => {
-    const sigs = b.signals || [];
-    return sigs.some(s=>s.name==='Geological') && !sigs.some(s=>s.name==='Biological');
-  });
+  const bioCount = bodies.filter(b => (b.signals||[]).some(s=>s.name==='Biological')).length;
+  const geoCount = bodies.filter(b => (b.signals||[]).some(s=>s.name==='Geological')).length;
   const bothSigs = bodies.filter(b => {
     const sigs = b.signals || [];
     return sigs.some(s=>s.name==='Geological') && sigs.some(s=>s.name==='Biological');
-  });
-  if (bioOnly.length) signalQuality += 4;
-  if (geoOnly.length) signalQuality += 4;
-  if (bothSigs.length) signalQuality += 4;
-  // Pure bodies (no signals) great for Refinery
-  const pureRocky = bodies.filter(b => b.subtype === 'Rocky body' && !(b.signals||[]).length);
-  if (pureRocky.length >= 2) signalQuality += 3;
-  signalQuality = Math.min(15, signalQuality);
+  }).length;
+  signalQuality = Math.min(15,
+    Math.min(bioCount, 3) * 2 +
+    Math.min(geoCount, 3) * 2 +
+    bothSigs * 3
+  );
 
-  // -- ORBITAL SAFETY (15 pts) --
-  // Check for close binaries / very close orbital periods
+  // -- ORBITAL SAFETY (10 pts) --
   let closePairs = 0;
   bodies.forEach(b => {
     const parents = b.parents || [];
     if (parents.some(p => p.type === 'Planet')) closePairs++;
   });
-  if (closePairs === 0)       orbitalSafety = 15;
-  else if (closePairs <= 2)   orbitalSafety = 11;
-  else if (closePairs <= 5)   orbitalSafety = 7;
-  else                        orbitalSafety = 3;
+  if (closePairs === 0)       orbitalSafety = 10;
+  else if (closePairs <= 2)   orbitalSafety = 7;
+  else if (closePairs <= 5)   orbitalSafety = 4;
+  else                        orbitalSafety = 1;
 
-  const total_score = slots + bodyQuality + compactness + signalQuality + orbitalSafety;
+  const total_score = Math.min(100, slots + bodyQuality + compactness + signalQuality + orbitalSafety + starBonus);
 
-  return { total: total_score, slots, bodyQuality, compactness, signalQuality, orbitalSafety };
+  return { total: total_score, slots, bodyQuality, compactness, signalQuality, orbitalSafety, starBonus };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -5292,34 +5329,60 @@ function exportResults(fmt) {
   let content, mime, ext;
 
   if (fmt === 'csv') {
-    const header = 'Name,Distance LY,Rating,Economy,Bodies,Landable,Population,X,Y,Z,Colonised';
+    const header = [
+      'Name','Distance LY','Rating','Star Type','Economy','Primary Economy',
+      'Bodies','Landable','ELW','Water Worlds','Ammonia Worlds',
+      'Bio Signals','Geo Signals','Terraformable',
+      'Population','Colonised','Being Colonised',
+      'Government','Allegiance','X','Y','Z','ID64','Source'
+    ].join(',');
     const rows = systems.map(s => {
-      const r = s._rating  || rateSystem(s);   // FIX #11 — use memo
+      const r = s._rating  || rateSystem(s);
       const e = s._economy || suggestEconomy(s);
       const bodies = s.bodies || [];
-      const landable = bodies.filter(b => b.type === 'Planet' && b.is_landable).length;
+      const landable   = bodies.filter(b => b.type === 'Planet' && b.is_landable).length;
+      const elw        = bodies.filter(b => b.subtype === 'Earth-like world').length;
+      const ww         = bodies.filter(b => b.subtype === 'Water world').length;
+      const aw         = bodies.filter(b => b.subtype === 'Ammonia world').length;
+      const bio        = bodies.filter(b => (b.signals||[]).some(sig=>sig.name==='Biological')).length;
+      const geo        = bodies.filter(b => (b.signals||[]).some(sig=>sig.name==='Geological')).length;
+      const terra      = bodies.filter(b => b.terraforming_state && b.terraforming_state !== 'Not terraformable' && b.terraforming_state !== '').length;
+      const coords     = s.coords || {};
       return [
         `"${(s.name||'').replace(/"/g,'""')}"`,
         (s.distance||0).toFixed(2),
         r.total,
-        `"${e.primary}"`,
+        `"${s.main_star||s.mainStar||''}"`,
+        `"${e.primary||''}"`,
+        `"${s.primaryEconomy||''}"`,
         bodies.length,
-        landable,
+        landable, elw, ww, aw, bio, geo, terra,
         s.population||0,
-        (s.x||0).toFixed(2), (s.y||0).toFixed(2), (s.z||0).toFixed(2),
-        s.is_colonised ? 1 : 0
+        s.is_colonised ? 1 : 0,
+        s.is_being_colonised ? 1 : 0,
+        `"${s.government||''}"`,
+        `"${s.allegiance||''}"`,
+        (coords.x||s.x||0).toFixed(2),
+        (coords.y||s.y||0).toFixed(2),
+        (coords.z||s.z||0).toFixed(2),
+        s.id64||'',
+        `"${s.source||'spansh'}"`
       ].join(',');
     });
     content = [header, ...rows].join('\n');
     mime = 'text/csv'; ext = 'csv';
   } else {
     const out = systems.map(s => ({
-      name: s.name, distance: s.distance, rating: (s._rating||rateSystem(s)).total,  // FIX #11
-      economy: suggestEconomy(s).primary,
+      name: s.name, distance: s.distance,
+      rating: (s._rating||rateSystem(s)).total,
+      star_type: s.main_star || s.mainStar || '',
+      economy: (s._economy||suggestEconomy(s)).primary,
       bodies: (s.bodies||[]).length,
       population: s.population||0,
-      coords: { x: s.x||0, y: s.y||0, z: s.z||0 },
-      id64: s.id64, is_colonised: s.is_colonised
+      coords: s.coords || { x: s.x||0, y: s.y||0, z: s.z||0 },
+      id64: s.id64,
+      is_colonised: s.is_colonised,
+      source: s.source || 'spansh'
     }));
     content = JSON.stringify(out, null, 2);
     mime = 'application/json'; ext = 'json';
@@ -6408,15 +6471,19 @@ async function checkWatchlistChanges(silent) {
           const newIsCol = ch.new?.is_colonised;
           const oldIsCol = ch.old?.is_colonised;
           if (newIsCol !== oldIsCol) parts.push(newIsCol
-            ? '<span style="color:var(--red)">Colonised! ❌</span>'
-            : '<span style="color:var(--green)">Freed ✓</span>');
+            ? '<span style="color:var(--red)">⚠️ Colonised!</span>'
+            : '<span style="color:var(--green)">✅ Freed</span>');
           const oldPop = ch.old?.population || 0;
           const newPop = ch.new?.population || 0;
           if (newPop !== oldPop) parts.push(
-            `Pop: <span style="color:var(--text-dim)">${oldPop.toLocaleString()}</span> → <span style="color:var(--cyan)">${newPop.toLocaleString()}</span>`);
-          return `<div style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border-o);border-radius:4px;margin-bottom:6px;font-size:12px">
-            <strong style="color:var(--orange)">${ch.name}</strong>
-            <span style="margin-left:8px">${parts.join(' &nbsp;·&nbsp; ')}</span>
+            `Pop: <span style="color:var(--text-dim)">${oldPop.toLocaleString()}</span> → <span style="color:${newPop>oldPop?'var(--red)':'var(--green)'}">${newPop.toLocaleString()}</span>`);
+          const ts = ch.detected_at ? new Date(ch.detected_at*1000).toLocaleString() : '';
+          return `<div style="padding:8px 12px;background:var(--bg3);border:1px solid var(--orange);border-radius:4px;margin-bottom:6px;font-size:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong style="color:var(--orange)">${ch.name}</strong>
+              <span style="color:var(--text-dim);font-size:10px">${ts}</span>
+            </div>
+            <div style="margin-top:4px">${parts.join(' &nbsp;·&nbsp; ') || 'Status updated'}</div>
           </div>`;
         }).join('');
     } else if (logEl && !d.changes.length && !silent) {
@@ -6425,26 +6492,54 @@ async function checkWatchlistChanges(silent) {
       setTimeout(() => { if(logEl) logEl.style.display='none'; }, 4000);
     }
     if (d.changes.length) {
-      const msg = `${d.changes.length} watchlist change${d.changes.length!==1?'s':''} detected`;
       el.style.display = 'block';
       el.innerHTML = `⚠️ <strong>${d.changes.length} change(s) detected:</strong>` +
-        d.changes.map(c => `<br>• <strong>${c.name}</strong>: colonised ${c.old?.is_colonised??'?'}→${c.new?.is_colonised??'?'}, pop ${(c.old?.population||0).toLocaleString()}→${(c.new?.population||0).toLocaleString()}`).join('');
+        d.changes.map(c => {
+          const newCol = c.new?.is_colonised;
+          const oldCol = c.old?.is_colonised;
+          const colStr = newCol !== oldCol ? ` [${oldCol?'was colonised':'was free'} → ${newCol?'COLONISED':'FREED'}]` : '';
+          const popStr = c.new?.population !== c.old?.population
+            ? ` pop ${(c.old?.population||0).toLocaleString()}→${(c.new?.population||0).toLocaleString()}` : '';
+          return `<br>• <strong>${c.name}</strong>${colStr}${popStr}`;
+        }).join('');
       el.className = 'error-banner';
-      // FIX-4a: pulse the watchlist tab button
+      // Pulse the watchlist tab button
       const wlBtn = document.getElementById('tab-btn-watchlist');
       if (wlBtn) {
-        wlBtn.style.animation = 'none';
         wlBtn.style.boxShadow = '0 0 8px 2px var(--orange)';
-        setTimeout(() => { if (wlBtn) wlBtn.style.boxShadow = ''; }, 4000);
+        setTimeout(() => { if (wlBtn) wlBtn.style.boxShadow = ''; }, 5000);
       }
-      // FIX-4b: Browser Notification if permission granted
+      // Browser notifications — respect per-system alert config
       if (silent && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        try {
-          new Notification('ED:Finder – Watchlist Alert', {
-            body: msg + '. Open the Watchlist tab for details.',
-            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text y="26" font-size="28">👁️</text></svg>'
-          });
-        } catch(e) { /* notifications may be blocked */ }
+        for (const ch of d.changes) {
+          const cfg = _wlAlertConfig(ch.id64 || ch.id);
+          const newCol = ch.new?.is_colonised;
+          const oldCol = ch.old?.is_colonised;
+          const newPop = ch.new?.population || 0;
+          const oldPop = ch.old?.population || 0;
+          const popThresh = cfg.popThreshold || 0;
+
+          // Notify on colonisation change if configured
+          if (cfg.notifyColonised !== false && newCol !== oldCol) {
+            try {
+              new Notification(`ED:Finder — ${ch.name}`, {
+                body: newCol ? `⚠️ ${ch.name} has been COLONISED!` : `✅ ${ch.name} is now FREE`,
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text y="26" font-size="28">👁️</text></svg>',
+                tag: `wl-col-${ch.id64}`
+              });
+            } catch(e) { /* blocked */ }
+          }
+          // Notify if population crossed threshold
+          if (cfg.notifyPop && popThresh > 0 && oldPop <= popThresh && newPop > popThresh) {
+            try {
+              new Notification(`ED:Finder — ${ch.name}`, {
+                body: `📈 Population exceeded ${popThresh.toLocaleString()} (now ${newPop.toLocaleString()})`,
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text y="26" font-size="28">👁️</text></svg>',
+                tag: `wl-pop-${ch.id64}`
+              });
+            } catch(e) { /* blocked */ }
+          }
+        }
       }
     } else {
       if (!silent) el.innerHTML = `✅ No changes across ${d.checked} watched system${d.checked!==1?'s':''}.`;

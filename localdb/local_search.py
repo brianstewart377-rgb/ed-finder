@@ -74,19 +74,24 @@ def local_db_search(body: dict) -> dict:
     Supported filters:
         distance    {min, max}   from reference_coords
         population  {value, comparison}  (only 'equal' with value=0 supported)
-        (all other filters are client-side, same as Spansh path)
+        body_filters {key: {min, max}}   body type counts (requires Phase 2 bodies table)
+        require_bio  bool                require biological signals
+        require_geo  bool                require geological signals
+        require_terra bool               require terraformable bodies
+        star_types   [str]               allowed main star types
+        min_rating   int                 minimum colonisation rating (0-100)
 
     Sort: always distance ascending (same as Spansh default).
     Pagination: from + size.
+    No 10k cap — returns ALL matching systems.
     """
     t0 = time.time()
 
     # Parse request
     filters        = body.get("filters", {})
     ref_coords     = body.get("reference_coords", {})
-    size           = min(int(body.get("size", 500)), 10_000)
+    size           = min(int(body.get("size", 50_000)), 100_000)  # No 10k cap!
     from_idx       = int(body.get("from", 0))
-    sort_dirs      = body.get("sort", [{"distance": {"direction": "asc"}}])
 
     rx = float(ref_coords.get("x", 0))
     ry = float(ref_coords.get("y", 0))
@@ -103,7 +108,17 @@ def local_db_search(body: dict) -> dict:
     pop_cmp    = pop_filter.get("comparison", "equal")
     require_empty = (pop_val == 0 and pop_cmp == "equal")
 
-    systems = _spatial_search(rx, ry, rz, min_dist, max_dist, require_empty)
+    # Body filters (active after Phase 2 import)
+    body_filters = body.get("body_filters", {})   # {key: {min, max}}
+    require_bio   = body.get("require_bio", False)
+    require_geo   = body.get("require_geo", False)
+    require_terra = body.get("require_terra", False)
+    star_types    = body.get("star_types", [])     # e.g. ["K", "G", "F"]
+    min_rating    = int(body.get("min_rating", 0))
+
+    systems = _spatial_search(rx, ry, rz, min_dist, max_dist, require_empty,
+                              body_filters, require_bio, require_geo,
+                              require_terra, star_types, min_rating)
 
     # Apply pagination
     total    = len(systems)
@@ -126,6 +141,12 @@ def _spatial_search(
     rx: float, ry: float, rz: float,
     min_dist: float, max_dist: float,
     require_empty: bool,
+    body_filters: dict = None,
+    require_bio: bool = False,
+    require_geo: bool = False,
+    require_terra: bool = False,
+    star_types: list = None,
+    min_rating: int = 0,
 ) -> List[dict]:
     """
     Use spatial grid cells to find candidate systems, then filter by exact distance.
@@ -135,8 +156,11 @@ def _spatial_search(
       2. Fetch systems from those cells (fast index lookup)
       3. Compute exact Euclidean distance and filter
       4. JOIN colonisation table to exclude inhabited systems when require_empty=True
-      5. Return sorted by distance asc, enriched with colonisation data
+      5. Optionally JOIN bodies table to apply body filters (Phase 2)
+      6. Return sorted by distance asc, enriched with colonisation + body data
     """
+    body_filters  = body_filters  or {}
+    star_types    = star_types    or []
     # Grid cells to search
     cell = CELL_SIZE
     # Expand by one cell to handle edge cases
@@ -185,6 +209,15 @@ def _spatial_search(
                   rz - max_dist - cell, rz + max_dist + cell)).fetchall()
 
     results = []
+
+    # Check if bodies table exists (Phase 2)
+    with galaxy_conn() as conn:
+        has_bodies = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='bodies'"
+        ).fetchone() is not None
+
+    use_body_filters = has_bodies and (body_filters or require_bio or require_geo or require_terra)
+
     for row in rows:
         dx = row["x"] - rx
         dy = row["y"] - ry
@@ -199,12 +232,56 @@ def _spatial_search(
         being_col = row["is_being_colonised"] or 0
         ctrl    = row["controlling_faction"]
 
-        # Inhabited heuristic: same as client-side passesBodyFilters
+        # Inhabited heuristic
         inhabited = bool(is_col or being_col or ctrl or pop > 0)
         if require_empty and inhabited:
             continue
 
+        # Star type filter (uses main_star field e.g. "K", "G", "F (White Dwarf)")
+        if star_types:
+            main = (row["main_star"] or "").split()[0]  # first token = spectral class
+            if main not in star_types:
+                continue
+
         dist = math.sqrt(dist_sq)
+
+        # Body filters — only when bodies table exists
+        body_list = []
+        if use_body_filters:
+            with galaxy_conn() as bconn:
+                brows = bconn.execute("""
+                    SELECT type, subtype, is_landable, has_signals,
+                           terraform_state, ring_types, volcanism
+                    FROM bodies WHERE system_id64 = ?
+                """, (row["id64"],)).fetchall()
+            body_list = [dict(b) for b in brows]
+
+            # Count body types for slider filters
+            if body_filters:
+                counts = _count_body_types(body_list)
+                skip = False
+                for key, rng in body_filters.items():
+                    val = counts.get(key, 0)
+                    if rng.get("min", 0) > 0 and val < rng["min"]:
+                        skip = True; break
+                    if rng.get("max") is not None and val > rng["max"]:
+                        skip = True; break
+                if skip:
+                    continue
+
+            # Signal filters
+            if require_bio and not any(b.get("has_signals") for b in body_list):
+                continue
+            if require_geo and not any(
+                b.get("volcanism") and b["volcanism"] not in ("", "No volcanism")
+                for b in body_list
+            ):
+                continue
+            if require_terra and not any(
+                b.get("terraform_state") and b["terraform_state"] not in ("", "Not terraformable")
+                for b in body_list
+            ):
+                continue
 
         results.append({
             "id64":     row["id64"],
@@ -214,22 +291,64 @@ def _spatial_search(
             "distance": round(dist, 2),
             "main_star": row["main_star"],
             "needs_permit": bool(row["needs_permit"]),
-            # Colonisation data — always fresh from EDDN
             "population":           pop,
             "is_colonised":         is_col,
             "is_being_colonised":   being_col,
             "controlling_minor_faction": ctrl,
-            "minor_faction_presences":  [],   # not stored at row level; fetched on demand
+            "minor_faction_presences":  [],
             "government":  row["government"],
             "allegiance":  row["allegiance"],
             "primaryEconomy": row["economy"],
-            # Source tag so frontend can show "Local DB" badge
+            "bodies":      body_list if use_body_filters else [],
             "source": "local_db",
         })
 
     # Sort by distance
     results.sort(key=lambda s: s["distance"])
     return results
+
+
+def _count_body_types(bodies: list) -> dict:
+    """Count body subtypes for filter matching — mirrors frontend countBodyTypes()."""
+    from collections import defaultdict
+    counts: dict = defaultdict(int)
+    SUBTYPE_MAP = {
+        "Earth-like world": "elw",
+        "Water world": "ww",
+        "Ammonia world": "aw",
+        "Black hole": "blackHoles",
+        "Neutron star": "neutron",
+        "White dwarf": "whiteDwarf",
+        "High metal content world": "hmc",
+        "Metal-rich body": "metalRich",
+        "Rocky body": "rocky",
+        "Rocky ice world": "rockyIce",
+        "Icy body": "icy",
+        "Class I gas giant": "gasGiant",
+        "Class II gas giant": "gasGiant",
+        "Class III gas giant": "gasGiant",
+        "Class IV gas giant": "gasGiant",
+        "Class V gas giant": "gasGiant",
+        "Gas giant with water-based life": "gasGiant",
+        "Gas giant with ammonia-based life": "gasGiant",
+        "Helium-rich gas giant": "gasGiant",
+        "Helium gas giant": "gasGiant",
+    }
+    for b in bodies:
+        sub = (b.get("subtype") or "").strip()
+        key = SUBTYPE_MAP.get(sub)
+        if key:
+            counts[key] += 1
+        if b.get("is_landable"):
+            counts["landable"] += 1
+        rt = b.get("ring_types")
+        if rt:
+            try:
+                rings = json.loads(rt) if isinstance(rt, str) else rt
+                counts["rings"] += len(rings) if isinstance(rings, list) else 1
+            except Exception:
+                pass
+    return dict(counts)
 
 
 # ── System detail ─────────────────────────────────────────────────────────────
