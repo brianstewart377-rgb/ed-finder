@@ -241,7 +241,9 @@ class SpanshCircuitBreaker:
         return self.state in (self.CLOSED, self.HALF_OPEN)
 
 
-_circuit_breaker = SpanshCircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
+# Deep scan fires many sequential requests; raise thresholds so transient
+# Spansh slowness during a long scan doesn't trip the breaker.
+_circuit_breaker = SpanshCircuitBreaker(failure_threshold=10, recovery_timeout=120.0)
 
 
 # ─── DB helpers ──────────────────────────────────────────────────────────────
@@ -654,9 +656,12 @@ async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────────
     global _http
     _http = httpx.AsyncClient(
-        timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=5.0),
+        # read=60s: deep scan pages through many results; 30s was too tight
+        timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0),
         headers=HEADERS,
-        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        # max_connections=10: prevents deep scan from flooding Spansh with
+        # parallel requests which caused timeouts and circuit-breaker trips
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
         http2=False,
     )
     init_db()

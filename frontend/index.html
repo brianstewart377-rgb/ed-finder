@@ -2931,42 +2931,53 @@ async function runDeepScan() {
   </div>`;
 
   try {
-    // Fire all band searches in parallel
-    const bandResults = await Promise.all(bands.map(async (band, bi) => {
+    // Run bands sequentially to avoid hammering the backend/Spansh with
+    // parallel floods — previous parallel approach caused timeouts and
+    // tripped the circuit breaker, turning the status light yellow/red.
+    const bandResults = [];
+    let totalFetchedSoFar = 0;
+
+    for (let bi = 0; bi < bands.length; bi++) {
+      const band = bands[bi];
       const filters = { distance: { min: band.min, max: band.max } };
       if (document.getElementById('tog-pop-zero')?.checked) filters.population = { value: 0, comparison: 'equal' };
 
+      const prog = document.getElementById('deep-scan-progress');
+      if (prog) prog.textContent = `Band ${bi + 1}/${numBands}: ${band.min}–${band.max} LY… (${totalFetchedSoFar.toLocaleString()} fetched so far)`;
+
+      // Deep scan requests can take a while — use a longer timeout (90s)
+      const deepSignal = AbortSignal.timeout(90000);
       const data = await spanshPost(API_BASE + '/systems/search', {
         filters,
         reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
         sort: [{ distance: { direction: 'asc' } }],
-        size: 500,   // max per request; we page up to 10k per band below
+        size: 500,
         from: 0
-      });
+      }, deepSignal);
 
       const bandTotal = Math.min(data?.count || 0, 10000);
       const rawAll = data?.results || [];
 
-      // Page through remaining results for this band (up to 10k)
+      // Page through remaining results for this band sequentially (up to 10k)
       const pages = Math.min(Math.ceil(bandTotal / 500), 20);
-      const extraPages = await Promise.all(
-        Array.from({ length: pages - 1 }, (_, pi) =>
-          spanshPost(API_BASE + '/systems/search', {
+      for (let pi = 1; pi < pages; pi++) {
+        try {
+          const pageData = await spanshPost(API_BASE + '/systems/search', {
             filters,
             reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
             sort: [{ distance: { direction: 'asc' } }],
             size: 500,
-            from: (pi + 1) * 500
-          }).then(d => d?.results || []).catch(() => [])
-        )
-      );
-      extraPages.forEach(p => rawAll.push(...p));
+            from: pi * 500
+          }, AbortSignal.timeout(90000));
+          rawAll.push(...(pageData?.results || []));
+        } catch(e) { /* page miss — continue with what we have */ }
+        if (prog) prog.textContent = `Band ${bi + 1}/${numBands}: page ${pi + 1}/${pages} (${(totalFetchedSoFar + rawAll.length).toLocaleString()} fetched so far)`;
+      }
 
-      const prog = document.getElementById('deep-scan-progress');
-      if (prog) prog.textContent = `Band ${bi + 1}/${numBands} done — ${rawAll.length.toLocaleString()} systems fetched so far…`;
-
-      return rawAll;
-    }));
+      totalFetchedSoFar += rawAll.length;
+      if (prog) prog.textContent = `Band ${bi + 1}/${numBands} done — ${totalFetchedSoFar.toLocaleString()} systems fetched so far`;
+      bandResults.push(rawAll);
+    }
 
     // Flatten and deduplicate by id64
     const seen   = new Set();
