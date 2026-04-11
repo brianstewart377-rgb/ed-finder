@@ -81,7 +81,8 @@ def local_db_search(body: dict) -> dict:
         star_types   [str]               allowed main star types
         min_rating   int                 minimum colonisation rating (0-100)
 
-    Sort: always distance ascending (same as Spansh default).
+    Sort: rating descending by default (highest-rated systems first).
+         Pass sort_by='distance' to get the old distance-ascending order.
     Pagination: from + size.
     No 10k cap — returns ALL matching systems.
     """
@@ -92,6 +93,7 @@ def local_db_search(body: dict) -> dict:
     ref_coords     = body.get("reference_coords", {})
     size           = min(int(body.get("size", 50_000)), 100_000)  # No 10k cap!
     from_idx       = int(body.get("from", 0))
+    sort_by        = body.get("sort_by", "rating")  # 'rating' | 'distance'
 
     rx = float(ref_coords.get("x", 0))
     ry = float(ref_coords.get("y", 0))
@@ -119,6 +121,27 @@ def local_db_search(body: dict) -> dict:
     systems, density_warning = _spatial_search(rx, ry, rz, min_dist, max_dist, require_empty,
                               body_filters, require_bio, require_geo,
                               require_terra, star_types, min_rating)
+
+    # ── Server-side rating + sort ─────────────────────────────────────────────
+    # Compute rating for every result so we can sort highest-rated first.
+    # This mirrors rateSystem() in frontend/index.html exactly so the client
+    # and server agree on scores.  Attaching the rating here also means the
+    # frontend can skip re-computing it (it will still re-compute for display,
+    # but pagination is already in the right order).
+    for sys in systems:
+        r = rate_system(sys)
+        sys["rating"] = r["total"]
+
+    if sort_by == "rating":
+        # Highest rating first; break ties by distance ascending
+        systems.sort(key=lambda s: (-s["rating"], s["distance"]))
+    else:
+        # Distance ascending (legacy / explicit request)
+        systems.sort(key=lambda s: s["distance"])
+
+    # min_rating filter applied after rating computed
+    if min_rating > 0:
+        systems = [s for s in systems if s["rating"] >= min_rating]
 
     # Apply pagination
     total    = len(systems)
@@ -417,7 +440,7 @@ def _spatial_search(
             "source": "local_db",
         })
 
-    # Sort by distance
+    # Sort by distance for initial candidate list; final sort done in local_db_search
     results.sort(key=lambda s: s["distance"])
 
     warning = None
@@ -522,6 +545,139 @@ def _count_body_types(bodies: list) -> dict:
                 except Exception:
                     pass
     return dict(counts)
+
+
+# ── Server-side rating (mirrors frontend rateSystem() exactly) ────────────────
+def rate_system(sys: dict) -> dict:
+    """
+    Compute colonisation-suitability rating for a system dict.
+    Mirrors rateSystem() in frontend/index.html — keep in sync.
+
+    Components (max):
+        starBonus      10 pts  — spectral class bonus
+        slots          20 pts  — landable + orbital body count
+        bodyQuality    25 pts  — ELW/WW/Ammonia + terraformable bonuses
+        compactness    20 pts  — max planet distance to arrival
+        signalQuality  15 pts  — bio/geo signals
+        orbitalSafety  10 pts  — moon-of-moon proximity penalty
+    Total max: 100 pts
+    """
+    bodies = sys.get("bodies") or []
+
+    # Permit penalty
+    if sys.get("needs_permit"):
+        return {"total": 0, "slots": 0, "bodyQuality": 0,
+                "compactness": 0, "signalQuality": 0,
+                "orbitalSafety": 0, "starBonus": 0}
+
+    # ── Star type bonus (10 pts) ──────────────────────────────────────────────
+    main_star = (sys.get("main_star") or sys.get("mainStar") or "").upper().strip()
+    star_class = main_star.split(" ")[0][:1] if main_star else ""
+    if star_class in ("G", "K"):
+        star_bonus = 10
+    elif star_class in ("F", "M"):
+        star_bonus = 7
+    elif star_class in ("A", "B"):
+        star_bonus = 5
+    elif "NEUTRON" in main_star:
+        star_bonus = 4
+    elif "WHITE DWARF" in main_star:
+        star_bonus = 3
+    elif "BLACK HOLE" in main_star:
+        star_bonus = 2
+    else:
+        star_bonus = 4  # unknown / other
+
+    # ── Slot score (20 pts) ──────────────────────────────────────────────────
+    landable = sum(1 for b in bodies if b.get("type") == "Planet" and b.get("is_landable"))
+    orbital  = (sum(1 for b in bodies if b.get("type") == "Planet" and not b.get("is_landable"))
+                + sum(1 for b in bodies if b.get("type") == "Star"))
+    if not bodies:
+        slots = 10  # neutral midpoint — no Phase 2 data yet
+    else:
+        slots = min(20, round((min(landable, 10) / 10 + min(orbital, 10) / 10) * 10))
+
+    # ── Body quality (25 pts) ────────────────────────────────────────────────
+    body_quality = 0
+    for b in bodies:
+        sub  = (b.get("subtype") or "").strip()
+        sigs = b.get("signals") or []
+        has_geo = any(s.get("name") == "Geological"  for s in sigs)
+        has_bio = any(s.get("name") == "Biological"  for s in sigs)
+
+        if sub == "Earth-like world":
+            body_quality += 10
+            if (b.get("distance_to_arrival") or 0) < 5000:
+                body_quality += 2
+        elif sub == "Water world":
+            body_quality += 8
+            if (b.get("distance_to_arrival") or 0) < 5000:
+                body_quality += 1
+        elif sub == "Ammonia world":
+            body_quality += 5
+        elif any(x in sub for x in ("Black Hole", "Neutron", "White Dwarf")):
+            body_quality += 4
+        elif sub in ("High metal content world", "Metal-rich body"):
+            body_quality += 5 if has_bio else (4 if has_geo else 3)
+        elif sub == "Rocky body":
+            body_quality += 4 if has_bio else (3 if has_geo else 2)
+        elif sub == "Rocky Ice world":
+            body_quality += 3
+        elif sub == "Icy body":
+            body_quality += 2
+
+        terra = (b.get("terraforming_state") or "").strip()
+        if terra and terra not in ("Not terraformable", ""):
+            body_quality += 4 if has_bio else 2
+
+    body_quality = min(25, body_quality)
+
+    # ── Compactness (20 pts) ─────────────────────────────────────────────────
+    planets = [b for b in bodies if b.get("type") == "Planet"]
+    if not planets:
+        compactness = 10  # neutral — no body data
+    else:
+        max_dist = max((b.get("distance_to_arrival") or 0) for b in planets)
+        if   max_dist <= 500:    compactness = 20
+        elif max_dist <= 1000:   compactness = 17
+        elif max_dist <= 5000:   compactness = 13
+        elif max_dist <= 20000:  compactness = 9
+        elif max_dist <= 50000:  compactness = 6
+        elif max_dist <= 250000: compactness = 3
+        else:                    compactness = 0
+
+    # ── Signal quality (15 pts) ──────────────────────────────────────────────
+    bio_count  = sum(1 for b in bodies if any(s.get("name") == "Biological"  for s in (b.get("signals") or [])))
+    geo_count  = sum(1 for b in bodies if any(s.get("name") == "Geological"  for s in (b.get("signals") or [])))
+    both_sigs  = sum(1 for b in bodies if
+                     any(s.get("name") == "Geological" for s in (b.get("signals") or [])) and
+                     any(s.get("name") == "Biological"  for s in (b.get("signals") or [])))
+    signal_quality = min(15,
+        min(bio_count, 3) * 2 +
+        min(geo_count, 3) * 2 +
+        both_sigs * 3
+    )
+
+    # ── Orbital safety (10 pts) ──────────────────────────────────────────────
+    close_pairs = sum(
+        1 for b in bodies
+        if any(p.get("type") == "Planet" for p in (b.get("parents") or []))
+    )
+    if   close_pairs == 0:  orbital_safety = 10
+    elif close_pairs <= 2:  orbital_safety = 7
+    elif close_pairs <= 5:  orbital_safety = 4
+    else:                   orbital_safety = 1
+
+    total = min(100, slots + body_quality + compactness + signal_quality + orbital_safety + star_bonus)
+    return {
+        "total":          total,
+        "slots":          slots,
+        "bodyQuality":    body_quality,
+        "compactness":    compactness,
+        "signalQuality":  signal_quality,
+        "orbitalSafety":  orbital_safety,
+        "starBonus":      star_bonus,
+    }
 
 
 # ── System detail ─────────────────────────────────────────────────────────────

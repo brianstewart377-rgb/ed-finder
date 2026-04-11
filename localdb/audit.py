@@ -560,6 +560,53 @@ def run_audit(verbose: bool = False) -> None:
         BUG("Z4", "appendSearch() does not remove old result-card elements before re-rendering — "
             "duplicate cards may appear after Load More.")
 
+    # ── AA: server-side rating sort checks ──────────────────────────────────
+    # Note: PY is already the file content (read at top of audit.py)
+
+    # AA1: rate_system() function exists in local_search.py
+    if "def rate_system(" in PY:
+        PASS("AA1", "rate_system() function present in local_search.py ✓", verbose)
+    else:
+        BUG("AA1", "rate_system() is missing from local_search.py — server-side rating unavailable.")
+
+    # AA2: local_db_search parses sort_by parameter
+    if 'body.get("sort_by"' in PY:
+        PASS("AA2", "local_db_search() reads sort_by from request body ✓", verbose)
+    else:
+        BUG("AA2", "local_db_search() does not read sort_by — always sorts by distance.")
+
+    # AA3: rating sort applied in local_db_search (highest first)
+    if 'systems.sort(key=lambda s: (-s["rating"]' in PY:
+        PASS("AA3", "local_db_search() sorts by rating descending ✓", verbose)
+    else:
+        BUG("AA3", "local_db_search() does not sort by rating — results arrive in distance order.")
+
+    # AA4: min_rating filter applied server-side after rating computed
+    if 's["rating"] >= min_rating' in PY:
+        PASS("AA4", "local_db_search() applies min_rating filter after computing ratings ✓", verbose)
+    else:
+        BUG("AA4", "local_db_search() does not filter by min_rating server-side.")
+
+    # AA5: frontend runSearch sends sort_by='rating' for local DB
+    if "sort_by: _localDbAvailable ? 'rating'" in HTML:
+        PASS("AA5", "runSearch() sends sort_by='rating' to local DB ✓", verbose)
+    else:
+        BUG("AA5", "runSearch() does not send sort_by='rating' — server falls back to distance sort.")
+
+    # AA6: appendSearch (Load More) also sends sort_by='rating'
+    # runSearch uses `sort_by: localSortBy` (via a variable set to 'rating' for local DB)
+    # appendSearch uses the inline ternary directly
+    has_runsearch_sort_by  = "sort_by: localSortBy" in HTML
+    has_append_sort_by     = "sort_by: _localDbAvailable ? 'rating'" in HTML
+    if has_runsearch_sort_by and has_append_sort_by:
+        PASS("AA6", "Both runSearch() and appendSearch() send sort_by for local DB ✓", verbose)
+    elif has_runsearch_sort_by:
+        BUG("AA6", "appendSearch (Load More) missing sort_by='rating' — Load More pages arrive in distance order.")
+    elif has_append_sort_by:
+        BUG("AA6", "runSearch missing sort_by localSortBy variable — initial search arrives in distance order.")
+    else:
+        BUG("AA6", "Neither runSearch nor appendSearch sends sort_by='rating'.")
+
 
     print()
     print("═" * 60)

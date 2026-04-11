@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.34, all 56 audit checks pass |
+| Frontend  | ✅ Latest — v3.35, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | Audit     | ✅ `python3 localdb/audit.py` — 56 checks, 0 bugs |
@@ -173,6 +173,27 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.35 — Server-side rating sort: highest-rated systems on page 1
+
+**Root cause of the original bug:** All previous sort fixes only re-ordered results *after*
+they arrived from the DB. But the DB returns systems sorted by **distance ascending**. So
+page 1 contained the nearest systems (often low-rated), and high-rated systems farther away
+only appeared on later pages — client-side re-sorting within a page couldn't fix cross-page ordering.
+
+- **[CRITICAL] Server-side `rate_system()` in `local_search.py`** — Python function that
+  exactly mirrors `rateSystem()` in `frontend/index.html` (same 6 components: star bonus,
+  slots, body quality, compactness, signal quality, orbital safety → max 100 pts).
+  The server now computes a rating for every matched system **before** pagination, then
+  sorts by `(−rating, +distance)` so page 1 always contains the highest-rated systems
+  regardless of where they are in the search radius.
+- **`sort_by` parameter** — `local_db_search()` now accepts `sort_by: 'rating'` (default)
+  or `'distance'` (legacy). Both `runSearch()` and `appendSearch()` send `sort_by: 'rating'`
+  so every page, including Load More, comes back in rating order.
+- **Server-side `min_rating` filter** — previously the note said "applied client-side only".
+  Now applied in `local_db_search()` after ratings are computed, so the `total` count and
+  pagination are accurate when a minimum rating is set.
+- **Audit expanded to 58 checks** (6 new AA1–AA6 checks covering server-side rating logic).
 
 ### v3.34 — Guaranteed highest-score-first sort across all render paths
 

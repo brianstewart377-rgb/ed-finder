@@ -3137,7 +3137,10 @@ async function appendSearch(page) {
     const appendBody = {
       filters,
       reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
-      sort: [{ distance: { direction: 'asc' } }], size, from: page * size
+      sort: [{ distance: { direction: 'asc' } }], size, from: page * size,
+      // Match runSearch: local DB gets rating sort so Load More pages also
+      // come back in rating order (not distance order).
+      sort_by: _localDbAvailable ? 'rating' : undefined,
     };
     // Use local DB if available, otherwise Spansh via backend proxy
     const data = _localDbAvailable
@@ -3309,14 +3312,21 @@ async function runSearch(page = 0) {
       const hasMax = state.max < s.max;
       if (hasMin || hasMax) localBodyFilters[s.key] = { min: state.min, max: state.max };
     }
+    // For local DB: ask for rating-descending sort so the FIRST page always
+    // contains the highest-rated systems regardless of distance.
+    // The server (local_search.py rate_system()) mirrors rateSystem() exactly
+    // so pagination is meaningful across "Load More" calls.
+    const localSortBy = _localDbAvailable ? 'rating' : undefined;
+
     const searchBody = {
       filters,
       reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
       sort,
+      sort_by: localSortBy,          // local DB: 'rating' | Spansh: undefined
       // BUG-FIX: For local DB, use 'size' (user's slider value), NOT a blanket 50000.
       // Sending size=50000 then slicing to 50 wastes the query and throws away
-      // 49,950 results that never get rated or enriched. The local DB is already
-      // sorted by distance and filtered server-side, so the first N are the best.
+      // 49,950 results that never get rated or enriched. The local DB now sorts
+      // by rating server-side so page 1 = highest-rated, page 2 = next-best, etc.
       // Deep Scan uses size=100000 separately and processes ALL results.
       size: size,
       from: page * size,
@@ -3325,9 +3335,8 @@ async function runSearch(page = 0) {
       require_bio:   document.getElementById('tog-bio')?.checked  || undefined,
       require_geo:   document.getElementById('tog-geo')?.checked  || undefined,
       require_terra: document.getElementById('tog-terra')?.checked || undefined,
-      // NOTE: min_rating is passed as a hint but local_search.py does NOT apply it
-      // server-side (no rating computation in DB). It is applied client-side in
-      // passesBodyFilters() after rateSystem() runs on the returned results.
+      // min_rating: now applied server-side by local_search.py (after rating calc)
+      min_rating: _localDbAvailable ? (parseInt(document.getElementById('min-rating-slider')?.value || '0') || 0) : undefined,
     };
 
     // ── LOCAL DB PATH — no Spansh, no 10k cap, sub-100ms queries ────────────
