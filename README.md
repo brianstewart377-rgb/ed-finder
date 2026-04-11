@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.36, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.37, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
@@ -175,6 +175,12 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.37 — Deep Scan hidden with local DB + SSE build fix
+
+- **[UI] Deep Scan hidden when local DB active** — button auto-hides when local DB is available; shown when offline. Local DB has no 10k cap so Deep Scan is redundant.
+- **[BUG] Deep Scan local path used distance sort** — now sends `sort_by: "rating"` and `min_rating` matching `runSearch` behaviour.
+- **[SSE] 404 on `/api/sse/eddn`** — endpoint exists since v3.35.3 but requires `docker compose up --build -d` (not just restart) to pick up new image.
 
 ### v3.36 — EDDN daily updates complete + nightly delta status tracking
 

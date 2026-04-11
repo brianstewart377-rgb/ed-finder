@@ -1854,7 +1854,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.36</div>
+  <div class="version">v3.37</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2172,9 +2172,9 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
     </button>
 
     <button class="btn btn-secondary" id="deep-scan-btn" onclick="runDeepScan()"
-      style="width:100%;margin-bottom:8px"
-      title="Splits your distance range into bands and searches each one separately — checks up to 5× more systems than a standard search. Slower but finds rarer systems.">
-      🔭 DEEP SCAN <span style="font-size:9px;opacity:0.7">(up to 5× more systems)</span>
+      style="width:100%;margin-bottom:8px;display:none"
+      title="Spansh only: splits your distance range into bands and searches each one — finds up to 5× more systems by working around the 10k Spansh cap. Not needed when Local DB is active.">
+      🔭 DEEP SCAN <span style="font-size:9px;opacity:0.7">(Spansh only)</span>
     </button>
 
     <button class="btn btn-secondary" onclick="shareSearchURL(event)" style="width:100%;margin-bottom:6px" title="Copy shareable link">
@@ -2426,7 +2426,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.36';
+const APP_VERSION = 'v3.37';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -2486,6 +2486,9 @@ function _updateLocalDbBadge(d) {
     badge.style.display = 'inline-flex';
     badge.style.color = '#94a3b8';
   }
+  // Show Deep Scan only when local DB is NOT available (Spansh has a 10k cap; local DB has none)
+  const deepBtn = document.getElementById('deep-scan-btn');
+  if (deepBtn) deepBtn.style.display = (d && d.available && d.systems_count > 0) ? 'none' : '';
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -3602,13 +3605,14 @@ async function runDeepScan() {
         filters,
         reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
         sort: [{ distance: { direction: 'asc' } }],
+        sort_by: 'rating',   // server-side rating sort (same as runSearch)
         size: 100000,  // No cap on local DB
         from: 0,
         body_filters:  Object.keys(localBodyFilters).length ? localBodyFilters : undefined,
         require_bio:   document.getElementById('tog-bio')?.checked  || undefined,
         require_geo:   document.getElementById('tog-geo')?.checked  || undefined,
         require_terra: document.getElementById('tog-terra')?.checked || undefined,
-        // min_rating is NOT applied server-side (no DB-level rating), client filters later
+        min_rating:    parseInt(document.getElementById('min-rating-slider')?.value || '0') || 0,
       }, AbortSignal.timeout(60000));
 
       const rawAll = data?.results || [];
