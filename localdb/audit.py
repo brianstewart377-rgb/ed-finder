@@ -510,6 +510,21 @@ def run_audit(verbose: bool = False) -> None:
         BUG("Y6", "Empty-state messages are generic — should explain galactic core density "
             "and body filter causes for zero results.")
 
+    # Y7: cacheAge declared at function scope (not inside else branch)
+    # BUG-CACHEAGE: cacheAge was declared inside the skipBatchEnrich else block,
+    # making it undefined when the skipBatchEnrich=true path (Phase 2 local DB)
+    # called renderResultsProgressive(filtered, page, totalResults, cacheAge).
+    # The fix hoists the declaration to before the if/else.
+    # Check: 'let cacheAge' must appear BEFORE 'let systems = []'
+    cacheage_pos = HTML.find('let cacheAge = null;')
+    systems_pos  = HTML.find('let systems = [];')
+    if cacheage_pos > 0 and systems_pos > 0 and cacheage_pos < systems_pos:
+        PASS("Y7", "cacheAge declared at function scope before systems branch ✓", verbose)
+    else:
+        BUG("Y7", "cacheAge is declared inside the skipBatchEnrich else branch — "
+            "ReferenceError when Phase 2 local DB path is taken (skipBatchEnrich=true). "
+            "Hoist 'let cacheAge = null' to before the if/else block.")
+
 
     print()
     print("═" * 60)

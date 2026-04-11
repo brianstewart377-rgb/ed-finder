@@ -3356,6 +3356,11 @@ async function runSearch(page = 0) {
     // to avoid overwriting the rich local DB body data with empty Spansh records.
     const skipBatchEnrich = _localDbAvailable && _localDbHasBodies;
 
+    // BUG-CACHEAGE-FIX: declare cacheAge at function scope so it is always
+    // defined when passed to renderResultsProgressive(), regardless of which
+    // branch (skipBatchEnrich or Spansh enrich) is taken.
+    let cacheAge = null;
+
     let systems = [];
     if (skipBatchEnrich) {
       // Local DB with Phase 2: bodies already populated, rate directly
@@ -3372,7 +3377,7 @@ async function runSearch(page = 0) {
       </div>`;
 
       let enrichedMap = {};
-      let cacheAge = null;
+      // cacheAge already declared above — set it here when we have the header
       try {
         const batchResp = await fetch(`${API_BASE}/systems/batch`, {
           method: 'POST',
