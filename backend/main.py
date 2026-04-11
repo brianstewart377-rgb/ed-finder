@@ -109,7 +109,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 # ─── Shared HTTP client ───────────────────────────────────────────────────────
 _http: Optional[httpx.AsyncClient] = None
@@ -1335,6 +1335,98 @@ async def local_get_system(id64: int):
     except Exception as exc:
         log.warning("local_get_system error for %s: %s", id64, exc)
         raise HTTPException(502, f"Local DB error: {exc}")
+
+
+# ── SSE: real-time EDDN updates ──────────────────────────────────────────────
+@app.get("/api/sse/eddn")
+async def sse_eddn(request: Request):
+    """
+    Server-Sent Events stream for real-time EDDN colonisation updates.
+
+    Strategy: poll galaxy.db every 5 s for rows where eddn_updated > last_seen.
+    When new rows appear, emit an 'eddn_update' event to all connected clients.
+    Send a ':heartbeat' comment every 25 s to keep the connection alive through
+    proxies and load balancers that kill idle connections.
+
+    If galaxy.db is not available, the endpoint still returns 200 and sends
+    only heartbeats — the client dot stays grey (offline) but no 404/error.
+    """
+    async def event_stream():
+        last_seen: float = time.time()  # only emit events from now onwards
+        heartbeat_interval = 25         # seconds between keep-alive pings
+        poll_interval      = 5          # seconds between DB polls
+        last_heartbeat     = time.time()
+
+        # Send an initial comment so the browser marks the connection open
+        yield ": connected\n\n"
+
+        while True:
+            # Check client disconnected
+            if await request.is_disconnected():
+                break
+
+            now = time.time()
+
+            # ── Heartbeat ──────────────────────────────────────────────────
+            if now - last_heartbeat >= heartbeat_interval:
+                yield ": heartbeat\n\n"
+                last_heartbeat = now
+
+            # ── Poll galaxy.db for new EDDN updates ───────────────────────
+            if os.path.exists(GALAXY_DB):
+                try:
+                    def _query_updates(since: float):
+                        conn = sqlite3.connect(GALAXY_DB, check_same_thread=False)
+                        conn.row_factory = sqlite3.Row
+                        conn.execute("PRAGMA query_only=ON")
+                        try:
+                            rows = conn.execute("""
+                                SELECT s.id64, s.name,
+                                       c.population, c.is_colonised, c.is_being_colonised,
+                                       c.controlling_faction, c.eddn_updated
+                                FROM colonisation c
+                                JOIN systems s ON s.id64 = c.id64
+                                WHERE c.eddn_updated > ?
+                                ORDER BY c.eddn_updated DESC
+                                LIMIT 20
+                            """, (since,)).fetchall()
+                            return [dict(r) for r in rows]
+                        finally:
+                            conn.close()
+
+                    loop = asyncio.get_event_loop()
+                    updates = await loop.run_in_executor(None, _query_updates, last_seen)
+
+                    for upd in updates:
+                        payload = json.dumps({
+                            "system_name": upd["name"],
+                            "id64":        upd["id64"],
+                            "population":  upd["population"] or 0,
+                            "colonised":   bool(upd["is_colonised"]),
+                            "being_colonised": bool(upd["is_being_colonised"]),
+                            "faction":     upd["controlling_faction"],
+                            "timestamp":   upd["eddn_updated"],
+                        })
+                        yield f"event: eddn_update\ndata: {payload}\n\n"
+                        # Advance last_seen to the latest timestamp we emitted
+                        ts = upd.get("eddn_updated") or 0
+                        if ts > last_seen:
+                            last_seen = ts
+
+                except Exception as exc:
+                    log.debug("SSE poll error: %s", exc)
+
+            await asyncio.sleep(poll_interval)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",   # disable nginx buffering for SSE
+            "Connection":        "keep-alive",
+        },
+    )
 
 
 @app.get("/api/local/autocomplete")
