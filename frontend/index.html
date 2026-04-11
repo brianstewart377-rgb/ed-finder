@@ -4107,9 +4107,13 @@ function renderResults(systems, page, total) {
   window._lastResults = { systems: [...systems], page, total };
   currentResults = window._lastResults.systems;  // FIX #12
   // QOL-5: persist last results to sessionStorage so tab switches don't lose your place
+  // BUG-SESSION-FIX: never save demo systems to storage — they have _demo:true flag.
   try {
-    sessionStorage.setItem('ed_last_results', JSON.stringify({ systems, page, total }));
-    sessionStorage.setItem('ed_last_ref_snap', JSON.stringify(refSystem));
+    const nonDemo = systems.filter(s => !s._demo);
+    if (nonDemo.length > 0) {
+      sessionStorage.setItem('ed_last_results', JSON.stringify({ systems: nonDemo, page, total }));
+      sessionStorage.setItem('ed_last_ref_snap', JSON.stringify(refSystem));
+    }
   } catch(e) { /* quota exceeded — not critical */ }
   reconcilePendingCompare(); // FIX-5f: re-attach persisted compare
 
@@ -8573,12 +8577,18 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch(e) {}
 
   // QOL-5: restore last search results if session has them (tab switch / F5 reload)
+  // BUG-SESSION-FIX: strip any demo systems (_demo:true) that may have been saved from
+  // pre-v3.31 sessions when the error path rendered fake results into sessionStorage.
+  // Also clear the entire stored set if ALL results are demo data (entire stale session).
   try {
     const savedRes = sessionStorage.getItem('ed_last_results');
     const savedRef = sessionStorage.getItem('ed_last_ref_snap');
     if (savedRes) {
       const { systems, page, total } = JSON.parse(savedRes);
-      if (systems && systems.length) {
+      // Filter out demo systems — identified by _demo:true or well-known fake names.
+      const DEMO_NAMES = new Set(['Proxima Coloniae','Arcturus Deep','Vega Outreach','Deneb Crossing','Sirius Haven']);
+      const realSystems = (systems || []).filter(s => !s._demo && !DEMO_NAMES.has(s.name));
+      if (realSystems.length > 0) {
         // Restore ref system display if we have a snap
         if (savedRef) {
           const r = JSON.parse(savedRef);
@@ -8590,7 +8600,11 @@ document.addEventListener('DOMContentLoaded', () => {
           if (nm)  nm.textContent = r.name;
           if (co)  co.textContent = `${Math.round(r.x*10)/10}, ${Math.round(r.y*10)/10}, ${Math.round(r.z*10)/10}`;
         }
-        renderResultsProgressive(systems, page, total, null);
+        renderResultsProgressive(realSystems, page, realSystems.length, null);
+      } else if (systems && systems.length > 0) {
+        // All saved results were demo data — clear the stale session so next search is fresh.
+        sessionStorage.removeItem('ed_last_results');
+        sessionStorage.removeItem('ed_last_ref_snap');
       }
     }
   } catch(e) { /* bad storage — ignore */ }
