@@ -2497,12 +2497,17 @@ function _updateLocalDbBadge(d) {
         <span style="font-size:1.2em">⚠️</span>
         <span style="flex:1">
           <strong>DB schema update needed (v3.28):</strong>
-          The <code>is_tidal_lock</code> column is missing from your <code>bodies</code> table.
-          Tidal-lock filtering is disabled until you run the migration on your Pi:<br>
-          <code style="display:block;margin:4px 0;padding:4px 8px;background:#0f172a;border-radius:4px;">
-            sqlite3 /data/galaxy.db &lt; /app/localdb/migrate_v3_28.sql
-          </code>
-          Then restart the api container: <code>docker compose restart api</code>
+          The <code>is_tidal_lock</code> column is missing — tidal-lock filtering is disabled.
+          Run these commands on your Pi to fix it:<br>
+          <code style="display:block;margin:4px 0;padding:4px 8px;background:#0f172a;border-radius:4px;white-space:pre-wrap;">docker compose stop eddn delta
+sqlite3 ~/ed-finder-WORKING/data/galaxy.db &lt; ~/ed-finder-WORKING/localdb/migrate_v3_28.sql
+docker compose start eddn delta &amp;&amp; docker compose restart api</code>
+          <small style="color:#94a3b8">
+            Note: <code>sqlite3</code> runs on the Pi directly — not inside the container
+            (<code>python:3.12-slim</code> does not include the sqlite3 CLI).
+            After <code>docker compose up --build</code> you can also use:<br>
+            <code>docker compose exec api sqlite3 /data/galaxy.db ".read /app/localdb/migrate_v3_28.sql"</code>
+          </small>
         </span>
         <button onclick="sessionStorage.setItem('${TIDAL_WARN_KEY}','1');this.parentElement.remove();"
                 style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1.1em;padding:0 4px"

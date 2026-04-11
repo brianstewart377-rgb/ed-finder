@@ -6,6 +6,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# sqlite3 CLI — needed for running migrations via:
+#   docker compose exec api sqlite3 /data/galaxy.db ".read /app/localdb/migrate_vX_XX.sql"
+# Also installs curl for healthcheck debugging convenience
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        sqlite3 \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install deps first (cached layer)
 # Path is relative to build context (repo root)
 COPY backend/requirements.txt .

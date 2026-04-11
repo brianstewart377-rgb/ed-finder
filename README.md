@@ -192,11 +192,21 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
   without needing a container restart.
 - **Frontend warning** — when `has_tidal_lock_col` is `false` a dismissible amber banner
   appears above the results panel with the exact migration command to run.
-- **Migration command** (run once on the Pi):
+- **Migration command** (run once on the Pi — two options):
   ```bash
-  sqlite3 /data/galaxy.db < /app/localdb/migrate_v3_28.sql
+  # Option A: Pi's own sqlite3 directly on the bind-mounted file (works NOW, no rebuild)
+  docker compose stop eddn delta
+  sqlite3 ~/ed-finder-WORKING/data/galaxy.db < ~/ed-finder-WORKING/localdb/migrate_v3_28.sql
+  docker compose start eddn delta
+  docker compose restart api
+
+  # Option B: Inside the container using sqlite3 .read (works after docker compose up --build)
+  docker compose exec api sqlite3 /data/galaxy.db ".read /app/localdb/migrate_v3_28.sql"
   docker compose restart api
   ```
+  > **Note:** `python:3.12-slim` does not include the `sqlite3` CLI binary. Option A uses the
+  > Pi's own sqlite3 on the bind-mounted `./data/galaxy.db` file. The Dockerfile now installs
+  > `sqlite3` via apt so Option B works after the next `docker compose up --build`.
 
 ### v3.39 — Re-filter pool shrinkage fix
 
