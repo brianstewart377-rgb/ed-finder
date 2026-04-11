@@ -1962,7 +1962,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
         <div class="field">
           <label for="size-slider">Results Per Page</label>
           <div class="slider-wrap">
-            <input type="range" id="size-slider" min="5" max="100" step="5" value="50" oninput="document.getElementById('size-val').textContent=this.value">
+            <input type="range" id="size-slider" min="5" max="100" step="5" value="50" oninput="document.getElementById('size-val').textContent=this.value" onchange="updateFilterBadge()">
             <div class="slider-val" id="size-val">50</div>
           </div>
         </div>
@@ -10102,13 +10102,20 @@ function _debouncedSearch() {
 }
 
 function _attachIncrementalSearch() {
-  // Attach to range sliders: dist-slider, min-dist-slider, min-rating, max-rating
-  const sliderIds = ['dist-slider','min-dist-slider','min-rating','max-rating'];
-  sliderIds.forEach(id => {
+  // Rating sliders: debounced 'input' event so search updates as you drag
+  // (rating filter is pure client-side, so re-filtering is instant).
+  ['min-rating-slider','max-rating-slider'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener('input', _debouncedSearch);
-    }
+    if (el) el.addEventListener('input', _debouncedSearch);
+  });
+  // Distance sliders: fire on 'change' only (i.e. when the thumb is released),
+  // NOT on every 'input' drag step — distance changes require a full DB query
+  // and firing every 300 ms while dragging was the cause of "search fires when
+  // I move the distance slider". Using 'change' means it fires once when you
+  // let go of the slider thumb, which is intentional and expected behaviour.
+  ['dist-slider','min-dist-slider'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', _debouncedSearch);
   });
 }
 
