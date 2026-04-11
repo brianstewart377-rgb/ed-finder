@@ -525,6 +525,41 @@ def run_audit(verbose: bool = False) -> None:
             "ReferenceError when Phase 2 local DB path is taken (skipBatchEnrich=true). "
             "Hoist 'let cacheAge = null' to before the if/else block.")
 
+    # ── Z: Sort guarantee checks ──────────────────────────────────────────────
+
+    # Z1: renderResults() must sort by rating before rendering (not just iterate arrival order)
+    if '_rr_sorted' in HTML:
+        PASS("Z1", "renderResults() sorts by saved pref/rating before rendering ✓", verbose)
+    else:
+        BUG("Z1", "renderResults() iterates systems in arrival order — highest rating not guaranteed first.")
+
+    # Z2: renderResults() sort dropdown must default to 'rating', not 'distance'
+    rr_select = re.search(r'function renderResults.*?<select[^>]*>(.*?)</select>', HTML, re.DOTALL)
+    if rr_select:
+        rr_opts = rr_select.group(1)
+        first_opt = re.search(r'<option value="(\w+)"', rr_opts)
+        if first_opt and first_opt.group(1) == 'rating':
+            PASS("Z2", "renderResults() sort dropdown first option is 'rating' ✓", verbose)
+        else:
+            BUG("Z2", f"renderResults() sort dropdown first option is '{first_opt.group(1) if first_opt else 'unknown'}' "
+                "— should be 'rating' so default shows highest score first.")
+    else:
+        BUG("Z2", "renderResults() sort dropdown not found — cannot verify default sort order.")
+
+    # Z3: appendSearch() must re-sort the full combined list after Load More
+    if 'allSorted' in HTML and '_append_sortMode' in HTML:
+        PASS("Z3", "appendSearch() re-sorts full combined list after Load More ✓", verbose)
+    else:
+        BUG("Z3", "appendSearch() appends new cards in arrival order without re-sorting — "
+            "Load More breaks rating-first order.")
+
+    # Z4: appendSearch() must remove old result cards before re-rendering sorted list
+    if "querySelectorAll('.result-card').forEach" in HTML:
+        PASS("Z4", "appendSearch() clears existing cards before sorted re-render ✓", verbose)
+    else:
+        BUG("Z4", "appendSearch() does not remove old result-card elements before re-rendering — "
+            "duplicate cards may appear after Load More.")
+
 
     print()
     print("═" * 60)

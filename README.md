@@ -10,10 +10,10 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.33, all 52 audit checks pass |
+| Frontend  | ✅ Latest — v3.34, all 56 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
-| Audit     | ✅ `python3 localdb/audit.py` — 52 checks, 0 bugs |
+| Audit     | ✅ `python3 localdb/audit.py` — 56 checks, 0 bugs |
 | Git       | ✅ `main` branch |
 
 ---
@@ -173,6 +173,12 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.34 — Guaranteed highest-score-first sort across all render paths
+
+- **[SORT-GUARANTEE] `renderResults()` never sorted** — systems were rendered in API arrival order (distance ascending from the DB). The sort dropdown in this code path also defaulted to `Distance ↑` instead of `Rating ↓`. Fix: `renderResults()` now sorts by the saved sort preference (default `rating desc`) before building cards, and its dropdown correctly shows `Rating ↓` first.
+- **[SORT-GUARANTEE] `appendSearch()` (Load More) appended in distance order** — new pages from the DB arrive sorted by distance. They were pushed onto the end of the results list and rendered as new cards at the bottom, completely ignoring rating order. Fix: after appending the new page, the entire combined list (`_lastResults.systems`) is re-sorted by the current sort preference, all existing cards are removed, and all cards are re-rendered in correct order.
+- **Audit expanded to 56 checks** — added Z1–Z4 covering: renderResults sort, dropdown default, appendSearch re-sort, appendSearch card-clear.
 
 ### v3.33 — Galactic-core dense-region fix + error message overhaul
 

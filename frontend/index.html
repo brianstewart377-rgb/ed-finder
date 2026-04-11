@@ -3172,21 +3172,35 @@ async function appendSearch(page) {
 
     const filtered = newSystems.filter(sys => passesBodyFilters(sys));
 
-    // Append to _lastResults and re-render pagination
+    // SORT-FIX: merge new page into _lastResults then re-sort the WHOLE list
+    // by the current sort preference so Load More doesn't just tack new cards
+    // on the bottom out of order.
     if (window._lastResults) window._lastResults.systems.push(...filtered);
 
     const content = document.getElementById('finder-content');
     // FIX #14 — remove ALL existing pagination divs (not just last child)
     content.querySelectorAll('.pagination').forEach(el => el.remove());
 
-    const startIdx = (window._lastResults?.systems.length || 0) - filtered.length;
     const total = data.count || totalResults;
-    filtered.forEach((sys, i) => {
+
+    // Re-sort the entire combined list, then re-render all cards in order.
+    let _append_sortMode = 'rating';
+    try { _append_sortMode = localStorage.getItem('ed_sort_pref') || 'rating'; } catch(e) {}
+    const allSorted = (typeof sortSystems === 'function' && window._lastResults)
+      ? sortSystems([...window._lastResults.systems], _append_sortMode)
+      : (window._lastResults?.systems || []);
+
+    // Remove all existing result cards and re-render in sorted order
+    content.querySelectorAll('.result-card').forEach(el => el.remove());
+    // Update the sort dropdown to match current mode
+    const _sortSel = document.getElementById('result-sort');
+    if (_sortSel) _sortSel.value = _append_sortMode;
+
+    allSorted.forEach((sys, i) => {
       setTimeout(() => {
-        const card = buildSystemCard(sys, startIdx + i);
-        // Insert before any pagination
+        const card = buildSystemCard(sys, i);
         content.appendChild(card);
-        if (i === filtered.length - 1) {
+        if (i === allSorted.length - 1) {
           // Re-add pagination
           const size2 = parseInt(document.getElementById('size-slider').value);
           const pages = Math.ceil(total / size2);
@@ -3196,7 +3210,7 @@ async function appendSearch(page) {
           pag.innerHTML = `
             <button class="page-btn" onclick="runSearch(0)">⬆ Back to Top</button>
             <span style="color:var(--text-dim);font-size:13px">Page ${page+1} of ${pages} · ${total.toLocaleString()} found</span>
-            ${hasMore ? `<button class="page-btn" style="background:var(--orange-dk);border-color:var(--orange);color:#0a0c0f" /* C3-FIX */
+            ${hasMore ? `<button class="page-btn" style="background:var(--orange-dk);border-color:var(--orange);color:#0a0c0f"
               onclick="appendSearch(${page+1})">⬇ Load More</button>` : '<span style="color:var(--green);font-size:12px">✓ All loaded</span>'}
           `;
           content.appendChild(pag);
@@ -4139,6 +4153,13 @@ function renderResults(systems, page, total) {
     return;
   }
 
+  // SORT-FIX: always sort by rating desc before rendering and storing.
+  // renderResults() previously rendered in arrival order (distance asc from API).
+  // Now it uses the same sort-pref logic as renderResultsProgressive().
+  let _rr_sortMode = 'rating';
+  try { _rr_sortMode = localStorage.getItem('ed_sort_pref') || 'rating'; } catch(e) {}
+  const _rr_sorted = (typeof sortSystems === 'function') ? sortSystems([...systems], _rr_sortMode) : systems;
+
   // Summary bar with sort + export controls
   const bar = document.createElement('div');
   bar.style.cssText = 'display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;flex-wrap:wrap';
@@ -4149,10 +4170,10 @@ function renderResults(systems, page, total) {
     <span style="flex:1"></span>
     <label style="font-size:11px;color:var(--text-dim)">Sort:</label>
     <!-- FIX-BUG4: removed duplicate id="result-sort" (demo mode doesn't need sort persistence) -->
-    <select onchange="applySortAndRender()"
+    <select id="result-sort" onchange="applySortAndRender(); try{localStorage.setItem('ed_sort_pref',this.value)}catch(e){}"
       style="background:var(--bg4);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-size:11px;cursor:pointer">
-      <option value="distance">Distance ↑</option>
       <option value="rating">Rating ↓</option>
+      <option value="distance">Distance ↑</option>
       <option value="economy">Economy A-Z</option>
       <option value="bodies">Body Count ↓</option>
       <option value="population">Population ↓</option>
@@ -4161,6 +4182,7 @@ function renderResults(systems, page, total) {
     <button onclick="exportResults('json')" class="btn btn-secondary icon-btn" title="Export current results as JSON" aria-label="Export as JSON">⬇️ JSON</button>
   `;
   content.appendChild(bar);
+  setTimeout(() => { const sel = document.getElementById('result-sort'); if (sel) sel.value = _rr_sortMode; }, 0);
   window._lastResults = { systems: [...systems], page, total };
   currentResults = window._lastResults.systems;  // FIX #12
   // QOL-5: persist last results to sessionStorage so tab switches don't lose your place
@@ -4174,7 +4196,7 @@ function renderResults(systems, page, total) {
   } catch(e) { /* quota exceeded — not critical */ }
   reconcilePendingCompare(); // FIX-5f: re-attach persisted compare
 
-  systems.forEach((sys, idx) => {
+  _rr_sorted.forEach((sys, idx) => {
     content.appendChild(buildSystemCard(sys, idx));
   });
 
