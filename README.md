@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.39, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.40, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
@@ -175,6 +175,28 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.40 — Missing `is_tidal_lock` column graceful fallback
+
+- **[BUG] 502 crash on any search with ELW/tidal filters when DB was imported before v3.28** —
+  `local_search.py` hardcoded `is_tidal_lock` in the `SELECT` column list; if the column was
+  absent (pre-migration DB) SQLite raised `no such column: is_tidal_lock`, which the API
+  caught and returned as a 502.  Root cause: `migrate_v3_28.sql` adds the column but the
+  Pi's DB predated that migration.
+- **Fix** — `_probe_bodies_schema()` reads `PRAGMA table_info(bodies)` once at startup and
+  caches the result.  The two body `SELECT` queries now use `_bodies_tidal_col()` which
+  substitutes `0 AS is_tidal_lock` when the column is absent, so all searches succeed.
+  Tidal-lock filter is silently disabled (treated as non-locked) until migration is applied.
+- **Status API** — `local_db_status()` now returns `has_tidal_lock_col: bool` and refreshes
+  the schema cache on every call so the flag flips to `true` immediately after migration
+  without needing a container restart.
+- **Frontend warning** — when `has_tidal_lock_col` is `false` a dismissible amber banner
+  appears above the results panel with the exact migration command to run.
+- **Migration command** (run once on the Pi):
+  ```bash
+  sqlite3 /data/galaxy.db < /app/localdb/migrate_v3_28.sql
+  docker compose restart api
+  ```
 
 ### v3.39 — Re-filter pool shrinkage fix
 

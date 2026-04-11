@@ -39,6 +39,58 @@ CELL_SIZE  = 25.0   # must match import_systems.py spatial grid cell size
 #   Hetzner CX52+:  MAX_SEARCH_RADIUS_LY=750
 MAX_SEARCH_RADIUS = float(os.getenv("MAX_SEARCH_RADIUS_LY", "200"))
 
+# ── Schema capability flags ────────────────────────────────────────────────────
+# Probed lazily on first use; cached for the lifetime of the process.
+# These flags let the search code work gracefully on DBs that haven't yet had
+# migrate_v3_28.sql applied (i.e. the is_tidal_lock column is absent).
+_BODIES_COLS: Optional[set] = None   # set of column names present in `bodies`
+_TIDAL_LOCK_COL_WARNED = False        # emit the upgrade hint only once
+
+
+def _probe_bodies_schema() -> set:
+    """Return the set of column names that actually exist in the bodies table.
+
+    Called lazily; result is cached in _BODIES_COLS so we only hit PRAGMA once.
+    If the table does not exist yet (Phase-1-only DB) returns an empty set.
+    """
+    global _BODIES_COLS, _TIDAL_LOCK_COL_WARNED
+    if _BODIES_COLS is not None:
+        return _BODIES_COLS
+    if not os.path.exists(GALAXY_DB):
+        _BODIES_COLS = set()
+        return _BODIES_COLS
+    try:
+        conn = sqlite3.connect(GALAXY_DB, check_same_thread=False, timeout=10)
+        try:
+            rows = conn.execute("PRAGMA table_info(bodies)").fetchall()
+            _BODIES_COLS = {r[1] for r in rows}   # r[1] is the column name
+        finally:
+            conn.close()
+    except Exception:
+        _BODIES_COLS = set()
+    if _BODIES_COLS and "is_tidal_lock" not in _BODIES_COLS and not _TIDAL_LOCK_COL_WARNED:
+        _TIDAL_LOCK_COL_WARNED = True
+        log.warning(
+            "bodies table is missing the 'is_tidal_lock' column — "
+            "tidal-lock filter will be disabled.  "
+            "Run:  sqlite3 /data/galaxy.db < /app/localdb/migrate_v3_28.sql  "
+            "to add the column and re-enable the filter."
+        )
+    return _BODIES_COLS
+
+
+def _bodies_tidal_col() -> str:
+    """Return the correct SQL fragment for the is_tidal_lock column.
+
+    If the column exists in the schema, returns 'is_tidal_lock'.
+    Otherwise returns '0 AS is_tidal_lock' so the query still works and
+    every body is treated as non-tidal-locked (safest default).
+    """
+    cols = _probe_bodies_schema()
+    if "is_tidal_lock" in cols:
+        return "is_tidal_lock"
+    return "0 AS is_tidal_lock"
+
 
 def _open_galaxy_db() -> sqlite3.Connection:
     conn = sqlite3.connect(GALAXY_DB, check_same_thread=False, timeout=30)
@@ -364,7 +416,7 @@ def _spatial_search(
                 placeholders = ",".join("?" * len(chunk_ids))
                 raw_bodies.extend(bconn.execute(f"""
                     SELECT system_id64, type, subtype, distance_to_arrival,
-                           is_landable, is_tidal_lock, has_signals, has_rings, ring_types,
+                           is_landable, {_bodies_tidal_col()}, has_signals, has_rings, ring_types,
                            atmosphere, volcanism, terraform_state,
                            surface_gravity, surface_temp, estimated_mapping_value, estimated_scan_value
                     FROM bodies
@@ -720,9 +772,9 @@ def local_db_system(id64: int) -> Optional[dict]:
         if not row:
             return None
 
-        bodies = conn.execute("""
+        bodies = conn.execute(f"""
             SELECT id64, name, type, subtype, distance_to_arrival,
-                   is_main_star, is_landable, is_tidal_lock, has_signals, has_rings, ring_types,
+                   is_main_star, is_landable, {_bodies_tidal_col()}, has_signals, has_rings, ring_types,
                    atmosphere, volcanism, terraform_state,
                    mass, radius, surface_temp, surface_gravity,
                    estimated_mapping_value, estimated_scan_value, data
@@ -871,6 +923,12 @@ def local_db_status() -> dict:
 
         db_size_mb = os.path.getsize(GALAXY_DB) / 1_048_576
 
+        # Refresh schema probe so status reflects any migrations applied since startup
+        global _BODIES_COLS
+        _BODIES_COLS = None
+        cols = _probe_bodies_schema()
+        has_tidal = "is_tidal_lock" in cols
+
         return {
             "available":            True,
             "systems_count":        sys_count,
@@ -884,6 +942,7 @@ def local_db_status() -> dict:
             "delta_last_run":       delta_row[0]   if delta_row   else None,
             "max_search_radius_ly": int(MAX_SEARCH_RADIUS),
             "db_path":              GALAXY_DB,
+            "has_tidal_lock_col":   has_tidal,      # False → run migrate_v3_28.sql
         }
     except Exception as exc:
         return {"available": False, "reason": str(exc)}

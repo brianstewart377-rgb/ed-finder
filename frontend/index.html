@@ -1854,7 +1854,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.39</div>
+  <div class="version">v3.40</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2426,7 +2426,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.39';
+const APP_VERSION = 'v3.40';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -2482,6 +2482,43 @@ function _updateLocalDbBadge(d) {
     ].join('\n');
     badge.style.display = 'inline-flex';
     badge.style.color = '#4ade80';
+
+    // ── v3.28 schema migration warning ──────────────────────────────────────
+    // If the DB was imported before v3.28 the is_tidal_lock column is absent.
+    // Show a dismissible warning banner directing the admin to run the migration.
+    const TIDAL_WARN_KEY = 'tidal_lock_warn_dismissed';
+    const existingWarn = document.getElementById('tidal-lock-warn');
+    if (d.has_tidal_lock_col === false && !existingWarn && !sessionStorage.getItem(TIDAL_WARN_KEY)) {
+      const warn = document.createElement('div');
+      warn.id = 'tidal-lock-warn';
+      warn.className = 'error-banner';
+      warn.style.cssText = 'margin:8px 0;padding:10px 14px;background:#7c3aed22;border:1px solid #7c3aed;border-radius:6px;font-size:0.85rem;display:flex;align-items:flex-start;gap:10px;';
+      warn.innerHTML = `
+        <span style="font-size:1.2em">⚠️</span>
+        <span style="flex:1">
+          <strong>DB schema update needed (v3.28):</strong>
+          The <code>is_tidal_lock</code> column is missing from your <code>bodies</code> table.
+          Tidal-lock filtering is disabled until you run the migration on your Pi:<br>
+          <code style="display:block;margin:4px 0;padding:4px 8px;background:#0f172a;border-radius:4px;">
+            sqlite3 /data/galaxy.db &lt; /app/localdb/migrate_v3_28.sql
+          </code>
+          Then restart the api container: <code>docker compose restart api</code>
+        </span>
+        <button onclick="sessionStorage.setItem('${TIDAL_WARN_KEY}','1');this.parentElement.remove();"
+                style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1.1em;padding:0 4px"
+                title="Dismiss (until page reload)">✕</button>
+      `;
+      // Insert after the badge row (before the main content area)
+      const content = document.getElementById('content');
+      if (content && content.parentNode) {
+        content.parentNode.insertBefore(warn, content);
+      } else {
+        document.body.insertBefore(warn, document.body.firstChild);
+      }
+    } else if (d.has_tidal_lock_col !== false && existingWarn) {
+      existingWarn.remove(); // migration was applied — remove stale warning
+    }
+    // ── end v3.28 warning ───────────────────────────────────────────────────
   } else {
     badge.textContent = '📡 Using Spansh';
     badge.title = d?.reason || 'Local DB not yet imported. Run import_systems.py to enable.';
@@ -3214,7 +3251,7 @@ async function appendSearch(page) {
     // by the current sort preference so Load More doesn't just tack new cards
     // on the bottom out of order.
     if (window._lastResults) window._lastResults.systems.push(...filtered);
-    // BUG-FIX v3.39: keep _allResults in sync with appended pages so
+    // BUG-FIX v3.40: keep _allResults in sync with appended pages so
     // _refilterInPlace always has the full loaded set to work from
     if (window._allResults) window._allResults.push(...newSystems);
 
@@ -3271,7 +3308,7 @@ async function runSearch(page = 0) {
   if (searchAbortController) { try { searchAbortController.abort(); } catch(e) {} }
   searchAbortController = new AbortController();
   const searchSignal = searchAbortController.signal;
-  // BUG-FIX v3.39: clear _allResults so next renderResultsProgressive populates it fresh
+  // BUG-FIX v3.40: clear _allResults so next renderResultsProgressive populates it fresh
   window._allResults = null;
 
   const btn = document.getElementById('search-btn');
@@ -3588,7 +3625,7 @@ async function runSearch(page = 0) {
 //  When using Spansh: splits [minDist, maxDist] into N sequential bands
 // ═══════════════════════════════════════════════════════════════════
 async function runDeepScan() {
-  // BUG-FIX v3.39: clear _allResults so next render starts fresh
+  // BUG-FIX v3.40: clear _allResults so next render starts fresh
   window._allResults = null;
   const btn     = document.getElementById('deep-scan-btn');
   const content = document.getElementById('finder-content');
@@ -6334,7 +6371,7 @@ async function _patchWlAlertConfig(id64, cfg) {
 })();
 
 function _refilterInPlace() {
-  // BUG-FIX v3.39: always re-filter from the FULL API result set (_allResults),
+  // BUG-FIX v3.40: always re-filter from the FULL API result set (_allResults),
   // not from window._lastResults.systems which gets overwritten to the filtered
   // subset each time renderResultsProgressive is called.  Without this fix,
   // each successive refilter shrinks the pool (filtered → re-filtered → …)
@@ -6363,7 +6400,7 @@ function _scheduleFilterLiveBadge() {
   _filterLiveTimer = setTimeout(_doFilterLiveBadge, 300);
 }
 function _doFilterLiveBadge() {
-  // BUG-FIX v3.39: use _allResults (full set) not _lastResults.systems (filtered subset)
+  // BUG-FIX v3.40: use _allResults (full set) not _lastResults.systems (filtered subset)
   const all = window._allResults || window._lastResults?.systems;
   if (!all || !all.length) return;
   // BUG-FIX-F: passesBodyFilters already checks rating and economy — no need to duplicate.
