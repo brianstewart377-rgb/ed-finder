@@ -10,10 +10,10 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.30 all 34 audit checks pass |
+| Frontend  | ✅ Latest — v3.32, all 45 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
-| Audit     | ✅ `python3 localdb/audit.py` — 34 checks, 0 bugs |
+| Audit     | ✅ `python3 localdb/audit.py` — 45 checks, 0 bugs |
 | Git       | ✅ `main` branch |
 
 ---
@@ -174,10 +174,24 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 
 ## Bug Fixes Log (most recent first)
 
+### v3.32 — Phase 2 search timeout root-cause fix + error-handling overhaul
+
+- **[BUG-P1 CRITICAL] Per-system SQLite connection loop** — `local_search.py` opened a new `galaxy_conn()` for every candidate system when fetching bodies. A 500 LY search from Sgr A* with Phase 2 data generated 3,000–10,000 DB connections, taking 60–120s and always timing out. **Fix:** bodies are now fetched in a single `SELECT … WHERE system_id64 IN (…)` batch query (chunked at 900 IDs). Total DB connections reduced from N to 3.
+- **[BUG-E3] TimeoutError not caught** — `AbortSignal.timeout()` throws `TimeoutError`, not `AbortError`. The catch block only handled `AbortError`, so timeouts fell through to the generic Docker error hint. **Fix:** catch block now handles both.
+- **[BUG-E1] Misleading "docker compose ps" error message** — All search failures showed a Docker diagnostic hint regardless of the actual cause. **Fix:** error messages differentiated by type (network vs 502 vs timeout vs generic).
+- **[BUG-STATUS] Status dot stayed green during search failures** — **Fix:** `_triggerApiPoll()` triggers an immediate re-check 1.5s after any search error.
+- **[BUG-B2] Rating slider triggered full new API search** — **Fix:** `_attachIncrementalSearch` now calls `_refilterInPlace()` (no API call, 200ms debounce) instead of `runSearch()`.
+- **[TIMEOUT] spanshPost timeout too short for Phase 2** — **Fix:** `/local/search` calls get 90s; Spansh proxy calls keep 30s, combined with `AbortSignal.any()`.
+- **Audit script** — 6 new checks X1–X5. Total: **45 checks**.
+
+### v3.31 — Demo fallback removal + enrichment distance preservation + Sol search fix
+
+- **[BUG-DEMO]** Demo systems shown on API error — removed from error path entirely.
+- **[BUG-DIST-ENRICH]** Enrichment spread overwrote sys.distance — all spreads now explicitly preserve `distance: sys.distance`.
+- **[BUG-SOL]** Deep Scan blocked for Sol (x=0) — guard changed to `=== undefined` check.
+- **Audit script** — adds U1, U1b, V1, V2, W1. Total: **39 checks**.
+
 ### v3.30 — Distance slider auto-search fix + Python walkable tidal fix
-- **[BUG-DIST] Distance slider replaced result cards on release** — `_attachIncrementalSearch` was wiring `dist-slider` and `min-dist-slider` to `_debouncedSearch` via the `change` event. When you released the slider after results were loaded, a full new search fired for the new distance range, silently replacing all result cards with a different set of systems. Users experienced this as "the distances shown on my results changed". **Fix:** distance sliders removed from `_attachIncrementalSearch` entirely. Users must press Search to apply a new distance. A `↵ press Search` hint appears on the label when you move the slider.
-- **[BUG-WALK-PY] Python walkable count ignored tidal lock** — `_count_body_types` in `local_search.py` counted walkable bodies as `landable + no atmosphere` but did not check `is_tidal_lock`. The JS version (fixed in v3.28) correctly excludes tidally locked bodies. A system with tidally locked airless landable planets would have an inflated walkable count in Phase 2 DB searches. **Fix:** added `and not is_tidal` guard matching JS exactly.
-- **Audit script** — two new checks added: S1 (Python walkable tidal check), T1 (dist-slider HTML onchange does not call runSearch). Total: 34 checks.
 
 ### v3.29 — ELW/body slider critical fix
 - **[CRITICAL] Body-type sliders (ELW/WW/all) silently ignored** — `passesBodyFilters()` had `skipBodyFilters = _localDbAvailable && !_localDbHasBodies && bodies.length === 0` which bypassed ALL body slider filters when Phase 2 not imported. Searching for "1 ELW" returned systems with zero ELWs. **Fix:** inverted logic — if body sliders are set and bodies[] is empty, reject the system. Added orange warning banner.
@@ -233,7 +247,7 @@ sqlite3 /data/galaxy.db < localdb/migrate_v3_28.sql
 python3 localdb/audit.py --verbose    # full report with PASS items
 python3 localdb/audit.py              # summary only
 python3 localdb/audit.py --fix-report # exits 1 if bugs found (CI)
-# v3.31: 39 checks covering distance, demo mode, enrichment, body filters, schema
+# v3.32: 45 checks — adds X1–X5 covering timeout handling, batch body fetch, rating slider wiring
 ```
 
 ---

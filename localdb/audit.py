@@ -370,6 +370,63 @@ def run_audit(verbose: bool = False) -> None:
     else:
         BUG("U1b", "AbortError not caught — rapid double-search causes error banner to flash.")
 
+    # ── X: TimeoutError caught alongside AbortError ──────────────────────
+    # BUG-E3: AbortSignal.timeout() throws TimeoutError, not AbortError.
+    # Both must be caught so the user sees a helpful timeout message, not the
+    # generic Docker error banner.
+    if "err.name === 'TimeoutError'" in HTML or 'err.name === "TimeoutError"' in HTML:
+        PASS("X1", "TimeoutError caught in runSearch catch block ✓", verbose)
+    else:
+        BUG("X1", "TimeoutError NOT caught — search timeouts show misleading 'docker compose ps' banner.")
+
+    # ── X2: No per-system DB connection in local_search._spatial_search ──
+    # BUG-P1: galaxy_conn() opened inside the per-system for loop caused
+    # N DB connections for N candidate systems, reliably hitting the 30s timeout
+    # for large-radius searches (e.g. 500 LY from Sgr A* with Phase 2 data).
+    # Fix: batch-fetch all bodies in ONE connection before the assembly loop.
+    spatial_start = PY.find("def _spatial_search(")
+    spatial_end   = PY.find("\ndef ", spatial_start + 1)
+    spatial_body  = PY[spatial_start:spatial_end]
+    # Count galaxy_conn() opens inside _spatial_search
+    n_conn = spatial_body.count("with galaxy_conn()")
+    if n_conn <= 3:  # 1=grid query, 1=bodies-table check, 1=batch fetch (all outside per-system loop)
+        PASS("X2", f"_spatial_search opens {n_conn} DB connection(s) — batch fetch, no per-system open ✓", verbose)
+    else:
+        BUG("X2", f"_spatial_search opens {n_conn} DB connections — possible per-system loop present. "
+            "Should be ≤3 (spatial query, table check, batch bodies fetch).")
+
+    # ── X3: spanshPost uses longer timeout for local searches ────────────
+    # BUG-TIMEOUT: spanshPost used a fixed 30s timeout for all requests.
+    # Phase 2 local searches over large radii (>200 LY) can take >30s even
+    # after the BUG-P1 batch fix, especially on Pi4/Pi5 with body-filter passes.
+    # Fix: local/search calls get 90s; Spansh proxy calls keep 30s.
+    if "isLocalSearch" in HTML and "90000" in HTML:
+        PASS("X3", "spanshPost uses 90s timeout for local searches, 30s for Spansh proxy ✓", verbose)
+    else:
+        BUG("X3", "spanshPost does not differentiate timeout by endpoint — local searches may time out.")
+
+    # ── X4: Rating slider triggers _refilterInPlace, NOT runSearch ───────
+    # BUG-B2: _attachIncrementalSearch was wiring rating sliders to
+    # _debouncedSearch → runSearch(), firing a full new API call on every drag
+    # tick.  Rating is purely client-side; it should only refilter loaded results.
+    inc_search_section = HTML[HTML.find("function _attachIncrementalSearch("):][:800]
+    if "_refilterInPlace" in inc_search_section:
+        PASS("X4", "Rating slider in _attachIncrementalSearch calls _refilterInPlace (client-side) ✓", verbose)
+    elif "_debouncedSearch" in inc_search_section or "runSearch" in inc_search_section:
+        BUG("X4", "Rating slider in _attachIncrementalSearch calls _debouncedSearch/runSearch — "
+            "triggers a new API search on every drag tick. Should call _refilterInPlace instead.")
+    else:
+        NOTE("X4", "Rating slider wiring in _attachIncrementalSearch unclear — verify it calls _refilterInPlace")
+
+    # ── X5: _triggerApiPoll defined for immediate status re-check ────────
+    # BUG-STATUS: The status dot polled /api/status every 30s and stayed green
+    # even when actual searches failed. _triggerApiPoll forces an immediate
+    # re-check so the dot goes red within 1.5s of a search error.
+    if "_triggerApiPoll" in HTML:
+        PASS("X5", "_triggerApiPoll helper defined for post-error status re-check ✓", verbose)
+    else:
+        BUG("X5", "_triggerApiPoll not defined — status dot stays green after search errors.")
+
     # ── V: Enrichment spreads preserve sys.distance ───────────────────────
     # BUG-U2/U3: { ...sys, ...rec } may overwrite sys.distance (the distance
     # relative to the current refSystem) with rec.distance (stale cached data).

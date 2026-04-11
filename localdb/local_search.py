@@ -210,17 +210,32 @@ def _spatial_search(
 
     results = []
 
-    # Check if bodies table exists (Phase 2)
+    # ── Phase 2 detection + single-pass body batch-fetch ──────────────────────
+    # BUG-P1 FIX: previously we opened galaxy_conn() inside the per-system loop,
+    # causing N SQLite connections for N candidate systems (potentially thousands
+    # for large radii like 500 LY from Sgr A*).  That saturated the thread pool
+    # and reliably exceeded the 30-second frontend timeout.
+    #
+    # Fix: one connection, one query.  We:
+    #   1. Identify candidate system IDs that pass distance/population/star filters.
+    #   2. In a single SQL query fetch ALL bodies for those IDs.
+    #   3. Build a per-system_id64 dict of body lists.
+    #   4. Normalise and filter in pure Python (no more DB round-trips per system).
+
+    # Check if bodies table exists (Phase 2) — still just one connection
     with galaxy_conn() as conn:
         has_bodies = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='bodies'"
         ).fetchone() is not None
 
-    use_body_filters = has_bodies and (body_filters or require_bio or require_geo or require_terra)
-    # Always fetch bodies when Phase 2 data exists — rateSystem() and body pill display
-    # both need populated bodies[] even on normal (no-filter) searches.
+    use_body_filters  = has_bodies and (body_filters or require_bio or require_geo or require_terra)
     always_fetch_bodies = has_bodies
 
+    # ── Pass 1: distance / population / star-type pre-filter ──────────────────
+    # Collect (row, dist, pop, is_col, being_col, ctrl) tuples that survive the
+    # cheap scalar filters.  We carry the colonisation columns forward so Pass 3
+    # can assemble the result dict without re-querying the DB.
+    candidates: List[tuple] = []
     for row in rows:
         dx = row["x"] - rx
         dy = row["y"] - ry
@@ -230,74 +245,87 @@ def _spatial_search(
         if dist_sq < min_dist_sq or dist_sq > max_dist_sq:
             continue
 
-        pop     = row["population"] or 0
-        is_col  = row["is_colonised"] or 0
+        pop       = row["population"] or 0
+        is_col    = row["is_colonised"] or 0
         being_col = row["is_being_colonised"] or 0
-        ctrl    = row["controlling_faction"]
+        ctrl      = row["controlling_faction"]
 
-        # Inhabited heuristic
         inhabited = bool(is_col or being_col or ctrl or pop > 0)
         if require_empty and inhabited:
             continue
 
-        # Star type filter (uses main_star field e.g. "K", "G", "F (White Dwarf)")
         if star_types:
-            main = (row["main_star"] or "").split()[0]  # first token = spectral class
+            main = (row["main_star"] or "").split()[0]
             if main not in star_types:
                 continue
 
         dist = math.sqrt(dist_sq)
+        candidates.append((row, dist, pop, is_col, being_col, ctrl))
 
-        # Body data — fetch whenever Phase 2 exists so rateSystem() gets real data
-        body_list = []
-        if always_fetch_bodies:
-            with galaxy_conn() as bconn:
-                brows = bconn.execute("""
-                    SELECT type, subtype, distance_to_arrival,
+    # ── Pass 2: batch-fetch bodies for all candidates in ONE query ─────────────
+    # bodies_map: {system_id64: [normalised body dicts]}
+    bodies_map: Dict[int, list] = {}
+    if always_fetch_bodies and candidates:
+        cand_ids = [row["id64"] for row, *_ in candidates]
+        # SQLite has a variable-limit (~999 by default); chunk if needed.
+        CHUNK = 900
+        raw_bodies: list = []
+        with galaxy_conn() as bconn:
+            for start in range(0, len(cand_ids), CHUNK):
+                chunk_ids = cand_ids[start: start + CHUNK]
+                placeholders = ",".join("?" * len(chunk_ids))
+                raw_bodies.extend(bconn.execute(f"""
+                    SELECT system_id64, type, subtype, distance_to_arrival,
                            is_landable, is_tidal_lock, has_signals, has_rings, ring_types,
                            atmosphere, volcanism, terraform_state,
                            surface_gravity, surface_temp, estimated_mapping_value, estimated_scan_value
-                    FROM bodies WHERE system_id64 = ?
-                    ORDER BY distance_to_arrival
-                """, (row["id64"],)).fetchall()
-            # Normalize column names to match Spansh API field names expected by frontend
-            for b in brows:
-                bd = dict(b)
-                # terraform_state → terraforming_state (Spansh field name)
-                bd["terraforming_state"] = bd.pop("terraform_state", None)
-                # surface_gravity → gravity (Spansh field name)
-                bd["gravity"] = bd.pop("surface_gravity", None)
-                # surface_temp → surface_temperature (frontend field name)
-                bd["surface_temperature"] = bd.pop("surface_temp", None)
-                # is_tidal_lock (int 0/1) → is_rotational_period_tidally_locked (bool)
-                bd["is_rotational_period_tidally_locked"] = bool(bd.pop("is_tidal_lock", 0))
-                # ring_types JSON → rings array of {type: "..."}
-                rt = bd.pop("ring_types", None)
-                if rt:
-                    try:
-                        names = json.loads(rt) if isinstance(rt, str) else rt
-                        bd["rings"] = [{"type": t} for t in names if t]
-                    except Exception:
-                        bd["rings"] = []
-                else:
-                    bd["rings"] = []
-                # has_signals int → signals array proxy
-                # The DB stores a single 0/1 flag; volcanism is used as geo proxy.
-                # Build a minimal signals array so frontend hasSignal() works:
-                #   - has_signals=1 + volcanism present → Geological
-                #   - has_signals=1 + no volcanism → Biological
-                # (Best approximation without a full signals table)
-                if bd.get("has_signals"):
-                    volc = (bd.get("volcanism") or "").strip()
-                    if volc and volc not in ("", "No volcanism"):
-                        bd["signals"] = [{"name": "Geological", "count": 1}]
-                    else:
-                        bd["signals"] = [{"name": "Biological", "count": 1}]
-                else:
-                    bd["signals"] = []
-                body_list.append(bd)
+                    FROM bodies
+                    WHERE system_id64 IN ({placeholders})
+                    ORDER BY system_id64, distance_to_arrival
+                """, chunk_ids).fetchall())
 
-            # Apply body-type slider filters when requested
+        # Normalise and group by system_id64
+        for b in raw_bodies:
+            sid = b["system_id64"]
+            bd  = dict(b)
+            bd.pop("system_id64", None)
+
+            # terraform_state → terraforming_state  (Spansh field name)
+            bd["terraforming_state"] = bd.pop("terraform_state", None)
+            # surface_gravity → gravity  (Spansh field name)
+            bd["gravity"] = bd.pop("surface_gravity", None)
+            # surface_temp → surface_temperature  (frontend field name)
+            bd["surface_temperature"] = bd.pop("surface_temp", None)
+            # is_tidal_lock (int 0/1) → is_rotational_period_tidally_locked (bool)
+            bd["is_rotational_period_tidally_locked"] = bool(bd.pop("is_tidal_lock", 0))
+            # ring_types JSON → rings array of {type: "..."}
+            rt = bd.pop("ring_types", None)
+            if rt:
+                try:
+                    names = json.loads(rt) if isinstance(rt, str) else rt
+                    bd["rings"] = [{"type": t} for t in names if t]
+                except Exception:
+                    bd["rings"] = []
+            else:
+                bd["rings"] = []
+            # has_signals int → signals array proxy
+            if bd.get("has_signals"):
+                volc = (bd.get("volcanism") or "").strip()
+                if volc and volc not in ("", "No volcanism"):
+                    bd["signals"] = [{"name": "Geological", "count": 1}]
+                else:
+                    bd["signals"] = [{"name": "Biological", "count": 1}]
+            else:
+                bd["signals"] = []
+
+            bodies_map.setdefault(sid, []).append(bd)
+
+    # ── Pass 3: body-filter + result assembly ─────────────────────────────────
+    for row, dist, pop, is_col, being_col, ctrl in candidates:
+        body_list = bodies_map.get(row["id64"], []) if always_fetch_bodies else []
+
+        if always_fetch_bodies:
+            # Apply body-type slider filters
             if use_body_filters and body_filters:
                 counts = _count_body_types(body_list)
                 skip = False
@@ -311,7 +339,6 @@ def _spatial_search(
                     continue
 
             # Signal/terra filters
-            # NOTE: has_signals=1 covers ANY signal type; volcanism is the geo proxy.
             if require_bio and not any(b.get("has_signals") for b in body_list):
                 continue
             if require_geo and not any(

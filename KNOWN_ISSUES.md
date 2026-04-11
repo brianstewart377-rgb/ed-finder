@@ -607,3 +607,63 @@ if (!refSystem || refSystem.x === undefined || refSystem.y === undefined || refS
 ```
 
 **Status:** ✅ Fixed in v3.31
+
+---
+
+## Issue 21: Phase 2 search timeout — per-system DB connection loop (v3.32)
+
+**Symptom:** Searching from Sagittarius A* (or any location with large radius) always failed with an error banner saying "Search failed: Backend 502: Bad Gateway" or a timeout. The status dot remained green throughout, giving no indication of the problem. Users with Phase 2 body data consistently saw this error.
+
+**Root cause:** `localdb/local_search.py` opened a new `galaxy_conn()` (SQLite connection) **for every candidate system** inside the body-fetch loop (line ~254). A 500 LY search from Sgr A* returns ~3,000–10,000 candidate systems from the spatial grid. Opening and closing 3,000–10,000 SQLite connections saturated the thread pool, took 60–120+ seconds, and exceeded the frontend's 30-second timeout.
+
+**Fix (v3.32):** The per-system connection is replaced with a **single batch query**:
+1. Pass 1: collect candidate IDs that survive distance/population/star-type filters.  
+2. Pass 2: fetch ALL bodies for those IDs in ONE `SELECT ... WHERE system_id64 IN (...)` query (chunked at 900 IDs to respect SQLite's variable limit).  
+3. Pass 3: normalise, filter, and assemble results — no more DB round-trips per system.
+
+Total DB connections for `_spatial_search` reduced from N (one per system) to 3 (spatial grid query, bodies-table existence check, batch body fetch).
+
+**Status:** ✅ Fixed in v3.32
+
+---
+
+## Issue 22: Search timeout shows Docker error hint (BUG-E3, BUG-E1) (v3.32)
+
+**Symptom:** When a search timed out (e.g. due to Issue 21), the error banner said "Check that the backend is running: `docker compose ps`" — even though Docker was running fine and the backend was healthy. The timeout was caused by a slow Phase 2 query, not a missing container.
+
+**Root cause 1 (BUG-E3):** `AbortSignal.timeout()` throws a `TimeoutError` (name=`'TimeoutError'`), **not** an `AbortError`. The catch block only checked `err.name === 'AbortError'`, so `TimeoutError` fell through to the generic Docker error hint.
+
+**Root cause 2 (BUG-E1):** The error message was always "Check docker compose ps" regardless of error type. Network errors, 502s, and timeouts all showed the same misleading hint.
+
+**Root cause 3 (spanshPost timeout):** `spanshPost` used a hard-coded 30-second timeout for all calls. Phase 2 local searches can take >30s on a Raspberry Pi — the timeout fired before the query finished, even after the BUG-P1 fix.
+
+**Fix (v3.32):**
+- `TimeoutError` is now caught alongside `AbortError`, showing a helpful "search took too long — try smaller radius" message.
+- Error messages are now differentiated: network error → Docker hint; 502/503 → "check `docker compose logs api`"; timeout → radius reduction hint.  
+- `spanshPost` now uses 90 seconds for `/local/search` calls (Phase 2 can be slow) and 30 seconds for Spansh proxy calls.
+
+**Status:** ✅ Fixed in v3.32
+
+---
+
+## Issue 23: Status dot stays green while searches fail (BUG-STATUS) (v3.32)
+
+**Symptom:** The green status dot in the UI showed the backend as "online" even while every search returned an error. This gave users no feedback that anything was wrong.
+
+**Root cause:** The status dot polls `/api/status` (a lightweight health check) every 30 seconds. Search failures come from `/api/local/search` — a different endpoint. The health check returning 200 does NOT mean searches work.
+
+**Fix (v3.32):** A new `_triggerApiPoll()` helper is called after every search error. It schedules an immediate (1.5s) re-check of `/api/status`. While `/api/status` itself does not test the search endpoint, the re-check will at least catch cases where Docker has gone offline entirely. A more thorough fix (probing `/api/local/status` instead) is a future improvement (see NOTE-G3 in the audit).
+
+**Status:** ✅ Partially fixed in v3.32 (status re-checked immediately on error; full search-health probing is a future improvement)
+
+---
+
+## Issue 24: Rating slider triggered new API search (BUG-B2) (v3.32)
+
+**Symptom:** Moving the rating range slider triggered a full new search (API call + result replacement), which was slow, discarded already-loaded pages, and reset the scroll position. This was especially noticeable on Pi deployments.
+
+**Root cause:** `_attachIncrementalSearch()` wired rating sliders to `_debouncedSearch()` → `runSearch()`. Rating filtering is purely client-side (reads `_lastResults` and re-runs `passesBodyFilters()`). It should never trigger a new API call.
+
+**Fix (v3.32):** Rating sliders now call `_refilterInPlace()` (debounced 200ms), which filters the already-loaded results without any network request.
+
+**Status:** ✅ Fixed in v3.32

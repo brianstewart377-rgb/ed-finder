@@ -2981,6 +2981,18 @@ function _scheduleApiPoll(online) {
   }, _apiPollInterval);
 }
 
+// BUG-STATUS-FIX: Allow any code to trigger an immediate status re-check.
+// Used when a search returns an error so the dot reflects the actual state,
+// not the last cached /api/status poll result (which can be stale by up to 30s).
+function _triggerApiPoll() {
+  clearTimeout(_apiPollTimer);
+  _apiPollTimer = setTimeout(async () => {
+    await checkApiConnection();
+    const dot = document.getElementById('api-dot');
+    _scheduleApiPoll(dot && dot.classList.contains('online'));
+  }, 1500); // short delay so the error banner renders first
+}
+
 async function spanshFetch(url, options = {}) {
   // Rewrite spansh.co.uk URLs to our backend
   const localUrl = url
@@ -2999,11 +3011,21 @@ async function spanshPost(url, body, signal) {
   const localUrl = url
     .replace('https://spansh.co.uk/api/', API_BASE + '/')
     .replace('https://www.spansh.co.uk/api/', API_BASE + '/');
+  // BUG-E3-FIX: use AbortSignal.any() to combine the caller's abort signal with
+  // a hard timeout.  Local DB searches get 90 s (Phase 2 body scans can be slow);
+  // Spansh proxy calls get 30 s.  Using .any() means the FIRST signal to fire wins,
+  // so a rapid re-search still cancels properly.
+  const isLocalSearch = localUrl.includes('/local/search');
+  const timeoutMs = isLocalSearch ? 90000 : 30000;
+  const timeoutSig = AbortSignal.timeout(timeoutMs);
+  const effectiveSig = signal
+    ? (typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeoutSig]) : signal)
+    : timeoutSig;
   const r = await fetch(localUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify(body),
-    signal: signal || AbortSignal.timeout(30000)
+    signal: effectiveSig
   });
   if (!r.ok) throw new Error(`Backend ${r.status}: ${r.statusText}`);
   return r.json();
@@ -3421,24 +3443,52 @@ async function runSearch(page = 0) {
 
   } catch(err) {
     // BUG-U1-FIX: Never show fake demo systems on API error.
-    // Previously the error path silently rendered generateDemoSystems() — fake systems with
-    // random distances that changed whenever refSystem changed. Users saw "Proxima Coloniae"
-    // etc. as if they were real results. Now we show the error clearly and nothing else.
-    if (err.name === 'AbortError') {
-      // Cancelled by a newer search — no-op, the new search will render its own results.
+    // BUG-E3-FIX: AbortSignal.timeout() throws TimeoutError (name='TimeoutError'),
+    //   NOT AbortError.  Check both so rapid-cancel and timeout are both silently ignored.
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+      // Cancelled by a newer search or timed out — restore button; caller decides next step.
       btn.disabled = false;
       btn.innerHTML = '<span>🔍</span> SEARCH SYSTEMS';
+      if (err.name === 'TimeoutError') {
+        // BUG-E1-FIX: Show a meaningful message for search timeouts.
+        // Previously we always said "docker compose ps" even when the backend was up
+        // and the real issue was a slow Phase 2 search exceeding the 30-second limit.
+        content.innerHTML = `
+          <div class="error-banner">⏱️ <div><strong>Search timed out.</strong>
+            The backend is running but the query took too long (>60 s).
+          </div>
+          <div style="margin-top:8px;font-size:12px;color:var(--text-dim)">
+            This usually means the Phase 2 body data is still being indexed,
+            or the search radius is very large (e.g. 500 LY near the galactic core).<br><br>
+            <strong>Try:</strong> reduce Max Distance, or wait a few minutes for indexing to finish.
+            The status dot will turn green again once the DB is ready.
+          </div></div>`;
+        // Mark last search as failed so the status dot updates on next poll
+        window._lastSearchFailed = true;
+        _triggerApiPoll();
+      }
       return;
+    }
+    // BUG-E1-FIX: Distinguish "backend completely down" from "search error".
+    // Only show the docker compose hint when we get a network-level failure (TypeError/fetch error).
+    const isNetworkError = (err instanceof TypeError) || err.message?.startsWith('Failed to fetch') || err.message?.startsWith('NetworkError');
+    const isBackend502   = err.message?.includes('502') || err.message?.includes('503');
+    let hint = '';
+    if (isNetworkError) {
+      hint = `Check that Docker is running: <code>docker compose ps</code> — the backend process is not reachable at all.`;
+    } else if (isBackend502) {
+      hint = `The backend returned an error (502/503). This usually means a slow Phase 2 SQLite query.<br>
+              Try a smaller search radius, or check <code>docker compose logs api --tail=50</code> for details.`;
+    } else {
+      hint = `Try adjusting your filters and searching again. If the problem persists, check <code>docker compose logs api --tail=50</code>.`;
     }
     content.innerHTML = `
       <div class="error-banner">⚠️ <div><strong>Search failed:</strong> ${err.message}</div>
-        <div style="margin-top:8px;font-size:12px;color:var(--text-dim)">
-          Check that the backend is running: <code>docker compose ps</code><br>
-          If the API is reachable, try adjusting your filters and searching again.
-        </div>
-        ${buildDemoBanner().outerHTML}
+        <div style="margin-top:8px;font-size:12px;color:var(--text-dim)">${hint}</div>
       </div>
     `;
+    window._lastSearchFailed = true;
+    _triggerApiPoll();
   }
 
   btn.disabled = false;
@@ -10145,11 +10195,18 @@ function _debouncedSearch() {
 }
 
 function _attachIncrementalSearch() {
-  // Rating sliders: debounced 'input' event so search updates as you drag
-  // (rating filter is pure client-side, so re-filtering is instant).
+  // Rating sliders: live client-side re-filter as you drag.
+  // Rating is computed from already-loaded results (_lastResults), so we never
+  // need a new API call — just re-run passesBodyFilters() which reads the slider
+  // values.  Previously this called _debouncedSearch() → runSearch() which fired
+  // a full new API search on every drag tick.  That wasted bandwidth, reset scroll
+  // position, and discarded already-loaded pages.  Fixed: call _refilterInPlace().
   ['min-rating-slider','max-rating-slider'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('input', _debouncedSearch);
+    if (el) el.addEventListener('input', () => {
+      clearTimeout(window._ratingRefilterTimer);
+      window._ratingRefilterTimer = setTimeout(_refilterInPlace, 200);
+    });
   });
   // Distance sliders: do NOT auto-search on release.
   // Distance changes always require a full DB/API query. Auto-triggering on
