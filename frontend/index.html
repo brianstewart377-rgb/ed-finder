@@ -1854,7 +1854,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.38.1</div>
+  <div class="version">v3.39</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2426,7 +2426,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.38.1';
+const APP_VERSION = 'v3.39';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -3214,6 +3214,9 @@ async function appendSearch(page) {
     // by the current sort preference so Load More doesn't just tack new cards
     // on the bottom out of order.
     if (window._lastResults) window._lastResults.systems.push(...filtered);
+    // BUG-FIX v3.39: keep _allResults in sync with appended pages so
+    // _refilterInPlace always has the full loaded set to work from
+    if (window._allResults) window._allResults.push(...newSystems);
 
     const content = document.getElementById('finder-content');
     // FIX #14 — remove ALL existing pagination divs (not just last child)
@@ -3268,6 +3271,8 @@ async function runSearch(page = 0) {
   if (searchAbortController) { try { searchAbortController.abort(); } catch(e) {} }
   searchAbortController = new AbortController();
   const searchSignal = searchAbortController.signal;
+  // BUG-FIX v3.39: clear _allResults so next renderResultsProgressive populates it fresh
+  window._allResults = null;
 
   const btn = document.getElementById('search-btn');
   btn.disabled = true;
@@ -3583,6 +3588,8 @@ async function runSearch(page = 0) {
 //  When using Spansh: splits [minDist, maxDist] into N sequential bands
 // ═══════════════════════════════════════════════════════════════════
 async function runDeepScan() {
+  // BUG-FIX v3.39: clear _allResults so next render starts fresh
+  window._allResults = null;
   const btn     = document.getElementById('deep-scan-btn');
   const content = document.getElementById('finder-content');
   const maxDist = parseInt(document.getElementById('dist-slider').value);
@@ -4125,7 +4132,12 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
     content.appendChild(strip);
   }
 
-  window._lastResults = { systems: [...systems], page, total };
+  // Preserve the canonical full result set so _refilterInPlace can always
+  // re-filter from the complete API response (not from a previously-filtered slice).
+  // _allResults is set once per runSearch/appendSearch/deepScan call and never
+  // overwritten by _refilterInPlace.
+  if (!window._allResults) window._allResults = [...systems];
+  window._lastResults = { systems: [...systems], page, total, cacheAge };
   currentResults = window._lastResults.systems;  // FIX #12
 
   // Sort before rendering — use saved pref, default to rating desc
@@ -4228,7 +4240,8 @@ function renderResults(systems, page, total) {
   `;
   content.appendChild(bar);
   setTimeout(() => { const sel = document.getElementById('result-sort'); if (sel) sel.value = _rr_sortMode; }, 0);
-  window._lastResults = { systems: [...systems], page, total };
+  if (!window._allResults) window._allResults = [...systems];
+  window._lastResults = { systems: [...systems], page, total, cacheAge };
   currentResults = window._lastResults.systems;  // FIX #12
   // QOL-5: persist last results to sessionStorage so tab switches don't lose your place
   // BUG-SESSION-FIX: never save demo systems to storage — they have _demo:true flag.
@@ -6321,13 +6334,24 @@ async function _patchWlAlertConfig(id64, cfg) {
 })();
 
 function _refilterInPlace() {
-  const all = window._lastResults?.systems;
+  // BUG-FIX v3.39: always re-filter from the FULL API result set (_allResults),
+  // not from window._lastResults.systems which gets overwritten to the filtered
+  // subset each time renderResultsProgressive is called.  Without this fix,
+  // each successive refilter shrinks the pool (filtered → re-filtered → …)
+  // until it reaches zero and shows an empty state or triggers unexpected errors.
+  const all = window._allResults || window._lastResults?.systems;
   if (!all || !all.length) { alert('No results loaded yet — run a search first.'); return; }
+  // Preserve the original cache-age badge so refilter doesn't flip it to "live data"
+  const savedCacheAge = window._lastResults?.cacheAge ?? null;
   // BUG-FIX-E: passesBodyFilters already checks rating range and economy filter so the
   // secondary .filter() was duplicating logic (and missing secondary-economy matches).
   // Single pass through passesBodyFilters is sufficient.
   const final = all.filter(s => passesBodyFilters(s));
-  renderResultsProgressive(final, 0, final.length, null);
+  // Preserve _allResults across the renderResultsProgressive call (which resets it
+  // via the `if (!window._allResults)` guard when given a filtered-down systems array).
+  const savedAll = window._allResults;
+  renderResultsProgressive(final, 0, all.length, savedCacheAge);
+  window._allResults = savedAll;  // restore full set after render
   // Update live badge
   _updateFilterLiveBadge(all.length, final.length);
 }
@@ -6339,7 +6363,8 @@ function _scheduleFilterLiveBadge() {
   _filterLiveTimer = setTimeout(_doFilterLiveBadge, 300);
 }
 function _doFilterLiveBadge() {
-  const all = window._lastResults?.systems;
+  // BUG-FIX v3.39: use _allResults (full set) not _lastResults.systems (filtered subset)
+  const all = window._allResults || window._lastResults?.systems;
   if (!all || !all.length) return;
   // BUG-FIX-F: passesBodyFilters already checks rating and economy — no need to duplicate.
   const count = all.filter(s => passesBodyFilters(s)).length;

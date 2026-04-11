@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.37, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.39, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
@@ -175,6 +175,32 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.39 — Re-filter pool shrinkage fix
+
+- **[BUG] Re-filter shrinks result pool on each click** — root cause: `renderResultsProgressive`
+  overwrote `window._lastResults.systems` with the filtered subset; the next refilter
+  operated on that already-reduced set instead of the original API results.  Fixed by
+  introducing `window._allResults` (set once per `runSearch` / `appendSearch` / `runDeepScan`,
+  cleared on every new search) so `_refilterInPlace` always works from the full unfiltered set.
+- **[BUG] Live filter badge showed wrong total after refilter** — `_doFilterLiveBadge` now
+  also reads from `_allResults` so the X / Y counter stays accurate.
+- **[BUG] Cache-age badge flipped to "🔴 live data" after refilter** — `_refilterInPlace` now
+  preserves the original `cacheAge` value and passes it through to `renderResultsProgressive`.
+
+### v3.38.1 — Configurable search-radius cap
+
+- `MAX_SEARCH_RADIUS_LY` environment variable (default `200`) — override in `docker-compose.yml`
+  per-host (Pi = 200, Hetzner CX32 = 500, CX52 = 750).
+- Status endpoint returns `max_search_radius_ly` so the frontend reads the cap dynamically.
+- Distance slider max and hint text update automatically to the configured cap.
+
+### v3.38 — Local DB search radius cap (200 LY)
+
+- Searches beyond 200 LY on a Raspberry Pi caused OOM / 502 crashes (340 LY ≈ 30 k grid cells × 67 M rows JOIN).
+- Server-side cap added: requests over the limit are truncated with a warning.
+- Frontend slider clamped to 200 LY when local DB is active; reverts to 500 LY for Spansh.
+- SQLite busy-timeout set to 30 s to prevent silent hangs.
 
 ### v3.37 — Deep Scan hidden with local DB + SSE build fix
 
