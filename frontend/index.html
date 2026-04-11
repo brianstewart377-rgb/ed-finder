@@ -3258,14 +3258,21 @@ async function runSearch(page = 0) {
       filters,
       reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
       sort,
-      size: _localDbAvailable ? 50000 : size,  // No cap on local DB
+      // BUG-FIX: For local DB, use 'size' (user's slider value), NOT a blanket 50000.
+      // Sending size=50000 then slicing to 50 wastes the query and throws away
+      // 49,950 results that never get rated or enriched. The local DB is already
+      // sorted by distance and filtered server-side, so the first N are the best.
+      // Deep Scan uses size=100000 separately and processes ALL results.
+      size: size,
       from: page * size,
       // Extra hints for local DB server-side filtering
       body_filters:  Object.keys(localBodyFilters).length ? localBodyFilters : undefined,
       require_bio:   document.getElementById('tog-bio')?.checked  || undefined,
       require_geo:   document.getElementById('tog-geo')?.checked  || undefined,
       require_terra: document.getElementById('tog-terra')?.checked || undefined,
-      min_rating:    parseInt(document.getElementById('min-rating-slider')?.value || '0') || undefined,
+      // NOTE: min_rating is passed as a hint but local_search.py does NOT apply it
+      // server-side (no rating computation in DB). It is applied client-side in
+      // passesBodyFilters() after rateSystem() runs on the returned results.
     };
 
     // ── LOCAL DB PATH — no Spansh, no 10k cap, sub-100ms queries ────────────
@@ -3341,12 +3348,16 @@ async function runSearch(page = 0) {
     const filtered = systems.filter(sys => passesBodyFilters(sys));
 
     // Update count to show filtered vs total
+    // BUG-FIX: totalResults from API = total matching distance/pop filter in DB.
+    // filtered = what passes body/rating/economy client-side filters.
+    // Show both numbers so the user understands how many were checked vs kept.
     const countEl = document.getElementById('result-count');
     if (countEl) {
-      if (filtered.length < totalResults) {
-        countEl.textContent = `${filtered.length.toLocaleString()} of ${totalResults.toLocaleString()} systems (filtered)`;
+      if (filtered.length < rawResults.length) {
+        // Some of the fetched results were excluded by client-side filters
+        countEl.textContent = `${filtered.length.toLocaleString()} shown · ${totalResults.toLocaleString()} in range`;
       } else {
-        countEl.textContent = `${filtered.length.toLocaleString()} systems found`;
+        countEl.textContent = `${filtered.length.toLocaleString()} systems found (${totalResults.toLocaleString()} in range)`;
       }
     }
 
@@ -3449,15 +3460,44 @@ async function runDeepScan() {
         require_bio:   document.getElementById('tog-bio')?.checked  || undefined,
         require_geo:   document.getElementById('tog-geo')?.checked  || undefined,
         require_terra: document.getElementById('tog-terra')?.checked || undefined,
-        min_rating:    parseInt(document.getElementById('min-rating-slider')?.value || '0') || undefined,
+        // min_rating is NOT applied server-side (no DB-level rating), client filters later
       }, AbortSignal.timeout(60000));
 
       const rawAll = data?.results || [];
-      rawAll.forEach(s => {
+
+      // BUG-FIX: batch-enrich top systems so rateSystem() has body data.
+      // Without enrichment, bodies=[] and slot/quality/compactness scores are all 0.
+      // Enrich the first 500 (closest) in chunks of 100 to get Spansh cache body data.
+      const DEEP_ENRICH_CAP = 500;
+      const toEnrich = rawAll.slice(0, DEEP_ENRICH_CAP);
+      const enrichMap = {};
+      const progEl2 = document.getElementById('deep-scan-progress');
+      if (progEl2) progEl2.textContent = `Enriching top ${toEnrich.length} systems for ratings…`;
+      const ECHUNK = 100;
+      for (let ei = 0; ei < toEnrich.length; ei += ECHUNK) {
+        const chunk = toEnrich.slice(ei, ei + ECHUNK);
+        const chunkIds = chunk.map(s => s.id64).filter(Boolean);
+        try {
+          const er = await fetch(`${API_BASE}/systems/batch`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id64s: chunkIds }),
+            signal: AbortSignal.timeout(15000)
+          });
+          if (er.ok) { const ed = await er.json(); Object.assign(enrichMap, ed.systems || {}); }
+        } catch(e) { /* batch miss */ }
+      }
+      // Merge enrichment for top N; rest keep local DB data
+      rawAll.forEach((s, i) => {
+        if (i < DEEP_ENRICH_CAP) {
+          const full = enrichMap[String(s.id64)];
+          if (full) { const rec = full.record || full; Object.assign(s, rec); s._enriched = true; }
+        }
         s._rating  = s._rating  || rateSystem(s);
         s._economy = s._economy || suggestEconomy(s);
         s._build   = s._build   || suggestBuild(s._economy, s);
       });
+      // Sort by rating desc after enrichment (local DB returned distance-sorted)
+      rawAll.sort((a, b) => (b._rating?.total || 0) - (a._rating?.total || 0));
       const filtered = rawAll.filter(sys => passesBodyFilters(sys));
       renderResultsProgressive(filtered, 0, rawAll.length, null);
       const info = document.createElement('div');
@@ -4387,7 +4427,13 @@ function rateSystem(sys) {
   // -- SLOT SCORE (20 pts) --
   const landable = bodies.filter(b => b.type === 'Planet' && b.is_landable).length;
   const orbital  = bodies.filter(b => b.type === 'Planet' && !b.is_landable).length + bodies.filter(b=>b.type==='Star').length;
-  slots = Math.min(20, Math.round((Math.min(landable, 10) / 10 + Math.min(orbital, 10) / 10) * 10));
+  // BUG-FIX: when bodies=[] (no Phase-2 data yet), slots=0 killing ratings.
+  // Use neutral midpoint (10) when body data is absent.
+  if (bodies.length === 0) {
+    slots = 10; // neutral: assume average system until body data available
+  } else {
+    slots = Math.min(20, Math.round((Math.min(landable, 10) / 10 + Math.min(orbital, 10) / 10) * 10));
+  }
 
   // -- BODY QUALITY (25 pts) --
   bodies.forEach(b => {
@@ -4424,14 +4470,23 @@ function rateSystem(sys) {
 
   // -- COMPACTNESS (20 pts) --
   const planets = bodies.filter(b => b.type === 'Planet');
-  const maxDist = planets.length ? Math.max(...planets.map(b => b.distance_to_arrival || 0)) : 0;
-  if (maxDist <= 500)        compactness = 20;
-  else if (maxDist <= 1000)  compactness = 17;
-  else if (maxDist <= 5000)  compactness = 13;
-  else if (maxDist <= 20000) compactness = 9;
-  else if (maxDist <= 50000) compactness = 6;
-  else if (maxDist <= 250000) compactness = 3;
-  else                       compactness = 0;
+  // BUG-FIX: when bodies=[] (no body data yet from local DB), planets.length === 0
+  // so maxDist=0 → compactness=20 (perfect score as fallback, neutral assumption).
+  // Without this fix, no-body-data systems scored 0 compactness, artificially
+  // capping ratings at ~30 and making the entire score distribution wrong.
+  // 20 is the neutral/unknown fallback: assume compact until proven otherwise.
+  if (planets.length === 0) {
+    compactness = 10; // neutral: unknown, neither penalise nor reward
+  } else {
+    const maxDist = Math.max(...planets.map(b => b.distance_to_arrival || 0));
+    if (maxDist <= 500)        compactness = 20;
+    else if (maxDist <= 1000)  compactness = 17;
+    else if (maxDist <= 5000)  compactness = 13;
+    else if (maxDist <= 20000) compactness = 9;
+    else if (maxDist <= 50000) compactness = 6;
+    else if (maxDist <= 250000) compactness = 3;
+    else                       compactness = 0;
+  }
 
   // -- SIGNAL QUALITY (15 pts) --
   const bioCount = bodies.filter(b => (b.signals||[]).some(s=>s.name==='Biological')).length;

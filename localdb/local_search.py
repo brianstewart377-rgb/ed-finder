@@ -251,7 +251,7 @@ def _spatial_search(
             with galaxy_conn() as bconn:
                 brows = bconn.execute("""
                     SELECT type, subtype, is_landable, has_signals,
-                           terraform_state, ring_types, volcanism
+                           terraform_state, ring_types, volcanism, atmosphere
                     FROM bodies WHERE system_id64 = ?
                 """, (row["id64"],)).fetchall()
             body_list = [dict(b) for b in brows]
@@ -270,8 +270,15 @@ def _spatial_search(
                     continue
 
             # Signal filters
+            # NOTE: bodies table stores has_signals=1 for ANY signal type (bio or geo).
+            # We use volcanism as a proxy for geological signals since:
+            #   - Geological scan signals strongly correlate with volcanic bodies
+            #   - Biological signals occur on non-volcanic rocky/icy bodies
+            # This is the best approximation given the current schema.
             if require_bio and not any(b.get("has_signals") for b in body_list):
                 continue
+            # require_geo: system must have at least one body with volcanism
+            # (geological signals are emitted by bodies with active volcanism)
             if require_geo and not any(
                 b.get("volcanism") and b["volcanism"] not in ("", "No volcanism")
                 for b in body_list
@@ -313,16 +320,19 @@ def _count_body_types(bodies: list) -> dict:
     from collections import defaultdict
     counts: dict = defaultdict(int)
     SUBTYPE_MAP = {
+        # NOTE: Spansh galaxy dump uses Title Case (e.g. "Black Hole", "Neutron Star").
+        # The local DB stores subtype exactly as imported from Spansh.
+        # All entries here must match the exact Spansh casing to avoid silent zero-counts.
         "Earth-like world": "elw",
         "Water world": "ww",
         "Ammonia world": "aw",
-        "Black hole": "blackHoles",
-        "Neutron star": "neutron",
-        "White dwarf": "whiteDwarf",
+        "Black Hole": "blackHoles",        # Spansh: "Black Hole" (capital H)
+        "Neutron Star": "neutron",          # Spansh: "Neutron Star" (capital S)
+        "White Dwarf": "whiteDwarf",        # Spansh: "White Dwarf" (capital D)
         "High metal content world": "hmc",
         "Metal-rich body": "metalRich",
         "Rocky body": "rocky",
-        "Rocky ice world": "rockyIce",
+        "Rocky Ice world": "rockyIce",
         "Icy body": "icy",
         "Class I gas giant": "gasGiant",
         "Class II gas giant": "gasGiant",
@@ -336,11 +346,29 @@ def _count_body_types(bodies: list) -> dict:
     }
     for b in bodies:
         sub = (b.get("subtype") or "").strip()
+        btype = (b.get("type") or "").strip()
         key = SUBTYPE_MAP.get(sub)
         if key:
             counts[key] += 1
+        elif btype == "Star" and sub not in SUBTYPE_MAP:
+            counts["otherStars"] += 1  # companion stars without a specific mapping
+
         if b.get("is_landable"):
             counts["landable"] += 1
+            # walkable = landable with no atmosphere (can use SRV)
+            atm = (b.get("atmosphere") or "").strip()
+            if not atm or atm.lower() in ("", "no atmosphere", "none"):
+                counts["walkable"] += 1
+
+        # Count bodies with biological/geological signals
+        # has_signals=1 means ANY signal; use volcanism as geo proxy
+        if b.get("has_signals"):
+            volc = (b.get("volcanism") or "").strip()
+            if volc and volc not in ("", "No volcanism"):
+                counts["geoSignal"] += 1  # geo signal proxy: has signals + volcanism
+            else:
+                counts["bioSignal"] += 1  # bio signal proxy: has signals + no volcanism
+
         rt = b.get("ring_types")
         if rt:
             try:
