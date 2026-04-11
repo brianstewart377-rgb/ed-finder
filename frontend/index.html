@@ -3309,43 +3309,52 @@ async function runSearch(page = 0) {
 
     // ── #1 Batch enrichment — single round-trip to local cache ──────────────
     const rawResults = data.results.slice(0, size);
-    const id64s = rawResults.map(s => s.id64).filter(Boolean);
 
-    // Show progress while batch fetches
-    content.innerHTML = `<div class="loading-wrap">
-      <div class="spinner"></div>
-      <div class="loading-text" id="enrich-progress">Enriching ${rawResults.length} systems…</div>
-      <div style="color:var(--text-dim);font-size:11px">Fetching body data from local cache</div>
-    </div>`;
+    // When local DB has Phase 2 body data, search results already contain bodies[].
+    // Skip batch enrichment (which uses Spansh /system/{id64} — only minimal body data)
+    // to avoid overwriting the rich local DB body data with empty Spansh records.
+    const skipBatchEnrich = _localDbAvailable && _localDbHasBodies;
 
-    let enrichedMap = {};
-    let cacheAge = null;
-    try {
-      const batchResp = await fetch(`${API_BASE}/systems/batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id64s }),
-        signal: AbortSignal.timeout(15000)   // FIX #4 — 15 s hard cap
-      });
-      // #12 — read cache age header
-      const ageHeader = batchResp.headers.get('X-Cache-Age');
-      if (ageHeader !== null) cacheAge = parseInt(ageHeader);
-      if (batchResp.ok) {
-        const batchData = await batchResp.json();
-        enrichedMap = batchData.systems || {};
-      }
-    } catch(e) { /* batch unavailable — fall back to individual */ }
+    let systems = [];
+    if (skipBatchEnrich) {
+      // Local DB with Phase 2: bodies already populated, rate directly
+      content.innerHTML = `<div class="loading-wrap"><div class="spinner"></div>
+        <div class="loading-text">Rating ${rawResults.length} systems…</div></div>`;
+      systems = rawResults;
+    } else {
+      // Spansh path (or local DB without Phase 2): batch-enrich from cache
+      const id64s = rawResults.map(s => s.id64).filter(Boolean);
+      content.innerHTML = `<div class="loading-wrap">
+        <div class="spinner"></div>
+        <div class="loading-text" id="enrich-progress">Enriching ${rawResults.length} systems…</div>
+        <div style="color:var(--text-dim);font-size:11px">Fetching body data from local cache</div>
+      </div>`;
 
-    // Merge batch results into raw results; individual fallback for misses
-    const systems = [];
-    for (const sys of rawResults) {
-      const full = enrichedMap[String(sys.id64)];
-      if (full) {
-        const rec = full.record || full;
-        systems.push({ ...sys, ...rec, _enriched: true });
-      } else {
-        // individual fallback (rare: batch miss or offline)
-        systems.push(await enrichSystem(sys));
+      let enrichedMap = {};
+      let cacheAge = null;
+      try {
+        const batchResp = await fetch(`${API_BASE}/systems/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id64s }),
+          signal: AbortSignal.timeout(15000)
+        });
+        const ageHeader = batchResp.headers.get('X-Cache-Age');
+        if (ageHeader !== null) cacheAge = parseInt(ageHeader);
+        if (batchResp.ok) {
+          const batchData = await batchResp.json();
+          enrichedMap = batchData.systems || {};
+        }
+      } catch(e) { /* batch unavailable — fall back to individual */ }
+
+      for (const sys of rawResults) {
+        const full = enrichedMap[String(sys.id64)];
+        if (full) {
+          const rec = full.record || full;
+          systems.push({ ...sys, ...rec, _enriched: true });
+        } else {
+          systems.push(await enrichSystem(sys));
+        }
       }
     }
 
@@ -3477,33 +3486,37 @@ async function runDeepScan() {
 
       const rawAll = data?.results || [];
 
-      // BUG-FIX: batch-enrich top systems so rateSystem() has body data.
-      // Without enrichment, bodies=[] and slot/quality/compactness scores are all 0.
-      // Enrich the first 500 (closest) in chunks of 100 to get Spansh cache body data.
-      const DEEP_ENRICH_CAP = 500;
-      const toEnrich = rawAll.slice(0, DEEP_ENRICH_CAP);
-      const enrichMap = {};
-      const progEl2 = document.getElementById('deep-scan-progress');
-      if (progEl2) progEl2.textContent = `Enriching top ${toEnrich.length} systems for ratings…`;
-      const ECHUNK = 100;
-      for (let ei = 0; ei < toEnrich.length; ei += ECHUNK) {
-        const chunk = toEnrich.slice(ei, ei + ECHUNK);
-        const chunkIds = chunk.map(s => s.id64).filter(Boolean);
-        try {
-          const er = await fetch(`${API_BASE}/systems/batch`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id64s: chunkIds }),
-            signal: AbortSignal.timeout(15000)
-          });
-          if (er.ok) { const ed = await er.json(); Object.assign(enrichMap, ed.systems || {}); }
-        } catch(e) { /* batch miss */ }
-      }
-      // Merge enrichment for top N; rest keep local DB data
-      rawAll.forEach((s, i) => {
-        if (i < DEEP_ENRICH_CAP) {
-          const full = enrichMap[String(s.id64)];
-          if (full) { const rec = full.record || full; Object.assign(s, rec); s._enriched = true; }
+      // With Phase 2 local DB, bodies[] is already populated for every system.
+      // Skip batch Spansh enrichment — local DB body data is richer than minimal
+      // Spansh /system/{id64} response (which has no volcanism/rings/signals).
+      // Without Phase 2, enrich top 500 from Spansh cache so rateSystem() works.
+      if (!_localDbHasBodies) {
+        const DEEP_ENRICH_CAP = 500;
+        const toEnrich = rawAll.slice(0, DEEP_ENRICH_CAP);
+        const enrichMap = {};
+        const progEl2 = document.getElementById('deep-scan-progress');
+        if (progEl2) progEl2.textContent = `Enriching top ${toEnrich.length} systems for ratings…`;
+        const ECHUNK = 100;
+        for (let ei = 0; ei < toEnrich.length; ei += ECHUNK) {
+          const chunk = toEnrich.slice(ei, ei + ECHUNK);
+          const chunkIds = chunk.map(s => s.id64).filter(Boolean);
+          try {
+            const er = await fetch(`${API_BASE}/systems/batch`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id64s: chunkIds }),
+              signal: AbortSignal.timeout(15000)
+            });
+            if (er.ok) { const ed = await er.json(); Object.assign(enrichMap, ed.systems || {}); }
+          } catch(e) { /* batch miss */ }
         }
+        rawAll.forEach((s, i) => {
+          if (i < DEEP_ENRICH_CAP) {
+            const full = enrichMap[String(s.id64)];
+            if (full) { const rec = full.record || full; Object.assign(s, rec); s._enriched = true; }
+          }
+        });
+      }
+      rawAll.forEach(s => {
         s._rating  = s._rating  || rateSystem(s);
         s._economy = s._economy || suggestEconomy(s);
         s._build   = s._build   || suggestBuild(s._economy, s);
@@ -3691,12 +3704,8 @@ async function enrichSystem(sys) {
 function passesBodyFilters(sys) {
   const bodies = sys.bodies || [];
 
-  // IMPORTANT: When using local DB without Phase 2 body data, systems come back
-  // with bodies:[] — skip ALL body-type slider filters in that case, otherwise
-  // every system fails the filter and results appear empty.
-  // Body-type filters (sliders, bio/geo/terra toggles) only apply when:
-  //   a) using Spansh (body data from batch enrichment), OR
-  //   b) local DB with Phase 2 complete (_localDbHasBodies=true)
+  // Skip body filters ONLY when local DB has no Phase 2 data AND bodies[] is empty.
+  // With Phase 2 (_localDbHasBodies=true) bodies[] is always populated from DB.
   const skipBodyFilters = _localDbAvailable && !_localDbHasBodies && bodies.length === 0;
 
   const counts = countBodyTypes(bodies);
@@ -3749,6 +3758,10 @@ function passesBodyFilters(sys) {
       return v && v !== 'No volcanism';
     })) return false;
     if (togNotidal && bodies.some(b => b.type === 'Planet' && b.is_rotational_period_tidally_locked)) return false;
+    // NOTE: is_rotational_period_tidally_locked is NOT stored as its own column in the local DB schema.
+    // It comes from the JSON data blob only when the full Spansh record was stored.
+    // For Phase 2 bodies fetched from DB this field will be undefined → togNotidal is effectively
+    // a no-op for local-DB results.  A future DB migration could add this column explicitly.
 
     const minLand = parseInt(document.getElementById('sl-land')?.value || '0');
     const minSig  = parseInt(document.getElementById('sl-sig')?.value  || '0');
@@ -3895,9 +3908,9 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
     const maxR = parseInt(document.getElementById('max-rating-slider')?.value||100);
     if (minR > 0 || maxR < 100) activeItems.push(`Rating: ${minR}–${maxR}`);
     const minDist = parseInt(document.getElementById('min-dist-slider')?.value||0);
-    const maxDist = parseInt(document.getElementById('dist-slider')?.value||15);
+    const maxDist = parseInt(document.getElementById('dist-slider')?.value||50);
     if (minDist > 0) activeItems.push(`Min dist: ${minDist} LY`);
-    if (maxDist !== 15) activeItems.push(`Max dist: ${maxDist} LY`);
+    if (maxDist !== 50) activeItems.push(`Max dist: ${maxDist} LY`);
     const minL = parseInt(document.getElementById('sl-land')?.value||0);
     const minS = parseInt(document.getElementById('sl-sig')?.value||0);
     if (minL > 0) activeItems.push(`Min landable: ${minL}`);
@@ -6964,7 +6977,7 @@ function getSearchParams() {
     refX:       refSystem.x || 0,
     refY:       refSystem.y || 0,
     refZ:       refSystem.z || 0,
-    dist:       document.getElementById('dist-slider')?.value || '15',
+    dist:       document.getElementById('dist-slider')?.value || '50',
     minDist:    document.getElementById('min-dist-slider')?.value || '0',
     size:       document.getElementById('size-slider')?.value || '20',
     uncolonised:document.getElementById('tog-uncolonised')?.checked,

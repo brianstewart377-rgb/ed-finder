@@ -217,6 +217,9 @@ def _spatial_search(
         ).fetchone() is not None
 
     use_body_filters = has_bodies and (body_filters or require_bio or require_geo or require_terra)
+    # Always fetch bodies when Phase 2 data exists — rateSystem() and body pill display
+    # both need populated bodies[] even on normal (no-filter) searches.
+    always_fetch_bodies = has_bodies
 
     for row in rows:
         dx = row["x"] - rx
@@ -245,19 +248,53 @@ def _spatial_search(
 
         dist = math.sqrt(dist_sq)
 
-        # Body filters — only when bodies table exists
+        # Body data — fetch whenever Phase 2 exists so rateSystem() gets real data
         body_list = []
-        if use_body_filters:
+        if always_fetch_bodies:
             with galaxy_conn() as bconn:
                 brows = bconn.execute("""
-                    SELECT type, subtype, is_landable, has_signals,
-                           terraform_state, ring_types, volcanism, atmosphere
+                    SELECT type, subtype, distance_to_arrival,
+                           is_landable, has_signals, has_rings, ring_types,
+                           atmosphere, volcanism, terraform_state,
+                           surface_gravity, estimated_mapping_value, estimated_scan_value
                     FROM bodies WHERE system_id64 = ?
+                    ORDER BY distance_to_arrival
                 """, (row["id64"],)).fetchall()
-            body_list = [dict(b) for b in brows]
+            # Normalize column names to match Spansh API field names expected by frontend
+            for b in brows:
+                bd = dict(b)
+                # terraform_state → terraforming_state (Spansh field name)
+                bd["terraforming_state"] = bd.pop("terraform_state", None)
+                # surface_gravity → gravity (Spansh field name)
+                bd["gravity"] = bd.pop("surface_gravity", None)
+                # ring_types JSON → rings array of {type: "..."}
+                rt = bd.pop("ring_types", None)
+                if rt:
+                    try:
+                        names = json.loads(rt) if isinstance(rt, str) else rt
+                        bd["rings"] = [{"type": t} for t in names if t]
+                    except Exception:
+                        bd["rings"] = []
+                else:
+                    bd["rings"] = []
+                # has_signals int → signals array proxy
+                # The DB stores a single 0/1 flag; volcanism is used as geo proxy.
+                # Build a minimal signals array so frontend hasSignal() works:
+                #   - has_signals=1 + volcanism present → Geological
+                #   - has_signals=1 + no volcanism → Biological
+                # (Best approximation without a full signals table)
+                if bd.get("has_signals"):
+                    volc = (bd.get("volcanism") or "").strip()
+                    if volc and volc not in ("", "No volcanism"):
+                        bd["signals"] = [{"name": "Geological", "count": 1}]
+                    else:
+                        bd["signals"] = [{"name": "Biological", "count": 1}]
+                else:
+                    bd["signals"] = []
+                body_list.append(bd)
 
-            # Count body types for slider filters
-            if body_filters:
+            # Apply body-type slider filters when requested
+            if use_body_filters and body_filters:
                 counts = _count_body_types(body_list)
                 skip = False
                 for key, rng in body_filters.items():
@@ -269,23 +306,17 @@ def _spatial_search(
                 if skip:
                     continue
 
-            # Signal filters
-            # NOTE: bodies table stores has_signals=1 for ANY signal type (bio or geo).
-            # We use volcanism as a proxy for geological signals since:
-            #   - Geological scan signals strongly correlate with volcanic bodies
-            #   - Biological signals occur on non-volcanic rocky/icy bodies
-            # This is the best approximation given the current schema.
+            # Signal/terra filters
+            # NOTE: has_signals=1 covers ANY signal type; volcanism is the geo proxy.
             if require_bio and not any(b.get("has_signals") for b in body_list):
                 continue
-            # require_geo: system must have at least one body with volcanism
-            # (geological signals are emitted by bodies with active volcanism)
             if require_geo and not any(
                 b.get("volcanism") and b["volcanism"] not in ("", "No volcanism")
                 for b in body_list
             ):
                 continue
             if require_terra and not any(
-                b.get("terraform_state") and b["terraform_state"] not in ("", "Not terraformable")
+                b.get("terraforming_state") and b["terraforming_state"] not in ("", "Not terraformable")
                 for b in body_list
             ):
                 continue
@@ -306,7 +337,7 @@ def _spatial_search(
             "government":  row["government"],
             "allegiance":  row["allegiance"],
             "primaryEconomy": row["economy"],
-            "bodies":      body_list if use_body_filters else [],
+            "bodies":      body_list,
             "source": "local_db",
         })
 
@@ -325,7 +356,7 @@ def _count_body_types(bodies: list) -> dict:
         # \u2500\u2500 Terrestrial planets \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
         "Earth-like world": "elw",
         "Water world": "ww",
-        "Ammonia world": "aw",
+        "Ammonia world": "ammonia",   # MUST match frontend BODY_SUBTYPE_MAP key 'ammonia'
         "High metal content world": "hmc",
         "Metal-rich body": "metalRich",
         "Rocky body": "rocky",
@@ -355,8 +386,13 @@ def _count_body_types(bodies: list) -> dict:
         key = SUBTYPE_MAP.get(sub)
         if key:
             counts[key] += 1
-        elif btype == "Star" and sub not in SUBTYPE_MAP:
-            counts["otherStars"] += 1  # companion stars without a specific mapping
+        elif btype == "Star":
+            # White Dwarfs have spectral suffixes: 'White Dwarf (DA) Star' etc.
+            # Use substring match (mirrors frontend countBodyTypes via .includes('White Dwarf'))
+            if "White Dwarf" in sub:
+                counts["whiteDwarf"] += 1
+            elif sub not in SUBTYPE_MAP:
+                counts["otherStars"] += 1  # companion stars without a specific mapping
 
         if b.get("is_landable"):
             counts["landable"] += 1
@@ -365,22 +401,38 @@ def _count_body_types(bodies: list) -> dict:
             if not atm or atm.lower() in ("", "no atmosphere", "none"):
                 counts["walkable"] += 1
 
-        # Count bodies with biological/geological signals
-        # has_signals=1 means ANY signal; use volcanism as geo proxy
-        if b.get("has_signals"):
+        # Count bodies with biological/geological signals.
+        # Supports two body formats:
+        #   - Normalized (from _spatial_search): has "signals" array AND "has_signals" int
+        #   - Raw (legacy path): only "has_signals" int + "volcanism" proxy
+        sigs = b.get("signals")
+        if isinstance(sigs, list) and sigs:
+            # Normalized format — use actual signal names
+            for sig in sigs:
+                if sig.get("name") == "Geological":
+                    counts["geoSignal"] += 1
+                elif sig.get("name") == "Biological":
+                    counts["bioSignal"] += 1
+        elif b.get("has_signals"):
+            # Fallback: has_signals=1 flag only — use volcanism as geo proxy
             volc = (b.get("volcanism") or "").strip()
             if volc and volc not in ("", "No volcanism"):
-                counts["geoSignal"] += 1  # geo signal proxy: has signals + volcanism
+                counts["geoSignal"] += 1
             else:
-                counts["bioSignal"] += 1  # bio signal proxy: has signals + no volcanism
+                counts["bioSignal"] += 1
 
-        rt = b.get("ring_types")
-        if rt:
-            try:
-                rings = json.loads(rt) if isinstance(rt, str) else rt
-                counts["rings"] += len(rings) if isinstance(rings, list) else 1
-            except Exception:
-                pass
+        # Rings: support both normalized "rings" array and raw "ring_types" JSON string
+        rings_list = b.get("rings")
+        if isinstance(rings_list, list):
+            counts["rings"] += len(rings_list)
+        else:
+            rt = b.get("ring_types")
+            if rt:
+                try:
+                    rr = json.loads(rt) if isinstance(rt, str) else rt
+                    counts["rings"] += len(rr) if isinstance(rr, list) else 1
+                except Exception:
+                    pass
     return dict(counts)
 
 
@@ -427,11 +479,37 @@ def local_db_system(id64: int) -> Optional[dict]:
                 body_dict = extra
             except Exception:
                 pass
-        if body_dict.get("ring_types"):
+        # ── Normalize DB column names → Spansh/frontend field names ──────────
+        # terraform_state → terraforming_state  (Spansh API name)
+        if "terraform_state" in body_dict and "terraforming_state" not in body_dict:
+            body_dict["terraforming_state"] = body_dict.pop("terraform_state")
+        elif "terraform_state" in body_dict:
+            body_dict.pop("terraform_state")
+        # surface_gravity → gravity  (Spansh API name)
+        if "surface_gravity" in body_dict and "gravity" not in body_dict:
+            body_dict["gravity"] = body_dict.pop("surface_gravity")
+        elif "surface_gravity" in body_dict:
+            body_dict.pop("surface_gravity")
+        # ring_types JSON → rings array of {type: "..."}
+        rt = body_dict.pop("ring_types", None)
+        if rt and "rings" not in body_dict:
             try:
-                body_dict["rings"] = [{"type": t} for t in json.loads(body_dict["ring_types"])]
+                names = json.loads(rt) if isinstance(rt, str) else rt
+                body_dict["rings"] = [{"type": t} for t in names if t]
             except Exception:
-                pass
+                body_dict["rings"] = []
+        elif "rings" not in body_dict:
+            body_dict["rings"] = []
+        # has_signals int → signals array (volcanism proxy for geo/bio)
+        if "signals" not in body_dict:
+            if body_dict.get("has_signals"):
+                volc = (body_dict.get("volcanism") or "").strip()
+                if volc and volc not in ("", "No volcanism"):
+                    body_dict["signals"] = [{"name": "Geological", "count": 1}]
+                else:
+                    body_dict["signals"] = [{"name": "Biological", "count": 1}]
+            else:
+                body_dict["signals"] = []
         body_list.append(body_dict)
 
     record = {
