@@ -2423,6 +2423,17 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 <!-- ══════════════════════════ JAVASCRIPT ══════════════════════════ -->
 <script>
 
+// ─── APP VERSION ─────────────────────────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH — drives header badge AND console log.
+// Change this one constant; the badge updates automatically via JS.
+const APP_VERSION = 'v3.35';
+document.addEventListener('DOMContentLoaded', () => {
+  const badge = document.querySelector('.version');
+  if (badge) badge.textContent = APP_VERSION;
+});
+console.log(`%c ED:FINDER ${APP_VERSION} `, 'background:#ff6a00;color:#0a0c0f;font-weight:bold;padding:2px 6px;border-radius:3px');
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─── BACKEND CONFIG ─────────────────────────────────────────────────────────
 // All API calls go to our own backend — no CORS issues!
 const API_BASE = '/api';   // FastAPI backend served on same origin via Nginx
