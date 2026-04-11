@@ -29,6 +29,9 @@ services:
       TTL_BODY:             ${TTL_BODY:-86400}
       DAILY_SYSTEMS:        ${DAILY_SYSTEMS:-Sol,Colonia}
       WATCHLIST_CHECK_HOURS: ${WATCHLIST_CHECK_HOURS:-6}
+      # Search radius cap — raise on Hetzner/desktop, keep at 200 on Pi
+      # Pi 4/5: 200, Hetzner CX32: 500, Hetzner CX52+: 750
+      MAX_SEARCH_RADIUS_LY:  ${MAX_SEARCH_RADIUS_LY:-200}
       ALLOWED_ORIGINS:       "*"
     volumes:
       - ./data:/data

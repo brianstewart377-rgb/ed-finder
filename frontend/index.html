@@ -1854,7 +1854,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.38</div>
+  <div class="version">v3.38.1</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2426,7 +2426,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.38';
+const APP_VERSION = 'v3.38.1';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -2445,6 +2445,7 @@ const API_BASE = '/api';   // FastAPI backend served on same origin via Nginx
 let _localDbAvailable = false;
 let _localDbSystems   = 0;   // total systems in local DB (for UI display)
 let _localDbHasBodies = false; // true only after Phase 2 import completes
+let _localDbMaxRadius = 200;  // server-configured search radius cap (LY)
 
 async function checkLocalDb() {
   try {
@@ -2454,6 +2455,7 @@ async function checkLocalDb() {
     _localDbAvailable  = !!(d.available && d.systems_count > 0);
     _localDbSystems    = d.systems_count || 0;
     _localDbHasBodies  = !!(d.body_count && d.body_count > 0);
+    _localDbMaxRadius  = d.max_search_radius_ly || 200;
     _updateLocalDbBadge(d);
   } catch {
     // BUG-CATCH-FIX: reset BOTH flags on failure so stale _localDbHasBodies
@@ -2497,7 +2499,7 @@ function _updateLocalDbBadge(d) {
   const capHint = document.getElementById('dist-cap-hint');
   if (capHint) capHint.style.display = localActive ? 'inline' : 'none';
   if (distSlider) {
-    const newMax = localActive ? '200' : '500';
+    const newMax = localActive ? String(_localDbMaxRadius) : '500';
     if (distSlider.max !== newMax) {
       distSlider.max = newMax;
       // Clamp current value if it exceeds the new max

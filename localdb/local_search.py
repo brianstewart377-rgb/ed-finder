@@ -31,10 +31,13 @@ CELL_SIZE  = 25.0   # must match import_systems.py spatial grid cell size
 
 # ── DB connection ─────────────────────────────────────────────────────────────
 # Hard cap on search radius for the local DB.
-# At CELL_SIZE=25 LY, a 500 LY radius needs 85k grid cells in the WHERE clause
-# which overwhelms the Pi's RAM/CPU.  200 LY = 8k cells — fast and safe.
-# The frontend warns the user when this cap is hit.
-MAX_SEARCH_RADIUS = 200.0   # LY
+# At CELL_SIZE=25 LY, a 500 LY radius = 85k grid cells — fine on Hetzner/desktop
+# but overwhelms a Pi's RAM.  Default is 200 LY (8k cells, safe on Pi).
+# Override with MAX_SEARCH_RADIUS_LY env var on beefier hardware:
+#   Pi 4/5:         MAX_SEARCH_RADIUS_LY=200  (default)
+#   Hetzner CX32:   MAX_SEARCH_RADIUS_LY=500
+#   Hetzner CX52+:  MAX_SEARCH_RADIUS_LY=750
+MAX_SEARCH_RADIUS = float(os.getenv("MAX_SEARCH_RADIUS_LY", "200"))
 
 
 def _open_galaxy_db() -> sqlite3.Connection:
@@ -879,6 +882,7 @@ def local_db_status() -> dict:
             "eddn_last_seen":       eddn_row[0]    if eddn_row    else None,
             "eddn_msg_count":       int(eddn_msgs[0]) if eddn_msgs else 0,
             "delta_last_run":       delta_row[0]   if delta_row   else None,
+            "max_search_radius_ly": int(MAX_SEARCH_RADIUS),
             "db_path":              GALAXY_DB,
         }
     except Exception as exc:
