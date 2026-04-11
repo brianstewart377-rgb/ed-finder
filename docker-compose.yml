@@ -1,9 +1,10 @@
 # ══════════════════════════════════════════════════════════════════════════════
-#  ED:Finder — Docker Compose v3.17
+#  ED:Finder — Docker Compose v3.36
 #  Services:
 #    api     — FastAPI caching proxy + local galaxy DB search
 #    web     — Nginx static frontend + API reverse proxy
 #    eddn    — EDDN ZeroMQ listener (keeps galaxy.db current in real-time)
+#    delta   — Nightly Spansh galaxy_1day.json.gz delta updater (runs at 02:00 UTC)
 #  Bridge networking: web → api:8000
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -96,6 +97,71 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+  # ── Nightly delta — keeps galaxy.db current without full re-import ─────────
+  # Downloads galaxy_1day.json.gz from Spansh and applies it to galaxy.db.
+  # Runs once at startup (to catch up on any missed days), then at 02:00 UTC
+  # every night.  Uses the same image as the api/eddn services.
+  # To disable: comment out this service or set DELTA_ENABLED=false.
+  #
+  # Resource note: the 1-day delta is ~200-400 MB compressed; the import
+  # typically takes 5-15 min on a Pi 5.  It runs while the api/eddn services
+  # are live — WAL mode ensures reads are unblocked during the write.
+  delta:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: ed-finder-api:latest
+    container_name: ed-finder-delta
+    restart: unless-stopped
+    # Shell loop: sleep until 02:00 UTC, run delta, sleep 24h, repeat.
+    # Also runs once immediately on first start (catches up after downtime).
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        log() { echo "[delta] $$(date -u '+%Y-%m-%dT%H:%M:%SZ') $$1"; }
+        log "Delta service starting (galaxy.db: $${GALAXY_DB_PATH})"
+
+        # Run once at startup to catch any days missed while the Pi was off
+        log "Running startup catch-up delta..."
+        python3 /app/localdb/nightly_delta.py --db "$${GALAXY_DB_PATH}" --dest /data \
+          && log "Startup delta complete." \
+          || log "WARNING: Startup delta failed — will retry tonight."
+
+        # Then loop: sleep until 02:00 UTC, apply delta, repeat
+        while true; do
+          NOW=$$(date -u +%s)
+          # Next 02:00 UTC
+          NEXT=$$(date -u -d 'tomorrow 02:00' +%s 2>/dev/null \
+                  || python3 -c "
+        import time, math
+        now=time.time(); day=86400
+        target=math.floor(now/day)*day + 7200  # 02:00 UTC
+        print(int(target + day if target <= now else target))")
+          SLEEP=$$((NEXT - NOW))
+          log "Next delta run in $${SLEEP}s (at $$(date -u -d @$$NEXT '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r $$NEXT '+%Y-%m-%dT%H:%M:%SZ'))"
+          sleep $$SLEEP
+          log "Running nightly delta..."
+          python3 /app/localdb/nightly_delta.py --db "$${GALAXY_DB_PATH}" --dest /data \
+            && log "Nightly delta complete." \
+            || log "WARNING: Nightly delta failed."
+        done
+    environment:
+      GALAXY_DB_PATH: /data/galaxy.db
+    volumes:
+      - ./data:/data
+    networks:
+      - internal
+    depends_on:
+      api:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 networks:
   internal:

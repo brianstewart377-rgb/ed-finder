@@ -1854,7 +1854,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.35</div>
+  <div class="version">v3.36</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2426,7 +2426,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.35';
+const APP_VERSION = 'v3.36';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -7656,6 +7656,7 @@ async function loadCacheStats() {
           const eddn = ld.eddn_last_seen ? new Date(ld.eddn_last_seen).toLocaleString() : 'not connected';
           const imp  = ld.systems_import_done ? ld.systems_import_done.slice(0,16).replace('T',' ') : 'in progress';
           const galImp = ld.galaxy_import_done ? ld.galaxy_import_done.slice(0,16).replace('T',' ') : 'not yet';
+          const deltaRun = ld.delta_last_run ? ld.delta_last_run.slice(0,16).replace('T',' ') + ' UTC' : 'never (runs nightly at 02:00 UTC)';
           localDbHtml = `
           <div style="margin:12px 0 6px;padding:10px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.25);border-radius:6px;font-size:12px">
             <div style="color:#4ade80;font-weight:700;margin-bottom:6px">🗄️ Local Galaxy DB — ACTIVE</div>
@@ -7666,6 +7667,7 @@ async function loadCacheStats() {
             <div style="color:var(--text-dim)">Galaxy import:  <strong style="color:var(--text)">${galImp}</strong></div>
             <div style="color:var(--text-dim)">EDDN last seen: <strong style="color:var(--text)">${eddn}</strong></div>
             <div style="color:var(--text-dim)">EDDN messages:  <strong style="color:var(--text)">${(ld.eddn_msg_count||0).toLocaleString()}</strong></div>
+            <div style="color:var(--text-dim)">Nightly delta:  <strong style="color:var(--text)">${deltaRun}</strong></div>
           </div>`;
         } else {
           localDbHtml = `

@@ -10,10 +10,12 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.35, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.36, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
-| Audit     | ✅ `python3 localdb/audit.py` — 56 checks, 0 bugs |
+| EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
+| Delta     | ✅ Nightly Spansh galaxy_1day.json.gz applied at 02:00 UTC |
+| Audit     | ✅ `python3 localdb/audit.py` — 58 checks, 0 bugs |
 | Git       | ✅ `main` branch |
 
 ---
@@ -173,6 +175,18 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.36 — EDDN daily updates complete + nightly delta status tracking
+
+- **[EDDN] Full daily update pipeline confirmed operational:**
+  - `eddn` container: 24/7 ZeroMQ listener writing real-time FSDJump/Location events to `galaxy.db`
+  - `delta` container: downloads `galaxy_1day.json.gz` from Spansh at startup (catch-up) then every
+    night at 02:00 UTC — keeps body counts, new systems, and economy data current
+  - `api` container: pre-warms Sol/Colonia searches daily; watchlist checked every 6 h
+- **[DELTA] `delta_last_run` written to `import_meta`** — `nightly_delta.py` now records the UTC
+  timestamp after each successful run so the status panel (ℹ️ icon) can show when the last delta ran.
+- **[UI] "Nightly delta" row in status panel** — shows last delta run time or
+  `"never (runs nightly at 02:00 UTC)"` if not yet run.
 
 ### v3.35 — Server-side rating sort: highest-rated systems on page 1
 

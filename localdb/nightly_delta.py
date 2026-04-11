@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sqlite3
 import sys
 import time
 import urllib.request
@@ -67,6 +68,22 @@ def apply_delta(db_path: str, delta_file: str) -> None:
     import_delta(db_path, delta_file)
 
 
+def record_delta_run(db_path: str) -> None:
+    """Write delta_last_run timestamp to import_meta so the UI can display it."""
+    ts = datetime.now(timezone.utc).isoformat()
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.execute(
+            "INSERT OR REPLACE INTO import_meta (key, value) VALUES ('delta_last_run', ?)",
+            (ts,)
+        )
+        conn.commit()
+        conn.close()
+        log.info("Recorded delta_last_run = %s", ts)
+    except Exception as exc:
+        log.warning("Could not record delta_last_run: %s", exc)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="ED:Finder nightly delta updater")
     parser.add_argument("--db",   default=DEFAULT_DB,   help="Galaxy SQLite DB path")
@@ -94,6 +111,8 @@ def main() -> None:
             log.info("Deleted temporary delta file: %s", dest_file)
         except OSError:
             pass
+
+        record_delta_run(args.db)
 
         elapsed = time.time() - t_total
         log.info("Nightly delta complete in %.0f s", elapsed)
