@@ -30,13 +30,20 @@ GALAXY_DB = os.getenv("GALAXY_DB_PATH", "/data/galaxy.db")
 CELL_SIZE  = 25.0   # must match import_systems.py spatial grid cell size
 
 # ── DB connection ─────────────────────────────────────────────────────────────
+# Hard cap on search radius for the local DB.
+# At CELL_SIZE=25 LY, a 500 LY radius needs 85k grid cells in the WHERE clause
+# which overwhelms the Pi's RAM/CPU.  200 LY = 8k cells — fast and safe.
+# The frontend warns the user when this cap is hit.
+MAX_SEARCH_RADIUS = 200.0   # LY
+
+
 def _open_galaxy_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(GALAXY_DB, check_same_thread=False)
+    conn = sqlite3.connect(GALAXY_DB, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA cache_size=-65536")    # 64 MB per connection
-    conn.execute("PRAGMA mmap_size=536870912")  # 512 MB mmap
+    conn.execute("PRAGMA cache_size=-32768")    # 32 MB — Pi has limited RAM
+    conn.execute("PRAGMA mmap_size=268435456")  # 256 MB mmap
     conn.execute("PRAGMA temp_store=MEMORY")
     conn.execute("PRAGMA query_only=ON")        # read-only guard
     return conn
@@ -99,10 +106,12 @@ def local_db_search(body: dict) -> dict:
     ry = float(ref_coords.get("y", 0))
     rz = float(ref_coords.get("z", 0))
 
-    # Distance filter
-    dist_filter = filters.get("distance", {})
-    min_dist    = float(dist_filter.get("min", 0))
-    max_dist    = float(dist_filter.get("max", 500))
+    # Distance filter — cap at MAX_SEARCH_RADIUS to prevent Pi OOM
+    dist_filter  = filters.get("distance", {})
+    min_dist     = float(dist_filter.get("min", 0))
+    max_dist_req = float(dist_filter.get("max", 500))
+    max_dist     = min(max_dist_req, MAX_SEARCH_RADIUS)
+    radius_capped = max_dist < max_dist_req  # True if we had to reduce it
 
     # Population filter — key improvement over Spansh
     pop_filter = filters.get("population", {})
@@ -121,6 +130,14 @@ def local_db_search(body: dict) -> dict:
     systems, density_warning = _spatial_search(rx, ry, rz, min_dist, max_dist, require_empty,
                               body_filters, require_bio, require_geo,
                               require_terra, star_types, min_rating)
+
+    # Surface radius cap to caller so frontend can show a warning banner
+    if radius_capped and not density_warning:
+        density_warning = (
+            f"Search radius capped at {int(MAX_SEARCH_RADIUS)} LY "
+            f"(requested {int(max_dist_req)} LY) — larger radii are too slow on this hardware. "
+            f"Try ≤{int(MAX_SEARCH_RADIUS)} LY for fast results."
+        )
 
     # ── Server-side rating + sort ─────────────────────────────────────────────
     # Compute rating for every result so we can sort highest-rated first.
@@ -845,6 +862,9 @@ def local_db_status() -> dict:
             eddn_msgs = conn.execute(
                 "SELECT value FROM import_meta WHERE key='eddn_msg_count'"
             ).fetchone()
+            delta_row = conn.execute(
+                "SELECT value FROM import_meta WHERE key='delta_last_run'"
+            ).fetchone()
 
         db_size_mb = os.path.getsize(GALAXY_DB) / 1_048_576
 
@@ -858,6 +878,7 @@ def local_db_status() -> dict:
             "galaxy_import_done":   galaxy_done[0] if galaxy_done else None,
             "eddn_last_seen":       eddn_row[0]    if eddn_row    else None,
             "eddn_msg_count":       int(eddn_msgs[0]) if eddn_msgs else 0,
+            "delta_last_run":       delta_row[0]   if delta_row   else None,
             "db_path":              GALAXY_DB,
         }
     except Exception as exc:

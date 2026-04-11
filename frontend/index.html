@@ -1854,7 +1854,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.37</div>
+  <div class="version">v3.38</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -1946,7 +1946,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
       </div>
       <div class="panel-body">
         <div class="field">
-          <label for="dist-slider">Max Distance (LY) <span id="dist-search-hint" style="display:none;color:var(--orange);font-size:10px;margin-left:4px">↵ press Search</span></label>
+          <label for="dist-slider">Max Distance (LY) <span id="dist-search-hint" style="display:none;color:var(--orange);font-size:10px;margin-left:4px">↵ press Search</span><span id="dist-cap-hint" style="display:none;color:var(--orange);font-size:10px;margin-left:4px">(max 200 LY with local DB)</span></label>
           <div class="slider-wrap">
             <input type="range" id="dist-slider" min="0" max="500" value="50" oninput="document.getElementById('dist-val').textContent=this.value;document.getElementById('dist-search-hint').style.display='inline'" onchange="updateFilterBadge()">
             <div class="slider-val" id="dist-val">50</div>
@@ -2426,7 +2426,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.37';
+const APP_VERSION = 'v3.38';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -2489,6 +2489,25 @@ function _updateLocalDbBadge(d) {
   // Show Deep Scan only when local DB is NOT available (Spansh has a 10k cap; local DB has none)
   const deepBtn = document.getElementById('deep-scan-btn');
   if (deepBtn) deepBtn.style.display = (d && d.available && d.systems_count > 0) ? 'none' : '';
+
+  // Cap distance slider at 200 LY when local DB active (larger = Pi OOM crash)
+  // Restore to 500 LY when using Spansh
+  const distSlider = document.getElementById('dist-slider');
+  const localActive = !!(d && d.available && d.systems_count > 0);
+  const capHint = document.getElementById('dist-cap-hint');
+  if (capHint) capHint.style.display = localActive ? 'inline' : 'none';
+  if (distSlider) {
+    const newMax = localActive ? '200' : '500';
+    if (distSlider.max !== newMax) {
+      distSlider.max = newMax;
+      // Clamp current value if it exceeds the new max
+      if (parseInt(distSlider.value) > parseInt(newMax)) {
+        distSlider.value = newMax;
+        const distVal = document.getElementById('dist-val');
+        if (distVal) distVal.textContent = newMax;
+      }
+    }
+  }
 }
 // ────────────────────────────────────────────────────────────────────────────
 
