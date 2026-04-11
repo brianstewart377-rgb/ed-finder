@@ -279,6 +279,21 @@ def run_audit(verbose: bool = False) -> None:
     else:
         BUG("Q1", "_attachIncrementalSearch uses wrong rating slider IDs (missing '-slider' suffix).")
 
+    # ── R: passesBodyFilters silent-skip bug ─────────────────────────────
+    # OLD broken code: skipBodyFilters = _localDbAvailable && !_localDbHasBodies && bodies.length === 0
+    # This silently passed ALL systems through body-type filters when Phase 2 not done.
+    # ELW min=1 → got results with 0 ELW because the filter was completely bypassed.
+    if "_localDbAvailable && !_localDbHasBodies && bodies.length === 0" in HTML:
+        BUG("R1", "passesBodyFilters uses old skipBodyFilters logic — ELW/WW/all body sliders "
+            "silently ignored when Phase 2 not imported. CRITICAL: every system passes unfiltered.")
+    else:
+        PASS("R1", "passesBodyFilters: old silent-skip pattern removed ✓", verbose)
+
+    if "anyBodyFilterActive" in HTML and "bodies.length === 0 && anyBodyFilterActive" in HTML:
+        PASS("R2", "passesBodyFilters: correctly rejects empty-body systems when sliders active ✓", verbose)
+    else:
+        BUG("R2", "passesBodyFilters: does not reject empty-body systems when body filters are set.")
+
     # ── Summary ──────────────────────────────────────────────────────────
     print()
     print("═" * 60)

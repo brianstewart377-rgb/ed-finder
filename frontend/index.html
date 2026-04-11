@@ -3396,7 +3396,8 @@ async function runSearch(page = 0) {
         warn.className = 'info-banner';
         warn.style.cssText = 'margin-bottom:10px;background:rgba(255,170,0,0.1);border-color:var(--orange)';
         warn.innerHTML = '⚠️ <strong>Body filters are set but Phase 2 body import hasn\'t finished yet.</strong> ' +
-          'Body-type filters (Water Worlds, ELW, bio/geo signals etc.) will activate automatically once the overnight import completes. ' +
+          '<strong style="color:var(--red)">Systems that cannot be confirmed to match your body-type sliders (ELW, WW, etc.) are being excluded from results.</strong> ' +
+          'Complete the overnight galaxy.json.gz import to enable full body filtering. ' +
           'Distance and colonisation filters are working correctly right now.';
         content.prepend(warn);
       }
@@ -3704,9 +3705,28 @@ async function enrichSystem(sys) {
 function passesBodyFilters(sys) {
   const bodies = sys.bodies || [];
 
-  // Skip body filters ONLY when local DB has no Phase 2 data AND bodies[] is empty.
-  // With Phase 2 (_localDbHasBodies=true) bodies[] is always populated from DB.
-  const skipBodyFilters = _localDbAvailable && !_localDbHasBodies && bodies.length === 0;
+  // BUG-FIX v3.29: NEVER silently skip body-type slider filters.
+  // Previous logic: skipBodyFilters=true when Phase 2 not done AND bodies[] empty.
+  // That caused ELW/WW/etc sliders to be completely ignored — every system passed.
+  // Correct behaviour:
+  //   - If bodies[] is populated (Phase 2 local DB OR Spansh enrichment): filter runs normally.
+  //   - If bodies[] is empty AND body sliders are set: return false (no data = can't confirm match).
+  //   - If bodies[] is empty AND no body sliders set: pass (distance/colonistation filters only).
+  // The warning banner in runSearch() already notifies the user when Phase 2 is missing.
+  const hasBodySliderActive = BODY_SLIDERS.some(s => {
+    const st = sliderState[s.key];
+    return st && (st.min > 0 || st.max < s.max);
+  });
+  const hasBodyToggleActive = ['tog-bio','tog-geo','tog-ring','tog-terra','tog-volc','tog-notidal'].some(
+    id => document.getElementById(id)?.checked
+  );
+  const anyBodyFilterActive = hasBodySliderActive || hasBodyToggleActive;
+
+  // No body data AND no body filters active → pass (only distance/colony filters matter)
+  // No body data AND body filters ARE active → fail (can't confirm body requirements)
+  if (bodies.length === 0 && anyBodyFilterActive) return false;
+  // No body filters set at all → skip the entire body filter block (fast path)
+  const skipBodyFilters = bodies.length === 0 && !anyBodyFilterActive;
 
   const counts = countBodyTypes(bodies);
 
@@ -3758,10 +3778,9 @@ function passesBodyFilters(sys) {
       return v && v !== 'No volcanism';
     })) return false;
     if (togNotidal && bodies.some(b => b.type === 'Planet' && b.is_rotational_period_tidally_locked)) return false;
-    // NOTE: is_rotational_period_tidally_locked is NOT stored as its own column in the local DB schema.
-    // It comes from the JSON data blob only when the full Spansh record was stored.
-    // For Phase 2 bodies fetched from DB this field will be undefined → togNotidal is effectively
-    // a no-op for local-DB results.  A future DB migration could add this column explicitly.
+    // NOTE: is_rotational_period_tidally_locked is stored in the is_tidal_lock column (added v3.28)
+    // and normalized to this field name in local_search.py. Fully functional for Phase 2 imports
+    // done with v3.28+. For older imports run migrate_v3_28.sql to back-fill from JSON blobs.
 
     const minLand = parseInt(document.getElementById('sl-land')?.value || '0');
     const minSig  = parseInt(document.getElementById('sl-sig')?.value  || '0');
