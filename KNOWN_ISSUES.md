@@ -530,3 +530,80 @@ if (not atm or atm.lower() in ("", "no atmosphere", "none")) and not is_tidal:
 ```
 
 **Status:** ✅ Fixed in v3.30
+
+---
+
+## Issue 18: Changing Reference System Returns Same Systems (Demo Mode Fallback) (v3.31)
+
+**Symptom:**
+- Search from System A, get results (e.g. Proxima Coloniae, Arcturus Deep, Vega Outreach, Deneb Crossing, Sirius Haven)
+- Change reference system to a distant location (e.g. Beagle Point ~65,000 LY away)
+- Press Search
+- **Same five systems appear** with different (but plausible-looking) distances
+
+**Root Cause:**
+The `runSearch` `catch(err)` block was rendering `generateDemoSystems()` on **any** API error.
+These are five hardcoded fake systems with **random distances** based on `refSystem` coordinates.
+When the backend was unreachable (or any error occurred), fake systems appeared as real results.
+When you changed the reference system and searched again:
+1. The error fired again
+2. New random distances were generated for the **same five fake systems**
+3. The result appeared to be a real (but suspicious) search result set
+
+Because distances are computed from `refSystem` the distances *changed* when the reference changed — but the same five names always appeared. Users who had their backend misconfigured or temporarily unreachable would see this misleading fallback silently.
+
+**Secondary bug:** `AbortError` (thrown when Search is pressed twice rapidly, aborting the first request) also fell into the catch block, causing a brief error flash.
+
+**Solution:**
+Fixed in v3.31:
+- Demo rendering **completely removed** from `runSearch` catch block
+- On error, only a clear error message is shown (with Docker hint)
+- `AbortError` is now caught and silently ignored (lets the new search complete)
+- `buildDemoBanner()` still shows at the bottom of the error so the user knows the backend is unreachable
+
+**Status:** ✅ Fixed in v3.31
+
+---
+
+## Issue 19: Enrichment Overwrote Search-Result Distance (v3.31)
+
+**Symptom:**
+- Distances shown on cards after enrichment don't match the search range
+- After changing reference and re-searching, distances on some cards look like they're from the wrong reference
+
+**Root Cause:**
+All three enrichment paths spread or assign the cached single-system record (`rec`) over the search result object (`sys`):
+```javascript
+{ ...sys, ...rec, _enriched: true }          // spread — rec.distance overwrites sys.distance
+Object.assign(s, rec); s._enriched = true;    // assign — same problem
+```
+The `rec` object fetched from `/api/systems/batch` may contain a stale `distance` field from a prior cached Spansh response (e.g. distance from a different reference). This overwrites `sys.distance` which was correctly computed relative to the current `refSystem` by the search query.
+
+**Solution:**
+Fixed in v3.31 — every enrichment now explicitly restores the original `sys.distance`:
+```javascript
+{ ...sys, ...rec, distance: sys.distance, _enriched: true }
+// and for Object.assign:
+const _savedDist = s.distance; Object.assign(s, rec); s.distance = _savedDist; s._enriched = true;
+```
+
+**Status:** ✅ Fixed in v3.31
+
+---
+
+## Issue 20: Deep Scan Blocked When Reference System is Sol (v3.31)
+
+**Symptom:**
+- Deep Scan shows "Please select a reference system first" alert when reference is Sol
+- Sol has coordinates (0, 0, 0), so `refSystem.x === 0`
+
+**Root Cause:**
+`runDeepScan()` used `!refSystem.x` as a guard — which is `true` when `x === 0` (falsy), blocking deep scan from the galaxy's most common starting system.
+
+**Solution:**
+Fixed in v3.31 — guard changed to `refSystem.x === undefined` so Sol (0, 0, 0) is valid:
+```javascript
+if (!refSystem || refSystem.x === undefined || refSystem.y === undefined || refSystem.z === undefined)
+```
+
+**Status:** ✅ Fixed in v3.31

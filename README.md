@@ -118,13 +118,15 @@ including Raspberry Pi.
 
 | Filter | Behaviour | When It Applies |
 |--------|-----------|----------------|
-| Max/Min Distance | Requires new Search | Server-side (DB/API) |
+| Max/Min Distance | Requires new Search (↵ hint shown) | Server-side (DB/API) |
 | Results per Page | Requires new Search | Server-side |
 | Body sliders (ELW, WW, etc.) | Live in Re-filter | Client-side (needs body data) |
 | Rating slider | Live as you drag | Client-side |
 | Economy dropdown | Live in Re-filter | Client-side |
 | Toggles (Bio, Geo, etc.) | Live in Re-filter | Client-side |
 | Min Landable / Min Signals | Live in Re-filter | Client-side |
+
+> **Important:** If you change the **reference system** you **must press Search** to retrieve results for the new location. The existing result cards are NOT automatically replaced when you change the reference — they stay on screen from the previous search until you press Search.
 
 Use the **🔄 Re-filter** button to re-apply client-side filters to already-loaded results without re-fetching.
 
@@ -231,6 +233,7 @@ sqlite3 /data/galaxy.db < localdb/migrate_v3_28.sql
 python3 localdb/audit.py --verbose    # full report with PASS items
 python3 localdb/audit.py              # summary only
 python3 localdb/audit.py --fix-report # exits 1 if bugs found (CI)
+# v3.31: 39 checks covering distance, demo mode, enrichment, body filters, schema
 ```
 
 ---
@@ -246,7 +249,7 @@ ed-finder/
 ├── localdb/
 │   ├── local_search.py      # Local galaxy DB search module
 │   ├── import_systems.py    # Galaxy/delta importer
-│   ├── audit.py             # Permanent exhaustive audit (34 checks)
+│   ├── audit.py             # Permanent exhaustive audit (39 checks)
 │   ├── migrate_v3_28.sql    # Phase 2 schema migration
 │   └── nightly_delta.py     # Nightly delta update runner
 ├── docker-compose.yml

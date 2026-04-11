@@ -342,6 +342,68 @@ def run_audit(verbose: bool = False) -> None:
     else:
         PASS("T1", "dist-slider HTML onchange does NOT call runSearch/debouncedSearch directly ✓", verbose)
 
+    # ── U: Demo fallback removed from runSearch error catch ───────────────
+    # BUG-U1: The runSearch catch block used to render generateDemoSystems()
+    # on ANY API error, showing fake systems (Proxima Coloniae, Arcturus Deep etc.)
+    # with random distances. Fix: catch block now shows error only; AbortError
+    # is caught early and silently discarded (it means a newer search was started).
+    # Search for EXECUTABLE call (not comment lines) to generateDemoSystems in the catch block
+    catch_has_demo = False
+    in_catch = False
+    for line in HTML.splitlines():
+        stripped = line.strip()
+        if "} catch(err) {" in line:
+            in_catch = True
+        elif in_catch and stripped.startswith("}"):
+            in_catch = False
+        if in_catch and "generateDemoSystems" in line and not stripped.startswith("//"):
+            catch_has_demo = True
+    if catch_has_demo:
+        BUG("U1", "runSearch catch block still renders generateDemoSystems() on API error — "
+            "fake systems with random distances appear as real results.")
+    else:
+        PASS("U1", "Demo fallback removed from runSearch catch block ✓", verbose)
+
+    # AbortError guard in catch
+    if "err.name === 'AbortError'" in HTML or 'err.name === "AbortError"' in HTML:
+        PASS("U1b", "AbortError is explicitly caught before demo/error display ✓", verbose)
+    else:
+        BUG("U1b", "AbortError not caught — rapid double-search causes error banner to flash.")
+
+    # ── V: Enrichment spreads preserve sys.distance ───────────────────────
+    # BUG-U2/U3: { ...sys, ...rec } may overwrite sys.distance (the distance
+    # relative to the current refSystem) with rec.distance (stale cached data).
+    # Fix: all spreads must include `distance: sys.distance` to preserve it.
+    bad_spreads = re.findall(r'\{\.\.\.sys,\s*\.\.\.rec(?!,\s*distance)', HTML)
+    if bad_spreads:
+        BUG("V1", f"Found {len(bad_spreads)} enrichment spread(s) {{ ...sys, ...rec }} that "
+            "may overwrite sys.distance. Each must include 'distance: sys.distance'.")
+    else:
+        PASS("V1", "All { ...sys, ...rec } spreads preserve sys.distance ✓", verbose)
+
+    bad_assigns = re.findall(r'Object\.assign\(s,\s*rec\)(?!\s*;?\s*s\.distance)', HTML)
+    if bad_assigns:
+        BUG("V2", f"Found {len(bad_assigns)} Object.assign(s, rec) call(s) without restoring "
+            "s.distance afterwards. Distance may be corrupted.")
+    else:
+        PASS("V2", "All Object.assign(s, rec) calls restore s.distance afterwards ✓", verbose)
+
+    # ── W: Deep scan / refSystem.x guard uses undefined check ────────────
+    # BUG-U5/U9: `!refSystem.x` is truthy when x=0 (Sol at 0,0,0) —
+    # blocks deep scan from Sol. Fix: use `=== undefined` check instead.
+    # Check ONLY executable lines (not comments)
+    refx_guard_bad = any(
+        "!refSystem.x" in line and not line.strip().startswith("//")
+        for line in HTML.splitlines()
+    )
+    if refx_guard_bad:
+        BUG("W1", "!refSystem.x guard used — blocks deep scan when refSystem is Sol (x=0). "
+            "Use `refSystem.x === undefined` instead.")
+    else:
+        PASS("W1", "No !refSystem.x guard — Sol (0,0,0) is not blocked ✓", verbose)
+
+
+
     # ── Summary ──────────────────────────────────────────────────────────
     print()
     print("═" * 60)

@@ -3135,7 +3135,7 @@ async function appendSearch(page) {
     const newSystems = [];
     for (const sys of rawResults) {
       const full = enrichedMap[String(sys.id64)];
-      if (full) { const rec = full.record||full; newSystems.push({ ...sys, ...rec, _enriched: true }); }
+      if (full) { const rec = full.record||full; newSystems.push({ ...sys, ...rec, distance: sys.distance, _enriched: true }); }  // BUG-U2-FIX: preserve search-result distance
       else { newSystems.push(await enrichSystem(sys)); }
     }
     // attach memos
@@ -3355,7 +3355,7 @@ async function runSearch(page = 0) {
         const full = enrichedMap[String(sys.id64)];
         if (full) {
           const rec = full.record || full;
-          systems.push({ ...sys, ...rec, _enriched: true });
+          systems.push({ ...sys, ...rec, distance: sys.distance, _enriched: true });  // BUG-U2-FIX: preserve search-result distance
         } else {
           systems.push(await enrichSystem(sys));
         }
@@ -3420,13 +3420,25 @@ async function runSearch(page = 0) {
     }
 
   } catch(err) {
+    // BUG-U1-FIX: Never show fake demo systems on API error.
+    // Previously the error path silently rendered generateDemoSystems() — fake systems with
+    // random distances that changed whenever refSystem changed. Users saw "Proxima Coloniae"
+    // etc. as if they were real results. Now we show the error clearly and nothing else.
+    if (err.name === 'AbortError') {
+      // Cancelled by a newer search — no-op, the new search will render its own results.
+      btn.disabled = false;
+      btn.innerHTML = '<span>🔍</span> SEARCH SYSTEMS';
+      return;
+    }
     content.innerHTML = `
-      <div class="error-banner">⚠️ <div><strong>API Error:</strong> ${err.message}<br>
-      <small>If deploying, ensure the app can reach spansh.co.uk. Try opening the HTML file directly in your browser for best results.</small></div></div>
-      ${buildDemoBanner().outerHTML}
+      <div class="error-banner">⚠️ <div><strong>Search failed:</strong> ${err.message}</div>
+        <div style="margin-top:8px;font-size:12px;color:var(--text-dim)">
+          Check that the backend is running: <code>docker compose ps</code><br>
+          If the API is reachable, try adjusting your filters and searching again.
+        </div>
+        ${buildDemoBanner().outerHTML}
+      </div>
     `;
-    const demoSystems = generateDemoSystems(refSystem, maxDist, size);
-    renderResults(demoSystems, 0, demoSystems.length);
   }
 
   btn.disabled = false;
@@ -3445,7 +3457,9 @@ async function runDeepScan() {
   const minDist = parseInt(document.getElementById('min-dist-slider').value);
   const uncolonised = document.getElementById('tog-uncolonised').checked;
 
-  if (!refSystem || !refSystem.x) {
+  if (!refSystem || refSystem.x === undefined || refSystem.y === undefined || refSystem.z === undefined) {
+    // BUG-U5/U9-FIX: Was !refSystem.x which evaluates true for Sol (x=0).
+    // Now uses explicit undefined check so Sol (0,0,0) is valid.
     alert('Please select a reference system first.');
     return;
   }
@@ -3517,7 +3531,7 @@ async function runDeepScan() {
         rawAll.forEach((s, i) => {
           if (i < DEEP_ENRICH_CAP) {
             const full = enrichMap[String(s.id64)];
-            if (full) { const rec = full.record || full; Object.assign(s, rec); s._enriched = true; }
+            if (full) { const rec = full.record || full; const _savedDist = s.distance; Object.assign(s, rec); s.distance = _savedDist; s._enriched = true; }  // BUG-U2b-FIX: preserve distance after assign
           }
         });
       }
@@ -3647,7 +3661,7 @@ async function runDeepScan() {
     // Merge enriched data
     const systems = unique.map(sys => {
       const full = enrichedMap[String(sys.id64)];
-      if (full) { const rec = full.record || full; return { ...sys, ...rec, _enriched: true }; }
+      if (full) { const rec = full.record || full; return { ...sys, ...rec, distance: sys.distance, _enriched: true }; }  // BUG-U2-FIX: preserve distance
       return sys;
     });
 
@@ -3684,12 +3698,14 @@ async function runDeepScan() {
 
 async function enrichSystem(sys) {
   // BUG#1 FIX: route through local backend cache instead of calling Spansh directly
+  // BUG-U3-FIX: always restore sys.distance after spread to prevent enriched
+  // cache record overwriting the search-result distance (which is relative to refSystem).
   try {
     const data = await fetch(`${API_BASE}/system/${sys.id64}`);
     if (data.ok) {
       const json = await data.json();
       const rec = json.record || json;
-      return { ...sys, ...rec, _enriched: true };
+      return { ...sys, ...rec, distance: sys.distance, _enriched: true };
     }
   } catch(e) { /* fall through */ }
   // Fallback: spanshFetch rewrites spansh.co.uk URLs to /api/ on same origin, so this
@@ -3697,7 +3713,7 @@ async function enrichSystem(sys) {
   try {
     const full = await spanshFetch(`https://spansh.co.uk/api/system/${sys.id64}`);
     if (full && full.record) {
-      return { ...sys, ...full.record, _enriched: true };
+      return { ...sys, ...full.record, distance: sys.distance, _enriched: true };
     }
   } catch(e) { /* use base data */ }
   return { ...sys, _enriched: false };
@@ -7704,7 +7720,7 @@ async function runRouteSearch() {
   }
   // merge enriched data back
   for (const s of allRaw) {
-    if (enrichedMap[s.id64]) Object.assign(s, enrichedMap[s.id64], { _enriched: true });
+    if (enrichedMap[s.id64]) { const _d = s.distance; Object.assign(s, enrichedMap[s.id64], { _enriched: true }); if (_d !== undefined) s.distance = _d; }  // BUG-U2b-FIX: preserve distance
   }
 
   // FIX-1C: apply current body filters to each hop's systems
