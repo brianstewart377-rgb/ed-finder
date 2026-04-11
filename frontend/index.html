@@ -2500,10 +2500,21 @@ const BODY_SLIDERS = [
   { key:'bioSignal',  label:'Bodies with Organics',     max:20, color:'#86efac', tip:'Bio signals push Agriculture/Terraforming' },
 ];
 
+// BODY_SUBTYPE_MAP — exact Spansh API subtype strings confirmed from live API calls.
+// White Dwarfs come with spectral class suffixes: 'White Dwarf (DA) Star', '(DC)', '(D)', '(DQ)'.
+// countBodyTypes() uses .includes('White Dwarf') for the whiteDwarf key (handles all variants).
+// This map is used by rateSystem(), suggestEconomy(), buildBodyPills(), etc. for exact matching.
 const BODY_SUBTYPE_MAP = {
+  // ── Terrestrial planets ────────────────────────────────────────────
   'Earth-like world':        'elw',
   'Water world':             'ww',
   'Ammonia world':           'ammonia',
+  'High metal content world':'hmc',
+  'Metal-rich body':         'metalRich',
+  'Rocky Ice world':         'rockyIce',   // Spansh: lowercase 'w' confirmed live
+  'Rocky body':              'rocky',
+  'Icy body':                'icy',
+  // ── Gas giants ─────────────────────────────────────────────────────
   'Class I gas giant':       'gasGiant',
   'Class II gas giant':      'gasGiant',
   'Class III gas giant':     'gasGiant',
@@ -2511,17 +2522,18 @@ const BODY_SUBTYPE_MAP = {
   'Class V gas giant':       'gasGiant',
   'Gas giant with ammonia-based life': 'gasGiant',
   'Gas giant with water-based life':   'gasGiant',
+  'Water giant':             'gasGiant',   // Spansh confirmed — treat as gas giant
   'Helium-rich gas giant':   'gasGiant',
   'Helium gas giant':        'gasGiant',
-  'High metal content world':'hmc',
-  'Metal-rich body':         'metalRich',
-  'Rocky Ice world':         'rockyIce',
-  'Rocky body':              'rocky',
-  'Icy body':                'icy',
-  'Black Hole':              'blackHoles',
-  'Neutron Star':            'neutron',
+  // ── Stellar remnants ───────────────────────────────────────────────
+  'Black Hole':              'blackHoles', // Spansh: 'Black Hole' (capital H, no 'Star' suffix)
+  'Neutron Star':            'neutron',    // Spansh: 'Neutron Star' (no parenthetical)
+  // White Dwarfs have spectral class suffixes in Spansh data:
+  // 'White Dwarf (D) Star', 'White Dwarf (DA) Star', 'White Dwarf (DC) Star', 'White Dwarf (DQ) Star'
+  // countBodyTypes() handles these via .includes('White Dwarf') — no exact match needed here.
+  // These entries catch any bare 'White Dwarf' entries (legacy/enriched data)
   'White Dwarf':             'whiteDwarf',
-  'Suction Cupped White Dwarf': 'whiteDwarf',
+  'Suction Cupped White Dwarf': 'whiteDwarf', // very rare legacy Spansh entry
 };
 
 const COMMODITIES = [
@@ -2867,8 +2879,8 @@ function countActiveFilters() {
       parseInt(document.getElementById('max-rating-slider')?.value||100) < 100) n++;
   // Min dist
   if (parseInt(document.getElementById('min-dist-slider')?.value||0) > 0) n++;
-  // Max dist non-default (15)
-  if (parseInt(document.getElementById('dist-slider')?.value||15) !== 15) n++;
+  // Max dist non-default (50 is the reset/default value)
+  if (parseInt(document.getElementById('dist-slider')?.value||50) !== 50) n++;
   // Min landable / signals
   if (parseInt(document.getElementById('sl-land')?.value||0) > 0) n++;
   if (parseInt(document.getElementById('sl-sig')?.value||0) > 0) n++;
@@ -3731,7 +3743,11 @@ function passesBodyFilters(sys) {
     if (togGeo   && !bodies.some(b => hasSignal(b, 'Geological'))) return false;
     if (togRing  && !bodies.some(b => b.rings && b.rings.length > 0)) return false;
     if (togTerra && !bodies.some(b => b.terraforming_state && b.terraforming_state !== 'Not terraformable')) return false;
-    if (togVolc  && !bodies.some(b => b.volcanism_type && b.volcanism_type !== 'No volcanism' && b.volcanism_type !== '')) return false;
+    // Check volcanism: Spansh body search uses 'volcanism_type', local DB uses 'volcanism' column
+    if (togVolc  && !bodies.some(b => {
+      const v = b.volcanism_type || b.volcanism || '';
+      return v && v !== 'No volcanism';
+    })) return false;
     if (togNotidal && bodies.some(b => b.type === 'Planet' && b.is_rotational_period_tidally_locked)) return false;
 
     const minLand = parseInt(document.getElementById('sl-land')?.value || '0');
@@ -3789,7 +3805,7 @@ function countBodyTypes(bodies) {
     if (key) counts[key] = (counts[key]||0) + 1;
 
     if (b.is_landable) counts.landable = (counts.landable||0) + 1;
-    if (b.is_landable && !b.atmosphere) counts.walkable = (counts.walkable||0) + 1;
+    if (b.is_landable && !(b.atmosphere || b.atmosphere_type)) counts.walkable = (counts.walkable||0) + 1;
     if (b.rings && b.rings.length > 0) counts.rings = (counts.rings||0) + 1;
 
     const sigs = b.signals || [];
@@ -4301,7 +4317,7 @@ function buildBodyPills(bodies) {
       sub, type,
       distance_to_arrival: b.distance_to_arrival || null,
       gravity: grav, is_landable: b.is_landable,
-      atmosphere_type: b.atmosphere_type || null,
+      atmosphere_type: b.atmosphere_type || b.atmosphere || null,
       surface_temperature: b.surface_temperature || null,
       terraforming_state: b.terraforming_state || null,
       is_rotational_period_tidally_locked: b.is_rotational_period_tidally_locked || false,
@@ -4338,7 +4354,11 @@ function buildWarningTags(sys, economy) {
   }
   
   // H7: Volcanism vs Geological distinction
-  const withVolcanism = bodies.filter(b => b.volcanism_type && b.volcanism_type !== 'No volcanism');
+  // Support both 'volcanism_type' (Spansh body search) and 'volcanism' (local DB column)
+  const withVolcanism = bodies.filter(b => {
+    const v = b.volcanism_type || b.volcanism || '';
+    return v && v !== 'No volcanism';
+  });
   const withGeo = bodies.filter(b => (b.signals||[]).some(s => s.name === 'Geological'));
   
   if (economy.primary === 'Refinery' || economy.primary === 'Extraction') {
@@ -4594,7 +4614,7 @@ function suggestEconomy(sys) {
     const hasRing = b.rings && b.rings.length > 0;
     const isTidal = b.is_rotational_period_tidally_locked;
     const isTerra = b.terraforming_state && b.terraforming_state !== 'Not terraformable';
-    const hasVolcanism = b.volcanism_type && b.volcanism_type !== 'No volcanism';
+    const hasVolcanism = !!(b.volcanism_type || b.volcanism) && (b.volcanism_type || b.volcanism) !== 'No volcanism';
 
     // Base intrinsic economies
     if (sub === 'Earth-like world') {
@@ -9036,10 +9056,8 @@ function toggleQuickFilter(type) {
 
 function toggleQuickFilterELW() {
   const pill = document.getElementById('qf-elw');
-  // Find ELW slider
-  const slider = document.querySelector('[data-body-type="elw"] input[type=range], #body-sliders-container input');
-  // Find by BODY_SLIDERS key 'elw'
-  const minInput = document.getElementById('bsl-elw-min') || document.querySelector('[id$="elw-min"]');
+  // Body slider IDs are dynamically generated as 'smin-{key}' and 'smax-{key}'
+  const minInput = document.getElementById('smin-elw');
   const isActive = pill?.classList.contains('active');
   if (minInput) {
     minInput.value = isActive ? 0 : 1;
@@ -9053,7 +9071,8 @@ function toggleQuickFilterELW() {
 function toggleQuickFilterWW() {
   const pill = document.getElementById('qf-ww');
   const isActive = pill?.classList.contains('active');
-  const minInput = document.getElementById('bsl-ww-min') || document.querySelector('[id$="ww-min"]');
+  // Body slider IDs are dynamically generated as 'smin-{key}'
+  const minInput = document.getElementById('smin-ww');
   if (minInput) {
     minInput.value = isActive ? 0 : 1;
     minInput.dispatchEvent(new Event('input'));

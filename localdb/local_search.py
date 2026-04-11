@@ -320,20 +320,18 @@ def _count_body_types(bodies: list) -> dict:
     from collections import defaultdict
     counts: dict = defaultdict(int)
     SUBTYPE_MAP = {
-        # NOTE: Spansh galaxy dump uses Title Case (e.g. "Black Hole", "Neutron Star").
-        # The local DB stores subtype exactly as imported from Spansh.
-        # All entries here must match the exact Spansh casing to avoid silent zero-counts.
+        # NOTE: Spansh galaxy dump uses these exact strings (confirmed from live API).
+        # All entries must match exactly to avoid silent zero-counts.
+        # \u2500\u2500 Terrestrial planets \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
         "Earth-like world": "elw",
         "Water world": "ww",
         "Ammonia world": "aw",
-        "Black Hole": "blackHoles",        # Spansh: "Black Hole" (capital H)
-        "Neutron Star": "neutron",          # Spansh: "Neutron Star" (capital S)
-        "White Dwarf": "whiteDwarf",        # Spansh: "White Dwarf" (capital D)
         "High metal content world": "hmc",
         "Metal-rich body": "metalRich",
         "Rocky body": "rocky",
-        "Rocky Ice world": "rockyIce",
+        "Rocky Ice world": "rockyIce",     # Spansh: lowercase 'w' confirmed live
         "Icy body": "icy",
+        # \u2500\u2500 Gas giants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
         "Class I gas giant": "gasGiant",
         "Class II gas giant": "gasGiant",
         "Class III gas giant": "gasGiant",
@@ -341,8 +339,15 @@ def _count_body_types(bodies: list) -> dict:
         "Class V gas giant": "gasGiant",
         "Gas giant with water-based life": "gasGiant",
         "Gas giant with ammonia-based life": "gasGiant",
+        "Water giant": "gasGiant",         # Spansh confirmed \u2014 type='Planet', treat as gas giant
         "Helium-rich gas giant": "gasGiant",
         "Helium gas giant": "gasGiant",
+        # \u2500\u2500 Stellar remnants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        "Black Hole": "blackHoles",         # Spansh: 'Black Hole' (capital H)
+        "Neutron Star": "neutron",          # Spansh: 'Neutron Star' (capital S)
+        # White Dwarfs have spectral class suffixes in Spansh data:
+        # 'White Dwarf (D) Star', 'White Dwarf (DA) Star', 'White Dwarf (DC) Star', 'White Dwarf (DQ) Star'
+        # Handled below via substring match instead of exact SUBTYPE_MAP lookup.
     }
     for b in bodies:
         sub = (b.get("subtype") or "").strip()
