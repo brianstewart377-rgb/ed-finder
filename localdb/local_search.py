@@ -400,9 +400,12 @@ def _count_body_types(bodies: list) -> dict:
 
         if b.get("is_landable"):
             counts["landable"] += 1
-            # walkable = landable with no atmosphere (can use SRV)
+            # walkable = landable + no atmosphere + not tidally locked
+            # Mirrors frontend countBodyTypes (fixed in v3.28):
+            #   if (b.is_landable && !(b.atmosphere||b.atmosphere_type) && !b.is_rotational_period_tidally_locked)
             atm = (b.get("atmosphere") or "").strip()
-            if not atm or atm.lower() in ("", "no atmosphere", "none"):
+            is_tidal = bool(b.get("is_rotational_period_tidally_locked") or b.get("is_tidal_lock"))
+            if (not atm or atm.lower() in ("", "no atmosphere", "none")) and not is_tidal:
                 counts["walkable"] += 1
 
         # Count bodies with biological/geological signals.

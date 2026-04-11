@@ -252,14 +252,26 @@ def run_audit(verbose: bool = False) -> None:
         else:
             BUG("N1", f"_body_row tuple length ({tuple_len}) vs INSERT columns ({cols_count}) mismatch — check order.")
 
-    # ── O: distance-slider fires on 'change' not 'input' ─────────────────
-    attach_fn = HTML[HTML.find("function _attachIncrementalSearch"):HTML.find("function _attachIncrementalSearch")+900]
-    if "'change'" in attach_fn and "dist-slider" in attach_fn:
-        PASS("O1", "dist-slider uses 'change' event (fires on release only) ✓", verbose)
-    elif "'input'" in attach_fn and "dist-slider" in attach_fn:
-        BUG("O1", "dist-slider uses 'input' event — fires search on every drag step. Change to 'change' event.")
+    # ── O: distance-slider must NOT auto-trigger search ─────────────────
+    # Fix v3.30: distance sliders must NOT be wired to _debouncedSearch at all.
+    # Wiring them caused silent card replacement ("distances changed") because a
+    # full new search ran on release, fetching a different set of systems for the
+    # new distance range. Users must press Search to apply a new distance.
+    attach_fn = HTML[HTML.find("function _attachIncrementalSearch"):HTML.find("function _attachIncrementalSearch")+1000]
+    if "dist-slider" in attach_fn and "addEventListener" in attach_fn:
+        # Check if it's actually adding an event listener for dist-slider
+        dist_listener = re.search(
+            r"dist-slider.*?addEventListener|addEventListener.*?dist-slider",
+            attach_fn, re.DOTALL
+        )
+        if dist_listener:
+            BUG("O1", "_attachIncrementalSearch wires dist-slider to _debouncedSearch — this triggers a "
+                "full search on slider release, silently replacing result cards. Remove distance sliders "
+                "from this function; users must press Search to apply a new distance.")
+        else:
+            PASS("O1", "dist-slider NOT wired to _debouncedSearch ✓", verbose)
     else:
-        NOTE("O1", "dist-slider event type could not be confirmed as 'change' — verify incremental search debounce.")
+        PASS("O1", "dist-slider NOT wired to _debouncedSearch ✓", verbose)
 
     # ── P: size-slider has onchange for badge update ──────────────────────
     size_slider_line = ""
@@ -293,6 +305,42 @@ def run_audit(verbose: bool = False) -> None:
         PASS("R2", "passesBodyFilters: correctly rejects empty-body systems when sliders active ✓", verbose)
     else:
         BUG("R2", "passesBodyFilters: does not reject empty-body systems when body filters are set.")
+
+    # ── S: Python walkable count checks tidal lock ────────────────────────
+    # BUG-WALK-PY: _count_body_types walkable must exclude tidally-locked bodies
+    # to match JS countBodyTypes (fixed in v3.28) which checks
+    #   !b.is_rotational_period_tidally_locked
+    # If Python omits this, server-side walkable filter count is inflated for
+    # systems with tidally locked airless landable bodies.
+    py_walkable_block = ""
+    for i, line in enumerate(PY.splitlines(), 1):
+        if 'counts["walkable"]' in line or "counts['walkable']" in line:
+            # Collect surrounding context lines
+            chunk = PY.splitlines()[max(0,i-6):i+2]
+            py_walkable_block = "\n".join(chunk)
+            break
+    if ("is_tidal_lock" in py_walkable_block or
+            "is_rotational_period_tidally_locked" in py_walkable_block):
+        PASS("S1", "Python _count_body_types walkable checks tidal lock ✓", verbose)
+    else:
+        BUG("S1", "Python _count_body_types walkable does NOT check tidal lock — "
+            "inflated walkable counts for systems with tidally locked airless landable planets. "
+            "Fix: add `and not is_tidal` guard (mirrors JS v3.28 fix).")
+
+    # ── T: distance-slider change event does NOT call _debouncedSearch ────
+    # The HTML onchange for dist-slider calls updateFilterBadge() — that is
+    # correct (badge update only). Make sure it does NOT call runSearch or
+    # _debouncedSearch directly in the HTML attribute.
+    dist_html_line = ""
+    for line in HTML.splitlines():
+        if 'id="dist-slider"' in line:
+            dist_html_line = line
+            break
+    if "_debouncedSearch" in dist_html_line or "runSearch" in dist_html_line:
+        BUG("T1", "dist-slider HTML onchange calls _debouncedSearch/runSearch directly — "
+            "this is redundant with _attachIncrementalSearch and causes double-search.")
+    else:
+        PASS("T1", "dist-slider HTML onchange does NOT call runSearch/debouncedSearch directly ✓", verbose)
 
     # ── Summary ──────────────────────────────────────────────────────────
     print()

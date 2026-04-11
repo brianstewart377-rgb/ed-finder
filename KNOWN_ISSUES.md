@@ -469,3 +469,64 @@ The `.panel` CSS class had `overflow: hidden` which clipped the absolutely-posit
 Fixed in v3.18.1 — changed `.panel { overflow: hidden }` to `overflow: visible` and added `border-radius: 6px 6px 0 0` to `.panel-hdr` to preserve the rounded header appearance. Also raised autocomplete `z-index` from 200 to 1000.
 
 **Status:** ✅ Fixed in v3.18.1
+
+---
+
+## Issue 15: Distance Slider Changes the Distances on Existing Result Cards (v3.29 and earlier)
+
+**Symptom:**
+- Run a search and get results showing e.g. Sol area systems at 5–50 LY
+- Move the Max Distance slider to a different value
+- The distances shown on all result cards change, or result cards are replaced
+
+**Root Cause:**
+`_attachIncrementalSearch()` was wiring `dist-slider` and `min-dist-slider` to `_debouncedSearch` via the `change` event (fires on slider release). When you released the slider after results were loaded, a full new search ran for the new distance range, silently replacing all result cards with a completely different set of systems from the new range. The user experienced this as "distances changed" because they literally were — new systems were fetched and the old cards destroyed.
+
+**Solution:**
+Fixed in v3.30 — distance sliders are **no longer** wired to `_debouncedSearch`. Moving the distance slider only updates the label number and the filter badge counter. You must press the **SCAN** button to apply a new distance range. The slider label now shows `↵ press Search` as a reminder when you move it.
+
+**Status:** ✅ Fixed in v3.30
+
+---
+
+## Issue 16: ELW/Water World/Body-Type Sliders Ignored — All Systems Pass (Phase 1 DB only)
+
+**Symptom:**
+- Set the ELW slider to minimum 1
+- Search returns many results, none of which have any Earth-like worlds
+
+**Root Cause:**
+`passesBodyFilters()` had:
+```javascript
+const skipBodyFilters = _localDbAvailable && !_localDbHasBodies && bodies.length === 0;
+```
+When running against a Phase 1 local DB (systems imported but no body data), `_localDbHasBodies` was `false` and `bodies.length` was 0 (no body enrichment from Spansh yet), so `skipBodyFilters` was `true` and ALL body-type slider filters were completely bypassed. Every system passed regardless of ELW/WW/Ammonia settings.
+
+**Solution:**
+Fixed in v3.29 — the logic is inverted:
+- If body sliders are set AND body data is empty → **reject** the system (can't confirm requirements)
+- If body sliders are NOT set AND body data is empty → pass (distance/colony filters still apply)
+- An orange warning banner is now shown when body filters are set but Phase 2 hasn't been imported
+
+**Status:** ✅ Fixed in v3.29
+
+---
+
+## Issue 17: Walkable Count Inflated for Tidally Locked Bodies (Phase 2 DB)
+
+**Symptom:**
+- A system with tidally locked airless landable planets shows a higher "Walkable" count than expected
+- The walkable count in the system card doesn't match the body pills
+
+**Root Cause:**
+Python `_count_body_types()` in `local_search.py` counted walkable as `landable + no atmosphere` but did not check `is_tidal_lock`. The JavaScript version (fixed in v3.28) correctly excludes tidally locked bodies: `is_landable && !atmosphere && !is_rotational_period_tidally_locked`. The mismatch meant server-side walkable counts (used for the walkable slider filter) were higher than client-side counts.
+
+**Solution:**
+Fixed in v3.30 — added tidal lock check to Python walkable counting:
+```python
+is_tidal = bool(b.get("is_rotational_period_tidally_locked") or b.get("is_tidal_lock"))
+if (not atm or atm.lower() in ("", "no atmosphere", "none")) and not is_tidal:
+    counts["walkable"] += 1
+```
+
+**Status:** ✅ Fixed in v3.30
