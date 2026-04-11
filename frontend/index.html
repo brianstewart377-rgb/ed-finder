@@ -2445,7 +2445,10 @@ async function checkLocalDb() {
     _localDbHasBodies  = !!(d.body_count && d.body_count > 0);
     _updateLocalDbBadge(d);
   } catch {
+    // BUG-CATCH-FIX: reset BOTH flags on failure so stale _localDbHasBodies
+    // doesn't cause the Phase 2 warning to fire falsely on next search.
     _localDbAvailable = false;
+    _localDbHasBodies = false;
   }
 }
 
@@ -3324,6 +3327,18 @@ async function runSearch(page = 0) {
     if (!data || !data.results) throw new Error('No results from API');
 
     totalResults = data.total || data.count || 0;
+
+    // BUG-DENSITY-WARNING: Surface density-cap warning from local_search.py
+    // (fired when searching near the galactic core with a large radius)
+    if (data.warning) {
+      const warnEl = document.createElement('div');
+      warnEl.className = 'info-banner';
+      warnEl.style.cssText = 'margin-bottom:10px;background:rgba(255,170,0,0.1);border-color:var(--orange)';
+      warnEl.innerHTML = `⚠️ <strong>Dense region:</strong> ${data.warning}`;
+      content.innerHTML = '';
+      content.appendChild(warnEl);
+    }
+
     // Show raw count immediately, will update after filtering below
     document.getElementById('result-count').textContent = `${totalResults.toLocaleString()} systems found`;
     // L2-FIX: announce result count (including zero-results state)
@@ -3477,8 +3492,12 @@ async function runSearch(page = 0) {
     if (isNetworkError) {
       hint = `Check that Docker is running: <code>docker compose ps</code> — the backend process is not reachable at all.`;
     } else if (isBackend502) {
-      hint = `The backend returned an error (502/503). This usually means a slow Phase 2 SQLite query.<br>
-              Try a smaller search radius, or check <code>docker compose logs api --tail=50</code> for details.`;
+      // BUG-MSG-FIX: Don't mention Phase 2 — user may have Phase 2 and this is misleading.
+      // 502 from /api/local/search means the Python search worker threw an exception.
+      hint = `The backend returned a 502/503 error. This usually means the search query crashed — 
+              likely a dense star region (e.g. galactic core) with too many candidate systems, or a DB schema mismatch.<br>
+              <strong>Try:</strong> reduce Max Distance (e.g. ≤50 LY near galactic core), then check 
+              <code>docker compose logs api --tail=50</code> for the Python traceback.`;
     } else {
       hint = `Try adjusting your filters and searching again. If the problem persists, check <code>docker compose logs api --tail=50</code>.`;
     }
@@ -3935,15 +3954,34 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
   content.innerHTML = '';
 
   if (!systems.length) {
+    // BUG-EMPTY-FIX: Context-aware empty state — tell user WHY (body filters, density cap, etc.)
+    const hasBodyFilters = BODY_SLIDERS.some(s => {
+      const st = sliderState[s.key]; return st && (st.min > 0 || st.max < s.max);
+    });
+    const hasBodyToggles = ['tog-bio','tog-geo','tog-terra','tog-ring','tog-volc','tog-notidal'].some(
+      id => document.getElementById(id)?.checked
+    );
+    const uncolOnly = document.getElementById('tog-uncolonised')?.checked;
+    let tip = 'Try relaxing your filters or increasing the search radius.';
+    if (hasBodyFilters && !_localDbHasBodies) {
+      tip = '<strong>Body-type filters are set but Phase 2 body data is not imported yet</strong> — '
+          + 'every system fails the body-count check. Clear the body-type sliders or complete the Phase 2 import.';
+    } else if (hasBodyFilters || hasBodyToggles) {
+      tip = 'Body filters are active — no systems in this range matched. '
+          + 'Try clearing some body-type sliders or Bio/Geo/Terra toggles.';
+    } else if (uncolOnly) {
+      tip = 'Uncolonised filter is on. All systems in range may be colonised/populated. Try a larger radius.';
+    } else {
+      tip = 'No systems found here. Near the galactic core? Try a <strong>smaller radius (≤50 LY)</strong> — '
+          + 'dense regions are capped to prevent timeouts.';
+    }
     content.innerHTML = `<div class="empty-state">
       <div class="es-icon">🔭</div>
       <h3>No Systems Found</h3>
-      <p>Try relaxing your filters or increasing the search radius.</p>
+      <p>${tip}</p>
     </div>`;
     return;
   }
-
-  // #12 — cache-age banner
   let ageHtml = '';
   if (cacheAge !== null && cacheAge > 0) {
     const h = Math.floor(cacheAge / 3600);
@@ -4074,10 +4112,24 @@ function renderResults(systems, page, total) {
   content.innerHTML = '';
 
   if (!systems.length) {
+    const hasBodyFilters2 = BODY_SLIDERS.some(s => {
+      const st = sliderState[s.key]; return st && (st.min > 0 || st.max < s.max);
+    });
+    const uncolOnly2 = document.getElementById('tog-uncolonised')?.checked;
+    let tip2 = 'Try relaxing your filters or increasing the search radius.';
+    if (hasBodyFilters2 && !_localDbHasBodies) {
+      tip2 = '<strong>Body filters need Phase 2 body data.</strong> Clear body-type sliders or complete the import.';
+    } else if (hasBodyFilters2) {
+      tip2 = 'Body filters active — no matches. Try clearing some body-type sliders.';
+    } else if (uncolOnly2) {
+      tip2 = 'Uncolonised filter is on. Try a larger radius.';
+    } else {
+      tip2 = 'No systems found. Near the galactic core? Try a smaller radius (≤50 LY).';
+    }
     content.innerHTML = `<div class="empty-state">
       <div class="es-icon">🔭</div>
       <h3>No Systems Found</h3>
-      <p>Try relaxing your filters or increasing the search radius.</p>
+      <p>${tip2}</p>
     </div>`;
     return;
   }

@@ -459,9 +459,58 @@ def run_audit(verbose: bool = False) -> None:
     else:
         PASS("W1", "No !refSystem.x guard — Sol (0,0,0) is not blocked ✓", verbose)
 
+    # ── Y: New v3.33 checks ───────────────────────────────────────────────
+
+    # Y1: fetchall() memory bomb — spatial grid query must NOT use fetchall()
+    # Near dense regions (galactic core) fetchall() can load 500k+ rows at once.
+    # Fix: use fetchmany() streaming with a RAW_ROW_CAP guard.
+    if ".fetchmany(" in PY:
+        PASS("Y1", "local_search.py uses fetchmany() streaming — dense-region safety ✓", verbose)
+    else:
+        BUG("Y1", "local_search.py still uses fetchall() without fetchmany() streaming — "
+            "memory bomb risk near galactic core / dense regions.")
+
+    # Y2: density_capped warning propagated to API response
+    if "density_capped" in PY and '"warning"' in PY:
+        PASS("Y2", "local_search.py propagates density warning to API response ✓", verbose)
+    else:
+        BUG("Y2", "local_search.py does not propagate density_capped warning — "
+            "frontend cannot surface it to user.")
+
+    # Y3: frontend displays data.warning from local search response
+    if "data.warning" in HTML and "Dense region" in HTML:
+        PASS("Y3", "Frontend surfaces density warning from API response ✓", verbose)
+    else:
+        BUG("Y3", "Frontend does not display data.warning — dense-region warning silently lost.")
+
+    # Y4: checkLocalDb() catch resets BOTH _localDbAvailable AND _localDbHasBodies
+    # If only _localDbAvailable is reset, _localDbHasBodies stays true stale
+    # and the Phase 2 warning banner may fail to fire when it should (or vice versa).
+    catch_block = re.search(
+        r'\} catch\b[^{]*\{([^}]*_localDbAvailable[^}]*)\}',
+        HTML, re.DOTALL
+    )
+    if catch_block and '_localDbHasBodies' in catch_block.group(1):
+        PASS("Y4", "checkLocalDb() catch resets both _localDbAvailable and _localDbHasBodies ✓", verbose)
+    else:
+        BUG("Y4", "checkLocalDb() catch does not reset _localDbHasBodies — "
+            "stale Phase-2 flag can cause false banner state after a poll failure.")
+
+    # Y5: 502 error hint does NOT mention 'slow Phase 2 SQLite query' (misleading)
+    if "slow Phase 2 SQLite query" in HTML:
+        BUG("Y5", "502 error hint still says 'slow Phase 2 SQLite query' — "
+            "misleading when user has Phase 2. Update the hint text.")
+    else:
+        PASS("Y5", "502 error hint does not mention Phase 2 SQLite query ✓", verbose)
+
+    # Y6: Empty state messages are context-aware (mention galactic core, body filters)
+    if "Near the galactic core" in HTML and "Body filters" in HTML:
+        PASS("Y6", "Empty-state messages are context-aware (galactic core / body filters) ✓", verbose)
+    else:
+        BUG("Y6", "Empty-state messages are generic — should explain galactic core density "
+            "and body filter causes for zero results.")
 
 
-    # ── Summary ──────────────────────────────────────────────────────────
     print()
     print("═" * 60)
     print("ED:Finder Exhaustive Audit Report")

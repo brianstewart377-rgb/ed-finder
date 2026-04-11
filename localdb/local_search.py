@@ -116,7 +116,7 @@ def local_db_search(body: dict) -> dict:
     star_types    = body.get("star_types", [])     # e.g. ["K", "G", "F"]
     min_rating    = int(body.get("min_rating", 0))
 
-    systems = _spatial_search(rx, ry, rz, min_dist, max_dist, require_empty,
+    systems, density_warning = _spatial_search(rx, ry, rz, min_dist, max_dist, require_empty,
                               body_filters, require_bio, require_geo,
                               require_terra, star_types, min_rating)
 
@@ -128,13 +128,16 @@ def local_db_search(body: dict) -> dict:
     log.debug("local_db_search: %d total, returning %d (from=%d) in %dms",
               total, len(page), from_idx, elapsed)
 
-    return {
-        "results": page,
-        "count":   len(page),
-        "total":   total,
-        "source":  "local_db",
+    resp: Dict[str, Any] = {
+        "results":  page,
+        "count":    len(page),
+        "total":    total,
+        "source":   "local_db",
         "query_ms": elapsed,
     }
+    if density_warning:
+        resp["warning"] = density_warning
+    return resp
 
 
 def _spatial_search(
@@ -153,11 +156,15 @@ def _spatial_search(
 
     Strategy:
       1. Calculate which grid cells fall within [min_dist-cell, max_dist+cell]
-      2. Fetch systems from those cells (fast index lookup)
+      2. Fetch systems from those cells (fast index lookup, streaming to bound RAM)
       3. Compute exact Euclidean distance and filter
       4. JOIN colonisation table to exclude inhabited systems when require_empty=True
       5. Optionally JOIN bodies table to apply body filters (Phase 2)
       6. Return sorted by distance asc, enriched with colonisation + body data
+
+    Returns:
+        (results: List[dict], warning: str | None)
+        warning is set when the raw row cap was hit (dense region like galactic core).
     """
     body_filters  = body_filters  or {}
     star_types    = star_types    or []
@@ -180,9 +187,19 @@ def _spatial_search(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='spatial_grid'"
         ).fetchone() is not None
 
+        # BUG-DENSITY FIX: Dense regions (galactic core, Sgr A*) can produce
+        # hundreds of thousands of candidate rows for large search radii.
+        # fetchall() loads ALL rows into RAM at once — causing OOM and timeouts.
+        # Fix: stream rows via fetchmany() / iteration so RAM stays bounded.
+        # We also add a hard cap on RAW candidate rows (before distance filter)
+        # to prevent runaway queries near the core.  The cap is generous enough
+        # that normal searches (Sol ±500 LY) are unaffected; only extreme-density
+        # galactic-core searches are capped, and we surface this to the caller.
+        RAW_ROW_CAP = 500_000   # rows fetched from DB before dist filtering
+
         if has_grid:
-            # Fast path: use spatial grid
-            rows = conn.execute("""
+            # Fast path: use spatial grid — stream with fetchmany to bound RAM
+            cursor = conn.execute("""
                 SELECT s.id64, s.name, s.x, s.y, s.z, s.main_star, s.needs_permit,
                        c.population, c.is_colonised, c.is_being_colonised,
                        c.controlling_faction, c.state, c.government, c.allegiance, c.economy
@@ -192,10 +209,23 @@ def _spatial_search(
                 WHERE sg.cx BETWEEN ? AND ?
                   AND sg.cy BETWEEN ? AND ?
                   AND sg.cz BETWEEN ? AND ?
-            """, (cx_min, cx_max, cy_min, cy_max, cz_min, cz_max)).fetchall()
+            """, (cx_min, cx_max, cy_min, cy_max, cz_min, cz_max))
+            rows = []
+            while True:
+                batch = cursor.fetchmany(10_000)
+                if not batch:
+                    break
+                rows.extend(batch)
+                if len(rows) >= RAW_ROW_CAP:
+                    log.warning(
+                        "_spatial_search: raw row cap %d hit near (%.1f,%.1f,%.1f) r=%.1f — "
+                        "dense region (galactic core?). Results may be incomplete.",
+                        RAW_ROW_CAP, rx, ry, rz, max_dist
+                    )
+                    break
         else:
             # Fallback: bounding-box scan (slower on large DB)
-            rows = conn.execute("""
+            cursor = conn.execute("""
                 SELECT s.id64, s.name, s.x, s.y, s.z, s.main_star, s.needs_permit,
                        c.population, c.is_colonised, c.is_being_colonised,
                        c.controlling_faction, c.state, c.government, c.allegiance, c.economy
@@ -206,8 +236,23 @@ def _spatial_search(
                   AND s.z BETWEEN ? AND ?
             """, (rx - max_dist - cell, rx + max_dist + cell,
                   ry - max_dist - cell, ry + max_dist + cell,
-                  rz - max_dist - cell, rz + max_dist + cell)).fetchall()
+                  rz - max_dist - cell, rz + max_dist + cell))
+            rows = []
+            while True:
+                batch = cursor.fetchmany(10_000)
+                if not batch:
+                    break
+                rows.extend(batch)
+                if len(rows) >= RAW_ROW_CAP:
+                    log.warning(
+                        "_spatial_search: raw row cap %d hit (bounding-box fallback) near "
+                        "(%.1f,%.1f,%.1f) r=%.1f — results may be incomplete.",
+                        RAW_ROW_CAP, rx, ry, rz, max_dist
+                    )
+                    break
 
+    # Track whether the raw row cap was hit (dense region warning)
+    density_capped = len(rows) >= RAW_ROW_CAP
     results = []
 
     # ── Phase 2 detection + single-pass body batch-fetch ──────────────────────
@@ -374,7 +419,16 @@ def _spatial_search(
 
     # Sort by distance
     results.sort(key=lambda s: s["distance"])
-    return results
+
+    warning = None
+    if density_capped:
+        warning = (
+            f"Dense region detected: search scanned the maximum {RAW_ROW_CAP:,} candidate "
+            f"systems near this location — results may be incomplete. "
+            f"Try a smaller search radius (\u2264100 LY) near the galactic core."
+        )
+
+    return results, warning
 
 
 def _count_body_types(bodies: list) -> dict:

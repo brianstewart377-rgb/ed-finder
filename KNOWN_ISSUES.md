@@ -667,3 +667,25 @@ Total DB connections for `_spatial_search` reduced from N (one per system) to 3 
 **Fix (v3.32):** Rating sliders now call `_refilterInPlace()` (debounced 200ms), which filters the already-loaded results without any network request.
 
 **Status:** ✅ Fixed in v3.32
+
+## Issue 25: Dense-region fetchall() memory bomb (Sagittarius A* search failure)
+**Symptom:** Search from Sagittarius A* (or any galactic-core system) with a large radius (>100 LY) crashed the backend with a 502 error. The search button returned an unhelpful error mentioning "Phase 2 SQLite query" even though Phase 2 was fully imported.
+
+**Root cause:** `_spatial_search()` in `local_search.py` called `fetchall()` on the spatial grid query with no row limit. Near the galactic core the stellar density is extreme — a 500 LY radius can match 100,000–500,000 candidate systems. Loading all rows into RAM at once caused memory exhaustion and a timeout/crash.
+
+**Fix (v3.33):** Replaced `fetchall()` with streaming `fetchmany(10_000)` batches, capped at `RAW_ROW_CAP = 500_000` rows. When the cap is hit, a `warning` field is returned in the API response and displayed as an orange banner in the UI: "Dense region detected — try a smaller search radius (≤100 LY) near the galactic core." ✅ Fixed.
+
+## Issue 26: Misleading 502 error hint mentioning "Phase 2 SQLite query"
+**Symptom:** When any local search returned a 502/503 error, the UI showed "slow Phase 2 SQLite query" as the hint — misleading users who already had Phase 2 imported.
+
+**Fix (v3.33):** Updated the 502 hint to say "the search query crashed — likely a dense star region or DB schema mismatch" and directs the user to `docker compose logs api` for the actual Python traceback. ✅ Fixed.
+
+## Issue 27: checkLocalDb() catch left _localDbHasBodies stale
+**Symptom:** If `checkLocalDb()` succeeded (setting `_localDbHasBodies = true`), then a subsequent poll failed (network error), the catch block only reset `_localDbAvailable = false` — leaving `_localDbHasBodies` as `true`. This meant the Phase 2 warning banner could fail to fire correctly on the next search while the DB was unavailable.
+
+**Fix (v3.33):** Both `_localDbAvailable` and `_localDbHasBodies` are now reset to `false` in the catch block. ✅ Fixed.
+
+## Issue 28: Generic "No Systems Found" message gave no context
+**Symptom:** Empty search results showed only "Try relaxing your filters or increasing the search radius" with no indication of WHY — no mention of body filter requirements, Phase 2 status, or galactic-core density limits.
+
+**Fix (v3.33):** The empty-state message is now context-aware. It explains: body filters needing Phase 2, body toggle filters with no matches, uncolonised filter blocking results, or galactic-core density requiring a smaller radius. ✅ Fixed.

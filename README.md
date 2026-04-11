@@ -10,10 +10,10 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.32, all 45 audit checks pass |
+| Frontend  | ✅ Latest — v3.33, all 51 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
-| Audit     | ✅ `python3 localdb/audit.py` — 45 checks, 0 bugs |
+| Audit     | ✅ `python3 localdb/audit.py` — 51 checks, 0 bugs |
 | Git       | ✅ `main` branch |
 
 ---
@@ -173,6 +173,14 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.33 — Galactic-core dense-region fix + error message overhaul
+
+- **[BUG-DENSITY CRITICAL] fetchall() memory bomb for dense regions (Sgr A* search failure)** — `_spatial_search()` called `fetchall()` on the spatial grid query with no row limit. Near the galactic core a 500 LY search could match 500,000+ candidate systems, loading all of them into RAM and crashing the backend with a 502. **Fix:** replaced with streaming `fetchmany(10_000)` batches capped at `RAW_ROW_CAP = 500,000`. A `warning` field is returned in the API response and displayed as an orange banner: "Dense region — try ≤100 LY".
+- **[BUG-MSG] Misleading 502 hint "slow Phase 2 SQLite query"** — This message appeared even when Phase 2 was fully imported, causing user confusion. **Fix:** updated hint to "search query crashed — likely dense star region or DB schema mismatch", pointing to `docker compose logs api` for the Python traceback.
+- **[BUG-CATCH] `checkLocalDb()` catch left `_localDbHasBodies` stale** — only `_localDbAvailable` was reset on poll failure; `_localDbHasBodies` stayed `true`, causing Phase 2 banner logic to misbehave. **Fix:** both flags now reset in the catch block.
+- **[BUG-EMPTY] Generic "No Systems Found" message** — replaced with context-aware tips explaining body filters needing Phase 2, toggle filters with no matches, uncolonised-only filter, or galactic-core density requiring a smaller radius.
+- **Audit expanded to 51 checks** — added Y1–Y6 covering: fetchmany streaming, density warning propagation, frontend density banner, dual-flag catch reset, 502 hint text, context-aware empty state.
 
 ### v3.32 — Phase 2 search timeout root-cause fix + error-handling overhaul
 
