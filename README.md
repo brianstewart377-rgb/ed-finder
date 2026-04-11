@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.40, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.41, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
@@ -175,6 +175,18 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.41 — Economy Presets
+
+- **[NEW] Economy Preset buttons** — Added 8 one-click economy preset buttons in the
+  Filters panel below the Quick Filter pills.  Clicking a preset (Agriculture, High Tech,
+  Industrial, Refinery, Extraction, Military, Tourism, Terraforming) automatically sets
+  the body-type sliders, toggles (Bio, Geo, Ring, Terra, No-Tidal) and the Economy
+  dropdown to the optimal configuration for that colonisation economy type.
+- Clicking the active preset again, or pressing **Reset Filters**, clears all preset
+  settings.  An amber "active" indicator appears below the grid while a preset is active.
+- Uses the ED colonisation economy guide (ELW + WW → Agriculture, Rocky + HMC → Refinery,
+  Gas Giants + Rocky Ice → Industrial, etc.) as documented in the in-app Economy Guide table.
 
 ### v3.40 — Missing `is_tidal_lock` column graceful fallback
 

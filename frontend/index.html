@@ -1611,12 +1611,35 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   border-color:var(--orange); color:var(--orange); background:rgba(255,106,0,0.1);
 }
 
+/* ── Economy Presets ─────────────────────────────────────────────── */
+.preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-top: 6px;
+}
+.preset-btn {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--bg4); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 8px; font-size: 11px; color: var(--text-dim); cursor: pointer;
+  transition: all .15s; text-align: left; line-height: 1.3;
+  white-space: nowrap; overflow: hidden;
+}
+.preset-btn:hover  { border-color: var(--orange-lt); color: var(--text); background: rgba(255,106,0,0.08); }
+.preset-btn.active { border-color: var(--ep-color, var(--orange)); color: var(--ep-color, var(--orange)); background: rgba(255,106,0,0.12); }
+.preset-btn:hover  .preset-sub, .preset-btn.active .preset-sub { color: inherit; opacity: 0.75; }
+.preset-btn .preset-icon { font-size: 14px; flex-shrink: 0; }
+.preset-btn .preset-label { font-weight: 600; display: block; }
+.preset-btn .preset-sub   { font-size: 9px; color: var(--text-dim); display: block; }
+.preset-btn.active .preset-sub { color: var(--orange-lt); opacity: 0.8; }
+
 /* Mobile improvements */
 @media (max-width: 640px) {
   #tabs { flex-wrap:wrap; gap:2px; }
   .tab-btn { font-size:9px !important; padding:4px 5px !important; }
   .admin-stat-card { min-width:80px; }
   .threed-controls { flex-wrap:wrap; gap:4px; }
+  .preset-grid { grid-template-columns: 1fr 1fr; }
 }
 
 /* Changelog */
@@ -1854,7 +1877,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.40</div>
+  <div class="version">v3.41</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2117,6 +2140,21 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
             <span class="quick-filter-pill" id="qf-bio" onclick="toggleQuickFilter('bio')" title="Enable Biological Signals filter">🧬 Bio Signals</span>
             <span class="quick-filter-pill" id="qf-elw" onclick="toggleQuickFilterELW()" title="Set ELW minimum to 1">🌍 Has ELW</span>
             <span class="quick-filter-pill" id="qf-ww" onclick="toggleQuickFilterWW()" title="Set Water World minimum to 1">🌊 Has WW</span>
+          </div>
+        </div>
+
+        <!-- Economy Presets -->
+        <div style="margin-top:12px">
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px">
+            Economy Presets
+            <span style="font-size:9px;color:var(--text-dim);margin-left:4px;font-weight:normal;text-transform:none">(sets body sliders)</span>
+          </div>
+          <div class="preset-grid" id="economy-preset-grid">
+            <!-- populated by buildEconomyPresets() -->
+          </div>
+          <div id="economy-preset-active" style="display:none;margin-top:6px;font-size:10px;color:var(--orange);display:flex;align-items:center;gap:4px">
+            <span id="economy-preset-label"></span>
+            <span onclick="clearEconomyPreset()" style="cursor:pointer;opacity:0.7;font-size:9px;padding:1px 5px;border:1px solid var(--border);border-radius:3px;color:var(--text-dim)" title="Clear preset">✕ Clear</span>
           </div>
         </div>
       </div>
@@ -2426,7 +2464,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.40';
+const APP_VERSION = 'v3.41';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -2791,6 +2829,7 @@ function showToast(message, type) {
 
 document.addEventListener('DOMContentLoaded', () => {
   buildBodySliders();
+  buildEconomyPresets();
   // Init rating range fill bar to full width (0–100)
   const rFill = document.getElementById('sf-rating');
   if (rFill) { rFill.style.left = '0%'; rFill.style.width = '100%'; }
@@ -2938,6 +2977,13 @@ function resetFilters() {
     document.getElementById(id).checked = false;
   });
   document.getElementById('tog-uncolonised').checked = true;
+  // Clear any active economy preset highlight
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  _activeEconomyPreset = null;
+  const activeBar = document.getElementById('economy-preset-active');
+  if (activeBar) activeBar.style.display = 'none';
+  // Sync quick-filter pills
+  ['qf-bio','qf-terra','qf-elw','qf-ww'].forEach(id => document.getElementById(id)?.classList.remove('active'));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -3256,7 +3302,7 @@ async function appendSearch(page) {
     // by the current sort preference so Load More doesn't just tack new cards
     // on the bottom out of order.
     if (window._lastResults) window._lastResults.systems.push(...filtered);
-    // BUG-FIX v3.40: keep _allResults in sync with appended pages so
+    // BUG-FIX v3.41: keep _allResults in sync with appended pages so
     // _refilterInPlace always has the full loaded set to work from
     if (window._allResults) window._allResults.push(...newSystems);
 
@@ -3313,7 +3359,7 @@ async function runSearch(page = 0) {
   if (searchAbortController) { try { searchAbortController.abort(); } catch(e) {} }
   searchAbortController = new AbortController();
   const searchSignal = searchAbortController.signal;
-  // BUG-FIX v3.40: clear _allResults so next renderResultsProgressive populates it fresh
+  // BUG-FIX v3.41: clear _allResults so next renderResultsProgressive populates it fresh
   window._allResults = null;
 
   const btn = document.getElementById('search-btn');
@@ -3630,7 +3676,7 @@ async function runSearch(page = 0) {
 //  When using Spansh: splits [minDist, maxDist] into N sequential bands
 // ═══════════════════════════════════════════════════════════════════
 async function runDeepScan() {
-  // BUG-FIX v3.40: clear _allResults so next render starts fresh
+  // BUG-FIX v3.41: clear _allResults so next render starts fresh
   window._allResults = null;
   const btn     = document.getElementById('deep-scan-btn');
   const content = document.getElementById('finder-content');
@@ -6148,6 +6194,13 @@ document.addEventListener('click', (e) => {
   <div style="max-width:720px">
 
     <div class="cl-entry">
+      <div class="cl-ver">v3.41 <span class="cl-date">2026-04-11</span></div>
+      <div class="cl-item">Economy Presets — 8 one-click preset buttons set body sliders + toggles + economy filter for Agriculture, High Tech, Industrial, Refinery, Extraction, Military, Tourism &amp; Terraforming <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Active preset indicator with quick-clear button shown below the preset grid <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Reset Filters now clears any active economy preset <span class="cl-tag cl-tag-fix">FIX</span></div>
+    </div>
+
+    <div class="cl-entry">
       <div class="cl-ver">v3.23 <span class="cl-date">2026-04-10</span></div>
       <div class="cl-item">Fleet Carrier Route Planner — tritium cost, hop calculator, nav export <span class="cl-tag cl-tag-new">NEW</span></div>
       <div class="cl-item">Score Explainer — hover rating badge for full score breakdown <span class="cl-tag cl-tag-new">NEW</span></div>
@@ -6376,7 +6429,7 @@ async function _patchWlAlertConfig(id64, cfg) {
 })();
 
 function _refilterInPlace() {
-  // BUG-FIX v3.40: always re-filter from the FULL API result set (_allResults),
+  // BUG-FIX v3.41: always re-filter from the FULL API result set (_allResults),
   // not from window._lastResults.systems which gets overwritten to the filtered
   // subset each time renderResultsProgressive is called.  Without this fix,
   // each successive refilter shrinks the pool (filtered → re-filtered → …)
@@ -6405,7 +6458,7 @@ function _scheduleFilterLiveBadge() {
   _filterLiveTimer = setTimeout(_doFilterLiveBadge, 300);
 }
 function _doFilterLiveBadge() {
-  // BUG-FIX v3.40: use _allResults (full set) not _lastResults.systems (filtered subset)
+  // BUG-FIX v3.41: use _allResults (full set) not _lastResults.systems (filtered subset)
   const all = window._allResults || window._lastResults?.systems;
   if (!all || !all.length) return;
   // BUG-FIX-F: passesBodyFilters already checks rating and economy — no need to duplicate.
@@ -9392,6 +9445,246 @@ function toggleQuickFilterWW() {
     minInput.dispatchEvent(new Event('change'));
   }
   if (pill) pill.classList.toggle('active', !isActive);
+  updateFilterBadge();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FEATURE E2: ECONOMY PRESETS
+// Sets body-type sliders to the optimal configuration for each
+// colonisation economy type, based on the Economy Guide table.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Each preset defines:
+ *   key     – unique id for the active-state tracking
+ *   icon    – emoji for the button
+ *   label   – short economy name
+ *   sub     – one-line body hint shown under the label
+ *   color   – accent color matching the economy
+ *   sliders – { bodySliderKey: [min, max] }  (omit = leave at default 0…max)
+ *   toggles – { toggleId: true/false }
+ *   economy – pre-select the economy dropdown (optional)
+ *
+ * Slider keys must match BODY_SLIDERS[*].key:
+ *   landable, walkable, blackHoles, neutron, whiteDwarf, otherStars,
+ *   elw, ww, ammonia, gasGiant, hmc, metalRich, rockyIce, rocky,
+ *   icy, rings, geoSignal, bioSignal
+ */
+const ECONOMY_PRESETS = [
+  {
+    key: 'agriculture',
+    icon: '🌾',
+    label: 'Agriculture',
+    sub: 'ELW + WW + Bio, no tidal',
+    color: '#3ddc84',
+    sliders: {
+      elw:       [1, 4],
+      ww:        [1, 4],
+      bioSignal: [1, 20],
+    },
+    toggles: { 'tog-bio': true, 'tog-terra': true, 'tog-notidal': true },
+    economy: 'Agriculture',
+  },
+  {
+    key: 'hightech',
+    icon: '🔬',
+    label: 'High Tech',
+    sub: 'ELW + Ammonia + Gas Giant',
+    color: '#a855f7',
+    sliders: {
+      elw:     [1, 4],
+      ammonia: [1, 3],
+      gasGiant:[1, 15],
+    },
+    toggles: {},
+    economy: 'High Tech',
+  },
+  {
+    key: 'industrial',
+    icon: '⚙️',
+    label: 'Industrial',
+    sub: 'Gas Giants + Rocky Ice + Geo',
+    color: '#4da6ff',
+    sliders: {
+      gasGiant: [1, 15],
+      rockyIce: [1, 16],
+      icy:      [1, 64],
+      geoSignal:[1, 29],
+    },
+    toggles: { 'tog-geo': true },
+    economy: 'Industrial',
+  },
+  {
+    key: 'refinery',
+    icon: '⛏️',
+    label: 'Refinery',
+    sub: 'Rocky + Metal-Rich + HMC',
+    color: '#ff6a00',
+    sliders: {
+      rocky:     [2, 48],
+      metalRich: [1, 8],
+      hmc:       [1, 26],
+    },
+    toggles: {},
+    economy: 'Refinery',
+  },
+  {
+    key: 'extraction',
+    icon: '💎',
+    label: 'Extraction',
+    sub: 'HMC + Rings + Metal-Rich',
+    color: '#f87171',
+    sliders: {
+      hmc:       [1, 26],
+      metalRich: [1, 8],
+      rings:     [1, 25],
+    },
+    toggles: { 'tog-ring': true },
+    economy: 'Extraction',
+  },
+  {
+    key: 'military',
+    icon: '🛡️',
+    label: 'Military',
+    sub: 'ELW + other stars',
+    color: '#fbbf24',
+    sliders: {
+      elw:       [1, 4],
+      otherStars:[1, 20],
+    },
+    toggles: {},
+    economy: 'Military',
+  },
+  {
+    key: 'tourism',
+    icon: '🏖️',
+    label: 'Tourism',
+    sub: 'ELW + WW + Neutron/BH',
+    color: '#ffd700',
+    sliders: {
+      elw:       [1, 4],
+      ww:        [1, 4],
+      blackHoles:[1, 2],
+      neutron:   [1, 2],
+    },
+    toggles: {},
+    economy: 'Tourism',
+  },
+  {
+    key: 'terraforming',
+    icon: '🌍',
+    label: 'Terraforming',
+    sub: 'ELW + WW + Bio + Terraform',
+    color: '#34d399',
+    sliders: {
+      elw:       [1, 4],
+      ww:        [1, 4],
+      bioSignal: [1, 20],
+    },
+    toggles: { 'tog-bio': true, 'tog-terra': true },
+    economy: 'Agriculture',   // Terraforming uses Agriculture economy base
+  },
+];
+
+let _activeEconomyPreset = null;
+
+function buildEconomyPresets() {
+  const grid = document.getElementById('economy-preset-grid');
+  if (!grid) return;
+  grid.innerHTML = ECONOMY_PRESETS.map(p => `
+    <button class="preset-btn" id="ep-${p.key}" onclick="applyEconomyPreset('${p.key}')"
+            title="${p.sub}" style="--ep-color:${p.color}">
+      <span class="preset-icon">${p.icon}</span>
+      <span>
+        <span class="preset-label">${p.label}</span>
+        <span class="preset-sub">${p.sub}</span>
+      </span>
+    </button>`).join('');
+}
+
+function _setSlider(key, min, max) {
+  const minEl = document.getElementById('smin-' + key);
+  const maxEl = document.getElementById('smax-' + key);
+  if (minEl) { minEl.value = min; minEl.dispatchEvent(new Event('input')); minEl.dispatchEvent(new Event('change')); }
+  if (maxEl) { maxEl.value = max; maxEl.dispatchEvent(new Event('input')); maxEl.dispatchEvent(new Event('change')); }
+}
+
+function applyEconomyPreset(key) {
+  // If clicking the already-active preset, toggle it off
+  if (_activeEconomyPreset === key) { clearEconomyPreset(); return; }
+
+  const preset = ECONOMY_PRESETS.find(p => p.key === key);
+  if (!preset) return;
+
+  // Reset all body sliders first so previous preset doesn't bleed through
+  BODY_SLIDERS.forEach(s => _setSlider(s.key, 0, s.max));
+
+  // Clear all toggles that any preset might touch
+  ['tog-bio','tog-geo','tog-ring','tog-terra','tog-volc','tog-notidal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.checked = false;
+  });
+
+  // Apply slider ranges from preset
+  Object.entries(preset.sliders).forEach(([k, [mn, mx]]) => _setSlider(k, mn, mx));
+
+  // Apply toggles
+  Object.entries(preset.toggles || {}).forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = val;
+  });
+
+  // Set economy dropdown if specified (uses the search-filter dropdown, not the guide table)
+  const econSel = document.getElementById('filter-economy');
+  if (econSel && preset.economy) econSel.value = preset.economy;
+
+  // Sync quick-filter pills that overlap
+  const pillMap = { 'tog-bio': 'qf-bio', 'tog-terra': 'qf-terra' };
+  Object.entries(preset.toggles || {}).forEach(([id, val]) => {
+    const pillId = pillMap[id];
+    if (pillId) document.getElementById(pillId)?.classList.toggle('active', val);
+  });
+
+  // Mark active preset button
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('ep-' + key)?.classList.add('active');
+  _activeEconomyPreset = key;
+
+  // Show active indicator
+  const activeBar = document.getElementById('economy-preset-active');
+  const activeLabel = document.getElementById('economy-preset-label');
+  if (activeBar && activeLabel) {
+    activeLabel.textContent = `${preset.icon} ${preset.label} preset active`;
+    activeBar.style.display = 'flex';
+  }
+
+  updateFilterBadge();
+}
+
+function clearEconomyPreset() {
+  // Reset all body sliders to full range
+  BODY_SLIDERS.forEach(s => _setSlider(s.key, 0, s.max));
+
+  // Clear preset-touched toggles
+  ['tog-bio','tog-geo','tog-ring','tog-terra','tog-volc','tog-notidal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.checked = false;
+  });
+  // Re-sync quick-filter pills
+  ['qf-bio','qf-terra'].forEach(id => document.getElementById(id)?.classList.remove('active'));
+
+  // Clear economy dropdown
+  const econSel = document.getElementById('filter-economy');
+  if (econSel) econSel.value = 'any';
+
+  // Clear button highlight
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  _activeEconomyPreset = null;
+
+  // Hide active bar
+  const activeBar = document.getElementById('economy-preset-active');
+  if (activeBar) activeBar.style.display = 'none';
+
   updateFilterBadge();
 }
 
