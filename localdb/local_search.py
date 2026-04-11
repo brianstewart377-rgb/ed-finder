@@ -254,9 +254,9 @@ def _spatial_search(
             with galaxy_conn() as bconn:
                 brows = bconn.execute("""
                     SELECT type, subtype, distance_to_arrival,
-                           is_landable, has_signals, has_rings, ring_types,
+                           is_landable, is_tidal_lock, has_signals, has_rings, ring_types,
                            atmosphere, volcanism, terraform_state,
-                           surface_gravity, estimated_mapping_value, estimated_scan_value
+                           surface_gravity, surface_temp, estimated_mapping_value, estimated_scan_value
                     FROM bodies WHERE system_id64 = ?
                     ORDER BY distance_to_arrival
                 """, (row["id64"],)).fetchall()
@@ -267,6 +267,10 @@ def _spatial_search(
                 bd["terraforming_state"] = bd.pop("terraform_state", None)
                 # surface_gravity → gravity (Spansh field name)
                 bd["gravity"] = bd.pop("surface_gravity", None)
+                # surface_temp → surface_temperature (frontend field name)
+                bd["surface_temperature"] = bd.pop("surface_temp", None)
+                # is_tidal_lock (int 0/1) → is_rotational_period_tidally_locked (bool)
+                bd["is_rotational_period_tidally_locked"] = bool(bd.pop("is_tidal_lock", 0))
                 # ring_types JSON → rings array of {type: "..."}
                 rt = bd.pop("ring_types", None)
                 if rt:
@@ -458,7 +462,7 @@ def local_db_system(id64: int) -> Optional[dict]:
 
         bodies = conn.execute("""
             SELECT id64, name, type, subtype, distance_to_arrival,
-                   is_main_star, is_landable, has_signals, has_rings, ring_types,
+                   is_main_star, is_landable, is_tidal_lock, has_signals, has_rings, ring_types,
                    atmosphere, volcanism, terraform_state,
                    mass, radius, surface_temp, surface_gravity,
                    estimated_mapping_value, estimated_scan_value, data
@@ -490,6 +494,17 @@ def local_db_system(id64: int) -> Optional[dict]:
             body_dict["gravity"] = body_dict.pop("surface_gravity")
         elif "surface_gravity" in body_dict:
             body_dict.pop("surface_gravity")
+        # surface_temp → surface_temperature  (frontend field name)
+        if "surface_temp" in body_dict and "surface_temperature" not in body_dict:
+            body_dict["surface_temperature"] = body_dict.pop("surface_temp")
+        elif "surface_temp" in body_dict:
+            body_dict.pop("surface_temp")
+        # is_tidal_lock (int 0/1) → is_rotational_period_tidally_locked (bool)
+        if "is_tidal_lock" in body_dict:
+            if "is_rotational_period_tidally_locked" not in body_dict:
+                body_dict["is_rotational_period_tidally_locked"] = bool(body_dict.pop("is_tidal_lock"))
+            else:
+                body_dict.pop("is_tidal_lock")
         # ring_types JSON → rings array of {type: "..."}
         rt = body_dict.pop("ring_types", None)
         if rt and "rings" not in body_dict:

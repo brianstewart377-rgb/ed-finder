@@ -99,6 +99,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             distance_to_arrival REAL,
             is_main_star  INTEGER DEFAULT 0,
             is_landable   INTEGER DEFAULT 0,
+            is_tidal_lock INTEGER DEFAULT 0,  -- rotationalPeriodTidallyLocked from Spansh dump
             has_signals   INTEGER DEFAULT 0,
             has_rings     INTEGER DEFAULT 0,
             ring_types    TEXT,           -- JSON array
@@ -170,6 +171,7 @@ def create_indexes(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_bodies_system   ON bodies(system_id64);
         CREATE INDEX IF NOT EXISTS idx_bodies_type     ON bodies(type);
         CREATE INDEX IF NOT EXISTS idx_bodies_landable ON bodies(is_landable);
+        CREATE INDEX IF NOT EXISTS idx_bodies_tidal    ON bodies(is_tidal_lock);
         CREATE INDEX IF NOT EXISTS idx_bodies_signals  ON bodies(has_signals);
         CREATE INDEX IF NOT EXISTS idx_col_pop         ON colonisation(population);
         CREATE INDEX IF NOT EXISTS idx_col_colonised   ON colonisation(is_colonised);
@@ -448,11 +450,12 @@ def _flush_galaxy_batch(conn, sys_batch, body_batch, col_batch) -> None:
         conn.executemany(
             """INSERT OR REPLACE INTO bodies
                (id64, system_id64, name, type, subtype, distance_to_arrival,
-                is_main_star, is_landable, has_signals, has_rings, ring_types,
+                is_main_star, is_landable, is_tidal_lock,
+                has_signals, has_rings, ring_types,
                 atmosphere, volcanism, terraform_state, mass, radius,
                 surface_temp, surface_gravity,
                 estimated_mapping_value, estimated_scan_value, data)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             body_batch,
         )
     if col_batch:
@@ -480,6 +483,12 @@ def _body_row(system_id64: int, body: dict) -> tuple:
     rings = body.get("rings", []) or []
     ring_types = json.dumps([r.get("type") for r in rings]) if rings else None
     has_sigs = 1 if (body.get("signals") or body.get("has_signals")) else 0
+    # Spansh galaxy dump: camelCase 'rotationalPeriodTidallyLocked' (bool)
+    # API search endpoint: snake_case 'is_rotational_period_tidally_locked' (bool)
+    is_tidal = 1 if (
+        body.get("rotationalPeriodTidallyLocked") or
+        body.get("is_rotational_period_tidally_locked")
+    ) else 0
 
     return (
         body.get("id64") or body.get("id"),
@@ -490,6 +499,7 @@ def _body_row(system_id64: int, body: dict) -> tuple:
         body.get("distanceToArrival"),
         1 if body.get("isMainStar") else 0,
         1 if body.get("isLandable") else 0,
+        is_tidal,                                  # NEW: is_tidal_lock column
         has_sigs,
         1 if rings else 0,
         ring_types,

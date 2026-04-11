@@ -3818,7 +3818,8 @@ function countBodyTypes(bodies) {
     if (key) counts[key] = (counts[key]||0) + 1;
 
     if (b.is_landable) counts.landable = (counts.landable||0) + 1;
-    if (b.is_landable && !(b.atmosphere || b.atmosphere_type)) counts.walkable = (counts.walkable||0) + 1;
+    // walkable = landable + no atmosphere + not tidally locked (consistent with _showMapDetail line ~7940)
+    if (b.is_landable && !(b.atmosphere || b.atmosphere_type) && !b.is_rotational_period_tidally_locked) counts.walkable = (counts.walkable||0) + 1;
     if (b.rings && b.rings.length > 0) counts.rings = (counts.rings||0) + 1;
 
     const sigs = b.signals || [];
@@ -4356,7 +4357,7 @@ function buildWarningTags(sys, economy) {
   if (maxDist > 250000) tags.push(`<span class="warn-tag">⚠️ Body ${Math.round(maxDist).toLocaleString()} Ls away</span>`);
 
   // H3: Enhanced tidally-locked warnings for ALL landable bodies
-  const tidal = bodies.filter(b => b.is_rotational_period_tidally_locked && (b.landable || b.type === 'Planet'));
+  const tidal = bodies.filter(b => b.is_rotational_period_tidally_locked && (b.is_landable || b.type === 'Planet'));
   if (tidal.length && (economy.primary === 'Agriculture')) {
     const tidalWithBio = tidal.filter(b => (b.signals||[]).some(s => s.name === 'Biological'));
     if (tidalWithBio.length > 0) {
@@ -4686,7 +4687,7 @@ function suggestEconomy(sys) {
 
     // Feature modifiers
     // H3 FIX: Apply tidally-locked penalty to ALL landable bodies
-    if (isTidal && (b.landable || b.type === 'Planet')) {
+    if (isTidal && (b.is_landable || b.type === 'Planet')) {
       modifiers.Agriculture.push('Tidally-locked -0.4');
       if (hasBio) {
         scores.Agriculture += 4; // Reduced from +8 due to tidal lock
@@ -7886,7 +7887,10 @@ function _showBodyPillDetail(pillEl, encodedData) {
   const tempStr = b.surface_temperature ? `${Math.round(b.surface_temperature)} K` : '—';
   const tfStr   = b.terraforming_state && b.terraforming_state !== 'Not terraformable' ? `<span style="color:var(--green)">${b.terraforming_state}</span>` : '—';
   const tidalStr= b.is_rotational_period_tidally_locked ? '<span style="color:var(--red)">Yes ⚠️</span>' : 'No';
-  const ringsStr= b.rings && b.rings.length ? b.rings.join(', ') : '—';
+  // rings is array of type-strings (from pill data builder) or {type:'...'} objects
+  const ringsStr= b.rings && b.rings.length
+    ? b.rings.map(r => (typeof r === 'string' ? r : (r.type || 'Ring'))).join(', ')
+    : '—';
   const sigStr  = [
     b.bioCount ? `🌱 Bio ×${b.bioCount}` : '',
     b.geoCount ? `⛰️ Geo ×${b.geoCount}` : '',
