@@ -4778,10 +4778,26 @@ function buildSystemCard(sys, idx) {
   const popPill = `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${pp.color}22;color:${pp.color};border:1px solid ${pp.color}55" title="Population potential: ${pp.tier}">${pp.formatted}</span>`;
   const ecoConfColor = economy.confidence === 'High' ? 'var(--green)' : economy.confidence === 'Medium' ? 'var(--gold)' : 'var(--red)';
   // UI-6: coloured economy pill in card header
-  const ecoHdrPill = `<span class="economy-tag ${getEcoClass(economy.primary)}" style="font-size:10px;padding:2px 7px;line-height:1.4" title="${economy.primary} — ${economy.confidence} confidence: ${economy.reason}">${getEcoIcon(economy.primary)} ${economy.primary}<span style="font-size:8px;margin-left:3px;opacity:0.8">${economy.confidence === 'High' ? '●' : economy.confidence === 'Medium' ? '◐' : '○'}</span></span>`;  // UI-6: coloured economy pill
+  // UI-6 / FIX v3.46: coloured economy pill with hover popover
+  const _ecoConf = economy.confidence === 'High' ? '●' : economy.confidence === 'Medium' ? '◐' : '○';
+  const _ecoTipText = `${economy.primary} economy — ${economy.confidence} confidence\n${economy.reason || ''}${economy.secondary ? '\nSecondary: '+economy.secondary : ''}`.replace(/'/g,"\'");
+  const ecoHdrPill = `<span class="economy-tag ${getEcoClass(economy.primary)}" style="font-size:10px;padding:2px 7px;line-height:1.4;cursor:help"
+    title="${economy.primary} — ${economy.confidence} confidence: ${economy.reason}"
+    onmouseenter="_hoverEcoPill(event,this)"
+    onmouseleave="_hideEcoPop()">${getEcoIcon(economy.primary)} ${economy.primary}<span style="font-size:8px;margin-left:3px;opacity:0.8">${_ecoConf}</span></span>`;  // UI-6: coloured economy pill
   const ecoSpecBars = buildEcoSpecBars(economy);  // G2: multi-economy specialisation bars
 
   card.id = 'card-' + sys.id64;  // FIX-BONUS: set card ID so togglePin can update the icon
+  card.dataset.id64 = sys.id64;  // FIX v3.46: required for click-to-score-explainer + keyboard nav
+
+  // FIX v3.46: store rating as data attribute so score hover uses delegation, not fragile inline JSON
+  try { card.dataset.rating = JSON.stringify(rating); } catch(e) {}
+
+  // FIX v3.46: distance — show '—' when coords are all-zero (manually typed, unresolved system)
+  const _coordsZero = (sys.x == null || sys.x === 0) && (sys.y == null || sys.y === 0) && (sys.z == null || sys.z === 0);
+  const _distLabel = (sys.distance != null)
+    ? (sys.distance === 0 && _coordsZero ? '—' : sys.distance.toFixed(2) + ' LY')
+    : '?';
 
   card.innerHTML = `
     <div class="result-card-hdr" onclick="toggleCard(this)">
@@ -4792,13 +4808,13 @@ function buildSystemCard(sys, idx) {
       <span style="color:var(--text-dim);font-family:Orbitron,monospace;font-size:11px;min-width:24px">#${idx+1}</span>
       <div class="sys-name">${sys.name || 'Unknown System'}</div>
       <button onclick="event.stopPropagation();_copySystemName('${(sys.name||'').replace(/'/g,"\\'")}',this)" title="Copy system name to clipboard" style="background:none;border:none;cursor:pointer;font-size:12px;padding:0 3px;color:var(--text-dim);line-height:1" aria-label="Copy name">📋</button>
-      <span class="sys-dist">${dist} LY</span>
+      <span class="sys-dist">${_distLabel}</span>
       ${ecoHdrPill}
       ${ecoSpecBars}
       ${colonisedPill}
       ${popPill}
       <span class="rating-badge ${ratingClass}" style="margin-left:4px;cursor:help"
-        onmouseenter="showScoreExplainer(event,${JSON.stringify(rating).replace(/"/g,'&quot;')},${JSON.stringify(sys).replace(/"/g,'&quot;')})"
+        onmouseenter="_hoverScoreBadge(event,this)"
         onmouseleave="hideScoreExplainer()">${ratingLabel} ${rating.total}</span>
       ${buildScoreMiniBar(rating)}
       ${(typeof _buildBodyMiniBar === "function") ? _buildBodyMiniBar(sys.bodies||[]) : ""}
@@ -6697,6 +6713,8 @@ document.addEventListener('click', (e) => {
 
 <!-- Score Explainer Popover (Feature 2) -->
 <div id="score-explain-pop" class="score-explain-pop" style="display:none"></div>
+<!-- Economy Pill Hover Popover (v3.46) -->
+<div id="eco-pop" style="display:none;position:fixed;z-index:10001;min-width:200px;max-width:260px;background:var(--bg2);border:1px solid var(--border-o);border-radius:7px;padding:10px 13px;font-size:11px;box-shadow:0 6px 22px rgba(0,0,0,0.7);color:var(--text);pointer-events:none"></div>
 <!-- Slider drag tooltip -->
 <div id="slider-tip"></div>
 <!-- Mobile sticky FAB -->
@@ -10971,8 +10989,80 @@ function hideScoreExplainer() {
   pop._hideTimer = setTimeout(() => { pop.style.display = 'none'; }, 200);
 }
 
-// Patch buildSystemCard to make rating badge clickable for explainer
-// We hook into existing rating badge via event delegation
+// ─────────────────────────────────────────────────────────────────────────
+// FIX v3.46: Economy Pill Hover Popover
+// ─────────────────────────────────────────────────────────────────────────
+const _ECO_DETAIL = {
+  Refinery:    { icon:'⛏️', desc:'Best for rocky & metal-rich bodies with rings. Drives mining commodities.' },
+  Agriculture: { icon:'🌾', desc:'Best for Earth-like worlds & terraformable bodies. Food & organic goods.' },
+  Industrial:  { icon:'🏭', desc:'Metal-rich & rocky bodies with volcanism. Manufacturing hub.' },
+  'High Tech':  { icon:'🔬', desc:'ELW, WW & high-gravity worlds. Technology & advanced goods.' },
+  HighTech:    { icon:'🔬', desc:'ELW, WW & high-gravity worlds. Technology & advanced goods.' },
+  Military:    { icon:'⚔️', desc:'Stable systems near inhabited space. Defence & weapons.' },
+  Tourism:     { icon:'🌐', desc:'ELW, scenic bodies & low-threat systems. Leisure goods.' },
+  Extraction:  { icon:'🪨', desc:'Rocky bodies & asteroid belts. Raw material extraction.' },
+  Colony:      { icon:'🏘️', desc:'New settlement — economy develops over time.' },
+  Service:     { icon:'🔧', desc:'Service & maintenance hub.' },
+};
+
+function _hoverEcoPill(evt, el) {
+  const card = el.closest('.result-card');
+  if (!card) return;
+  const id64 = card.dataset.id64;
+  const sys = id64 ? (window._allResults || window._lastResults?.systems || []).find(s => String(s.id64) === String(id64)) : null;
+  const eco = sys?._economy || null;
+  const primary = el.textContent.trim().replace(/[●◐○]/g,'').trim();
+  const detail = _ECO_DETAIL[primary] || { icon:'⚙️', desc:'' };
+  const conf = eco?.confidence || '';
+  const reason = eco?.reason || '';
+  const secondary = eco?.secondary ? `<div style="margin-top:5px;color:var(--text-dim)">Secondary: <strong>${_ECO_DETAIL[eco.secondary]?.icon||''} ${eco.secondary}</strong></div>` : '';
+  const confColor = conf === 'High' ? 'var(--green)' : conf === 'Medium' ? 'var(--gold)' : 'var(--red)';
+  const pop = document.getElementById('eco-pop');
+  if (!pop) return;
+  pop.innerHTML = `
+    <div style="font-family:Orbitron,monospace;font-size:10px;color:var(--orange);margin-bottom:6px;letter-spacing:1px">${detail.icon} ${primary}</div>
+    ${detail.desc ? `<div style="color:var(--text-dim);margin-bottom:6px;line-height:1.4">${detail.desc}</div>` : ''}
+    ${conf ? `<div style="margin-bottom:4px">Confidence: <strong style="color:${confColor}">${conf}</strong></div>` : ''}
+    ${reason ? `<div style="color:var(--text-dim);font-size:10px;line-height:1.4">${reason}</div>` : ''}
+    ${secondary}
+  `;
+  pop.style.display = 'block';
+  const rect = el.getBoundingClientRect();
+  let left = rect.left, top = rect.bottom + 5;
+  const pw = 240;
+  if (left + pw > window.innerWidth) left = window.innerWidth - pw - 8;
+  if (top + 150 > window.innerHeight) top = rect.top - 160;
+  pop.style.left = left + 'px';
+  pop.style.top  = top + 'px';
+  clearTimeout(pop._t);
+  pop._t = setTimeout(() => { pop.style.display = 'none'; }, 5000);
+}
+function _hideEcoPop() {
+  const pop = document.getElementById('eco-pop');
+  if (!pop) return;
+  clearTimeout(pop._t);
+  pop._t = setTimeout(() => { pop.style.display = 'none'; }, 200);
+}
+
+// FIX v3.46: _hoverScoreBadge — replaces inline JSON.stringify(sys) in onmouseenter.
+// Reads rating from card.dataset.rating (set in buildSystemCard) and looks up
+// the full sys object from _allResults so body breakdown works correctly.
+function _hoverScoreBadge(evt, badgeEl) {
+  const card = badgeEl.closest('.result-card');
+  if (!card) return;
+  // Try to get sys from _allResults first (has full body data)
+  const id64 = card.dataset.id64;
+  let sys = null, rating = {};
+  if (id64) {
+    sys = (window._allResults || window._lastResults?.systems || []).find(s => String(s.id64) === String(id64)) || null;
+  }
+  // Fall back to card.dataset.rating if sys not found
+  try { rating = JSON.parse(card.dataset.rating || '{}'); } catch(_) {}
+  if (sys) rating = sys._rating || rateSystem(sys);
+  showScoreExplainer(evt, rating, sys || { name: card.dataset.sysName || '' });
+}
+
+// Rating badge click also shows the explainer (event delegation)
 document.addEventListener('click', (e) => {
   const badge = e.target.closest('.rating-badge');
   if (!badge) return;
@@ -10980,10 +11070,12 @@ document.addEventListener('click', (e) => {
   if (!card) return;
   const id64 = card.dataset.id64;
   if (!id64) return;
-  const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64));
-  if (!sys) return;
-  const rating = sys._rating || rateSystem(sys);
-  showScoreExplainer(e, rating, sys);  // UI-1: pass full sys for body breakdown
+  const sys = (window._allResults || window._lastResults?.systems || []).find(s => String(s.id64) === String(id64));
+  // Use data-rating as fallback if sys not in results yet
+  let rating = {};
+  try { rating = JSON.parse(card.dataset.rating || '{}'); } catch(_) {}
+  if (sys) rating = sys._rating || rateSystem(sys);
+  showScoreExplainer(e, rating, sys || { name: card.dataset.sysName || '' });
 }, true);
 
 // ────────────────────────────────────────────────────────────────────
