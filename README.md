@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.44, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.45, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
@@ -175,6 +175,22 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.45 — Colony Planner deep enhancements + 10 UI improvements + bug fixes
+
+- **[NEW] CP (Construction Point) Calculator** — enter planned T2/T3 port counts; exact Yellow/Green CP requirements with T1 facility count calculated per Mega Guide v2.3.0 formula (T2 costs 3+2(n−1)Y, T3 costs 6+6(n−1)G); warns when T2s are planned before T3s.
+- **[NEW] Body Suitability Panel** — per-body-type colour bar (Ideal/Good/Warn/Avoid) for the chosen economy based on Mega Guide v2.3.0 body economy rules; hover each row for specific placement advice.
+- **[NEW] Economy Pairing Guide** — shows Compatible / OK / Caution / Avoid secondary economies for the chosen primary per patch 4.2.0.1 cannibalization rules.
+- **[NEW] Commodity Checklist** — key commodities (CMM Composite, Insulating Membranes, H.E. Suits, Steel, Battle Weapons etc.) shown as ✅/❌/⚠️ for the current system bodies and economy; explains orbital vs. ground exclusivity rules.
+- **[NEW] Body Intake Upload** — upload the ED System Intake Calc CSV/ODS spreadsheet (or any CSV with Body Name, Type, Orbital Slots, Ground Slots) to generate colony plans directly from scouting notes without a Spansh system lookup.
+- **[NEW] Phased Build Timeline** — Plan A reorganised into Phase 1 (T1 foundation), Phase 2 (T2 economy core), Phase 3 (T3 starport) with live CP balance per step.
+- **[NEW] Plan Colony toast** — orange confirmation toast when a search result is sent to the Colony Planner tab.
+- **[NEW] Extraction economy** — full build template with Asteroid Base + Refinery Hub pairing and body suitability data.
+- **[FIX] Eco tile active state** — was using fragile `onclick.toString()` match; now uses `data-eco` attribute.
+- **[FIX] _setOptEco event.currentTarget** — was null in inline onclick context; fixed by passing `this` as explicit `el` parameter.
+- **[FIX] updateFilterBadge debounce** — slider drag was firing 100+ DOM reads/second; now debounced at 80ms.
+- **[FIX] Distance delta badge** — `_captureRefForDelta` now also fires at `runSearch()` start so previous reference is correctly captured.
+- **[FIX] Plan Colony pre-fill** — `openInOptimizer` now passes full body data from search results to `optSystem` (no extra Spansh fetch).
 
 ### v3.44 — Colony Planner overhaul + Score mini-bar redesign
 
