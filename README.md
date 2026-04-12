@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.42, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.43, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
@@ -175,6 +175,19 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.43 — 10 UI improvements
+
+- **[NEW] Expand All / Collapse All** — single ⊞/⊟ button opens or closes all result cards simultaneously; state resets on new search.
+- **[NEW] Body-type colour mini-bar** — proportional colour segments in card header (ELW=green, WW=blue, AMM=purple, HMC=orange, Metal-Rich=gold…); visible in compact density mode.
+- **[IMPR] Active filter chips** — each active filter shown as a removable chip with ×; clicking the × removes that filter and re-searches immediately.
+- **[IMPR] Autocomplete highlight** — matched portion of each system name suggestion bolded in orange for faster visual scanning.
+- **[NEW] EDMC copy button** — 📋 EDMC button in each card's external-link bar copies the system name in EDMC-ready format with distinct toast feedback.
+- **[NEW] Distance delta badge** — shows LY change vs previous search reference (green=closer, gold=further) next to each system's current distance.
+- **[NEW] Filter panel collapse memory** — each sidebar panel's open/closed state saved in localStorage and restored on reload.
+- **[NEW] Body mini-bar in compact view** — colour-coded body-type proportion bar appears in compact card headers alongside the score mini-bars.
+- **[IMPR] Styled external link buttons** — Spansh, EDSM, and Inara displayed as icon pill buttons with branded hover colours; EDMC copy button added alongside.
+- **[NEW] Radius density hint** — live label below the Max Distance slider estimates approximate system count in the search sphere, with colour coding (good/warn).
 
 ### v3.42 — 6 UI improvements
 

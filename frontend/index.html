@@ -1677,6 +1677,60 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 .eco-tourism   { background: rgba(255,215,0,0.15);  color: #ffd700; }
 .eco-extraction{ background: rgba(248,113,113,0.15); color: #f87171; }
 
+/* ── UI11: Expand/Collapse All ─────────────────────────────────── */
+.expand-all-btn {
+  background: var(--bg4); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-dim); font-size: 11px; padding: 3px 9px; cursor: pointer;
+  transition: all .15s;
+}
+.expand-all-btn:hover { border-color: var(--orange); color: var(--orange); }
+
+/* ── UI13: Removable filter chips ──────────────────────────────── */
+.filter-chip-x {
+  display:inline-flex; align-items:center; gap:4px;
+  background:var(--bg4); border:1px solid var(--border-o); border-radius:10px;
+  padding:2px 6px 2px 9px; font-size:11px; color:var(--text-dim);
+}
+.filter-chip-x button {
+  background:none; border:none; cursor:pointer; color:var(--text-dim);
+  font-size:11px; padding:0 1px; line-height:1; transition:color .1s;
+}
+.filter-chip-x button:hover { color: var(--red); }
+
+/* ── UI17: Body mini-bar in compact view ───────────────────────── */
+.body-mini-bar {
+  display:none; align-items:center; gap:1px; margin-left:6px; height:10px;
+}
+body.density-compact .body-mini-bar { display:inline-flex !important; }
+.bmb-seg { height:10px; min-width:3px; border-radius:1px; transition:width .2s; }
+
+/* ── UI18: External link icon buttons ──────────────────────────── */
+.ext-link-btn {
+  display:inline-flex; align-items:center; gap:4px;
+  background:var(--bg4); border:1px solid var(--border); border-radius:4px;
+  padding:4px 9px; font-size:11px; color:var(--text-dim); text-decoration:none;
+  cursor:pointer; transition:all .15s;
+}
+.ext-link-btn:hover { border-color:var(--orange); color:var(--orange); text-decoration:none; }
+.ext-link-btn.spansh:hover { border-color:#ff6a00; color:#ff6a00; }
+.ext-link-btn.edsm:hover   { border-color:#4da6ff; color:#4da6ff; }
+.ext-link-btn.inara:hover  { border-color:#a855f7; color:#a855f7; }
+
+/* ── UI19: Distance density hint ───────────────────────────────── */
+#dist-density-hint {
+  font-size:10px; color:var(--text-dim); margin-top:3px;
+  min-height:14px; transition:color .3s;
+}
+#dist-density-hint.good { color: var(--green); }
+#dist-density-hint.warn { color: var(--gold); }
+
+/* ── UI20: Delta distance badge ────────────────────────────────── */
+.delta-dist-badge {
+  font-size:9px; padding:1px 5px; border-radius:3px; margin-left:3px;
+  background:rgba(77,166,255,0.12); border:1px solid rgba(77,166,255,0.3);
+  color:#4da6ff; font-weight:600; white-space:nowrap;
+}
+
 /* Changelog */
 .cl-entry { margin-bottom:18px; }
 .cl-ver { font-family:Orbitron,monospace; font-size:13px; color:var(--orange); letter-spacing:1px; margin-bottom:4px; }
@@ -1912,7 +1966,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.42</div>
+  <div class="version">v3.43</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2006,9 +2060,10 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
         <div class="field">
           <label for="dist-slider">Max Distance (LY) <span id="dist-search-hint" style="display:none;color:var(--orange);font-size:10px;margin-left:4px">↵ press Search</span><span id="dist-cap-hint" style="display:none;color:var(--orange);font-size:10px;margin-left:4px">(max 200 LY with local DB)</span></label>
           <div class="slider-wrap">
-            <input type="range" id="dist-slider" min="0" max="500" value="50" oninput="document.getElementById('dist-val').textContent=this.value;document.getElementById('dist-search-hint').style.display='inline'" onchange="updateFilterBadge()">
+            <input type="range" id="dist-slider" min="0" max="500" value="50" oninput="document.getElementById('dist-val').textContent=this.value;document.getElementById('dist-search-hint').style.display='inline';_updateDistDensityHint(this.value)" onchange="updateFilterBadge()">
             <div class="slider-val" id="dist-val">50</div>
           </div>
+          <div id="dist-density-hint"></div>
         </div>
         <div class="field">
           <label for="min-dist-slider">Min Distance (LY) <span id="min-dist-search-hint" style="display:none;color:var(--orange);font-size:10px;margin-left:4px">↵ press Search</span></label>
@@ -2502,7 +2557,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.42';
+const APP_VERSION = 'v3.43';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -3340,7 +3395,7 @@ async function appendSearch(page) {
     // by the current sort preference so Load More doesn't just tack new cards
     // on the bottom out of order.
     if (window._lastResults) window._lastResults.systems.push(...filtered);
-    // BUG-FIX v3.42: keep _allResults in sync with appended pages so
+    // BUG-FIX v3.43: keep _allResults in sync with appended pages so
     // _refilterInPlace always has the full loaded set to work from
     if (window._allResults) window._allResults.push(...newSystems);
 
@@ -3397,7 +3452,7 @@ async function runSearch(page = 0) {
   if (searchAbortController) { try { searchAbortController.abort(); } catch(e) {} }
   searchAbortController = new AbortController();
   const searchSignal = searchAbortController.signal;
-  // BUG-FIX v3.42: clear _allResults so next renderResultsProgressive populates it fresh
+  // BUG-FIX v3.43: clear _allResults so next renderResultsProgressive populates it fresh
   window._allResults = null;
 
   const btn = document.getElementById('search-btn');
@@ -3715,7 +3770,7 @@ async function runSearch(page = 0) {
 //  When using Spansh: splits [minDist, maxDist] into N sequential bands
 // ═══════════════════════════════════════════════════════════════════
 async function runDeepScan() {
-  // BUG-FIX v3.42: clear _allResults so next render starts fresh
+  // BUG-FIX v3.43: clear _allResults so next render starts fresh
   window._allResults = null;
   const btn     = document.getElementById('deep-scan-btn');
   const content = document.getElementById('finder-content');
@@ -4213,6 +4268,7 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
       <option value="bodies">Body Count ↓</option>
       <option value="population">Population ↓</option>
     </select>
+    <button class="expand-all-btn" id="expand-all-btn" onclick="toggleExpandAll()" title="Expand or collapse all result cards">⊞ Expand All</button>
     <button onclick="exportResults('csv')" class="btn btn-secondary icon-btn" title="Export current results as CSV" aria-label="Export as CSV">⬇️ CSV</button> <!-- T3-FIX -->
     <button onclick="exportResults('json')" class="btn btn-secondary icon-btn" title="Export current results as JSON" aria-label="Export as JSON">⬇️ JSON</button>
     <button class="btn btn-secondary refilter-btn" onclick="_refilterInPlace()" title="Re-apply current filters to already-loaded results without a new API call">🔄 Re-filter</button>
@@ -4362,6 +4418,7 @@ function renderResults(systems, page, total) {
       <option value="bodies">Body Count ↓</option>
       <option value="population">Population ↓</option>
     </select>
+    <button class="expand-all-btn" id="expand-all-btn" onclick="toggleExpandAll()" title="Expand or collapse all result cards">⊞ Expand All</button>
     <button onclick="exportResults('csv')" class="btn btn-secondary icon-btn" title="Export current results as CSV" aria-label="Export as CSV">⬇️ CSV</button> <!-- T3-FIX -->
     <button onclick="exportResults('json')" class="btn btn-secondary icon-btn" title="Export current results as JSON" aria-label="Export as JSON">⬇️ JSON</button>
   `;
@@ -4454,6 +4511,7 @@ function buildSystemCard(sys, idx) {
         onmouseenter="showScoreExplainer(event,${JSON.stringify(rating).replace(/"/g,'&quot;')},${JSON.stringify(sys).replace(/"/g,'&quot;')})"
         onmouseleave="hideScoreExplainer()">${ratingLabel} ${rating.total}</span>
       ${buildScoreMiniBar(rating)}
+      ${(typeof _buildBodyMiniBar === "function") ? _buildBodyMiniBar(sys.bodies||[]) : ""}
       <span class="chevron" style="color:var(--text-dim);margin-left:8px;font-size:12px">▼</span>
     </div>
     <div class="result-card-body" style="display:none">
@@ -4634,21 +4692,13 @@ function buildCardBody(sys, rating, economy, build, sysIsInhabited) {
       ${build.notes ? `<div class="info-banner" style="margin-top:10px">💡 ${build.notes}</div>` : ''}
     </div>
 
-    <!-- View on Spansh link -->
+    <!-- UI18/UI19: Styled external link icon buttons + EDMC copy (UI15) -->
+    ${window._buildExtLinkBar ? _buildExtLinkBar(sys) : `
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:10px">
-      <a href="https://spansh.co.uk/system/${sys.id64}" target="_blank"
-         style="color:var(--orange);font-size:12px;text-decoration:none">
-        🔗 View on Spansh
-      </a>
-      <a href="https://inara.cz/starsystem/?search=${encodeURIComponent(sys.name||'')}" target="_blank"
-         style="color:var(--text-dim);font-size:12px;text-decoration:none">
-        🔗 View on Inara
-      </a>
-      <a href="https://www.edsm.net/en/system/id//name/${encodeURIComponent(sys.name||'')}" target="_blank"
-         style="color:#4da6ff;font-size:12px;text-decoration:none">
-        🔗 View on EDSM
-      </a>
-    </div>
+      <a href="https://spansh.co.uk/system/${sys.id64}" target="_blank" style="color:var(--orange);font-size:12px;text-decoration:none">🔗 View on Spansh</a>
+      <a href="https://inara.cz/starsystem/?search=${encodeURIComponent(sys.name||'')}" target="_blank" style="color:var(--text-dim);font-size:12px;text-decoration:none">🔗 View on Inara</a>
+      <a href="https://www.edsm.net/en/system/id//name/${encodeURIComponent(sys.name||'')}" target="_blank" style="color:#4da6ff;font-size:12px;text-decoration:none">🔗 View on EDSM</a>
+    </div>`}
   `;
 }
 
@@ -6245,13 +6295,17 @@ document.addEventListener('click', (e) => {
   <div style="max-width:720px">
 
     <div class="cl-entry">
-      <div class="cl-ver">v3.42 <span class="cl-date">2026-04-12</span></div>
-      <div class="cl-item">Score Breakdown tooltip enhanced — per-component mini bars + body-driver chips (e.g. 3× ELW, 2× Neutron) shown on hover over any rating badge <span class="cl-tag cl-tag-impr">IMPR</span></div>
-      <div class="cl-item">Economy preset sub-label now updates dynamically to show exact slider ranges applied (e.g. "ELW ≥1 · WW ≥1 · Bio ≥2") <span class="cl-tag cl-tag-impr">IMPR</span></div>
-      <div class="cl-item">Economy badge in result card header now colour-coded per economy type (green=Agriculture, purple=HiTech, blue=Industrial, orange=Refinery, gold=Tourism…) <span class="cl-tag cl-tag-impr">IMPR</span></div>
-      <div class="cl-item">Dual-slider drag tooltip — floating label shows current min–max range while dragging any body slider thumb <span class="cl-tag cl-tag-new">NEW</span></div>
-      <div class="cl-item">↺ Preset button — appears next to Reset Filters when an economy preset is active; one click re-applies the preset from scratch <span class="cl-tag cl-tag-new">NEW</span></div>
-      <div class="cl-item">Mobile sticky FAB — search button fixed at bottom-right on screens ≤640px, shows result count badge after search <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-ver">v3.43 <span class="cl-date">2026-04-12</span></div>
+      <div class="cl-item">Expand All / Collapse All toggle — single button opens or closes every result card; resets on new search <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Per-body-type colour mini-bar in card header — proportional colour segments (ELW=green, WW=blue, AMM=purple, HMC=orange…) visible in compact mode <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Active filter chip strip — each active filter shown as a removable chip with ×; click to clear that filter and re-search <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Autocomplete highlight — matching portion of each system name suggestion bolded in orange <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">EDMC copy button — 📋 EDMC button in each card's external-link bar copies the system name in EDMC-ready format <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Distance delta badge — shows LY change vs previous search reference (green=closer, gold=further) next to each system's distance <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Filter panel collapse memory — each sidebar panel's open/closed state saved in localStorage and restored on reload <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Body breakdown mini-bar in compact cards — colour-coded body-type proportion bar appended to header <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Styled external link buttons — Spansh, EDSM and Inara displayed as icon buttons with hover colour accents; EDMC copy added alongside <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Search radius density hint — live label below the Max Distance slider estimates approx system count in the search sphere <span class="cl-tag cl-tag-new">NEW</span></div>
     </div>
 
     <div class="cl-entry">
@@ -6490,7 +6544,7 @@ async function _patchWlAlertConfig(id64, cfg) {
 })();
 
 function _refilterInPlace() {
-  // BUG-FIX v3.42: always re-filter from the FULL API result set (_allResults),
+  // BUG-FIX v3.43: always re-filter from the FULL API result set (_allResults),
   // not from window._lastResults.systems which gets overwritten to the filtered
   // subset each time renderResultsProgressive is called.  Without this fix,
   // each successive refilter shrinks the pool (filtered → re-filtered → …)
@@ -6519,7 +6573,7 @@ function _scheduleFilterLiveBadge() {
   _filterLiveTimer = setTimeout(_doFilterLiveBadge, 300);
 }
 function _doFilterLiveBadge() {
-  // BUG-FIX v3.42: use _allResults (full set) not _lastResults.systems (filtered subset)
+  // BUG-FIX v3.43: use _allResults (full set) not _lastResults.systems (filtered subset)
   const all = window._allResults || window._lastResults?.systems;
   if (!all || !all.length) return;
   // BUG-FIX-F: passesBodyFilters already checks rating and economy — no need to duplicate.
@@ -11095,7 +11149,439 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════
-// END v3.23 FEATURE BLOCK
+// UI IMPROVEMENTS BATCH v3.43
+// ════════════════════════════════════════════════════════════════════
+
+// ────────────────────────────────────────────────────────────────────
+// UI11: EXPAND ALL / COLLAPSE ALL TOGGLE
+// ────────────────────────────────────────────────────────────────────
+(function() {
+  let _allExpanded = false;
+
+  window.toggleExpandAll = function() {
+    const cards = document.querySelectorAll('#results-content .result-card-hdr');
+    _allExpanded = !_allExpanded;
+    cards.forEach(hdr => {
+      const body = hdr.nextElementSibling;
+      const chev = hdr.querySelector('.chevron');
+      if (!body) return;
+      body.style.display = _allExpanded ? 'block' : 'none';
+      if (chev) chev.style.transform = _allExpanded ? 'rotate(180deg)' : '';
+    });
+    // Update all expand-all buttons in the DOM (one per render)
+    document.querySelectorAll('.expand-all-btn').forEach(btn => {
+      btn.textContent = _allExpanded ? '⊟ Collapse All' : '⊞ Expand All';
+      btn.title = _allExpanded ? 'Collapse all result cards' : 'Expand all result cards';
+    });
+  };
+
+  // Reset the toggle state when a new search runs
+  const _origRunSearch = window.runSearch;
+  if (_origRunSearch) {
+    window.runSearch = function(...args) {
+      _allExpanded = false;
+      document.querySelectorAll('.expand-all-btn').forEach(btn => {
+        btn.textContent = '⊞ Expand All';
+      });
+      return _origRunSearch.apply(this, args);
+    };
+  }
+})();
+
+// ────────────────────────────────────────────────────────────────────
+// UI12: PER-BODY-TYPE COLOUR-CODED MINI-BAR ON CARD HEADERS
+// Already has CSS (.body-mini-bar, .bmb-seg) — wire JS builder here
+// ────────────────────────────────────────────────────────────────────
+window._buildBodyMiniBar = function(bodies) {
+  if (!bodies || !bodies.length) return '';
+  // Define colour buckets
+  const BODY_COLORS = {
+    'Earth-like world': '#3ddc84',
+    'Water world': '#4da6ff',
+    'Ammonia world': '#c084fc',
+    'High metal content world': '#fb923c',
+    'Metal-rich body': '#fbbf24',
+    'Rocky body': '#9ca3af',
+    'Rocky ice world': '#818cf8',
+    'Icy body': '#67e8f9',
+    'Gas giant with water-based life': '#22d3ee',
+    'Gas giant with ammonia-based life': '#f0abfc',
+    'Class I gas giant': '#94a3b8',
+    'Class II gas giant': '#fde68a',
+    'Class III gas giant': '#fca5a5',
+    'Class IV gas giant': '#f97316',
+    'Class V gas giant': '#ef4444',
+    'Helium-rich gas giant': '#fb7185',
+    'Helium gas giant': '#f43f5e',
+    'Neutron star': '#e0f2fe',
+    'Black hole': '#475569',
+    'White dwarf': '#bae6fd',
+    'Terraformable': '#22c55e',
+  };
+  const DEFAULT_COLOR = '#64748b';
+
+  // Count by subtype
+  const counts = {};
+  let total = 0;
+  bodies.forEach(b => {
+    const sub = b.subtype || b.type || 'Unknown';
+    const key = sub.includes('Terraformable') ? 'Terraformable' : sub;
+    counts[key] = (counts[key] || 0) + 1;
+    total++;
+  });
+  if (!total) return '';
+
+  const segs = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 8).map(([sub, cnt]) => {
+    const col = BODY_COLORS[sub] || DEFAULT_COLOR;
+    const w = Math.max(3, Math.round((cnt / total) * 60));
+    return `<span class="bmb-seg" style="width:${w}px;background:${col}" title="${sub}: ${cnt}"></span>`;
+  }).join('');
+
+  return `<span class="body-mini-bar" title="Body composition">${segs}</span>`;
+};
+
+// ────────────────────────────────────────────────────────────────────
+// UI13: ACTIVE FILTER CHIP STRIP — removable chips per filter
+// The strip is already built in renderResultsProgressive;
+// this adds the _removeFilterChip helper that individual × buttons use
+// ────────────────────────────────────────────────────────────────────
+window._removeFilterChip = function(action) {
+  // action is a short code like 'uncolonised', 'eco', 'tog-bio', etc.
+  if (action === 'uncolonised') {
+    const el = document.getElementById('tog-uncolonised');
+    if (el) { el.checked = true; }
+  } else if (action === 'eco') {
+    const el = document.getElementById('filter-economy');
+    if (el) el.value = 'any';
+  } else if (action === 'rating') {
+    const min = document.getElementById('min-rating-slider');
+    const max = document.getElementById('max-rating-slider');
+    if (min) { min.value = 0; document.getElementById('min-rating-val') && (document.getElementById('min-rating-val').textContent = '0'); }
+    if (max) { max.value = 100; document.getElementById('max-rating-val') && (document.getElementById('max-rating-val').textContent = '100'); }
+  } else if (action === 'dist') {
+    const sl = document.getElementById('dist-slider');
+    if (sl) { sl.value = 50; document.getElementById('dist-val') && (document.getElementById('dist-val').textContent = '50'); }
+    const mn = document.getElementById('min-dist-slider');
+    if (mn) { mn.value = 0; document.getElementById('min-dist-val') && (document.getElementById('min-dist-val').textContent = '0'); }
+  } else {
+    // toggle checkbox
+    const el = document.getElementById(action);
+    if (el && el.type === 'checkbox') el.checked = false;
+  }
+  if (typeof updateFilterBadge === 'function') updateFilterBadge();
+  if (typeof runSearch === 'function') runSearch(0);
+};
+
+// ────────────────────────────────────────────────────────────────────
+// UI14: SYSTEM NAME AUTOCOMPLETE — highlight matched substring
+// Patches fetchAutoComplete to bold the matching portion
+// ────────────────────────────────────────────────────────────────────
+(function() {
+  function _hlMatch(name, q) {
+    if (!q || !name) return name;
+    const idx = name.toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return name;
+    return name.slice(0, idx)
+      + `<strong style="color:var(--orange)">${name.slice(idx, idx + q.length)}</strong>`
+      + name.slice(idx + q.length);
+  }
+
+  const _origFetch = window.fetchAutoComplete;
+  if (!_origFetch) return;
+
+  window.fetchAutoComplete = async function(q, mode) {
+    const listId = mode === 'ref' ? 'ref-autocomplete' : 'opt-autocomplete';
+    const list = document.getElementById(listId);
+
+    try {
+      const data = await spanshFetch(`https://spansh.co.uk/api/search?q=${encodeURIComponent(q)}`);
+      if (!data || !data.results) {
+        list._acActive = -1;
+        list.innerHTML = `<div class="autocomplete-item" role="option" id="ac-item-${listId}-0" aria-selected="false" onclick="selectSystem('${q}',0,0,0,'${mode}')">📍 ${_hlMatch(q,q)} <span class="dist-badge">(manual)</span></div>`;
+        list.style.display = 'block';
+        return;
+      }
+
+      const systems = data.results.filter(r => r.record && r.record.name).slice(0, 8);
+      if (!systems.length) { list.style.display = 'none'; return; }
+
+      list.innerHTML = systems.map((s, _acIdx) => {
+        const rec = s.record;
+        const dx = rec.x - refSystem.x, dy = rec.y - refSystem.y, dz = rec.z - refSystem.z;
+        const dist = rec.x !== undefined ? Math.round(Math.sqrt(dx*dx + dy*dy + dz*dz) * 10) / 10 : '?';
+        const x = rec.x || 0, y = rec.y || 0, z = rec.z || 0;
+        return `<div class="autocomplete-item" role="option" id="ac-item-${listId}-${_acIdx}" aria-selected="false" onclick="selectSystem('${rec.name.replace(/'/g,"\\'")}',${x},${y},${z},'${mode}')">
+          📍 ${_hlMatch(rec.name, q)}
+          <span class="dist-badge">${dist} LY</span>
+        </div>`;
+      }).join('');
+      list.style.display = 'block';
+      list._acActive = -1;
+      if (typeof srAnnounce === 'function') srAnnounce(systems.length + ' suggestion' + (systems.length !== 1 ? 's' : '') + ' available');
+    } catch(e) {
+      list.style.display = 'none';
+    }
+  };
+})();
+
+// ────────────────────────────────────────────────────────────────────
+// UI15: "COPY FOR EDMC" BUTTON ON RESULT CARDS
+// Injects a tiny button into each card's header that copies the
+// system name in EDMC clipboard format
+// ────────────────────────────────────────────────────────────────────
+window._copyForEDMC = function(name, btn) {
+  // EDMC / ED Journal expects plain system name — same as _copySystemName
+  // but with a distinct tooltip so users know it's EDMC-targeted
+  const text = name;
+  const orig = btn ? btn.textContent : '';
+  navigator.clipboard.writeText(text).then(() => {
+    if (btn) { btn.textContent = '✓ EDMC'; setTimeout(() => { btn.textContent = orig; }, 1800); }
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (btn) { btn.textContent = '✓ EDMC'; setTimeout(() => { btn.textContent = orig; }, 1800); }
+  });
+};
+
+// ────────────────────────────────────────────────────────────────────
+// UI16: DISTANCE DELTA FROM PREVIOUS SEARCH REFERENCE
+// Stores the ref-system coords at search time; subsequent renders show
+// a Δ badge next to the LY distance on each card
+// ────────────────────────────────────────────────────────────────────
+window._prevRefSys = null;   // coords of reference used for the PREVIOUS search
+window._curRefSys  = null;   // coords used for the CURRENT search
+
+// Called at the start of each search render (from renderResultsProgressive patch below)
+window._captureRefForDelta = function() {
+  window._prevRefSys = window._curRefSys ? { ...window._curRefSys } : null;
+  window._curRefSys  = { ...refSystem };
+};
+
+// Return a delta badge HTML string (empty string = no prev ref or same ref)
+window._deltaBadge = function(sys) {
+  if (!window._prevRefSys || !window._curRefSys) return '';
+  const pr = window._prevRefSys, cr = window._curRefSys;
+  // Check prev ≠ current reference
+  if (pr.x === cr.x && pr.y === cr.y && pr.z === cr.z) return '';
+  // Distance from PREV ref
+  const dx = (sys.x||0) - pr.x, dy = (sys.y||0) - pr.y, dz = (sys.z||0) - pr.z;
+  const prevDist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+  const curDist  = sys.distance !== undefined ? sys.distance : NaN;
+  if (isNaN(curDist) || isNaN(prevDist)) return '';
+  const delta = curDist - prevDist;
+  const sign  = delta >= 0 ? '+' : '';
+  const col   = delta < 0 ? 'var(--green)' : 'var(--gold)';
+  return `<span class="delta-dist-badge" title="Distance change vs previous search reference (${pr.name||'?'})" style="color:${col};background:${col}15;border-color:${col}44">${sign}${delta.toFixed(1)} LY</span>`;
+};
+
+// ────────────────────────────────────────────────────────────────────
+// UI17: FILTER PANEL COLLAPSE MEMORY (localStorage)
+// ────────────────────────────────────────────────────────────────────
+(function() {
+  const STORAGE_KEY = 'ed_panel_states';
+
+  function _savePanelState(hdr, isCollapsed) {
+    const id = hdr.dataset.panelId || hdr.querySelector('h3')?.textContent?.trim()?.slice(0,30) || '';
+    if (!id) return;
+    try {
+      const states = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      states[id] = isCollapsed;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(states));
+    } catch(e) {}
+  }
+
+  function _restorePanelStates() {
+    try {
+      const states = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      document.querySelectorAll('.panel-hdr').forEach(hdr => {
+        const id = hdr.dataset.panelId || hdr.querySelector('h3')?.textContent?.trim()?.slice(0,30) || '';
+        if (!id || !(id in states)) return;
+        const body = hdr.nextElementSibling;
+        if (!body) return;
+        if (states[id]) {
+          body.classList.add('hidden');
+          hdr.classList.add('collapsed');
+        } else {
+          body.classList.remove('hidden');
+          hdr.classList.remove('collapsed');
+        }
+      });
+    } catch(e) {}
+  }
+
+  // Patch togglePanel to also save state
+  const _origTogglePanel = window.togglePanel;
+  window.togglePanel = function(hdr) {
+    if (_origTogglePanel) _origTogglePanel(hdr);
+    const body = hdr.nextElementSibling;
+    const isNowCollapsed = body ? body.classList.contains('hidden') : false;
+    _savePanelState(hdr, isNowCollapsed);
+  };
+
+  // Restore on DOMContentLoaded (fire after existing DOMContentLoaded handlers)
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(_restorePanelStates, 200);
+  });
+
+  window._restorePanelStates = _restorePanelStates;
+})();
+
+// ────────────────────────────────────────────────────────────────────
+// UI18: BODIES BREAKDOWN MINI BAR INJECTED INTO COMPACT CARD HEADER
+// _buildBodyMiniBar is defined in UI12 above; here we patch
+// buildSystemCard to inject the bar into the header HTML.
+// ────────────────────────────────────────────────────────────────────
+// Done via DOM mutation after card renders: we observe result-card-hdr
+// elements and append the mini-bar when density-compact is active.
+(function() {
+  function _injectMiniBar(card) {
+    const hdr = card.querySelector('.result-card-hdr');
+    if (!hdr || hdr.querySelector('.body-mini-bar')) return;
+    const chev = hdr.querySelector('.chevron');
+    if (!chev) return;
+    // Retrieve bodies from the card's data attribute (set by card builder patch below)
+    const bodiesJson = card.dataset.bodies;
+    if (!bodiesJson) return;
+    try {
+      const bodies = JSON.parse(bodiesJson);
+      const bar = document.createElement('span');
+      bar.innerHTML = window._buildBodyMiniBar(bodies);
+      const barEl = bar.firstElementChild;
+      if (barEl) hdr.insertBefore(barEl, chev);
+    } catch(e) {}
+  }
+
+  // Observe #results-content for added cards
+  const observer = new MutationObserver(mutations => {
+    mutations.forEach(m => {
+      m.addedNodes.forEach(node => {
+        if (node.nodeType !== 1) return;
+        if (node.classList && node.classList.contains('result-card')) _injectMiniBar(node);
+        node.querySelectorAll && node.querySelectorAll('.result-card').forEach(_injectMiniBar);
+      });
+    });
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const content = document.getElementById('results-content');
+    if (content) observer.observe(content, { childList: true, subtree: true });
+  });
+})();
+
+// ────────────────────────────────────────────────────────────────────
+// UI19: SPANSH / EDSM / INARA ICON BUTTONS IN CARD BODY
+// Patches the external links div in buildCardBody to use styled buttons
+// We do this via a post-process of the already-rendered card HTML
+// ────────────────────────────────────────────────────────────────────
+// This is handled by replacing the plain links template inside buildCardBody.
+// The template replacement is done in the card body section below.
+// Function _buildExtLinkBar used by the patched template:
+window._buildExtLinkBar = function(sys) {
+  const name = encodeURIComponent(sys.name || '');
+  const id64 = sys.id64 || '';
+  return `
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+      <a class="ext-link-btn spansh" href="https://spansh.co.uk/system/${id64}" target="_blank" rel="noopener" title="View on Spansh">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>
+        Spansh
+      </a>
+      <a class="ext-link-btn edsm" href="https://www.edsm.net/en/system/id//name/${name}" target="_blank" rel="noopener" title="View on EDSM">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8" stroke="var(--bg)" stroke-width="2" fill="none"/></svg>
+        EDSM
+      </a>
+      <a class="ext-link-btn inara" href="https://inara.cz/starsystem/?search=${name}" target="_blank" rel="noopener" title="View on Inara">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        Inara
+      </a>
+      <button class="ext-link-btn" onclick="_copyForEDMC('${(sys.name||'').replace(/'/g,"\\'")}',this)" title="Copy system name for EDMC / journal tools" style="border-color:var(--orange-dk);cursor:pointer">
+        📋 EDMC
+      </button>
+    </div>
+  `;
+};
+
+// ────────────────────────────────────────────────────────────────────
+// UI20: SEARCH RADIUS DENSITY HINT (below distance slider)
+// ────────────────────────────────────────────────────────────────────
+window._updateDistDensityHint = function(ly) {
+  const hint = document.getElementById('dist-density-hint');
+  if (!hint) return;
+  const r = parseFloat(ly) || 0;
+  if (r <= 0) { hint.textContent = ''; hint.className = ''; return; }
+
+  // Approximate number of systems in a sphere of radius r LY
+  // Galactic average density ~0.1 systems per cubic LY (rough estimate)
+  const vol  = (4/3) * Math.PI * Math.pow(r, 3);
+  const est  = Math.round(vol * 0.004); // ~0.004 colonisable per ly³ is reasonable
+
+  let label, cls;
+  if (r <= 20)       { label = `~${est.toLocaleString()} systems — very tight search`; cls = 'warn'; }
+  else if (r <= 50)  { label = `~${est.toLocaleString()} systems in range`; cls = 'good'; }
+  else if (r <= 100) { label = `~${est.toLocaleString()} systems — wide search`; cls = 'good'; }
+  else if (r <= 200) { label = `~${est.toLocaleString()} systems — very wide`; cls = 'warn'; }
+  else               { label = `~${est.toLocaleString()} systems — enormous area ⚠️`; cls = 'warn'; }
+
+  hint.textContent = label;
+  hint.className = cls;
+};
+
+// ────────────────────────────────────────────────────────────────────
+// PATCH buildCardBody to use styled icon buttons (UI19)
+// and inject EDMC copy (UI15) + delta badge (UI16) + body mini-bar (UI18)
+// ────────────────────────────────────────────────────────────────────
+// PATCH buildCardBody — currently the template already calls _buildExtLinkBar directly
+// so this patch is a no-op stub kept for future use.
+// (UI15 EDMC copy is wired in via _buildExtLinkBar; UI19 styled links likewise)
+
+// ────────────────────────────────────────────────────────────────────
+// PATCH buildSystemCard to embed bodies JSON for mini-bar (UI18)
+// and add body-mini-bar + delta badge into the card header (UI12/UI16)
+// ────────────────────────────────────────────────────────────────────
+(function() {
+  const _origBuildSystemCard = window.buildSystemCard;
+  if (!_origBuildSystemCard) return;
+
+  window.buildSystemCard = function(sys, idx) {
+    const card = _origBuildSystemCard(sys, idx);
+    if (!card) return card;
+
+    // Store bodies JSON on the card element for UI18 mini-bar observer
+    if (sys.bodies && sys.bodies.length) {
+      try { card.dataset.bodies = JSON.stringify(sys.bodies); } catch(e) {}
+    }
+
+    // UI16: inject delta badge after the dist text in the header
+    if (typeof window._deltaBadge === 'function') {
+      const distEl = card.querySelector('.sys-dist');
+      if (distEl) {
+        const delta = window._deltaBadge(sys);
+        if (delta) {
+          const wrapper = document.createElement('span');
+          wrapper.innerHTML = delta;
+          const badge = wrapper.firstElementChild;
+          if (badge) distEl.insertAdjacentElement('afterend', badge);
+        }
+      }
+    }
+
+    return card;
+  };
+})();
+
+// Capture ref system coords before each search render
+(function() {
+  const _origRender = window.renderResultsProgressive;
+  if (!_origRender) return;
+  window.renderResultsProgressive = function(...args) {
+    if (typeof window._captureRefForDelta === 'function') window._captureRefForDelta();
+    return _origRender.apply(this, args);
+  };
+})();
+
+// ════════════════════════════════════════════════════════════════════
+// END v3.43 UI IMPROVEMENTS BLOCK
 // ════════════════════════════════════════════════════════════════════
 
 </script>
