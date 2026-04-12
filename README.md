@@ -186,11 +186,18 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 - **[NEW] Phased Build Timeline** — Plan A reorganised into Phase 1 (T1 foundation), Phase 2 (T2 economy core), Phase 3 (T3 starport) with live CP balance per step.
 - **[NEW] Plan Colony toast** — orange confirmation toast when a search result is sent to the Colony Planner tab.
 - **[NEW] Extraction economy** — full build template with Asteroid Base + Refinery Hub pairing and body suitability data.
+- **[FIX] _setOptEco body-suitability panels** — body suitability + eco pairing panels were in a dead `window._setOptEco` wrapper (silently skipped because original is a function declaration, not a `window.X` assignment); panels now update live on economy tile click via inline patching.
+- **[FIX] runOptimizer commodity checklist** — checklist render was in a dead `window.runOptimizer` wrapper; inlined into `runOptimizer()` directly; checklist now renders after plan generation.
+- **[FIX] buildPlanA phased timeline** — phased CP-annotated timeline was in a dead `window.buildPlanA` wrapper; inlined into `buildPlanA()` directly; timeline always renders in Plan A output.
+- **[FIX] _annotatePlanStepsWithCP re-added** — was inadvertently removed from patch block but still referenced inline by `buildPlanA`; restored as `window._annotatePlanStepsWithCP` assignment.
+- **[FIX] openInOptimizer double-patch consolidated** — two window wrappers (body preload + toast) merged into function body; single execution path with no double-firing risk.
+- **[FIX] passesBodyFilters null safety** — `tog-bio`, `tog-geo`, `tog-ring`, `tog-terra` now use `?.checked` (was bare `.checked`; could throw if DOM not ready).
 - **[FIX] Eco tile active state** — was using fragile `onclick.toString()` match; now uses `data-eco` attribute.
 - **[FIX] _setOptEco event.currentTarget** — was null in inline onclick context; fixed by passing `this` as explicit `el` parameter.
 - **[FIX] updateFilterBadge debounce** — slider drag was firing 100+ DOM reads/second; now debounced at 80ms.
 - **[FIX] Distance delta badge** — `_captureRefForDelta` now also fires at `runSearch()` start so previous reference is correctly captured.
 - **[FIX] Plan Colony pre-fill** — `openInOptimizer` now passes full body data from search results to `optSystem` (no extra Spansh fetch).
+- **[FIX] favicon.ico** — added orange 16×16 favicon to eliminate browser 404 noise; added explicit `<link rel="icon">` in HTML head.
 
 ### v3.44 — Colony Planner overhaul + Score mini-bar redesign
 

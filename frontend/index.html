@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet"></noscript>
 <title>ED:Finder — Self-Hosted</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
 <style>
 /* ═══════════════════════════════════════════════════════════════
    ELITE DANGEROUS COLONISATION PLANNER — EMBEDDED STYLESHEET
@@ -4392,10 +4393,10 @@ function passesBodyFilters(sys) {
       if (state.max < cfg.max && val > state.max) return false;
     }
 
-    const togBio   = document.getElementById('tog-bio').checked;
-    const togGeo   = document.getElementById('tog-geo').checked;
-    const togRing  = document.getElementById('tog-ring').checked;
-    const togTerra = document.getElementById('tog-terra').checked;
+    const togBio   = document.getElementById('tog-bio')?.checked;
+    const togGeo   = document.getElementById('tog-geo')?.checked;
+    const togRing  = document.getElementById('tog-ring')?.checked;
+    const togTerra = document.getElementById('tog-terra')?.checked;
     const togVolc  = document.getElementById('tog-volc')?.checked;
     const togNotidal = document.getElementById('tog-notidal')?.checked;
 
@@ -5644,6 +5645,14 @@ function _setOptEco(val, el) {
       if ((t.dataset.eco || '') === val) t.classList.add('active');
     });
   }
+  // v3.45: Update body suitability + eco pairing panels live
+  const sys = window.optSystem;
+  if (sys) {
+    if (typeof window._renderBodySuitabilityPanel === 'function')
+      window._renderBodySuitabilityPanel(sys.bodies || [], val);
+    if (typeof window._renderEcoPairingPanel === 'function')
+      window._renderEcoPairingPanel(val);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5722,6 +5731,12 @@ function _renderOptSnapshot(sys) {
   document.querySelectorAll('.opt-eco-tile').forEach(t => {
     t.classList.toggle('active', (t.dataset.eco || '') === bestKey);
   });
+
+  // v3.45: Render body suitability + eco pairing panels after snapshot
+  if (typeof window._renderBodySuitabilityPanel === 'function')
+    window._renderBodySuitabilityPanel(sys.bodies || [], bestKey);
+  if (typeof window._renderEcoPairingPanel === 'function')
+    window._renderEcoPairingPanel(bestKey);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5743,6 +5758,11 @@ async function runOptimizer() {
     : { primary: targetEco === 'HighTech' ? 'High Tech' : targetEco, confidence: 'High', reason: 'User specified' };
 
   results.innerHTML = buildOptimizationPlans(optSystem, economy, portType, cargo);
+
+  // v3.45: Show commodity checklist after plans are built
+  if (typeof window._renderCommodityChecklist === 'function') {
+    window._renderCommodityChecklist(optSystem, economy.primary);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5876,12 +5896,48 @@ function buildPlanA(sys, eco, portType, cargo) {
     </div>`;
   }).join('')}</div>`;
 
+  // v3.45 UI-H: Phased timeline with CP annotations
+  let phasedTimelineHtml = '';
+  if (typeof window._annotatePlanStepsWithCP === 'function' && addItems.length) {
+    const annotated = window._annotatePlanStepsWithCP(addItems);
+    const phases = [
+      { num:1, title:'Phase 1 — Foundation', desc:'T1 orbital comms & outposts. Goal: generate Yellow CPs.', steps: annotated.filter(s => (s.tier||1) === 1) },
+      { num:2, title:'Phase 2 — Economy Core', desc:'T2 hubs & settlements. Converts Yellow→Green CPs, establishes primary economy strong links.', steps: annotated.filter(s => (s.tier||1) === 2) },
+      { num:3, title:'Phase 3 — T3 Starport', desc:'Final Orbis/Ocellus. Maximum population, supply & demand.', steps: annotated.filter(s => (s.tier||1) === 3) },
+    ].filter(p => p.steps.length);
+
+    if (phases.length) {
+      phasedTimelineHtml = `
+      <div style="margin-top:14px">
+        <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--orange);margin-bottom:8px;letter-spacing:1px">PHASED BUILD TIMELINE</div>
+        ${phases.map(p => `
+          <div class="col-phase open">
+            <div class="col-phase-hdr" onclick="this.closest('.col-phase').classList.toggle('open')">
+              <div class="col-phase-num">${p.num}</div>
+              <div>
+                <div style="font-size:11px;font-weight:600">${p.title}</div>
+                <div style="font-size:10px;color:var(--text-dim)">${p.desc}</div>
+              </div>
+            </div>
+            <div class="col-phase-body">
+              ${p.steps.map(s => `<div style="margin-bottom:6px">
+                <div style="font-size:11px;font-weight:600">${s.name} <span class="step-tier tier-${s.tier||1}" style="font-size:10px;padding:1px 5px;border-radius:3px">T${s.tier||1}</span></div>
+                <div style="font-size:11px;color:var(--text-dim)">${s.note || s.desc || ''}</div>
+                ${s._cpNote ? `<div style="font-size:10px;color:#4da6ff;font-family:monospace">📊 ${s._cpNote}</div>` : ''}
+              </div>`).join('<hr style="border-color:var(--bg4);margin:6px 0">')}
+            </div>
+          </div>`).join('')}
+      </div>`;
+    }
+  }
+
   return `
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">All existing investment preserved. New builds go into free slots only.</div>
     <div class="sec-hdr">Existing (Keep All)</div>
     ${keepHtml}
     <div class="sec-hdr" style="margin-top:14px">New Build Order</div>
     ${timelineHtml}
+    ${phasedTimelineHtml}
     <div class="info-banner" style="margin-top:10px">💡 <strong>Plan A</strong> is the lowest-risk option. Economy gains depend on current contamination levels and available build slots.</div>
     ${_planCostHTML(addItems, cargo)}
   `;
@@ -6852,7 +6908,11 @@ document.addEventListener('click', (e) => {
       <div class="cl-item">Plan Colony confirmation toast — orange toast notification when a result card is sent to Colony Planner <span class="cl-tag cl-tag-new">NEW</span></div>
       <div class="cl-item">Extraction economy added — full build template with Asteroid Base, Refinery Hub and compatible pairing data <span class="cl-tag cl-tag-new">NEW</span></div>
       <div class="cl-item">Bug fix: eco tile active state used fragile onclick.toString() match — replaced with data-eco attribute comparison <span class="cl-tag cl-tag-fix">FIX</span></div>
-      <div class="cl-item">Bug fix: _setOptEco used event.currentTarget (null in inline onclick) — now passes this as el parameter <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Bug fix: _setOptEco used event.currentTarget (null in inline onclick) — now passes this as el parameter; body-suitability + eco-pairing panels now update live on tile click (was silently skipped via dead window.X wrapper) <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Bug fix: runOptimizer commodity checklist was in a dead window.X wrapper — now inlined; checklist renders correctly after plan generation <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Bug fix: buildPlanA phased timeline was in a dead window.X wrapper — now inlined directly in buildPlanA; CP-annotated phased timeline always renders in Plan A output <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Bug fix: _annotatePlanStepsWithCP was removed from patch block but called from inline buildPlanA — re-added as window.X assignment in v3.45 block <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Bug fix: openInOptimizer toast was in second window.X wrapper (double-patching) — consolidated into function body <span class="cl-tag cl-tag-fix">FIX</span></div>
       <div class="cl-item">Bug fix: updateFilterBadge now debounced (80ms) — was causing 100+ DOM reads per second on slider drag <span class="cl-tag cl-tag-fix">FIX</span></div>
       <div class="cl-item">Bug fix: _captureRefForDelta now also fires at runSearch() start so delta badge correctly tracks reference changes across searches <span class="cl-tag cl-tag-fix">FIX</span></div>
       <div class="cl-item">Bug fix: openInOptimizer now pre-fills optSystem with body data from search results (no extra Spansh fetch needed for Plan Colony) <span class="cl-tag cl-tag-fix">FIX</span></div>
@@ -7296,6 +7356,13 @@ function openInOptimizer(name, x, y, z, sysData) {
     const plannerTab = document.getElementById('tab-optimizer');
     if (plannerTab) plannerTab.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, 180);
+
+  // v3.45 UI-J: Show confirmation toast
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;bottom:80px;right:20px;background:rgba(255,106,0,0.95);color:#000;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.4);transition:opacity .4s';
+  toast.textContent = `🏗️ ${name} loaded in Colony Planner`;
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 400); }, 2200);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -12625,93 +12692,82 @@ function _normaliseBodyType(raw) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Patch _renderOptSnapshot to also render body suitability + pairing
+// NOTE (v3.45): _renderOptSnapshot, _setOptEco, runOptimizer,
+// buildPlanA, and openInOptimizer are patched INLINE in their
+// respective function bodies above. The patches below only wrap
+// functions that ARE assigned to window.X by the main script
+// (window.updateFilterBadge, window.countActiveFilters,
+//  window.toggleCard, window.runSearch).
 // ─────────────────────────────────────────────────────────────────
-(function() {
-  const _origSnap = window._renderOptSnapshot;
-  if (!_origSnap) return;
-  window._renderOptSnapshot = function(sys) {
-    _origSnap.call(this, sys);
-    // Get best economy after snapshot is rendered
-    const eco = document.getElementById('opt-economy')?.value;
-    if (eco && eco !== 'auto') {
-      _renderBodySuitabilityPanel(sys.bodies || [], eco);
-      _renderEcoPairingPanel(eco);
-    }
-  };
-})();
-
-// Also patch _setOptEco to update panels when user picks a different economy
-(function() {
-  const _origSet = window._setOptEco;
-  if (!_origSet) return;
-  window._setOptEco = function(val, el) {
-    _origSet.call(this, val, el);
-    const sys = window.optSystem;
-    if (sys) {
-      _renderBodySuitabilityPanel(sys.bodies || [], val);
-      _renderEcoPairingPanel(val);
-    }
-  };
-})();
-
-// Patch runOptimizer to show commodity checklist after plans are built
-(function() {
-  const _origRun = window.runOptimizer;
-  if (!_origRun) return;
-  window.runOptimizer = function() {
-    _origRun.call(this);
-    const eco = document.getElementById('opt-economy')?.value;
-    const sys = window.optSystem;
-    if (sys && eco && eco !== 'auto') {
-      _renderCommodityChecklist(sys, eco);
-    }
-  };
-})();
 
 // ─────────────────────────────────────────────────────────────────
-// UI-F: Drag-and-drop for ODS upload zone
+// UI-G helper: Annotate plan steps with CP tracking
+// Called from buildPlanA (inline) via window._annotatePlanStepsWithCP
+// ─────────────────────────────────────────────────────────────────
+window._annotatePlanStepsWithCP = function(steps) {
+  let yellowCPs = 0, greenCPs = 0;
+  let t2Ports = 0, t3Ports = 0;
+  return steps.map(function(step) {
+    const tier = step.tier || 1;
+    let cpNote = '';
+    if (tier === 1) {
+      yellowCPs += 1;
+      cpNote = '+1 Yellow CP (now: ' + yellowCPs + 'Y, ' + greenCPs + 'G)';
+    } else if (tier === 2) {
+      const isLargeSett = (step.name||'').toLowerCase().includes('settlement') &&
+                          (step.name||'').toLowerCase().includes('large');
+      t2Ports++;
+      const cost = 3 + (t2Ports - 1) * 2;
+      if (isLargeSett) {
+        yellowCPs = Math.max(0, yellowCPs - 1);
+        greenCPs += 2;
+        cpNote = '1Y → 2G (Large Settlement bonus) | Balance: ' + yellowCPs + 'Y, ' + greenCPs + 'G';
+      } else {
+        greenCPs += 1;
+        cpNote = 'Costs ' + cost + ' Yellow CP | +1 Green CP | Balance: ' + yellowCPs + 'Y, ' + greenCPs + 'G';
+      }
+    } else if (tier === 3) {
+      t3Ports++;
+      const cost = 6 + (t3Ports - 1) * 6;
+      cpNote = 'Costs ' + cost + ' Green CP | Balance: ' + yellowCPs + 'Y, ' + Math.max(0, greenCPs - cost) + 'G';
+      greenCPs = Math.max(0, greenCPs - cost);
+    }
+    return Object.assign({}, step, { _cpNote: cpNote });
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────
+// UI-F: Drag-and-drop for ODS upload zone + CP calc init
 // ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   const zone = document.getElementById('ods-drop-zone');
-  if (!zone) return;
-  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
-  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-  zone.addEventListener('drop', e => {
-    e.preventDefault();
-    zone.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      const input = document.getElementById('ods-file-input');
-      // Can't programmatically set file input, but we can read directly
-      const reader = new FileReader();
-      reader.onload = ev => { try { _parseIntakeCSV(ev.target.result, file.name); } catch(err) {} };
-      reader.readAsText(file);
-    }
-  });
-  // init CP calc
+  if (zone) {
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try { _parseIntakeCSV(ev.target.result, file.name); }
+          catch(err) {
+            const el2 = document.getElementById('ods-upload-result');
+            if (el2) { el2.style.display='block'; el2.innerHTML=`<div class="error-banner">⚠️ ${err.message}</div>`; }
+          }
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+  // init CP calc on load
   if (window._updateCPCalc) _updateCPCalc();
 });
 
 // ─────────────────────────────────────────────────────────────────
-// BUG-FIX v3.45: openInOptimizer — pass sysData bodies to optSystem
-// Previously only x/y/z were used; now pass full body data if present
-// ─────────────────────────────────────────────────────────────────
-(function() {
-  const _orig = window.openInOptimizer;
-  if (!_orig) return;
-  window.openInOptimizer = function(name, x, y, z, sysData) {
-    // Pre-populate optSystem with body data from search results (if available)
-    if (sysData && sysData.bodies && sysData.bodies.length > 0) {
-      window.optSystem = { ...sysData, _prefilled: true };
-    }
-    _orig.call(this, name, x, y, z, sysData);
-  };
-})();
-
-// ─────────────────────────────────────────────────────────────────
-// BUG-FIX v3.45: updateFilterBadge debounce
-// Previously called on every slider pixel move causing 100s of DOM reads per second
+// BUG-FIX v3.45: updateFilterBadge debounce (80 ms)
+// window.updateFilterBadge IS set by main block — wrapper works.
 // ─────────────────────────────────────────────────────────────────
 (function() {
   let _fbTimer = null;
@@ -12724,19 +12780,16 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 // ─────────────────────────────────────────────────────────────────
-// BUG-FIX v3.45: tog-pop-zero server-side double-filter guard
-// When tog-uncolonised IS checked, tog-pop-zero is already implied
-// by the population=0 server-side filter. Showing tog-pop-zero as
-// separate visually is fine but the JS already guards with if(!uncolonised).
-// This patch adds a UI note when both are checked simultaneously.
+// BUG-FIX v3.45: tog-pop-zero UI redundancy hint
 // ─────────────────────────────────────────────────────────────────
 (function() {
   const togUnco = document.getElementById('tog-uncolonised');
   const togPop  = document.getElementById('tog-pop-zero');
   if (!togUnco || !togPop) return;
   function _checkDouble() {
+    const msg = '"Uncolonised Only" already filters to population=0 — this toggle is redundant when both are checked';
     if (togUnco.checked && togPop.checked) {
-      togPop.closest('label,div')?.setAttribute('title', '"Uncolonised Only" already filters to population=0 — this toggle is redundant when both are checked');
+      togPop.closest('label,div')?.setAttribute('title', msg);
     } else {
       togPop.closest('label,div')?.removeAttribute('title');
     }
@@ -12747,10 +12800,8 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 // ─────────────────────────────────────────────────────────────────
-// BUG-FIX v3.45: passesBodyFilters silent skip on missing elements
-// document.getElementById('tog-bio') etc can return null in some edge
-// cases causing .checked to throw. All accesses already use ?. but
-// the final countActiveFilters() block reads them without guards.
+// BUG-FIX v3.45: countActiveFilters try/catch guard
+// window.countActiveFilters IS set by main block — wrapper works.
 // ─────────────────────────────────────────────────────────────────
 (function() {
   const _origCount = window.countActiveFilters;
@@ -12762,16 +12813,13 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 // ─────────────────────────────────────────────────────────────────
-// BUG-FIX v3.45: toggleCard — opt-plan-hdr uses this as header param
-// but result cards call toggleCard(this) where 'this' is the header.
-// Ensure body is always the NEXT sibling (not just nextElementSibling
-// in case a text node is interleaved).
+// BUG-FIX v3.45: toggleCard — handle string ID argument
+// window.toggleCard IS set by main block — wrapper works.
 // ─────────────────────────────────────────────────────────────────
 (function() {
   const _origToggle = window.toggleCard;
   if (!_origToggle) return;
   window.toggleCard = function(hdrOrId) {
-    // If passed a string ID, find the card header
     if (typeof hdrOrId === 'string') {
       const card = document.getElementById(hdrOrId);
       if (!card) return;
@@ -12779,129 +12827,19 @@ document.addEventListener('DOMContentLoaded', () => {
       if (hdr) return _origToggle.call(this, hdr);
       return;
     }
-    // Normal element path — use original
     return _origToggle.call(this, hdrOrId);
   };
 })();
 
 // ─────────────────────────────────────────────────────────────────
-// UI-G: Phased Colony Build Timeline — enhanced Plan A/B/C with
-// explicit CP tracking integrated into the step display
-// This patches buildPlanA/B/C to add CP annotations to each step
+// BUG-FIX v3.45: _captureRefForDelta fires at search START
+// window.runSearch IS set by main block — wrapper works.
 // ─────────────────────────────────────────────────────────────────
-window._annotatePlanStepsWithCP = function(steps) {
-  let yellowCPs = 0, greenCPs = 0;
-  let t2Ports = 0, t3Ports = 0;
-  return steps.map(step => {
-    const tier = step.tier || 1;
-    let cpNote = '';
-    if (tier === 1) {
-      yellowCPs += 1;
-      cpNote = `+1 Yellow CP (now: ${yellowCPs}Y, ${greenCPs}G)`;
-    } else if (tier === 2) {
-      // Special: large T2 settlements give 2G per 1Y
-      const isLargeSettlement = (step.name||'').toLowerCase().includes('settlement') && (step.name||'').toLowerCase().includes('large');
-      t2Ports++;
-      const cost = 3 + (t2Ports - 1) * 2;
-      if (isLargeSettlement) {
-        // As supporting facility: converts 1Y → 2G (special case)
-        yellowCPs = Math.max(0, yellowCPs - 1);
-        greenCPs += 2;
-        cpNote = `1Y → 2G (Large Settlement bonus) | Balance: ${yellowCPs}Y, ${greenCPs}G`;
-      } else {
-        // Normal T2 port
-        greenCPs += 1;
-        cpNote = `Costs ${cost} Yellow CP | +1 Green CP | Balance: ${yellowCPs}Y, ${greenCPs}G`;
-      }
-    } else if (tier === 3) {
-      t3Ports++;
-      const cost = 6 + (t3Ports - 1) * 6;
-      cpNote = `Costs ${cost} Green CP | Balance: ${yellowCPs}Y, ${Math.max(0,greenCPs-cost)}G`;
-      greenCPs = Math.max(0, greenCPs - cost);
-    }
-    return { ...step, _cpNote: cpNote };
-  });
-};
-
-// ─────────────────────────────────────────────────────────────────
-// UI-H: "Show as phased timeline" toggle in results
-// Adds a Phase breakdown view to buildPlanA output
-// ─────────────────────────────────────────────────────────────────
-(function() {
-  const _origPlanA = window.buildPlanA;
-  if (!_origPlanA) return;
-  window.buildPlanA = function(sys, eco, portType, cargo) {
-    const base = _origPlanA.call(this, sys, eco, portType, cargo);
-    // Inject phased timeline after the base output
-    const buildSteps = window.getAddOnlyRecommendations ? getAddOnlyRecommendations(eco, sys.bodies||[], portType) : [];
-    if (!buildSteps.length) return base;
-    const annotated = _annotatePlanStepsWithCP(buildSteps);
-
-    const phases = [
-      { num:1, title:'Phase 1 — Foundation', desc:'Primary Port + T1 filler builds. Goal: generate Yellow CPs.', steps: annotated.filter(s => s.tier === 1) },
-      { num:2, title:'Phase 2 — Economy Core', desc:'T2 hubs & settlements. Converts Yellow→Green CPs and establishes primary economy strong links.', steps: annotated.filter(s => s.tier === 2) },
-      { num:3, title:'Phase 3 — T3 Starport', desc:'Final Orbis/Ocellus. Maximum population, supply & demand.', steps: annotated.filter(s => s.tier === 3) },
-    ].filter(p => p.steps.length);
-
-    if (!phases.length) return base;
-
-    const phaseHtml = `
-      <div style="margin-top:14px">
-        <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--orange);margin-bottom:8px">PHASED BUILD TIMELINE</div>
-        ${phases.map(p => `
-          <div class="col-phase open">
-            <div class="col-phase-hdr" onclick="this.closest('.col-phase').classList.toggle('open')">
-              <div class="col-phase-num">${p.num}</div>
-              <div>
-                <div style="font-size:11px;font-weight:600">${p.title}</div>
-                <div style="font-size:10px;color:var(--text-dim)">${p.desc}</div>
-              </div>
-            </div>
-            <div class="col-phase-body">
-              ${p.steps.map(s => `<div style="margin-bottom:6px">
-                <div style="font-size:11px;font-weight:600">${s.name} <span class="step-tier tier-${s.tier}" style="font-size:10px;padding:1px 5px;border-radius:3px"">T${s.tier}</span></div>
-                <div style="font-size:11px;color:var(--text-dim)">${s.note || s.desc || ''}</div>
-                <div style="font-size:10px;color:#4da6ff;font-family:monospace">${s._cpNote}</div>
-              </div>`).join('<hr style="border-color:var(--bg4);margin:6px 0">')}
-            </div>
-          </div>`).join('')}
-      </div>`;
-    return base + phaseHtml;
-  };
-})();
-
-// ─────────────────────────────────────────────────────────────────
-// UI-I: Enhanced score tooltip — add star bonus explanation
-// ─────────────────────────────────────────────────────────────────
-// (Already good in v3.45 — no change needed)
-
-// ─────────────────────────────────────────────────────────────────
-// UI-J: Result card "send to planner" confirmation toast
-// ─────────────────────────────────────────────────────────────────
-(function() {
-  const _origOpen = window.openInOptimizer;
-  if (!_origOpen) return;
-  window.openInOptimizer = function(name, x, y, z, sysData) {
-    _origOpen.call(this, name, x, y, z, sysData);
-    // Show toast
-    const toast = document.createElement('div');
-    toast.style.cssText = 'position:fixed;bottom:80px;right:20px;background:rgba(255,106,0,0.95);color:#000;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;z-index:9999;transition:opacity .3s';
-    toast.textContent = `🏗️ ${name} loaded in Colony Planner`;
-    document.body.appendChild(toast);
-    setTimeout(() => { toast.style.opacity='0'; setTimeout(() => toast.remove(), 300); }, 2000);
-  };
-})();
-
-// ────────────────────────────────────────────────────────────────────
-// BUG-FIX v3.45: ensure _captureRefForDelta also fires at search START
-// (not just at render time) so the previous ref captures correctly
-// ────────────────────────────────────────────────────────────────────
 (function() {
   const _origRun = window.runSearch;
   if (!_origRun) return;
   window.runSearch = function(...args) {
     if (args[0] === 0 || args.length === 0) {
-      // New top-level search — capture prev ref before overwriting current
       if (typeof window._captureRefForDelta === 'function') window._captureRefForDelta();
     }
     return _origRun.apply(this, args);
@@ -12910,6 +12848,8 @@ window._annotatePlanStepsWithCP = function(steps) {
 
 // ════════════════════════════════════════════════════════════════════
 // END v3.45 UI IMPROVEMENTS BLOCK
+// ════════════════════════════════════════════════════════════════════
+
 // ════════════════════════════════════════════════════════════════════
 
 </script>
