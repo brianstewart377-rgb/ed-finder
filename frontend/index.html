@@ -14,30 +14,7 @@
    ELITE DANGEROUS COLONISATION PLANNER — EMBEDDED STYLESHEET
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── F1: Score mini-bars on card header ── */
-/* Score mini-bar: compact hover-target — bars hidden by default, shown in popover only.
-   Strip shows as a slim coloured dots row; hover triggers the full popover breakdown. */
-.score-mini-wrap {
-  display:inline-flex; align-items:center; gap:3px; margin-left:6px;
-  cursor:help; border:1px solid var(--border); border-radius:4px;
-  padding:0 5px; height:16px; background:var(--bg3);
-  position:relative; flex-shrink:0;
-}
-/* Each seg = a small coloured dot/pip (no bar height variation — that's in the popover) */
-.sms-seg {
-  display:block; width:8px; height:8px;
-  border-radius:50%;
-  flex-shrink:0;
-  transition:transform .15s, filter .15s;
-}
-.score-mini-wrap:hover .sms-seg { transform:scale(1.25); }
-.sms-seg:last-child { }
-.sms-lbl { display:none; }
-.sms-track { display:none; }
-/* Fill is the dot itself — height ignored, dot is always full circle */
-.sms-fill {
-  display:none; /* bar fill hidden — dot colour set on .sms-seg directly */
-}
+/* ── F1: Score mini-bars REMOVED — info shown only in score badge hover popover ── */
 /* Unified score popover */
 .score-popover {
   position:fixed; z-index:10000; min-width:270px;
@@ -707,10 +684,10 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 5px 13px;
   border-radius: 20px;
   font-family: 'Orbitron', monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 1px;
 }
@@ -726,9 +703,9 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 9px;
-  border-radius: 3px;
-  font-size: 12px;
+  padding: 4px 11px;
+  border-radius: 4px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.5px;
 }
@@ -1668,7 +1645,7 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
 /* Compact card mode */
 body.density-compact .result-card-body { display:none !important; }
 body.density-compact .result-card-hdr  { padding:4px 8px !important; min-height:0; }
-body.density-compact .sms-seg, body.density-compact .score-mini-wrap { display:none !important; }
+/* score-mini-wrap removed in v3.47 — no rule needed */
 body.density-compact .result-card { margin-bottom:2px !important; }
 
 /* Expanded card mode */
@@ -2053,13 +2030,13 @@ body.density-compact .body-mini-bar { display:inline-flex !important; }
 .cost-runs { color:var(--text-dim); font-size:10px; margin-left:4px; }
 
 /* ── G2: Economy specialisation bars ───────────────────────────── */
-/* v3.46c: eco-spec-bars — narrow bars, fixed container height */
+/* v3.47: eco-spec-bars — slightly taller & wider to fill space freed by removed score dots */
 .eco-spec-bars {
-  display:inline-flex; gap:2px; align-items:flex-end;
-  margin-left:4px; vertical-align:middle;
-  height:14px;
+  display:inline-flex; gap:3px; align-items:flex-end;
+  margin-left:6px; vertical-align:middle;
+  height:18px;
 }
-.eco-spec-seg { width:5px; border-radius:2px 2px 0 0; transition:opacity 0.15s; min-height:2px; }
+.eco-spec-seg { width:7px; border-radius:2px 2px 0 0; transition:opacity 0.15s; min-height:2px; }
 .eco-spec-seg:hover { opacity:1 !important; }
 
 /* ── G3: Watchlist alert config ────────────────────────────────── */
@@ -4821,7 +4798,6 @@ function buildSystemCard(sys, idx) {
       <span class="rating-badge ${ratingClass}" style="margin-left:4px;cursor:help"
         onmouseenter="_hoverScoreBadge(event,this)"
         onmouseleave="hideScoreExplainer()">${ratingLabel} ${rating.total}</span>
-      ${buildScoreMiniBar(rating)}
       ${(typeof _buildBodyMiniBar === "function") ? _buildBodyMiniBar(sys.bodies||[]) : ""}
       <span class="chevron" style="color:var(--text-dim);margin-left:8px;font-size:12px">▼</span>
     </div>
@@ -5383,7 +5359,7 @@ function buildEcoSpecBars(economy) {
     onmouseleave="_hideEcoSpecPop()">` +
     ECO_SPEC_ORDER.map(k => {
       const pct = Math.max(0, Math.min(100, ((scores[k]||0)/maxScore)*100));
-      const h = Math.max(2, Math.round(pct * 0.12 + 2)); // 2–14px height (matches container)
+      const h = Math.max(2, Math.round(pct * 0.14 + 2)); // 2–16px height (matches 18px container)
       const col = ECO_SPEC_COLORS[k];
       const alpha = pct > 0 ? (0.4 + pct/100*0.6).toFixed(2) : '0.15';
       return `<span class="eco-spec-seg" style="height:${h}px;background:${col};opacity:${alpha}" title="${ECO_SPEC_LABELS[k]}: ${Math.round(pct)}%"></span>`;
