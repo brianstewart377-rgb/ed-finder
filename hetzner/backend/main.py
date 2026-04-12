@@ -45,6 +45,18 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
+# Local search module (PostgreSQL edition)
+# Provides the full-featured search with body filters, economy filter,
+# galaxy-wide mode, cluster search, and trigram autocomplete.
+# ---------------------------------------------------------------------------
+try:
+    import local_search as _ls
+    _LS_AVAILABLE = True
+except ImportError:
+    _ls = None  # type: ignore
+    _LS_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 DB_DSN      = os.getenv('DATABASE_URL',  'postgresql://edfinder:edfinder@postgres:5432/edfinder')
@@ -286,7 +298,14 @@ async def status():
 
 @app.get('/api/local/status')
 async def local_status():
-    """Alias of /api/status — compatibility with Pi frontend."""
+    """Rich DB status from local_search module — includes import progress,
+    body counts, cluster readiness, and EDDN last-seen timestamp.
+    Falls back to /api/status if local_search is not available."""
+    if _LS_AVAILABLE:
+        try:
+            return await _ls.local_db_status(_pool)
+        except Exception as exc:
+            log.warning('local_db_status error: %s', exc)
     return await status()
 
 
@@ -309,6 +328,7 @@ async def metrics():
 # ---------------------------------------------------------------------------
 @app.get('/api/local/autocomplete')
 async def autocomplete(q: str = '', limit: int = 10):
+    """System name autocomplete — trigram-powered via local_search module."""
     if len(q) < 2:
         return {'results': []}
 
@@ -316,6 +336,16 @@ async def autocomplete(q: str = '', limit: int = 10):
     cached = await cache_get(cache_key)
     if cached: return cached
 
+    if _LS_AVAILABLE:
+        try:
+            results = await _ls.local_db_autocomplete(q, _pool)
+            result = {'results': results, 'source': 'local_db'}
+            await cache_set(cache_key, result, TTL_AUTOCOMPLETE)
+            return result
+        except Exception as exc:
+            log.warning('local_db_autocomplete error: %s', exc)
+
+    # Fallback: plain prefix search
     async with _pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT id64, name, x, y, z, population, primary_economy
@@ -347,8 +377,40 @@ async def autocomplete(q: str = '', limit: int = 10):
 # Standard local search (existing Pi endpoint, rewritten for Postgres)
 # ---------------------------------------------------------------------------
 @app.post('/api/local/search')
-async def local_search(req: LocalSearchRequest):
+async def local_search_endpoint(req: LocalSearchRequest):
+    """Standard distance search — delegates to local_search.py for full
+    body-filter, economy-filter, and galaxy-wide support.
+    Falls back to inline query if local_search module is unavailable."""
     _metrics['db_queries'] += 1
+
+    # ── Delegate to local_search.py (full-featured: body filters, economy,
+    #    secondary_economy, require_bio/geo/terra, galaxy_wide mode) ──────────
+    if _LS_AVAILABLE:
+        try:
+            # Convert Pydantic model back to the dict shape local_search expects
+            body_dict = {
+                'reference_coords': req.reference_coords or {'x': 0, 'y': 0, 'z': 0},
+                'filters': {
+                    'distance':   (req.filters or SearchFilters()).distance or {},
+                    'population': (req.filters or SearchFilters()).population or {},
+                    'economy':    (req.filters or SearchFilters()).economy or 'any',
+                },
+                'body_filters':   req.body_filters or {},
+                'require_bio':    req.require_bio,
+                'require_geo':    req.require_geo,
+                'require_terra':  req.require_terra,
+                'star_types':     req.star_types or [],
+                'min_rating':     req.min_rating or 0,
+                'economy':        (req.filters or SearchFilters()).economy or 'any',
+                'size':           req.size,
+                'from':           req.from_,
+                'sort_by':        req.sort_by or 'rating',
+                'galaxy_wide':    req.galaxy_wide,
+            }
+            return await _ls.local_db_search(body_dict, _pool)
+        except Exception as exc:
+            log.warning('local_search delegation error: %s — falling back to inline', exc)
+    # ── Fallback inline query (no body filters, basic distance+economy) ───────
 
     filters     = req.filters or SearchFilters()
     ref         = req.reference_coords or {'x': 0, 'y': 0, 'z': 0}
@@ -515,6 +577,21 @@ async def galaxy_search(req: GalaxySearchRequest):
     economy   = req.economy.strip()
     min_score = req.min_score
     limit     = min(req.limit, 500)
+
+    # ── Delegate to local_search.py (pure asyncpg, no SQL functions needed) ──
+    if _LS_AVAILABLE:
+        try:
+            body_dict = {
+                'economy':          economy,
+                'min_score':        min_score,
+                'limit':            limit,
+                'include_colonised': False,
+            }
+            return await _ls.local_db_galaxy_search(body_dict, _pool)
+        except Exception as exc:
+            log.warning('galaxy_search delegation error: %s — falling back to inline', exc)
+
+    # ── Fallback: inline via SQL function (requires 003_functions.sql) ───────
     offset    = req.offset
 
     cache_key = f'galaxy:{economy}:{min_score}:{limit}:{offset}'
@@ -582,6 +659,17 @@ async def cluster_search(req: ClusterSearchRequest):
         raise HTTPException(400, 'At least one economy requirement must be specified')
     if len(req.requirements) > 6:
         raise HTTPException(400, 'Maximum 6 economy requirements')
+
+    # ── Delegate to local_search.py ──────────────────────────────────────────
+    if _LS_AVAILABLE:
+        try:
+            body_dict = {
+                'requirements': [r.model_dump() for r in req.requirements],
+                'limit':        req.limit,
+            }
+            return await _ls.local_db_cluster_search(body_dict, _pool)
+        except Exception as exc:
+            log.warning('cluster_search delegation error: %s — falling back to inline', exc)
 
     reqs_json = json.dumps([r.model_dump() for r in req.requirements])
     cache_key = f'cluster:{reqs_json}:{req.limit}:{req.offset}'
