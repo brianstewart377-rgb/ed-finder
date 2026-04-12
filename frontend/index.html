@@ -9475,12 +9475,12 @@ const ECONOMY_PRESETS = [
     key: 'agriculture',
     icon: '🌾',
     label: 'Agriculture',
-    sub: 'ELW + WW + Bio, no tidal',
+    sub: 'ELW ≥1, WW ≥1, Bio ≥2, no tidal',
     color: '#3ddc84',
     sliders: {
       elw:       [1, 4],
       ww:        [1, 4],
-      bioSignal: [1, 20],
+      bioSignal: [2, 20],  // ≥2 bio signals for meaningful Agriculture weight
     },
     toggles: { 'tog-bio': true, 'tog-terra': true, 'tog-notidal': true },
     economy: 'Agriculture',
@@ -9489,12 +9489,12 @@ const ECONOMY_PRESETS = [
     key: 'hightech',
     icon: '🔬',
     label: 'High Tech',
-    sub: 'ELW + Ammonia + Gas Giant',
+    sub: 'ELW ≥1, Ammonia ≥1, Gas Giants ≥2',
     color: '#a855f7',
     sliders: {
       elw:     [1, 4],
       ammonia: [1, 3],
-      gasGiant:[1, 15],
+      gasGiant:[2, 15],   // ≥2 gas giants for solid HiTech/Industrial base
     },
     toggles: {},
     economy: 'High Tech',
@@ -9503,13 +9503,13 @@ const ECONOMY_PRESETS = [
     key: 'industrial',
     icon: '⚙️',
     label: 'Industrial',
-    sub: 'Gas Giants + Rocky Ice + Geo',
+    sub: 'Gas Giants ≥2, Rocky Ice ≥2, Geo ≥2',
     color: '#4da6ff',
     sliders: {
-      gasGiant: [1, 15],
-      rockyIce: [1, 16],
-      icy:      [1, 64],
-      geoSignal:[1, 29],
+      gasGiant: [2, 15],   // ≥2 for real Industrial weight
+      rockyIce: [2, 16],   // ≥2 Rocky Ice is the Industrial backbone
+      icy:      [3, 64],   // ≥3 Icy for pure Industrial backbone
+      geoSignal:[2, 29],   // ≥2 geo signals to push Industrial
     },
     toggles: { 'tog-geo': true },
     economy: 'Industrial',
@@ -9518,12 +9518,12 @@ const ECONOMY_PRESETS = [
     key: 'refinery',
     icon: '⛏️',
     label: 'Refinery',
-    sub: 'Rocky + Metal-Rich + HMC',
+    sub: 'Rocky ≥5, HMC ≥3, Metal-Rich ≥2',
     color: '#ff6a00',
     sliders: {
-      rocky:     [2, 48],
-      metalRich: [1, 8],
-      hmc:       [1, 26],
+      rocky:     [5, 48],  // ≥5 rocky = strong pure-refinery signal
+      metalRich: [2, 8],   // ≥2 to be meaningful
+      hmc:       [3, 26],  // ≥3 HMC for solid extraction/refinery mix
     },
     toggles: {},
     economy: 'Refinery',
@@ -9532,12 +9532,12 @@ const ECONOMY_PRESETS = [
     key: 'extraction',
     icon: '💎',
     label: 'Extraction',
-    sub: 'HMC + Rings + Metal-Rich',
+    sub: 'HMC ≥3, Rings ≥2, Metal-Rich ≥2',
     color: '#f87171',
     sliders: {
-      hmc:       [1, 26],
-      metalRich: [1, 8],
-      rings:     [1, 25],
+      hmc:       [3, 26],  // ≥3 HMC is a meaningful extraction base
+      metalRich: [2, 8],   // ≥2 metal-rich for stacking
+      rings:     [2, 25],  // ≥2 rings — 1 ring is barely extraction-worthy
     },
     toggles: { 'tog-ring': true },
     economy: 'Extraction',
@@ -9546,11 +9546,11 @@ const ECONOMY_PRESETS = [
     key: 'military',
     icon: '🛡️',
     label: 'Military',
-    sub: 'ELW + other stars',
+    sub: 'ELW ≥1, Other Stars ≥2',
     color: '#fbbf24',
     sliders: {
       elw:       [1, 4],
-      otherStars:[1, 20],
+      otherStars:[2, 20],  // ≥2 companion stars for real Military orbital slots
     },
     toggles: {},
     economy: 'Military',
@@ -9559,11 +9559,12 @@ const ECONOMY_PRESETS = [
     key: 'tourism',
     icon: '🏖️',
     label: 'Tourism',
-    sub: 'ELW + WW + Neutron/BH',
+    sub: 'ELW ≥1, WW ≥1, BH or Neutron ≥1',
     color: '#ffd700',
     sliders: {
       elw:       [1, 4],
       ww:        [1, 4],
+      // Set min=1 on BOTH but either alone satisfies Tourism — player picks
       blackHoles:[1, 2],
       neutron:   [1, 2],
     },
@@ -9572,14 +9573,14 @@ const ECONOMY_PRESETS = [
   },
   {
     key: 'terraforming',
-    icon: '🌍',
+    icon: '🌱',
     label: 'Terraforming',
-    sub: 'ELW + WW + Bio + Terraform',
+    sub: 'ELW ≥1, WW ≥2, Bio ≥2, Terraform on',
     color: '#34d399',
     sliders: {
       elw:       [1, 4],
-      ww:        [1, 4],
-      bioSignal: [1, 20],
+      ww:        [2, 4],   // ≥2 WW — Terraforming wants multiple candidates
+      bioSignal: [2, 20],  // ≥2 bio for Agriculture/Terraforming weight
     },
     toggles: { 'tog-bio': true, 'tog-terra': true },
     economy: 'Agriculture',   // Terraforming uses Agriculture economy base
