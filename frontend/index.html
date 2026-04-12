@@ -2388,6 +2388,17 @@ body.density-compact .body-mini-bar { display:inline-flex !important; }
             <option value="Tourism">Tourism</option>
           </select>
         </div>
+        <!-- Galaxy-wide search toggle (only works with local PostgreSQL DB) -->
+        <div class="field" style="margin-top:10px" id="galaxy-search-row">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;color:var(--text-dim)">
+            <input type="checkbox" id="tog-galaxy-wide" onchange="_onGalaxyWideToggle()"
+              style="accent-color:var(--orange)">
+            <span>🌌 Galaxy-wide search <span style="color:var(--orange-dk);font-size:10px">(no distance limit — requires local DB)</span></span>
+          </label>
+          <div id="galaxy-wide-hint" style="display:none;margin-top:4px;font-size:10px;color:var(--text-dim);padding:4px 8px;background:rgba(255,106,0,0.08);border-radius:3px;border-left:2px solid var(--orange)">
+            🔍 Returns best matching systems galaxy-wide sorted by rating score. Select an economy above for best results.
+          </div>
+        </div>
         <!-- #3 Rating Score range filter -->
         <div class="field" style="margin-top:10px">
           <label style="font-size:11px;color:var(--text-dim)">
@@ -2933,6 +2944,18 @@ docker compose start eddn delta &amp;&amp; docker compose restart api</code>
     badge.style.display = 'inline-flex';
     badge.style.color = '#94a3b8';
   }
+  // Show / hide galaxy-wide toggle: only makes sense with a local DB
+  const galaxyRow = document.getElementById('galaxy-search-row');
+  if (galaxyRow) {
+    galaxyRow.style.display = localActive ? '' : 'none';
+    // If local DB went away, uncheck & reset visual state
+    if (!localActive) {
+      const togGW = document.getElementById('tog-galaxy-wide');
+      if (togGW) togGW.checked = false;
+      _onGalaxyWideToggle();
+    }
+  }
+
   // Show Deep Scan only when local DB is NOT available (Spansh has a 10k cap; local DB has none)
   const deepBtn = document.getElementById('deep-scan-btn');
   if (deepBtn) deepBtn.style.display = (d && d.available && d.systems_count > 0) ? 'none' : '';
@@ -2955,6 +2978,27 @@ docker compose start eddn delta &amp;&amp; docker compose restart api</code>
       }
     }
   }
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+// ─── GALAXY-WIDE SEARCH ─────────────────────────────────────────────────────
+// Galaxy-wide mode: when enabled, the distance filter is dropped entirely so
+// the local DB returns the highest-rated matching systems across all of known
+// space.  Only meaningful when _localDbAvailable is true.
+
+function _onGalaxyWideToggle() {
+  const checked = document.getElementById('tog-galaxy-wide')?.checked;
+  const hint    = document.getElementById('galaxy-wide-hint');
+  const distRow = document.getElementById('dist-slider')?.closest('.field');
+  const minDistRow = document.getElementById('min-dist-slider')?.closest('.field');
+
+  if (hint) hint.style.display = checked ? 'block' : 'none';
+
+  // Dim (but keep visible) the distance slider when galaxy-wide is active,
+  // since it will be ignored by the search.
+  const dimOpacity = checked ? '0.35' : '';
+  if (distRow) distRow.style.opacity = dimOpacity;
+  if (minDistRow) minDistRow.style.opacity = dimOpacity;
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -3767,11 +3811,14 @@ async function runSearch(page = 0) {
     return;
   }
 
+  const _gwActive = _localDbAvailable && document.getElementById('tog-galaxy-wide')?.checked;
   content.innerHTML = `<div class="loading-wrap">
     <div class="spinner"></div>
-    <div class="loading-text">${_localDbAvailable ? '🗄️ Searching local database...' : 'Querying Spansh Database...'}</div>
+    <div class="loading-text">${_gwActive ? '🌌 Searching galaxy-wide...' : _localDbAvailable ? '🗄️ Searching local database...' : 'Querying Spansh Database...'}</div>
     <div style="color:var(--text-dim);font-size:12px">${_localDbAvailable
-      ? `Local DB: ${(_localDbSystems/1e6).toFixed(1)}M systems · no rate limits`
+      ? _gwActive
+        ? `Local DB: ${(_localDbSystems/1e6).toFixed(1)}M systems · no distance limit · sorted by rating`
+        : `Local DB: ${(_localDbSystems/1e6).toFixed(1)}M systems · no rate limits`
       : 'Fetching live data from spansh.co.uk'}</div>
   </div>`;
 
@@ -3791,7 +3838,12 @@ async function runSearch(page = 0) {
     if (!uncolonised && togPopZeroSearch) filters.population = { value: 0, comparison: 'equal' };
 
     // Distance from reference system coords
-    filters.distance = { min: minDist, max: maxDist };
+    // Galaxy-wide mode: omit distance filter entirely so local DB returns
+    // highest-rated systems across all of known space (no radius cap).
+    const _galaxyWide = _localDbAvailable && document.getElementById('tog-galaxy-wide')?.checked;
+    if (!_galaxyWide) {
+      filters.distance = { min: minDist, max: maxDist };
+    }
 
     const sort = [{ distance: { direction: 'asc' } }];
 
