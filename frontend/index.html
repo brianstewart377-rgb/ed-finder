@@ -2944,7 +2944,7 @@ docker compose start eddn delta &amp;&amp; docker compose restart api</code>
   const capHint = document.getElementById('dist-cap-hint');
   if (capHint) capHint.style.display = localActive ? 'inline' : 'none';
   if (distSlider) {
-    const newMax = localActive ? String(_localDbMaxRadius) : '500';
+    const newMax = localActive ? String(Math.min(_localDbMaxRadius, 250)) : '500';
     if (distSlider.max !== newMax) {
       distSlider.max = newMax;
       // Clamp current value if it exceeds the new max
