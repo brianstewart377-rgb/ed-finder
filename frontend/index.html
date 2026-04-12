@@ -1410,9 +1410,9 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
 /* Score Explainer Popover */
 .score-explain-pop {
   position:fixed; z-index:9999; background:var(--bg2); border:1px solid var(--border-o);
-  border-radius:8px; padding:12px 14px; min-width:220px; max-width:280px;
+  border-radius:8px; padding:12px 14px; min-width:260px; max-width:300px;
   font-size:11px; box-shadow:0 6px 24px rgba(0,0,0,0.7); color:var(--text);
-  pointer-events:none; line-height:1.6;
+  pointer-events:auto; line-height:1.6;   /* pointer-events:auto so hover-to-keep works */
 }
 .sep-hdr { font-family:Orbitron,monospace; font-size:11px; color:var(--orange); margin-bottom:8px; }
 .sep-row { display:flex; justify-content:space-between; gap:8px; padding:1px 0; }
@@ -1472,6 +1472,37 @@ body.density-expanded .result-card-body { display:block !important; }
   font-size:10px; padding:1px 6px; border-radius:3px;
   background:rgba(250,204,21,0.2); color:#facc15; border:1px solid rgba(250,204,21,0.4);
   margin-left:4px;
+}
+
+/* ── Slider drag tooltip ─────────────────────────────────── */
+#slider-tip {
+  position:fixed; z-index:9999; background:var(--bg2); border:1px solid var(--orange);
+  border-radius:4px; padding:2px 7px; font-size:11px; color:var(--orange);
+  pointer-events:none; display:none; white-space:nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+/* ── Mobile sticky Run Search FAB ────────────────────────── */
+#mobile-fab {
+  display:none;
+  position:fixed; bottom:16px; right:16px; z-index:9500;
+  background: linear-gradient(135deg, #ff6a00, #ff9133);
+  color:#000; border:none; border-radius:28px;
+  padding:12px 20px; font-size:13px; font-weight:700;
+  box-shadow:0 4px 18px rgba(255,106,0,0.55);
+  cursor:pointer; align-items:center; gap:8px;
+  font-family:Orbitron,monospace; letter-spacing:0.5px;
+  transition: transform .15s, box-shadow .15s;
+}
+#mobile-fab:active { transform:scale(0.95); }
+#mobile-fab .fab-count {
+  background:rgba(0,0,0,0.3); border-radius:12px;
+  padding:1px 7px; font-size:11px; font-weight:700;
+}
+@media (max-width:640px) {
+  #mobile-fab { display:inline-flex !important; }
+  /* push content above FAB so last card isn't hidden */
+  #finder-content { padding-bottom: 72px; }
 }
 
 /* Keyboard shortcuts overlay */
@@ -1641,6 +1672,10 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   .threed-controls { flex-wrap:wrap; gap:4px; }
   .preset-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── Economy tag Tourism / Extraction extras ─────────────── */
+.eco-tourism   { background: rgba(255,215,0,0.15);  color: #ffd700; }
+.eco-extraction{ background: rgba(248,113,113,0.15); color: #f87171; }
 
 /* Changelog */
 .cl-entry { margin-bottom:18px; }
@@ -1833,7 +1868,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 .reservation-badge:hover { background:rgba(77,166,255,0.3); }
 
 /* Score explain popover */
-.score-explain-pop { position:fixed; z-index:9000; background:var(--bg2); border:1px solid var(--border-o); border-radius:8px; padding:12px 14px; font-size:11px; max-width:260px; box-shadow:0 4px 20px rgba(0,0,0,0.5); pointer-events:none; }
+.score-explain-pop { position:fixed; z-index:9000; background:var(--bg2); border:1px solid var(--border-o); border-radius:8px; padding:12px 14px; font-size:11px; max-width:300px; box-shadow:0 4px 20px rgba(0,0,0,0.5); pointer-events:auto; }
 .sep-row { display:flex; justify-content:space-between; gap:12px; margin:2px 0; }
 .sep-lbl { color:var(--text-dim); }
 .sep-val { color:var(--text); font-weight:600; font-family:Orbitron,monospace; }
@@ -1877,7 +1912,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.41</div>
+  <div class="version">v3.42</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2219,9 +2254,12 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
       🔗 Share Search URL
     </button>
 
-    <button class="btn btn-secondary" id="reset-filters-btn" onclick="resetFilters()" style="width:100%;margin-bottom:4px">
-      ↺ Reset Filters <span id="reset-filters-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px;font-weight:700"></span>
-    </button>
+    <div style="display:flex;gap:4px;margin-bottom:4px">
+      <button class="btn btn-secondary" id="reset-filters-btn" onclick="resetFilters()" style="flex:1">
+        ↺ Reset Filters <span id="reset-filters-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px;font-weight:700"></span>
+      </button>
+      <button class="btn btn-secondary" id="reset-to-preset-btn" onclick="resetToPreset()" title="Re-apply the last active economy preset" style="display:none;padding:4px 8px;font-size:11px" title="Re-apply current preset">↺ Preset</button>
+    </div>
     <div id="filter-badge-wrap" style="text-align:center;min-height:16px">
       <span id="filter-live-badge" class="filter-live-badge" style="display:none"></span>
     </div>
@@ -2464,7 +2502,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.41';
+const APP_VERSION = 'v3.42';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -3302,7 +3340,7 @@ async function appendSearch(page) {
     // by the current sort preference so Load More doesn't just tack new cards
     // on the bottom out of order.
     if (window._lastResults) window._lastResults.systems.push(...filtered);
-    // BUG-FIX v3.41: keep _allResults in sync with appended pages so
+    // BUG-FIX v3.42: keep _allResults in sync with appended pages so
     // _refilterInPlace always has the full loaded set to work from
     if (window._allResults) window._allResults.push(...newSystems);
 
@@ -3359,7 +3397,7 @@ async function runSearch(page = 0) {
   if (searchAbortController) { try { searchAbortController.abort(); } catch(e) {} }
   searchAbortController = new AbortController();
   const searchSignal = searchAbortController.signal;
-  // BUG-FIX v3.41: clear _allResults so next renderResultsProgressive populates it fresh
+  // BUG-FIX v3.42: clear _allResults so next renderResultsProgressive populates it fresh
   window._allResults = null;
 
   const btn = document.getElementById('search-btn');
@@ -3492,6 +3530,7 @@ async function runSearch(page = 0) {
 
     // Show raw count immediately, will update after filtering below
     document.getElementById('result-count').textContent = `${totalResults.toLocaleString()} systems found`;
+    _syncFabCount(totalResults);  // UI-10: mobile FAB count
     // L2-FIX: announce result count (including zero-results state)
     if (totalResults === 0) {
       srAnnounce('No systems found. Try adjusting your filters.');
@@ -3676,7 +3715,7 @@ async function runSearch(page = 0) {
 //  When using Spansh: splits [minDist, maxDist] into N sequential bands
 // ═══════════════════════════════════════════════════════════════════
 async function runDeepScan() {
-  // BUG-FIX v3.41: clear _allResults so next render starts fresh
+  // BUG-FIX v3.42: clear _allResults so next render starts fresh
   window._allResults = null;
   const btn     = document.getElementById('deep-scan-btn');
   const content = document.getElementById('finder-content');
@@ -4391,7 +4430,8 @@ function buildSystemCard(sys, idx) {
     : `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:rgba(61,220,132,0.18);color:var(--green);border:1px solid rgba(61,220,132,0.35)">FREE</span>`;
   const popPill = `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${pp.color}22;color:${pp.color};border:1px solid ${pp.color}55" title="Population potential: ${pp.tier}">${pp.formatted}</span>`;
   const ecoConfColor = economy.confidence === 'High' ? 'var(--green)' : economy.confidence === 'Medium' ? 'var(--gold)' : 'var(--red)';
-  const ecoHdrPill = `<span style="font-size:11px" title="${economy.primary} — ${economy.confidence} confidence: ${economy.reason}">${getEcoIcon(economy.primary)}<span style="font-size:8px;color:${ecoConfColor};margin-left:1px;vertical-align:super">${economy.confidence === 'High' ? '●' : economy.confidence === 'Medium' ? '◐' : '○'}</span></span>`;  // F3-FIX: economy confidence dot
+  // UI-6: coloured economy pill in card header
+  const ecoHdrPill = `<span class="economy-tag ${getEcoClass(economy.primary)}" style="font-size:10px;padding:2px 7px;line-height:1.4" title="${economy.primary} — ${economy.confidence} confidence: ${economy.reason}">${getEcoIcon(economy.primary)} ${economy.primary}<span style="font-size:8px;margin-left:3px;opacity:0.8">${economy.confidence === 'High' ? '●' : economy.confidence === 'Medium' ? '◐' : '○'}</span></span>`;  // UI-6: coloured economy pill
   const ecoSpecBars = buildEcoSpecBars(economy);  // G2: multi-economy specialisation bars
 
   card.id = 'card-' + sys.id64;  // FIX-BONUS: set card ID so togglePin can update the icon
@@ -5725,21 +5765,26 @@ function getEcoClass(eco) {
   if (!eco) return '';
   const e = eco.toLowerCase();
   if (e.includes('refinery')) return 'eco-refinery';
-  if (e.includes('agri')) return 'eco-agriculture';
+  if (e.includes('agri') || e.includes('terra')) return 'eco-agriculture';
   if (e.includes('industri')) return 'eco-industrial';
   if (e.includes('high') || e.includes('tech')) return 'eco-hightech';
   if (e.includes('military')) return 'eco-military';
+  if (e.includes('tourism')) return 'eco-tourism';
+  if (e.includes('extract')) return 'eco-extraction';
   return 'eco-mixed';
 }
 
 function getEcoIcon(eco) {
   if (!eco) return '?';
   const e = eco.toLowerCase();
-  if (e.includes('refinery')) return '⚙️';
+  if (e.includes('refinery')) return '⛏️';
   if (e.includes('agri')) return '🌾';
   if (e.includes('industri')) return '🏭';
-  if (e.includes('high') || e.includes('tech')) return '💻';
-  if (e.includes('military')) return '⚔️';
+  if (e.includes('high') || e.includes('tech')) return '🔬';
+  if (e.includes('military')) return '🛡️';
+  if (e.includes('tourism')) return '🏖️';
+  if (e.includes('extract')) return '💎';
+  if (e.includes('terra')) return '🌱';
   return '🌌';
 }
 
@@ -5999,6 +6044,12 @@ document.addEventListener('click', (e) => {
 
 <!-- Score Explainer Popover (Feature 2) -->
 <div id="score-explain-pop" class="score-explain-pop" style="display:none"></div>
+<!-- Slider drag tooltip -->
+<div id="slider-tip"></div>
+<!-- Mobile sticky FAB -->
+<button id="mobile-fab" onclick="runSearch()" aria-label="Run Search">
+  🔍 Search <span class="fab-count" id="fab-count" style="display:none"></span>
+</button>
 
 <!-- FC Route Planner Tab (Feature 1) -->
 <div id="tab-fc" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
@@ -6194,7 +6245,17 @@ document.addEventListener('click', (e) => {
   <div style="max-width:720px">
 
     <div class="cl-entry">
-      <div class="cl-ver">v3.41 <span class="cl-date">2026-04-11</span></div>
+      <div class="cl-ver">v3.42 <span class="cl-date">2026-04-12</span></div>
+      <div class="cl-item">Score Breakdown tooltip enhanced — per-component mini bars + body-driver chips (e.g. 3× ELW, 2× Neutron) shown on hover over any rating badge <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Economy preset sub-label now updates dynamically to show exact slider ranges applied (e.g. "ELW ≥1 · WW ≥1 · Bio ≥2") <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Economy badge in result card header now colour-coded per economy type (green=Agriculture, purple=HiTech, blue=Industrial, orange=Refinery, gold=Tourism…) <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Dual-slider drag tooltip — floating label shows current min–max range while dragging any body slider thumb <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">↺ Preset button — appears next to Reset Filters when an economy preset is active; one click re-applies the preset from scratch <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Mobile sticky FAB — search button fixed at bottom-right on screens ≤640px, shows result count badge after search <span class="cl-tag cl-tag-new">NEW</span></div>
+    </div>
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.41 <span class="cl-date">2026-04-12</span></div>
       <div class="cl-item">Economy Presets — 8 one-click preset buttons set body sliders + toggles + economy filter for Agriculture, High Tech, Industrial, Refinery, Extraction, Military, Tourism &amp; Terraforming <span class="cl-tag cl-tag-new">NEW</span></div>
       <div class="cl-item">Active preset indicator with quick-clear button shown below the preset grid <span class="cl-tag cl-tag-new">NEW</span></div>
       <div class="cl-item">Reset Filters now clears any active economy preset <span class="cl-tag cl-tag-fix">FIX</span></div>
@@ -6429,7 +6490,7 @@ async function _patchWlAlertConfig(id64, cfg) {
 })();
 
 function _refilterInPlace() {
-  // BUG-FIX v3.41: always re-filter from the FULL API result set (_allResults),
+  // BUG-FIX v3.42: always re-filter from the FULL API result set (_allResults),
   // not from window._lastResults.systems which gets overwritten to the filtered
   // subset each time renderResultsProgressive is called.  Without this fix,
   // each successive refilter shrinks the pool (filtered → re-filtered → …)
@@ -6458,7 +6519,7 @@ function _scheduleFilterLiveBadge() {
   _filterLiveTimer = setTimeout(_doFilterLiveBadge, 300);
 }
 function _doFilterLiveBadge() {
-  // BUG-FIX v3.41: use _allResults (full set) not _lastResults.systems (filtered subset)
+  // BUG-FIX v3.42: use _allResults (full set) not _lastResults.systems (filtered subset)
   const all = window._allResults || window._lastResults?.systems;
   if (!all || !all.length) return;
   // BUG-FIX-F: passesBodyFilters already checks rating and economy — no need to duplicate.
@@ -9660,6 +9721,9 @@ function applyEconomyPreset(key) {
   }
 
   updateFilterBadge();
+  // UI-2 & UI-8: update sub-label and show reset-to-preset button
+  _updatePresetSubLabel(preset);
+  _syncResetToPresetBtn();
 }
 
 function clearEconomyPreset() {
@@ -9687,6 +9751,104 @@ function clearEconomyPreset() {
   if (activeBar) activeBar.style.display = 'none';
 
   updateFilterBadge();
+  _syncResetToPresetBtn();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// UI-2: DYNAMIC PRESET SUB-LABEL + UI-8: RESET-TO-PRESET BUTTON
+// ═══════════════════════════════════════════════════════════════════
+
+// After applyEconomyPreset runs, update the sub-text on the active
+// button to show the actual slider ranges that were set, and reveal
+// the "↺ Preset" reset button.
+function _updatePresetSubLabel(preset) {
+  const btn = document.getElementById('ep-' + preset.key);
+  if (!btn) return;
+  const subEl = btn.querySelector('.preset-sub');
+  if (!subEl) return;
+  // Build a compact summary: "ELW ≥1 · WW ≥1 · Bio ≥2"
+  const parts = Object.entries(preset.sliders).map(([k, [mn, mx]]) => {
+    const slider = BODY_SLIDERS.find(s => s.key === k);
+    const label = slider ? slider.label.replace('Bodies','').replace('Worlds','').replace('Signals','Sig').trim() : k;
+    return mn > 0 ? `${label} ≥${mn}` : null;
+  }).filter(Boolean);
+  subEl.textContent = parts.join(' · ') || preset.sub;
+}
+
+// Show/hide the "↺ Preset" button based on whether a preset is active
+function _syncResetToPresetBtn() {
+  const btn = document.getElementById('reset-to-preset-btn');
+  if (!btn) return;
+  btn.style.display = _activeEconomyPreset ? 'inline-flex' : 'none';
+  if (_activeEconomyPreset) {
+    const p = ECONOMY_PRESETS.find(x => x.key === _activeEconomyPreset);
+    if (p) btn.textContent = `↺ ${p.icon} ${p.label}`;
+  }
+}
+
+// Re-apply the currently active preset (called by "↺ Preset" button)
+function resetToPreset() {
+  if (_activeEconomyPreset) applyEconomyPreset(_activeEconomyPreset);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// UI-7: SLIDER DRAG TOOLTIP
+// Shows the min–max range in a floating tooltip while dragging any
+// dual-range slider thumb.
+// ═══════════════════════════════════════════════════════════════════
+(function _initSliderTip() {
+  const tip = document.getElementById('slider-tip');
+  if (!tip) return;
+
+  function _showTip(el, x, y) {
+    const key = el.id?.replace(/^s(min|max)-/, '');
+    const slider = key && BODY_SLIDERS.find(s => s.key === key);
+    const minEl = key ? document.getElementById('smin-' + key) : null;
+    const maxEl = key ? document.getElementById('smax-' + key) : null;
+    if (!slider || !minEl || !maxEl) return;
+    const mn = parseInt(minEl.value), mx = parseInt(maxEl.value);
+    tip.textContent = mn === mx ? `= ${mn}` : `${mn} – ${mx}`;
+    tip.style.display = 'block';
+    // Position above the cursor
+    tip.style.left = Math.min(x + 8, window.innerWidth - 90) + 'px';
+    tip.style.top  = (y - 28) + 'px';
+  }
+
+  document.addEventListener('mousedown', e => {
+    const el = e.target;
+    if (el.tagName !== 'INPUT' || el.type !== 'range') return;
+    if (!el.id?.match(/^s(min|max)-/)) return;
+    const move = ev => _showTip(el, ev.clientX, ev.clientY);
+    const up   = () => { tip.style.display = 'none'; document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+    _showTip(el, e.clientX, e.clientY);
+  });
+
+  // Touch support
+  document.addEventListener('touchstart', e => {
+    const el = e.target;
+    if (el.tagName !== 'INPUT' || el.type !== 'range') return;
+    if (!el.id?.match(/^s(min|max)-/)) return;
+    const touch = ev => { const t = ev.touches[0]; _showTip(el, t.clientX, t.clientY); };
+    const end   = () => { tip.style.display = 'none'; el.removeEventListener('touchmove', touch); el.removeEventListener('touchend', end); };
+    el.addEventListener('touchmove', touch);
+    el.addEventListener('touchend', end);
+  }, { passive: true });
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// UI-10: MOBILE FAB RESULT COUNT SYNC
+// ═══════════════════════════════════════════════════════════════════
+function _syncFabCount(n) {
+  const fab = document.getElementById('mobile-fab');
+  const cnt = document.getElementById('fab-count');
+  if (!fab) return;
+  if (n != null && n > 0) {
+    if (cnt) { cnt.textContent = n; cnt.style.display = 'inline-block'; }
+  } else {
+    if (cnt) cnt.style.display = 'none';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -10014,31 +10176,104 @@ function onFCInput() {
 // ────────────────────────────────────────────────────────────────────
 // FEATURE 2: COLONISATION SCORE EXPLAINER POPOVER
 // ────────────────────────────────────────────────────────────────────
-function showScoreExplainer(evt, rating, sysName) {
+// UI-1: Enhanced score explainer — shows per-component scores AND
+// what drove each sub-score (e.g. "3× ELW +15", "2× Rings +4")
+function showScoreExplainer(evt, rating, sysRaw) {
   const pop = document.getElementById('score-explain-pop');
   if (!pop) return;
   const r = rating || {};
+  // sysRaw may be the sys object or just the name string (legacy callers)
+  const sys = (typeof sysRaw === 'object' && sysRaw !== null) ? sysRaw : null;
+  const name = sys?.name || (typeof sysRaw === 'string' ? sysRaw : 'Score Breakdown');
+  const bodies = sys?.bodies || [];
+
+  // Count notable bodies for driver hints
+  const cnt = k => bodies.filter(b => {
+    const t = (b.type||'').toLowerCase(), st = (b.subtype||'').toLowerCase();
+    if (k === 'elw')        return st.includes('earth');
+    if (k === 'ww')         return st.includes('water world');
+    if (k === 'ammonia')    return st.includes('ammonia');
+    if (k === 'gasGiant')   return t === 'star' ? false : st.includes('gas giant') || st.includes('class i') || st.includes('class ii');
+    if (k === 'hmc')        return st.includes('high metal');
+    if (k === 'metalRich')  return st.includes('metal-rich') || st.includes('metal rich');
+    if (k === 'rocky')      return st.includes('rocky body') || st === 'rocky';
+    if (k === 'rockyIce')   return st.includes('rocky ice');
+    if (k === 'icy')        return st.includes('icy body') || st === 'icy';
+    if (k === 'neutron')    return st.includes('neutron');
+    if (k === 'blackHole')  return st.includes('black hole');
+    if (k === 'bioSignal')  return b.has_signals && (b.bio_signal_count > 0 || (b.signals||[]).some(s => s.type?.includes('$SAA_SignalType_Biological')));
+    if (k === 'geoSignal')  return b.has_signals && (b.geo_signal_count > 0 || (b.signals||[]).some(s => s.type?.includes('$SAA_SignalType_Geological')));
+    if (k === 'landable')   return b.is_landable;
+    if (k === 'rings')      return b.has_rings;
+    return false;
+  }).length;
+
+  // Build driver chips for each score component
+  function _driverRow(label, score, max, drivers) {
+    const pct = max > 0 ? Math.round((score / max) * 100) : 0;
+    const barColor = pct >= 70 ? 'var(--green)' : pct >= 40 ? 'var(--gold)' : 'var(--red)';
+    const driverHtml = drivers.filter(d => d.n > 0)
+      .map(d => `<span style="font-size:9px;background:var(--bg4);border:1px solid var(--border);border-radius:3px;padding:1px 4px;margin:1px;display:inline-block;color:var(--text-dim)">${d.icon}${d.n}× ${d.label}</span>`)
+      .join('');
+    return `
+      <div class="sep-row" style="flex-direction:column;gap:2px;align-items:flex-start;padding:3px 0;border-bottom:1px solid var(--border-o)">
+        <div style="display:flex;width:100%;align-items:center;gap:6px">
+          <span class="sep-lbl" style="flex:1">${label}</span>
+          <span class="sep-val" style="font-weight:700;color:${barColor}">${score ?? '—'}<span style="opacity:0.5;font-size:9px"> / ${max}</span></span>
+        </div>
+        <div style="width:100%;height:3px;background:var(--bg4);border-radius:2px;margin:1px 0">
+          <div style="width:${pct}%;height:100%;background:${barColor};border-radius:2px;transition:width .3s"></div>
+        </div>
+        ${driverHtml ? `<div style="margin-top:2px;flex-wrap:wrap;display:flex;gap:2px">${driverHtml}</div>` : ''}
+      </div>`;
+  }
+
+  const elwN = cnt('elw'), wwN = cnt('ww'), amm = cnt('ammonia'),
+        gg   = cnt('gasGiant'), hmc = cnt('hmc'), mr = cnt('metalRich'),
+        rk   = cnt('rocky'), ri = cnt('rockyIce'), icy = cnt('icy'),
+        nt   = cnt('neutron'), bh = cnt('blackHole'),
+        bio  = cnt('bioSignal'), geo = cnt('geoSignal'),
+        lnd  = cnt('landable'), rings = cnt('rings');
+
   pop.innerHTML = `
-    <div style="font-family:Orbitron,monospace;font-size:11px;color:var(--orange);margin-bottom:8px;letter-spacing:1px">${sysName || 'Score Breakdown'}</div>
-    <div class="sep-row"><span class="sep-lbl">⭐ Star Bonus</span><span class="sep-val">${r.starBonus ?? '—'} / 10</span></div>
-    <div class="sep-row"><span class="sep-lbl">🔲 Slot Score</span><span class="sep-val">${r.slots ?? '—'} / 20</span></div>
-    <div class="sep-row"><span class="sep-lbl">🪐 Body Quality</span><span class="sep-val">${r.bodyQuality ?? '—'} / 25</span></div>
-    <div class="sep-row"><span class="sep-lbl">📐 Compactness</span><span class="sep-val">${r.compactness ?? '—'} / 20</span></div>
-    <div class="sep-row"><span class="sep-lbl">🧬 Signals</span><span class="sep-val">${r.signalQuality ?? '—'} / 15</span></div>
-    <div class="sep-row"><span class="sep-lbl">🌀 Orbital Safety</span><span class="sep-val">${r.orbitalSafety ?? '—'} / 10</span></div>
-    <div class="sep-row sep-total"><span class="sep-lbl">TOTAL</span><span class="sep-val">${r.total ?? '—'} / 100</span></div>
+    <div style="font-family:Orbitron,monospace;font-size:10px;color:var(--orange);margin-bottom:8px;letter-spacing:1px;border-bottom:1px solid var(--border-o);padding-bottom:6px">${name}</div>
+    ${_driverRow('⭐ Star Bonus',    r.starBonus  ?? 0, 10, [
+        {icon:'🕳️', n:bh,  label:'Black Hole'}, {icon:'💫', n:nt, label:'Neutron'}
+    ])}
+    ${_driverRow('🔲 Slot Score',    r.slots      ?? 0, 25, [
+        {icon:'🌍', n:elwN, label:'ELW'}, {icon:'🌊', n:wwN, label:'WW'},
+        {icon:'🔵', n:hmc,  label:'HMC'}, {icon:'🟤', n:rk,  label:'Rocky'}
+    ])}
+    ${_driverRow('🪐 Body Quality',  r.bodyQuality ?? 0, 25, [
+        {icon:'🌍', n:elwN, label:'ELW'}, {icon:'🌊', n:wwN, label:'WW'},
+        {icon:'🟠', n:amm,  label:'Amm'}, {icon:'🔴', n:gg,  label:'Gas Giant'}
+    ])}
+    ${_driverRow('📐 Compactness',   r.compactness ?? 0, 20, [
+        {icon:'🪐', n:lnd,  label:'Landable'}, {icon:'💍', n:rings, label:'Rings'}
+    ])}
+    ${_driverRow('🧬 Signals',       r.signalQuality ?? 0, 15, [
+        {icon:'🌿', n:bio, label:'Bio'}, {icon:'🌋', n:geo, label:'Geo'}
+    ])}
+    ${_driverRow('🌀 Orbital Safety', r.orbitalSafety ?? 0, 10, [])}
+    <div class="sep-row sep-total" style="margin-top:6px;padding-top:6px">
+      <span class="sep-lbl" style="font-weight:700;letter-spacing:1px">TOTAL</span>
+      <span class="sep-val" style="font-size:16px;font-weight:700;color:${getRatingColor(r.total)}">${r.total ?? '—'}<span style="font-size:10px;opacity:0.5"> / 100</span></span>
+    </div>
+    <div style="font-size:9px;color:var(--text-dim);margin-top:6px;padding-top:4px;border-top:1px solid var(--border-o)">Hover stays open · click elsewhere to close</div>
   `;
   pop.style.display = 'block';
   const rect = (evt.target || evt).getBoundingClientRect();
-  const popW = 260, popH = 200;
+  const popW = 280, popH = 320;
   let left = rect.left, top = rect.bottom + 6;
-  if (left + popW > window.innerWidth) left = window.innerWidth - popW - 8;
-  if (top + popH > window.innerHeight) top  = rect.top - popH - 6;
+  if (left + popW > window.innerWidth)  left = window.innerWidth - popW - 8;
+  if (top  + popH > window.innerHeight) top  = rect.top - popH - 6;
   pop.style.left = left + 'px';
   pop.style.top  = top  + 'px';
-  // auto-hide
+  // cancel auto-hide while pointer is over the popover
+  pop.onmouseenter = () => clearTimeout(pop._hideTimer);
+  pop.onmouseleave = () => { pop._hideTimer = setTimeout(() => { pop.style.display = 'none'; }, 300); };
   clearTimeout(pop._hideTimer);
-  pop._hideTimer = setTimeout(() => { pop.style.display = 'none'; }, 4000);
+  pop._hideTimer = setTimeout(() => { pop.style.display = 'none'; }, 6000);
 }
 document.addEventListener('click', (e) => {
   const pop = document.getElementById('score-explain-pop');
@@ -10065,7 +10300,7 @@ document.addEventListener('click', (e) => {
   const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64));
   if (!sys) return;
   const rating = sys._rating || rateSystem(sys);
-  showScoreExplainer(e, rating, sys.name);
+  showScoreExplainer(e, rating, sys);  // UI-1: pass full sys for body breakdown
 }, true);
 
 // ────────────────────────────────────────────────────────────────────

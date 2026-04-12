@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.41, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.42, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
@@ -175,6 +175,23 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.42 — 6 UI improvements
+
+- **[IMPR] Score Breakdown tooltip enhanced** — per-component mini progress bars + body-driver
+  chips (e.g. `3× ELW`, `2× Neutron`) now shown on hover over any rating badge.  Popover
+  stays open while hovering over it (pointer-events now auto).
+- **[IMPR] Economy badge coloured** — the economy pill in each result card header now uses the
+  full `economy-tag` CSS class with per-economy colours (green=Agriculture, purple=HiTech,
+  blue=Industrial, orange=Refinery, gold=Tourism, red=Military, pink=Extraction).
+- **[IMPR] Economy preset sub-label dynamic** — after clicking a preset, the sub-text on the
+  button updates to show exact slider ranges applied (e.g. "ELW ≥1 · WW ≥1 · Bio ≥2").
+- **[NEW] Slider drag tooltip** — floating label shows current `min – max` range while
+  dragging any body-type dual slider thumb (mouse and touch).
+- **[NEW] ↺ Preset button** — appears alongside Reset Filters when an economy preset is
+  active; re-applies the preset from scratch (useful after manual slider tweaks).
+- **[NEW] Mobile sticky FAB** — 🔍 Search button fixed at bottom-right on screens ≤640px,
+  shows the result count badge so you never have to scroll up to search again.
 
 ### v3.41 — Economy Presets
 
