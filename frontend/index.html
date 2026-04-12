@@ -16,27 +16,28 @@
 
 /* ── F1: Score mini-bars on card header ── */
 .score-mini-wrap {
-  display:inline-flex; align-items:center; gap:0; margin-left:8px;
+  display:inline-flex; align-items:flex-end; gap:0; margin-left:8px;
   cursor:help; border:1px solid var(--border); border-radius:5px;
-  overflow:hidden; height:18px; background:var(--bg3);
+  overflow:hidden; height:20px; background:var(--bg3);
   position:relative;
 }
+/* FIX v3.46: sms-seg is the bar column — positioned container, fill anchored bottom */
 .sms-seg {
-  display:inline-flex; flex-direction:column; align-items:center;
-  justify-content:flex-end; width:28px; height:18px; position:relative;
+  display:block; width:26px; height:20px;
+  position:relative;
   border-right:1px solid var(--bg2);
   transition:filter .15s;
+  flex-shrink:0;
 }
 .sms-seg:last-child { border-right:none; }
 .sms-seg:hover { filter:brightness(1.3); }
-.sms-lbl { display:none; }  /* hidden — shown only in unified popover */
-.sms-track {
-  display:inline-block; width:28px; height:18px;
-  background:var(--bg3); position:relative;
-}
+.sms-lbl { display:none; }
+/* sms-track is gone — fill is placed directly in sms-seg */
+.sms-track { display:none; }   /* legacy safety — hide if still rendered */
 .sms-fill {
-  position:absolute; bottom:0; left:0; width:100%;
+  position:absolute; bottom:0; left:0; right:0;
   border-radius:0; transition:height .2s;
+  min-height:2px;
 }
 /* Unified score popover */
 .score-popover {
@@ -2053,8 +2054,13 @@ body.density-compact .body-mini-bar { display:inline-flex !important; }
 .cost-runs { color:var(--text-dim); font-size:10px; margin-left:4px; }
 
 /* ── G2: Economy specialisation bars ───────────────────────────── */
-.eco-spec-bars { display:inline-flex; gap:2px; align-items:flex-end; margin-left:4px; vertical-align:middle; }
-.eco-spec-seg { width:6px; border-radius:1px; transition:opacity 0.15s; }
+/* FIX v3.46: eco-spec-bars — ensure container height so bars are visible */
+.eco-spec-bars {
+  display:inline-flex; gap:2px; align-items:flex-end;
+  margin-left:4px; vertical-align:middle;
+  height:14px; /* fixed container height — bars grow from bottom */
+}
+.eco-spec-seg { width:7px; border-radius:2px 2px 0 0; transition:opacity 0.15s; min-height:2px; }
 .eco-spec-seg:hover { opacity:1 !important; }
 
 /* ── G3: Watchlist alert config ────────────────────────────────── */
@@ -5127,12 +5133,13 @@ function buildScoreMiniBar(rating) {
   ];
 
   const parts = segs.map(s => {
-    const val  = rating[s.k] || 0;
-    const pct  = Math.round((val / s.max) * 100);
-    const fillH = Math.max(2, Math.round(18 * val / s.max));
-    const col  = pct >= 66 ? s.col : pct >= 33 ? '#ffd700' : '#ff1744';
-    return `<span class="sms-seg" data-lbl="${s.lbl}" data-val="${val}" data-max="${s.max}">` +
-      `<span class="sms-track"><span class="sms-fill" style="height:${fillH}px;background:${col}"></span></span>` +
+    const val   = rating[s.k] || 0;
+    const pct   = Math.round((val / s.max) * 100);
+    const fillH = Math.max(2, Math.round(20 * val / s.max));  // FIX v3.46: 20px container
+    const col   = pct >= 66 ? s.col : pct >= 33 ? '#ffd700' : '#ff1744';
+    // FIX v3.46: fill goes directly in sms-seg (no nested track needed)
+    return `<span class="sms-seg" data-lbl="${s.lbl}" data-val="${val}" data-max="${s.max}" title="${s.lbl}: ${val}/${s.max}">` +
+      `<span class="sms-fill" style="height:${fillH}px;background:${col}"></span>` +
       `</span>`;
   }).join('');
 
@@ -5352,7 +5359,7 @@ function buildEcoSpecBars(economy) {
     ECO_SPEC_ORDER.map(k => ECO_SPEC_LABELS[k] + '=' + Math.round((scores[k]||0)/maxScore*10) + '/10').join(', ') + '">' +
     ECO_SPEC_ORDER.map(k => {
       const pct = Math.max(0, Math.min(100, ((scores[k]||0)/maxScore)*100));
-      const h = Math.max(2, Math.round(pct * 0.12 + 2)); // 2–14px height
+      const h = Math.max(2, Math.round(pct * 0.12 + 2)); // 2–14px height (matches container)
       const col = ECO_SPEC_COLORS[k];
       const alpha = pct > 0 ? (0.4 + pct/100*0.6).toFixed(2) : '0.15';
       return `<span class="eco-spec-seg" style="height:${h}px;background:${col};opacity:${alpha}" title="${ECO_SPEC_LABELS[k]}: ${Math.round(pct)}%"></span>`;
