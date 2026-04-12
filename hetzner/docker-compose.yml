@@ -1,0 +1,189 @@
+services:
+
+  # ── PostgreSQL 16 ─────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ed-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     edfinder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       edfinder
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d:ro   # auto-runs 001_schema.sql on first start
+      - /data/dumps:/data/dumps:ro             # Spansh dump files (read-only)
+      - /data/logs:/data/logs
+    ports:
+      - "127.0.0.1:5432:5432"                  # local only — never exposed publicly
+    command: >
+      postgres
+        -c shared_buffers=32GB
+        -c effective_cache_size=96GB
+        -c maintenance_work_mem=4GB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=64MB
+        -c default_statistics_target=500
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c work_mem=256MB
+        -c max_worker_processes=12
+        -c max_parallel_workers_per_gather=6
+        -c max_parallel_workers=12
+        -c max_parallel_maintenance_workers=6
+        -c max_connections=200
+        -c log_min_duration_statement=1000
+        -c log_line_prefix='%t [%p]: [%l-1] '
+        -c log_checkpoints=on
+        -c log_connections=off
+        -c log_disconnections=off
+        -c autovacuum_vacuum_scale_factor=0.05
+        -c autovacuum_analyze_scale_factor=0.02
+        -c autovacuum_max_workers=4
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edfinder -d edfinder"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: 2gb
+
+  # ── pgBouncer (connection pooler) ─────────────────────────────────────────
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: ed-pgbouncer
+    restart: unless-stopped
+    environment:
+      DB_USER:      edfinder
+      DB_PASSWORD:  ${POSTGRES_PASSWORD}
+      DB_HOST:      postgres
+      DB_NAME:      edfinder
+      POOL_MODE:    transaction          # best for FastAPI async
+      MAX_CLIENT_CONN:  500
+      DEFAULT_POOL_SIZE: 25
+      MIN_POOL_SIZE: 5
+      RESERVE_POOL_SIZE: 5
+      LOG_CONNECTIONS: 0
+      LOG_DISCONNECTIONS: 0
+    ports:
+      - "127.0.0.1:5433:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ed-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+        --maxmemory 4gb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── FastAPI backend ────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ed-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:  postgresql://edfinder:${POSTGRES_PASSWORD}@pgbouncer:5432/edfinder
+      REDIS_URL:     redis://redis:6379/0
+      LOG_LEVEL:     ${LOG_LEVEL:-INFO}
+      TTL_SEARCH:    3600
+      TTL_SYSTEM:    86400
+      TTL_CLUSTER:   3600
+    volumes:
+      - /data/logs:/data/logs
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── EDDN Listener ─────────────────────────────────────────────────────────
+  eddn:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.eddn
+    container_name: ed-eddn
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@pgbouncer:5432/edfinder
+      LOG_LEVEL:            ${LOG_LEVEL:-INFO}
+      DIRTY_FLUSH_INTERVAL: 300
+    volumes:
+      - /data/logs:/data/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+
+  # ── Nginx (SSL + static files) ────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: ed-nginx
+    restart: unless-stopped
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../frontend:/var/www/html:ro           # serve frontend static files
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
+      - /var/log/nginx:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Import runner (one-shot, run manually) ─────────────────────────────────
+  importer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.import
+    container_name: ed-importer
+    profiles: ["import"]                       # only starts with: docker compose --profile import up importer
+    environment:
+      DATABASE_URL: postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
+      DUMP_DIR:     /data/dumps
+      BATCH_SIZE:   5000
+      LOG_LEVEL:    INFO
+      LOG_FILE:     /data/logs/import.log
+    volumes:
+      - /data/dumps:/data/dumps
+      - /data/logs:/data/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python3", "import_spansh.py", "--all", "--resume"]
+
+volumes:
+  postgres_data:
+  redis_data:
