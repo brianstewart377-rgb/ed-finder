@@ -10,7 +10,7 @@ including Raspberry Pi.
 
 | Component | Status |
 |-----------|--------|
-| Frontend  | ✅ Latest — v3.43, all 58 audit checks pass |
+| Frontend  | ✅ Latest — v3.44, all 58 audit checks pass |
 | Backend   | ✅ All endpoints functional |
 | Local DB  | ✅ Phase 1 (systems) + Phase 2 (bodies) supported |
 | EDDN      | ✅ Real-time colonisation updates (24/7 ZeroMQ listener) |
@@ -175,6 +175,17 @@ Use the **🔄 Re-filter** button to re-apply client-side filters to already-loa
 ---
 
 ## Bug Fixes Log (most recent first)
+
+### v3.44 — Colony Planner overhaul + Score mini-bar redesign
+
+- **[IMPR] Colony Planner full redesign** — two-column layout (controls left, plans right); system snapshot card shows star type, body count, landable/ringed/bio/geo counts, auto-detected economy with confidence, rating and colonisation status; collapsible material cost table per plan.
+- **[NEW] Economy score grid** — 8 clickable tiles (Refinery, Agriculture, Industrial, High Tech, Military, Tourism, Extraction, Auto) with proportional fit-score bars auto-populated from Spansh data; best economy auto-selected.
+- **[NEW] Cargo hold slider** — set your ship/FC cargo hold (100–25,000 t) and the cost table recalculates runs per commodity in real time.
+- **[NEW] Economy Warnings panel** — pre-run warnings for geo contamination (Refinery), tidal-lock penalty (Agriculture), missing Ammonia World (High Tech), Military Hub prerequisites, and Tourism premium body absence.
+- **[NEW] 8th economy: Extraction** — full build plan added for ring-focused Extraction colonies.
+- **[NEW] Build Timeline** — each plan rendered as a stepped timeline with T1/T2/T3 badges, per-step contamination warnings and expandable commodity cost `<details>` panel.
+- **[NEW] 🏗️ Plan Colony button** — every result card now has a button that opens the Colony Planner pre-loaded with the system's body data (no extra network call when Phase 2 data is already loaded).
+- **[IMPR] Score mini-bar redesign** — segmented pill bar (5 colour-coded fill-height segments); single hover popover replaces the old per-column titles; popover shows all 6 score dimensions with labelled progress bars and exact values.
 
 ### v3.43 — 10 UI improvements
 

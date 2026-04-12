@@ -14,11 +14,44 @@
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── F1: Score mini-bars on card header ── */
-.score-mini-wrap { display:inline-flex; align-items:flex-end; gap:6px; margin-left:8px; cursor:default; }
-.sms-seg { display:inline-flex; flex-direction:column; align-items:center; gap:3px; }
-.sms-lbl { font-size:10px; color:var(--text-dim); font-family:monospace; text-align:center; line-height:1.3; white-space:nowrap; }
-.sms-track { display:inline-block; width:40px; height:6px; background:var(--bg3); border-radius:3px; }
-.sms-fill  { display:block; height:6px; border-radius:3px; }
+.score-mini-wrap {
+  display:inline-flex; align-items:center; gap:0; margin-left:8px;
+  cursor:help; border:1px solid var(--border); border-radius:5px;
+  overflow:hidden; height:18px; background:var(--bg3);
+  position:relative;
+}
+.sms-seg {
+  display:inline-flex; flex-direction:column; align-items:center;
+  justify-content:flex-end; width:28px; height:18px; position:relative;
+  border-right:1px solid var(--bg2);
+  transition:filter .15s;
+}
+.sms-seg:last-child { border-right:none; }
+.sms-seg:hover { filter:brightness(1.3); }
+.sms-lbl { display:none; }  /* hidden — shown only in unified popover */
+.sms-track {
+  display:inline-block; width:28px; height:18px;
+  background:var(--bg3); position:relative;
+}
+.sms-fill {
+  position:absolute; bottom:0; left:0; width:100%;
+  border-radius:0; transition:height .2s;
+}
+/* Unified score popover */
+.score-popover {
+  position:fixed; z-index:10000; min-width:240px;
+  background:var(--bg2); border:1px solid var(--border-o);
+  border-radius:7px; padding:12px 14px; font-size:11px;
+  box-shadow:0 8px 28px rgba(0,0,0,0.7); color:var(--text);
+  pointer-events:none;
+}
+.spo-title { font-family:Orbitron,monospace; font-size:11px; color:var(--orange); margin-bottom:8px; }
+.spo-row { display:flex; align-items:center; gap:8px; padding:3px 0; }
+.spo-label { color:var(--text-dim); width:110px; flex-shrink:0; font-size:11px; }
+.spo-track { flex:1; height:7px; background:var(--bg4); border-radius:4px; overflow:hidden; }
+.spo-fill { height:100%; border-radius:4px; transition:width .2s; }
+.spo-val { width:36px; text-align:right; font-family:monospace; font-size:11px; color:var(--text); }
+.spo-total { margin-top:8px; padding-top:6px; border-top:1px solid var(--border); display:flex; justify-content:space-between; font-family:Orbitron,monospace; font-size:12px; }
 
 /* ── F8: Body pill detail popover ── */
 .body-detail-popover {
@@ -1020,9 +1053,117 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
 .opt-demolish { background: rgba(255,68,85,0.07); color: var(--red); }
 .opt-build   { background: rgba(77,166,255,0.07); color: var(--blue); }
 
-.opt-item .oi-icon { flex-shrink: 0; font-size: 14px; }
-.opt-item .oi-text { flex: 1; }
-.opt-item .oi-note { font-size: 11px; opacity: 0.7; margin-left: auto; }
+.opt-plan-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.opt-plan-hdr {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.plan-a-hdr { background: rgba(61,220,132,0.08); border-bottom: 1px solid rgba(61,220,132,0.2); }
+.plan-b-hdr { background: rgba(251,191,36,0.08); border-bottom: 1px solid rgba(251,191,36,0.2); }
+.plan-c-hdr { background: rgba(255,68,85,0.08); border-bottom: 1px solid rgba(255,68,85,0.2); }
+
+.plan-a-hdr h3 { color: var(--green); }
+.plan-b-hdr h3 { color: #fbbf24; }
+.plan-c-hdr h3 { color: var(--red); }
+
+.opt-plan-body { padding: 16px; }
+
+.opt-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.opt-keep    { background: rgba(61,220,132,0.07); color: var(--green); }
+.opt-demolish { background: rgba(255,68,85,0.07); color: var(--red); }
+.opt-build   { background: rgba(77,166,255,0.07); color: var(--blue); }
+
+.opt-item .oi-icon { flex-shrink: 0; font-size: 14px; margin-top:1px; }
+.opt-item .oi-text { flex: 1; line-height:1.5; }
+.opt-item .oi-note { font-size: 11px; opacity: 0.7; margin-left: auto; white-space:nowrap; }
+
+/* ── Optimizer: system snapshot card ── */
+.opt-sys-snapshot {
+  display:grid; grid-template-columns:1fr 1fr; gap:12px;
+  background:var(--bg4); border:1px solid var(--border-o);
+  border-radius:6px; padding:14px;
+}
+.opt-snap-col { display:flex; flex-direction:column; gap:6px; }
+.opt-snap-label { font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; }
+.opt-snap-val { font-size:13px; color:var(--text); }
+
+/* ── Optimizer: eco score grid ── */
+.opt-eco-grid {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:12px 0;
+}
+@media(max-width:640px){ .opt-eco-grid { grid-template-columns:repeat(2,1fr); } }
+.opt-eco-tile {
+  background:var(--bg4); border:1px solid var(--border);
+  border-radius:5px; padding:8px 10px; cursor:pointer; transition:all .15s;
+}
+.opt-eco-tile:hover { border-color:var(--orange); }
+.opt-eco-tile.active { border-color:var(--orange); background:rgba(255,106,0,0.1); }
+.opt-eco-tile .oet-name { font-size:11px; font-weight:600; margin-bottom:4px; }
+.opt-eco-tile .oet-bar { height:5px; border-radius:3px; background:var(--bg3); overflow:hidden; }
+.opt-eco-tile .oet-fill { height:100%; border-radius:3px; }
+.opt-eco-tile .oet-score { font-size:10px; color:var(--text-dim); margin-top:3px; }
+
+/* ── Optimizer: build timeline ── */
+.opt-timeline { position:relative; padding-left:28px; margin-top:8px; }
+.opt-timeline::before {
+  content:''; position:absolute; left:10px; top:4px; bottom:4px;
+  width:2px; background:var(--border);
+}
+.opt-step {
+  position:relative; margin-bottom:12px;
+  background:var(--bg4); border:1px solid var(--border);
+  border-radius:5px; padding:9px 12px;
+}
+.opt-step::before {
+  content:attr(data-step);
+  position:absolute; left:-24px; top:50%; transform:translateY(-50%);
+  width:18px; height:18px; border-radius:50%;
+  background:var(--bg3); border:2px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  font-size:9px; font-family:monospace; color:var(--orange); font-weight:700;
+  line-height:16px; text-align:center;
+}
+.opt-step.tier-1::before { border-color:#94a3b8; }
+.opt-step.tier-2::before { border-color:#4da6ff; }
+.opt-step.tier-3::before { border-color:#ffd700; }
+.opt-step-name { font-size:12px; font-weight:600; color:var(--text); margin-bottom:3px; }
+.opt-step-desc { font-size:11px; color:var(--text-dim); line-height:1.5; }
+.opt-step-warn { font-size:10px; color:var(--red); margin-top:3px; }
+
+/* ── Optimizer: cargo table ── */
+.opt-cargo-table { width:100%; border-collapse:collapse; font-size:11px; margin-top:8px; }
+.opt-cargo-table th { color:var(--text-dim); text-align:left; padding:4px 8px; border-bottom:1px solid var(--border); font-weight:500; }
+.opt-cargo-table td { padding:4px 8px; border-bottom:1px solid var(--bg4); }
+.opt-cargo-table tr:last-child td { border-bottom:none; }
+.opt-cargo-grand { font-weight:700; color:var(--orange); }
+.opt-cargo-runs  { color:var(--cyan); font-family:monospace; text-align:right; }
+
+/* ── Optimizer: warnings ── */
+.opt-warn-row {
+  display:flex; align-items:flex-start; gap:8px;
+  padding:8px 10px; margin-bottom:4px;
+  background:rgba(255,68,85,0.08); border:1px solid rgba(255,68,85,0.25);
+  border-radius:4px; font-size:11px; color:#fca5a5;
+}
 
 /* ── Economy Guide Tab ── */
 .guide-table {
@@ -1966,7 +2107,7 @@ body.density-compact .body-mini-bar { display:inline-flex !important; }
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.43</div>
+  <div class="version">v3.44</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2342,49 +2483,84 @@ body.density-compact .body-mini-bar { display:inline-flex !important; }
 ══════════════════════════════════════════ -->
 <div id="tab-optimizer" class="tab-content full-width" style="display:none">
 
-  <div class="panel" style="max-width:700px">
-    <div class="panel-hdr">
-      <span class="panel-icon">🔧</span>
-      <h3>System Optimizer</h3>
-    </div>
-    <div class="panel-body">
-      <div class="field">
-        <label for="opt-input">System Name (look up from Spansh)</label>
-        <div class="autocomplete-wrap">
-          <input type="text" id="opt-input" placeholder="Enter system name to analyze..." oninput="onOptInput()" onkeydown="acKeydown(event,'opt')" aria-activedescendant="" autocomplete="off" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-autocomplete="list" aria-owns="opt-autocomplete">
-          <div class="autocomplete-list" id="opt-autocomplete" role="listbox" aria-label="System suggestions" style="display:none"></div>
+  <!-- ── Row layout: left = controls, right = results ── -->
+  <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+
+    <!-- ── LEFT PANEL: controls ── -->
+    <div class="panel" style="flex:0 0 340px;min-width:280px;max-width:360px">
+      <div class="panel-hdr">
+        <span class="panel-icon">⚙️</span>
+        <h3>Colony Planner</h3>
+      </div>
+      <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
+
+        <!-- System search -->
+        <div class="field">
+          <label for="opt-input">System to plan</label>
+          <div class="autocomplete-wrap">
+            <input type="text" id="opt-input" placeholder="Type system name…"
+              oninput="onOptInput()" onkeydown="acKeydown(event,'opt')"
+              autocomplete="off" role="combobox" aria-expanded="false"
+              aria-haspopup="listbox" aria-autocomplete="list" aria-owns="opt-autocomplete">
+            <div class="autocomplete-list" id="opt-autocomplete" role="listbox" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- Quick-loaded system snapshot -->
+        <div id="opt-system-info" style="display:none"></div>
+
+        <!-- Economy goal -->
+        <div class="field">
+          <label>Economy Goal</label>
+          <div id="opt-eco-grid" class="opt-eco-grid">
+            <!-- filled by _buildOptEcoGrid() -->
+          </div>
+          <input type="hidden" id="opt-economy" value="auto">
+        </div>
+
+        <!-- Port type -->
+        <div class="field">
+          <label>Primary Port Type</label>
+          <select id="opt-port-type" style="width:100%;background:var(--bg4);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-size:12px">
+            <option value="orbital">Orbital (Coriolis / Orbis / Ocellus)</option>
+            <option value="surface">Surface-first (Planetary Port / Outpost)</option>
+          </select>
+        </div>
+
+        <!-- Cargo hold size -->
+        <div class="field">
+          <label>Fleet Carrier / Ship Cargo Hold <span id="opt-cargo-val" style="color:var(--orange);font-family:monospace">720 t</span></label>
+          <div class="slider-wrap">
+            <input type="range" id="opt-cargo-slider" min="100" max="25000" step="50" value="720"
+              oninput="document.getElementById('opt-cargo-val').textContent=this.value+' t'">
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:2px">Common: T9=720 · T8=332 · FC=25,000</div>
+        </div>
+
+        <button class="btn btn-primary" onclick="runOptimizer()" style="width:100%">
+          ⚡ Generate Colony Plans
+        </button>
+
+        <div id="opt-quick-ref" style="font-size:10px;color:var(--text-dim);line-height:1.7;padding:8px;background:var(--bg4);border-radius:4px">
+          <strong style="color:var(--orange)">Quick Reference</strong><br>
+          T1 = cheap filler (orb. comm. / outposts)<br>
+          T2 = core hubs &amp; settlements (primary economy)<br>
+          T3 = final starport — needs 6× T3 CPs<br>
+          Build order: T1 first to generate colony points
         </div>
       </div>
-
-      <div id="opt-system-info" style="display:none;margin-bottom:16px"></div>
-
-      <div class="field">
-        <label>Primary Goal / Desired Economy</label>
-        <select id="opt-economy">
-          <option value="auto">Auto-detect (best fit)</option>
-          <option value="Refinery">Refinery</option>
-          <option value="Agriculture">Agriculture</option>
-          <option value="Industrial">Industrial</option>
-          <option value="HighTech">High Tech</option>
-          <option value="Military">Military</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>Target Port Type</label>
-        <select id="opt-port-type">
-          <option value="orbital">Orbital (Coriolis/Orbis/Ocellus)</option>
-          <option value="surface">Surface (Planetary Port/Outpost)</option>
-        </select>
-      </div>
-
-      <button class="btn btn-primary" onclick="runOptimizer()">
-        <span>⚡</span> GENERATE OPTIMIZATION PLANS
-      </button>
     </div>
-  </div>
 
-  <div id="opt-results"></div>
+    <!-- ── RIGHT PANEL: results ── -->
+    <div style="flex:1;min-width:280px">
+      <div id="opt-results" style="min-height:200px">
+        <div style="color:var(--text-dim);font-size:13px;padding:40px 20px;text-align:center;opacity:0.5">
+          ← Search for a system and click<br><strong>Generate Colony Plans</strong>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /row layout -->
 
 </div><!-- /tab-optimizer -->
 
@@ -2557,7 +2733,7 @@ body.density-compact .body-mini-bar { display:inline-flex !important; }
 // ─── APP VERSION ─────────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH — drives header badge AND console log.
 // Change this one constant; the badge updates automatically via JS.
-const APP_VERSION = 'v3.43';
+const APP_VERSION = 'v3.44';
 document.addEventListener('DOMContentLoaded', () => {
   const badge = document.querySelector('.version');
   if (badge) badge.textContent = APP_VERSION;
@@ -3395,7 +3571,7 @@ async function appendSearch(page) {
     // by the current sort preference so Load More doesn't just tack new cards
     // on the bottom out of order.
     if (window._lastResults) window._lastResults.systems.push(...filtered);
-    // BUG-FIX v3.43: keep _allResults in sync with appended pages so
+    // BUG-FIX v3.44: keep _allResults in sync with appended pages so
     // _refilterInPlace always has the full loaded set to work from
     if (window._allResults) window._allResults.push(...newSystems);
 
@@ -3452,7 +3628,7 @@ async function runSearch(page = 0) {
   if (searchAbortController) { try { searchAbortController.abort(); } catch(e) {} }
   searchAbortController = new AbortController();
   const searchSignal = searchAbortController.signal;
-  // BUG-FIX v3.43: clear _allResults so next renderResultsProgressive populates it fresh
+  // BUG-FIX v3.44: clear _allResults so next renderResultsProgressive populates it fresh
   window._allResults = null;
 
   const btn = document.getElementById('search-btn');
@@ -3770,7 +3946,7 @@ async function runSearch(page = 0) {
 //  When using Spansh: splits [minDist, maxDist] into N sequential bands
 // ═══════════════════════════════════════════════════════════════════
 async function runDeepScan() {
-  // BUG-FIX v3.43: clear _allResults so next render starts fresh
+  // BUG-FIX v3.44: clear _allResults so next render starts fresh
   window._allResults = null;
   const btn     = document.getElementById('deep-scan-btn');
   const content = document.getElementById('finder-content');
@@ -4520,8 +4696,8 @@ function buildSystemCard(sys, idx) {
       <div style="padding:4px 0 2px">
         <button class="btn btn-secondary wl-btn" style="font-size:10px;padding:3px 8px"
           onclick="addToWatchlist(${sys.id64},{name:'${(sys.name||'').replace(/'/g,'')}',x:${sys.x||0},y:${sys.y||0},z:${sys.z||0},is_colonised:${sysIsInhabited?1:0},population:${sys.population||0}})">👁️ Watch</button>
-        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;margin-left:4px"
-          onclick="openInOptimizer('${(sys.name||'').replace(/'/g,'')}',${sys.x||0},${sys.y||0},${sys.z||0})">⚙️ Optimise</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;margin-left:4px;background:rgba(255,106,0,0.10);border-color:var(--orange-dk)"
+          onclick="openInOptimizer('${(sys.name||'').replace(/'/g,'')}',${sys.x||0},${sys.y||0},${sys.z||0},(window._allResults||[]).find(s=>s.id64===${sys.id64})||null)" title="Open Colony Planner pre-loaded with this system">🏗️ Plan Colony</button>
         <button class="btn btn-secondary similar-btn" style="font-size:10px;padding:3px 8px"
           onclick="findSimilarSystems(${JSON.stringify({name:sys.name,x:sys.x||0,y:sys.y||0,z:sys.z||0,_rating:rating})})">🔍 Similar</button>
         <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;background:rgba(255,106,0,0.15);border-color:var(--orange-dk)"
@@ -4813,24 +4989,91 @@ function buildWarningTags(sys, economy) {
 // ── F1: mini score breakdown bars for collapsed card header ──────────────────
 function buildScoreMiniBar(rating) {
   const segs = [
-    { k:'slots',         max:25, lbl:'S',  tip:'Slots' },
-    { k:'bodyQuality',   max:25, lbl:'BQ', tip:'Body<br>Quality' },
-    { k:'compactness',   max:20, lbl:'C',  tip:'Compact' },
-    { k:'signalQuality', max:15, lbl:'Sg', tip:'Signal<br>Quality' },
-    { k:'orbitalSafety', max:15, lbl:'O',  tip:'Orbital<br>Safety' },
+    { k:'slots',         max:25, lbl:'Slots',          col:'#60a5fa' },
+    { k:'bodyQuality',   max:25, lbl:'Body Quality',   col:'#3ddc84' },
+    { k:'compactness',   max:20, lbl:'Compactness',    col:'#ffd700' },
+    { k:'signalQuality', max:15, lbl:'Signals',        col:'#c084fc' },
+    { k:'orbitalSafety', max:15, lbl:'Orbital Safety', col:'#fb923c' },
   ];
+
   const parts = segs.map(s => {
     const val  = rating[s.k] || 0;
     const pct  = Math.round((val / s.max) * 100);
-    const col  = pct >= 66 ? '#3ddc84' : pct >= 33 ? '#ffd700' : '#ff1744';
-    const fill = Math.max(2, Math.round(40 * val / s.max));
-    return `<span class="sms-seg" title="${s.tip.replace(/<br>/g,' ')}: ${val}/${s.max}">` +
-      `<span class="sms-lbl">${s.tip}</span>` +
-      `<span class="sms-track"><span class="sms-fill" style="width:${fill}px;background:${col}"></span></span>` +
+    const fillH = Math.max(2, Math.round(18 * val / s.max));
+    const col  = pct >= 66 ? s.col : pct >= 33 ? '#ffd700' : '#ff1744';
+    return `<span class="sms-seg" data-lbl="${s.lbl}" data-val="${val}" data-max="${s.max}">` +
+      `<span class="sms-track"><span class="sms-fill" style="height:${fillH}px;background:${col}"></span></span>` +
       `</span>`;
   }).join('');
-  return `<span class="score-mini-wrap" onclick="event.stopPropagation()" title="Score breakdown">${parts}</span>`;
+
+  // Encode rating as data attr for the popover
+  const rd = JSON.stringify({ total: rating.total||0, slots: rating.slots||0, bodyQuality: rating.bodyQuality||0, compactness: rating.compactness||0, signalQuality: rating.signalQuality||0, orbitalSafety: rating.orbitalSafety||0, starBonus: rating.starBonus||0 });
+
+  return `<span class="score-mini-wrap" onclick="event.stopPropagation()" title="" data-rating='${rd.replace(/'/g,"&#39;")}'
+    onmouseenter="_showScorePopover(event,this)" onmouseleave="_hideScorePopover()">${parts}</span>`;
 }
+
+// Unified score popover (single element, moved to cursor)
+let _scorePopoverEl = null;
+function _showScorePopover(e, wrap) {
+  if (!_scorePopoverEl) {
+    _scorePopoverEl = document.createElement('div');
+    _scorePopoverEl.className = 'score-popover';
+    document.body.appendChild(_scorePopoverEl);
+  }
+  let rating = {};
+  try { rating = JSON.parse(wrap.dataset.rating || '{}'); } catch(_) {}
+
+  const segs = [
+    { k:'slots',         max:25, lbl:'Slots',          col:'#60a5fa' },
+    { k:'bodyQuality',   max:25, lbl:'Body Quality',   col:'#3ddc84' },
+    { k:'compactness',   max:20, lbl:'Compactness',    col:'#ffd700' },
+    { k:'signalQuality', max:15, lbl:'Signal Quality', col:'#c084fc' },
+    { k:'orbitalSafety', max:15, lbl:'Orbital Safety', col:'#fb923c' },
+    { k:'starBonus',     max:10, lbl:'Star Bonus',     col:'#f9a8d4' },
+  ];
+
+  const rows = segs.map(s => {
+    const val = rating[s.k] || 0;
+    const pct = Math.round((val / s.max) * 100);
+    const col = pct >= 66 ? s.col : pct >= 33 ? '#ffd700' : '#ff1744';
+    return `<div class="spo-row">
+      <span class="spo-label">${s.lbl}</span>
+      <span class="spo-track"><span class="spo-fill" style="width:${pct}%;background:${col}"></span></span>
+      <span class="spo-val">${val}/${s.max}</span>
+    </div>`;
+  }).join('');
+
+  const total = rating.total || 0;
+  const totCol = total >= 80 ? '#3ddc84' : total >= 60 ? '#60a5fa' : total >= 40 ? '#ffd700' : total >= 20 ? '#fb923c' : '#ff1744';
+
+  _scorePopoverEl.innerHTML = `
+    <div class="spo-title">📊 Score Breakdown</div>
+    ${rows}
+    <div class="spo-total">
+      <span style="color:var(--text-dim)">Total</span>
+      <span style="color:${totCol}">${total} / 100</span>
+    </div>`;
+
+  _scorePopoverEl.style.display = 'block';
+  _posScorePopover(e);
+}
+function _posScorePopover(e) {
+  if (!_scorePopoverEl) return;
+  const pw = _scorePopoverEl.offsetWidth || 250;
+  const ph = _scorePopoverEl.offsetHeight || 180;
+  let x = e.clientX + 14, y = e.clientY - 10;
+  if (x + pw > window.innerWidth - 10)  x = e.clientX - pw - 10;
+  if (y + ph > window.innerHeight - 10) y = window.innerHeight - ph - 10;
+  _scorePopoverEl.style.left = x + 'px';
+  _scorePopoverEl.style.top  = y + 'px';
+}
+function _hideScorePopover() {
+  if (_scorePopoverEl) _scorePopoverEl.style.display = 'none';
+}
+document.addEventListener('mousemove', e => {
+  if (_scorePopoverEl && _scorePopoverEl.style.display !== 'none') _posScorePopover(e);
+});
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildScoreBar(label, val, max) {
@@ -5231,27 +5474,64 @@ function suggestBuild(economy, sys) {
 // ═══════════════════════════════════════════════════════════════════
 let optSystem = null;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Optimizer: economy tile grid (shown in left panel)
+// ─────────────────────────────────────────────────────────────────────────────
+const OPT_ECO_META = {
+  'auto':        { label:'Auto-detect', icon:'🔍', col:'#94a3b8' },
+  'Refinery':    { label:'Refinery',    icon:'⛏️',  col:'#fb923c' },
+  'Agriculture': { label:'Agriculture', icon:'🌾',  col:'#3ddc84' },
+  'Industrial':  { label:'Industrial',  icon:'⚙️',  col:'#60a5fa' },
+  'High Tech':   { label:'High Tech',   icon:'🔬',  col:'#c084fc' },
+  'Military':    { label:'Military',    icon:'⚔️',  col:'#f87171' },
+  'Tourism':     { label:'Tourism',     icon:'🌟',  col:'#fde68a' },
+  'Extraction':  { label:'Extraction',  icon:'💎',  col:'#fbbf24' },
+};
+
+function _buildOptEcoGrid(scores) {
+  const grid = document.getElementById('opt-eco-grid');
+  if (!grid) return;
+  const maxScore = scores ? Math.max(...Object.values(scores), 1) : 1;
+  const currentVal = document.getElementById('opt-economy')?.value || 'auto';
+
+  const tiles = Object.entries(OPT_ECO_META).map(([key, meta]) => {
+    const score = scores ? (scores[key === 'High Tech' ? 'HighTech' : key] || 0) : 0;
+    const pct   = scores ? Math.round((score / maxScore) * 100) : 0;
+    const isActive = currentVal === key;
+    return `<div class="opt-eco-tile ${isActive ? 'active' : ''}" onclick="_setOptEco('${key}')"
+        title="${meta.label}${score ? ' — score: '+score : ''}">
+      <div class="oet-name" style="color:${meta.col}">${meta.icon} ${meta.label}</div>
+      ${scores ? `<div class="oet-bar"><div class="oet-fill" style="width:${pct}%;background:${meta.col}"></div></div>
+      <div class="oet-score">${score > 0 ? 'fit: '+score : 'no data'}</div>` : ''}
+    </div>`;
+  }).join('');
+  grid.innerHTML = tiles;
+}
+
+function _setOptEco(val) {
+  const inp = document.getElementById('opt-economy');
+  if (inp) inp.value = val;
+  document.querySelectorAll('.opt-eco-tile').forEach(t => t.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// loadOptSystem — fetch system data and show snapshot + eco grid
+// ─────────────────────────────────────────────────────────────────────────────
 async function loadOptSystem(name, x, y, z) {
   const info = document.getElementById('opt-system-info');
-  info.innerHTML = `<div class="loading-wrap" style="padding:20px"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div><span style="font-size:12px;color:var(--text-dim)">Loading system data...</span></div>`;
+  info.innerHTML = `<div class="loading-wrap" style="padding:16px"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div><span style="font-size:12px;color:var(--text-dim)"> Loading ${name}…</span></div>`;
   info.style.display = 'block';
+  _buildOptEcoGrid(null);  // blank grid while loading
 
   try {
-    // Try to find the system id64
     const search = await spanshFetch(`https://spansh.co.uk/api/search?q=${encodeURIComponent(name)}`);
     if (search && search.results && search.results[0]) {
-      const rec = search.results[0].record;
+      const rec  = search.results[0].record;
       const full = await spanshFetch(`https://spansh.co.uk/api/system/${rec.id64}`);
       if (full && full.record) {
         optSystem = { ...rec, ...full.record };
-        const bodies = optSystem.bodies || [];
-        info.innerHTML = `
-          <div class="panel-body" style="background:var(--bg4);border:1px solid var(--border-o);border-radius:4px">
-            <div style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);margin-bottom:8px">${optSystem.name}</div>
-            <div style="font-size:12px;color:var(--text-dim)">${bodies.length} bodies • Population: ${(optSystem.population||0).toLocaleString()} • ${optSystem.is_colonised ? '<span style="color:var(--orange)">COLONISED</span>' : '<span style="color:var(--green)">UNCLAIMED</span>'}</div>
-            <div style="margin-top:8px;flex-wrap:wrap;display:flex">${buildBodyPills(bodies)}</div>
-          </div>
-        `;
+        _renderOptSnapshot(optSystem);
         return;
       }
     }
@@ -5259,216 +5539,330 @@ async function loadOptSystem(name, x, y, z) {
 
   // Demo fallback
   optSystem = { name, x, y, z, bodies: generateDemoBodies() };
-  info.innerHTML = `<div class="info-banner">⚠️ Could not fetch live data. Using estimated system profile for "${name}".</div>`;
+  info.innerHTML = `<div class="info-banner" style="margin-bottom:8px">⚠️ Live data unavailable — using estimated profile for <strong>${name}</strong>.</div>`;
+  _buildOptEcoGrid(null);
 }
 
+function _renderOptSnapshot(sys) {
+  const info    = document.getElementById('opt-system-info');
+  const bodies  = sys.bodies || [];
+  const economy = suggestEconomy(sys);
+  const rating  = (typeof rateSystem === 'function') ? rateSystem(sys) : { total: 0 };
+
+  // Body summary
+  const btypes = {};
+  bodies.forEach(b => {
+    const s = b.subtype || b.type || 'Unknown';
+    btypes[s] = (btypes[s]||0) + 1;
+  });
+  const bodyStr = Object.entries(btypes).slice(0,5)
+    .map(([t,c]) => `${c}× ${t.replace(' world','W').replace(' body','').replace(' giant','GG')}`)
+    .join(' · ') || 'No body data';
+
+  const stars = bodies.filter(b => b.type === 'Star').map(b => b.subtype||b.name||'Star').join(', ') || sys.main_star || '?';
+  const landable = bodies.filter(b => b.is_landable).length;
+  const rings    = bodies.filter(b => b.rings && b.rings.length).length;
+  const bioCount = bodies.filter(b => (b.signals||[]).some(s=>s.name==='Biological')).length;
+  const geoCount = bodies.filter(b => (b.signals||[]).some(s=>s.name==='Geological')).length;
+
+  info.innerHTML = `
+    <div style="font-family:Orbitron,monospace;font-size:13px;color:var(--orange);margin-bottom:10px">${sys.name}</div>
+    <div class="opt-sys-snapshot">
+      <div class="opt-snap-col">
+        <div><span class="opt-snap-label">Star</span><div class="opt-snap-val">${stars}</div></div>
+        <div><span class="opt-snap-label">Bodies</span><div class="opt-snap-val">${bodies.length} total · ${landable} landable</div></div>
+        <div><span class="opt-snap-label">Rings / Signals</span><div class="opt-snap-val">${rings} ringed · ${bioCount} bio · ${geoCount} geo</div></div>
+      </div>
+      <div class="opt-snap-col">
+        <div><span class="opt-snap-label">Best Economy</span><div class="opt-snap-val" style="color:var(--orange)">${economy.primary} <span style="font-size:10px;color:${economy.confidence==='High'?'var(--green)':economy.confidence==='Medium'?'var(--gold)':'var(--red)'}">(${economy.confidence})</span></div></div>
+        <div><span class="opt-snap-label">Rating</span><div class="opt-snap-val">${rating.total}/100</div></div>
+        <div><span class="opt-snap-label">Status</span><div class="opt-snap-val" style="color:${sys.is_colonised?'var(--red)':'var(--green)'}">${sys.is_colonised?'Colonised':'Unclaimed'}</div></div>
+      </div>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text-dim)">${bodyStr}</div>
+  `;
+
+  // Fill eco tiles with real scores
+  _buildOptEcoGrid(economy.scores);
+
+  // Auto-select best economy
+  const bestKey = economy.primary === 'High Tech' ? 'High Tech' : economy.primary;
+  document.getElementById('opt-economy').value = bestKey;
+  document.querySelectorAll('.opt-eco-tile').forEach(t => {
+    t.classList.toggle('active', t.onclick?.toString().includes(`'${bestKey}'`));
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// runOptimizer
+// ─────────────────────────────────────────────────────────────────────────────
 async function runOptimizer() {
   const results = document.getElementById('opt-results');
   if (!optSystem) {
-    results.innerHTML = `<div class="error-banner">⚠️ Please select a system first by typing in the search box above.</div>`;
+    results.innerHTML = `<div class="error-banner">⚠️ Select a system first.</div>`;
     return;
   }
 
   const targetEco = document.getElementById('opt-economy').value;
-  const portType = document.getElementById('opt-port-type').value;
+  const portType  = document.getElementById('opt-port-type').value;
+  const cargo     = parseInt(document.getElementById('opt-cargo-slider')?.value) || 720;
 
-  const economy = targetEco === 'auto'
+  const economy = (targetEco === 'auto' || targetEco === '')
     ? suggestEconomy(optSystem)
     : { primary: targetEco === 'HighTech' ? 'High Tech' : targetEco, confidence: 'High', reason: 'User specified' };
 
-  results.innerHTML = buildOptimizationPlans(optSystem, economy, portType);
+  results.innerHTML = buildOptimizationPlans(optSystem, economy, portType, cargo);
 }
 
-function buildOptimizationPlans(sys, economy, portType) {
-  const eco = economy.primary;
+// ─────────────────────────────────────────────────────────────────────────────
+// buildOptimizationPlans — top-level container
+// ─────────────────────────────────────────────────────────────────────────────
+function buildOptimizationPlans(sys, economy, portType, cargo) {
+  const eco    = economy.primary;
   const bodies = sys.bodies || [];
+  const ecoMeta = OPT_ECO_META[eco] || { icon:'⚙️', col:'#94a3b8' };
+
+  // Warnings panel
+  const warnings = _gatherOptWarnings(sys, eco);
+  const warnHtml = warnings.length ? `
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:600;color:var(--red);margin-bottom:6px">⚠️ System Warnings</div>
+      ${warnings.map(w => `<div class="opt-warn-row">⚠️ ${w}</div>`).join('')}
+    </div>` : '';
 
   return `
-    <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);margin-bottom:16px;letter-spacing:2px">
-      OPTIMIZATION PLANS — ${sys.name} → ${eco.toUpperCase()}
-    </h2>
+    <div style="font-family:Orbitron,monospace;font-size:13px;color:var(--orange);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+      ${ecoMeta.icon} <span>${eco.toUpperCase()} COLONY PLAN</span>
+      <span style="font-family:Rajdhani,sans-serif;font-size:11px;color:var(--text-dim);font-weight:400;margin-left:4px">— ${sys.name}</span>
+    </div>
+    ${warnHtml}
 
-    <!-- PLAN A: Low Disruption -->
+    <!-- PLAN A -->
     <div class="opt-plan-card">
       <div class="opt-plan-hdr plan-a-hdr" onclick="toggleCard(this)">
-        <span style="font-size:18px">🟢</span>
+        <span style="font-size:16px">🟢</span>
         <div>
-          <h3 style="font-family:Orbitron,monospace;font-size:13px;font-weight:700;letter-spacing:1px">PLAN A — Low Disruption</h3>
-          <div style="font-size:12px;color:var(--text-dim);margin-top:2px">Keep all existing structures. Add to empty slots only. Zero demolition.</div>
+          <h3 style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;letter-spacing:1px">PLAN A — Low Disruption</h3>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:2px">Add to empty slots only. Keep all existing structures. Zero demolition.</div>
         </div>
         <span class="chevron" style="margin-left:auto;color:var(--text-dim)">▼</span>
       </div>
-      <div class="opt-plan-body">
-        ${buildPlanA(sys, eco, portType)}
+      <div class="opt-plan-body" style="display:none">
+        ${buildPlanA(sys, eco, portType, cargo)}
       </div>
     </div>
 
-    <!-- PLAN B: Moderate -->
+    <!-- PLAN B -->
     <div class="opt-plan-card">
       <div class="opt-plan-hdr plan-b-hdr" onclick="toggleCard(this)">
-        <span style="font-size:18px">🟡</span>
+        <span style="font-size:16px">🟡</span>
         <div>
-          <h3 style="font-family:Orbitron,monospace;font-size:13px;font-weight:700;letter-spacing:1px">PLAN B — Moderate Renovation</h3>
-          <div style="font-size:12px;color:var(--text-dim);margin-top:2px">Demolish only most harmful structures. Targeted replacements for maximum improvement.</div>
+          <h3 style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;letter-spacing:1px">PLAN B — Targeted Renovation</h3>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:2px">Remove only the worst economy contaminators. Targeted rebuilds for max improvement.</div>
         </div>
         <span class="chevron" style="margin-left:auto;color:var(--text-dim)">▼</span>
       </div>
-      <div class="opt-plan-body">
-        ${buildPlanB(sys, eco, portType)}
+      <div class="opt-plan-body" style="display:none">
+        ${buildPlanB(sys, eco, portType, cargo)}
       </div>
     </div>
 
-    <!-- PLAN C: Full Redesign -->
+    <!-- PLAN C -->
     <div class="opt-plan-card">
       <div class="opt-plan-hdr plan-c-hdr" onclick="toggleCard(this)">
-        <span style="font-size:18px">🔴</span>
+        <span style="font-size:16px">🔴</span>
         <div>
-          <h3 style="font-family:Orbitron,monospace;font-size:13px;font-weight:700;letter-spacing:1px">PLAN C — Full Redesign</h3>
-          <div style="font-size:12px;color:var(--text-dim);margin-top:2px">Nothing off the table. Theoretical maximum output from scratch.</div>
+          <h3 style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;letter-spacing:1px">PLAN C — Optimal Redesign</h3>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:2px">Theoretical max. Demolish everything — rebuild from scratch for the best possible economy.</div>
         </div>
         <span class="chevron" style="margin-left:auto;color:var(--text-dim)">▼</span>
       </div>
-      <div class="opt-plan-body">
-        ${buildPlanC(sys, eco, portType)}
+      <div class="opt-plan-body" style="display:none">
+        ${buildPlanC(sys, eco, portType, cargo)}
       </div>
     </div>
   `;
 }
 
-function buildPlanA(sys, eco, portType) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared: gather system-level warnings for the chosen economy
+// ─────────────────────────────────────────────────────────────────────────────
+function _gatherOptWarnings(sys, eco) {
   const bodies = sys.bodies || [];
-  const existing = sys.stations || [];
+  const warns  = [];
 
+  if (eco === 'Refinery') {
+    const geo = bodies.filter(b => (b.signals||[]).some(s=>s.name==='Geological'));
+    const icy = bodies.filter(b => b.subtype==='Icy body' || b.subtype==='Rocky Ice world');
+    if (geo.length) warns.push(`${geo.length} body/bodies with Geological signals — building on these will contaminate Refinery with Industrial. Avoid them entirely.`);
+    if (icy.length) warns.push(`${icy.length} icy/rocky-ice body/bodies present — surface builds here add Industrial contamination. Use orbital comms stations as fillers instead.`);
+  } else if (eco === 'Agriculture') {
+    const tidal = bodies.filter(b => b.is_rotational_period_tidally_locked && b.type === 'Planet');
+    if (tidal.length) warns.push(`${tidal.length} tidally-locked planet(s) detected — Agriculture strong link penalty (−0.4) if you build here. Target non-locked bodies.`);
+    const noTerra = !bodies.some(b => b.terraforming_state && b.terraforming_state !== 'Not terraformable');
+    if (noTerra) warns.push('No terraformable bodies detected — Agriculture will be weaker. Ideal setup needs terraformable+bio planet.');
+  } else if (eco === 'Industrial') {
+    const pureIcy = bodies.filter(b => b.subtype==='Icy body' && !(b.signals||[]).length);
+    if (!pureIcy.length) warns.push('No pure icy bodies (no signals, no volcanism) found — optimal Industrial orbital build may not be achievable. Consider surface approach instead.');
+  } else if (eco === 'High Tech') {
+    const amm = bodies.some(b => b.subtype==='Ammonia world');
+    if (!amm) warns.push('No Ammonia world found — H.E. Suits will NOT be produced. Icy+Geo approach works but misses this valuable commodity.');
+  } else if (eco === 'Military') {
+    const hasHub = (sys.stations||[]).some(s => (s.type||'').toLowerCase().includes('military'));
+    if (!hasHub) warns.push('Military Hub requires Military Settlement as prerequisite. Build the settlement first, then unlock the hub.');
+  } else if (eco === 'Tourism') {
+    const premium = bodies.some(b => ['Earth-like world','Water world','Ammonia world'].includes(b.subtype) || (b.subtype||'').includes('Neutron') || (b.subtype||'').includes('Black Hole'));
+    if (!premium) warns.push('No ELW, Water World, Ammonia World, Neutron Star or Black Hole found — Tourism will be weaker. Consider mixing with High Tech instead.');
+  }
+
+  // Generic: existing contaminators
+  if (sys.stations && sys.stations.length) {
+    const contam = identifyHarmfulStructures(sys.stations, eco);
+    if (contam.length) warns.push(`${contam.length} existing structure(s) identified as potential economy contaminators (see Plan B/C for details).`);
+  }
+
+  return warns;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan A — add-only, no demolition
+// ─────────────────────────────────────────────────────────────────────────────
+function buildPlanA(sys, eco, portType, cargo) {
+  const bodies   = sys.bodies || [];
+  const existing = sys.stations || [];
   const addItems = getAddOnlyRecommendations(eco, bodies, portType);
 
+  const keepHtml = existing.length
+    ? existing.map(s => `<div class="opt-item opt-keep"><span class="oi-icon">✅</span><span class="oi-text"><strong>${s.name||'Station'}</strong><br><span style="font-size:10px;opacity:0.7">${s.type||'Unknown type'}</span></span><span class="oi-note">Keep</span></div>`).join('')
+    : `<div style="color:var(--text-dim);font-size:11px;padding:6px">No existing structures in Spansh data</div>`;
+
+  const timelineHtml = `<div class="opt-timeline">${addItems.map((item, i) => {
+    const warn = _optContamWarn(eco, bodies, item.name);
+    return `<div class="opt-step tier-${item.tier||1}" data-step="${i+1}">
+      <div class="opt-step-name">${item.name} <span class="step-tier tier-${item.tier||1}" style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">T${item.tier||1}</span></div>
+      <div class="opt-step-desc">${item.note}</div>
+      ${warn ? `<div class="opt-step-warn">⚠️ ${warn}</div>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+
   return `
-    <div class="sec-hdr">Keep All Existing</div>
-    ${existing.length
-      ? existing.map(s => `<div class="opt-item opt-keep"><span class="oi-icon">✅</span><span class="oi-text">${s.name || 'Station'} (${s.type||'Unknown'})</span><span class="oi-note">Keep</span></div>`).join('')
-      : '<div style="color:var(--text-dim);font-size:12px;padding:8px">No existing structures detected in Spansh data</div>'
-    }
-
-    <div class="sec-hdr" style="margin-top:14px">New Additions (empty slots only)</div>
-    ${addItems.map(i => {
-      const warn = _optContamWarn(eco, bodies, i.name);
-      return `<div class="opt-item opt-build"><span class="oi-icon">🔨</span><span class="oi-text">${i.name}${warn ? `<br><span style="color:var(--red);font-size:10px">⚠️ ${warn}</span>` : ''}</span><span class="oi-note">${i.note}</span></div>`;
-    }).join('')}
-
-    <div class="info-banner" style="margin-top:12px">
-      💡 Plan A is the safest option. It respects all existing investment and only fills unused build slots.
-      Economy improvement depends on current contamination levels and available slots.
-    </div>
-    ${_planCostHTML(addItems)}
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">All existing investment preserved. New builds go into free slots only.</div>
+    <div class="sec-hdr">Existing (Keep All)</div>
+    ${keepHtml}
+    <div class="sec-hdr" style="margin-top:14px">New Build Order</div>
+    ${timelineHtml}
+    <div class="info-banner" style="margin-top:10px">💡 <strong>Plan A</strong> is the lowest-risk option. Economy gains depend on current contamination levels and available build slots.</div>
+    ${_planCostHTML(addItems, cargo)}
   `;
 }
 
-function buildPlanB(sys, eco, portType) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan B — remove worst offenders, targeted replacements
+// ─────────────────────────────────────────────────────────────────────────────
+function buildPlanB(sys, eco, portType, cargo) {
+  const bodies   = sys.bodies || [];
   const existing = sys.stations || [];
-  const bodies = sys.bodies || [];
-
-  const harmful = identifyHarmfulStructures(existing, eco);
-  const keep = existing.filter(s => !harmful.includes(s));
+  const harmful  = identifyHarmfulStructures(existing, eco);
+  const keep     = existing.filter(s => !harmful.includes(s));
   const addItems = getModerateRecommendations(eco, bodies, portType);
 
+  const keepHtml = keep.length
+    ? keep.map(s => `<div class="opt-item opt-keep"><span class="oi-icon">✅</span><span class="oi-text"><strong>${s.name||'Station'}</strong><br><span style="font-size:10px;opacity:0.7">${s.type||'Unknown'}</span></span><span class="oi-note">Keep</span></div>`).join('')
+    : `<div style="color:var(--text-dim);font-size:11px;padding:6px">Nothing to keep / no existing data</div>`;
+
+  const demolishHtml = harmful.length
+    ? harmful.map(s => `<div class="opt-item opt-demolish"><span class="oi-icon">💣</span><span class="oi-text"><strong>${s.name||'Station'}</strong><br><span style="font-size:10px;opacity:0.7">${s.type||'Unknown'} — contaminates ${eco}</span></span><span class="oi-note">Remove</span></div>`).join('')
+    : `<div style="color:var(--text-dim);font-size:11px;padding:6px">No clearly harmful structures identified</div>`;
+
+  const timelineHtml = `<div class="opt-timeline">${addItems.map((item, i) => {
+    const warn = _optContamWarn(eco, bodies, item.name);
+    return `<div class="opt-step tier-${item.tier||1}" data-step="${i+1}">
+      <div class="opt-step-name">${item.name} <span class="step-tier tier-${item.tier||1}" style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">T${item.tier||1}</span></div>
+      <div class="opt-step-desc">${item.note}</div>
+      ${warn ? `<div class="opt-step-warn">⚠️ ${warn}</div>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+
   return `
-    <div class="sec-hdr">Structures to Keep</div>
-    ${keep.length
-      ? keep.map(s => `<div class="opt-item opt-keep"><span class="oi-icon">✅</span><span class="oi-text">${s.name||'Station'} (${s.type||'Unknown'})</span><span class="oi-note">Keep</span></div>`).join('')
-      : '<div style="color:var(--text-dim);font-size:12px;padding:8px">No existing structures detected</div>'
-    }
-
-    <div class="sec-hdr" style="margin-top:14px">Demolish (Economy Contaminators)</div>
-    ${harmful.length
-      ? harmful.map(s => `<div class="opt-item opt-demolish"><span class="oi-icon">💣</span><span class="oi-text">${s.name||'Station'} (${s.type||'Unknown'})</span><span class="oi-note">Remove — contaminating ${eco}</span></div>`).join('')
-      : '<div style="color:var(--text-dim);font-size:12px;padding:8px">No clearly harmful structures identified</div>'
-    }
-
-    <div class="sec-hdr" style="margin-top:14px">Replacements & New Builds</div>
-    ${addItems.map(i => {
-      const warn = _optContamWarn(eco, bodies, i.name);
-      return `<div class="opt-item opt-build"><span class="oi-icon">🔨</span><span class="oi-text">${i.name}${warn ? `<br><span style="color:var(--red);font-size:10px">⚠️ ${warn}</span>` : ''}</span><span class="oi-note">${i.note}</span></div>`;
-    }).join('')}
-
-    <div class="info-banner" style="margin-top:12px">
-      💡 Plan B targets only the most economy-damaging structures for removal.
-      Expect 20–40% economy improvement over Plan A in contaminated systems.
-    </div>
-    ${_planCostHTML([...addItems])}
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Demolish only the most damaging structures. Expected 20–40% economy improvement over Plan A in contaminated systems.</div>
+    <div class="sec-hdr">Keep</div>${keepHtml}
+    <div class="sec-hdr" style="margin-top:12px">Demolish (Economy Contaminators)</div>${demolishHtml}
+    <div class="sec-hdr" style="margin-top:12px">Replacements &amp; New Builds</div>${timelineHtml}
+    <div class="info-banner" style="margin-top:10px">💡 <strong>Plan B</strong> offers the best economy/disruption balance. Demolishing even 1–2 contaminators can significantly improve ${eco} output.</div>
+    ${_planCostHTML(addItems, cargo)}
   `;
 }
 
-function buildPlanC(sys, eco, portType) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan C — full redesign, optimal from scratch
+// ─────────────────────────────────────────────────────────────────────────────
+function buildPlanC(sys, eco, portType, cargo) {
+  const bodies   = sys.bodies || [];
   const existing = sys.stations || [];
-  const bodies = sys.bodies || [];
   const fullBuild = suggestBuild({ primary: eco }, sys);
 
+  const demolishHtml = existing.length
+    ? existing.map(s => `<div class="opt-item opt-demolish"><span class="oi-icon">💣</span><span class="oi-text"><strong>${s.name||'Station'}</strong><br><span style="font-size:10px;opacity:0.7">${s.type||'Unknown'}</span></span><span class="oi-note">Remove</span></div>`).join('')
+    : `<div style="color:var(--text-dim);font-size:11px;padding:6px">No existing structures to demolish</div>`;
+
+  const timelineHtml = `<div class="opt-timeline">${fullBuild.steps.map((step, i) => {
+    const warn = _optContamWarn(eco, bodies, step.name);
+    return `<div class="opt-step tier-${step.tier||1}" data-step="${i+1}">
+      <div class="opt-step-name">${step.name} <span class="step-tier tier-${step.tier||1}" style="font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">T${step.tier}</span></div>
+      <div class="opt-step-desc">${step.desc}</div>
+      ${warn ? `<div class="opt-step-warn">⚠️ ${warn}</div>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+
   return `
-    <div class="sec-hdr">Demolish All Existing</div>
-    ${existing.length
-      ? existing.map(s => `<div class="opt-item opt-demolish"><span class="oi-icon">💣</span><span class="oi-text">${s.name||'Station'} (${s.type||'Unknown'})</span><span class="oi-note">Remove</span></div>`).join('')
-      : '<div style="color:var(--text-dim);font-size:12px;padding:8px">No existing structures to demolish</div>'
-    }
-
-    <div class="sec-hdr" style="margin-top:14px">Optimal Rebuild — ${eco}</div>
-    ${fullBuild.steps.map((step, i) =>
-      `<div class="opt-item opt-build"><span class="oi-icon">🔨</span>
-       <span class="oi-text"><strong>Step ${i+1}:</strong> ${step.name}<br>
-       <span style="font-size:11px;color:var(--text-dim)">${step.desc}</span></span>
-       <span class="oi-note tier-${step.tier}" style="border:none;background:none">T${step.tier}</span>
-       </div>`
-    ).join('')}
-
-    ${fullBuild.notes ? `<div class="info-banner" style="margin-top:12px">💡 ${fullBuild.notes}</div>` : ''}
-
-    <div style="margin-top:12px;padding:12px;background:rgba(255,68,85,0.06);border:1px solid rgba(255,68,85,0.2);border-radius:4px;font-size:12px;color:#f87171">
-      ⚠️ <strong>Warning:</strong> Full redesign requires demolishing ALL existing structures.
-      This is a complete system rebuild. Consider the hauling cost and time investment carefully.
-      Plan C gives the theoretical maximum economy output for this system.
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Complete rebuild for theoretical maximum ${eco} economy output.</div>
+    <div class="sec-hdr">Demolish All Existing</div>${demolishHtml}
+    <div class="sec-hdr" style="margin-top:12px">Optimal Build Sequence</div>${timelineHtml}
+    ${fullBuild.notes ? `<div class="info-banner" style="margin-top:10px">💡 ${fullBuild.notes}</div>` : ''}
+    <div style="margin-top:10px;padding:10px 12px;background:rgba(255,68,85,0.06);border:1px solid rgba(255,68,85,0.2);border-radius:4px;font-size:11px;color:#f87171">
+      ⚠️ <strong>Warning:</strong> Full redesign requires demolishing ALL existing structures. This is irreversible. Plan C gives the theoretical maximum but carries the highest risk and hauling cost.
     </div>
-    ${_planCostHTML(fullBuild.steps || [])}
+    ${_planCostHTML(fullBuild.steps, cargo)}
   `;
 }
 
-// F5: contamination risk helper — returns warning string or null
+// ─────────────────────────────────────────────────────────────────────────────
+// Contamination risk warning per structure
+// ─────────────────────────────────────────────────────────────────────────────
 function _optContamWarn(eco, bodies, structureName) {
   const name = structureName.toLowerCase();
   const warnings = [];
   if (eco === 'Refinery') {
     const hasGeoBody = bodies.some(b => (b.signals||[]).some(s=>s.name==='Geological'));
-    if (hasGeoBody && (name.includes('hub') || name.includes('outpost') || name.includes('settlement'))) {
-      warnings.push('Geological bodies detected — build location must avoid them or Refinery will be contaminated');
-    }
-    const icy = bodies.filter(b => b.subtype === 'Icy body' || b.subtype === 'Rocky Ice world');
-    if (icy.length && name.includes('hub')) {
-      warnings.push('Icy/Rocky-Ice bodies present — building here will contaminate Refinery with Industrial');
-    }
+    if (hasGeoBody && (name.includes('hub') || name.includes('outpost') || name.includes('settlement')))
+      warnings.push('Geo bodies present — avoid building on them or Refinery will be contaminated');
+    const icy = bodies.filter(b => b.subtype==='Icy body' || b.subtype==='Rocky Ice world');
+    if (icy.length && name.includes('hub'))
+      warnings.push('Icy/Rocky-Ice bodies present — surface hub here adds Industrial contamination');
   } else if (eco === 'Agriculture') {
-    const tidalLocked = bodies.filter(b => b.is_rotational_period_tidally_locked && b.type === 'Planet');
-    if (tidalLocked.length && (name.includes('settlement') || name.includes('farm'))) {
-      warnings.push('Tidally locked bodies present — placement on them applies -0.4 Agriculture penalty');
-    }
+    const tidalLocked = bodies.filter(b => b.is_rotational_period_tidally_locked && b.type==='Planet');
+    if (tidalLocked.length && (name.includes('settlement') || name.includes('farm')))
+      warnings.push('Tidally locked bodies present — Agriculture strong link penalty −0.4 if placed here');
   } else if (eco === 'High Tech') {
-    const bioOnBodies = bodies.some(b => (b.signals||[]).some(s=>s.name==='Biological') && b.subtype !== 'Ammonia world');
-    if (bioOnBodies && name.includes('research')) {
+    const bioOnBodies = bodies.some(b => (b.signals||[]).some(s=>s.name==='Biological') && b.subtype!=='Ammonia world');
+    if (bioOnBodies && name.includes('research'))
       warnings.push('Bio signals without Ammonia World — H.E. Suits will NOT be produced at this port');
-    }
   }
   return warnings.length ? warnings[0] : null;
 }
 
-// ── G1: Per-plan material cost estimator ─────────────────────────
-// Maps build-step names to per-structure commodity costs (tonnes).
-// Figures are approximate Tier 1/2/3 averages from community data.
+// ─────────────────────────────────────────────────────────────────────────────
+// Cost table builder
+// ─────────────────────────────────────────────────────────────────────────────
 const STRUCT_COSTS = {
-  // Tier 1 orbitals / small
   'Orbital Communication Station': { Steel:350, Aluminium:280, CMM_Composite:210 },
   'Orbital Communication Station ×2': { Steel:700, Aluminium:560, CMM_Composite:420 },
+  'Orbital Communication Station ×3': { Steel:1050, Aluminium:840, CMM_Composite:630 },
   'Vista Genomics Branch': { Steel:320, Structural_Regulators:180, CMM_Composite:160 },
   'Research Station (orbital)': { Steel:480, Structural_Regulators:260, CMM_Composite:200 },
   'Security Orbital Installation': { Steel:420, CMM_Composite:180, Aluminium:160 },
   'Civilian Planetary Outpost': { Steel:600, CMM_Composite:320, Aluminium:240 },
   'Space Farm (orbital)': { Steel:520, Water:380, CMM_Composite:200 },
-  // Tier 2 hubs / settlements
   'Coriolis Starport': { Steel:8800, CMM_Composite:5600, Aluminium:4200, Titanium:2400 },
   'Refinery Hub': { Steel:9200, CMM_Composite:5800, Aluminium:4600, Titanium:2800 },
   'Agricultural Hub': { Steel:8600, CMM_Composite:5400, Aluminium:4000, Water:1800 },
@@ -5476,97 +5870,112 @@ const STRUCT_COSTS = {
   'High Tech Hub': { Steel:8800, CMM_Composite:6000, Structural_Regulators:3400, Titanium:2200 },
   'Military Hub': { Steel:9000, CMM_Composite:5800, Aluminium:4400, Titanium:3000 },
   'Tourist Installation': { Steel:7800, CMM_Composite:4800, Aluminium:3600, Titanium:1800 },
+  'T2 Agricultural Settlement (Large)': { Steel:7200, CMM_Composite:4400, Aluminium:3200, Water:2200 },
   'T2 Agricultural Settlement Large': { Steel:7200, CMM_Composite:4400, Aluminium:3200, Water:2200 },
+  'T2 Industrial Settlement (Large)': { Steel:7600, CMM_Composite:4800, Aluminium:3600, Titanium:2400 },
+  'T2 Military Installation': { Steel:8200, CMM_Composite:5000, Titanium:3200 },
+  'T2 Medical Research Installation': { Steel:7400, CMM_Composite:5200, Structural_Regulators:2800 },
+  'T2 Research Bio Settlement (Large)': { Steel:7200, CMM_Composite:5000, Structural_Regulators:2600 },
+  'T2 Tourist Installation': { Steel:7000, CMM_Composite:4400, Aluminium:3200 },
+  'Military Settlement (Large)': { Steel:6800, CMM_Composite:4200, Aluminium:3000, Titanium:2200 },
   'Asteroid Base': { Steel:9600, CMM_Composite:6400, Titanium:3600, Aluminium:4800 },
-  // Tier 3 starports
   'Orbis/Ocellus Starport': { Steel:52000, CMM_Composite:38000, Aluminium:32000, Titanium:22000, Liquid_Oxygen:8000 },
   'Orbis Starport': { Steel:52000, CMM_Composite:38000, Aluminium:32000, Titanium:22000, Liquid_Oxygen:8000 },
   'Ocellus Starport': { Steel:52000, CMM_Composite:38000, Aluminium:32000, Titanium:22000, Liquid_Oxygen:8000 },
-  'Hotel Starport': { Steel:48000, CMM_Composite:34000, Aluminium:28000, Titanium:18000, Liquid_Oxygen:6000 },
+  'Hotel Starport (optional)': { Steel:48000, CMM_Composite:34000, Aluminium:28000, Titanium:18000, Liquid_Oxygen:6000 },
   'Planetary Port': { Steel:46000, CMM_Composite:32000, Aluminium:26000, Titanium:16000 },
 };
 
 function _normStructName(name) {
-  // Strip leading 'Step N: ' and trailing tier info
   return name.replace(/^Step \d+:\s*/,'').replace(/\s*\(T\d\)/i,'').trim();
 }
 
-function _planCostHTML(steps, cargoHold) {
-  // steps: array of {name:string}  (from suggestBuild or inline lists)
+function _planCostHTML(steps, cargo) {
   const totals = {};
   steps.forEach(s => {
     const norm = _normStructName(s.name || s);
-    // Try exact match first, then partial
     let costs = STRUCT_COSTS[norm];
     if (!costs) {
       const key = Object.keys(STRUCT_COSTS).find(k => norm.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(norm.toLowerCase()));
       if (key) costs = STRUCT_COSTS[key];
     }
-    if (costs) {
-      Object.entries(costs).forEach(([c, qty]) => {
-        totals[c.replace(/_/g,' ')] = (totals[c.replace(/_/g,' ')] || 0) + qty;
-      });
-    }
+    if (costs) Object.entries(costs).forEach(([c, qty]) => {
+      totals[c.replace(/_/g,' ')] = (totals[c.replace(/_/g,' ')]||0) + qty;
+    });
   });
   if (!Object.keys(totals).length) return '';
 
-  const cargo = parseInt(cargoHold) || 720; // default T9 cargo
+  const cargoHold   = parseInt(cargo) || 720;
   const totalTonnes = Object.values(totals).reduce((s,v)=>s+v,0);
-  const runs = Math.ceil(totalTonnes / cargo);
+  const totalRuns   = Math.ceil(totalTonnes / cargoHold);
 
-  const rows = Object.entries(totals)
-    .sort((a,b)=>b[1]-a[1])
-    .map(([c,qty]) => `<tr><td style="color:var(--text)">${c}</td><td style="text-align:right;color:var(--cyan);font-family:monospace">${qty.toLocaleString()} t</td><td style="text-align:right;color:var(--text-dim)">~${Math.ceil(qty/cargo)} runs</td></tr>`)
-    .join('');
+  const rows = Object.entries(totals).sort((a,b)=>b[1]-a[1]).map(([c,qty]) =>
+    `<tr><td>${c}</td><td class="opt-cargo-runs">${qty.toLocaleString()} t</td><td class="opt-cargo-runs">${Math.ceil(qty/cargoHold)} runs</td></tr>`
+  ).join('');
 
   return `
-  <div class="cost-summary">
-    <div class="cost-summary-hdr" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
-      📦 Hauling Estimate <span style="font-size:10px;color:var(--text-dim);margin-left:8px">▼ expand</span>
-      <span style="margin-left:auto;font-size:10px"><strong style="color:var(--gold)">${totalTonnes.toLocaleString()} t total</strong> · <span style="color:var(--orange)">${runs} runs</span> @ ${cargo} t</span>
-    </div>
-    <div style="display:none">
-      <div style="padding:6px 10px 2px;font-size:10px;color:var(--text-dim)">
-        Cargo hold: <input type="number" value="${cargo}" min="50" max="800" step="10" style="width:55px;background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 4px;font-size:10px"
-          oninput="this.closest('.cost-summary').querySelectorAll('[data-runs]').forEach(el=>{const r=Math.ceil(parseInt(el.dataset.qty||0)/Math.max(1,parseInt(this.value)));el.textContent='~'+r+' runs';});
-                   const total=parseInt(this.closest('.cost-summary').querySelector('[data-total]')?.dataset.total||0);
-                   const pr=this.closest('.cost-summary').querySelector('.cost-runs');if(pr)pr.textContent=Math.ceil(total/Math.max(1,parseInt(this.value)))+' runs @ '+this.value+' t';" > t
-      </div>
-      <table class="cost-table" style="padding:0 2px 6px">
-        <thead><tr><td style="color:var(--text-dim);font-size:10px;padding:4px 10px">Commodity</td><td style="color:var(--text-dim);font-size:10px;text-align:right;padding:4px 10px">Qty</td><td style="color:var(--text-dim);font-size:10px;text-align:right;padding:4px 10px">Runs</td></tr></thead>
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:11px;color:var(--orange);padding:6px 0;user-select:none">📦 Material Cost Estimate (${cargoHold.toLocaleString()} t hold)</summary>
+      <table class="opt-cargo-table" style="margin-top:6px">
+        <thead><tr><th>Commodity</th><th style="text-align:right">Qty</th><th style="text-align:right">Runs</th></tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr class="cost-total-row"><td>TOTAL</td><td style="text-align:right;font-family:monospace" data-total="${totalTonnes}">${totalTonnes.toLocaleString()} t</td><td style="text-align:right"><span class="cost-runs">${runs} runs @ ${cargo} t</span></td></tr></tfoot>
+        <tfoot><tr class="opt-cargo-grand">
+          <td>TOTAL</td>
+          <td class="opt-cargo-runs">${totalTonnes.toLocaleString()} t</td>
+          <td class="opt-cargo-runs">${totalRuns} runs</td>
+        </tr></tfoot>
       </table>
-    </div>
-  </div>`;
+    </details>`;
 }
 
 function getAddOnlyRecommendations(eco, bodies, portType) {
   const items = [];
   if (eco === 'Refinery') {
-    items.push({ name:'Orbital Communication Station', note:'T1 filler — generates T2 CP, no economy contamination' });
-    items.push({ name:'Refinery Hub', note:'T2 — adds +0.8 Refinery strong link' });
-    items.push({ name:'Civilian Planetary Outpost', note:'T1 — surface Refinery goods access' });
+    items.push({ name:'Orbital Communication Station', note:'T1 filler — generates T2 CP, no economy contamination', tier:1 });
+    items.push({ name:'Refinery Hub', note:'T2 — +0.8 Refinery strong link per hub. Place on pure Rocky body (no signals).', tier:2 });
+    items.push({ name:'Civilian Planetary Outpost', note:'T1 — surface Refinery goods access. Safe on Rocky bodies.', tier:1 });
+    items.push({ name:'Coriolis Starport', note:'T2 — primary port. Build in orbit above chosen Rocky/Metal-Rich body.', tier:2 });
   } else if (eco === 'Agriculture') {
-    items.push({ name:'Space Farm (orbital)', note:'T1 — orbital Agriculture boost' });
-    items.push({ name:'T2 Agricultural Settlement (Large)', note:'T2 — +0.8 Agriculture strong link' });
+    items.push({ name:'Space Farm (orbital)', note:'T1 orbital — Agriculture boost. Place above non-tidal body.', tier:1 });
+    items.push({ name:'T2 Agricultural Settlement (Large)', note:'T2 — +0.8 Agriculture strong link. Must NOT be tidally locked.', tier:2 });
+    items.push({ name:'Orbital Communication Station ×2', note:'T1 filler — cheap, no economy contamination', tier:1 });
+    items.push({ name:'Coriolis Starport', note:'T2 — ideally above ELW/WW for max population multiplier.', tier:2 });
   } else if (eco === 'Industrial') {
-    items.push({ name:'T2 Industrial Settlement (Large)', note:'T2 — primary Industrial driver' });
-    items.push({ name:'Industrial Hub', note:'T2 — +0.8 Industrial strong link' });
+    items.push({ name:'T2 Industrial Settlement (Large)', note:'T2 — primary Industrial driver. Best on pure Icy body.', tier:2 });
+    items.push({ name:'Industrial Hub', note:'T2 — +0.8 Industrial strong link', tier:2 });
+    items.push({ name:'Orbital Communication Station ×3', note:'T1 fillers — no economy, boosts security and CP generation', tier:1 });
+    items.push({ name:'Coriolis Starport', note:'T2 — build above pure Icy body (no signals, no volcanism)', tier:2 });
   } else if (eco === 'High Tech') {
-    items.push({ name:'T2 Medical Research Installation', note:'T2 orbital — strong HiTech link' });
-    items.push({ name:'Research Station', note:'T1 orbital — additional HiTech' });
+    items.push({ name:'T2 Medical Research Installation', note:'T2 orbital — strong High Tech link. Best above Ammonia World.', tier:2 });
+    items.push({ name:'Vista Genomics Branch', note:'T1 orbital — exobiology service + High Tech link', tier:1 });
+    items.push({ name:'Research Station (orbital)', note:'T1 orbital — additional High Tech boost', tier:1 });
+    items.push({ name:'Coriolis Starport', note:'T2 — best above Ammonia World (no rings, no bio) for H.E. Suits', tier:2 });
   } else if (eco === 'Military') {
-    items.push({ name:'T2 Military Installation (orbital)', note:'T2 — core Military driver' });
-    items.push({ name:'Security Orbital Installation', note:'T1 — security + Military link' });
+    items.push({ name:'Military Settlement (Large)', note:'T2 — build FIRST. Unlocks Military Hub prerequisite.', tier:2 });
+    items.push({ name:'T2 Military Installation', note:'T2 orbital — core Military economy driver', tier:2 });
+    items.push({ name:'Security Orbital Installation', note:'T1 — boosts security AND Military link', tier:1 });
+    items.push({ name:'Military Hub', note:'T2 — requires Military Settlement built first!', tier:2 });
+    items.push({ name:'Coriolis Starport', note:'T2 — any main sequence star orbital slots work', tier:2 });
+  } else if (eco === 'Tourism') {
+    items.push({ name:'Vista Genomics Branch', note:'T1 orbital — Vista Genomics is a strong Tourism link', tier:1 });
+    items.push({ name:'T2 Tourist Installation', note:'T2 orbital — core Tourism driver. Best above scenic body.', tier:2 });
+    items.push({ name:'Orbital Communication Station ×2', note:'T1 fillers', tier:1 });
+    items.push({ name:'Coriolis Starport', note:'T2 — best above ELW, WW, or Ammonia World for tourism appeal', tier:2 });
+  } else if (eco === 'Extraction') {
+    items.push({ name:'Orbital Communication Station', note:'T1 filler — generates CP', tier:1 });
+    items.push({ name:'Refinery Hub', note:'T2 — Extraction systems often have Refinery secondary; hub boosts both', tier:2 });
+    items.push({ name:'Civilian Planetary Outpost', note:'T1 — surface access near ring/resource bodies', tier:1 });
+    items.push({ name:'Coriolis Starport', note:'T2 — build above a ringed body for best Extraction output', tier:2 });
   }
+  // Always end with T3 option
+  items.push({ name:'Orbis/Ocellus Starport', note:'T3 — final upgrade once 6× T3 Colony Points earned. Maximum supply capacity.', tier:3 });
   return items;
 }
 
 function getModerateRecommendations(eco, bodies, portType) {
   const items = getAddOnlyRecommendations(eco, bodies, portType);
   if (eco === 'Refinery') {
-    items.unshift({ name:'Refinery Hub (replacement for demolished)', note:'T2 — pure Refinery link' });
+    items.unshift({ name:'Refinery Hub (replacement)', note:'T2 — replacement for demolished contaminator. Pure Refinery link.', tier:2 });
   }
   return items;
 }
@@ -5578,15 +5987,22 @@ function identifyHarmfulStructures(stations, targetEco) {
     const name = (s.name || '').toLowerCase();
     if (targetEco === 'Refinery') {
       if (type.includes('industrial') || name.includes('industrial')) harmful.push(s);
-      if (type.includes('scientific') || name.includes('research')) harmful.push(s);
+      if (type.includes('scientific') || name.includes('research'))   harmful.push(s);
     } else if (targetEco === 'Agriculture') {
       if (type.includes('industrial') && !name.includes('agri')) harmful.push(s);
     } else if (targetEco === 'Industrial') {
       if (name.includes('refinery')) harmful.push(s);
+    } else if (targetEco === 'High Tech') {
+      if (name.includes('refinery') || name.includes('industrial')) harmful.push(s);
     }
   });
   return harmful;
 }
+
+// Init eco grid on optimizer tab open
+document.addEventListener('DOMContentLoaded', () => {
+  _buildOptEcoGrid(null);
+});
 
 // ═══════════════════════════════════════════════════════════════════
 //  DEMO DATA GENERATOR
@@ -6295,17 +6711,12 @@ document.addEventListener('click', (e) => {
   <div style="max-width:720px">
 
     <div class="cl-entry">
-      <div class="cl-ver">v3.43 <span class="cl-date">2026-04-12</span></div>
-      <div class="cl-item">Expand All / Collapse All toggle — single button opens or closes every result card; resets on new search <span class="cl-tag cl-tag-new">NEW</span></div>
-      <div class="cl-item">Per-body-type colour mini-bar in card header — proportional colour segments (ELW=green, WW=blue, AMM=purple, HMC=orange…) visible in compact mode <span class="cl-tag cl-tag-new">NEW</span></div>
-      <div class="cl-item">Active filter chip strip — each active filter shown as a removable chip with ×; click to clear that filter and re-search <span class="cl-tag cl-tag-impr">IMPR</span></div>
-      <div class="cl-item">Autocomplete highlight — matching portion of each system name suggestion bolded in orange <span class="cl-tag cl-tag-impr">IMPR</span></div>
-      <div class="cl-item">EDMC copy button — 📋 EDMC button in each card's external-link bar copies the system name in EDMC-ready format <span class="cl-tag cl-tag-new">NEW</span></div>
-      <div class="cl-item">Distance delta badge — shows LY change vs previous search reference (green=closer, gold=further) next to each system's distance <span class="cl-tag cl-tag-new">NEW</span></div>
-      <div class="cl-item">Filter panel collapse memory — each sidebar panel's open/closed state saved in localStorage and restored on reload <span class="cl-tag cl-tag-new">NEW</span></div>
-      <div class="cl-item">Body breakdown mini-bar in compact cards — colour-coded body-type proportion bar appended to header <span class="cl-tag cl-tag-new">NEW</span></div>
-      <div class="cl-item">Styled external link buttons — Spansh, EDSM and Inara displayed as icon buttons with hover colour accents; EDMC copy added alongside <span class="cl-tag cl-tag-impr">IMPR</span></div>
-      <div class="cl-item">Search radius density hint — live label below the Max Distance slider estimates approx system count in the search sphere <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-ver">v3.44 <span class="cl-date">2026-04-12</span></div>
+      <div class="cl-item">Colony Planner redesign — full left/right panel layout; system snapshot (star, bodies, rings, signals, rating); economy score bar grid with auto-selection; cargo hold slider; build timeline with T1/T2/T3 step badges; collapsible material cost table <span class="cl-tag cl-tag-impr">IMPR</span></div>
+      <div class="cl-item">Economy warnings panel — automatically warns about geo contamination, tidal-lock penalties, missing Ammonia World (HiTech), missing terraformable bodies (Agri) and Military Hub prerequisites before plan is shown <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">8 economies in Colony Planner — now includes Extraction alongside Refinery, Agriculture, Industrial, High Tech, Military and Tourism <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">🏗️ Plan Colony button on every result card — opens the Colony Planner pre-loaded with that system's body data (no re-fetch required when bodies are already loaded) <span class="cl-tag cl-tag-new">NEW</span></div>
+      <div class="cl-item">Score mini-bar redesign — segmented bar rendered as a unified pill with colour-coded fill heights; single hover popover shows all 6 score components with progress bars and values (no more multi-column hover) <span class="cl-tag cl-tag-impr">IMPR</span></div>
     </div>
 
     <div class="cl-entry">
@@ -6544,7 +6955,7 @@ async function _patchWlAlertConfig(id64, cfg) {
 })();
 
 function _refilterInPlace() {
-  // BUG-FIX v3.43: always re-filter from the FULL API result set (_allResults),
+  // BUG-FIX v3.44: always re-filter from the FULL API result set (_allResults),
   // not from window._lastResults.systems which gets overwritten to the filtered
   // subset each time renderResultsProgressive is called.  Without this fix,
   // each successive refilter shrinks the pool (filtered → re-filtered → …)
@@ -6573,7 +6984,7 @@ function _scheduleFilterLiveBadge() {
   _filterLiveTimer = setTimeout(_doFilterLiveBadge, 300);
 }
 function _doFilterLiveBadge() {
-  // BUG-FIX v3.43: use _allResults (full set) not _lastResults.systems (filtered subset)
+  // BUG-FIX v3.44: use _allResults (full set) not _lastResults.systems (filtered subset)
   const all = window._allResults || window._lastResults?.systems;
   if (!all || !all.length) return;
   // BUG-FIX-F: passesBodyFilters already checks rating and economy — no need to duplicate.
@@ -6723,17 +7134,29 @@ function exportResults(fmt) {
 // ═══════════════════════════════════════════════════════════════════
 //  QW5: OPEN IN OPTIMIZER
 // ═══════════════════════════════════════════════════════════════════
-function openInOptimizer(name, x, y, z) {
+function openInOptimizer(name, x, y, z, sysData) {
   // Switch to optimizer tab
   const btn = document.querySelector('[onclick*="showTab(\'optimizer\'"]');
   if (btn) btn.click();
   else showTab('optimizer');
-  // Pre-fill the ref input and load system data
+
   setTimeout(async () => {
-    const input = document.getElementById('opt-ref-input') || document.querySelector('#tab-optimizer input[type=text]');
-    if (input) { input.value = name; }
-    await loadOptSystem(name, x, y, z);
-  }, 150);
+    // Fill the text input
+    const input = document.getElementById('opt-input');
+    if (input) input.value = name;
+
+    // If the full system object was passed (from result card), use it directly
+    if (sysData && sysData.bodies) {
+      optSystem = { ...sysData };
+      _renderOptSnapshot(optSystem);
+    } else {
+      await loadOptSystem(name, x, y, z);
+    }
+
+    // Scroll planner into view
+    const plannerTab = document.getElementById('tab-optimizer');
+    if (plannerTab) plannerTab.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 180);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -11149,7 +11572,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════
-// UI IMPROVEMENTS BATCH v3.43
+// UI IMPROVEMENTS BATCH v3.44
 // ════════════════════════════════════════════════════════════════════
 
 // ────────────────────────────────────────────────────────────────────
@@ -11581,7 +12004,7 @@ window._updateDistDensityHint = function(ly) {
 })();
 
 // ════════════════════════════════════════════════════════════════════
-// END v3.43 UI IMPROVEMENTS BLOCK
+// END v3.44 UI IMPROVEMENTS BLOCK
 // ════════════════════════════════════════════════════════════════════
 
 </script>
