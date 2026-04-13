@@ -969,6 +969,7 @@ IMPORT_ORDER = [
 ]
 
 def main():
+    global DUMP_DIR
     parser = argparse.ArgumentParser(
         description='ED Finder — Spansh dump importer'
     )
@@ -980,7 +981,6 @@ def main():
     parser.add_argument('--dump-dir', type=str,            help=f'Dump directory (default: {DUMP_DIR})')
     args = parser.parse_args()
 
-    global DUMP_DIR
     if args.dump_dir:
         DUMP_DIR = Path(args.dump_dir)
 
