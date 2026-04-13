@@ -9,7 +9,8 @@ Features:
   • Streaming JSON parser (ijson) — never loads the full file into RAM
   • Batch inserts (configurable batch size, default 5000 rows)
   • Progress reporting every N rows
-  • Handles all 5 dumps: galaxy, bodies, stations, populated, attractions
+  • Handles 3 active Spansh dumps (bodies.json.gz and attractions.json.gz were
+    removed by Spansh — galaxy.json.gz now contains everything)
   • Downloads dumps from Spansh if not already present
 
 Usage:
@@ -22,12 +23,13 @@ Usage:
 Requirements:
     pip install ijson psycopg2-binary aiohttp tqdm
 
-Spansh dump URLs:
-    https://downloads.spansh.co.uk/galaxy.json.gz
-    https://downloads.spansh.co.uk/bodies.json.gz
-    https://downloads.spansh.co.uk/galaxy_stations.json.gz
-    https://downloads.spansh.co.uk/galaxy_populated.json.gz
-    https://downloads.spansh.co.uk/attractions.json.gz
+Spansh dump URLs (current as of 2025):
+    https://downloads.spansh.co.uk/galaxy.json.gz          (~102 GB, systems+bodies+stations)
+    https://downloads.spansh.co.uk/galaxy_populated.json.gz (~3.6 GB, populated systems)
+    https://downloads.spansh.co.uk/galaxy_stations.json.gz  (~3.6 GB, enriches stations)
+
+NOTE: bodies.json.gz and attractions.json.gz no longer exist on Spansh.
+      galaxy.json.gz is now the single source for all body/station data.
 """
 
 import os
@@ -57,12 +59,12 @@ LOG_LEVEL   = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE    = os.getenv('LOG_FILE', '/data/logs/import.log')
 
 SPANSH_BASE = 'https://downloads.spansh.co.uk'
+# NOTE: bodies.json.gz and attractions.json.gz no longer exist on Spansh.
+# galaxy.json.gz now contains systems + bodies + stations all nested.
 DUMP_FILES  = [
     'galaxy.json.gz',
     'galaxy_populated.json.gz',
-    'bodies.json.gz',
     'galaxy_stations.json.gz',
-    'attractions.json.gz',
 ]
 
 # ---------------------------------------------------------------------------
@@ -244,52 +246,248 @@ def parse_ts(v) -> Optional[str]:
     except: return None
 
 # ---------------------------------------------------------------------------
-# IMPORTER 1: galaxy.json.gz  →  systems table
+# IMPORTER 1: galaxy.json.gz  →  systems + bodies + stations (all-in-one)
 # ---------------------------------------------------------------------------
 def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     """
-    Parse galaxy.json.gz and upsert into systems table.
+    Parse galaxy.json.gz and upsert into systems, bodies, and stations tables.
+
+    As of 2025, Spansh's galaxy.json.gz is the ONLY dump containing body and
+    station data (bodies.json.gz and attractions.json.gz have been removed).
+    Each system object contains nested 'bodies' and 'stations' arrays.
+
     Format: array of system objects at top level.
     """
     log.info(f"Importing systems from {dump_path.name} ...")
     total_rows = 0
     batch = []
 
-    INSERT_SQL = """
+    SCOOPABLE_STARS = {'O', 'B', 'A', 'F', 'G', 'K', 'M'}
+
+    SYS_INSERT = """
         INSERT INTO systems (
             id64, name, x, y, z,
             primary_economy, secondary_economy,
             population, is_colonised, is_being_colonised,
             controlling_faction,
             security, allegiance, government,
-            main_star_type, main_star_subtype,
+            main_star_type, main_star_subtype, main_star_is_scoopable,
             has_body_data, body_count, data_quality,
             first_discovered_at, updated_at,
             rating_dirty, cluster_dirty
         ) VALUES %s
         ON CONFLICT (id64) DO UPDATE SET
-            name                = EXCLUDED.name,
-            x                   = EXCLUDED.x,
-            y                   = EXCLUDED.y,
-            z                   = EXCLUDED.z,
-            primary_economy     = EXCLUDED.primary_economy,
-            secondary_economy   = EXCLUDED.secondary_economy,
-            population          = EXCLUDED.population,
-            is_colonised        = EXCLUDED.is_colonised,
-            is_being_colonised  = EXCLUDED.is_being_colonised,
-            controlling_faction = EXCLUDED.controlling_faction,
-            security            = EXCLUDED.security,
-            allegiance          = EXCLUDED.allegiance,
-            government          = EXCLUDED.government,
-            updated_at          = EXCLUDED.updated_at,
-            rating_dirty        = TRUE,
-            cluster_dirty       = TRUE
+            name                    = EXCLUDED.name,
+            x                       = EXCLUDED.x,
+            y                       = EXCLUDED.y,
+            z                       = EXCLUDED.z,
+            primary_economy         = EXCLUDED.primary_economy,
+            secondary_economy       = EXCLUDED.secondary_economy,
+            population              = EXCLUDED.population,
+            is_colonised            = EXCLUDED.is_colonised,
+            is_being_colonised      = EXCLUDED.is_being_colonised,
+            controlling_faction     = EXCLUDED.controlling_faction,
+            security                = EXCLUDED.security,
+            allegiance              = EXCLUDED.allegiance,
+            government              = EXCLUDED.government,
+            main_star_type          = COALESCE(EXCLUDED.main_star_type, systems.main_star_type),
+            main_star_subtype       = COALESCE(EXCLUDED.main_star_subtype, systems.main_star_subtype),
+            main_star_is_scoopable  = COALESCE(EXCLUDED.main_star_is_scoopable, systems.main_star_is_scoopable),
+            has_body_data           = EXCLUDED.has_body_data,
+            body_count              = EXCLUDED.body_count,
+            updated_at              = EXCLUDED.updated_at,
+            rating_dirty            = TRUE,
+            cluster_dirty           = TRUE
     """
 
-    def flush(batch):
-        if not batch: return
-        psycopg2.extras.execute_values(conn.cursor(), INSERT_SQL, batch, page_size=BATCH_SIZE)
+    BODY_INSERT = """
+        INSERT INTO bodies (
+            id, system_id64, name,
+            body_type, subtype, is_main_star,
+            distance_from_star, orbital_period,
+            semi_major_axis, orbital_eccentricity,
+            orbital_inclination, is_tidal_lock,
+            radius, mass, gravity,
+            surface_temp, surface_pressure,
+            atmosphere_type, atmosphere_composition,
+            volcanism, solid_composition, materials,
+            terraforming_state, is_terraformable,
+            is_landable, is_water_world, is_earth_like, is_ammonia_world,
+            bio_signal_count, geo_signal_count,
+            spectral_class, luminosity, stellar_mass,
+            absolute_magnitude, age_my, is_scoopable,
+            estimated_mapping_value, estimated_scan_value,
+            first_discovered_at, first_mapped_at, updated_at
+        ) VALUES %s
+        ON CONFLICT (id) DO UPDATE SET
+            subtype                 = EXCLUDED.subtype,
+            is_terraformable        = EXCLUDED.is_terraformable,
+            terraforming_state      = EXCLUDED.terraforming_state,
+            bio_signal_count        = EXCLUDED.bio_signal_count,
+            geo_signal_count        = EXCLUDED.geo_signal_count,
+            estimated_mapping_value = EXCLUDED.estimated_mapping_value,
+            estimated_scan_value    = EXCLUDED.estimated_scan_value,
+            updated_at              = EXCLUDED.updated_at
+    """
+
+    STATION_TYPE_MAP = {
+        'coriolis starport':     'Coriolis',
+        'orbis starport':        'Orbis',
+        'ocellus starport':      'Ocellus',
+        'outpost':               'Outpost',
+        'planetary port':        'PlanetaryPort',
+        'planetary outpost':     'PlanetaryOutpost',
+        'mega ship':             'MegaShip',
+        'asteroid base':         'AsteroidBase',
+        'fleet carrier':         'FleetCarrier',
+    }
+
+    STA_INSERT = """
+        INSERT INTO stations (
+            id, system_id64, name, station_type,
+            distance_from_star, body_name,
+            landing_pad_size,
+            has_market, has_shipyard, has_outfitting,
+            has_refuel, has_repair, has_rearm,
+            has_black_market, has_material_trader,
+            has_technology_broker, has_interstellar_factors,
+            has_universal_cartographics,
+            primary_economy, secondary_economy,
+            controlling_faction, allegiance, government,
+            updated_at
+        ) VALUES %s
+        ON CONFLICT (id) DO UPDATE SET
+            station_type        = EXCLUDED.station_type,
+            has_market          = EXCLUDED.has_market,
+            has_shipyard        = EXCLUDED.has_shipyard,
+            has_outfitting      = EXCLUDED.has_outfitting,
+            controlling_faction = EXCLUDED.controlling_faction,
+            updated_at          = EXCLUDED.updated_at
+    """
+
+    def norm_station_type(v):
+        if not v: return 'Unknown'
+        return STATION_TYPE_MAP.get(str(v).lower(), 'Unknown')
+
+    def make_body_row(body, sys_id64):
+        body_id   = safe_int(body.get('id') or body.get('bodyId'))
+        if body_id is None:
+            return None
+        subtype   = body.get('subType') or body.get('subtype') or body.get('type', '')
+        btype_raw = body.get('type', 'Unknown')
+        is_star   = 'star' in str(btype_raw).lower()
+        is_main   = bool(body.get('isMainStar') or body.get('is_main_star'))
+        signals   = body.get('signals') or {}
+        bio_sig   = safe_int(signals.get('genuses') or body.get('bio_signal_count', 0)) or 0
+        geo_sig   = safe_int(signals.get('geology') or body.get('geo_signal_count', 0)) or 0
+        if is_star:
+            btype_enum = 'Star'
+        elif 'moon' in str(btype_raw).lower():
+            btype_enum = 'Moon'
+        else:
+            btype_enum = 'Planet'
+        scoopable = None
+        spectral  = body.get('spectralClass') or body.get('spectral_class', '')
+        if is_star:
+            scoopable = bool(spectral and spectral[0].upper() in SCOOPABLE_STARS)
+        return (
+            body_id,
+            sys_id64,
+            str(body.get('name', 'Unknown')),
+            btype_enum,
+            subtype,
+            is_main,
+            safe_float(body.get('distanceToArrival') or body.get('distance_from_star')),
+            safe_float(body.get('orbitalPeriod') or body.get('orbital_period')),
+            safe_float(body.get('semiMajorAxis') or body.get('semi_major_axis')),
+            safe_float(body.get('orbitalEccentricity') or body.get('orbital_eccentricity')),
+            safe_float(body.get('orbitalInclination') or body.get('orbital_inclination')),
+            safe_bool(body.get('isTidallyLocked') or body.get('is_tidal_lock')),
+            safe_float(body.get('radius')),
+            safe_float(body.get('earthMasses') or body.get('solarMasses') or body.get('mass')),
+            safe_float(body.get('gravity')),
+            safe_float(body.get('surfaceTemperature') or body.get('surface_temp')),
+            safe_float(body.get('surfacePressure') or body.get('surface_pressure')),
+            body.get('atmosphereType') or body.get('atmosphere_type'),
+            json.dumps(body.get('atmosphereComposition') or body.get('atmosphere_composition')) if (body.get('atmosphereComposition') or body.get('atmosphere_composition')) else None,
+            body.get('volcanismType') or body.get('volcanism'),
+            json.dumps(body.get('solidComposition') or body.get('solid_composition')) if (body.get('solidComposition') or body.get('solid_composition')) else None,
+            json.dumps(body.get('materials')) if body.get('materials') else None,
+            body.get('terraformingState') or body.get('terraforming_state'),
+            bool((body.get('terraformingState', '') or '') not in ('', 'Not terraformable')),
+            bool(body.get('isLandable') or body.get('is_landable', False)),
+            bool('water world' in str(subtype).lower()),
+            bool('earth-like' in str(subtype).lower() or 'earthlike' in str(subtype).lower()),
+            bool('ammonia' in str(subtype).lower()),
+            bio_sig,
+            geo_sig,
+            spectral,
+            body.get('luminosity'),
+            safe_float(body.get('solarMasses') or body.get('stellar_mass')),
+            safe_float(body.get('absoluteMagnitude') or body.get('absolute_magnitude')),
+            safe_int(body.get('ageMyrs') or body.get('age_my')),
+            scoopable,
+            safe_int(body.get('estimatedMappingValue') or body.get('estimated_mapping_value', 500)),
+            safe_int(body.get('estimatedScanValue') or body.get('estimated_scan_value', 500)),
+            parse_ts(body.get('discovered') or body.get('firstDiscover')),
+            parse_ts(body.get('mapped')),
+            parse_ts(body.get('updateTime')) or datetime.now(timezone.utc).isoformat(),
+        )
+
+    def make_station_row(sta, sys_id64):
+        sta_id = safe_int(sta.get('id') or sta.get('marketId'))
+        if sta_id is None:
+            return None
+        services  = set(str(s).lower() for s in (sta.get('services') or []))
+        ctrl      = sta.get('controllingFaction') or {}
+        ctrl_name = ctrl.get('name') if isinstance(ctrl, dict) else (str(ctrl) if ctrl else None)
+        return (
+            sta_id, sys_id64,
+            str(sta.get('name', 'Unknown')),
+            norm_station_type(sta.get('type')),
+            safe_float(sta.get('distanceToArrival')),
+            sta.get('body', {}).get('name') if isinstance(sta.get('body'), dict) else sta.get('body'),
+            'L' if sta.get('landingPads', {}).get('large') else ('M' if sta.get('landingPads', {}).get('medium') else 'S'),
+            'market'                  in services,
+            'shipyard'                in services,
+            'outfitting'              in services,
+            'refuel'                  in services,
+            'repair'                  in services,
+            'rearm'                   in services,
+            'black market'            in services,
+            'material trader'         in services,
+            'technology broker'       in services,
+            'interstellar factors'    in services,
+            'universal cartographics' in services,
+            norm_economy(sta.get('primaryEconomy') or sta.get('economy')),
+            norm_economy(sta.get('secondaryEconomy')),
+            ctrl_name,
+            norm_allegiance(sta.get('allegiance')),
+            norm_government(sta.get('government')),
+            parse_ts(sta.get('updateTime')) or datetime.now(timezone.utc).isoformat(),
+        )
+
+    # Counters
+    sys_batch   = []
+    body_batch  = []
+    sta_batch   = []
+    body_rows   = 0
+    sta_rows    = 0
+
+    def flush_all():
+        nonlocal body_rows, sta_rows
+        if sys_batch:
+            psycopg2.extras.execute_values(conn.cursor(), SYS_INSERT, sys_batch, page_size=BATCH_SIZE)
+        if body_batch:
+            psycopg2.extras.execute_values(conn.cursor(), BODY_INSERT, body_batch, page_size=BATCH_SIZE)
+            body_rows += len(body_batch)
+        if sta_batch:
+            psycopg2.extras.execute_values(conn.cursor(), STA_INSERT, sta_batch, page_size=BATCH_SIZE)
+            sta_rows += len(sta_batch)
         conn.commit()
+        sys_batch.clear()
+        body_batch.clear()
+        sta_batch.clear()
 
     file_size = dump_path.stat().st_size
     mark_running(conn, dump_path.name, file_size)
@@ -306,12 +504,33 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                   unit_scale=True, desc='galaxy.json.gz') as pbar:
             for sys_obj in parser:
                 try:
-                    row = (
-                        safe_int(sys_obj.get('id64')),
+                    sys_id64 = safe_int(sys_obj.get('id64'))
+                    if sys_id64 is None:
+                        continue
+
+                    bodies_list   = sys_obj.get('bodies') or []
+                    stations_list = sys_obj.get('stations') or []
+
+                    # Detect main star from embedded bodies list
+                    main_star_type    = sys_obj.get('mainStarType')
+                    main_star_sub     = sys_obj.get('mainStarSubtype')
+                    main_star_scoop   = None
+                    for b in bodies_list:
+                        if b.get('isMainStar') or b.get('is_main_star'):
+                            sp = b.get('spectralClass') or b.get('spectral_class', '')
+                            if sp:
+                                main_star_type  = main_star_type or sp
+                                main_star_scoop = bool(sp[0].upper() in SCOOPABLE_STARS)
+                            break
+
+                    has_bodies = len(bodies_list) > 0
+
+                    sys_batch.append((
+                        sys_id64,
                         str(sys_obj.get('name', 'Unknown')),
-                        safe_float(sys_obj.get('coords', {}).get('x', 0)),
-                        safe_float(sys_obj.get('coords', {}).get('y', 0)),
-                        safe_float(sys_obj.get('coords', {}).get('z', 0)),
+                        safe_float((sys_obj.get('coords') or {}).get('x', 0)),
+                        safe_float((sys_obj.get('coords') or {}).get('y', 0)),
+                        safe_float((sys_obj.get('coords') or {}).get('z', 0)),
                         norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                         norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
                         safe_int(sys_obj.get('population', 0)) or 0,
@@ -321,41 +540,50 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         norm_security(sys_obj.get('security')),
                         norm_allegiance(sys_obj.get('allegiance')),
                         norm_government(sys_obj.get('government')),
-                        sys_obj.get('mainStarType'),
-                        sys_obj.get('mainStarSubtype'),
-                        False,  # has_body_data — set by bodies import
-                        0,      # body_count — set by bodies import
-                        0,      # data_quality
+                        main_star_type,
+                        main_star_sub,
+                        main_star_scoop,
+                        has_bodies,
+                        len(bodies_list),
+                        2 if has_bodies else 0,  # data_quality
                         parse_ts(sys_obj.get('date') or sys_obj.get('firstDiscover')),
                         parse_ts(sys_obj.get('date')) or datetime.now(timezone.utc).isoformat(),
-                        True,   # rating_dirty
-                        True,   # cluster_dirty
-                    )
-                    if row[0] is None:  # skip rows without id64
-                        continue
-                    batch.append(row)
+                        True,  # rating_dirty
+                        True,  # cluster_dirty
+                    ))
+
+                    # Bodies nested in this system
+                    for b in bodies_list:
+                        row = make_body_row(b, sys_id64)
+                        if row:
+                            body_batch.append(row)
+
+                    # Stations nested in this system
+                    for s in stations_list:
+                        row = make_station_row(s, sys_id64)
+                        if row:
+                            sta_batch.append(row)
+
                 except Exception as e:
                     log.warning(f"Skipping malformed system record: {e}")
                     continue
 
-                if len(batch) >= BATCH_SIZE:
-                    flush(batch)
-                    total_rows += len(batch)
-                    batch = []
-                    pbar.update(BATCH_SIZE * 80)  # approximate bytes per row
+                if len(sys_batch) >= BATCH_SIZE:
+                    flush_all()
+                    total_rows += BATCH_SIZE
+                    pbar.update(BATCH_SIZE * 120)  # approximate bytes per row
 
-                    # Checkpoint every 60 seconds
                     if time.time() - last_checkpoint > 60:
                         try:
-                            offset = f.tell()
-                            save_checkpoint(conn, dump_path.name, offset, total_rows)
+                            save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
                             last_checkpoint = time.time()
-                        except Exception: pass
+                        except Exception:
+                            pass
 
-    flush(batch)
-    total_rows += len(batch)
+    flush_all()
+    total_rows += len(sys_batch)  # any remainder already cleared, count tracked above
     mark_complete(conn, dump_path.name, total_rows)
-    log.info(f"Systems import complete: {total_rows:,} rows")
+    log.info(f"Galaxy import complete: {total_rows:,} systems, {body_rows:,} bodies, {sta_rows:,} stations")
     return total_rows
 
 
@@ -938,7 +1166,8 @@ def show_status(conn):
 
     # Row counts
     cur = conn.cursor()
-    for table in ['systems', 'bodies', 'stations', 'attractions', 'ratings']:
+    for table in ['systems', 'bodies', 'stations', 'ratings']:
+        # attractions table exists in schema but no longer populated (source dump removed by Spansh)
         try:
             cur.execute(f"SELECT COUNT(*) FROM {table}")
             count = cur.fetchone()[0]
@@ -952,20 +1181,17 @@ def show_status(conn):
 # Main
 # ---------------------------------------------------------------------------
 IMPORTER_MAP = {
-    'galaxy.json.gz':            import_galaxy,
-    'galaxy_populated.json.gz':  import_populated,
-    'bodies.json.gz':            import_bodies,
-    'galaxy_stations.json.gz':   import_stations,
-    'attractions.json.gz':       import_attractions,
+    'galaxy.json.gz':            import_galaxy,       # systems + bodies + stations (all-in-one)
+    'galaxy_populated.json.gz':  import_populated,    # enriches populated system fields
+    'galaxy_stations.json.gz':   import_stations,     # re-imports stations with extra detail
+    # bodies.json.gz and attractions.json.gz no longer exist on Spansh
 }
 
 # Recommended import order
 IMPORT_ORDER = [
-    'galaxy.json.gz',          # systems first (bodies need FK)
-    'galaxy_populated.json.gz', # enrich populated systems
-    'bodies.json.gz',          # largest — run last before stations
-    'galaxy_stations.json.gz', # stations
-    'attractions.json.gz',     # attractions
+    'galaxy.json.gz',           # FIRST: all systems + bodies + stations (102 GB, ~6-18 h)
+    'galaxy_populated.json.gz', # enriches faction/economy/security data for populated systems
+    'galaxy_stations.json.gz',  # re-imports stations with latest market/service state
 ]
 
 def main():

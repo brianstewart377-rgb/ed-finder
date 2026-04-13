@@ -506,12 +506,12 @@ CREATE TABLE IF NOT EXISTS import_meta (
 );
 
 -- Pre-populate known dump files
+-- NOTE: bodies.json.gz and attractions.json.gz were removed by Spansh in 2025.
+--       galaxy.json.gz now contains systems + bodies + stations (all-in-one).
 INSERT INTO import_meta (dump_file) VALUES
     ('galaxy.json.gz'),
-    ('bodies.json.gz'),
-    ('galaxy_stations.json.gz'),
     ('galaxy_populated.json.gz'),
-    ('attractions.json.gz')
+    ('galaxy_stations.json.gz')
 ON CONFLICT (dump_file) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
