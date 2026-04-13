@@ -225,12 +225,22 @@ def norm_government(v):
     return GOVERNMENT_MAP.get(str(v).lower() if v else None, 'Unknown')
 
 def safe_float(v) -> Optional[float]:
+    """Convert any numeric type (including ijson Decimal) to Python float."""
     try: return float(v) if v is not None else None
     except: return None
 
 def safe_int(v) -> Optional[int]:
+    """Convert any numeric type (including ijson Decimal) to Python int."""
     try: return int(v) if v is not None else None
     except: return None
+
+def norm_faction(v) -> Optional[str]:
+    """Extract faction name whether v is a dict {'name':...} or a plain string."""
+    if v is None:
+        return None
+    if isinstance(v, dict):
+        return v.get('name') or None
+    return str(v) or None
 
 def safe_bool(v) -> Optional[bool]:
     if v is None: return None
@@ -536,7 +546,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         safe_int(sys_obj.get('population', 0)) or 0,
                         bool(sys_obj.get('is_colonised', False)),
                         bool(sys_obj.get('is_being_colonised', False)),
-                        sys_obj.get('controllingFaction') or sys_obj.get('controlling_faction'),
+                        norm_faction(sys_obj.get('controllingFaction') or sys_obj.get('controlling_faction')),
                         norm_security(sys_obj.get('security')),
                         norm_allegiance(sys_obj.get('allegiance')),
                         norm_government(sys_obj.get('government')),
