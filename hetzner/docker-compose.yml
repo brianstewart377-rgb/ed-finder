@@ -64,6 +64,8 @@ services:
       RESERVE_POOL_SIZE: 5
       LOG_CONNECTIONS: 0
       LOG_DISCONNECTIONS: 0
+      AUTH_TYPE:    md5                  # asyncpg compat — scram-sha-256 causes "wrong password type"
+      SERVER_TLS_SSLMODE: disable        # no TLS between pgbouncer and postgres (same host)
     ports:
       - "127.0.0.1:5433:5432"
     depends_on:
@@ -112,6 +114,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
     healthcheck:
@@ -119,7 +123,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 60s
 
   # ── EDDN Listener ─────────────────────────────────────────────────────────
   eddn:
