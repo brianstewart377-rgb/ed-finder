@@ -249,6 +249,15 @@ def norm_faction(v) -> Optional[str]:
         return v.get('name') or None
     return str(v) or None
 
+def safe_json(v) -> Optional[str]:
+    """Serialize to JSON, converting Decimal/float subclasses from ijson to float."""
+    if v is None:
+        return None
+    try:
+        return json.dumps(v, default=lambda o: float(o) if hasattr(o, '__float__') else str(o))
+    except Exception:
+        return None
+
 def safe_bool(v) -> Optional[bool]:
     if v is None: return None
     if isinstance(v, bool): return v
@@ -426,10 +435,10 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             safe_float(body.get('surfaceTemperature') or body.get('surface_temp')),
             safe_float(body.get('surfacePressure') or body.get('surface_pressure')),
             body.get('atmosphereType') or body.get('atmosphere_type'),
-            json.dumps(body.get('atmosphereComposition') or body.get('atmosphere_composition')) if (body.get('atmosphereComposition') or body.get('atmosphere_composition')) else None,
+            safe_json(body.get('atmosphereComposition') or body.get('atmosphere_composition')),
             body.get('volcanismType') or body.get('volcanism'),
-            json.dumps(body.get('solidComposition') or body.get('solid_composition')) if (body.get('solidComposition') or body.get('solid_composition')) else None,
-            json.dumps(body.get('materials')) if body.get('materials') else None,
+            safe_json(body.get('solidComposition') or body.get('solid_composition')),
+            safe_json(body.get('materials')),
             body.get('terraformingState') or body.get('terraforming_state'),
             bool((body.get('terraformingState', '') or '') not in ('', 'Not terraformable')),
             bool(body.get('isLandable') or body.get('is_landable', False)),
@@ -752,10 +761,10 @@ def import_bodies(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         safe_float(body.get('surfaceTemperature') or body.get('surface_temp')),
                         safe_float(body.get('surfacePressure') or body.get('surface_pressure')),
                         body.get('atmosphereType') or body.get('atmosphere_type'),
-                        json.dumps(body.get('atmosphereComposition') or body.get('atmosphere_composition')) if body.get('atmosphereComposition') or body.get('atmosphere_composition') else None,
+                        safe_json(body.get('atmosphereComposition') or body.get('atmosphere_composition')),
                         body.get('volcanismType') or body.get('volcanism'),
-                        json.dumps(body.get('solidComposition') or body.get('solid_composition')) if body.get('solidComposition') or body.get('solid_composition') else None,
-                        json.dumps(body.get('materials')) if body.get('materials') else None,
+                        safe_json(body.get('solidComposition') or body.get('solid_composition')),
+                        safe_json(body.get('materials')),
                         body.get('terraformingState') or body.get('terraforming_state'),
                         bool(body.get('terraformingState', '') not in ('', 'Not terraformable', None)
                              or body.get('is_terraformable', False)),
