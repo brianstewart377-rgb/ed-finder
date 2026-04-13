@@ -137,15 +137,22 @@ def mark_complete(conn, dump_file: str, rows: int):
     conn.commit()
 
 def mark_failed(conn, dump_file: str, error: str):
-    with conn.cursor() as cur:
-        cur.execute("""
-            UPDATE import_meta
-            SET status        = 'failed',
-                error_message = %s,
-                updated_at    = NOW()
-            WHERE dump_file = %s
-        """, (error[:500], dump_file))
-    conn.commit()
+    try:
+        conn.rollback()  # clear any aborted transaction first
+    except Exception:
+        pass
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE import_meta
+                SET status        = 'failed',
+                    error_message = %s,
+                    updated_at    = NOW()
+                WHERE dump_file = %s
+            """, (error[:500], dump_file))
+        conn.commit()
+    except Exception as e:
+        log.error(f"mark_failed itself failed: {e}")
 
 # ---------------------------------------------------------------------------
 # Economy / enum normalisation
@@ -486,15 +493,26 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     def flush_all():
         nonlocal body_rows, sta_rows
-        if sys_batch:
-            psycopg2.extras.execute_values(conn.cursor(), SYS_INSERT, sys_batch, page_size=BATCH_SIZE)
-        if body_batch:
-            psycopg2.extras.execute_values(conn.cursor(), BODY_INSERT, body_batch, page_size=BATCH_SIZE)
-            body_rows += len(body_batch)
-        if sta_batch:
-            psycopg2.extras.execute_values(conn.cursor(), STA_INSERT, sta_batch, page_size=BATCH_SIZE)
-            sta_rows += len(sta_batch)
-        conn.commit()
+        if not (sys_batch or body_batch or sta_batch):
+            return
+        # Deduplicate by primary key within each batch to avoid
+        # CardinalityViolation when the dump contains duplicate id64 values
+        sys_dedup  = list({r[0]: r for r in sys_batch}.values())   # key = id64
+        body_dedup = list({r[0]: r for r in body_batch}.values())  # key = body id
+        sta_dedup  = list({r[0]: r for r in sta_batch}.values())   # key = station id
+        try:
+            if sys_dedup:
+                psycopg2.extras.execute_values(conn.cursor(), SYS_INSERT, sys_dedup, page_size=BATCH_SIZE)
+            if body_dedup:
+                psycopg2.extras.execute_values(conn.cursor(), BODY_INSERT, body_dedup, page_size=BATCH_SIZE)
+                body_rows += len(body_dedup)
+            if sta_dedup:
+                psycopg2.extras.execute_values(conn.cursor(), STA_INSERT, sta_dedup, page_size=BATCH_SIZE)
+                sta_rows += len(sta_dedup)
+            conn.commit()
+        except Exception as flush_err:
+            conn.rollback()
+            log.error(f"flush_all error (batch skipped): {flush_err}")
         sys_batch.clear()
         body_batch.clear()
         sta_batch.clear()
