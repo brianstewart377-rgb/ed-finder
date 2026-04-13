@@ -67,6 +67,13 @@ DUMP_FILES  = [
     'galaxy_stations.json.gz',
 ]
 
+# Delta files downloaded by nightly_update.sh (not in initial import)
+DELTA_FILES = [
+    'systems_1day.json.gz',
+    'systems_1week.json.gz',
+    'systems_1month.json.gz',
+]
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -831,6 +838,150 @@ def import_bodies(conn, dump_path: Path, resume_offset: int = 0) -> int:
 # ---------------------------------------------------------------------------
 # IMPORTER 3: galaxy_populated.json.gz  →  enrich systems + factions
 # ---------------------------------------------------------------------------
+def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
+    """
+    Import a Spansh systems-only delta file (systems_1day.json.gz,
+    systems_1week.json.gz, systems_1month.json.gz).
+
+    These are flat JSON arrays — each item is a system object with no nested
+    bodies or stations.  We upsert core system fields only and mark affected
+    systems as rating_dirty so the nightly build_ratings --dirty pass picks
+    them up.
+
+    Format (from https://docs.spansh.co.uk/systems.schema.json):
+      [ { "id64": 123, "name": "Sol", "coords": {...}, "date": "...", ... }, ... ]
+    """
+    log.info(f"Importing systems delta from {dump_path.name} ...")
+    total_rows = 0
+
+    SYS_DELTA_INSERT = """
+        INSERT INTO systems (
+            id64, name, x, y, z,
+            primary_economy, secondary_economy,
+            population, security, allegiance, government,
+            controlling_faction, is_colonised,
+            data_quality, rating_dirty, cluster_dirty,
+            updated_at
+        ) VALUES %s
+        ON CONFLICT (id64) DO UPDATE SET
+            name                = COALESCE(NULLIF(EXCLUDED.name, 'Unknown'), systems.name),
+            x                   = COALESCE(EXCLUDED.x, systems.x),
+            y                   = COALESCE(EXCLUDED.y, systems.y),
+            z                   = COALESCE(EXCLUDED.z, systems.z),
+            primary_economy     = CASE WHEN EXCLUDED.primary_economy != 'Unknown'
+                                       THEN EXCLUDED.primary_economy
+                                       ELSE systems.primary_economy END,
+            secondary_economy   = CASE WHEN EXCLUDED.secondary_economy != 'Unknown'
+                                       THEN EXCLUDED.secondary_economy
+                                       ELSE systems.secondary_economy END,
+            population          = COALESCE(EXCLUDED.population, systems.population),
+            security            = CASE WHEN EXCLUDED.security != 'Unknown'
+                                       THEN EXCLUDED.security
+                                       ELSE systems.security END,
+            allegiance          = CASE WHEN EXCLUDED.allegiance != 'Unknown'
+                                       THEN EXCLUDED.allegiance
+                                       ELSE systems.allegiance END,
+            government          = CASE WHEN EXCLUDED.government != 'Unknown'
+                                       THEN EXCLUDED.government
+                                       ELSE systems.government END,
+            controlling_faction = COALESCE(EXCLUDED.controlling_faction, systems.controlling_faction),
+            is_colonised        = EXCLUDED.is_colonised OR systems.is_colonised,
+            data_quality        = GREATEST(EXCLUDED.data_quality, systems.data_quality),
+            rating_dirty        = TRUE,
+            cluster_dirty       = TRUE,
+            updated_at          = NOW()
+    """
+
+    file_size = dump_path.stat().st_size
+    mark_running(conn, dump_path.name, file_size)
+
+    batch = []
+    last_checkpoint = time.time()
+
+    with gzip.open(dump_path, 'rb') as f:
+        if resume_offset > 0:
+            f.seek(resume_offset)
+        parser = ijson.items(f, 'item')
+
+        with tqdm(total=file_size, initial=resume_offset, unit='B',
+                  unit_scale=True, desc=dump_path.name) as pbar:
+            for sys_obj in parser:
+                try:
+                    id64 = safe_int(sys_obj.get('id64'))
+                    if not id64:
+                        continue
+
+                    coords = sys_obj.get('coords') or {}
+                    x = safe_float(coords.get('x') or sys_obj.get('x'))
+                    y = safe_float(coords.get('y') or sys_obj.get('y'))
+                    z = safe_float(coords.get('z') or sys_obj.get('z'))
+
+                    ctrl = sys_obj.get('controllingFaction') or {}
+                    ctrl_name = ctrl.get('name') if isinstance(ctrl, dict) else (str(ctrl) if ctrl else None)
+
+                    pop = safe_int(sys_obj.get('population', 0)) or 0
+
+                    batch.append((
+                        id64,
+                        sys_obj.get('name', 'Unknown'),
+                        x, y, z,
+                        norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('economy')),
+                        norm_economy(sys_obj.get('secondaryEconomy')),
+                        pop,
+                        norm_security(sys_obj.get('security')),
+                        norm_allegiance(sys_obj.get('allegiance')),
+                        norm_government(sys_obj.get('government')),
+                        ctrl_name,
+                        pop > 0,         # is_colonised
+                        1,               # data_quality (systems file = minimal data)
+                        True,            # rating_dirty
+                        True,            # cluster_dirty
+                        datetime.now(timezone.utc),
+                    ))
+
+                    if len(batch) >= BATCH_SIZE:
+                        try:
+                            deduped = list({row[0]: row for row in batch}.values())
+                            psycopg2.extras.execute_values(
+                                conn.cursor(), SYS_DELTA_INSERT, deduped, page_size=BATCH_SIZE
+                            )
+                            conn.commit()
+                            total_rows += len(deduped)
+                        except Exception as e:
+                            conn.rollback()
+                            log.error(f"Batch insert error: {e}")
+                        batch = []
+
+                    pbar.update(80)  # approximate bytes per system record
+
+                    now = time.time()
+                    if now - last_checkpoint > 60:
+                        save_checkpoint(conn, dump_path.name,
+                                        f.tell() if hasattr(f, 'tell') else 0, total_rows)
+                        last_checkpoint = now
+
+                except Exception as e:
+                    log.debug(f"Skipping system record: {e}")
+                    continue
+
+    # Flush remaining
+    if batch:
+        try:
+            deduped = list({row[0]: row for row in batch}.values())
+            psycopg2.extras.execute_values(
+                conn.cursor(), SYS_DELTA_INSERT, deduped, page_size=BATCH_SIZE
+            )
+            conn.commit()
+            total_rows += len(deduped)
+        except Exception as e:
+            conn.rollback()
+            log.error(f"Final batch error: {e}")
+
+    mark_complete(conn, dump_path.name, total_rows)
+    log.info(f"Systems delta import complete: {total_rows:,} rows from {dump_path.name}")
+    return total_rows
+
+
 def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
     """Enrich populated systems with faction data."""
     log.info(f"Importing populated systems from {dump_path.name} ...")
@@ -1218,13 +1369,17 @@ def show_status(conn):
 # Main
 # ---------------------------------------------------------------------------
 IMPORTER_MAP = {
-    'galaxy.json.gz':            import_galaxy,       # systems + bodies + stations (all-in-one)
-    'galaxy_populated.json.gz':  import_populated,    # enriches populated system fields
-    'galaxy_stations.json.gz':   import_stations,     # re-imports stations with extra detail
+    'galaxy.json.gz':            import_galaxy,        # systems + bodies + stations (all-in-one)
+    'galaxy_populated.json.gz':  import_populated,     # enriches populated system fields
+    'galaxy_stations.json.gz':   import_stations,      # re-imports stations with extra detail
+    # Delta files used by nightly_update.sh (flat systems-only format, no nested bodies)
+    'systems_1day.json.gz':      import_systems_delta, # ~3.7 MB — last 24h changes
+    'systems_1week.json.gz':     import_systems_delta, # ~27 MB  — last 7 days changes
+    'systems_1month.json.gz':    import_systems_delta, # ~125 MB — last 30 days changes
     # bodies.json.gz and attractions.json.gz no longer exist on Spansh
 }
 
-# Recommended import order
+# Recommended import order (full initial import)
 IMPORT_ORDER = [
     'galaxy.json.gz',           # FIRST: all systems + bodies + stations (102 GB, ~6-18 h)
     'galaxy_populated.json.gz', # enriches faction/economy/security data for populated systems
