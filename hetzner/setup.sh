@@ -206,12 +206,20 @@ done
 echo ""
 
 # ---------------------------------------------------------------------------
-# 12. Apply schema
+# 12. Apply schema + fix pg_hba auth for pgbouncer compatibility
 # ---------------------------------------------------------------------------
 info "Applying database schema ..."
 docker compose exec -T postgres psql -U edfinder -d edfinder -f /docker-entrypoint-initdb.d/001_schema.sql
 docker compose exec -T postgres psql -U edfinder -d edfinder -f /docker-entrypoint-initdb.d/003_functions.sql
-success "Schema applied"
+
+info "Switching postgres auth to md5 for pgbouncer compatibility ..."
+# pgbouncer needs md5 — scram-sha-256 (postgres 16 default) causes 'wrong password type'
+docker compose exec -T postgres psql -U edfinder -d edfinder -c \
+    "SET password_encryption = md5; ALTER USER edfinder WITH PASSWORD '${PG_PASS}';"
+docker compose exec -T postgres sed -i 's/scram-sha-256/md5/g' \
+    /var/lib/postgresql/data/pg_hba.conf
+docker compose exec -T postgres psql -U edfinder -d edfinder -c "SELECT pg_reload_conf();"
+success "Auth method set to md5"
 
 # ---------------------------------------------------------------------------
 # 13. Nightly update cron

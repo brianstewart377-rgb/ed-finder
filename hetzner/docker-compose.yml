@@ -65,6 +65,7 @@ services:
       LOG_CONNECTIONS: 0
       LOG_DISCONNECTIONS: 0
       AUTH_TYPE:    md5                  # asyncpg compat — scram-sha-256 causes "wrong password type"
+      SERVER_AUTH_TYPE: scram-sha-256    # postgres default auth method
       SERVER_TLS_SSLMODE: disable        # no TLS between pgbouncer and postgres (same host)
     ports:
       - "127.0.0.1:5433:5432"
