@@ -159,8 +159,7 @@ services:
       - "80:80"
       - "443:443"
     depends_on:
-      api:
-        condition: service_healthy
+      - api
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/api/health"]
       interval: 30s
