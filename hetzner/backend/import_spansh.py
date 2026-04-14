@@ -1304,26 +1304,113 @@ def import_attractions(conn, dump_path: Path, resume_offset: int = 0) -> int:
 # ---------------------------------------------------------------------------
 # Download helper
 # ---------------------------------------------------------------------------
+def _download_with_aria2(url: str, dest: Path) -> bool:
+    """
+    Try to download using aria2c (multi-connection, resumable).
+    Returns True on success, False if aria2c is not available.
+
+    aria2c uses 16 connections by default which can saturate a 1 Gbps link —
+    a 110 GB file downloads in ~15-20 minutes vs. 10+ hours with a single stream.
+    """
+    import shutil, subprocess
+    if not shutil.which('aria2c'):
+        return False
+    log.info(f"  Using aria2c (16 connections, resumable) ...")
+    cmd = [
+        'aria2c',
+        '--continue=true',          # resume partial downloads
+        '--split=16',               # 16 concurrent connections
+        '--max-connection-per-server=16',
+        '--min-split-size=10M',
+        '--max-tries=5',
+        '--retry-wait=10',
+        '--file-allocation=falloc', # pre-allocate on ext4/xfs (fast)
+        '--dir', str(dest.parent),
+        '--out', dest.name,
+        url,
+    ]
+    result = subprocess.run(cmd)
+    return result.returncode == 0
+
+
+def _download_with_wget(url: str, dest: Path) -> bool:
+    """Fallback: wget with resume support."""
+    import shutil, subprocess
+    if not shutil.which('wget'):
+        return False
+    log.info(f"  Using wget (resumable) ...")
+    cmd = ['wget', '--continue', '--show-progress', '-O', str(dest), url]
+    result = subprocess.run(cmd)
+    return result.returncode == 0
+
+
+def _download_with_curl(url: str, dest: Path) -> bool:
+    """Second fallback: curl with resume support."""
+    import shutil, subprocess
+    if not shutil.which('curl'):
+        return False
+    log.info(f"  Using curl (resumable) ...")
+    cmd = ['curl', '-L', '-C', '-', '--progress-bar', '-o', str(dest), url]
+    result = subprocess.run(cmd)
+    return result.returncode == 0
+
+
 def download_dumps(files: list[str]):
-    """Download Spansh dump files if not already present."""
+    """
+    Download Spansh dump files using the fastest available method.
+
+    Priority: aria2c (fastest — parallel connections) → wget → curl → urllib.
+
+    On a Hetzner server with a 1 Gbps uplink:
+      - aria2c with 16 connections: ~125 MB/s → 110 GB in ~15 minutes
+      - wget/curl (single stream):  ~50-80 MB/s → 110 GB in ~25-35 minutes
+      - urllib (streaming import):  ~300 kB/s  → 110 GB in ~100 hours (DO NOT USE for large files)
+
+    IMPORTANT: Always download files first, then run the import separately.
+    Streaming directly from URL into PostgreSQL is limited by DB insert speed.
+    """
     import urllib.request
     DUMP_DIR.mkdir(parents=True, exist_ok=True)
     for fname in files:
         dest = DUMP_DIR / fname
         if dest.exists():
-            log.info(f"Already exists: {fname} ({dest.stat().st_size / 1e9:.1f} GB)")
+            size_gb = dest.stat().st_size / 1e9
+            log.info(f"Already exists: {fname} ({size_gb:.1f} GB) — skipping download")
+            log.info(f"  (Delete {dest} to force re-download)")
             continue
         url = f"{SPANSH_BASE}/{fname}"
-        log.info(f"Downloading {url} → {dest}")
-        try:
-            def progress(block_count, block_size, total_size):
-                pct = block_count * block_size / total_size * 100 if total_size > 0 else 0
-                print(f"\r  {fname}: {pct:.1f}%", end='', flush=True)
-            urllib.request.urlretrieve(url, dest, reporthook=progress)
-            print()
-            log.info(f"Downloaded {fname}: {dest.stat().st_size / 1e9:.1f} GB")
-        except Exception as e:
-            log.error(f"Failed to download {fname}: {e}")
+        log.info(f"Downloading {url}")
+        log.info(f"  → {dest}")
+        # Try fastest available method
+        tmp = dest.with_suffix(dest.suffix + '.tmp')
+        success = False
+        for method in (_download_with_aria2, _download_with_wget, _download_with_curl):
+            try:
+                if method(url, tmp):
+                    tmp.rename(dest)
+                    size_gb = dest.stat().st_size / 1e9
+                    log.info(f"✅ Downloaded {fname}: {size_gb:.1f} GB")
+                    success = True
+                    break
+            except Exception as e:
+                log.warning(f"  {method.__name__} failed: {e}, trying next method ...")
+        if not success:
+            # Last resort: urllib (slow but always available)
+            log.warning(f"  Falling back to urllib (slow — single connection) ...")
+            try:
+                def progress(block_count, block_size, total_size):
+                    if total_size > 0:
+                        pct = block_count * block_size / total_size * 100
+                        done = block_count * block_size / 1e9
+                        total = total_size / 1e9
+                        print(f"\r  {fname}: {pct:.1f}% ({done:.1f}/{total:.1f} GB)", end='', flush=True)
+                urllib.request.urlretrieve(url, tmp, reporthook=progress)
+                print()
+                tmp.rename(dest)
+                log.info(f"✅ Downloaded {fname}: {dest.stat().st_size / 1e9:.1f} GB")
+            except Exception as e:
+                log.error(f"❌ Failed to download {fname}: {e}")
+                tmp.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1391,12 +1478,13 @@ def main():
     parser = argparse.ArgumentParser(
         description='ED Finder — Spansh dump importer'
     )
-    parser.add_argument('--all',      action='store_true', help='Import all dumps in order')
-    parser.add_argument('--file',     type=str,            help='Import a specific dump file')
-    parser.add_argument('--resume',   action='store_true', help='Resume from last checkpoint')
-    parser.add_argument('--download', action='store_true', help='Download dump files first')
-    parser.add_argument('--status',   action='store_true', help='Show import status')
-    parser.add_argument('--dump-dir', type=str,            help=f'Dump directory (default: {DUMP_DIR})')
+    parser.add_argument('--all',           action='store_true', help='Import all dumps in order')
+    parser.add_argument('--file',          type=str,            help='Import a specific dump file')
+    parser.add_argument('--resume',        action='store_true', help='Resume from last checkpoint')
+    parser.add_argument('--download',      action='store_true', help='Download dump files before importing (uses aria2c if available)')
+    parser.add_argument('--download-only', action='store_true', help='Download dump files and EXIT — do not import (recommended for first run)')
+    parser.add_argument('--status',        action='store_true', help='Show import status')
+    parser.add_argument('--dump-dir',      type=str,            help=f'Dump directory (default: {DUMP_DIR})')
     args = parser.parse_args()
 
     if args.dump_dir:
@@ -1408,9 +1496,13 @@ def main():
         show_status(conn)
         return
 
-    if args.download:
+    if args.download or getattr(args, 'download_only', False):
         files = [args.file] if args.file else IMPORT_ORDER
         download_dumps(files)
+
+    if getattr(args, 'download_only', False):
+        log.info("Download-only mode — exiting. Run with --all (or --file) to import.")
+        return
 
     files_to_import = IMPORT_ORDER if args.all else ([args.file] if args.file else [])
     if not files_to_import:

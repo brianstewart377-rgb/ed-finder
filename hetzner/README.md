@@ -44,14 +44,25 @@ The script handles everything automatically:
 - Fixes PostgreSQL md5 auth for pgBouncer
 - Starts all services and verifies health
 
-### 2. Start the Spansh import (~3–5 days, fully resumable)
+### 2. Download the Spansh dumps (~15–30 min on Hetzner's 1 Gbps link)
+
+> **⚠️ Important:** Download files **first**, then import separately. Running
+> `--all` without downloading first streams the gzip through the JSON parser into
+> PostgreSQL simultaneously — insert speed limits the pipeline to ~300 kB/s,
+> meaning 110 GB takes ~100 hours instead of 15 minutes.
+> 
+> The setup script installs `aria2c`, which opens 16 parallel connections and
+> can saturate the 1 Gbps uplink (~125 MB/s). The full 110 GB downloads in
+> approximately 15–30 minutes.
+
 ```bash
 screen -S import
-docker compose --profile import run --rm importer import_spansh.py --all
-# Ctrl+A D to detach
+docker compose --profile import run --rm importer \
+    import_spansh.py --download-only
+# Ctrl+A D to detach, reattach: screen -r import
 ```
 
-This downloads and imports 3 files (~110 GB total):
+Files downloaded (~110 GB total):
 
 | File | Compressed | Contents |
 |---|---|---|
@@ -63,7 +74,16 @@ This downloads and imports 3 files (~110 GB total):
 > All body and station data is now nested inside `galaxy.json.gz`. The importer
 > handles this in a single pass — no separate body import step needed.
 
-### 3. Monitor the import
+### 3. Import the downloaded files (~2–4 days, fully resumable)
+
+```bash
+screen -r import   # re-attach, or: screen -S import
+docker compose --profile import run --rm importer \
+    import_spansh.py --all --resume
+# Ctrl+A D to detach
+```
+
+### 4. Monitor the import
 ```bash
 # Re-attach screen
 screen -r import
@@ -125,14 +145,21 @@ curl https://ed-finder.app/api/status | python3 -m json.tool
 | Step | Duration |
 |---|---|
 | Setup script | 5–10 minutes |
-| Download + import `galaxy.json.gz` | 3–5 days |
+| Download all dumps (aria2c, 1 Gbps) | 15–30 minutes |
+| Import `galaxy.json.gz` | 2–4 days |
 | Import `galaxy_populated.json.gz` | 1–2 hours |
 | Import `galaxy_stations.json.gz` | 1–2 hours |
 | Build ratings | 2–4 hours |
 | Build spatial grid | 10–30 minutes |
 | Build cluster_summary | 8–24 hours |
 | Build indexes | 3–5 hours |
-| **Total** | **~4–6 days** |
+| **Total** | **~3–5 days** |
+
+> **Download speed note:** On Hetzner with `aria2c` (16 parallel connections),
+> the 110 GB download completes in ~15–30 minutes. Without aria2c (single-stream
+> wget/curl), expect ~25–35 minutes. Streaming directly from URL into PostgreSQL
+> (`--all` without `--download-only` first) is limited by DB insert speed to
+> ~300 kB/s, meaning ~100 hours for `galaxy.json.gz` alone — always download first.
 
 The API serves live traffic as soon as `galaxy.json.gz` import completes.
 Cluster search requires cluster_summary to be built first.
