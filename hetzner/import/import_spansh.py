@@ -42,11 +42,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Iterator, Any, List, Tuple
 
+import decimal
 import ijson
 import psycopg2
 import psycopg2.extras
 import psycopg2.extensions
 from tqdm import tqdm
+
+
+def _json_dumps(obj) -> Optional[str]:
+    """json.dumps that converts Decimal → float (ijson returns Decimal for numbers)."""
+    if obj is None:
+        return None
+    def _default(o):
+        if isinstance(o, decimal.Decimal):
+            return float(o)
+        raise TypeError(f"Not serializable: {type(o)}")
+    return json.dumps(obj, default=_default)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -583,9 +595,9 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         b.get('surfaceTemperature') or b.get('surface_temp'),
                         b.get('surfacePressure') or b.get('surface_pressure'),
                         b.get('atmosphereType') or b.get('atmosphere_type'),
-                        json.dumps(atm_comp) if atm_comp else None,
+                        _json_dumps(atm_comp),
                         b.get('volcanismType') or b.get('volcanism'),
-                        json.dumps(mats) if mats else None,
+                        _json_dumps(mats),
                         b.get('terraformingState') or b.get('terraforming_state'),
                         bool(b.get('isTerraformingCandidate') or b.get('is_terraformable', False)),
                         bool(b.get('isLandable') or b.get('is_landable', False)),
