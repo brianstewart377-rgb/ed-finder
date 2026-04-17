@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
 ED Finder — Hetzner Backend
-Version: 1.0 (PostgreSQL / asyncpg edition)
+Version: 2.0 (PostgreSQL 16 / asyncpg)
 
-All existing Pi endpoints preserved + new endpoints:
-  GET  /api/local/search           — standard distance search (Postgres)
+Server: Hetzner AX41-SSD — i7-8700, 128 GB RAM, 3×1 TB NVMe RAID-5
+DB:     PostgreSQL 16 via asyncpg connection pool → pgBouncer
+
+Endpoints:
+  GET  /api/local/search           — distance search
   GET  /api/local/status           — DB health + stats
   GET  /api/local/autocomplete     — system name autocomplete
-  POST /api/search/galaxy          — galaxy-wide economy search (no distance limit)
+  POST /api/search/galaxy          — galaxy-wide economy search
   POST /api/search/cluster         — multi-economy cluster search
   GET  /api/system/{id64}          — full system detail
   GET  /api/body/{body_id}         — body detail
@@ -62,7 +65,7 @@ except ImportError:
 DB_DSN      = os.getenv('DATABASE_URL',  'postgresql://edfinder:edfinder@postgres:5432/edfinder')
 REDIS_URL   = os.getenv('REDIS_URL',     'redis://redis:6379/0')
 LOG_LEVEL   = os.getenv('LOG_LEVEL',     'INFO')
-APP_VERSION = '1.0.0-hetzner'
+APP_VERSION = '2.0.0-hetzner'
 
 # Cache TTLs (seconds)
 TTL_SEARCH      = int(os.getenv('TTL_SEARCH',  '3600'))    # 1 hour
@@ -374,7 +377,7 @@ async def autocomplete(q: str = '', limit: int = 10):
 
 
 # ---------------------------------------------------------------------------
-# Standard local search (existing Pi endpoint, rewritten for Postgres)
+# Standard local search
 # ---------------------------------------------------------------------------
 @app.post('/api/local/search')
 async def local_search_endpoint(req: LocalSearchRequest):
@@ -782,7 +785,7 @@ async def get_system(id64: int):
 
 @app.get('/api/local/system/{id64}')
 async def local_get_system(id64: int):
-    """Alias — compatibility with Pi frontend."""
+    """Alias for /api/system/{id64}."""
     return await get_system(id64)
 
 

@@ -1,6 +1,7 @@
 services:
 
   # ── PostgreSQL 16 ─────────────────────────────────────────────────────────
+  # Tuned for: Hetzner AX41-SSD — i7-8700 (6C/12T), 128 GB RAM, 3×1 TB NVMe RAID-5
   postgres:
     image: postgres:16-alpine
     container_name: ed-postgres
@@ -11,22 +12,22 @@ services:
       POSTGRES_DB:       edfinder
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./sql:/docker-entrypoint-initdb.d:ro   # auto-runs 001_schema.sql on first start
-      - /data/dumps:/data/dumps:ro             # Spansh dump files (read-only)
+      - ./sql:/docker-entrypoint-initdb.d:ro
+      - /data/dumps:/data/dumps:ro
       - /data/logs:/data/logs
     ports:
-      - "127.0.0.1:5432:5432"                  # local only — never exposed publicly
+      - "127.0.0.1:5432:5432"
     command: >
       postgres
         -c shared_buffers=32GB
         -c effective_cache_size=96GB
-        -c maintenance_work_mem=4GB
+        -c maintenance_work_mem=8GB
         -c checkpoint_completion_target=0.9
-        -c wal_buffers=64MB
+        -c wal_buffers=256MB
         -c default_statistics_target=500
-        -c random_page_cost=1.1
-        -c effective_io_concurrency=200
-        -c work_mem=256MB
+        -c random_page_cost=1.0
+        -c effective_io_concurrency=300
+        -c work_mem=512MB
         -c max_worker_processes=12
         -c max_parallel_workers_per_gather=6
         -c max_parallel_workers=12
@@ -40,12 +41,16 @@ services:
         -c autovacuum_vacuum_scale_factor=0.05
         -c autovacuum_analyze_scale_factor=0.02
         -c autovacuum_max_workers=4
+        -c max_wal_size=8GB
+        -c min_wal_size=2GB
+        -c wal_compression=on
+        -c huge_pages=try
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U edfinder -d edfinder"]
       interval: 10s
       timeout: 5s
       retries: 5
-    shm_size: 2gb
+    shm_size: 4gb
 
   # ── pgBouncer (connection pooler) ─────────────────────────────────────────
   pgbouncer:
@@ -173,11 +178,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile.import
     container_name: ed-importer
-    profiles: ["import"]                       # only starts with: docker compose --profile import up importer
+    profiles: ["import"]
     environment:
+      # Connect DIRECTLY to postgres (bypass pgBouncer) for bulk COPY loads
       DATABASE_URL: postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
       DUMP_DIR:     /data/dumps
-      BATCH_SIZE:   5000
+      BATCH_SIZE:   50000
       LOG_LEVEL:    INFO
       LOG_FILE:     /data/logs/import.log
     volumes:
@@ -186,7 +192,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["python3", "import_spansh.py", "--all", "--resume"]
+    command: ["python3", "import_spansh.py", "--status"]
 
 volumes:
   postgres_data:

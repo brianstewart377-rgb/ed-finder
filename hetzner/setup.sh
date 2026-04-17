@@ -1,91 +1,145 @@
 #!/bin/bash
 # =============================================================================
-# ED Finder — Hetzner One-Shot Setup Script
-# Run this once on a fresh Ubuntu 24.04 Hetzner server.
+# ED Finder — Hetzner Server Setup Script
+# Version: 3.0
+#
+# Server:  Hetzner AX41-SSD (or equivalent)
+#          i7-8700, 128 GB RAM, 3×1 TB NVMe RAID-5, Ubuntu 24.04
+# Domain:  ed-finder.app (Cloudflare DNS → Hetzner IP)
+# Stack:   PostgreSQL 16, pgBouncer, Redis 7, FastAPI, EDDN, Nginx
 #
 # Usage:
-#   git clone https://github.com/brianstewart377-rgb/ed-finder.git /opt/ed-finder-src
-#   cd /opt/ed-finder-src/hetzner
-#   chmod +x setup.sh
-#   sudo ./setup.sh
+#   Fresh install:
+#     bash setup.sh
 #
-# What it does:
-#   1.  System updates + essential packages
-#   2.  Docker + Docker Compose
-#   3.  Directory structure
-#   4.  Clone/verify repo at /opt/ed-finder-src
-#   5.  Copy hetzner/ stack to /opt/ed-finder (working directory)
-#   6.  .env file from prompts
-#   7.  Kill system nginx (conflicts with Docker on port 80)
-#   8.  Firewall (ufw)
-#   9.  Fail2ban
-#  10.  SSL certificate (Let's Encrypt, standalone — before Docker starts)
-#  11.  Build Docker images
-#  12.  Start core services (postgres, redis, pgbouncer)
-#  13.  Apply schema + fix pg_hba auth for pgbouncer (md5)
-#  14.  Start API + nginx
-#  15.  Nightly update cron
-#  16.  Print next steps
+#   Nuke existing install and reinstall (PRESERVES DATABASE):
+#     bash setup.sh --reinstall
 #
-# Lessons learned from first deployment (documented here for future runs):
-#   - Ubuntu 24.04 ships with nginx pre-installed and enabled — it grabs port 80
-#     before Docker starts and causes containers to fail.  We mask it permanently.
-#   - PostgreSQL 16 defaults to scram-sha-256 auth.  edoburu/pgbouncer sends md5.
-#     Fix: SET password_encryption=md5, patch pg_hba.conf, pg_reload_conf().
-#   - nginx upstream { server api:8000 } is resolved ONCE at startup — if the api
-#     container isn't up yet nginx crashes.  Use resolver 127.0.0.11 + variable.
-#   - ../frontend volume mount in docker-compose.yml resolves to /opt/frontend
-#     (doesn't exist).  We use the absolute path /opt/ed-finder-src/frontend.
-#   - Spansh no longer provides bodies.json.gz or attractions.json.gz.  All data
-#     (systems, bodies, stations) is now in galaxy.json.gz (~102 GB compressed).
-#     Total downloads: ~110 GB across 3 files (not 5).
+#   Nuke everything including database (DESTROYS ALL DATA):
+#     bash setup.sh --nuke
+#
+# What --reinstall does:
+#   • Stops all Docker containers
+#   • Removes Docker images (forces rebuild)
+#   • Pulls latest code from GitHub
+#   • Restarts all services
+#   • KEEPS: PostgreSQL data volume, SSL certs, dump files, logs
+#
+# What --nuke does:
+#   • Everything above PLUS drops the PostgreSQL data volume
+#   • Requires explicit confirmation
+#   • Use only if you want to re-import everything from scratch
 # =============================================================================
 set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+# ---------------------------------------------------------------------------
+# Colours & helpers
+# ---------------------------------------------------------------------------
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; NC='\033[0m'; BOLD='\033[1m'
+
 info()    { echo -e "${BLUE}[INFO]${NC}  $*"; }
 success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
+step()    { echo -e "\n${BOLD}${BLUE}══ $* ══${NC}"; }
 
+# ---------------------------------------------------------------------------
+# Parse arguments
+# ---------------------------------------------------------------------------
+MODE="fresh"
+for arg in "$@"; do
+    case "$arg" in
+        --reinstall) MODE="reinstall" ;;
+        --nuke)      MODE="nuke" ;;
+        --help|-h)
+            echo "Usage: bash setup.sh [--reinstall|--nuke]"
+            echo "  (no args)     Fresh install"
+            echo "  --reinstall   Rebuild containers, preserve DB data"
+            echo "  --nuke        Destroy everything including DB (requires confirmation)"
+            exit 0 ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------
 # Must run as root
-[[ $EUID -ne 0 ]] && error "Run as root: sudo ./setup.sh"
-
-echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  ED Finder — Hetzner Setup                                   ║"
-echo "║  Target: Ubuntu 24.04, i7-8700, 128GB RAM, 2×1TB SSD        ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
-echo ""
+# ---------------------------------------------------------------------------
+[[ $EUID -ne 0 ]] && error "Run as root: sudo bash setup.sh"
 
 # ---------------------------------------------------------------------------
-# 1. RAID-1 check / recommendation
+# Config
 # ---------------------------------------------------------------------------
-info "Checking storage ..."
-if lsblk | grep -q 'md\|raid'; then
-    success "RAID array detected"
-else
-    warn "No RAID detected. Consider setting up RAID-1 for redundancy:"
-    warn "  mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/sda /dev/sdb"
-    warn "Continuing with single-disk setup ..."
+REPO_URL="https://github.com/brianstewart377-rgb/ed-finder.git"
+REPO_ROOT="/opt/ed-finder-src"
+INSTALL_DIR="/opt/ed-finder"
+DATA_DIR="/data"
+DOMAIN="ed-finder.app"
+
+# ---------------------------------------------------------------------------
+# Step 0 — Nuke / Reinstall handling
+# ---------------------------------------------------------------------------
+if [[ "$MODE" == "nuke" ]]; then
+    step "NUKE MODE — destroys ALL data including database"
+    echo -e "${RED}${BOLD}WARNING: This will permanently destroy the PostgreSQL database."
+    echo -e "All imported data (186M systems, bodies, stations) will be deleted."
+    echo -e "You will need to re-import everything from scratch (3-5 days).${NC}"
+    echo ""
+    read -r -p "Type 'NUKE IT' to confirm: " confirm
+    [[ "$confirm" != "NUKE IT" ]] && error "Aborted."
+
+    info "Stopping and removing all containers and volumes ..."
+    cd "$INSTALL_DIR" 2>/dev/null && docker compose down -v --remove-orphans 2>/dev/null || true
+    docker volume rm ed-finder_postgres_data ed-finder_redis_data 2>/dev/null || true
+    docker volume rm $(docker volume ls -q | grep edfinder) 2>/dev/null || true
+    docker image prune -f 2>/dev/null || true
+    success "All containers and volumes removed"
+
+elif [[ "$MODE" == "reinstall" ]]; then
+    step "REINSTALL MODE — preserving database"
+    info "Stopping containers (keeping postgres_data volume) ..."
+    cd "$INSTALL_DIR" 2>/dev/null && docker compose down --remove-orphans 2>/dev/null || true
+    info "Removing old images to force rebuild ..."
+    docker images | grep 'ed-finder' | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
+    success "Containers stopped, images removed. Database preserved."
 fi
 
 # ---------------------------------------------------------------------------
-# 2. System update
+# Step 1 — System packages
 # ---------------------------------------------------------------------------
-info "Updating system packages ..."
+step "1. System packages"
 apt-get update -qq
 apt-get upgrade -y -qq
 apt-get install -y -qq \
-    curl wget git unzip htop iotop ncdu \
+    curl wget git unzip htop iotop ncdu screen \
     ufw fail2ban \
     python3 python3-pip python3-venv \
-    certbot aria2
+    certbot aria2 \
+    mdadm smartmontools
 success "System packages installed"
 
 # ---------------------------------------------------------------------------
-# 3. Docker
+# Step 2 — RAID-5 check
 # ---------------------------------------------------------------------------
+step "2. Storage check"
+if command -v mdadm &>/dev/null; then
+    if mdadm --detail /dev/md0 &>/dev/null 2>&1; then
+        RAID_STATE=$(mdadm --detail /dev/md0 | grep 'State :' | awk '{print $3}')
+        success "RAID-5 /dev/md0 state: $RAID_STATE"
+        if [[ "$RAID_STATE" != "clean" ]]; then
+            warn "RAID not clean — check: mdadm --detail /dev/md0"
+        fi
+    else
+        warn "No /dev/md0 found — check RAID status manually: mdadm --detail --scan"
+    fi
+fi
+
+DISK_FREE=$(df -BG /data 2>/dev/null | awk 'NR==2{print $4}' || echo "unknown")
+info "Free space on /data: $DISK_FREE"
+
+# ---------------------------------------------------------------------------
+# Step 3 — Docker
+# ---------------------------------------------------------------------------
+step "3. Docker"
 if ! command -v docker &>/dev/null; then
     info "Installing Docker ..."
     curl -fsSL https://get.docker.com | sh
@@ -97,232 +151,193 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Directory structure
+# Step 4 — Directory structure
 # ---------------------------------------------------------------------------
-info "Creating directory structure ..."
-mkdir -p /data/{dumps,logs,backups}
-mkdir -p /opt/ed-finder/config
-chown -R 1000:1000 /data
-success "Directories created: /data/dumps  /data/logs  /data/backups  /opt/ed-finder"
+step "4. Directories"
+mkdir -p "$DATA_DIR"/{dumps,logs,backups}
+mkdir -p "$INSTALL_DIR"
+mkdir -p /var/log/nginx
+chown -R root:root "$DATA_DIR"
+chmod -R 755 "$DATA_DIR"
+success "Directories created"
 
 # ---------------------------------------------------------------------------
-# 5. Verify repo + copy working stack to /opt/ed-finder
+# Step 5 — Clone / update repository
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-# Ensure we have a proper git clone at /opt/ed-finder-src
-if [[ "$REPO_ROOT" != "/opt/ed-finder-src" ]]; then
-    info "Cloning repo to /opt/ed-finder-src ..."
-    if [[ -d /opt/ed-finder-src ]]; then
-        git -C /opt/ed-finder-src pull origin main
-    else
-        git clone https://github.com/brianstewart377-rgb/ed-finder.git /opt/ed-finder-src
-    fi
-    REPO_ROOT=/opt/ed-finder-src
+step "5. Repository"
+if [[ -d "$REPO_ROOT/.git" ]]; then
+    info "Updating existing repo ..."
+    git -C "$REPO_ROOT" pull origin main
+    success "Repo updated to $(git -C $REPO_ROOT rev-parse --short HEAD)"
+else
+    info "Cloning repository ..."
+    git clone "$REPO_URL" "$REPO_ROOT"
+    success "Repo cloned"
 fi
-success "Repo at $REPO_ROOT"
-
-info "Copying hetzner stack to /opt/ed-finder ..."
-cp -r "$REPO_ROOT/hetzner/"* /opt/ed-finder/
-# Set correct permissions on frontend files (nginx needs world-readable)
-chmod -R 755 "$REPO_ROOT/frontend/"
-success "Stack copied to /opt/ed-finder"
 
 # ---------------------------------------------------------------------------
-# 6. .env file
+# Step 6 — Copy project files
 # ---------------------------------------------------------------------------
-ENV_FILE=/opt/ed-finder/.env
-if [[ ! -f "$ENV_FILE" ]]; then
-    info "Creating .env configuration file ..."
-    echo ""
-    read -r -p "  PostgreSQL password (strong, no special chars): " PG_PASS
-    echo ""
+step "6. Deploy files"
+cp -r "$REPO_ROOT"/hetzner/. "$INSTALL_DIR/"
+# Update importer with latest COPY-based version
+cp "$REPO_ROOT/hetzner/backend/import_spansh.py" "$INSTALL_DIR/backend/import_spansh.py" 2>/dev/null || true
+# Frontend (served by nginx)
+if [[ -d "$REPO_ROOT/frontend" ]]; then
+    chmod -R 755 "$REPO_ROOT/frontend"
+    success "Frontend at $REPO_ROOT/frontend"
+fi
+success "Files deployed to $INSTALL_DIR"
 
-    # Generate a random password if empty
-    if [[ -z "$PG_PASS" ]]; then
-        PG_PASS=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
-        warn "No password entered — generated: $PG_PASS"
-        warn "Save this password somewhere safe!"
+# ---------------------------------------------------------------------------
+# Step 7 — Mask system nginx/apache (would conflict with Docker nginx on :80/:443)
+# ---------------------------------------------------------------------------
+step "7. Port conflicts"
+for svc in nginx apache2; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        systemctl stop "$svc"
+        warn "Stopped system $svc"
     fi
+    systemctl disable "$svc" 2>/dev/null || true
+    systemctl mask "$svc" 2>/dev/null || true
+done
+ss -tlnp | grep -E ':80|:443' && warn "Something still on port 80/443 — check above" || success "Ports 80/443 are free"
 
-    cat > "$ENV_FILE" << EOF
-# ED Finder — Hetzner Environment Variables
-# Generated: $(date)
-
+# ---------------------------------------------------------------------------
+# Step 8 — Environment file
+# ---------------------------------------------------------------------------
+step "8. Environment"
+ENV_FILE="$INSTALL_DIR/.env"
+if [[ ! -f "$ENV_FILE" ]] || [[ "$MODE" == "nuke" ]]; then
+    if [[ -n "${POSTGRES_PASSWORD:-}" ]]; then
+        PG_PASS="$POSTGRES_PASSWORD"
+    else
+        read -r -p "PostgreSQL password (leave blank to generate): " PG_PASS
+        if [[ -z "$PG_PASS" ]]; then
+            PG_PASS=$(openssl rand -base64 32 | tr -d '/+=\n' | cut -c1-32)
+            info "Generated password: $PG_PASS"
+            info "Save this — it won't be shown again."
+        fi
+    fi
+    cat > "$ENV_FILE" <<EOF
 POSTGRES_PASSWORD=${PG_PASS}
 LOG_LEVEL=INFO
-
-# Optional: adjust cache TTLs (seconds)
 TTL_SEARCH=3600
 TTL_SYSTEM=86400
 TTL_CLUSTER=3600
 EOF
     chmod 600 "$ENV_FILE"
-    success ".env file created at $ENV_FILE"
+    success ".env created"
 else
-    # Read existing password for use in pg_hba fix later
-    PG_PASS=$(grep POSTGRES_PASSWORD "$ENV_FILE" | cut -d= -f2)
-    success ".env already exists — skipping"
+    success ".env already exists — keeping existing credentials"
 fi
 
 # ---------------------------------------------------------------------------
-# 7. Kill system nginx — it grabs port 80 and blocks Docker nginx
+# Step 9 — UFW firewall
 # ---------------------------------------------------------------------------
-info "Disabling system nginx (conflicts with Docker on port 80/443) ..."
-systemctl stop nginx   2>/dev/null || true
-systemctl disable nginx 2>/dev/null || true
-systemctl mask nginx   2>/dev/null || true   # prevent restart on boot
-systemctl stop apache2  2>/dev/null || true
-systemctl disable apache2 2>/dev/null || true
-# Give the OS a moment to release ports
-sleep 2
-if ss -tlnp | grep -qE ':80\b|:443\b'; then
-    warn "Something is still on port 80/443:"
-    ss -tlnp | grep -E ':80\b|:443\b'
-    warn "You may need to kill it manually before nginx starts."
-else
-    success "Ports 80 and 443 are free"
-fi
-
-# ---------------------------------------------------------------------------
-# 8. Firewall
-# ---------------------------------------------------------------------------
-info "Configuring firewall ..."
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp    comment 'SSH'
-ufw allow 80/tcp    comment 'HTTP'
-ufw allow 443/tcp   comment 'HTTPS'
+step "9. Firewall"
 ufw --force enable
-success "Firewall configured (22, 80, 443 open)"
+ufw allow 22/tcp comment 'SSH'
+ufw allow 80/tcp comment 'HTTP'
+ufw allow 443/tcp comment 'HTTPS'
+ufw status
+success "UFW configured"
 
 # ---------------------------------------------------------------------------
-# 9. Fail2ban
+# Step 10 — fail2ban
 # ---------------------------------------------------------------------------
-info "Enabling fail2ban ..."
+step "10. fail2ban"
 systemctl enable fail2ban
 systemctl start fail2ban
-success "fail2ban enabled"
+success "fail2ban active"
 
 # ---------------------------------------------------------------------------
-# 10. SSL certificate (standalone — runs before Docker nginx starts)
+# Step 11 — SSL Certificate (before starting nginx container)
 # ---------------------------------------------------------------------------
-info "Requesting Let's Encrypt SSL certificate ..."
-echo ""
-read -r -p "  Your email for SSL cert renewal notices: " SSL_EMAIL
-echo ""
-
-if [[ -z "$SSL_EMAIL" ]]; then
-    warn "No email provided — skipping SSL setup. Run manually later:"
-    warn "  certbot certonly --standalone -d ed-finder.app -d www.ed-finder.app \\"
-    warn "    --email you@example.com --agree-tos --non-interactive"
+step "11. SSL Certificate"
+if [[ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]]; then
+    success "SSL certificate already exists — skipping"
 else
-    certbot certonly --standalone \
-        -d ed-finder.app \
-        -d www.ed-finder.app \
-        --email "$SSL_EMAIL" \
-        --agree-tos \
-        --no-eff-email \
-        --non-interactive \
-        && success "SSL certificate obtained for ed-finder.app" \
-        || warn "SSL failed — check DNS points to this server and try manually"
-
-    # Auto-renewal: certbot renews, then reload nginx (no restart needed)
-    (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet && docker compose -f /opt/ed-finder/docker-compose.yml exec nginx nginx -s reload") | crontab -
-    success "SSL auto-renewal configured (daily at 03:00)"
+    warn "No SSL certificate found."
+    warn "Run certbot manually after DNS is pointed to this server:"
+    warn "  certbot certonly --standalone -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos -m your@email.com"
+    warn "Then: docker compose up -d nginx"
+    warn "Continuing setup without SSL (nginx will start in HTTP-only mode) ..."
 fi
 
 # ---------------------------------------------------------------------------
-# 11. Build Docker images
+# Step 12 — Build and start core services (postgres, redis, pgbouncer)
 # ---------------------------------------------------------------------------
-info "Building Docker images ..."
-cd /opt/ed-finder
-docker compose build
-success "Docker images built"
-
-# ---------------------------------------------------------------------------
-# 12. Start core services (PostgreSQL, Redis, pgBouncer — not API or nginx yet)
-# ---------------------------------------------------------------------------
-info "Starting database services ..."
-docker compose up -d postgres redis pgbouncer
-
-info "Waiting for PostgreSQL to be ready ..."
-for i in {1..30}; do
-    if docker compose exec -T postgres pg_isready -U edfinder -q 2>/dev/null; then
-        success "PostgreSQL ready"
+step "12. Start core services"
+cd "$INSTALL_DIR"
+docker compose build --no-cache 2>&1 | tail -5
+docker compose up -d postgres redis
+info "Waiting for PostgreSQL to be healthy ..."
+for i in $(seq 1 30); do
+    if docker compose exec -T postgres pg_isready -U edfinder -d edfinder &>/dev/null; then
+        success "PostgreSQL is ready"
         break
     fi
-    sleep 2
-    echo -n "."
+    sleep 3
+    [[ $i -eq 30 ]] && error "PostgreSQL did not become healthy after 90s"
 done
-echo ""
 
 # ---------------------------------------------------------------------------
-# 13. Apply schema + fix pg_hba auth for pgbouncer compatibility
+# Step 13 — Fix PostgreSQL auth for pgBouncer (md5)
 # ---------------------------------------------------------------------------
-info "Applying database schema ..."
-# 001_schema.sql is auto-run by postgres on first start via initdb.d mount.
-# Run it explicitly in case the volume already existed without schema.
-docker compose exec -T postgres psql -U edfinder -d edfinder \
-    -f /docker-entrypoint-initdb.d/001_schema.sql 2>/dev/null || true
-docker compose exec -T postgres psql -U edfinder -d edfinder \
-    -f /docker-entrypoint-initdb.d/003_functions.sql 2>/dev/null || true
-success "Schema applied"
+step "13. PostgreSQL auth fix"
+# pgBouncer uses md5, PostgreSQL 16 defaults to scram-sha-256.
+# We need to store the password as md5 and set hba to md5.
+docker compose exec -T postgres psql -U edfinder -d edfinder -c "
+    SET password_encryption = md5;
+    ALTER USER edfinder WITH PASSWORD '$(grep POSTGRES_PASSWORD $ENV_FILE | cut -d= -f2)';
+" || warn "md5 password set may have failed — check manually"
 
-info "Switching postgres auth to md5 for pgbouncer compatibility ..."
-# PostgreSQL 16 defaults to scram-sha-256.
-# edoburu/pgbouncer AUTH_TYPE=md5 cannot relay scram-sha-256 to postgres.
-# Fix: store the password as md5 hash and update pg_hba.conf.
-docker compose exec -T postgres psql -U edfinder -d edfinder -c \
-    "SET password_encryption = md5; ALTER USER edfinder WITH PASSWORD '${PG_PASS}';"
-docker compose exec -T postgres sed -i 's/scram-sha-256/md5/g' \
-    /var/lib/postgresql/data/pg_hba.conf
-docker compose exec -T postgres psql -U edfinder -d edfinder -c \
-    "SELECT pg_reload_conf();"
-success "Auth method set to md5 — pgbouncer can now connect"
+# Patch pg_hba.conf inside the container
+PGDATA=$(docker compose exec -T postgres psql -U edfinder -d edfinder -tAc "SHOW data_directory;" | tr -d '[:space:]')
+docker compose exec -T postgres sed -i 's/scram-sha-256/md5/g' "${PGDATA}/pg_hba.conf" 2>/dev/null || true
+docker compose exec -T postgres psql -U edfinder -d edfinder -c "SELECT pg_reload_conf();" &>/dev/null || true
+success "PostgreSQL auth set to md5"
 
 # ---------------------------------------------------------------------------
-# 14. Start API + nginx
+# Step 14 — Start remaining services
 # ---------------------------------------------------------------------------
-info "Starting API and nginx ..."
-docker compose up -d api nginx
+step "14. Start all services"
+docker compose up -d
+sleep 10
+docker compose ps
 
-info "Waiting for API to become healthy ..."
-for i in {1..20}; do
-    if curl -sf http://localhost:8000/api/health >/dev/null 2>&1; then
-        success "API is healthy"
-        break
-    fi
-    sleep 5
-    echo -n "."
-done
-echo ""
+# ---------------------------------------------------------------------------
+# Step 15 — Health checks
+# ---------------------------------------------------------------------------
+step "15. Health checks"
+sleep 15
+API_HEALTH=$(curl -sf http://localhost:8000/api/health 2>/dev/null || echo '{"status":"unreachable"}')
+info "API: $API_HEALTH"
 
-# Quick smoke test
-HTTP_STATUS=$(curl -so /dev/null -w "%{http_code}" http://localhost/ 2>/dev/null || echo "000")
-if [[ "$HTTP_STATUS" == "200" ]]; then
-    success "Frontend serving on port 80 (HTTP $HTTP_STATUS)"
+HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" http://localhost/ 2>/dev/null || echo "000")
+if [[ "$HTTP_CODE" == "200" || "$HTTP_CODE" == "301" ]]; then
+    success "nginx serving frontend (HTTP $HTTP_CODE)"
 else
-    warn "Frontend returned HTTP $HTTP_STATUS — check: docker compose logs nginx"
+    warn "nginx returned HTTP $HTTP_CODE — may need SSL cert or container restart"
 fi
 
 # ---------------------------------------------------------------------------
-# 15. Nightly update cron
+# Step 16 — Nightly update cron
 # ---------------------------------------------------------------------------
-info "Installing nightly update cron job ..."
-NIGHTLY_SCRIPT=/opt/ed-finder/import/nightly_update.sh
+step "16. Nightly cron"
+NIGHTLY_SCRIPT="$INSTALL_DIR/import/nightly_update.sh"
 if [[ -f "$NIGHTLY_SCRIPT" ]]; then
     chmod +x "$NIGHTLY_SCRIPT"
-    (crontab -l 2>/dev/null; echo "0 2 * * * $NIGHTLY_SCRIPT >> /data/logs/nightly.log 2>&1") | crontab -
-    success "Nightly update scheduled at 02:00 daily"
+    CRON_LINE="0 2 * * * $NIGHTLY_SCRIPT >> /data/logs/nightly.log 2>&1"
+    (crontab -l 2>/dev/null | grep -v "nightly_update"; echo "$CRON_LINE") | crontab -
+    success "Nightly cron set: $CRON_LINE"
 else
-    warn "nightly_update.sh not found at $NIGHTLY_SCRIPT — skipping cron"
+    warn "nightly_update.sh not found — skipping cron"
 fi
 
 # ---------------------------------------------------------------------------
-# 16. Done — print next steps
+# Step 17 — Done
 # ---------------------------------------------------------------------------
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
@@ -333,60 +348,62 @@ echo "║  0. VERIFY SERVICES:                                             ║"
 echo "║     docker compose ps                                            ║"
 echo "║     curl http://localhost/api/health                             ║"
 echo "║                                                                   ║"
-echo "║  1. DOWNLOAD SPANSH DUMPS (~15-30 min on 1 Gbps):                ║"
-echo "║                                                                   ║"
-echo "║     IMPORTANT: Download files first, then import separately.     ║"
-echo "║     Streaming download+import simultaneously is ~300x slower     ║"
-echo "║     (limited by PostgreSQL insert speed, not network).           ║"
+echo "║  1. DOWNLOAD SPANSH DUMPS (~15-30 min on 1 Gbps):               ║"
 echo "║                                                                   ║"
 echo "║     screen -S import                                             ║"
 echo "║     docker compose --profile import run --rm importer \\          ║"
 echo "║       import_spansh.py --download-only                          ║"
-echo "║     # Ctrl+A D to detach, reattach: screen -r import             ║"
-echo "║                                                                   ║"
-echo "║     Files downloaded (~110 GB total):                            ║"
-echo "║       galaxy.json.gz            ~102 GB  (systems+bodies+stations)║"
-echo "║       galaxy_populated.json.gz    ~3.6 GB (faction/economy data) ║"
-echo "║       galaxy_stations.json.gz     ~3.6 GB (station refresh)      ║"
-echo "║     Uses aria2c (16 parallel connections) if available.          ║"
-echo "║                                                                   ║"
-echo "║  2. IMPORT DOWNLOADED FILES (~2-4 days, fully resumable):        ║"
-echo "║                                                                   ║"
-echo "║     screen -r import   (or: screen -S import)                    ║"
-echo "║     docker compose --profile import run --rm importer \\          ║"
-echo "║       import_spansh.py --all --resume                           ║"
 echo "║     # Ctrl+A D to detach                                         ║"
 echo "║                                                                   ║"
-echo "║  3. MONITOR IMPORT:                                              ║"
-echo "║     screen -r import                  (re-attach)                ║"
-echo "║     docker compose exec postgres psql -U edfinder -d edfinder \\ ║"
-echo "║       -c 'SELECT dump_file,status,rows_processed FROM import_meta;'║"
+echo "║     Files (~110 GB total):                                       ║"
+echo "║       galaxy.json.gz          ~102 GB  (all systems+bodies+sta)  ║"
+echo "║       galaxy_populated.json.gz  ~3.6 GB (faction/economy)        ║"
+echo "║       galaxy_stations.json.gz   ~3.6 GB (station refresh)        ║"
 echo "║                                                                   ║"
-echo "║  4. AFTER IMPORT — build ratings + grid + clusters:              ║"
+echo "║  2. DROP INDEXES BEFORE IMPORTING (critical for speed):          ║"
+echo "║                                                                   ║"
+echo "║     docker compose exec postgres psql -U edfinder -d edfinder \\ ║"
+echo "║       -c \"DO \\\$\\\$ DECLARE r RECORD; BEGIN FOR r IN              ║"
+echo "║         SELECT indexname FROM pg_indexes WHERE tablename IN      ║"
+echo "║         ('systems','bodies','stations','factions')               ║"
+echo "║         AND indexname NOT LIKE '%pkey%'                          ║"
+echo "║         LOOP EXECUTE 'DROP INDEX IF EXISTS '||r.indexname;       ║"
+echo "║         END LOOP; END\\\$\\\$;\"                                      ║"
+echo "║                                                                   ║"
+echo "║  3. IMPORT (~8-24 hrs with COPY method, fully resumable):        ║"
+echo "║                                                                   ║"
+echo "║     screen -r import                                             ║"
 echo "║     docker compose --profile import run --rm importer \\          ║"
-echo "║       python3 build_ratings.py --rebuild --workers 12            ║"
+echo "║       import_spansh.py --all                                     ║"
+echo "║     # Ctrl+A D to detach                                         ║"
+echo "║                                                                   ║"
+echo "║  4. REBUILD INDEXES (after import):                              ║"
+echo "║     docker compose exec postgres psql -U edfinder -d edfinder \\ ║"
+echo "║       -f /docker-entrypoint-initdb.d/002_indexes.sql            ║"
+echo "║                                                                   ║"
+echo "║  5. BUILD RATINGS + GRID + CLUSTERS:                             ║"
+echo "║     docker compose --profile import run --rm importer \\          ║"
+echo "║       python3 build_ratings.py --rebuild --workers 12           ║"
 echo "║     docker compose --profile import run --rm importer \\          ║"
 echo "║       python3 build_grid.py                                      ║"
 echo "║     screen -S clusters                                           ║"
 echo "║     docker compose --profile import run --rm importer \\          ║"
-echo "║       python3 build_clusters.py --workers 12                     ║"
+echo "║       python3 build_clusters.py --workers 12                    ║"
 echo "║                                                                   ║"
-echo "║  5. BUILD INDEXES (run after all data is loaded):                ║"
-echo "║     docker compose exec postgres psql -U edfinder -d edfinder \\ ║"
-echo "║       -f /docker-entrypoint-initdb.d/002_indexes.sql             ║"
-echo "║                                                                   ║"
-echo "║  6. START EDDN LISTENER (live game data):                        ║"
+echo "║  6. START EDDN LISTENER:                                         ║"
 echo "║     docker compose up -d eddn                                    ║"
 echo "║                                                                   ║"
+echo "╠══════════════════════════════════════════════════════════════════╣"
+echo "║  REINSTALL (preserves DB):  bash setup.sh --reinstall            ║"
+echo "║  FULL RESET (destroys DB):  bash setup.sh --nuke                 ║"
 echo "╠══════════════════════════════════════════════════════════════════╣"
 echo "║  Useful commands:                                                 ║"
 echo "║    docker compose logs -f api         — API logs                 ║"
 echo "║    docker compose logs -f nginx       — nginx logs               ║"
 echo "║    docker compose logs -f eddn        — EDDN listener logs       ║"
-echo "║    docker compose logs -f postgres    — DB logs                  ║"
 echo "║    docker compose restart api         — Restart API              ║"
-echo "║    tail -f /data/logs/import.log      — Import progress          ║"
+echo "║    docker compose --profile import logs importer --tail=5       ║"
 echo "║    df -h /data                        — Disk usage               ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
-success "ED Finder Hetzner setup complete!"
+success "ED Finder setup complete!"

@@ -1,30 +1,18 @@
 """
-ED:Finder — Hetzner Local Search Module (PostgreSQL / asyncpg edition)
-=======================================================================
-Drop-in replacement for localdb/local_search.py on the Pi.
+ED Finder — Search Module (PostgreSQL / asyncpg)
+=================================================
+All DB calls are async (asyncpg.Pool).
 
-Public API — identical signatures to the Pi version:
-    local_db_search(body, pool)        -> dict   # mirrors Spansh /systems/search
-    local_db_system(id64, pool)        -> dict   # mirrors Spansh /system/{id64}
-    local_db_autocomplete(q, pool)     -> list   # system name autocomplete
-    local_db_status(pool)              -> dict   # DB health + stats
-    rate_system(sys)                   -> dict   # pre-compute colonisation score
+Key features:
+    • No search radius cap — 128 GB RAM handles any radius.
+    • Spatial grid indexed table — bounding-box queries are instant.
+    • Bodies table always present (imported from galaxy.json.gz).
+    • Typed enum columns for economy / security / allegiance / government.
+    • Full galaxy-wide search and multi-economy cluster search.
 
-Key differences from the Pi SQLite version:
-    • All DB calls are async (asyncpg.Pool) — no run_in_executor needed.
-    • No MAX_SEARCH_RADIUS cap — 128 GB RAM handles any radius comfortably.
-    • No 500k RAW_ROW_CAP — PostgreSQL streaming cursor + asyncpg handles density.
-    • Spatial grid is a proper indexed table — bounding-box queries are instant.
-    • Bodies table is always present (Phase 2 is built at import time).
-    • economy / security / allegiance / government come from typed enum columns.
-    • New endpoints supported: galaxy-wide search, multi-economy cluster search.
-    • Full primary_economy / secondary_economy exposed in every result.
-
-Response shapes are intentionally wire-compatible with the Pi version and with
-the Spansh API so the frontend requires zero changes.
-
-Version: 1.0 (Hetzner)
+Version: 2.0
 Target:  PostgreSQL 16 + asyncpg 0.29+
+Server:  Hetzner AX41-SSD — i7-8700, 128 GB RAM, 3×1 TB NVMe RAID-5
 """
 from __future__ import annotations
 
@@ -74,7 +62,7 @@ def _economy_str(val: Any) -> str:
 def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dict:
     """
     Convert an asyncpg Row from the systems+ratings JOIN into the wire format
-    that the frontend expects (compatible with Pi local_db and Spansh API shapes).
+    that the frontend expects (compatible with the Spansh API wire format).
     """
     bodies = bodies or []
     return {
@@ -174,7 +162,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     """
     Execute a filtered system search against the Hetzner PostgreSQL DB.
 
-    Accepts the same body format as the Pi version / Spansh API:
+    Accepts the Spansh API body format:
         reference_coords {x, y, z}
         filters:
             distance    {min, max}
@@ -191,7 +179,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         from           int                   — page offset
         sort_by        'rating' | 'distance' — default 'rating'
 
-    Returns the same response shape as the Pi version:
+    Returns:
         {results: [...], count: int, total: int, source: 'local_db', query_ms: int}
     """
     t0 = time.time()
@@ -238,7 +226,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     #
     # Body filters (require_bio, require_geo, require_terra, body_filters) are
     # applied in Python after the main query using a batch bodies fetch — same
-    # pattern as the Pi version.  This avoids a many-to-many JOIN explosion on
+    # applied in Python after the main query using a batch bodies fetch — this avoids a many-to-many JOIN explosion on
     # the 800M-row bodies table.
 
     params: list = []
@@ -822,7 +810,7 @@ async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
 async def local_db_status(pool: asyncpg.Pool) -> dict:
     """
     Return info about the Hetzner PostgreSQL database.
-    Wire-compatible with the Pi local_db_status() response.
+    Return info about the Hetzner PostgreSQL database and import progress.
     """
     try:
         async with pool.acquire() as conn:

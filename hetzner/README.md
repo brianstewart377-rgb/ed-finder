@@ -4,7 +4,7 @@
 ---
 
 ## Server spec
-- **Hetzner AX41**: Intel i7-8700 · 128 GB RAM · 2 × 1 TB SSD
+- **Hetzner AX41-SSD**: Intel i7-8700 (6C/12T) · 128 GB RAM · 3 × 1 TB NVMe (RAID-5 ~1.8 TB usable)
 - **OS**: Ubuntu 24.04 LTS
 - **Domain**: ed-finder.app (Cloudflare proxied — A/AAAA records point to Hetzner IP)
 
@@ -74,7 +74,25 @@ Files downloaded (~110 GB total):
 > All body and station data is now nested inside `galaxy.json.gz`. The importer
 > handles this in a single pass — no separate body import step needed.
 
-### 3. Import the downloaded files (~2–4 days, fully resumable)
+### 3. Drop indexes before importing (critical for speed)
+
+Dropping non-essential indexes before the bulk load makes the import **10–50× faster**
+(COPY into unindexed tables, rebuild indexes after):
+
+```bash
+docker compose exec postgres psql -U edfinder -d edfinder -c "
+DO \$\$ DECLARE r RECORD; BEGIN
+  FOR r IN SELECT indexname FROM pg_indexes
+    WHERE tablename IN ('systems','bodies','stations','factions')
+    AND indexname NOT LIKE '%pkey%'
+  LOOP
+    EXECUTE 'DROP INDEX IF EXISTS ' || r.indexname;
+    RAISE NOTICE 'Dropped %', r.indexname;
+  END LOOP;
+END \$\$;"
+```
+
+### 4. Import the downloaded files (~8–24 hrs with COPY, fully resumable)
 
 ```bash
 screen -r import   # re-attach, or: screen -S import
@@ -83,7 +101,7 @@ docker compose --profile import run --rm importer \
 # Ctrl+A D to detach
 ```
 
-### 4. Monitor the import
+### 5. Monitor the import
 ```bash
 # Re-attach screen
 screen -r import
@@ -100,18 +118,25 @@ docker compose exec postgres psql -U edfinder -d edfinder \
 df -h /data
 ```
 
-### 4. Build ratings (2–4 hours — after galaxy import completes)
+### 6. Rebuild indexes (3–5 hours — run AFTER import completes)
+```bash
+docker compose exec postgres \
+    psql -U edfinder -d edfinder -f /docker-entrypoint-initdb.d/002_indexes.sql
+```
+> Indexes were dropped before the import for speed. Rebuild them now.
+
+### 7. Build ratings (2–4 hours)
 ```bash
 docker compose --profile import run --rm importer \
     python3 build_ratings.py --rebuild --workers 12
 ```
 
-### 5. Build spatial grid (10–30 minutes)
+### 8. Build spatial grid (10–30 minutes)
 ```bash
 docker compose --profile import run --rm importer python3 build_grid.py
 ```
 
-### 6. Build cluster summary (8–24 hours — the long one)
+### 9. Build cluster summary (8–24 hours — the long one)
 ```bash
 screen -S clusters
 docker compose --profile import run --rm importer \
@@ -119,19 +144,12 @@ docker compose --profile import run --rm importer \
 # Ctrl+A D to detach
 ```
 
-### 7. Build indexes (3–5 hours — run AFTER all data is loaded)
-```bash
-docker compose exec postgres \
-    psql -U edfinder -d edfinder -f /docker-entrypoint-initdb.d/002_indexes.sql
-```
-> Run indexes last — building them on an empty table and then bulk-loading is much slower.
-
-### 8. Start EDDN live listener
+### 10. Start EDDN live listener
 ```bash
 docker compose up -d eddn
 ```
 
-### 9. Verify everything
+### 11. Verify everything
 ```bash
 docker compose ps
 curl https://ed-finder.app/api/health
@@ -145,21 +163,21 @@ curl https://ed-finder.app/api/status | python3 -m json.tool
 | Step | Duration |
 |---|---|
 | Setup script | 5–10 minutes |
-| Download all dumps (aria2c, 1 Gbps) | 15–30 minutes |
-| Import `galaxy.json.gz` | 2–4 days |
+| Download all dumps (aria2c, 16-conn, 1 Gbps) | 15–30 minutes |
+| Drop indexes (before import) | < 1 minute |
+| Import `galaxy.json.gz` (COPY method) | 8–24 hours |
 | Import `galaxy_populated.json.gz` | 1–2 hours |
 | Import `galaxy_stations.json.gz` | 1–2 hours |
+| Rebuild indexes (002_indexes.sql) | 3–5 hours |
 | Build ratings | 2–4 hours |
 | Build spatial grid | 10–30 minutes |
 | Build cluster_summary | 8–24 hours |
-| Build indexes | 3–5 hours |
-| **Total** | **~3–5 days** |
+| **Total** | **~2–3 days** |
 
-> **Download speed note:** On Hetzner with `aria2c` (16 parallel connections),
-> the 110 GB download completes in ~15–30 minutes. Without aria2c (single-stream
-> wget/curl), expect ~25–35 minutes. Streaming directly from URL into PostgreSQL
-> (`--all` without `--download-only` first) is limited by DB insert speed to
-> ~300 kB/s, meaning ~100 hours for `galaxy.json.gz` alone — always download first.
+> **Import speed notes:**
+> - **Download**: `aria2c` with 16 parallel connections completes 110 GB in ~15–30 min on Hetzner 1 Gbps. Without aria2c (wget/curl single-stream), ~25–35 min. Streaming directly from URL into PostgreSQL (`--all` without `--download-only` first) is bottlenecked by DB insert speed to ~300 kB/s → ~100 hours — always download first.
+> - **COPY vs INSERT**: The v2.0 importer uses `COPY`-via-temp-table instead of `INSERT … ON CONFLICT`. This is 10–50× faster: ~5–15 MB/s with indexes dropped (target 8–24 h) vs ~250 kB/s with live indexes (~5 days). **Always drop indexes before the bulk import** (step 3) and rebuild afterward (step 6).
+> - **PostgreSQL tuning during import**: The importer automatically applies `synchronous_commit=off`, `work_mem=256MB`, `maintenance_work_mem=4GB` per-session. For even faster loads, also run `ALTER SYSTEM SET fsync=off; SELECT pg_reload_conf();` before importing and re-enable after.
 
 The API serves live traffic as soon as `galaxy.json.gz` import completes.
 Cluster search requires cluster_summary to be built first.
@@ -216,18 +234,18 @@ Check: `ss -tlnp | grep -E ':80|:443'` — should show `docker-proxy` not `nginx
 
 ## API endpoints
 
-### Standard (Pi-compatible)
+### Standard endpoints
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/local/search` | Distance-based system search |
 | GET | `/api/local/status` | DB health + stats |
-| GET | `/api/autocomplete` | System name autocomplete |
+| GET | `/api/local/autocomplete` | System name autocomplete |
 | GET | `/api/system/{id64}` | Full system detail |
 | POST | `/api/systems/batch` | Batch system lookup |
 | GET/POST/DELETE | `/api/watchlist/...` | Watchlist CRUD |
 | GET/POST/DELETE | `/api/systems/{id64}/note` | Notes CRUD |
 
-### Hetzner-only (requires full import)
+### Galaxy-wide endpoints (requires full import)
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/search/galaxy` | Galaxy-wide economy search |
@@ -288,6 +306,19 @@ Settings for 128 GB RAM / i7-8700 (12 threads):
 ---
 
 ## Maintenance
+
+### Reinstall / Nuke
+
+```bash
+# Pull latest code and rebuild containers (PRESERVES database):
+sudo bash setup.sh --reinstall
+
+# Destroy EVERYTHING including the database (full re-import required):
+sudo bash setup.sh --nuke
+```
+
+`--reinstall`: stops containers, removes images (forces rebuild), re-pulls code, restarts.  
+`--nuke`: asks for `NUKE IT` confirmation, then destroys all Docker volumes including PostgreSQL data.
 
 ### Update the app (no data loss)
 ```bash
