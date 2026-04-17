@@ -735,6 +735,12 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
     def flush_factions():
         if not fac_batch:
             return
+        # Deduplicate by name — same faction can appear in multiple systems
+        # in the same batch; ON CONFLICT cannot affect the same row twice
+        seen: dict = {}
+        for name, alleg, gov in fac_batch:
+            seen[name] = (name, alleg, gov)
+        deduped = list(seen.values())
         # Upsert factions
         psycopg2.extras.execute_values(
             conn.cursor(),
@@ -746,7 +752,7 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 government = EXCLUDED.government,
                 updated_at = NOW()
             """,
-            fac_batch
+            deduped
         )
         conn.commit()
         fac_batch.clear()
