@@ -534,11 +534,15 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             sys_batch.clear()
 
     def flush_bodies():
+        # Always flush systems first — bodies have a FK on system_id64
+        flush_systems()
         if body_batch:
             upsert_via_temp(conn, 'bodies', BODY_COLS, body_batch, 'id')
             body_batch.clear()
 
     def flush_stations():
+        # Always flush systems first — stations have a FK on system_id64
+        flush_systems()
         if sta_batch:
             upsert_via_temp(conn, 'stations', STA_COLS, sta_batch, 'id')
             sta_batch.clear()
@@ -724,13 +728,14 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                 total_rows += 1
 
-                # Flush when batches are full
+                # Flush when batches are full — ORDER MATTERS: systems before bodies/stations
+                # (bodies and stations have FK on system_id64 → parent must exist first)
                 if len(sys_batch) >= BATCH_SIZE:
                     flush_systems()
                 if len(body_batch) >= BATCH_SIZE:
-                    flush_bodies()
+                    flush_bodies()   # internally calls flush_systems() first
                 if len(sta_batch) >= BATCH_SIZE:
-                    flush_stations()
+                    flush_stations()  # internally calls flush_systems() first
 
                 # Checkpoint every 60 seconds
                 if time.time() - last_save > 60:
