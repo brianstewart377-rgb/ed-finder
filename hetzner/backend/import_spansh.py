@@ -555,6 +555,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             desc=dump_path.name,
         )
 
+        _skip_count = 0  # count of individual bad records skipped
+
         try:
             for sys_obj in ijson.items(f, 'item'):
                 id64 = sys_obj.get('id64')
@@ -563,10 +565,10 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                 now_iso = datetime.now(timezone.utc).isoformat()
 
-                # --- Determine main star from nested bodies ---
+                # ── Determine main star from nested bodies ─────────────────
                 bodies_raw = sys_obj.get('bodies', []) or []
-                main_star_type     = None
-                main_star_subtype  = None
+                main_star_type      = None
+                main_star_subtype   = None
                 main_star_scoopable = None
                 has_body_data = len(bodies_raw) > 0
 
@@ -578,8 +580,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         main_star_scoopable = main_star_type in SCOOPABLE_STARS if main_star_type else None
                         break
 
-                # --- Systems row ---
-                controlling = None
+                # ── Systems row ───────────────────────────────────────────
+                controlling  = None
                 factions_raw = sys_obj.get('factions', []) or []
                 for fac in factions_raw:
                     if fac.get('isControlling') or fac.get('is_controlling'):
@@ -588,116 +590,137 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 if not controlling:
                     controlling = sys_obj.get('controllingFaction') or sys_obj.get('controlling_faction')
 
-                sys_batch.append((
-                    id64,
-                    sys_obj.get('name', ''),
-                    float(sys_obj.get('coords', {}).get('x', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('x', 0)),
-                    float(sys_obj.get('coords', {}).get('y', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('y', 0)),
-                    float(sys_obj.get('coords', {}).get('z', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('z', 0)),
-                    norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
-                    norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
-                    int(sys_obj.get('population') or 0),
-                    bool(sys_obj.get('isColonised') or sys_obj.get('is_colonised', False)),
-                    bool(sys_obj.get('isBeingColonised') or sys_obj.get('is_being_colonised', False)),
-                    controlling,
-                    norm_security(sys_obj.get('security')),
-                    norm_allegiance(sys_obj.get('allegiance')),
-                    norm_government(sys_obj.get('government')),
-                    main_star_type,
-                    main_star_subtype,
-                    main_star_scoopable,
-                    has_body_data,
-                    len(bodies_raw),
-                    2 if has_body_data else 0,
-                    parse_ts(sys_obj.get('date') or sys_obj.get('first_discovered_at')),
-                    now_iso,
-                    True,   # rating_dirty
-                    True,   # cluster_dirty
-                ))
+                try:
+                    coords = sys_obj.get('coords') or {}
+                    coords = coords if isinstance(coords, dict) else {}
+                    sys_batch.append((
+                        id64,
+                        sys_obj.get('name', ''),
+                        float(coords.get('x') or sys_obj.get('x') or 0),
+                        float(coords.get('y') or sys_obj.get('y') or 0),
+                        float(coords.get('z') or sys_obj.get('z') or 0),
+                        norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
+                        norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
+                        int(sys_obj.get('population') or 0),
+                        bool(sys_obj.get('isColonised') or sys_obj.get('is_colonised', False)),
+                        bool(sys_obj.get('isBeingColonised') or sys_obj.get('is_being_colonised', False)),
+                        controlling,
+                        norm_security(sys_obj.get('security')),
+                        norm_allegiance(sys_obj.get('allegiance')),
+                        norm_government(sys_obj.get('government')),
+                        main_star_type,
+                        main_star_subtype,
+                        main_star_scoopable,
+                        has_body_data,
+                        len(bodies_raw),
+                        2 if has_body_data else 0,
+                        parse_ts(sys_obj.get('date') or sys_obj.get('first_discovered_at')),
+                        now_iso,
+                        True,   # rating_dirty
+                        True,   # cluster_dirty
+                    ))
+                except Exception as _e:
+                    _skip_count += 1
+                    log.debug(f"Skipping system id64={id64} ({sys_obj.get('name','')}): {_e}")
+                    continue
 
-                # --- Bodies rows ---
+                # ── Bodies rows ───────────────────────────────────────────
                 for b in bodies_raw:
                     bid = b.get('id64') or b.get('id') or b.get('bodyId')
                     if not bid:
                         continue
-                    btype_raw = b.get('type', 'Unknown')
-                    btype = 'Star' if btype_raw == 'Star' else \
-                            'Planet' if btype_raw == 'Planet' else \
-                            'Unknown'
-                    sc = b.get('spectralClass') or b.get('spectral_class') or ''
-                    atm_comp = b.get('atmosphereComposition') or b.get('atmosphere_composition')
-                    mats     = b.get('materials')
-                    body_batch.append((
-                        bid, id64,
-                        b.get('name', ''),
-                        btype,
-                        b.get('subType') or b.get('subtype'),
-                        bool(b.get('isMainStar') or b.get('is_main_star', False)),
-                        b.get('distanceToArrival') or b.get('distance_from_star'),
-                        b.get('orbitalPeriod') or b.get('orbital_period'),
-                        b.get('radius'),
-                        b.get('solarMasses') or b.get('mass') or b.get('earthMasses'),
-                        b.get('gravity'),
-                        b.get('surfaceTemperature') or b.get('surface_temp'),
-                        b.get('surfacePressure') or b.get('surface_pressure'),
-                        b.get('atmosphereType') or b.get('atmosphere_type'),
-                        _json_dumps(atm_comp),
-                        b.get('volcanismType') or b.get('volcanism'),
-                        _json_dumps(mats),
-                        b.get('terraformingState') or b.get('terraforming_state'),
-                        bool(b.get('isTerraformingCandidate') or b.get('is_terraformable', False)),
-                        bool(b.get('isLandable') or b.get('is_landable', False)),
-                        bool(b.get('isWaterWorld') or b.get('is_water_world', False)),
-                        bool(b.get('isEarthLike') or b.get('is_earth_like', False)),
-                        bool(b.get('isAmmoniaWorld') or b.get('is_ammonia_world', False)),
-                        _parse_bio_signals(b),
-                        _parse_geo_signals(b),
-                        sc[:4] if sc else None,
-                        b.get('luminosity'),
-                        b.get('solarMasses') or b.get('stellar_mass'),
-                        (sc[:1] in SCOOPABLE_STARS) if sc else None,
-                        b.get('estimatedMappingValue') or b.get('estimated_mapping_value'),
-                        b.get('estimatedScanValue') or b.get('estimated_scan_value'),
-                        parse_ts(b.get('updateTime') or b.get('updated_at')),
-                        now_iso,
-                    ))
+                    try:
+                        btype_raw = b.get('type', 'Unknown')
+                        btype = 'Star' if btype_raw == 'Star' else \
+                                'Planet' if btype_raw == 'Planet' else \
+                                'Unknown'
+                        sc = b.get('spectralClass') or b.get('spectral_class') or ''
+                        atm_comp = b.get('atmosphereComposition') or b.get('atmosphere_composition')
+                        mats     = b.get('materials')
+                        body_batch.append((
+                            bid, id64,
+                            b.get('name', ''),
+                            btype,
+                            b.get('subType') or b.get('subtype'),
+                            bool(b.get('isMainStar') or b.get('is_main_star', False)),
+                            b.get('distanceToArrival') or b.get('distance_from_star'),
+                            b.get('orbitalPeriod') or b.get('orbital_period'),
+                            b.get('radius'),
+                            b.get('solarMasses') or b.get('mass') or b.get('earthMasses'),
+                            b.get('gravity'),
+                            b.get('surfaceTemperature') or b.get('surface_temp'),
+                            b.get('surfacePressure') or b.get('surface_pressure'),
+                            b.get('atmosphereType') or b.get('atmosphere_type'),
+                            _json_dumps(atm_comp),
+                            b.get('volcanismType') or b.get('volcanism'),
+                            _json_dumps(mats),
+                            b.get('terraformingState') or b.get('terraforming_state'),
+                            bool(b.get('isTerraformingCandidate') or b.get('is_terraformable', False)),
+                            bool(b.get('isLandable') or b.get('is_landable', False)),
+                            bool(b.get('isWaterWorld') or b.get('is_water_world', False)),
+                            bool(b.get('isEarthLike') or b.get('is_earth_like', False)),
+                            bool(b.get('isAmmoniaWorld') or b.get('is_ammonia_world', False)),
+                            _parse_bio_signals(b),
+                            _parse_geo_signals(b),
+                            sc[:4] if sc else None,
+                            b.get('luminosity'),
+                            b.get('solarMasses') or b.get('stellar_mass'),
+                            (sc[:1] in SCOOPABLE_STARS) if sc else None,
+                            b.get('estimatedMappingValue') or b.get('estimated_mapping_value'),
+                            b.get('estimatedScanValue') or b.get('estimated_scan_value'),
+                            parse_ts(b.get('updateTime') or b.get('updated_at')),
+                            now_iso,
+                        ))
+                    except Exception as _e:
+                        _skip_count += 1
+                        log.debug(f"Skipping body id={bid} in system {id64}: {_e}")
+                        continue
 
-                # --- Stations rows ---
+                # ── Stations rows ─────────────────────────────────────────
                 stations_raw = sys_obj.get('stations', []) or []
                 for s in stations_raw:
                     sid = s.get('id') or s.get('marketId') or s.get('market_id')
                     if not sid:
                         continue
-                    svcs = s.get('otherServices') or s.get('other_services') or []
-                    svcs_lower = [str(x).lower() for x in svcs]
-                    sta_batch.append((
-                        sid, id64,
-                        s.get('name', ''),
-                        norm_station_type(s.get('type') or s.get('station_type')),
-                        s.get('distanceToArrival') or s.get('distance_from_star'),
-                        s.get('body') or s.get('body_name'),
-                        s.get('landingPads', {}).get('large') and 'L' or
-                        s.get('landingPads', {}).get('medium') and 'M' or
-                        s.get('landing_pad_size'),
-                        bool(s.get('hasMarket') or s.get('has_market', False)),
-                        bool(s.get('hasShipyard') or s.get('has_shipyard', False)),
-                        bool(s.get('hasOutfitting') or s.get('has_outfitting', False)),
-                        'refuel' in svcs_lower or bool(s.get('has_refuel', False)),
-                        'repair' in svcs_lower or bool(s.get('has_repair', False)),
-                        'rearm' in svcs_lower or bool(s.get('has_rearm', False)),
-                        'black market' in svcs_lower or bool(s.get('has_black_market', False)),
-                        'material trader' in svcs_lower or bool(s.get('has_material_trader', False)),
-                        'technology broker' in svcs_lower or bool(s.get('has_technology_broker', False)),
-                        'interstellar factors' in svcs_lower or bool(s.get('has_interstellar_factors', False)),
-                        'universal cartographics' in svcs_lower or bool(s.get('has_universal_cartographics', False)),
-                        'search and rescue' in svcs_lower or bool(s.get('has_search_rescue', False)),
-                        norm_economy(s.get('primaryEconomy') or s.get('primary_economy')),
-                        norm_economy(s.get('secondaryEconomy') or s.get('secondary_economy')),
-                        s.get('controllingFaction') or s.get('controlling_faction'),
-                        norm_allegiance(s.get('allegiance')),
-                        norm_government(s.get('government')),
-                        parse_ts(s.get('updateTime') or s.get('updated_at')) or now_iso,
-                    ))
+                    try:
+                        svcs = s.get('otherServices') or s.get('other_services') or []
+                        svcs_lower = [str(x).lower() for x in svcs]
+                        landing_pads = s.get('landingPads') or {}
+                        if not isinstance(landing_pads, dict):
+                            landing_pads = {}
+                        pad_size = ('L' if landing_pads.get('large') else
+                                    'M' if landing_pads.get('medium') else
+                                    s.get('landing_pad_size'))
+                        sta_batch.append((
+                            sid, id64,
+                            s.get('name', ''),
+                            norm_station_type(s.get('type') or s.get('station_type')),
+                            s.get('distanceToArrival') or s.get('distance_from_star'),
+                            s.get('body') or s.get('body_name'),
+                            pad_size,
+                            bool(s.get('hasMarket') or s.get('has_market', False)),
+                            bool(s.get('hasShipyard') or s.get('has_shipyard', False)),
+                            bool(s.get('hasOutfitting') or s.get('has_outfitting', False)),
+                            'refuel' in svcs_lower or bool(s.get('has_refuel', False)),
+                            'repair' in svcs_lower or bool(s.get('has_repair', False)),
+                            'rearm' in svcs_lower or bool(s.get('has_rearm', False)),
+                            'black market' in svcs_lower or bool(s.get('has_black_market', False)),
+                            'material trader' in svcs_lower or bool(s.get('has_material_trader', False)),
+                            'technology broker' in svcs_lower or bool(s.get('has_technology_broker', False)),
+                            'interstellar factors' in svcs_lower or bool(s.get('has_interstellar_factors', False)),
+                            'universal cartographics' in svcs_lower or bool(s.get('has_universal_cartographics', False)),
+                            'search and rescue' in svcs_lower or bool(s.get('has_search_rescue', False)),
+                            norm_economy(s.get('primaryEconomy') or s.get('primary_economy')),
+                            norm_economy(s.get('secondaryEconomy') or s.get('secondary_economy')),
+                            s.get('controllingFaction') or s.get('controlling_faction'),
+                            norm_allegiance(s.get('allegiance')),
+                            norm_government(s.get('government')),
+                            parse_ts(s.get('updateTime') or s.get('updated_at')) or now_iso,
+                        ))
+                    except Exception as _e:
+                        _skip_count += 1
+                        log.debug(f"Skipping station id={sid} in system {id64}: {_e}")
+                        continue
 
                 total_rows += 1
 
@@ -727,7 +750,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             flush_bodies()
             flush_stations()
             save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
-            log.info(f"Checkpoint saved at {f.tell():,} bytes, {total_rows:,} systems")
+            log.info(f"Checkpoint saved at {f.tell():,} bytes, {total_rows:,} systems "
+                     f"({_skip_count:,} records skipped)")
             sys.exit(0)
 
         # Final flush
@@ -736,6 +760,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
         flush_stations()
         pbar.close()
 
+    if _skip_count:
+        log.warning(f"Skipped {_skip_count:,} malformed records during galaxy import")
     mark_complete(conn, dump_path.name, total_rows)
     log.info(f"galaxy.json.gz complete: {total_rows:,} systems imported")
     return total_rows
@@ -1280,6 +1306,16 @@ def main():
         parser.print_help()
         return
 
+    # Pre-load import_meta status so we can skip completed files
+    def _get_status(fname: str) -> Optional[str]:
+        try:
+            with conn.cursor() as _cur:
+                _cur.execute("SELECT status FROM import_meta WHERE dump_file = %s", (fname,))
+                row = _cur.fetchone()
+                return str(row[0]) if row else None
+        except Exception:
+            return None
+
     total_start = time.time()
     for fname in files_to_import:
         dump_path = DUMP_DIR / fname
@@ -1291,6 +1327,12 @@ def main():
         importer_fn = IMPORTER_MAP.get(fname)
         if not importer_fn:
             log.error(f"No importer for: {fname}")
+            continue
+
+        # Skip files that are already complete (unless --resume is explicitly set)
+        current_status = _get_status(fname)
+        if current_status == 'complete' and not args.resume:
+            log.info(f"⏭  {fname}: already complete — skipping (use --resume to re-run)")
             continue
 
         resume_offset = get_checkpoint(conn, fname) if args.resume else 0
