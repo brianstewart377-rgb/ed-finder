@@ -415,6 +415,39 @@ def parse_bool(v) -> Optional[bool]:
 
 
 # ---------------------------------------------------------------------------
+# Signal count helpers — Spansh uses inconsistent shapes:
+#   dict:  {"genuses": 3, "geology": 1}
+#   list:  [{"type": "Biology", "count": 3}, {"type": "Geology", "count": 1}]
+# ---------------------------------------------------------------------------
+def _parse_bio_signals(b: dict) -> int:
+    sig = b.get('signals')
+    if sig is None:
+        return int(b.get('bio_signal_count', 0) or 0)
+    if isinstance(sig, dict):
+        return int(sig.get('genuses', 0) or 0)
+    if isinstance(sig, list):
+        for s in sig:
+            if isinstance(s, dict) and str(s.get('type', '')).lower() in ('biology', 'biological'):
+                return int(s.get('count', 0) or 0)
+        return 0
+    return 0
+
+
+def _parse_geo_signals(b: dict) -> int:
+    sig = b.get('signals')
+    if sig is None:
+        return int(b.get('geo_signal_count', 0) or 0)
+    if isinstance(sig, dict):
+        return int(sig.get('geology', 0) or 0)
+    if isinstance(sig, list):
+        for s in sig:
+            if isinstance(s, dict) and str(s.get('type', '')).lower() in ('geology', 'geological'):
+                return int(s.get('count', 0) or 0)
+        return 0
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # IMPORTER 1 — galaxy.json.gz  (systems + bodies + stations, all-in-one)
 # ---------------------------------------------------------------------------
 def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
@@ -604,8 +637,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         bool(b.get('isWaterWorld') or b.get('is_water_world', False)),
                         bool(b.get('isEarthLike') or b.get('is_earth_like', False)),
                         bool(b.get('isAmmoniaWorld') or b.get('is_ammonia_world', False)),
-                        int(b.get('signals', {}).get('genuses', 0) if isinstance(b.get('signals'), dict) else b.get('bio_signal_count', 0)),
-                        int(b.get('signals', {}).get('geology', 0) if isinstance(b.get('signals'), dict) else b.get('geo_signal_count', 0)),
+                        _parse_bio_signals(b),
+                        _parse_geo_signals(b),
                         sc[:4] if sc else None,
                         b.get('luminosity'),
                         b.get('solarMasses') or b.get('stellar_mass'),
