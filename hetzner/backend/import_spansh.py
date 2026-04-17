@@ -415,20 +415,33 @@ def parse_bool(v) -> Optional[bool]:
 
 
 # ---------------------------------------------------------------------------
-# Signal count helpers — Spansh uses inconsistent shapes:
-#   dict:  {"genuses": 3, "geology": 1}
-#   list:  [{"type": "Biology", "count": 3}, {"type": "Geology", "count": 1}]
+# Signal count helpers — Spansh uses multiple inconsistent shapes:
+#   dict count:  {"genuses": 3, "geology": 1}
+#   dict list:   {"genuses": ["$genus_name1;", ...], "geology": [...]}
+#   list:        [{"type": "Biology", "count": 3}, {"type": "Geology", "count": 1}]
 # ---------------------------------------------------------------------------
+def _to_signal_count(val) -> int:
+    """Convert any signal value shape to an integer count."""
+    if val is None:
+        return 0
+    if isinstance(val, list):
+        return len(val)          # list of genus names — count = length
+    try:
+        return int(val or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _parse_bio_signals(b: dict) -> int:
     sig = b.get('signals')
     if sig is None:
-        return int(b.get('bio_signal_count', 0) or 0)
+        return _to_signal_count(b.get('bio_signal_count'))
     if isinstance(sig, dict):
-        return int(sig.get('genuses', 0) or 0)
+        return _to_signal_count(sig.get('genuses'))
     if isinstance(sig, list):
         for s in sig:
             if isinstance(s, dict) and str(s.get('type', '')).lower() in ('biology', 'biological'):
-                return int(s.get('count', 0) or 0)
+                return _to_signal_count(s.get('count'))
         return 0
     return 0
 
@@ -436,13 +449,13 @@ def _parse_bio_signals(b: dict) -> int:
 def _parse_geo_signals(b: dict) -> int:
     sig = b.get('signals')
     if sig is None:
-        return int(b.get('geo_signal_count', 0) or 0)
+        return _to_signal_count(b.get('geo_signal_count'))
     if isinstance(sig, dict):
-        return int(sig.get('geology', 0) or 0)
+        return _to_signal_count(sig.get('geology'))
     if isinstance(sig, list):
         for s in sig:
             if isinstance(s, dict) and str(s.get('type', '')).lower() in ('geology', 'geological'):
-                return int(s.get('count', 0) or 0)
+                return _to_signal_count(s.get('count'))
         return 0
     return 0
 
