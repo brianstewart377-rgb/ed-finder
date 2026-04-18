@@ -396,12 +396,23 @@ def norm_station_type(v) -> str:
 
 
 def parse_ts(v) -> Optional[str]:
+    """Convert any timestamp value to an ISO8601 string PostgreSQL can accept.
+    Handles: Unix epoch int/float, ISO8601 strings, other strings (passed through).
+    """
     if not v:
         return None
     try:
         if isinstance(v, (int, float)):
             return datetime.fromtimestamp(v, tz=timezone.utc).isoformat()
-        return str(v)
+        # Validate/normalise ISO8601 strings so COPY doesn't fail on bad formats
+        s = str(v).strip()
+        try:
+            dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+            return dt.isoformat()
+        except ValueError:
+            pass
+        # Pass through anything else and let PostgreSQL complain if it's wrong
+        return s
     except Exception:
         return None
 
@@ -662,9 +673,11 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             bool(b.get('isTerraformingCandidate') or b.get('is_terraformable', False))
                         )
 
-                        # mass: planets use earthMasses, stars use solarMasses
-                        mass = (b.get('earthMasses') or b.get('solarMasses') or
-                                b.get('mass') or b.get('stellar_mass'))
+                        # mass column = Earth masses for planets, solar masses for stars.
+                        # Deliberately do NOT fall through to solarMasses here; that
+                        # goes into the dedicated stellar_mass column below.
+                        mass = b.get('earthMasses') or b.get('mass')
+                        stellar_mass = b.get('solarMasses') or b.get('stellar_mass')
 
                         body_batch.append((
                             bid, id64,
@@ -674,7 +687,10 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             is_main_star,
                             b.get('distanceToArrival') or b.get('distance_from_star'),
                             b.get('orbitalPeriod') or b.get('orbital_period'),
-                            b.get('radius') or b.get('solarRadius'),
+                            # radius is always in km in Spansh dumps.
+                            # solarRadius is in solar radii (~695,700 km) — completely
+                            # different unit, so we never mix them.
+                            b.get('radius'),
                             mass,
                             b.get('gravity'),
                             b.get('surfaceTemperature') or b.get('surface_temp'),
@@ -691,9 +707,9 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             is_ammonia,
                             _parse_bio_signals(b),
                             _parse_geo_signals(b),
-                            sc[:4] if sc else None,
+                            sc if sc else None,   # full spectral class — no truncation
                             b.get('luminosity'),
-                            b.get('solarMasses') or b.get('stellar_mass'),
+                            stellar_mass,
                             (sc[:1] in SCOOPABLE_STARS) if sc else None,
                             b.get('estimatedMappingValue') or b.get('estimated_mapping_value'),
                             b.get('estimatedScanValue') or b.get('estimated_scan_value'),
@@ -836,11 +852,9 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     sys_batch  = []
     fac_batch  = []   # (name, allegiance, government)
+    sf_batch   = []   # (system_id64, faction_name, influence, state, is_controlling)
     total_rows = 0
     last_save  = time.time()
-
-    # Pre-load faction name → id map to avoid per-row lookups
-    fac_cache: dict = {}
 
     def flush_sys():
         if not sys_batch:
@@ -848,6 +862,35 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
         upsert_via_temp(conn, 'systems', SYS_ENRICH_COLS, sys_batch, 'id64',
                         update_cols=[c for c in SYS_ENRICH_COLS if c != 'id64'])
         sys_batch.clear()
+
+    def flush_system_factions():
+        """
+        Upsert system_factions rows.  We resolve faction name -> id by joining
+        against the factions table that was just flushed by flush_factions().
+        Rows whose faction name does not exist yet are silently skipped.
+        """
+        if not sf_batch:
+            return
+        # sf_batch rows: (system_id64, faction_name, influence, state, is_controlling)
+        with conn.cursor() as _cur:
+            for row in sf_batch:
+                try:
+                    _cur.execute("""
+                        INSERT INTO system_factions
+                            (system_id64, faction_id, influence, state, is_controlling, updated_at)
+                        SELECT %s, f.id, %s, %s, %s, NOW()
+                        FROM factions f
+                        WHERE f.name = %s
+                        ON CONFLICT (system_id64, faction_id) DO UPDATE
+                        SET influence      = EXCLUDED.influence,
+                            state          = EXCLUDED.state,
+                            is_controlling = EXCLUDED.is_controlling,
+                            updated_at     = NOW()
+                    """, (row[0], row[2], row[3], row[4], row[1]))
+                except Exception as _e:
+                    log.debug(f"system_factions upsert skipped: {_e}")
+        conn.commit()
+        sf_batch.clear()
 
     def flush_factions():
         if not fac_batch:
@@ -858,19 +901,20 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
         for name, alleg, gov in fac_batch:
             seen[name] = (name, alleg, gov)
         deduped = list(seen.values())
-        # Upsert factions
-        psycopg2.extras.execute_values(
-            conn.cursor(),
-            """
-            INSERT INTO factions (name, allegiance, government)
-            VALUES %s
-            ON CONFLICT (name) DO UPDATE
-            SET allegiance = EXCLUDED.allegiance,
-                government = EXCLUDED.government,
-                updated_at = NOW()
-            """,
-            deduped
-        )
+        # Upsert factions — use explicit cursor so it's properly closed
+        with conn.cursor() as _cur:
+            psycopg2.extras.execute_values(
+                _cur,
+                """
+                INSERT INTO factions (name, allegiance, government)
+                VALUES %s
+                ON CONFLICT (name) DO UPDATE
+                SET allegiance = EXCLUDED.allegiance,
+                    government = EXCLUDED.government,
+                    updated_at = NOW()
+                """,
+                deduped
+            )
         conn.commit()
         fac_batch.clear()
 
@@ -900,30 +944,43 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         falleg = norm_allegiance(fac.get('allegiance'))
                         fgov   = norm_government(fac.get('government'))
                         fac_batch.append((fname, falleg, fgov))
-                    if fac.get('isControlling'):
-                        controlling = fname
+                        is_ctrl = bool(fac.get('isControlling') or fac.get('is_controlling'))
+                        if is_ctrl:
+                            controlling = fname
+                        # Queue system_factions row (resolved to faction id in flush)
+                        sf_batch.append((
+                            id64,
+                            fname,
+                            float(fac.get('influence') or 0),
+                            fac.get('state'),
+                            is_ctrl,
+                        ))
 
                 if not controlling:
                     controlling = sys_obj.get('controllingFaction')
 
-                sys_batch.append((
-                    id64,
-                    sys_obj.get('name', ''),
-                    float(sys_obj.get('coords', {}).get('x', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('x', 0)),
-                    float(sys_obj.get('coords', {}).get('y', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('y', 0)),
-                    float(sys_obj.get('coords', {}).get('z', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('z', 0)),
-                    norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
-                    norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
-                    int(sys_obj.get('population') or 0),
-                    norm_security(sys_obj.get('security')),
-                    norm_allegiance(sys_obj.get('allegiance')),
-                    norm_government(sys_obj.get('government')),
-                    controlling,
-                    True,   # is_colonised — all populated systems are colonised
-                    now_iso,
-                    True,   # rating_dirty
-                    True,   # cluster_dirty
-                ))
+                try:
+                    sys_batch.append((
+                        id64,
+                        sys_obj.get('name', ''),
+                        float(sys_obj.get('coords', {}).get('x', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('x', 0)),
+                        float(sys_obj.get('coords', {}).get('y', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('y', 0)),
+                        float(sys_obj.get('coords', {}).get('z', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('z', 0)),
+                        norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
+                        norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
+                        int(sys_obj.get('population') or 0),
+                        norm_security(sys_obj.get('security')),
+                        norm_allegiance(sys_obj.get('allegiance')),
+                        norm_government(sys_obj.get('government')),
+                        controlling,
+                        True,   # is_colonised — all populated systems are colonised
+                        now_iso,
+                        True,   # rating_dirty
+                        True,   # cluster_dirty
+                    ))
+                except Exception as _e:
+                    log.debug(f"Skipping populated system id64={id64}: {_e}")
+                    continue
 
                 total_rows += 1
 
@@ -931,10 +988,15 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     flush_sys()
                 if len(fac_batch) >= BATCH_SIZE:
                     flush_factions()
+                    flush_system_factions()  # must come after factions are in DB
+                if len(sf_batch) >= BATCH_SIZE:
+                    flush_factions()         # ensure faction rows exist first
+                    flush_system_factions()
 
                 if time.time() - last_save > 60:
                     flush_sys()
                     flush_factions()
+                    flush_system_factions()
                     try:
                         save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
                     except Exception:
@@ -946,11 +1008,13 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
             log.info("Interrupted — saving checkpoint ...")
             flush_sys()
             flush_factions()
+            flush_system_factions()
             save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
             sys.exit(0)
 
         flush_sys()
         flush_factions()
+        flush_system_factions()
         pbar.close()
 
     mark_complete(conn, dump_path.name, total_rows)
@@ -1005,6 +1069,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
             desc=dump_path.name,
         )
 
+        _skip_count = 0
         try:
             for s in ijson.items(f, 'item'):
                 sid      = s.get('id') or s.get('marketId') or s.get('market_id')
@@ -1013,44 +1078,49 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     continue
 
                 now_iso  = datetime.now(timezone.utc).isoformat()
-                # Spansh schema uses 'services' array (values: "Market", "Shipyard", etc.)
-                svcs = (s.get('services') or
-                        s.get('otherServices') or
-                        s.get('other_services') or [])
-                svcs_lower = {str(x).lower() for x in svcs}
-                landing_pads = s.get('landingPads') or {}
-                if not isinstance(landing_pads, dict):
-                    landing_pads = {}
-                has_market     = (s.get('market') is not None or 'market' in svcs_lower or bool(s.get('hasMarket') or s.get('has_market', False)))
-                has_shipyard   = (s.get('shipyard') is not None or 'shipyard' in svcs_lower or bool(s.get('hasShipyard') or s.get('has_shipyard', False)))
-                has_outfitting = (s.get('outfitting') is not None or 'outfitting' in svcs_lower or bool(s.get('hasOutfitting') or s.get('has_outfitting', False)))
+                try:
+                    # Spansh schema uses 'services' array (values: "Market", "Shipyard", etc.)
+                    svcs = (s.get('services') or
+                            s.get('otherServices') or
+                            s.get('other_services') or [])
+                    svcs_lower = {str(x).lower() for x in svcs}
+                    landing_pads = s.get('landingPads') or {}
+                    if not isinstance(landing_pads, dict):
+                        landing_pads = {}
+                    has_market     = (s.get('market') is not None or 'market' in svcs_lower or bool(s.get('hasMarket') or s.get('has_market', False)))
+                    has_shipyard   = (s.get('shipyard') is not None or 'shipyard' in svcs_lower or bool(s.get('hasShipyard') or s.get('has_shipyard', False)))
+                    has_outfitting = (s.get('outfitting') is not None or 'outfitting' in svcs_lower or bool(s.get('hasOutfitting') or s.get('has_outfitting', False)))
 
-                sta_batch.append((
-                    sid, sys_id64,
-                    s.get('name', ''),
-                    norm_station_type(s.get('type') or s.get('stationType') or s.get('station_type')),
-                    s.get('distanceToArrival') or s.get('distance_from_star'),
-                    s.get('body') or s.get('body_name'),
-                    'L' if landing_pads.get('large') else ('M' if landing_pads.get('medium') else s.get('landing_pad_size')),
-                    has_market,
-                    has_shipyard,
-                    has_outfitting,
-                    'refuel' in svcs_lower,
-                    'repair' in svcs_lower,
-                    'restock' in svcs_lower or 'rearm' in svcs_lower,
-                    'black market' in svcs_lower,
-                    'material trader' in svcs_lower,
-                    'technology broker' in svcs_lower,
-                    'interstellar factors contact' in svcs_lower or 'interstellar factors' in svcs_lower,
-                    'universal cartographics' in svcs_lower,
-                    'search and rescue' in svcs_lower,
-                    norm_economy(s.get('primaryEconomy') or s.get('primary_economy')),
-                    norm_economy(s.get('secondaryEconomy') or s.get('secondary_economy')),
-                    s.get('controllingFaction') or s.get('controlling_faction'),
-                    norm_allegiance(s.get('allegiance')),
-                    norm_government(s.get('government')),
-                    parse_ts(s.get('updateTime') or s.get('updated_at')) or now_iso,
-                ))
+                    sta_batch.append((
+                        sid, sys_id64,
+                        s.get('name', ''),
+                        norm_station_type(s.get('type') or s.get('stationType') or s.get('station_type')),
+                        s.get('distanceToArrival') or s.get('distance_from_star'),
+                        s.get('body') or s.get('body_name'),
+                        'L' if landing_pads.get('large') else ('M' if landing_pads.get('medium') else s.get('landing_pad_size')),
+                        has_market,
+                        has_shipyard,
+                        has_outfitting,
+                        'refuel' in svcs_lower,
+                        'repair' in svcs_lower,
+                        'restock' in svcs_lower or 'rearm' in svcs_lower,
+                        'black market' in svcs_lower,
+                        'material trader' in svcs_lower,
+                        'technology broker' in svcs_lower,
+                        'interstellar factors contact' in svcs_lower or 'interstellar factors' in svcs_lower,
+                        'universal cartographics' in svcs_lower,
+                        'search and rescue' in svcs_lower,
+                        norm_economy(s.get('primaryEconomy') or s.get('primary_economy')),
+                        norm_economy(s.get('secondaryEconomy') or s.get('secondary_economy')),
+                        s.get('controllingFaction') or s.get('controlling_faction'),
+                        norm_allegiance(s.get('allegiance')),
+                        norm_government(s.get('government')),
+                        parse_ts(s.get('updateTime') or s.get('updated_at')) or now_iso,
+                    ))
+                except Exception as _e:
+                    _skip_count += 1
+                    log.debug(f"Skipping station id={sid} in system {sys_id64}: {_e}")
+                    continue
 
                 total_rows += 1
 
@@ -1075,6 +1145,8 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
         flush()
         pbar.close()
 
+    if _skip_count:
+        log.warning(f"Skipped {_skip_count:,} malformed station records")
     mark_complete(conn, dump_path.name, total_rows)
     log.info(f"galaxy_stations.json.gz complete: {total_rows:,} stations imported")
     return total_rows
@@ -1488,9 +1560,6 @@ def _probe_dump(fname: str, n_systems: int = 2):
 
     print(f"\n── All body keys seen ──\n{sorted(all_body_keys)}")
     print(f"\n── All station keys seen ──\n{sorted(all_sta_keys)}")
-
-    print(f"\n=== All body keys seen ===\n{sorted(all_body_keys)}")
-    print(f"\n=== All station keys seen ===\n{sorted(all_sta_keys)}")
 
 
 # ---------------------------------------------------------------------------

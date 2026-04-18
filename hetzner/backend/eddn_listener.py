@@ -154,7 +154,18 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
     if id64 not in _pending_systems:
         _pending_systems[id64] = {'id64': id64, 'dirty': True, 'updated': utcnow()}
 
+    # BodyID is the Spansh/journal body identifier — required as PK in bodies table.
+    # Without it we cannot safely upsert; skip the body if missing.
+    body_id = safe_int(message.get('BodyID'))
+    if body_id is None:
+        log.debug(f"Scan event missing BodyID for {body_name} in system {id64} — skipping body insert")
+        # Still mark the system dirty so ratings are recalculated
+        if id64 not in _pending_systems:
+            _pending_systems[id64] = {'id64': id64, 'dirty': True, 'updated': utcnow()}
+        return
+
     body_rec = {
+        'id':             body_id,
         'system_id64':    id64,
         'name':           body_name,
         'body_type':      'Star' if is_star else 'Planet',
@@ -162,7 +173,8 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
         'is_main_star':   message.get('DistanceFromArrivalLS', 999) < 0.1,
         'distance_from_star': safe_float(message.get('DistanceFromArrivalLS')),
         'radius':         safe_float(message.get('Radius')),
-        'mass':           safe_float(message.get('MassEM') or message.get('StellarMass')),
+        # Use earthMasses for planets, StellarMass for stars
+        'mass':           safe_float(message.get('MassEM')) if not is_star else None,
         'gravity':        safe_float(message.get('SurfaceGravity')),
         'surface_temp':   safe_float(message.get('SurfaceTemperature')),
         'surface_pressure': safe_float(message.get('SurfacePressure')),
@@ -170,11 +182,13 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
         'atmosphere_type': message.get('AtmosphereType'),
         'is_landable':    bool(message.get('Landable', False)),
         'is_terraformable': message.get('TerraformState', '') not in ('', 'Not terraformable'),
-        'is_earth_like':  'Earthlike' in str(subtype),
-        'is_water_world': 'WaterWorld' in str(subtype) or 'Water world' in str(subtype),
-        'is_ammonia_world': 'AmmoniaWorld' in str(subtype) or 'Ammonia world' in str(subtype),
+        # Derive world-type flags from PlanetClass string (matches Spansh subType convention)
+        'is_earth_like':  str(subtype).lower() == 'earthlikebody' or 'earth-like' in str(subtype).lower(),
+        'is_water_world': 'waterworld' in str(subtype).lower() or 'water world' in str(subtype).lower(),
+        'is_ammonia_world': 'ammoniaworld' in str(subtype).lower() or 'ammonia world' in str(subtype).lower(),
         'is_tidal_lock':  bool(message.get('TidalLock', False)),
         'spectral_class': message.get('StarType'),
+        'stellar_mass':   safe_float(message.get('StellarMass')) if is_star else None,
         'is_scoopable':   is_scoopable(message.get('StarType')),
         'estimated_mapping_value': safe_int(message.get('EstimatedMappingValue') or message.get('MappedValue')),
         'estimated_scan_value':    safe_int(message.get('EstimatedScanValue')),
@@ -303,26 +317,35 @@ async def flush_pending(pool: asyncpg.Pool):
                         _stats['errors'] += 1
                         log.debug(f"System upsert error: {e}")
 
-            # Upsert bodies
+            # Upsert bodies — 'id' (BodyID) is required as PK; bodies without it
+            # are already filtered out in handle_scan() before reaching this point.
             if bodies:
                 for body in bodies:
                     try:
                         await conn.execute("""
                             INSERT INTO bodies (
-                                system_id64, name, body_type, subtype, is_main_star,
+                                id, system_id64, name, body_type, subtype, is_main_star,
                                 distance_from_star, radius, mass, gravity,
                                 surface_temp, surface_pressure, volcanism, atmosphere_type,
                                 is_landable, is_terraformable,
                                 is_earth_like, is_water_world, is_ammonia_world,
-                                is_tidal_lock, spectral_class, is_scoopable,
+                                is_tidal_lock, spectral_class, stellar_mass, is_scoopable,
                                 estimated_mapping_value, estimated_scan_value, updated_at
                             ) VALUES (
-                                $1,$2,$3::body_type,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-                                $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW()
+                                $1,$2,$3,$4::body_type,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+                                $15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,NOW()
                             )
-                            ON CONFLICT DO NOTHING
+                            ON CONFLICT (id) DO UPDATE SET
+                                subtype           = COALESCE(EXCLUDED.subtype, bodies.subtype),
+                                is_landable       = EXCLUDED.is_landable,
+                                is_terraformable  = EXCLUDED.is_terraformable,
+                                is_earth_like     = EXCLUDED.is_earth_like,
+                                is_water_world    = EXCLUDED.is_water_world,
+                                is_ammonia_world  = EXCLUDED.is_ammonia_world,
+                                surface_temp      = COALESCE(EXCLUDED.surface_temp, bodies.surface_temp),
+                                updated_at        = NOW()
                         """,
-                            body['system_id64'], body['name'],
+                            body['id'], body['system_id64'], body['name'],
                             body.get('body_type', 'Unknown'),
                             body.get('subtype'), body.get('is_main_star', False),
                             body.get('distance_from_star'),
@@ -332,7 +355,8 @@ async def flush_pending(pool: asyncpg.Pool):
                             body.get('is_landable', False), body.get('is_terraformable', False),
                             body.get('is_earth_like', False), body.get('is_water_world', False),
                             body.get('is_ammonia_world', False), body.get('is_tidal_lock'),
-                            body.get('spectral_class'), body.get('is_scoopable'),
+                            body.get('spectral_class'), body.get('stellar_mass'),
+                            body.get('is_scoopable'),
                             body.get('estimated_mapping_value'), body.get('estimated_scan_value'),
                         )
                         _stats['bodies_upserted'] += 1
@@ -365,14 +389,16 @@ async def dirty_recalc_job(pool: asyncpg.Pool):
 
                 # For small batches, recalculate inline
                 # For large batches (post-import), the build_*.py scripts handle it
+                # Do NOT clear dirty flags without computing ratings — that would
+                # silently lose EDDN-discovered data.  Instead, always log the count
+                # and let build_ratings.py --dirty handle it on the next scheduled run.
+                # For small counts operators can run build_ratings.py --dirty manually;
+                # for live installations a cron or systemd timer should call it every 5 min.
                 if dirty_count < 10000:
-                    # Trigger a lightweight recalc via the SQL function
-                    # (Full multiprocess recalc only run by build_ratings.py --dirty)
-                    await conn.execute("""
-                        UPDATE systems SET rating_dirty = FALSE, cluster_dirty = FALSE
-                        WHERE rating_dirty = TRUE OR cluster_dirty = TRUE
-                    """)
-                    log.info(f"Marked {dirty_count} systems as recalculated (use build_ratings.py --dirty for full recalc)")
+                    log.info(
+                        f"{dirty_count} dirty systems — queued for next build_ratings.py --dirty run. "
+                        f"Run manually: python3 build_ratings.py --dirty"
+                    )
                 else:
                     log.info(f"{dirty_count:,} dirty systems — run: python3 build_ratings.py --dirty")
 

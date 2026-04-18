@@ -102,16 +102,24 @@ def main():
     log.info("Identifying occupied grid cells ...")
     cur.execute("TRUNCATE TABLE spatial_grid CASCADE")
 
+    # cell_id encoding: use large enough multipliers so no two distinct
+    # (cell_x, cell_y, cell_z) triples can hash to the same integer.
+    # ED galaxy max extent with cell_size=500: x~230, y~25, z~181 cells.
+    # Worst case with cell_size=50: x~2300, y~250, z~1810 cells.
+    # Using multipliers 100000 * 100000 overflows INT; use BIGINT instead.
+    # Formula: cell_x * Y_STRIDE * Z_STRIDE + cell_y * Z_STRIDE + cell_z
+    # where strides are based on actual max cell counts + margin.
     cur.execute(f"""
         INSERT INTO spatial_grid (cell_id, cell_x, cell_y, cell_z,
                                    min_x, max_x, min_y, max_y, min_z, max_z,
                                    system_count)
         SELECT
-            -- Generate a unique cell ID from (cell_x, cell_y, cell_z)
-            -- Use a hash-based approach to avoid huge numbers
-            (floor((x - {min_x}) / {cell_size})::int * 100000 +
-             floor((y - {min_y}) / {cell_size})::int * 1000 +
-             floor((z - {min_z}) / {cell_size})::int)  AS cell_id,
+            -- Collision-free encoding using safe strides.
+            -- We cast to BIGINT before multiplying to avoid INT overflow.
+            -- Strides: z up to 10000, y up to 10000.  Supports cell_size >= 12 LY.
+            (floor((x - {min_x}) / {cell_size})::bigint * 100000000 +
+             floor((y - {min_y}) / {cell_size})::bigint * 10000 +
+             floor((z - {min_z}) / {cell_size})::bigint) AS cell_id,
             floor((x - {min_x}) / {cell_size})::smallint AS cell_x,
             floor((y - {min_y}) / {cell_size})::smallint AS cell_y,
             floor((z - {min_z}) / {cell_size})::smallint AS cell_z,

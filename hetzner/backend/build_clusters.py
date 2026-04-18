@@ -160,12 +160,14 @@ def process_anchor_batch(
                 'Tourism':     6,
             }
 
+            viable_sids: set = set()   # unique system IDs qualifying for ≥1 economy
             for row in rows:
                 sid = row[7]
                 for eco, col_idx in eco_col.items():
                     eco_score = row[col_idx]
                     if eco_score is not None and eco_score >= min_score:
                         counts[eco] += 1
+                        viable_sids.add(sid)
                         if bests[eco] is None or eco_score > bests[eco]:
                             bests[eco]  = eco_score
                             top_id[eco] = sid
@@ -173,7 +175,10 @@ def process_anchor_batch(
             # Compute coverage score and diversity
             coverage = compute_coverage_score(counts, bests)
             diversity = sum(1 for c in counts.values() if c > 0)
-            total_viable = sum(counts.values())
+            # total_viable = unique systems good for at least one economy
+            # (not sum of per-economy counts, which would double-count systems
+            # that qualify for multiple economies)
+            total_viable = len(viable_sids)
 
             cluster_batch.append((
                 anchor_id64,
@@ -205,13 +210,13 @@ def process_anchor_batch(
     if cluster_batch:
         _write_clusters(conn, cur, cluster_batch)
 
-    # Mark anchors as clean
+    # Mark anchors as clean — use ANY(%s), correct psycopg2 array syntax
     anchor_ids = [a[0] for a in anchor_batch]
     if anchor_ids:
-        psycopg2.extras.execute_values(cur, """
+        cur.execute("""
             UPDATE systems SET cluster_dirty = FALSE
-            WHERE id64 IN %s
-        """, [(tuple(anchor_ids),)])
+            WHERE id64 = ANY(%s)
+        """, (anchor_ids,))
         conn.commit()
 
     cur.close()
@@ -259,6 +264,15 @@ def _write_clusters(conn, cur, batch: list):
             computed_at        = NOW(),
             updated_at         = NOW()
         """,
+        # Tuple has 24 values (indices 0-23):
+        #   0:  system_id64
+        #   1-18: 6 economies × (count, best, top_id)
+        #   19: total_viable
+        #   20: coverage_score
+        #   21: economy_diversity
+        #   22: search_radius
+        #   23: dirty
+        # computed_at and updated_at come from NOW() in the template.
         [(r[0],
           r[1],  r[2],  r[3],
           r[4],  r[5],  r[6],
@@ -267,7 +281,7 @@ def _write_clusters(conn, cur, batch: list):
           r[13], r[14], r[15],
           r[16], r[17], r[18],
           r[19], r[20], r[21],
-          r[22], r[23], 'NOW()', 'NOW()') for r in batch],
+          r[22], r[23]) for r in batch],
         template="""(%s,
             %s,%s,%s, %s,%s,%s, %s,%s,%s,
             %s,%s,%s, %s,%s,%s, %s,%s,%s,

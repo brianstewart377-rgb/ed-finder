@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS systems (
     main_star_is_scoopable BOOLEAN      DEFAULT NULL,
 
     -- Spatial grid cell (set by build_grid.py, 500ly cubes)
-    grid_cell_id        INTEGER         DEFAULT NULL,
+    grid_cell_id        BIGINT          DEFAULT NULL,  -- was INTEGER; must match spatial_grid.cell_id BIGINT
 
     -- Data quality flags
     has_body_data       BOOLEAN         NOT NULL DEFAULT FALSE,  -- bodies table has rows for this system
@@ -342,7 +342,7 @@ CREATE TABLE IF NOT EXISTS ratings (
 --    Each system gets a grid_cell_id pointing to its 500ly cube.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS spatial_grid (
-    cell_id             INTEGER         PRIMARY KEY,
+    cell_id             BIGINT          PRIMARY KEY,  -- was INTEGER; BIGINT needed for collision-free encoding
 
     -- Grid coordinates (cell_x = floor(x / 500), etc.)
     cell_x              SMALLINT        NOT NULL,

@@ -38,7 +38,7 @@ import psycopg2.extras
 # Configuration
 # ---------------------------------------------------------------------------
 DB_DSN     = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder')
-BATCH_SIZE = int(os.getenv('BATCH_SIZE', '1000'))
+BATCH_SIZE = int(os.getenv('BATCH_SIZE', '5000'))  # was 1000 — too small, caused 70k roundtrips
 LOG_LEVEL  = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE   = os.getenv('LOG_FILE', '/data/logs/build_ratings.log')
 
@@ -166,20 +166,23 @@ def score_economy(counts: dict, eco: str, star_type: Optional[str]) -> int:
     weights = ECO_WEIGHTS.get(eco, {})
     raw = 0
 
-    raw += min(counts['elw'],          4) * weights.get('elw',          0)
-    raw += min(counts['ww'],           4) * weights.get('ww',           0)
-    raw += min(counts['ammonia'],      3) * weights.get('ammonia',       0)
-    raw += min(counts['gasGiant'],    15) * weights.get('gasGiant',      0) // max(counts['gasGiant'], 1)  # diminishing returns
-    raw += min(counts['rocky'],       10) * weights.get('rocky',         0) // max(min(counts['rocky'], 10), 1)
-    raw += min(counts['metalRich'],    8) * weights.get('metalRich',     0) // max(min(counts['metalRich'], 8), 1)
-    raw += min(counts['icy'],         10) * weights.get('icy',           0) // max(min(counts['icy'], 10), 1)
-    raw += min(counts['rockyIce'],    10) * weights.get('rockyIce',      0) // max(min(counts['rockyIce'], 10), 1)
-    raw += min(counts['hmc'],         10) * weights.get('hmc',           0) // max(min(counts['hmc'], 10), 1)
-    raw += min(counts['landable'],    20) * weights.get('landable',      0) // max(min(counts['landable'], 20), 1)
-    raw += min(counts['terraformable'], 5) * weights.get('terraformable', 0)
-    raw += min(counts['bio'],         20) * weights.get('bio',           0) // max(min(counts['bio'], 20), 1)
-    raw += min(counts['neutron'],      2) * weights.get('neutron',       0)
-    raw += min(counts['blackHole'],    1) * weights.get('blackHole',     0)
+    # Each body type contributes its full weight up to a cap, giving linear
+    # scaling up to the cap and a flat ceiling above it.  The old code used
+    # integer division that made every count above 0 yield the same score.
+    raw += min(counts['elw'],           4) * weights.get('elw',           0)
+    raw += min(counts['ww'],            4) * weights.get('ww',            0)
+    raw += min(counts['ammonia'],       3) * weights.get('ammonia',        0)
+    raw += min(counts['gasGiant'],      3) * weights.get('gasGiant',       0)  # cap at 3 (diminishing value after 3)
+    raw += min(counts['rocky'],         5) * weights.get('rocky',          0)  # cap at 5
+    raw += min(counts['metalRich'],     4) * weights.get('metalRich',      0)  # cap at 4
+    raw += min(counts['icy'],           5) * weights.get('icy',            0)  # cap at 5
+    raw += min(counts['rockyIce'],      5) * weights.get('rockyIce',       0)  # cap at 5
+    raw += min(counts['hmc'],           5) * weights.get('hmc',            0)  # cap at 5
+    raw += min(counts['landable'],     10) * weights.get('landable',       0)  # cap at 10
+    raw += min(counts['terraformable'], 5) * weights.get('terraformable',  0)
+    raw += min(counts['bio'],          10) * weights.get('bio',            0)  # cap at 10
+    raw += min(counts['neutron'],       2) * weights.get('neutron',        0)
+    raw += min(counts['blackHole'],     1) * weights.get('blackHole',      0)
 
     # Star type bonus for Agriculture (warm main star = better habitable zone)
     if eco == 'Agriculture' and star_type:
@@ -315,13 +318,13 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple[int
     if rating_batch:
         _write_ratings(conn, cur, rating_batch)
 
-    # Mark systems as clean
+    # Mark systems as clean — use ANY(%s) which is correct psycopg2 syntax
     id64s = [s[0] for s in system_batch]
     if id64s:
-        psycopg2.extras.execute_values(cur, """
+        cur.execute("""
             UPDATE systems SET rating_dirty = FALSE
-            WHERE id64 IN %s
-        """, [(tuple(id64s),)])
+            WHERE id64 = ANY(%s)
+        """, (id64s,))
         conn.commit()
 
     cur.close()

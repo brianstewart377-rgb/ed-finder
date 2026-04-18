@@ -361,16 +361,21 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 7. TRIGGER: Mark dirty flags when system or body is updated
 --    Ensures incremental rebuild jobs pick up all EDDN changes.
+--
+--    Design note: we use BEFORE triggers that modify NEW directly instead of
+--    issuing a separate UPDATE on the same row.  This avoids the recursive
+--    "trigger fires UPDATE, UPDATE fires trigger" loop that the original
+--    AFTER trigger caused (wasting one extra UPDATE per event even though
+--    PostgreSQL caps recursion at 1 level by default).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION fn_mark_system_dirty()
 RETURNS TRIGGER
 LANGUAGE plpgsql AS $$
 BEGIN
-    UPDATE systems
-    SET rating_dirty  = TRUE,
-        cluster_dirty = TRUE,
-        updated_at    = NOW()
-    WHERE id64 = NEW.id64;
+    -- Set dirty flags directly on the row being updated — no extra UPDATE needed.
+    NEW.rating_dirty  := TRUE;
+    NEW.cluster_dirty := TRUE;
+    NEW.updated_at    := NOW();
     RETURN NEW;
 END;
 $$;
@@ -379,6 +384,8 @@ CREATE OR REPLACE FUNCTION fn_mark_body_system_dirty()
 RETURNS TRIGGER
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- Body inserted/updated: mark the parent system dirty.
+    -- This still needs an UPDATE on systems (different table), but only once.
     UPDATE systems
     SET rating_dirty  = TRUE,
         cluster_dirty = TRUE,
@@ -392,8 +399,8 @@ $$;
 -- Apply triggers (DROP first to allow re-running this file safely)
 DROP TRIGGER IF EXISTS trg_system_dirty ON systems;
 CREATE TRIGGER trg_system_dirty
-    AFTER UPDATE OF primary_economy, secondary_economy, population,
-                    is_colonised, is_being_colonised
+    BEFORE UPDATE OF primary_economy, secondary_economy, population,
+                     is_colonised, is_being_colonised
     ON systems
     FOR EACH ROW
     EXECUTE FUNCTION fn_mark_system_dirty();
