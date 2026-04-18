@@ -1321,73 +1321,173 @@ IMPORT_ORDER = [
 # ---------------------------------------------------------------------------
 def _probe_dump(fname: str, n_systems: int = 2):
     """
-    Read up to 2000 systems from a dump looking for the first n_systems that
-    contain planets AND stations, then print all field names found.
-    Use to verify field names (e.g. 'mainStar' vs 'isMainStar').
+    Dry-run validator: scan up to 50,000 systems, collecting stats on what
+    the importer would actually write to the DB.  No DB connection needed.
+    Reports:
+      - Counts of ELW / WW / ammonia / terraformable / landable / bio / geo
+      - Sample of interesting bodies with their extracted values
+      - Station service detection sample
     """
     dump_path = DUMP_DIR / fname
     if not dump_path.exists():
         print(f"ERROR: {dump_path} not found. Set DUMP_DIR or use --dump-dir.")
         return
 
-    print(f"\n=== Probing {fname} (hunting first {n_systems} systems with planets+stations) ===\n")
+    MAX_SCAN = 50_000
+    print(f"\n=== Dry-run validation of {fname} (scanning up to {MAX_SCAN:,} systems) ===\n")
+
+    # Counters
+    stats = {
+        'systems': 0, 'bodies': 0, 'stars': 0, 'planets': 0, 'stations': 0,
+        'main_star_found': 0, 'main_star_missed': 0,
+        'landable': 0, 'elw': 0, 'ww': 0, 'ammonia': 0,
+        'terraformable': 0, 'bio': 0, 'geo': 0,
+        'has_market': 0, 'has_shipyard': 0, 'has_outfitting': 0,
+        'sta_via_services': 0, 'sta_via_object': 0, 'sta_via_bool': 0,
+    }
+
+    # Samples of interesting finds to print
+    samples = {
+        'elw': [], 'ww': [], 'ammonia': [], 'terraformable': [],
+        'station': [], 'bio': [],
+    }
+    MAX_SAMPLES = 3
+
     all_body_keys: set = set()
     all_sta_keys: set  = set()
-    found = 0
-    scanned = 0
-    MAX_SCAN = 5000  # scan at most this many systems before giving up
+    all_subtypes: dict = {}  # subType → count
 
     with gzip.open(dump_path, 'rb') as f:
         for sys_obj in ijson.items(f, 'item'):
-            scanned += 1
-            if scanned > MAX_SCAN or found >= n_systems:
+            if stats['systems'] >= MAX_SCAN:
                 break
+            stats['systems'] += 1
+            now_iso = datetime.now(timezone.utc).isoformat()
 
-            bodies   = sys_obj.get('bodies') or []
-            stations = sys_obj.get('stations') or []
+            bodies_raw   = sys_obj.get('bodies') or []
+            stations_raw = sys_obj.get('stations') or []
 
-            # Look for a system that has at least one Planet body
-            has_planet = any(b.get('type') == 'Planet' for b in bodies)
-            if not has_planet:
-                continue
-
-            found += 1
-            print(f"System: {sys_obj.get('name')} (id64={sys_obj.get('id64')})")
-            print(f"  System keys: {sorted(sys_obj.keys())}")
-
-            # Print up to 3 bodies — prefer planets
-            shown = 0
-            for b in bodies:
-                if shown >= 3:
+            # ── Main star detection ──────────────────────────────────────
+            found_main = False
+            for b in bodies_raw:
+                if b.get('mainStar') or b.get('isMainStar') or b.get('is_main_star'):
+                    found_main = True
                     break
-                btype = b.get('type', '?')
-                print(f"\n  Body '{b.get('name')}' (type={btype}) keys: {sorted(b.keys())}")
-                for flag in ['mainStar', 'isMainStar', 'isLandable', 'isEarthLike',
-                             'isWaterWorld', 'isAmmoniaWorld', 'isTerraformingCandidate']:
-                    if flag in b:
-                        print(f"    {flag} = {b[flag]}")
-                for field in ['subType', 'terraformingState', 'spectralClass',
-                              'estimatedMappingValue', 'estimatedScanValue', 'signals']:
-                    if field in b:
-                        print(f"    {field} = {str(b[field])[:100]}")
+            if found_main:
+                stats['main_star_found'] += 1
+            elif bodies_raw:
+                stats['main_star_missed'] += 1
+
+            # ── Bodies ──────────────────────────────────────────────────
+            for b in bodies_raw:
+                stats['bodies'] += 1
                 all_body_keys.update(b.keys())
-                shown += 1
+                btype = b.get('type', 'Unknown')
+                if btype == 'Star':
+                    stats['stars'] += 1
+                elif btype == 'Planet':
+                    stats['planets'] += 1
 
-            # Print first station if any
-            if stations:
-                s = stations[0]
-                print(f"\n  Station '{s.get('name')}' keys: {sorted(s.keys())}")
-                for field in ['services', 'otherServices', 'hasMarket', 'hasShipyard',
-                              'hasOutfitting', 'market', 'shipyard', 'outfitting']:
-                    if field in s:
-                        print(f"    {field} = {str(s[field])[:100]}")
+                sub_type = b.get('subType') or b.get('subtype') or ''
+                all_subtypes[sub_type] = all_subtypes.get(sub_type, 0) + 1
+
+                # Derived flags — exactly as the importer does
+                is_elw   = (sub_type == 'Earth-like world')
+                is_ww    = (sub_type == 'Water world')
+                is_amm   = (sub_type == 'Ammonia world')
+                tf_state = b.get('terraformingState') or b.get('terraforming_state') or ''
+                is_tf    = (tf_state == 'Terraformable') or bool(b.get('isTerraformingCandidate'))
+                is_land  = bool(b.get('isLandable') or b.get('is_landable', False))
+                bio      = _parse_bio_signals(b)
+                geo      = _parse_geo_signals(b)
+
+                if is_land:  stats['landable']      += 1
+                if is_elw:   stats['elw']            += 1
+                if is_ww:    stats['ww']             += 1
+                if is_amm:   stats['ammonia']        += 1
+                if is_tf:    stats['terraformable']  += 1
+                if bio > 0:  stats['bio']            += 1
+                if geo > 0:  stats['geo']            += 1
+
+                sname = sys_obj.get('name', '?')
+                if is_elw and len(samples['elw']) < MAX_SAMPLES:
+                    samples['elw'].append(f"  ELW: {b.get('name')} in {sname} | subType={sub_type!r} | landable={is_land} | scan={b.get('estimatedScanValue')}")
+                if is_ww and len(samples['ww']) < MAX_SAMPLES:
+                    samples['ww'].append(f"  WW:  {b.get('name')} in {sname} | subType={sub_type!r} | landable={is_land}")
+                if is_amm and len(samples['ammonia']) < MAX_SAMPLES:
+                    samples['ammonia'].append(f"  AMM: {b.get('name')} in {sname} | subType={sub_type!r}")
+                if is_tf and len(samples['terraformable']) < MAX_SAMPLES:
+                    samples['terraformable'].append(f"  TF:  {b.get('name')} in {sname} | subType={sub_type!r} | terraformingState={tf_state!r}")
+                if bio > 0 and len(samples['bio']) < MAX_SAMPLES:
+                    samples['bio'].append(f"  BIO: {b.get('name')} in {sname} | bio={bio} | geo={geo}")
+
+            # ── Stations ────────────────────────────────────────────────
+            for s in stations_raw:
+                stats['stations'] += 1
                 all_sta_keys.update(s.keys())
-            else:
-                print(f"  (no stations in this system)")
 
-    print(f"\n(Scanned {scanned} systems to find {found} with planets)\n")
-    print(f"=== All body keys seen ===\n{sorted(all_body_keys)}")
-    print(f"\n=== All station keys seen ===\n{sorted(all_sta_keys)}")
+                svcs = (s.get('services') or s.get('otherServices') or s.get('other_services') or [])
+                svcs_lower = {str(x).lower() for x in svcs}
+
+                has_mkt  = (s.get('market') is not None or 'market' in svcs_lower or bool(s.get('hasMarket')))
+                has_shy  = (s.get('shipyard') is not None or 'shipyard' in svcs_lower or bool(s.get('hasShipyard')))
+                has_out  = (s.get('outfitting') is not None or 'outfitting' in svcs_lower or bool(s.get('hasOutfitting')))
+
+                if has_mkt: stats['has_market']    += 1
+                if has_shy: stats['has_shipyard']  += 1
+                if has_out: stats['has_outfitting'] += 1
+
+                # Track how detection happened
+                if svcs:            stats['sta_via_services'] += 1
+                elif s.get('market') is not None: stats['sta_via_object'] += 1
+                elif s.get('hasMarket'): stats['sta_via_bool'] += 1
+
+                if len(samples['station']) < MAX_SAMPLES:
+                    samples['station'].append(
+                        f"  STA: {s.get('name')!r} | services={svcs[:4]} | "
+                        f"market={has_mkt} shipyard={has_shy} outfitting={has_out}"
+                    )
+
+    # ── Print results ────────────────────────────────────────────────────
+    print(f"Scanned {stats['systems']:,} systems | {stats['bodies']:,} bodies | {stats['stations']:,} stations\n")
+
+    print("── Body flag extraction results ──")
+    print(f"  Main star found:    {stats['main_star_found']:>8,}  (missed: {stats['main_star_missed']:,})")
+    print(f"  Stars:              {stats['stars']:>8,}")
+    print(f"  Planets:            {stats['planets']:>8,}")
+    print(f"  Landable:           {stats['landable']:>8,}")
+    print(f"  Earth-like world:   {stats['elw']:>8,}")
+    print(f"  Water world:        {stats['ww']:>8,}")
+    print(f"  Ammonia world:      {stats['ammonia']:>8,}")
+    print(f"  Terraformable:      {stats['terraformable']:>8,}")
+    print(f"  Bio signals:        {stats['bio']:>8,}")
+    print(f"  Geo signals:        {stats['geo']:>8,}")
+
+    print(f"\n── Station service detection ──")
+    print(f"  Total stations:     {stats['stations']:>8,}")
+    print(f"  Has market:         {stats['has_market']:>8,}")
+    print(f"  Has shipyard:       {stats['has_shipyard']:>8,}")
+    print(f"  Has outfitting:     {stats['has_outfitting']:>8,}")
+    print(f"  Detected via services array: {stats['sta_via_services']:,}")
+    print(f"  Detected via market object:  {stats['sta_via_object']:,}")
+    print(f"  Detected via hasMarket bool: {stats['sta_via_bool']:,}")
+
+    print(f"\n── Samples ──")
+    for key, label in [('elw','ELW'), ('ww','Water worlds'), ('ammonia','Ammonia worlds'),
+                       ('terraformable','Terraformable'), ('bio','Bio signals'), ('station','Stations')]:
+        if samples[key]:
+            print(f"\n{label}:")
+            for s in samples[key]:
+                print(s)
+        else:
+            print(f"\n{label}: none found in {MAX_SCAN:,} systems")
+
+    print(f"\n── Top 20 subTypes seen ──")
+    for st, cnt in sorted(all_subtypes.items(), key=lambda x: -x[1])[:20]:
+        print(f"  {cnt:>8,}  {st!r}")
+
+    print(f"\n── All body keys seen ──\n{sorted(all_body_keys)}")
+    print(f"\n── All station keys seen ──\n{sorted(all_sta_keys)}")
 
     print(f"\n=== All body keys seen ===\n{sorted(all_body_keys)}")
     print(f"\n=== All station keys seen ===\n{sorted(all_sta_keys)}")
