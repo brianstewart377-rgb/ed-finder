@@ -187,8 +187,9 @@ CREATE INDEX IF NOT EXISTS idx_rat_geo ON ratings(geo_signal_total) WHERE geo_si
 CREATE INDEX IF NOT EXISTS idx_rat_terraformable ON ratings(terraformable_count) WHERE terraformable_count > 0;
 CREATE INDEX IF NOT EXISTS idx_rat_neutron ON ratings(neutron_count) WHERE neutron_count > 0;
 
--- Dirty flag (incremental rebuild)
-CREATE INDEX IF NOT EXISTS idx_rat_dirty ON ratings(system_id64) WHERE updated_at < NOW() - INTERVAL '1 day';
+-- Dirty flag (incremental rebuild) — index on system_id64 for join performance
+-- NOTE: cannot use NOW() in partial index predicate (not immutable), so index all rows
+CREATE INDEX IF NOT EXISTS idx_rat_dirty ON ratings(system_id64);
 
 -- =============================================================================
 -- SPATIAL_GRID TABLE INDEXES
