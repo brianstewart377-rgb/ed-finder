@@ -1321,29 +1321,47 @@ IMPORT_ORDER = [
 # ---------------------------------------------------------------------------
 def _probe_dump(fname: str, n_systems: int = 2):
     """
-    Read the first n_systems systems from a dump and print all body/station
-    keys found.  Use to verify field names (e.g. 'mainStar' vs 'isMainStar').
+    Read up to 2000 systems from a dump looking for the first n_systems that
+    contain planets AND stations, then print all field names found.
+    Use to verify field names (e.g. 'mainStar' vs 'isMainStar').
     """
     dump_path = DUMP_DIR / fname
     if not dump_path.exists():
         print(f"ERROR: {dump_path} not found. Set DUMP_DIR or use --dump-dir.")
         return
 
-    print(f"\n=== Probing {fname} (first {n_systems} systems) ===\n")
+    print(f"\n=== Probing {fname} (hunting first {n_systems} systems with planets+stations) ===\n")
     all_body_keys: set = set()
     all_sta_keys: set  = set()
+    found = 0
+    scanned = 0
+    MAX_SCAN = 5000  # scan at most this many systems before giving up
 
     with gzip.open(dump_path, 'rb') as f:
-        count = 0
         for sys_obj in ijson.items(f, 'item'):
-            if count >= n_systems:
+            scanned += 1
+            if scanned > MAX_SCAN or found >= n_systems:
                 break
+
+            bodies   = sys_obj.get('bodies') or []
+            stations = sys_obj.get('stations') or []
+
+            # Look for a system that has at least one Planet body
+            has_planet = any(b.get('type') == 'Planet' for b in bodies)
+            if not has_planet:
+                continue
+
+            found += 1
             print(f"System: {sys_obj.get('name')} (id64={sys_obj.get('id64')})")
             print(f"  System keys: {sorted(sys_obj.keys())}")
 
-            for b in (sys_obj.get('bodies') or [])[:2]:
-                print(f"  Body '{b.get('name')}' (type={b.get('type')}) keys: {sorted(b.keys())}")
-                # Print boolean-ish values for key flags
+            # Print up to 3 bodies — prefer planets
+            shown = 0
+            for b in bodies:
+                if shown >= 3:
+                    break
+                btype = b.get('type', '?')
+                print(f"\n  Body '{b.get('name')}' (type={btype}) keys: {sorted(b.keys())}")
                 for flag in ['mainStar', 'isMainStar', 'isLandable', 'isEarthLike',
                              'isWaterWorld', 'isAmmoniaWorld', 'isTerraformingCandidate']:
                     if flag in b:
@@ -1351,20 +1369,25 @@ def _probe_dump(fname: str, n_systems: int = 2):
                 for field in ['subType', 'terraformingState', 'spectralClass',
                               'estimatedMappingValue', 'estimatedScanValue', 'signals']:
                     if field in b:
-                        val = b[field]
-                        print(f"    {field} = {str(val)[:80]}")
+                        print(f"    {field} = {str(b[field])[:100]}")
                 all_body_keys.update(b.keys())
+                shown += 1
 
-            for s in (sys_obj.get('stations') or [])[:1]:
-                print(f"  Station '{s.get('name')}' keys: {sorted(s.keys())}")
+            # Print first station if any
+            if stations:
+                s = stations[0]
+                print(f"\n  Station '{s.get('name')}' keys: {sorted(s.keys())}")
                 for field in ['services', 'otherServices', 'hasMarket', 'hasShipyard',
                               'hasOutfitting', 'market', 'shipyard', 'outfitting']:
                     if field in s:
-                        val = s[field]
-                        print(f"    {field} = {str(val)[:80]}")
+                        print(f"    {field} = {str(s[field])[:100]}")
                 all_sta_keys.update(s.keys())
+            else:
+                print(f"  (no stations in this system)")
 
-            count += 1
+    print(f"\n(Scanned {scanned} systems to find {found} with planets)\n")
+    print(f"=== All body keys seen ===\n{sorted(all_body_keys)}")
+    print(f"\n=== All station keys seen ===\n{sorted(all_sta_keys)}")
 
     print(f"\n=== All body keys seen ===\n{sorted(all_body_keys)}")
     print(f"\n=== All station keys seen ===\n{sorted(all_sta_keys)}")
