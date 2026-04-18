@@ -332,6 +332,8 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple[int
 def _write_ratings(conn, cur, batch: list):
     """Upsert a batch of rating records."""
     import json as _json
+    import datetime as _dt
+    now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
     rows = [(
         r['system_id64'],
         r['score'],
@@ -349,6 +351,7 @@ def _write_ratings(conn, cur, batch: list):
         r['neutron_count'],     r['black_hole_count'],
         r['white_dwarf_count'],
         _json.dumps(r['score_breakdown']),
+        now_iso,
     ) for r in batch]
 
     psycopg2.extras.execute_values(cur, """
@@ -392,9 +395,8 @@ def _write_ratings(conn, cur, batch: list):
             score_breakdown     = EXCLUDED.score_breakdown,
             updated_at          = NOW()
         """,
-        [(r + (psycopg2.extras.Json(None),))[:26] + (rows[i][-1],)
-         for i, r in enumerate(rows)],
-        template="(%s,%s,%s,%s,%s,%s,%s,%s,%s::economy_type,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
+        rows,
+        template="(%s,%s,%s,%s,%s,%s,%s,%s,%s::economy_type,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         page_size=BATCH_SIZE,
     )
     conn.commit()
