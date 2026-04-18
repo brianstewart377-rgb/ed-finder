@@ -399,7 +399,7 @@ def parse_ts(v) -> Optional[str]:
     """Convert any timestamp value to an ISO8601 string PostgreSQL can accept.
     Handles: Unix epoch int/float, ISO8601 strings, other strings (passed through).
     """
-    if not v:
+    if v is None or v == '':
         return None
     try:
         if isinstance(v, (int, float)):

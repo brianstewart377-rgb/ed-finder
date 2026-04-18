@@ -54,6 +54,23 @@ logging.basicConfig(
 log = logging.getLogger('build_grid')
 
 
+def _encode_cell_id(cell_x: int, cell_y: int, cell_z: int) -> int:
+    """
+    Encode (cell_x, cell_y, cell_z) indices into a single collision-free BIGINT.
+
+    Strides:  z up to 10 000,  y up to 10 000.
+    Formula:  cell_x * 100_000_000  +  cell_y * 10_000  +  cell_z
+
+    Supports any galaxy with fewer than 10 000 cells on the y or z axis,
+    which covers cell sizes down to ~12 LY.  The result always fits in a
+    PostgreSQL BIGINT (< 2^63) for realistic galaxy extents.
+
+    This mirrors the SQL expression in main() exactly so the test suite can
+    verify collision-freedom without a database connection.
+    """
+    return cell_x * 100_000_000 + cell_y * 10_000 + cell_z
+
+
 def main():
     parser = argparse.ArgumentParser(description='Build spatial grid for fast cluster queries')
     parser.add_argument('--cell-size', type=int, default=CELL_SIZE,
