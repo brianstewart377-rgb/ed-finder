@@ -577,7 +577,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 has_body_data = len(bodies_raw) > 0
 
                 for b in bodies_raw:
-                    if b.get('isMainStar') or b.get('is_main_star'):
+                    # Spansh schema uses 'mainStar' (not 'isMainStar')
+                    if b.get('mainStar') or b.get('isMainStar') or b.get('is_main_star'):
                         sc = b.get('spectralClass') or b.get('spectral_class') or ''
                         main_star_type    = sc[:1] if sc else None
                         main_star_subtype = sc[1:] if len(sc) > 1 else None
@@ -641,16 +642,40 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         sc = b.get('spectralClass') or b.get('spectral_class') or ''
                         atm_comp = b.get('atmosphereComposition') or b.get('atmosphere_composition')
                         mats     = b.get('materials')
+
+                        # Spansh galaxy.json schema: subType-based world flags
+                        # (no isEarthLike/isWaterWorld/isAmmoniaWorld boolean fields in dump)
+                        sub_type = b.get('subType') or b.get('subtype') or ''
+                        is_main_star = bool(
+                            b.get('mainStar') or          # official Spansh schema key
+                            b.get('isMainStar') or         # legacy/API key
+                            b.get('is_main_star', False)   # snake_case fallback
+                        )
+                        is_earth_like  = (sub_type == 'Earth-like world') or bool(b.get('isEarthLike') or b.get('is_earth_like', False))
+                        is_water_world = (sub_type == 'Water world') or bool(b.get('isWaterWorld') or b.get('is_water_world', False))
+                        is_ammonia     = (sub_type == 'Ammonia world') or bool(b.get('isAmmoniaWorld') or b.get('is_ammonia_world', False))
+
+                        # terraformable: check terraformingState field value
+                        tf_state = b.get('terraformingState') or b.get('terraforming_state') or ''
+                        is_terraformable = (
+                            tf_state == 'Terraformable' or
+                            bool(b.get('isTerraformingCandidate') or b.get('is_terraformable', False))
+                        )
+
+                        # mass: planets use earthMasses, stars use solarMasses
+                        mass = (b.get('earthMasses') or b.get('solarMasses') or
+                                b.get('mass') or b.get('stellar_mass'))
+
                         body_batch.append((
                             bid, id64,
                             b.get('name', ''),
                             btype,
-                            b.get('subType') or b.get('subtype'),
-                            bool(b.get('isMainStar') or b.get('is_main_star', False)),
+                            sub_type or None,
+                            is_main_star,
                             b.get('distanceToArrival') or b.get('distance_from_star'),
                             b.get('orbitalPeriod') or b.get('orbital_period'),
-                            b.get('radius'),
-                            b.get('solarMasses') or b.get('mass') or b.get('earthMasses'),
+                            b.get('radius') or b.get('solarRadius'),
+                            mass,
                             b.get('gravity'),
                             b.get('surfaceTemperature') or b.get('surface_temp'),
                             b.get('surfacePressure') or b.get('surface_pressure'),
@@ -658,12 +683,12 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             _json_dumps(atm_comp),
                             b.get('volcanismType') or b.get('volcanism'),
                             _json_dumps(mats),
-                            b.get('terraformingState') or b.get('terraforming_state'),
-                            bool(b.get('isTerraformingCandidate') or b.get('is_terraformable', False)),
+                            tf_state or None,
+                            is_terraformable,
                             bool(b.get('isLandable') or b.get('is_landable', False)),
-                            bool(b.get('isWaterWorld') or b.get('is_water_world', False)),
-                            bool(b.get('isEarthLike') or b.get('is_earth_like', False)),
-                            bool(b.get('isAmmoniaWorld') or b.get('is_ammonia_world', False)),
+                            is_water_world,
+                            is_earth_like,
+                            is_ammonia,
                             _parse_bio_signals(b),
                             _parse_geo_signals(b),
                             sc[:4] if sc else None,
@@ -687,14 +712,29 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     if not sid:
                         continue
                     try:
-                        svcs = s.get('otherServices') or s.get('other_services') or []
-                        svcs_lower = [str(x).lower() for x in svcs]
+                        # Spansh schema uses 'services' array (not 'otherServices')
+                        # Values like "Market", "Shipyard", "Outfitting", "Refuel", etc.
+                        svcs = (s.get('services') or
+                                s.get('otherServices') or
+                                s.get('other_services') or [])
+                        svcs_lower = {str(x).lower() for x in svcs}
                         landing_pads = s.get('landingPads') or {}
                         if not isinstance(landing_pads, dict):
                             landing_pads = {}
                         pad_size = ('L' if landing_pads.get('large') else
                                     'M' if landing_pads.get('medium') else
                                     s.get('landing_pad_size'))
+                        # market/shipyard/outfitting: present as nested objects in schema,
+                        # OR as boolean flags (hasMarket), OR via services list
+                        has_market    = (s.get('market') is not None or
+                                         'market' in svcs_lower or
+                                         bool(s.get('hasMarket') or s.get('has_market', False)))
+                        has_shipyard  = (s.get('shipyard') is not None or
+                                         'shipyard' in svcs_lower or
+                                         bool(s.get('hasShipyard') or s.get('has_shipyard', False)))
+                        has_outfitting= (s.get('outfitting') is not None or
+                                         'outfitting' in svcs_lower or
+                                         bool(s.get('hasOutfitting') or s.get('has_outfitting', False)))
                         sta_batch.append((
                             sid, id64,
                             s.get('name', ''),
@@ -702,16 +742,16 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             s.get('distanceToArrival') or s.get('distance_from_star'),
                             s.get('body') or s.get('body_name'),
                             pad_size,
-                            bool(s.get('hasMarket') or s.get('has_market', False)),
-                            bool(s.get('hasShipyard') or s.get('has_shipyard', False)),
-                            bool(s.get('hasOutfitting') or s.get('has_outfitting', False)),
+                            has_market,
+                            has_shipyard,
+                            has_outfitting,
                             'refuel' in svcs_lower or bool(s.get('has_refuel', False)),
                             'repair' in svcs_lower or bool(s.get('has_repair', False)),
-                            'rearm' in svcs_lower or bool(s.get('has_rearm', False)),
+                            'restock' in svcs_lower or 'rearm' in svcs_lower or bool(s.get('has_rearm', False)),
                             'black market' in svcs_lower or bool(s.get('has_black_market', False)),
                             'material trader' in svcs_lower or bool(s.get('has_material_trader', False)),
                             'technology broker' in svcs_lower or bool(s.get('has_technology_broker', False)),
-                            'interstellar factors' in svcs_lower or bool(s.get('has_interstellar_factors', False)),
+                            'interstellar factors contact' in svcs_lower or 'interstellar factors' in svcs_lower or bool(s.get('has_interstellar_factors', False)),
                             'universal cartographics' in svcs_lower or bool(s.get('has_universal_cartographics', False)),
                             'search and rescue' in svcs_lower or bool(s.get('has_search_rescue', False)),
                             norm_economy(s.get('primaryEconomy') or s.get('primary_economy')),
@@ -973,8 +1013,17 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     continue
 
                 now_iso  = datetime.now(timezone.utc).isoformat()
-                svcs     = s.get('otherServices') or s.get('other_services') or []
-                svcs_lower = [str(x).lower() for x in svcs]
+                # Spansh schema uses 'services' array (values: "Market", "Shipyard", etc.)
+                svcs = (s.get('services') or
+                        s.get('otherServices') or
+                        s.get('other_services') or [])
+                svcs_lower = {str(x).lower() for x in svcs}
+                landing_pads = s.get('landingPads') or {}
+                if not isinstance(landing_pads, dict):
+                    landing_pads = {}
+                has_market     = (s.get('market') is not None or 'market' in svcs_lower or bool(s.get('hasMarket') or s.get('has_market', False)))
+                has_shipyard   = (s.get('shipyard') is not None or 'shipyard' in svcs_lower or bool(s.get('hasShipyard') or s.get('has_shipyard', False)))
+                has_outfitting = (s.get('outfitting') is not None or 'outfitting' in svcs_lower or bool(s.get('hasOutfitting') or s.get('has_outfitting', False)))
 
                 sta_batch.append((
                     sid, sys_id64,
@@ -982,19 +1031,17 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     norm_station_type(s.get('type') or s.get('stationType') or s.get('station_type')),
                     s.get('distanceToArrival') or s.get('distance_from_star'),
                     s.get('body') or s.get('body_name'),
-                    s.get('landingPads', {}).get('large') and 'L' or
-                    s.get('landingPads', {}).get('medium') and 'M' or
-                    s.get('landing_pad_size'),
-                    bool(s.get('hasMarket') or s.get('has_market', False)),
-                    bool(s.get('hasShipyard') or s.get('has_shipyard', False)),
-                    bool(s.get('hasOutfitting') or s.get('has_outfitting', False)),
+                    'L' if landing_pads.get('large') else ('M' if landing_pads.get('medium') else s.get('landing_pad_size')),
+                    has_market,
+                    has_shipyard,
+                    has_outfitting,
                     'refuel' in svcs_lower,
                     'repair' in svcs_lower,
-                    'rearm' in svcs_lower,
+                    'restock' in svcs_lower or 'rearm' in svcs_lower,
                     'black market' in svcs_lower,
                     'material trader' in svcs_lower,
                     'technology broker' in svcs_lower,
-                    'interstellar factors' in svcs_lower,
+                    'interstellar factors contact' in svcs_lower or 'interstellar factors' in svcs_lower,
                     'universal cartographics' in svcs_lower,
                     'search and rescue' in svcs_lower,
                     norm_economy(s.get('primaryEconomy') or s.get('primary_economy')),
@@ -1269,6 +1316,61 @@ IMPORT_ORDER = [
 
 
 # ---------------------------------------------------------------------------
+# Probe helper — print actual JSON keys from the first few records
+# Usage: python3 import_spansh.py --probe galaxy.json.gz
+# ---------------------------------------------------------------------------
+def _probe_dump(fname: str, n_systems: int = 2):
+    """
+    Read the first n_systems systems from a dump and print all body/station
+    keys found.  Use to verify field names (e.g. 'mainStar' vs 'isMainStar').
+    """
+    dump_path = DUMP_DIR / fname
+    if not dump_path.exists():
+        print(f"ERROR: {dump_path} not found. Set DUMP_DIR or use --dump-dir.")
+        return
+
+    print(f"\n=== Probing {fname} (first {n_systems} systems) ===\n")
+    all_body_keys: set = set()
+    all_sta_keys: set  = set()
+
+    with gzip.open(dump_path, 'rb') as f:
+        count = 0
+        for sys_obj in ijson.items(f, 'item'):
+            if count >= n_systems:
+                break
+            print(f"System: {sys_obj.get('name')} (id64={sys_obj.get('id64')})")
+            print(f"  System keys: {sorted(sys_obj.keys())}")
+
+            for b in (sys_obj.get('bodies') or [])[:2]:
+                print(f"  Body '{b.get('name')}' (type={b.get('type')}) keys: {sorted(b.keys())}")
+                # Print boolean-ish values for key flags
+                for flag in ['mainStar', 'isMainStar', 'isLandable', 'isEarthLike',
+                             'isWaterWorld', 'isAmmoniaWorld', 'isTerraformingCandidate']:
+                    if flag in b:
+                        print(f"    {flag} = {b[flag]}")
+                for field in ['subType', 'terraformingState', 'spectralClass',
+                              'estimatedMappingValue', 'estimatedScanValue', 'signals']:
+                    if field in b:
+                        val = b[field]
+                        print(f"    {field} = {str(val)[:80]}")
+                all_body_keys.update(b.keys())
+
+            for s in (sys_obj.get('stations') or [])[:1]:
+                print(f"  Station '{s.get('name')}' keys: {sorted(s.keys())}")
+                for field in ['services', 'otherServices', 'hasMarket', 'hasShipyard',
+                              'hasOutfitting', 'market', 'shipyard', 'outfitting']:
+                    if field in s:
+                        val = s[field]
+                        print(f"    {field} = {str(val)[:80]}")
+                all_sta_keys.update(s.keys())
+
+            count += 1
+
+    print(f"\n=== All body keys seen ===\n{sorted(all_body_keys)}")
+    print(f"\n=== All station keys seen ===\n{sorted(all_sta_keys)}")
+
+
+# ---------------------------------------------------------------------------
 # main()
 # ---------------------------------------------------------------------------
 def main():
@@ -1283,6 +1385,7 @@ def main():
     parser.add_argument('--download',      action='store_true', help='Download dumps before importing')
     parser.add_argument('--download-only', action='store_true', help='Download dumps then exit (recommended first step)')
     parser.add_argument('--status',        action='store_true', help='Show import status')
+    parser.add_argument('--probe',         type=str,            help='Print field keys from first 3 systems in dump file (for debugging)')
     parser.add_argument('--dump-dir',      type=str,            help=f'Dump directory (default: {DUMP_DIR})')
     parser.add_argument('--batch-size',    type=int,            help=f'Batch size for COPY (default: {BATCH_SIZE})')
     args = parser.parse_args()
@@ -1296,6 +1399,10 @@ def main():
 
     if args.status:
         show_status(conn)
+        return
+
+    if args.probe:
+        _probe_dump(args.probe)
         return
 
     if args.download or getattr(args, 'download_only', False):
