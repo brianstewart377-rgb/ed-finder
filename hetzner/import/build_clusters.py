@@ -173,7 +173,18 @@ def process_anchor_batch(
             # Compute coverage score and diversity
             coverage = compute_coverage_score(counts, bests)
             diversity = sum(1 for c in counts.values() if c > 0)
-            total_viable = sum(counts.values())
+            # total_viable = unique systems qualifying for at least one economy
+            # (sum of per-economy counts would double-count systems that qualify
+            # for multiple economies — e.g. a system good for both Ag and HT
+            # would add 2 to the sum but it's still only ONE system)
+            viable_sids: set = set()
+            for row in rows:
+                sid = row[7]
+                for eco, col_idx in eco_col.items():
+                    eco_score = row[col_idx]
+                    if eco_score is not None and eco_score >= min_score:
+                        viable_sids.add(sid)
+            total_viable = len(viable_sids)
 
             cluster_batch.append((
                 anchor_id64,
@@ -205,13 +216,13 @@ def process_anchor_batch(
     if cluster_batch:
         _write_clusters(conn, cur, cluster_batch)
 
-    # Mark anchors as clean
+    # Mark anchors as clean — use ANY(%s), correct psycopg2 array syntax
     anchor_ids = [a[0] for a in anchor_batch]
     if anchor_ids:
-        psycopg2.extras.execute_values(cur, """
+        cur.execute("""
             UPDATE systems SET cluster_dirty = FALSE
-            WHERE id64 IN %s
-        """, [(tuple(anchor_ids),)])
+            WHERE id64 = ANY(%s)
+        """, (anchor_ids,))
         conn.commit()
 
     cur.close()
@@ -259,6 +270,15 @@ def _write_clusters(conn, cur, batch: list):
             computed_at        = NOW(),
             updated_at         = NOW()
         """,
+        # Tuple has 24 values (indices 0-23):
+        #   0:  system_id64
+        #   1-18: 6 economies × (count, best, top_id)
+        #   19: total_viable
+        #   20: coverage_score
+        #   21: economy_diversity
+        #   22: search_radius
+        #   23: dirty
+        # computed_at and updated_at come from NOW() in the template.
         [(r[0],
           r[1],  r[2],  r[3],
           r[4],  r[5],  r[6],
@@ -267,7 +287,7 @@ def _write_clusters(conn, cur, batch: list):
           r[13], r[14], r[15],
           r[16], r[17], r[18],
           r[19], r[20], r[21],
-          r[22], r[23], 'NOW()', 'NOW()') for r in batch],
+          r[22], r[23]) for r in batch],
         template="""(%s,
             %s,%s,%s, %s,%s,%s, %s,%s,%s,
             %s,%s,%s, %s,%s,%s, %s,%s,%s,
@@ -302,25 +322,19 @@ def main():
         log.warning("Spatial grid not built. Cluster build will be slower (no grid optimisation).")
 
     # Load anchor systems (visited systems = potential empire centres)
+    # NOTE: use a server-side named cursor to stream 73M+ anchor rows instead
+    # of fetchall() which would load ~2-4 GB into RAM and potentially truncate.
     log.info("Loading anchor systems ...")
+
+    # First get the count so we can log/estimate properly
     if args.dirty_only:
         cur.execute("""
-            SELECT id64, x, y, z FROM systems
-            WHERE has_body_data = TRUE
-              AND cluster_dirty = TRUE
-            ORDER BY id64
-            LIMIT %s
-        """, (args.limit or 10_000_000,))
+            SELECT COUNT(*) FROM systems
+            WHERE has_body_data = TRUE AND cluster_dirty = TRUE
+        """)
     else:
-        cur.execute("""
-            SELECT id64, x, y, z FROM systems
-            WHERE has_body_data = TRUE
-            ORDER BY id64
-            LIMIT %s
-        """, (args.limit or 200_000_000,))
-
-    all_anchors = cur.fetchall()
-    total = len(all_anchors)
+        cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
+    total = cur.fetchone()[0]
     cur.close()
     conn.close()
 
@@ -331,32 +345,85 @@ def main():
         return
 
     # Estimate time
+    est_hours = total / 1_000_000 * (1.0 / args.workers)
+    log.info(f"Estimated time: {est_hours:.1f}h with {args.workers} workers")
+    log.info("Starting cluster build — this is the long one. Get a coffee. ☕")
+
+    # Stream anchors from DB in chunks to avoid loading 73M rows into RAM
+    stream_conn = psycopg2.connect(DB_DSN)
+    stream_conn.autocommit = False
+    stream_conn.set_session(readonly=True)
+    chunk_size = max(BATCH_SIZE * 20, 50_000)
+    if total == 0:
+        log.info("Nothing to do.")
+        return
+
+    # Estimate time
     # With grid: each anchor checks ~50k neighbours, ~1ms per anchor on SSD
     est_hours = total / 1_000_000 * (1.0 / args.workers)
     log.info(f"Estimated time: {est_hours:.1f}h with {args.workers} workers")
     log.info("Starting cluster build — this is the long one. Get a coffee. ☕")
 
-    # Split into worker chunks
-    chunk_size = max(BATCH_SIZE * 20, total // (args.workers * 10))
-    chunks = [all_anchors[i:i+chunk_size] for i in range(0, total, chunk_size)]
-
     start = time.time()
     total_processed = 0
     total_errors = 0
-    last_report = time.time()
+    chunks_dispatched = 0
+    pending_results = []
 
-    # Process in batches, reporting progress every 5 minutes
-    with mp.Pool(processes=args.workers) as pool:
-        results = pool.starmap(
-            process_anchor_batch,
-            [(i % args.workers, chunk, DB_DSN, args.radius, args.min_score)
-             for i, chunk in enumerate(chunks)]
-        )
+    with stream_conn.cursor(name='anchors_stream') as stream_cur:
+        stream_cur.itersize = chunk_size
+        if args.dirty_only:
+            stream_cur.execute("""
+                SELECT id64, x, y, z FROM systems
+                WHERE has_body_data = TRUE AND cluster_dirty = TRUE
+                ORDER BY id64
+                LIMIT %s
+            """, (args.limit or 10_000_000,))
+        else:
+            stream_cur.execute("""
+                SELECT id64, x, y, z FROM systems
+                WHERE has_body_data = TRUE
+                ORDER BY id64
+                LIMIT %s
+            """, (args.limit or 200_000_000,))
 
-    for processed, errors in results:
-        total_processed += processed
-        total_errors += errors
+        with mp.Pool(processes=args.workers) as pool:
+            while True:
+                batch = stream_cur.fetchmany(chunk_size)
+                if not batch:
+                    log.info("Stream exhausted — all anchors dispatched.")
+                    break
+                chunks_dispatched += 1
+                pending_results.append(
+                    pool.apply_async(
+                        process_anchor_batch,
+                        (chunks_dispatched % args.workers, batch, DB_DSN, args.radius, args.min_score)
+                    )
+                )
+                # Drain completed work to bound memory
+                while len(pending_results) >= args.workers * 2:
+                    done = pending_results.pop(0)
+                    p, e = done.get()
+                    total_processed += p
+                    total_errors += e
+                    elapsed = time.time() - start
+                    rate = total_processed / elapsed if elapsed > 0 else 0
+                    log.info(
+                        f"  Processed: {total_processed:,} / {total:,} "
+                        f"({total_processed / total * 100:.1f}%) | "
+                        f"speed: {rate:.0f}/s | errors: {total_errors}"
+                    )
 
+            log.info(f"All {chunks_dispatched} chunks dispatched — waiting for workers...")
+            for done in pending_results:
+                p, e = done.get()
+                total_processed += p
+                total_errors += e
+
+    stream_conn.close()
+
+    elapsed = time.time() - start
+    rate = total_processed / elapsed if elapsed > 0 else 0
     elapsed = time.time() - start
     rate = total_processed / elapsed if elapsed > 0 else 0
     log.info(f"\nCluster build complete!")
