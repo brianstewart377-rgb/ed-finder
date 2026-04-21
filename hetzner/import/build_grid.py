@@ -40,7 +40,7 @@ import psycopg2.extras
 DB_DSN      = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder')
 BATCH_SIZE  = int(os.getenv('BATCH_SIZE', '10000'))
 LOG_LEVEL   = os.getenv('LOG_LEVEL', 'INFO')
-LOG_FILE    = os.getenv('LOG_FILE', '/data/logs/build_grid.log')
+LOG_FILE    = os.getenv('LOG_FILE', '/tmp/build_grid.log')
 CELL_SIZE   = int(os.getenv('CELL_SIZE', '500'))  # LY per grid cell
 
 logging.basicConfig(
@@ -52,6 +52,23 @@ logging.basicConfig(
     ]
 )
 log = logging.getLogger('build_grid')
+
+
+def _encode_cell_id(cell_x: int, cell_y: int, cell_z: int) -> int:
+    """
+    Encode (cell_x, cell_y, cell_z) indices into a single collision-free BIGINT.
+
+    Strides:  z up to 10 000,  y up to 10 000.
+    Formula:  cell_x * 100_000_000  +  cell_y * 10_000  +  cell_z
+
+    Supports any galaxy with fewer than 10 000 cells on the y or z axis,
+    which covers cell sizes down to ~12 LY.  The result always fits in a
+    PostgreSQL BIGINT (< 2^63) for realistic galaxy extents.
+
+    This mirrors the SQL expression in main() exactly so the test suite can
+    verify collision-freedom without a database connection.
+    """
+    return cell_x * 100_000_000 + cell_y * 10_000 + cell_z
 
 
 def main():
@@ -102,28 +119,44 @@ def main():
     log.info("Identifying occupied grid cells ...")
     cur.execute("TRUNCATE TABLE spatial_grid CASCADE")
 
+    # cell_id encoding: use large enough multipliers so no two distinct
+    # (cell_x, cell_y, cell_z) triples can hash to the same integer.
+    # ED galaxy max extent with cell_size=500: x~230, y~25, z~181 cells.
+    # Worst case with cell_size=50: x~2300, y~250, z~1810 cells.
+    # Using multipliers 100000 * 100000 overflows INT; use BIGINT instead.
+    # Formula: cell_x * Y_STRIDE * Z_STRIDE + cell_y * Z_STRIDE + cell_z
+    # where strides are based on actual max cell counts + margin.
+    # Use a CTE so we GROUP BY the real floor() expressions (not SELECT aliases,
+    # which PostgreSQL does not allow in GROUP BY).
     cur.execute(f"""
         INSERT INTO spatial_grid (cell_id, cell_x, cell_y, cell_z,
                                    min_x, max_x, min_y, max_y, min_z, max_z,
                                    system_count)
+        WITH cells AS (
+            SELECT
+                floor((x - {min_x}) / {cell_size})::bigint  AS cx,
+                floor((y - {min_y}) / {cell_size})::bigint  AS cy,
+                floor((z - {min_z}) / {cell_size})::bigint  AS cz,
+                COUNT(*) AS cnt
+            FROM systems
+            GROUP BY
+                floor((x - {min_x}) / {cell_size}),
+                floor((y - {min_y}) / {cell_size}),
+                floor((z - {min_z}) / {cell_size})
+        )
         SELECT
-            -- Generate a unique cell ID from (cell_x, cell_y, cell_z)
-            -- Use a hash-based approach to avoid huge numbers
-            (floor((x - {min_x}) / {cell_size})::int * 100000 +
-             floor((y - {min_y}) / {cell_size})::int * 1000 +
-             floor((z - {min_z}) / {cell_size})::int)  AS cell_id,
-            floor((x - {min_x}) / {cell_size})::smallint AS cell_x,
-            floor((y - {min_y}) / {cell_size})::smallint AS cell_y,
-            floor((z - {min_z}) / {cell_size})::smallint AS cell_z,
-            floor((x - {min_x}) / {cell_size}) * {cell_size} + {min_x} AS min_x,
-            floor((x - {min_x}) / {cell_size}) * {cell_size} + {min_x} + {cell_size} AS max_x,
-            floor((y - {min_y}) / {cell_size}) * {cell_size} + {min_y} AS min_y,
-            floor((y - {min_y}) / {cell_size}) * {cell_size} + {min_y} + {cell_size} AS max_y,
-            floor((z - {min_z}) / {cell_size}) * {cell_size} + {min_z} AS min_z,
-            floor((z - {min_z}) / {cell_size}) * {cell_size} + {min_z} + {cell_size} AS max_z,
-            COUNT(*) AS system_count
-        FROM systems
-        GROUP BY cell_x, cell_y, cell_z, min_x, max_x, min_y, max_y, min_z, max_z
+            (cx * 100000000 + cy * 10000 + cz)  AS cell_id,
+            cx::smallint                          AS cell_x,
+            cy::smallint                          AS cell_y,
+            cz::smallint                          AS cell_z,
+            cx * {cell_size} + {min_x}            AS min_x,
+            cx * {cell_size} + {min_x} + {cell_size} AS max_x,
+            cy * {cell_size} + {min_y}            AS min_y,
+            cy * {cell_size} + {min_y} + {cell_size} AS max_y,
+            cz * {cell_size} + {min_z}            AS min_z,
+            cz * {cell_size} + {min_z} + {cell_size} AS max_z,
+            cnt                                   AS system_count
+        FROM cells
         ON CONFLICT (cell_x, cell_y, cell_z) DO UPDATE SET
             system_count = EXCLUDED.system_count
     """)
