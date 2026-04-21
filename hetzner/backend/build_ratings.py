@@ -465,7 +465,8 @@ def main():
     # the client runs out of RAM or hits statement_timeout — producing the
     # "74M is the total" symptom.  A named cursor never has this problem.
     stream_conn = psycopg2.connect(DB_DSN)
-    stream_conn.autocommit = True   # required for server-side cursors outside a txn
+    stream_conn.autocommit = False  # named cursors require a transaction (autocommit=False)
+    stream_conn.set_session(readonly=True)  # safe read-only transaction for streaming
 
     with stream_conn.cursor(name='ratings_stream') as stream_cur:
         stream_cur.itersize = args.chunk  # fetch this many rows from server per network round-trip
