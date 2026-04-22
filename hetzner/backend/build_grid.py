@@ -116,69 +116,111 @@ def main():
     # ---------------------------------------------------------------------------
     # Step 2: Populate spatial_grid table with actual occupied cells
     # ---------------------------------------------------------------------------
-    log.info("Identifying occupied grid cells ...")
-    cur.execute("TRUNCATE TABLE spatial_grid CASCADE")
-
-    # cell_id encoding: use large enough multipliers so no two distinct
-    # (cell_x, cell_y, cell_z) triples can hash to the same integer.
-    # ED galaxy max extent with cell_size=500: x~230, y~25, z~181 cells.
-    # Worst case with cell_size=50: x~2300, y~250, z~1810 cells.
-    # Using multipliers 100000 * 100000 overflows INT; use BIGINT instead.
-    # Formula: cell_x * Y_STRIDE * Z_STRIDE + cell_y * Z_STRIDE + cell_z
-    # where strides are based on actual max cell counts + margin.
-    # Use a CTE so we GROUP BY the real floor() expressions (not SELECT aliases,
-    # which PostgreSQL does not allow in GROUP BY).
-    cur.execute(f"""
-        INSERT INTO spatial_grid (cell_id, cell_x, cell_y, cell_z,
-                                   min_x, max_x, min_y, max_y, min_z, max_z,
-                                   system_count)
-        WITH cells AS (
-            SELECT
-                floor((x - {min_x}) / {cell_size})::bigint  AS cx,
-                floor((y - {min_y}) / {cell_size})::bigint  AS cy,
-                floor((z - {min_z}) / {cell_size})::bigint  AS cz,
-                COUNT(*) AS cnt
-            FROM systems
-            GROUP BY
-                floor((x - {min_x}) / {cell_size}),
-                floor((y - {min_y}) / {cell_size}),
-                floor((z - {min_z}) / {cell_size})
-        )
-        SELECT
-            (cx * 100000000 + cy * 10000 + cz)  AS cell_id,
-            cx::smallint                          AS cell_x,
-            cy::smallint                          AS cell_y,
-            cz::smallint                          AS cell_z,
-            cx * {cell_size} + {min_x}            AS min_x,
-            cx * {cell_size} + {min_x} + {cell_size} AS max_x,
-            cy * {cell_size} + {min_y}            AS min_y,
-            cy * {cell_size} + {min_y} + {cell_size} AS max_y,
-            cz * {cell_size} + {min_z}            AS min_z,
-            cz * {cell_size} + {min_z} + {cell_size} AS max_z,
-            cnt                                   AS system_count
-        FROM cells
-        ON CONFLICT (cell_x, cell_y, cell_z) DO UPDATE SET
-            system_count = EXCLUDED.system_count
-    """)
-    conn.commit()
-
+    # Resume-safe: if spatial_grid already has the right number of cells from a
+    # previous (crashed) run, skip the expensive GROUP BY scan and go straight
+    # to Step 3 (system assignment).
     cur.execute("SELECT COUNT(*) FROM spatial_grid")
-    cell_count = cur.fetchone()[0]
-    log.info(f"Created {cell_count:,} occupied grid cells")
+    existing_cells = cur.fetchone()[0]
+
+    if existing_cells > 0:
+        log.info(f"spatial_grid already has {existing_cells:,} cells — skipping Step 2 (resume mode)")
+        cell_count = existing_cells
+    else:
+        log.info("Identifying occupied grid cells ...")
+        # cell_id encoding: use large enough multipliers so no two distinct
+        # (cell_x, cell_y, cell_z) triples can hash to the same integer.
+        # Use a CTE so we GROUP BY the real floor() expressions (not SELECT
+        # aliases, which PostgreSQL does not allow in GROUP BY).
+        cur.execute(f"""
+            INSERT INTO spatial_grid (cell_id, cell_x, cell_y, cell_z,
+                                       min_x, max_x, min_y, max_y, min_z, max_z,
+                                       system_count)
+            WITH cells AS (
+                SELECT
+                    floor((x - {min_x}) / {cell_size})::bigint  AS cx,
+                    floor((y - {min_y}) / {cell_size})::bigint  AS cy,
+                    floor((z - {min_z}) / {cell_size})::bigint  AS cz,
+                    COUNT(*) AS cnt
+                FROM systems
+                GROUP BY
+                    floor((x - {min_x}) / {cell_size}),
+                    floor((y - {min_y}) / {cell_size}),
+                    floor((z - {min_z}) / {cell_size})
+            )
+            SELECT
+                (cx * 100000000 + cy * 10000 + cz)  AS cell_id,
+                cx::smallint                          AS cell_x,
+                cy::smallint                          AS cell_y,
+                cz::smallint                          AS cell_z,
+                cx * {cell_size} + {min_x}            AS min_x,
+                cx * {cell_size} + {min_x} + {cell_size} AS max_x,
+                cy * {cell_size} + {min_y}            AS min_y,
+                cy * {cell_size} + {min_y} + {cell_size} AS max_y,
+                cz * {cell_size} + {min_z}            AS min_z,
+                cz * {cell_size} + {min_z} + {cell_size} AS max_z,
+                cnt                                   AS system_count
+            FROM cells
+            ON CONFLICT (cell_x, cell_y, cell_z) DO UPDATE SET
+                system_count = EXCLUDED.system_count
+        """)
+        conn.commit()
+
+        cur.execute("SELECT COUNT(*) FROM spatial_grid")
+        cell_count = cur.fetchone()[0]
+        log.info(f"Created {cell_count:,} occupied grid cells")
 
     # ---------------------------------------------------------------------------
-    # Step 3: Assign grid_cell_id to every system
+    # Step 3: Assign grid_cell_id to every system — in per-cell batches
     # ---------------------------------------------------------------------------
-    log.info("Assigning grid cells to systems ...")
-    cur.execute(f"""
-        UPDATE systems s
-        SET grid_cell_id = g.cell_id
-        FROM spatial_grid g
-        WHERE g.cell_x = floor((s.x - {min_x}) / {cell_size})::smallint
-          AND g.cell_y = floor((s.y - {min_y}) / {cell_size})::smallint
-          AND g.cell_z = floor((s.z - {min_z}) / {cell_size})::smallint
+    # A single UPDATE JOIN across 186M rows exhausts PostgreSQL's WAL / work_mem
+    # and causes the server to close the connection.
+    # Fix: iterate over each of the 135k grid cells and UPDATE only the systems
+    # in that cell's bounding box.  Each batch touches ~1,400 rows on average
+    # (186M / 135k cells) — well within safe transaction size.
+    # Check how many systems already have grid_cell_id set (resume safety)
+    cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NOT NULL")
+    already_assigned = cur.fetchone()[0]
+    if already_assigned == total_systems:
+        log.info(f"All {total_systems:,} systems already have grid_cell_id — skipping Step 3 (resume mode)")
+    else:
+        log.info(f"Assigning grid cells to systems in per-cell batches ({cell_count:,} cells) ...")
+        if already_assigned > 0:
+            log.info(f"  Resuming: {already_assigned:,} already assigned, continuing from where we left off ...")
+
+    # Fetch all cells once — 135k rows is tiny
+    cur.execute("""
+        SELECT cell_id, cell_x, cell_y, cell_z, min_x, max_x, min_y, max_y, min_z, max_z
+        FROM spatial_grid
+        ORDER BY cell_id
     """)
-    conn.commit()
+    all_cells = cur.fetchall()
+
+    ASSIGN_BATCH = 500          # commit every N cells (~700k systems per commit)
+    assigned_cells = 0
+    last_log = time.time()
+
+    for i, cell in enumerate(all_cells):
+        if already_assigned == total_systems:
+            break   # all done — skip loop entirely
+        cell_id, cx, cy, cz, bx0, bx1, by0, by1, bz0, bz1 = cell
+        cur.execute("""
+            UPDATE systems
+            SET grid_cell_id = %s
+            WHERE x >= %s AND x < %s
+              AND y >= %s AND y < %s
+              AND z >= %s AND z < %s
+        """, (cell_id, bx0, bx1, by0, by1, bz0, bz1))
+        assigned_cells += 1
+
+        if assigned_cells % ASSIGN_BATCH == 0:
+            conn.commit()
+            if time.time() - last_log >= 30:
+                pct = assigned_cells / cell_count * 100
+                log.info(f"  Grid assignment: {assigned_cells:,} / {cell_count:,} cells ({pct:.1f}%) ...")
+                last_log = time.time()
+
+    conn.commit()   # final commit for remainder
+    log.info(f"  Grid assignment complete: {assigned_cells:,} cells processed")
 
     # Verify assignment
     cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NULL")
@@ -191,6 +233,8 @@ def main():
     # ---------------------------------------------------------------------------
     # Step 4: Update visited_count in spatial_grid
     # ---------------------------------------------------------------------------
+    # This aggregates 73M rows but only writes to 135k cells — safe as one query
+    # since the result set (spatial_grid) is small even if the scan is large.
     log.info("Updating visited counts per cell ...")
     cur.execute("""
         UPDATE spatial_grid g
@@ -205,6 +249,7 @@ def main():
         WHERE g.cell_id = v.grid_cell_id
     """)
     conn.commit()
+    log.info("Visited counts updated ✓")
 
     # ---------------------------------------------------------------------------
     # Step 5: Store cell_size in app_meta for cluster builder to use
