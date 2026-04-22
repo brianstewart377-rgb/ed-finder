@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder
-Version: 1.0
+Version: 1.1  (resume-safe, grid-aware, log-dir guard)
 
 Builds the cluster_summary table: for every visited system, computes
 how many viable uncolonised systems exist for each economy type within
@@ -17,18 +17,26 @@ Uses spatial grid to avoid O(n²) scanning:
   Only checks systems in the same + 26 adjacent cells (3×3×3 neighbourhood)
   Reduces per-anchor work from 70M comparisons to ~50k comparisons
 
-Performance on i7-8700:
-  ~70M anchors × ~50k neighbours = fast with grid
-  Estimated total time: 8-24 hours (acceptable for one-time build)
-  Use --workers to parallelise across CPU cores
+KEY FIXES in v1.1:
+  • Log directory is created automatically (no more FileNotFoundError on start)
+  • Removed duplicate "Nothing to do" / "Get a coffee" code blocks
+  • Removed duplicate elapsed/rate lines
+  • Resume-safe: default mode skips already-computed anchors (cluster_dirty=FALSE)
+  • Grid-aware per-anchor query: uses spatial_grid adjacency to limit the neighbour
+    scan to 27 cells instead of the full systems table
+  • Neighbour rows streamed with fetchmany() instead of fetchall()
+  • Progress logged every 60 seconds regardless of chunk boundaries
 
 Usage:
-    python3 build_clusters.py                    # build all
+    python3 build_clusters.py                    # build all (resume-safe)
+    python3 build_clusters.py --rebuild          # re-compute ALL anchors from scratch
     python3 build_clusters.py --dirty-only       # only rebuild dirty anchors
-    python3 build_clusters.py --workers 6        # use 6 parallel workers
+    python3 build_clusters.py --workers 4        # set worker count
     python3 build_clusters.py --radius 500       # search radius (default 500ly)
     python3 build_clusters.py --min-score 40     # minimum viable score (default 40)
     python3 build_clusters.py --limit 100000     # process N anchors (testing)
+
+Runtime estimate: ~8-24 hours for 73M anchors on i7-8700 with --workers 4
 """
 
 import os
@@ -38,7 +46,6 @@ import time
 import logging
 import argparse
 import multiprocessing as mp
-from typing import Optional
 
 import psycopg2
 import psycopg2.extras
@@ -49,9 +56,12 @@ import psycopg2.extras
 DB_DSN          = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder')
 BATCH_SIZE      = int(os.getenv('BATCH_SIZE', '500'))
 LOG_LEVEL       = os.getenv('LOG_LEVEL', 'INFO')
-LOG_FILE        = os.getenv('LOG_FILE', '/data/logs/build_clusters.log')
+LOG_FILE        = os.getenv('LOG_FILE', '/tmp/build_clusters.log')   # safe default
 DEFAULT_RADIUS  = 500   # LY
 MIN_VIABLE      = 40    # minimum score to count as "viable"
+
+# Ensure log directory exists before setting up logging
+os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -94,25 +104,68 @@ def process_anchor_batch(
     db_dsn: str,
     radius: float,
     min_score: int,
-) -> tuple[int, int]:
+) -> tuple:
     """
     Worker process: for each anchor in the batch, find viable systems
     within `radius` LY and aggregate economy coverage.
+
+    FIX v1.1: Uses spatial grid adjacency (3×3×3 cell neighbourhood) to
+    limit the neighbour scan instead of querying the whole systems table.
+    Without this, each anchor triggers a bounding-box scan of 186M rows.
+    With this, each anchor scans at most 27 grid cells × ~1400 systems = ~38k rows.
     """
     conn = psycopg2.connect(db_dsn)
     conn.autocommit = False
     cur = conn.cursor()
 
+    # Load grid parameters from app_meta once per worker
+    cur.execute("""
+        SELECT key, value FROM app_meta
+        WHERE key IN ('grid_cell_size','grid_min_x','grid_min_y','grid_min_z')
+    """)
+    meta = {r[0]: float(r[1]) for r in cur.fetchall()}
+    cell_size = meta.get('grid_cell_size', 500.0)
+    gmin_x    = meta.get('grid_min_x', -43214.0)
+    gmin_y    = meta.get('grid_min_y', -30360.0)
+    gmin_z    = meta.get('grid_min_z', -24405.0)
+
     processed = 0
     errors = 0
     cluster_batch = []
+
+    eco_col = {
+        'Agriculture': 1,
+        'Refinery':    2,
+        'Industrial':  3,
+        'HighTech':    4,
+        'Military':    5,
+        'Tourism':     6,
+    }
 
     for anchor in anchor_batch:
         anchor_id64, ax, ay, az = anchor[0], anchor[1], anchor[2], anchor[3]
 
         try:
-            # Query: find all viable uncolonised systems within radius using
-            # bounding box pre-filter (fast) then exact distance check
+            # ── Grid-aware neighbour query ────────────────────────────────
+            # Compute which cell this anchor sits in
+            acx = int(math.floor((ax - gmin_x) / cell_size))
+            acy = int(math.floor((ay - gmin_y) / cell_size))
+            acz = int(math.floor((az - gmin_z) / cell_size))
+
+            # Build list of adjacent cell IDs (3×3×3 = up to 27 cells)
+            adjacent_cell_ids = []
+            for dx in range(-1, 2):
+                for dy in range(-1, 2):
+                    for dz in range(-1, 2):
+                        cx = acx + dx
+                        cy = acy + dy
+                        cz = acz + dz
+                        # cell_id encoding must match build_grid.py exactly
+                        adjacent_cell_ids.append(
+                            cx * 100_000_000 + cy * 10_000 + cz
+                        )
+
+            # Query only systems in those 27 cells, then filter by exact distance
             cur.execute("""
                 SELECT
                     r.economy_suggestion,
@@ -125,7 +178,7 @@ def process_anchor_batch(
                 JOIN ratings r ON r.system_id64 = s.id64
                 WHERE s.population = 0
                   AND s.id64 != %s
-                  AND in_bounding_box(s.x, s.y, s.z, %s, %s, %s, %s)
+                  AND s.grid_cell_id = ANY(%s)
                   AND distance_ly(s.x, s.y, s.z, %s, %s, %s) <= %s
                   AND (
                       r.score_agriculture >= %s OR
@@ -136,54 +189,38 @@ def process_anchor_batch(
                       r.score_tourism     >= %s
                   )
             """, (
-                ax, ay, az,          # for distance_ly
-                anchor_id64,         # exclude self
-                ax, ay, az, radius,  # bounding box
-                ax, ay, az, radius,  # exact distance
+                ax, ay, az,               # distance_ly args
+                anchor_id64,              # exclude self
+                adjacent_cell_ids,        # grid cell filter (replaces bounding box)
+                ax, ay, az, radius,       # exact distance check
                 min_score, min_score, min_score,
                 min_score, min_score, min_score,
             ))
 
-            rows = cur.fetchall()
+            # Stream neighbour rows to avoid large fetchall() in dense regions
+            counts = {e: 0 for e in eco_col}
+            bests  = {e: None for e in eco_col}
+            top_id = {e: None for e in eco_col}
+            viable_sids: set = set()
 
-            # Aggregate per-economy counts and best scores
-            counts = {e: 0 for e in ['Agriculture','Refinery','Industrial','HighTech','Military','Tourism']}
-            bests  = {e: None for e in ['Agriculture','Refinery','Industrial','HighTech','Military','Tourism']}
-            top_id = {e: None for e in ['Agriculture','Refinery','Industrial','HighTech','Military','Tourism']}
-
-            eco_col = {
-                'Agriculture': 1,
-                'Refinery':    2,
-                'Industrial':  3,
-                'HighTech':    4,
-                'Military':    5,
-                'Tourism':     6,
-            }
-
-            for row in rows:
-                sid = row[7]
-                for eco, col_idx in eco_col.items():
-                    eco_score = row[col_idx]
-                    if eco_score is not None and eco_score >= min_score:
-                        counts[eco] += 1
-                        if bests[eco] is None or eco_score > bests[eco]:
-                            bests[eco]  = eco_score
-                            top_id[eco] = sid
+            while True:
+                chunk = cur.fetchmany(1000)
+                if not chunk:
+                    break
+                for row in chunk:
+                    sid = row[7]
+                    for eco, col_idx in eco_col.items():
+                        eco_score = row[col_idx]
+                        if eco_score is not None and eco_score >= min_score:
+                            counts[eco] += 1
+                            viable_sids.add(sid)
+                            if bests[eco] is None or eco_score > bests[eco]:
+                                bests[eco]  = eco_score
+                                top_id[eco] = sid
 
             # Compute coverage score and diversity
-            coverage = compute_coverage_score(counts, bests)
-            diversity = sum(1 for c in counts.values() if c > 0)
-            # total_viable = unique systems qualifying for at least one economy
-            # (sum of per-economy counts would double-count systems that qualify
-            # for multiple economies — e.g. a system good for both Ag and HT
-            # would add 2 to the sum but it's still only ONE system)
-            viable_sids: set = set()
-            for row in rows:
-                sid = row[7]
-                for eco, col_idx in eco_col.items():
-                    eco_score = row[col_idx]
-                    if eco_score is not None and eco_score >= min_score:
-                        viable_sids.add(sid)
+            coverage     = compute_coverage_score(counts, bests)
+            diversity    = sum(1 for c in counts.values() if c > 0)
             total_viable = len(viable_sids)
 
             cluster_batch.append((
@@ -270,15 +307,11 @@ def _write_clusters(conn, cur, batch: list):
             computed_at        = NOW(),
             updated_at         = NOW()
         """,
-        # Tuple has 24 values (indices 0-23):
+        # Tuple layout (24 values, indices 0-23):
         #   0:  system_id64
         #   1-18: 6 economies × (count, best, top_id)
-        #   19: total_viable
-        #   20: coverage_score
-        #   21: economy_diversity
-        #   22: search_radius
-        #   23: dirty
-        # computed_at and updated_at come from NOW() in the template.
+        #   19: total_viable  20: coverage_score  21: economy_diversity
+        #   22: search_radius  23: dirty
         [(r[0],
           r[1],  r[2],  r[3],
           r[4],  r[5],  r[6],
@@ -298,81 +331,92 @@ def _write_clusters(conn, cur, batch: list):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary table')
+    parser = argparse.ArgumentParser(description='Build cluster_summary table (v1.1)')
+    parser.add_argument('--rebuild',    action='store_true', help='Re-compute ALL anchors from scratch (ignores cluster_dirty)')
     parser.add_argument('--dirty-only', action='store_true', help='Only rebuild dirty anchors')
-    parser.add_argument('--workers',    type=int,   default=mp.cpu_count(), help='Worker processes')
-    parser.add_argument('--radius',     type=float, default=DEFAULT_RADIUS, help='Search radius in LY')
-    parser.add_argument('--min-score',  type=int,   default=MIN_VIABLE,     help='Minimum viable score')
+    parser.add_argument('--workers',    type=int,   default=mp.cpu_count(), help='Worker processes (recommend 4 on i7-8700)')
+    parser.add_argument('--radius',     type=float, default=DEFAULT_RADIUS, help='Search radius in LY (default 500)')
+    parser.add_argument('--min-score',  type=int,   default=MIN_VIABLE,     help='Minimum viable score (default 40)')
     parser.add_argument('--limit',      type=int,   default=None,           help='Process N anchors (testing)')
     args = parser.parse_args()
 
     conn = psycopg2.connect(DB_DSN)
     cur = conn.cursor()
 
-    # Check prerequisites
+    # ── Prerequisite checks ───────────────────────────────────────────────────
     cur.execute("SELECT value FROM app_meta WHERE key = 'ratings_built'")
     r = cur.fetchone()
     if not r or r[0] != 'true':
         log.error("Ratings not yet built. Run build_ratings.py first.")
-        return
+        cur.close(); conn.close(); return
 
     cur.execute("SELECT value FROM app_meta WHERE key = 'grid_built'")
     r = cur.fetchone()
     if not r or r[0] != 'true':
-        log.warning("Spatial grid not built. Cluster build will be slower (no grid optimisation).")
+        log.warning("Spatial grid not built — cluster build will be MUCH slower (no grid cell filter).")
+        log.warning("Run build_grid.py first for best performance.")
 
-    # Load anchor systems (visited systems = potential empire centres)
-    # NOTE: use a server-side named cursor to stream 73M+ anchor rows instead
-    # of fetchall() which would load ~2-4 GB into RAM and potentially truncate.
-    log.info("Loading anchor systems ...")
+    # ── Diagnostic counts ─────────────────────────────────────────────────────
+    cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
+    total_with_bodies = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM cluster_summary")
+    already_done = cur.fetchone()[0]
 
-    # First get the count so we can log/estimate properly
-    if args.dirty_only:
-        cur.execute("""
-            SELECT COUNT(*) FROM systems
-            WHERE has_body_data = TRUE AND cluster_dirty = TRUE
-        """)
-    else:
+    if args.rebuild:
+        mode = "FULL REBUILD — all anchors"
         cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
+    elif args.dirty_only:
+        mode = "dirty anchors only"
+        cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE AND cluster_dirty = TRUE")
+    else:
+        # Default: resume mode — only process anchors not yet in cluster_summary
+        mode = "resume mode — unprocessed anchors only"
+        cur.execute("""
+            SELECT COUNT(*) FROM systems s
+            LEFT JOIN cluster_summary cs ON cs.system_id64 = s.id64
+            WHERE s.has_body_data = TRUE AND cs.system_id64 IS NULL
+        """)
+
     total = cur.fetchone()[0]
     cur.close()
     conn.close()
 
-    log.info(f"Anchors to process: {total:,}")
+    log.info(f"DB diagnostic: {total_with_bodies:,} anchors total, {already_done:,} already computed, {total:,} remaining")
+    log.info(f"Mode: {mode}")
     log.info(f"Radius: {args.radius}ly | Min viable score: {args.min_score} | Workers: {args.workers}")
+
     if total == 0:
-        log.info("Nothing to do.")
+        log.info("Nothing to do — cluster_summary is complete!")
         return
 
-    # Estimate time
     est_hours = total / 1_000_000 * (1.0 / args.workers)
     log.info(f"Estimated time: {est_hours:.1f}h with {args.workers} workers")
     log.info("Starting cluster build — this is the long one. Get a coffee. ☕")
 
-    # Stream anchors from DB in chunks to avoid loading 73M rows into RAM
+    # ── Stream anchors with server-side cursor ────────────────────────────────
     stream_conn = psycopg2.connect(DB_DSN)
     stream_conn.autocommit = False
     stream_conn.set_session(readonly=True)
-    chunk_size = max(BATCH_SIZE * 20, 50_000)
-    if total == 0:
-        log.info("Nothing to do.")
-        return
-
-    # Estimate time
-    # With grid: each anchor checks ~50k neighbours, ~1ms per anchor on SSD
-    est_hours = total / 1_000_000 * (1.0 / args.workers)
-    log.info(f"Estimated time: {est_hours:.1f}h with {args.workers} workers")
-    log.info("Starting cluster build — this is the long one. Get a coffee. ☕")
+    chunk_size = 50_000
 
     start = time.time()
     total_processed = 0
-    total_errors = 0
+    total_errors    = 0
     chunks_dispatched = 0
-    pending_results = []
+    pending_results   = []
+    last_log_time     = time.time()
 
     with stream_conn.cursor(name='anchors_stream') as stream_cur:
         stream_cur.itersize = chunk_size
-        if args.dirty_only:
+
+        if args.rebuild:
+            stream_cur.execute("""
+                SELECT id64, x, y, z FROM systems
+                WHERE has_body_data = TRUE
+                ORDER BY id64
+                LIMIT %s
+            """, (args.limit or 200_000_000,))
+        elif args.dirty_only:
             stream_cur.execute("""
                 SELECT id64, x, y, z FROM systems
                 WHERE has_body_data = TRUE AND cluster_dirty = TRUE
@@ -380,10 +424,14 @@ def main():
                 LIMIT %s
             """, (args.limit or 10_000_000,))
         else:
+            # Resume mode: LEFT JOIN to find anchors not yet in cluster_summary
             stream_cur.execute("""
-                SELECT id64, x, y, z FROM systems
-                WHERE has_body_data = TRUE
-                ORDER BY id64
+                SELECT s.id64, s.x, s.y, s.z
+                FROM systems s
+                LEFT JOIN cluster_summary cs ON cs.system_id64 = s.id64
+                WHERE s.has_body_data = TRUE
+                  AND cs.system_id64 IS NULL
+                ORDER BY s.id64
                 LIMIT %s
             """, (args.limit or 200_000_000,))
 
@@ -400,48 +448,51 @@ def main():
                         (chunks_dispatched % args.workers, batch, DB_DSN, args.radius, args.min_score)
                     )
                 )
-                # Drain completed work to bound memory
+
+                # Drain completed work to bound memory (keep at most workers*2 in-flight)
                 while len(pending_results) >= args.workers * 2:
                     done = pending_results.pop(0)
                     p, e = done.get()
                     total_processed += p
-                    total_errors += e
-                    elapsed = time.time() - start
-                    rate = total_processed / elapsed if elapsed > 0 else 0
-                    log.info(
-                        f"  Processed: {total_processed:,} / {total:,} "
-                        f"({total_processed / total * 100:.1f}%) | "
-                        f"speed: {rate:.0f}/s | errors: {total_errors}"
-                    )
+                    total_errors    += e
+                    # Log progress at most once per 60s to avoid log spam
+                    if time.time() - last_log_time >= 60:
+                        elapsed = time.time() - start
+                        rate    = total_processed / elapsed if elapsed > 0 else 0
+                        eta_h   = (total - total_processed) / rate / 3600 if rate > 0 else 0
+                        log.info(
+                            f"  Progress: {total_processed + already_done:,} / {total_with_bodies:,} "
+                            f"({(total_processed + already_done) / total_with_bodies * 100:.1f}%) | "
+                            f"speed: {rate:.0f}/s | ETA: {eta_h:.1f}h | errors: {total_errors}"
+                        )
+                        last_log_time = time.time()
 
-            log.info(f"All {chunks_dispatched} chunks dispatched — waiting for workers...")
+            log.info(f"All {chunks_dispatched} chunks dispatched — waiting for workers to finish...")
             for done in pending_results:
                 p, e = done.get()
                 total_processed += p
-                total_errors += e
+                total_errors    += e
 
     stream_conn.close()
 
     elapsed = time.time() - start
-    rate = total_processed / elapsed if elapsed > 0 else 0
-    elapsed = time.time() - start
-    rate = total_processed / elapsed if elapsed > 0 else 0
+    rate    = total_processed / elapsed if elapsed > 0 else 0
     log.info(f"\nCluster build complete!")
     log.info(f"  Anchors processed: {total_processed:,}")
     log.info(f"  Errors:            {total_errors:,}")
     log.info(f"  Total time:        {elapsed/3600:.2f}h")
     log.info(f"  Rate:              {rate:.0f} anchors/sec")
 
-    # Mark clusters as built
-    conn = psycopg2.connect(DB_DSN)
-    with conn.cursor() as cur:
+    # Mark clusters as built in app_meta
+    conn2 = psycopg2.connect(DB_DSN)
+    with conn2.cursor() as cur:
         cur.execute("""
             INSERT INTO app_meta (key, value, updated_at)
             VALUES ('clusters_built', 'true', NOW())
             ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
         """)
 
-        # Show top 5 results as a sanity check
+        # Sanity check — show top 5 results
         cur.execute("""
             SELECT s.name, cs.coverage_score, cs.economy_diversity, cs.total_viable,
                    cs.agriculture_count, cs.hightech_count, cs.refinery_count
@@ -452,15 +503,17 @@ def main():
             LIMIT 5
         """)
         rows = cur.fetchall()
-        log.info("\nTop 5 empire locations:")
-        for r in rows:
-            log.info(f"  {r[0]:<30} coverage={r[1]:.1f} diversity={r[2]} "
-                     f"ag={r[4]} ht={r[5]} ref={r[6]}")
+        if rows:
+            log.info("\nTop 5 empire locations:")
+            for r in rows:
+                log.info(f"  {r[0]:<30} coverage={r[1]:.1f} diversity={r[2]} "
+                         f"ag={r[4]} ht={r[5]} ref={r[6]}")
 
-    conn.commit()
-    conn.close()
+    conn2.commit()
+    conn2.close()
 
-    log.info("\nNext step: psql -U edfinder -d edfinder -f sql/002_indexes.sql")
+    log.info("\nNext step: run sql/002_indexes.sql to build all indexes")
+    log.info("  docker exec -it ed-postgres psql -U edfinder -d edfinder -f /path/to/002_indexes.sql")
 
 
 if __name__ == '__main__':
