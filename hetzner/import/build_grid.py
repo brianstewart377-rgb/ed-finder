@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spatial Grid Builder
-Version: 1.5  (TCP keepalives, reconnect-on-error, partial bounds cache)
+Version: 1.6  (skip completed cells, disable autovacuum during assign, faster resume)
 
 Divides the galaxy into 500ly cubic cells and assigns every system to a cell.
 
@@ -136,7 +136,7 @@ def main():
 
     script_start = time.time()
 
-    startup_banner(log, "Spatial Grid Builder", "v1.5", [
+    startup_banner(log, "Spatial Grid Builder", "v1.6", [
         ("Cell size",   f"{cell_size} LY"),
         ("Log file",    LOG_FILE),
         ("DB",          DB_DSN.split('@')[-1]),
@@ -317,8 +317,40 @@ def main():
         # How many cells still have unassigned systems?
         # We'll discover this as we go — the UPDATE WHERE grid_cell_id IS NULL skips done cells.
 
+        # Disable autovacuum on systems table for the duration of Stage 3.
+        # Autovacuum competes heavily for I/O during bulk UPDATEs and can slow
+        # throughput from 15/s to 7/s. We re-enable it in Stage 4.
+        log.info(f"  Disabling autovacuum on systems table for Stage 3 ...")
+        try:
+            av_conn = _connect_with_retry(DB_DSN, label="autovacuum-ctrl")
+            av_conn.autocommit = True
+            with av_conn.cursor() as av_cur:
+                av_cur.execute("ALTER TABLE systems SET (autovacuum_enabled = false)")
+            av_conn.close()
+            log.info(f"  Autovacuum disabled ✓ (will re-enable after Stage 3)")
+        except Exception as e:
+            log.warning(f"  Could not disable autovacuum (non-fatal): {e}")
+
+        # Count cells that still have unassigned systems — skip the rest.
+        # This is the key resume optimisation: on restart we only iterate
+        # cells with remaining work instead of walking all 135k cells.
+        cur.execute("""
+            SELECT COUNT(DISTINCT g.cell_id)
+            FROM spatial_grid g
+            WHERE EXISTS (
+                SELECT 1 FROM systems s
+                WHERE s.x >= g.min_x AND s.x < g.max_x
+                  AND s.y >= g.min_y AND s.y < g.max_y
+                  AND s.z >= g.min_z AND s.z < g.max_z
+                  AND s.grid_cell_id IS NULL
+                LIMIT 1
+            )
+        """)
+        cells_with_work = cur.fetchone()[0]
+        log.info(f"  Cells with remaining work : {fmt_num(cells_with_work)} / {fmt_num(cell_count)}")
+
         ASSIGN_BATCH = 200   # commit every 200 cells (~280k systems per commit)
-        progress = ProgressReporter(log, cell_count, "cell-assign", interval=20, heartbeat=90)
+        progress = ProgressReporter(log, cells_with_work, "cell-assign", interval=20, heartbeat=90)
         assigned_cells   = 0
         skipped_cells    = 0   # cells where all systems already assigned
         total_rows_updated = 0
@@ -331,12 +363,24 @@ def main():
 
         with read_conn.cursor(name='cell_stream') as cell_cur:
             cell_cur.itersize = 2000   # fetch 2000 cells at a time from server
+            # KEY FIX: only stream cells that still have unassigned systems.
+            # On restart this jumps straight to the first incomplete cell
+            # instead of walking through all already-done cells.
             cell_cur.execute("""
-                SELECT cell_id, cell_x, cell_y, cell_z,
-                       min_x, max_x, min_y, max_y, min_z, max_z
-                FROM spatial_grid
-                ORDER BY cell_id
+                SELECT g.cell_id, g.cell_x, g.cell_y, g.cell_z,
+                       g.min_x, g.max_x, g.min_y, g.max_y, g.min_z, g.max_z
+                FROM spatial_grid g
+                WHERE EXISTS (
+                    SELECT 1 FROM systems s
+                    WHERE s.x >= g.min_x AND s.x < g.max_x
+                      AND s.y >= g.min_y AND s.y < g.max_y
+                      AND s.z >= g.min_z AND s.z < g.max_z
+                      AND s.grid_cell_id IS NULL
+                    LIMIT 1
+                )
+                ORDER BY g.cell_id
             """)
+            log.info(f"  Cell cursor ready — starting from first incomplete cell ✓")
 
             # Use a dedicated write connection for the UPDATEs so we can reconnect
             # if the write connection drops without losing the read cursor position.
@@ -379,7 +423,7 @@ def main():
                                 total_rows_updated += rows_updated
                                 if rows_updated == 0:
                                     skipped_cells += 1
-                                break   # success
+                                break  # success
                             except psycopg2.OperationalError as e:
                                 if attempt == 0:
                                     log.warning(f"  DB connection lost on cell {cell_id} — reconnecting ...")
@@ -415,6 +459,18 @@ def main():
                 write_conn.close()
 
         read_conn.close()
+
+        # Re-enable autovacuum now that bulk UPDATEs are done
+        log.info(f"  Re-enabling autovacuum on systems table ...")
+        try:
+            av_conn = _connect_with_retry(DB_DSN, label="autovacuum-ctrl")
+            av_conn.autocommit = True
+            with av_conn.cursor() as av_cur:
+                av_cur.execute("ALTER TABLE systems RESET (autovacuum_enabled)")
+            av_conn.close()
+            log.info(f"  Autovacuum re-enabled ✓")
+        except Exception as e:
+            log.warning(f"  Could not re-enable autovacuum (non-fatal): {e}")
 
         # Reconnect main conn (may have timed out during long Stage 3)
         try:
