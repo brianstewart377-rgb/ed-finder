@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Ratings Computer
-Version: 2.0  (streaming fix — no more 74M ceiling)
+Version: 2.1  (rich progress reporting, safe log path)
 
 Ports the JavaScript rateSystem() function to Python exactly.
 Computes scores for all visited systems and writes to the ratings table.
@@ -9,13 +9,19 @@ Computes scores for all visited systems and writes to the ratings table.
 KEY FIXES in v2.0:
   • Server-side named cursor streams rows — fetchall() was silently truncating
     at ~74M rows when PostgreSQL's statement_timeout or client RAM was hit.
-    Now uses itersize-based streaming so 186M+ systems are processed reliably.
-  • Batch body fetch — one ANY(%s) query per chunk instead of one query per
-    system (was causing thousands of random-read round-trips per second).
+  • Batch body fetch — one ANY(%s) query per chunk instead of per system.
   • Dynamic work dispatch — pool.apply_async() drains completed work
     continuously instead of starmap() blocking until ALL chunks finish.
   • Correct score_economy() math — integer division // was collapsing all
     counts > 0 to the same score; fixed to proper linear scaling with caps.
+
+NEW in v2.1:
+  • Startup banner with config summary
+  • Stage banners and crash-recovery hints
+  • Safe log path default (/tmp/build_ratings.log) — Docker doesn't mount /data/logs/
+  • Per-worker heartbeat via WorkerHeartbeat (visible crash detection)
+  • os.makedirs uses abspath so it never fails on a plain filename
+  • Final done_banner with key metrics
 
 Usage:
     python3 build_ratings.py              # rate all unrated systems (resume-safe)
@@ -40,15 +46,21 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 
+from progress import (
+    ProgressReporter, WorkerHeartbeat,
+    startup_banner, stage_banner, done_banner, crash_hint,
+    fmt_num, fmt_duration, fmt_rate, fmt_pct,
+)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 DB_DSN     = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder')
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '5000'))   # rows per INSERT batch
 LOG_LEVEL  = os.getenv('LOG_LEVEL', 'INFO')
-LOG_FILE   = os.getenv('LOG_FILE', '/data/logs/build_ratings.log')
+LOG_FILE   = os.getenv('LOG_FILE', '/tmp/build_ratings.log')   # safe Docker default
 
-os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -163,9 +175,7 @@ def score_economy(counts: dict, eco: str, star_type: Optional[str]) -> int:
 
     FIX v2.0: the original code used integer division (//) which collapsed
     every count > 0 to the same score regardless of quantity.
-    e.g.  min(5,10) * 25 // max(min(5,10),1)  →  5*25//5  →  25  (any count!)
-    Now uses simple linear scaling with hard caps, matching the backend
-    rateSystem() in local_search.py.
+    Now uses simple linear scaling with hard caps.
     """
     weights = ECO_WEIGHTS.get(eco, {})
     raw = 0
@@ -263,6 +273,8 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
 
     FIX v2.0: fetch ALL bodies for the entire chunk in ONE batched query
     instead of one query per system. Reduces round-trips from N to ~N/5000.
+    v2.1: WorkerHeartbeat prints progress every 60s so Docker logs show
+    the worker is alive (not silently crashed).
     """
     conn = psycopg2.connect(db_dsn)
     conn.autocommit = False
@@ -272,8 +284,10 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
     errors       = 0
     rating_batch = []
 
+    hb = WorkerHeartbeat(worker_id, total=len(system_batch),
+                         label="ratings", interval=60.0)
+
     # ── Batch-fetch all bodies for this chunk in one pass ─────────────────
-    # SQLite uses 900 as its safe limit; PostgreSQL handles 5000+ fine via ANY(%s)
     id64s = [s[0] for s in system_batch]
     bodies_by_system: dict = {}
 
@@ -303,7 +317,6 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                 })
         except Exception as e:
             log.error(f"Worker {worker_id}: body fetch error (offset {start}): {e}")
-            # Don't abort — systems without bodies will get score=0 style defaults
 
     # ── Compute ratings using the in-memory body dict ──────────────────────
     for system_id64, main_star_type in system_batch:
@@ -316,6 +329,8 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
             errors += 1
             log.debug(f"Worker {worker_id}: rating error for {system_id64}: {e}")
             continue
+
+        hb.tick(processed, errors)
 
         if len(rating_batch) >= BATCH_SIZE:
             try:
@@ -432,21 +447,37 @@ def _write_ratings(conn, cur, batch: list) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.0 streaming)')
+    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.1)')
     parser.add_argument('--rebuild',  action='store_true',
                         help='Re-rate ALL systems, not just unrated ones')
     parser.add_argument('--dirty',    action='store_true',
                         help='Only re-rate systems with rating_dirty = TRUE')
     parser.add_argument('--workers',  type=int, default=mp.cpu_count(),
-                        help='Parallel worker processes (default: CPU count; recommend 4 on i7-8700)')
+                        help='Parallel worker processes (default: CPU count)')
     parser.add_argument('--chunk',    type=int, default=50_000,
                         help='Systems per worker chunk (default: 50000)')
     parser.add_argument('--limit',    type=int, default=None,
                         help='Stop after N systems total (for testing)')
     args = parser.parse_args()
 
-    # ── Diagnostic: show counts before starting ────────────────────────────
-    conn = psycopg2.connect(DB_DSN)
+    # ── Startup banner ────────────────────────────────────────────────────
+    mode_label = "REBUILD ALL" if args.rebuild else ("DIRTY ONLY" if args.dirty else "RESUME (unrated only)")
+    startup_banner(log, "Ratings Computer", "v2.1", [
+        ("Mode",       mode_label),
+        ("Workers",    str(args.workers)),
+        ("Chunk size", f"{args.chunk:,} systems"),
+        ("Log file",   LOG_FILE),
+        ("DB",         DB_DSN.split('@')[-1]),
+    ])
+
+    # ── Connect and diagnostic counts ─────────────────────────────────────
+    stage_banner(log, 1, 3, "Diagnostic counts")
+    try:
+        conn = psycopg2.connect(DB_DSN)
+    except Exception as e:
+        log.error(f"FATAL: Cannot connect to database: {e}")
+        sys.exit(1)
+
     with conn.cursor() as diag:
         diag.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
         total_with_bodies = diag.fetchone()[0]
@@ -454,25 +485,43 @@ def main():
         already_rated = diag.fetchone()[0]
     conn.close()
 
-    log.info(f"DB diagnostic: {total_with_bodies:,} systems with body data, "
-             f"{already_rated:,} already rated, "
-             f"{total_with_bodies - already_rated:,} remaining")
+    remaining = total_with_bodies - already_rated
+    log.info(f"  Systems with body data : {fmt_num(total_with_bodies)}")
+    log.info(f"  Already rated          : {fmt_num(already_rated)}")
+    log.info(f"  Remaining (resume)     : {fmt_num(remaining)}")
+    log.info(f"  Coverage               : {fmt_pct(already_rated, total_with_bodies)}")
 
-    # ── Open streaming connection ──────────────────────────────────────────
-    # FIX: use a server-side named cursor so PostgreSQL streams rows to us
-    # instead of materialising the entire result set in one go.
-    # fetchall() on a plain cursor with 100M+ rows silently truncates when
-    # the client runs out of RAM or hits statement_timeout — producing the
-    # "74M is the total" symptom.  A named cursor never has this problem.
+    if args.rebuild:
+        to_process = total_with_bodies
+    elif args.dirty:
+        to_process = None   # unknown until we stream
+    else:
+        to_process = remaining
+
+    if to_process == 0 and not args.rebuild:
+        log.info("")
+        log.info("  ✓ All systems already rated — nothing to do!")
+        log.info("    Use --rebuild to force re-rate everything.")
+        return
+
+    est_h = (to_process or remaining) / 1_000_000 / max(args.workers, 1) * 0.8
+    log.info(f"  Estimated time         : {est_h:.1f}h with {args.workers} workers")
+
+    # ── Stream and dispatch ────────────────────────────────────────────────
+    stage_banner(log, 2, 3, "Stream & rate systems")
+    crash_hint(log, "automatically from the last rated system")
+    log.info(f"  Using server-side streaming cursor (avoids 74M truncation bug)")
+    log.info(f"  Workers emit heartbeat every 60s — silence > 5 min means a crash")
+
     stream_conn = psycopg2.connect(DB_DSN)
-    stream_conn.autocommit = False  # named cursors require a transaction (autocommit=False)
-    stream_conn.set_session(readonly=True)  # safe read-only transaction for streaming
+    stream_conn.autocommit = False
+    stream_conn.set_session(readonly=True)
 
     with stream_conn.cursor(name='ratings_stream') as stream_cur:
-        stream_cur.itersize = args.chunk  # fetch this many rows from server per network round-trip
+        stream_cur.itersize = args.chunk
 
         if args.dirty:
-            log.info("Mode: dirty systems only (server-side streaming cursor)")
+            log.info("  Query: dirty systems only")
             stream_cur.execute("""
                 SELECT s.id64, s.main_star_type
                 FROM   systems s
@@ -481,7 +530,7 @@ def main():
                 ORDER BY s.id64
             """)
         elif args.rebuild:
-            log.info("Mode: FULL REBUILD — all systems with body data (server-side streaming cursor)")
+            log.info("  Query: ALL systems with body data")
             stream_cur.execute("""
                 SELECT s.id64, s.main_star_type
                 FROM   systems s
@@ -489,12 +538,7 @@ def main():
                 ORDER BY s.id64
             """)
         else:
-            log.info("Mode: unrated systems only — resuming from where we left off "
-                     "(server-side streaming cursor)")
-            # This is the default/resume mode.
-            # LEFT JOIN + IS NULL finds only systems NOT yet in the ratings table.
-            # Safe to re-run as many times as needed — each run picks up exactly
-            # the systems that weren't rated in previous runs.
+            log.info("  Query: unrated systems (LEFT JOIN, resume-safe)")
             stream_cur.execute("""
                 SELECT s.id64, s.main_star_type
                 FROM   systems s
@@ -504,68 +548,51 @@ def main():
                 ORDER BY s.id64
             """)
 
-        log.info(f"Streaming started. Workers: {args.workers}, chunk size: {args.chunk:,}")
-        log.info("Progress will be reported as each chunk completes.")
-
-        start_time     = time.time()
+        script_start    = time.time()
         total_processed = 0
         total_errors    = 0
         chunks_dispatched = 0
         limit_remaining   = args.limit or 999_999_999
         pending_results   = []
+        progress = ProgressReporter(log, total=to_process or 1,
+                                    label="ratings", interval=60, heartbeat=180)
 
         with mp.Pool(processes=args.workers) as pool:
 
             while limit_remaining > 0:
-                # Fetch next chunk from PostgreSQL server (network round-trip)
                 fetch_n = min(args.chunk, limit_remaining)
                 batch   = stream_cur.fetchmany(fetch_n)
                 if not batch:
-                    log.info("Stream exhausted — all qualifying systems dispatched.")
+                    log.info("  Stream exhausted — all qualifying systems dispatched.")
                     break
 
                 limit_remaining   -= len(batch)
                 chunks_dispatched += 1
 
-                # Dispatch to worker pool asynchronously
                 pending_results.append(
                     pool.apply_async(worker_process, (chunks_dispatched, batch, DB_DSN))
                 )
 
-                # Drain completed work to bound memory (keep at most workers*2 in-flight)
+                # Drain completed work (keep at most workers*2 in-flight)
                 while len(pending_results) >= args.workers * 2:
                     done = pending_results.pop(0)
                     p, e = done.get()
                     total_processed += p
                     total_errors    += e
-                    elapsed = time.time() - start_time
-                    rate    = total_processed / elapsed if elapsed > 0 else 0
-                    eta_h   = (total_with_bodies - already_rated - total_processed) / rate / 3600 if rate > 0 else 0
-                    log.info(
-                        f"  Rated: {total_processed + already_rated:,} / {total_with_bodies:,} "
-                        f"({(total_processed + already_rated) / total_with_bodies * 100:.1f}%) | "
-                        f"speed: {rate:.0f}/s | ETA: {eta_h:.1f}h | errors: {total_errors}"
-                    )
+                    progress.update(p, errors=e)
 
-            # Wait for all remaining workers to finish
-            log.info(f"All {chunks_dispatched} chunks dispatched — waiting for workers to finish...")
+            log.info(f"  All {chunks_dispatched} chunks dispatched — draining worker pool...")
             for done in pending_results:
                 p, e = done.get()
                 total_processed += p
                 total_errors    += e
+                progress.update(p, errors=e)
 
     stream_conn.close()
+    elapsed = time.time() - script_start
 
-    elapsed = time.time() - start_time
-    rate    = total_processed / elapsed if elapsed > 0 else 0
-    log.info(
-        f"Ratings complete: {total_processed:,} new ratings in {elapsed / 3600:.2f}h "
-        f"({rate:.0f} systems/s)"
-    )
-    if total_errors:
-        log.warning(f"Total errors: {total_errors:,} (these systems were skipped)")
-
-    # Mark ratings as built in app_meta
+    # ── Finalise ──────────────────────────────────────────────────────────
+    stage_banner(log, 3, 3, "Finalise — write app_meta")
     conn2 = psycopg2.connect(DB_DSN)
     with conn2.cursor() as cur:
         cur.execute("""
@@ -573,10 +600,29 @@ def main():
             VALUES ('ratings_built', 'true', NOW())
             ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
         """)
+        # Quick sanity stats
+        cur.execute("""
+            SELECT COUNT(*), COUNT(*) FILTER (WHERE score = 0),
+                   MIN(score), MAX(score), AVG(score)::int
+            FROM ratings
+        """)
+        row = cur.fetchone()
     conn2.commit()
     conn2.close()
 
-    log.info("Ratings job done. Next step: python3 build_grid.py")
+    done_banner(log, "Ratings Complete", elapsed, [
+        f"New ratings this run : {fmt_num(total_processed)}",
+        f"Total in table       : {fmt_num(row[0])}",
+        f"Zero scores          : {fmt_num(row[1])} ({fmt_pct(row[1], row[0])})",
+        f"Score range          : {row[2]} – {row[3]}  (avg {row[4]})",
+        f"Errors               : {fmt_num(total_errors)}",
+        f"Speed                : {fmt_rate(total_processed, elapsed)}",
+    ])
+
+    if total_errors:
+        log.warning(f"  {total_errors:,} systems were skipped due to errors — check DEBUG logs")
+
+    log.info("Next step: python3 build_grid.py")
 
 
 if __name__ == '__main__':

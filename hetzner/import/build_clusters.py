@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder
-Version: 1.1  (resume-safe, grid-aware, log-dir guard)
+Version: 1.2  (rich progress reporting, per-worker heartbeat)
 
 Builds the cluster_summary table: for every visited system, computes
 how many viable uncolonised systems exist for each economy type within
@@ -15,17 +15,23 @@ Algorithm:
 
 Uses spatial grid to avoid O(n²) scanning:
   Only checks systems in the same + 26 adjacent cells (3×3×3 neighbourhood)
-  Reduces per-anchor work from 70M comparisons to ~50k comparisons
+  Reduces per-anchor work from 186M comparisons to ~38k comparisons
 
 KEY FIXES in v1.1:
-  • Log directory is created automatically (no more FileNotFoundError on start)
-  • Removed duplicate "Nothing to do" / "Get a coffee" code blocks
-  • Removed duplicate elapsed/rate lines
-  • Resume-safe: default mode skips already-computed anchors (cluster_dirty=FALSE)
-  • Grid-aware per-anchor query: uses spatial_grid adjacency to limit the neighbour
-    scan to 27 cells instead of the full systems table
+  • Log directory created automatically (no more FileNotFoundError on Docker start)
+  • Removed duplicate code blocks
+  • Resume-safe: default mode skips already-computed anchors
+  • Grid-aware per-anchor query: uses spatial_grid adjacency (27 cells) not full scan
   • Neighbour rows streamed with fetchmany() instead of fetchall()
-  • Progress logged every 60 seconds regardless of chunk boundaries
+  • Progress logged every 60 seconds
+
+NEW in v1.2:
+  • startup_banner with full config summary
+  • stage_banner headers and crash_hint for each long operation
+  • Per-worker WorkerHeartbeat (60s interval) — visible in Docker logs
+  • done_banner with top-5 coverage table
+  • Safe log path default (/tmp/build_clusters.log)
+  • Explicit "WARNING: spatial grid missing" block with estimated slow-path time
 
 Usage:
     python3 build_clusters.py                    # build all (resume-safe)
@@ -50,13 +56,19 @@ import multiprocessing as mp
 import psycopg2
 import psycopg2.extras
 
+from progress import (
+    ProgressReporter, WorkerHeartbeat,
+    startup_banner, stage_banner, done_banner, crash_hint,
+    fmt_num, fmt_duration, fmt_rate, fmt_pct,
+)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 DB_DSN          = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder')
 BATCH_SIZE      = int(os.getenv('BATCH_SIZE', '500'))
 LOG_LEVEL       = os.getenv('LOG_LEVEL', 'INFO')
-LOG_FILE        = os.getenv('LOG_FILE', '/tmp/build_clusters.log')   # safe default
+LOG_FILE        = os.getenv('LOG_FILE', '/tmp/build_clusters.log')   # safe Docker default
 DEFAULT_RADIUS  = 500   # LY
 MIN_VIABLE      = 40    # minimum score to count as "viable"
 
@@ -113,6 +125,9 @@ def process_anchor_batch(
     limit the neighbour scan instead of querying the whole systems table.
     Without this, each anchor triggers a bounding-box scan of 186M rows.
     With this, each anchor scans at most 27 grid cells × ~1400 systems = ~38k rows.
+
+    v1.2: WorkerHeartbeat prints progress every 60s so Docker logs show
+    the worker is alive (not silently crashed or hung).
     """
     conn = psycopg2.connect(db_dsn)
     conn.autocommit = False
@@ -142,6 +157,9 @@ def process_anchor_batch(
         'Tourism':     6,
     }
 
+    hb = WorkerHeartbeat(worker_id, total=len(anchor_batch),
+                         label="clusters", interval=60.0)
+
     for anchor in anchor_batch:
         anchor_id64, ax, ay, az = anchor[0], anchor[1], anchor[2], anchor[3]
 
@@ -160,7 +178,6 @@ def process_anchor_batch(
                         cx = acx + dx
                         cy = acy + dy
                         cz = acz + dz
-                        # cell_id encoding must match build_grid.py exactly
                         adjacent_cell_ids.append(
                             cx * 100_000_000 + cy * 10_000 + cz
                         )
@@ -189,10 +206,10 @@ def process_anchor_batch(
                       r.score_tourism     >= %s
                   )
             """, (
-                ax, ay, az,               # distance_ly args
-                anchor_id64,              # exclude self
-                adjacent_cell_ids,        # grid cell filter (replaces bounding box)
-                ax, ay, az, radius,       # exact distance check
+                ax, ay, az,
+                anchor_id64,
+                adjacent_cell_ids,
+                ax, ay, az, radius,
                 min_score, min_score, min_score,
                 min_score, min_score, min_score,
             ))
@@ -244,7 +261,9 @@ def process_anchor_batch(
             log.debug(f"Worker {worker_id} error on {anchor_id64}: {e}")
             continue
 
-        # Write batch
+        hb.tick(processed, errors)
+
+        # Write batch when full
         if len(cluster_batch) >= BATCH_SIZE:
             _write_clusters(conn, cur, cluster_batch)
             cluster_batch = []
@@ -253,7 +272,7 @@ def process_anchor_batch(
     if cluster_batch:
         _write_clusters(conn, cur, cluster_batch)
 
-    # Mark anchors as clean — use ANY(%s), correct psycopg2 array syntax
+    # Mark anchors as clean
     anchor_ids = [a[0] for a in anchor_batch]
     if anchor_ids:
         cur.execute("""
@@ -307,11 +326,6 @@ def _write_clusters(conn, cur, batch: list):
             computed_at        = NOW(),
             updated_at         = NOW()
         """,
-        # Tuple layout (24 values, indices 0-23):
-        #   0:  system_id64
-        #   1-18: 6 economies × (count, best, top_id)
-        #   19: total_viable  20: coverage_score  21: economy_diversity
-        #   22: search_radius  23: dirty
         [(r[0],
           r[1],  r[2],  r[3],
           r[4],  r[5],  r[6],
@@ -331,46 +345,87 @@ def _write_clusters(conn, cur, batch: list):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary table (v1.1)')
-    parser.add_argument('--rebuild',    action='store_true', help='Re-compute ALL anchors from scratch (ignores cluster_dirty)')
-    parser.add_argument('--dirty-only', action='store_true', help='Only rebuild dirty anchors')
-    parser.add_argument('--workers',    type=int,   default=mp.cpu_count(), help='Worker processes (recommend 4 on i7-8700)')
-    parser.add_argument('--radius',     type=float, default=DEFAULT_RADIUS, help='Search radius in LY (default 500)')
-    parser.add_argument('--min-score',  type=int,   default=MIN_VIABLE,     help='Minimum viable score (default 40)')
-    parser.add_argument('--limit',      type=int,   default=None,           help='Process N anchors (testing)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary table (v1.2)')
+    parser.add_argument('--rebuild',    action='store_true',
+                        help='Re-compute ALL anchors from scratch (ignores cluster_dirty)')
+    parser.add_argument('--dirty-only', action='store_true',
+                        help='Only rebuild dirty anchors')
+    parser.add_argument('--workers',    type=int,   default=mp.cpu_count(),
+                        help='Worker processes (recommend 4 on i7-8700)')
+    parser.add_argument('--radius',     type=float, default=DEFAULT_RADIUS,
+                        help='Search radius in LY (default 500)')
+    parser.add_argument('--min-score',  type=int,   default=MIN_VIABLE,
+                        help='Minimum viable score (default 40)')
+    parser.add_argument('--limit',      type=int,   default=None,
+                        help='Process N anchors (testing)')
     args = parser.parse_args()
 
-    conn = psycopg2.connect(DB_DSN)
+    script_start = time.time()
+
+    # ── Startup banner ────────────────────────────────────────────────────
+    mode_label = ("REBUILD ALL" if args.rebuild
+                  else ("DIRTY ONLY" if args.dirty_only
+                        else "RESUME (unprocessed only)"))
+    startup_banner(log, "Cluster Summary Builder", "v1.2", [
+        ("Mode",       mode_label),
+        ("Radius",     f"{args.radius}ly"),
+        ("Min score",  str(args.min_score)),
+        ("Workers",    str(args.workers)),
+        ("Batch size", str(BATCH_SIZE)),
+        ("Log file",   LOG_FILE),
+        ("DB",         DB_DSN.split('@')[-1]),
+    ])
+
+    # ── Prerequisite checks ───────────────────────────────────────────────
+    stage_banner(log, 1, 3, "Prerequisite checks")
+    try:
+        conn = psycopg2.connect(DB_DSN)
+    except Exception as e:
+        log.error(f"FATAL: Cannot connect to database: {e}")
+        sys.exit(1)
+
     cur = conn.cursor()
 
-    # ── Prerequisite checks ───────────────────────────────────────────────────
     cur.execute("SELECT value FROM app_meta WHERE key = 'ratings_built'")
     r = cur.fetchone()
     if not r or r[0] != 'true':
-        log.error("Ratings not yet built. Run build_ratings.py first.")
-        cur.close(); conn.close(); return
+        log.error("  ✗ Ratings not yet built.")
+        log.error("    Run: python3 build_ratings.py")
+        log.error("    Or set the flag manually if ratings are complete:")
+        log.error("    INSERT INTO app_meta (key,value,updated_at)")
+        log.error("      VALUES ('ratings_built','true',NOW())")
+        log.error("      ON CONFLICT (key) DO UPDATE SET value='true', updated_at=NOW();")
+        cur.close(); conn.close()
+        sys.exit(1)
+    log.info("  ✓ ratings_built = true")
 
     cur.execute("SELECT value FROM app_meta WHERE key = 'grid_built'")
     r = cur.fetchone()
-    if not r or r[0] != 'true':
-        log.warning("Spatial grid not built — cluster build will be MUCH slower (no grid cell filter).")
-        log.warning("Run build_grid.py first for best performance.")
+    grid_built = r and r[0] == 'true'
+    if not grid_built:
+        log.warning("  ⚠  Spatial grid NOT built (grid_built != true)")
+        log.warning("     Each anchor will scan the FULL systems table (~186M rows)")
+        log.warning("     This will be EXTREMELY slow — estimated 8-12 WEEKS vs 8-24 hours")
+        log.warning("     Run build_grid.py first, then re-run build_clusters.py")
+        log.warning("     Continuing anyway — Ctrl+C to abort")
+        time.sleep(5)   # Give the operator time to read and cancel
+    else:
+        log.info("  ✓ grid_built = true  (spatial grid will limit neighbour scan to ~38k rows/anchor)")
 
-    # ── Diagnostic counts ─────────────────────────────────────────────────────
+    # ── Diagnostic counts ─────────────────────────────────────────────────
     cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
     total_with_bodies = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM cluster_summary")
     already_done = cur.fetchone()[0]
 
+    log.info(f"  Total anchors (has_body_data) : {fmt_num(total_with_bodies)}")
+    log.info(f"  Already in cluster_summary    : {fmt_num(already_done)}")
+
     if args.rebuild:
-        mode = "FULL REBUILD — all anchors"
         cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
     elif args.dirty_only:
-        mode = "dirty anchors only"
         cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE AND cluster_dirty = TRUE")
     else:
-        # Default: resume mode — only process anchors not yet in cluster_summary
-        mode = "resume mode — unprocessed anchors only"
         cur.execute("""
             SELECT COUNT(*) FROM systems s
             LEFT JOIN cluster_summary cs ON cs.system_id64 = s.id64
@@ -381,30 +436,34 @@ def main():
     cur.close()
     conn.close()
 
-    log.info(f"DB diagnostic: {total_with_bodies:,} anchors total, {already_done:,} already computed, {total:,} remaining")
-    log.info(f"Mode: {mode}")
-    log.info(f"Radius: {args.radius}ly | Min viable score: {args.min_score} | Workers: {args.workers}")
+    log.info(f"  To process this run           : {fmt_num(total)}")
 
     if total == 0:
-        log.info("Nothing to do — cluster_summary is complete!")
+        log.info("")
+        log.info("  ✓ Nothing to do — cluster_summary is complete!")
+        log.info("    Use --rebuild to force re-compute everything.")
         return
 
-    est_hours = total / 1_000_000 * (1.0 / args.workers)
-    log.info(f"Estimated time: {est_hours:.1f}h with {args.workers} workers")
-    log.info("Starting cluster build — this is the long one. Get a coffee. ☕")
+    est_hours = total / 1_000_000 / max(args.workers, 1)
+    log.info(f"  Estimated time : {est_hours:.1f}h at ~1M anchors/hour/worker")
+    log.info(f"  Workers emit heartbeat every 60s — silence > 5 min = crashed worker")
 
-    # ── Stream anchors with server-side cursor ────────────────────────────────
+    # ── Stream and dispatch ────────────────────────────────────────────────
+    stage_banner(log, 2, 3, "Stream & compute clusters")
+    crash_hint(log, "automatically from the last computed anchor")
+    log.info("  This is the long one. Get a coffee (or several). ☕☕")
+
     stream_conn = psycopg2.connect(DB_DSN)
     stream_conn.autocommit = False
     stream_conn.set_session(readonly=True)
     chunk_size = 50_000
 
-    start = time.time()
     total_processed = 0
     total_errors    = 0
     chunks_dispatched = 0
     pending_results   = []
-    last_log_time     = time.time()
+    progress = ProgressReporter(log, total=total, label="clusters",
+                                interval=60, heartbeat=180)
 
     with stream_conn.cursor(name='anchors_stream') as stream_cur:
         stream_cur.itersize = chunk_size
@@ -439,51 +498,38 @@ def main():
             while True:
                 batch = stream_cur.fetchmany(chunk_size)
                 if not batch:
-                    log.info("Stream exhausted — all anchors dispatched.")
+                    log.info("  Stream exhausted — all anchors dispatched.")
                     break
+
                 chunks_dispatched += 1
                 pending_results.append(
                     pool.apply_async(
                         process_anchor_batch,
-                        (chunks_dispatched % args.workers, batch, DB_DSN, args.radius, args.min_score)
+                        (chunks_dispatched % args.workers, batch, DB_DSN,
+                         args.radius, args.min_score)
                     )
                 )
 
-                # Drain completed work to bound memory (keep at most workers*2 in-flight)
+                # Drain completed work to bound memory
                 while len(pending_results) >= args.workers * 2:
                     done = pending_results.pop(0)
                     p, e = done.get()
                     total_processed += p
                     total_errors    += e
-                    # Log progress at most once per 60s to avoid log spam
-                    if time.time() - last_log_time >= 60:
-                        elapsed = time.time() - start
-                        rate    = total_processed / elapsed if elapsed > 0 else 0
-                        eta_h   = (total - total_processed) / rate / 3600 if rate > 0 else 0
-                        log.info(
-                            f"  Progress: {total_processed + already_done:,} / {total_with_bodies:,} "
-                            f"({(total_processed + already_done) / total_with_bodies * 100:.1f}%) | "
-                            f"speed: {rate:.0f}/s | ETA: {eta_h:.1f}h | errors: {total_errors}"
-                        )
-                        last_log_time = time.time()
+                    progress.update(p, errors=e)
 
-            log.info(f"All {chunks_dispatched} chunks dispatched — waiting for workers to finish...")
+            log.info(f"  All {chunks_dispatched} chunks dispatched — draining worker pool...")
             for done in pending_results:
                 p, e = done.get()
                 total_processed += p
                 total_errors    += e
+                progress.update(p, errors=e)
 
     stream_conn.close()
 
-    elapsed = time.time() - start
-    rate    = total_processed / elapsed if elapsed > 0 else 0
-    log.info(f"\nCluster build complete!")
-    log.info(f"  Anchors processed: {total_processed:,}")
-    log.info(f"  Errors:            {total_errors:,}")
-    log.info(f"  Total time:        {elapsed/3600:.2f}h")
-    log.info(f"  Rate:              {rate:.0f} anchors/sec")
+    # ── Finalise ──────────────────────────────────────────────────────────
+    stage_banner(log, 3, 3, "Finalise — write app_meta & sanity check")
 
-    # Mark clusters as built in app_meta
     conn2 = psycopg2.connect(DB_DSN)
     with conn2.cursor() as cur:
         cur.execute("""
@@ -491,11 +537,14 @@ def main():
             VALUES ('clusters_built', 'true', NOW())
             ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
         """)
+        conn2.commit()
+        log.info("  clusters_built = true  ✓")
 
         # Sanity check — show top 5 results
         cur.execute("""
-            SELECT s.name, cs.coverage_score, cs.economy_diversity, cs.total_viable,
-                   cs.agriculture_count, cs.hightech_count, cs.refinery_count
+            SELECT s.name, cs.coverage_score, cs.economy_diversity,
+                   cs.total_viable, cs.agriculture_count,
+                   cs.hightech_count, cs.refinery_count
             FROM cluster_summary cs
             JOIN systems s ON s.id64 = cs.system_id64
             WHERE cs.coverage_score IS NOT NULL
@@ -503,17 +552,32 @@ def main():
             LIMIT 5
         """)
         rows = cur.fetchall()
-        if rows:
-            log.info("\nTop 5 empire locations:")
-            for r in rows:
-                log.info(f"  {r[0]:<30} coverage={r[1]:.1f} diversity={r[2]} "
-                         f"ag={r[4]} ht={r[5]} ref={r[6]}")
 
-    conn2.commit()
     conn2.close()
 
-    log.info("\nNext step: run sql/002_indexes.sql to build all indexes")
-    log.info("  docker exec -it ed-postgres psql -U edfinder -d edfinder -f /path/to/002_indexes.sql")
+    elapsed = time.time() - script_start
+
+    done_banner(log, "Cluster Summary Complete", elapsed, [
+        f"Anchors processed : {fmt_num(total_processed)}",
+        f"Total in table    : {fmt_num(already_done + total_processed)}",
+        f"Errors            : {fmt_num(total_errors)}",
+        f"Speed             : {fmt_rate(total_processed, elapsed)}",
+    ])
+
+    if rows:
+        log.info("  Top 5 empire locations:")
+        log.info(f"  {'System':<30} {'coverage':>8} {'div':>4} {'viable':>7} {'ag':>5} {'ht':>5} {'ref':>5}")
+        log.info(f"  {'─'*30} {'─'*8} {'─'*4} {'─'*7} {'─'*5} {'─'*5} {'─'*5}")
+        for r in rows:
+            log.info(
+                f"  {str(r[0]):<30} {r[1]:>8.1f} {r[2]:>4} {r[3]:>7,}"
+                f" {r[4]:>5} {r[5]:>5} {r[6]:>5}"
+            )
+
+    log.info("")
+    log.info("Next step: run sql/002_indexes.sql to build all search indexes")
+    log.info("  docker exec -it ed-postgres psql -U edfinder -d edfinder \\")
+    log.info("    -f /path/to/hetzner/sql/002_indexes.sql")
 
 
 if __name__ == '__main__':
