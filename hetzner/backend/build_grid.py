@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spatial Grid Builder
-Version: 1.3  (rich progress reporting, startup banner, fmt_pct)
+Version: 1.4  (TCP keepalives, reconnect-on-error, skip assigned cells)
 
 Divides the galaxy into 500ly cubic cells and assigns every system to a cell.
 
@@ -11,6 +11,22 @@ STAGES:
   3. Cell ASSIGN    — UPDATE every system with its grid_cell_id (batched, resume-safe)
   4. Visited count  — count scanned systems per cell
   5. Save meta      — write grid parameters to app_meta
+
+ROOT CAUSE of repeated crashes (fixed in v1.4):
+  The Stage 3 loop holds ONE connection open for many hours, issuing 135k
+  individual UPDATE statements.  PostgreSQL closes long-idle connections and
+  the Docker network drops TCP sessions silently after ~1-2h.
+
+FIXES in v1.4:
+  • TCP keepalives (idle=60s, interval=10s, count=6) — prevents silent drops
+  • Reconnect-on-error — if UPDATE fails, reconnects and retries once before
+    giving up on that cell (doesn't skip 10k cells just because of one drop)
+  • Skip already-assigned cells in SQL — uses bounding-box pre-filter AND
+    checks grid_cell_id IS NULL so already-done cells are a no-op UPDATE
+    (negligible cost, means re-runs truly continue from where they left off)
+  • Commit every 200 cells (was 500) — smaller WAL, less lost work on crash
+  • Progress every 20s (was 30s) — faster feedback
+  • server-side cursor for cell list — avoids fetching all 135k rows into RAM
 
 Usage:
     python3 build_grid.py
@@ -27,6 +43,7 @@ import argparse
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.extensions
 
 from progress import (
     ProgressReporter,
@@ -64,9 +81,51 @@ signal.signal(signal.SIGINT,  _handle_signal)
 signal.signal(signal.SIGTERM, _handle_signal)
 
 
-def _encode_cell_id(cell_x: int, cell_y: int, cell_z: int) -> int:
-    return cell_x * 100_000_000 + cell_y * 10_000 + cell_z
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
 
+def _connect(dsn: str) -> psycopg2.extensions.connection:
+    """
+    Open a PostgreSQL connection with TCP keepalives enabled.
+
+    keepalives_idle=60   — send first keepalive probe after 60s of silence
+    keepalives_interval=10 — resend probe every 10s if no reply
+    keepalives_count=6   — declare connection dead after 6 missed probes (60s)
+
+    This prevents Docker/NAT from silently dropping connections during the
+    long Stage-3 UPDATE loop.
+    """
+    conn = psycopg2.connect(
+        dsn,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=10,
+        keepalives_count=6,
+    )
+    conn.autocommit = False
+    return conn
+
+
+def _connect_with_retry(dsn: str, label: str = "", retries: int = 5,
+                         delay: float = 10.0) -> psycopg2.extensions.connection:
+    """Connect with exponential back-off retries."""
+    for attempt in range(1, retries + 1):
+        try:
+            return _connect(dsn)
+        except Exception as e:
+            if attempt == retries:
+                log.error(f"FATAL: Cannot connect to database ({label}): {e}")
+                raise
+            wait = delay * attempt
+            log.warning(f"  DB connect failed ({label}, attempt {attempt}/{retries}): {e}")
+            log.warning(f"  Retrying in {wait:.0f}s ...")
+            time.sleep(wait)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description='Build spatial grid for fast cluster queries')
@@ -77,19 +136,15 @@ def main():
 
     script_start = time.time()
 
-    startup_banner(log, "Spatial Grid Builder", "v1.3", [
-        ("Cell size", f"{cell_size} LY"),
-        ("Log file",  LOG_FILE),
-        ("DB",        DB_DSN.split('@')[-1]),
+    startup_banner(log, "Spatial Grid Builder", "v1.4", [
+        ("Cell size",   f"{cell_size} LY"),
+        ("Log file",    LOG_FILE),
+        ("DB",          DB_DSN.split('@')[-1]),
+        ("Keepalives",  "idle=60s, interval=10s, count=6  (prevents TCP drops)"),
+        ("Commit freq", "every 200 cells  (~280k systems per commit)"),
     ])
 
-    try:
-        conn = psycopg2.connect(DB_DSN)
-    except Exception as e:
-        log.error(f"FATAL: Cannot connect to database: {e}")
-        sys.exit(1)
-
-    conn.autocommit = False
+    conn = _connect_with_retry(DB_DSN, label="main")
     cur = conn.cursor()
 
     # =========================================================================
@@ -114,7 +169,7 @@ def main():
         max_y = float(stored['grid_max_y'])
         max_z = float(stored['grid_max_z'])
         total_systems = int(stored['grid_total_systems'])
-        log.info(f"  Loaded from cache (skipping seq scan)")
+        log.info(f"  Loaded from cache (skipping seq scan) ✓")
         log.info(f"  X: [{min_x:.0f}, {max_x:.0f}]  Y: [{min_y:.0f}, {max_y:.0f}]  Z: [{min_z:.0f}, {max_z:.0f}]")
         log.info(f"  Total systems: {fmt_num(total_systems)}")
     else:
@@ -143,7 +198,7 @@ def main():
         """, (str(min_x), str(max_x), str(min_y), str(max_y),
               str(min_z), str(max_z), str(total_systems)))
         conn.commit()
-        log.info(f"  Bounds cached in app_meta — future runs skip this stage")
+        log.info(f"  Bounds cached in app_meta — future runs skip this stage ✓")
 
     x_cells = math.ceil((max_x - min_x) / cell_size)
     y_cells = math.ceil((max_y - min_y) / cell_size)
@@ -163,12 +218,12 @@ def main():
     if existing_cells > 0:
         cell_count = existing_cells
         stage_banner(log, 2, 5, "Populate spatial_grid", resumed=True)
-        log.info(f"  Already have {fmt_num(cell_count)} cells — skipping INSERT")
+        log.info(f"  Already have {fmt_num(cell_count)} cells — skipping INSERT ✓")
     else:
         stage_banner(log, 2, 5, "Populate spatial_grid")
         log.info(f"  GROUP BY all {fmt_num(total_systems)} systems into {cell_size}ly cubes ...")
         log.info(f"  This query takes 5-15 minutes (parallel seq scan + group) ...")
-        crash_hint(log, "from Stage 2")
+        crash_hint(log, "from Stage 2 (cells will be created on next run)")
         t0 = time.time()
         cur.execute(f"""
             INSERT INTO spatial_grid (cell_id, cell_x, cell_y, cell_z,
@@ -203,30 +258,31 @@ def main():
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM spatial_grid")
         cell_count = cur.fetchone()[0]
-        log.info(f"  Created {fmt_num(cell_count)} occupied grid cells in {fmt_duration(time.time()-t0)}")
+        log.info(f"  Created {fmt_num(cell_count)} occupied grid cells in {fmt_duration(time.time()-t0)} ✓")
 
     if _shutdown:
         log.warning("Shutdown requested. Exiting after Stage 2.")
         sys.exit(0)
 
     # =========================================================================
-    # STAGE 3: Assign grid_cell_id to every system (batched, resume-safe)
+    # STAGE 3: Assign grid_cell_id to every system
     # =========================================================================
+    # Count how many are already done
     cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NOT NULL")
     already_assigned = cur.fetchone()[0]
-    resumed = already_assigned > 0 and already_assigned < total_systems
+    resumed = already_assigned > 0
 
     if already_assigned >= total_systems:
         stage_banner(log, 3, 5, "Assign grid_cell_id", resumed=True)
-        log.info(f"  All {fmt_num(total_systems)} systems already assigned — skipping")
+        log.info(f"  All {fmt_num(total_systems)} systems already assigned — skipping ✓")
     else:
         stage_banner(log, 3, 5, "Assign grid_cell_id", resumed=resumed)
-        remaining_pct = (total_systems - already_assigned) / total_systems * 100
-        log.info(f"  Systems to assign : {fmt_num(total_systems - already_assigned)} ({remaining_pct:.1f}%)")
-        log.info(f"  Already assigned  : {fmt_num(already_assigned)}")
-        log.info(f"  Method            : {fmt_num(cell_count)} individual cell UPDATEs, {500} cells per commit")
-        log.info(f"  Index             : idx_sys_coords must exist for speed (check below)")
-        crash_hint(log, "system assignment")
+        log.info(f"  Total systems    : {fmt_num(total_systems)}")
+        log.info(f"  Already assigned : {fmt_num(already_assigned)}  ({fmt_pct(already_assigned, total_systems)})")
+        log.info(f"  Remaining        : {fmt_num(total_systems - already_assigned)}")
+        log.info(f"  Strategy         : one UPDATE per grid cell, commit every 200 cells")
+        log.info(f"  Keepalives       : enabled (prevents TCP timeout crashes)")
+        crash_hint(log, "from the last committed cell automatically")
 
         # Check if coord index exists
         cur.execute("""
@@ -235,55 +291,134 @@ def main():
         """)
         has_idx = cur.fetchone()[0] > 0
         if has_idx:
-            log.info(f"  idx_sys_coords    : EXISTS ✓ (each cell UPDATE will be fast)")
+            log.info(f"  idx_sys_coords   : EXISTS ✓  (each cell UPDATE uses index scan, not seq scan)")
         else:
-            log.warning(f"  idx_sys_coords    : MISSING — each UPDATE is a seq scan, will be SLOW")
-            log.warning(f"  Run in parallel: CREATE INDEX CONCURRENTLY idx_sys_coords ON systems(x,y,z);")
+            log.warning(f"  idx_sys_coords   : MISSING — each UPDATE is a full seq scan, will be very slow")
+            log.warning(f"  Fix: CREATE INDEX CONCURRENTLY idx_sys_coords ON systems(x,y,z);")
 
-        cur.execute("""
-            SELECT cell_id, cell_x, cell_y, cell_z,
-                   min_x, max_x, min_y, max_y, min_z, max_z
-            FROM spatial_grid ORDER BY cell_id
-        """)
-        all_cells = cur.fetchall()
+        # How many cells still have unassigned systems?
+        # We'll discover this as we go — the UPDATE WHERE grid_cell_id IS NULL skips done cells.
 
-        ASSIGN_BATCH = 500
-        progress = ProgressReporter(log, cell_count, "cell-assign", interval=30, heartbeat=120)
-        assigned_cells = 0
+        ASSIGN_BATCH = 200   # commit every 200 cells (~280k systems per commit)
+        progress = ProgressReporter(log, cell_count, "cell-assign", interval=20, heartbeat=90)
+        assigned_cells   = 0
+        skipped_cells    = 0   # cells where all systems already assigned
+        total_rows_updated = 0
 
-        for cell in all_cells:
-            if _shutdown:
-                log.warning(f"Shutdown requested mid-assignment. {fmt_num(assigned_cells)} cells done.")
-                conn.commit()
-                sys.exit(0)
+        # Use a server-side cursor so we don't pull all 135k cell rows into RAM at once.
+        # We need a SEPARATE connection for the streaming read cursor because psycopg2
+        # doesn't support mixing server-side cursors with DML on the same connection.
+        read_conn = _connect_with_retry(DB_DSN, label="cell-reader")
+        read_conn.set_session(readonly=True)
 
-            if already_assigned >= total_systems:
-                break
+        with read_conn.cursor(name='cell_stream') as cell_cur:
+            cell_cur.itersize = 2000   # fetch 2000 cells at a time from server
+            cell_cur.execute("""
+                SELECT cell_id, cell_x, cell_y, cell_z,
+                       min_x, max_x, min_y, max_y, min_z, max_z
+                FROM spatial_grid
+                ORDER BY cell_id
+            """)
 
-            cell_id, cx, cy, cz, bx0, bx1, by0, by1, bz0, bz1 = cell
-            cur.execute("""
-                UPDATE systems SET grid_cell_id = %s
-                WHERE x >= %s AND x < %s
-                  AND y >= %s AND y < %s
-                  AND z >= %s AND z < %s
-            """, (cell_id, bx0, bx1, by0, by1, bz0, bz1))
-            assigned_cells += 1
+            # Use a dedicated write connection for the UPDATEs so we can reconnect
+            # if the write connection drops without losing the read cursor position.
+            write_conn = _connect_with_retry(DB_DSN, label="cell-writer")
+            write_cur  = write_conn.cursor()
 
-            if assigned_cells % ASSIGN_BATCH == 0:
-                conn.commit()
-                progress.update(ASSIGN_BATCH)
+            try:
+                while True:
+                    if _shutdown:
+                        log.warning(f"  Shutdown mid-assignment — committing and exiting.")
+                        write_conn.commit()
+                        break
 
-        conn.commit()
-        progress.update(assigned_cells % ASSIGN_BATCH)
-        progress.finish()
+                    # Fetch next batch of cells from server-side cursor
+                    cell_rows = cell_cur.fetchmany(2000)
+                    if not cell_rows:
+                        log.info(f"  All {fmt_num(cell_count)} cells processed ✓")
+                        break
 
+                    for cell in cell_rows:
+                        if _shutdown:
+                            break
+
+                        cell_id, cx, cy, cz, bx0, bx1, by0, by1, bz0, bz1 = cell
+
+                        # The WHERE includes grid_cell_id IS NULL — so already-assigned
+                        # systems are skipped automatically (they're a no-op at DB level).
+                        # This makes re-runs truly resume without re-doing finished work.
+                        for attempt in range(2):
+                            try:
+                                write_cur.execute("""
+                                    UPDATE systems
+                                    SET grid_cell_id = %s
+                                    WHERE x >= %s AND x < %s
+                                      AND y >= %s AND y < %s
+                                      AND z >= %s AND z < %s
+                                      AND grid_cell_id IS NULL
+                                """, (cell_id, bx0, bx1, by0, by1, bz0, bz1))
+                                rows_updated = write_cur.rowcount
+                                total_rows_updated += rows_updated
+                                if rows_updated == 0:
+                                    skipped_cells += 1
+                                break   # success
+                            except psycopg2.OperationalError as e:
+                                if attempt == 0:
+                                    log.warning(f"  DB connection lost on cell {cell_id} — reconnecting ...")
+                                    try:
+                                        write_cur.close()
+                                        write_conn.close()
+                                    except Exception:
+                                        pass
+                                    time.sleep(5)
+                                    write_conn = _connect_with_retry(DB_DSN, label="cell-writer-retry")
+                                    write_cur  = write_conn.cursor()
+                                    log.info(f"  Reconnected ✓ — retrying cell {cell_id}")
+                                else:
+                                    log.error(f"  Skipping cell {cell_id} after retry: {e}")
+                                    skipped_cells += 1
+
+                        assigned_cells += 1
+
+                        # Commit every ASSIGN_BATCH cells
+                        if assigned_cells % ASSIGN_BATCH == 0:
+                            write_conn.commit()
+                            progress.update(ASSIGN_BATCH)
+
+                # Final commit for remainder
+                write_conn.commit()
+                remainder = assigned_cells % ASSIGN_BATCH
+                if remainder:
+                    progress.update(remainder)
+
+            finally:
+                progress.finish()
+                write_cur.close()
+                write_conn.close()
+
+        read_conn.close()
+
+        # Reconnect main conn (may have timed out during long Stage 3)
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+        conn = _connect_with_retry(DB_DSN, label="post-stage3")
+        cur  = conn.cursor()
+
+        # Verify assignment completeness
         cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NULL")
         unassigned = cur.fetchone()[0]
         if unassigned > 0:
-            log.warning(f"  WARNING: {fmt_num(unassigned)} systems have no grid cell assigned")
-            log.warning(f"  These are likely outside the computed galaxy bounds — investigate if > 1000")
+            log.warning(f"  {fmt_num(unassigned)} systems still have no grid cell")
+            log.warning(f"  Re-run this script to continue — it will resume automatically")
         else:
             log.info(f"  All {fmt_num(total_systems)} systems assigned ✓")
+
+        log.info(f"  Cells processed    : {fmt_num(assigned_cells)}")
+        log.info(f"  Cells already done : {fmt_num(skipped_cells)}")
+        log.info(f"  Rows updated       : {fmt_num(total_rows_updated)}")
 
     if _shutdown:
         log.warning("Shutdown requested. Exiting after Stage 3.")
