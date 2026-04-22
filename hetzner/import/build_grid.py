@@ -86,25 +86,49 @@ def main():
     log.info(f"Building spatial grid with {cell_size}ly cells ...")
 
     # ---------------------------------------------------------------------------
-    # Step 1: Compute galaxy bounds from actual system coordinates
+    # Step 1: Compute galaxy bounds
     # ---------------------------------------------------------------------------
-    log.info("Computing galaxy bounds ...")
-    cur.execute("""
-        SELECT
-            MIN(x), MAX(x),
-            MIN(y), MAX(y),
-            MIN(z), MAX(z),
-            COUNT(*)
-        FROM systems
-    """)
-    row = cur.fetchone()
-    min_x, max_x = row[0] - cell_size, row[1] + cell_size
-    min_y, max_y = row[2] - cell_size, row[3] + cell_size
-    min_z, max_z = row[4] - cell_size, row[5] + cell_size
-    total_systems = row[6]
+    # Check if bounds were already stored from a previous run
+    cur.execute("SELECT key, value FROM app_meta WHERE key IN ('grid_min_x','grid_min_y','grid_min_z','grid_max_x','grid_max_y','grid_max_z','grid_total_systems')")
+    stored = {r[0]: r[1] for r in cur.fetchall()}
 
-    log.info(f"Galaxy bounds: X[{min_x:.0f}, {max_x:.0f}] Y[{min_y:.0f}, {max_y:.0f}] Z[{min_z:.0f}, {max_z:.0f}]")
-    log.info(f"Total systems: {total_systems:,}")
+    if all(k in stored for k in ('grid_min_x','grid_min_y','grid_min_z','grid_max_x','grid_max_y','grid_max_z','grid_total_systems')):
+        min_x = float(stored['grid_min_x'])
+        min_y = float(stored['grid_min_y'])
+        min_z = float(stored['grid_min_z'])
+        max_x = float(stored['grid_max_x'])
+        max_y = float(stored['grid_max_y'])
+        max_z = float(stored['grid_max_z'])
+        total_systems = int(stored['grid_total_systems'])
+        log.info(f"Galaxy bounds (from app_meta): X[{min_x:.0f}, {max_x:.0f}] Y[{min_y:.0f}, {max_y:.0f}] Z[{min_z:.0f}, {max_z:.0f}]")
+        log.info(f"Total systems: {total_systems:,}")
+    else:
+        log.info("Computing galaxy bounds (full seq scan — only needed once) ...")
+        cur.execute("""
+            SELECT
+                MIN(x), MAX(x),
+                MIN(y), MAX(y),
+                MIN(z), MAX(z),
+                COUNT(*)
+            FROM systems
+        """)
+        row = cur.fetchone()
+        min_x, max_x = row[0] - cell_size, row[1] + cell_size
+        min_y, max_y = row[2] - cell_size, row[3] + cell_size
+        min_z, max_z = row[4] - cell_size, row[5] + cell_size
+        total_systems = row[6]
+        log.info(f"Galaxy bounds: X[{min_x:.0f}, {max_x:.0f}] Y[{min_y:.0f}, {max_y:.0f}] Z[{min_z:.0f}, {max_z:.0f}]")
+        log.info(f"Total systems: {total_systems:,}")
+        # Cache bounds in app_meta so resume skips the seq scan
+        cur.execute("""
+            INSERT INTO app_meta (key, value, updated_at) VALUES
+                ('grid_min_x', %s, NOW()), ('grid_max_x', %s, NOW()),
+                ('grid_min_y', %s, NOW()), ('grid_max_y', %s, NOW()),
+                ('grid_min_z', %s, NOW()), ('grid_max_z', %s, NOW()),
+                ('grid_total_systems', %s, NOW())
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+        """, (str(min_x), str(max_x), str(min_y), str(max_y), str(min_z), str(max_z), str(total_systems)))
+        conn.commit()
 
     import math
     x_cells = math.ceil((max_x - min_x) / cell_size)
