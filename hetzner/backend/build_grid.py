@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spatial Grid Builder
-Version: 1.4  (TCP keepalives, reconnect-on-error, skip assigned cells)
+Version: 1.5  (TCP keepalives, reconnect-on-error, partial bounds cache)
 
 Divides the galaxy into 500ly cubic cells and assigns every system to a cell.
 
@@ -136,7 +136,7 @@ def main():
 
     script_start = time.time()
 
-    startup_banner(log, "Spatial Grid Builder", "v1.4", [
+    startup_banner(log, "Spatial Grid Builder", "v1.5", [
         ("Cell size",   f"{cell_size} LY"),
         ("Log file",    LOG_FILE),
         ("DB",          DB_DSN.split('@')[-1]),
@@ -158,22 +158,40 @@ def main():
                       'grid_max_x','grid_max_y','grid_max_z','grid_total_systems')
     """)
     stored = {r[0]: r[1] for r in cur.fetchall()}
-    bounds_keys = ('grid_min_x','grid_min_y','grid_min_z',
-                   'grid_max_x','grid_max_y','grid_max_z','grid_total_systems')
+    coord_keys = ('grid_min_x','grid_min_y','grid_min_z',
+                  'grid_max_x','grid_max_y','grid_max_z')
+    coords_cached = all(k in stored for k in coord_keys)
 
-    if all(k in stored for k in bounds_keys):
+    if coords_cached:
+        # Bounds already in app_meta — load them without a seq scan
         min_x = float(stored['grid_min_x'])
         min_y = float(stored['grid_min_y'])
         min_z = float(stored['grid_min_z'])
         max_x = float(stored['grid_max_x'])
         max_y = float(stored['grid_max_y'])
         max_z = float(stored['grid_max_z'])
-        total_systems = int(stored['grid_total_systems'])
-        log.info(f"  Loaded from cache (skipping seq scan) ✓")
+        log.info(f"  Bounds loaded from cache ✓")
         log.info(f"  X: [{min_x:.0f}, {max_x:.0f}]  Y: [{min_y:.0f}, {max_y:.0f}]  Z: [{min_z:.0f}, {max_z:.0f}]")
-        log.info(f"  Total systems: {fmt_num(total_systems)}")
+
+        if 'grid_total_systems' in stored:
+            total_systems = int(stored['grid_total_systems'])
+            log.info(f"  Total systems (cached): {fmt_num(total_systems)}")
+        else:
+            # Bounds cached but total_systems missing — fast COUNT only (no MIN/MAX)
+            log.info(f"  Counting total systems (no seq scan of coords needed) ...")
+            t0 = time.time()
+            cur.execute("SELECT COUNT(*) FROM systems")
+            total_systems = cur.fetchone()[0]
+            log.info(f"  COUNT done in {fmt_duration(time.time()-t0)} — {fmt_num(total_systems)} systems")
+            cur.execute("""
+                INSERT INTO app_meta (key, value, updated_at)
+                VALUES ('grid_total_systems', %s, NOW())
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+            """, (str(total_systems),))
+            conn.commit()
     else:
-        log.info(f"  Running full seq scan on systems table (186M rows) ...")
+        # Nothing cached — full seq scan (only happens once ever)
+        log.info(f"  No bounds in cache — running full seq scan on systems table ...")
         log.info(f"  This takes 5-30 minutes without coord indexes. Only needed once.")
         t0 = time.time()
         cur.execute("""
