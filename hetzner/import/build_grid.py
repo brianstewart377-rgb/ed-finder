@@ -299,103 +299,57 @@ def kill_competing_sessions(dsn: str):
 def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                    total_systems, already_assigned):
     """
-    Assign grid_cell_id to ALL unassigned systems in ONE SQL UPDATE.
+    Assign grid_cell_id to ALL unassigned systems in ONE single SQL UPDATE.
 
-    Formula:
-        grid_cell_id = cx * 100_000_000 + cy * 10_000 + cz
-    where:
-        cx = floor((x - min_x) / cell_size)
-        cy = floor((y - min_y) / cell_size)
-        cz = floor((z - min_z) / cell_size)
+    WHY NO BATCHING:
+    id64 is an Elite Dangerous 64-bit system address. The values span
+    0 to ~20 quadrillion for 186M systems — extremely sparse. Batching by
+    id64 range means each batch does a full 35GB table scan to find its
+    tiny slice. 100 batches = 100 full scans = much slower than 1 scan.
 
-    This is a single seq scan of the systems table (or index scan if
-    idx_sys_coords exists), no Python loop, no cursor, no pgBouncer issues.
+    ONE UPDATE does one sequential pass through the 35GB table and writes
+    grid_cell_id for all unassigned rows. With 32GB shared_buffers the
+    table stays in RAM after the first pass. Estimated: 20-60 minutes.
 
-    With 145M unassigned rows on NVMe this takes 15-45 minutes.
-    Fully resumable: WHERE grid_cell_id IS NULL skips already-assigned rows.
-
-    We batch by id64 ranges to allow progress reporting and graceful
-    shutdown without losing all work.
+    Monitor progress externally with pg_stat_progress_update — see log.
+    Fully resumable: WHERE grid_cell_id IS NULL skips already-done rows.
     """
     remaining = total_systems - already_assigned
-    log.info(f"  Strategy: formula-based UPDATE in id64 batches")
+    log.info(f"  Strategy: single-pass UPDATE (one SQL statement, no batching)")
     log.info(f"  Remaining: {fmt_num(remaining)} rows")
+    log.info(f"  No progress lines until UPDATE completes — monitor Postgres directly:")
+    log.info(f"  docker exec ed-postgres psql -U edfinder -d edfinder -c \\")
+    log.info(f'  "SELECT phase, tuples_done, tuples_total FROM pg_stat_progress_update;"')
+    log.info(f"  Starting UPDATE now ...")
 
-    # Get id64 range
-    cur.execute("SELECT MIN(id64), MAX(id64) FROM systems WHERE grid_cell_id IS NULL")
-    row = cur.fetchone()
-    if not row or row[0] is None:
-        log.info(f"  No unassigned systems found — nothing to do")
-        return
+    t0 = time.time()
+    try:
+        cur.execute(f"""
+            UPDATE systems
+            SET grid_cell_id = (
+                floor((x - {min_x!r}) / {cell_size!r})::bigint * 100000000 +
+                floor((y - {min_y!r}) / {cell_size!r})::bigint * 10000 +
+                floor((z - {min_z!r}) / {cell_size!r})::bigint
+            )
+            WHERE grid_cell_id IS NULL
+        """)
+        total_updated = cur.rowcount
+        conn.commit()
+        elapsed = time.time() - t0
+        log.info(f"  UPDATE complete — {fmt_num(total_updated)} rows in {fmt_duration(elapsed)} ✓")
 
-    id_min, id_max = row
-    log.info(f"  id64 range: {fmt_num(id_min)} to {fmt_num(id_max)}")
-
-    # BATCH_SIZE chosen to process ~500k-1M rows per commit.
-    # id64 values are not sequential (they're 64-bit system addresses),
-    # so we use range batches but many batches will be sparse.
-    # We use a large range stride and let Postgres figure out the rows.
-    BATCH_ROWS  = 2_000_000          # target rows per batch
-    id_range    = id_max - id_min + 1
-    # Estimate: total id64 range / total systems = average gap between ids
-    # Use that to compute a stride that covers ~BATCH_ROWS systems
-    if total_systems > 0:
-        avg_gap = id_range / total_systems
-        stride  = max(int(avg_gap * BATCH_ROWS), 1_000_000)
-    else:
-        stride = 10_000_000_000  # 10B — safe large default
-
-    log.info(f"  Batch stride: {fmt_num(stride)} id64 units (~{fmt_num(BATCH_ROWS)} rows/batch)")
-
-    total_updated = 0
-    batch_num     = 0
-    lo            = id_min
-
-    progress = ProgressReporter(log, remaining, "formula-assign", interval=30, heartbeat=120)
-
-    while lo <= id_max:
-        if _shutdown:
-            log.warning(f"  Shutdown requested — committing and exiting after {fmt_num(total_updated)} rows")
-            conn.commit()
-            break
-
-        hi = lo + stride - 1
-
+    except psycopg2.OperationalError as e:
+        log.error(f"  Connection lost during UPDATE: {e}")
+        log.error(f"  Re-run the script — it will resume from where Postgres left off")
         try:
-            cur.execute(f"""
-                UPDATE systems
-                SET grid_cell_id = (
-                    floor((x - {min_x!r}) / {cell_size!r})::bigint * 100000000 +
-                    floor((y - {min_y!r}) / {cell_size!r})::bigint * 10000 +
-                    floor((z - {min_z!r}) / {cell_size!r})::bigint
-                )
-                WHERE id64 BETWEEN %s AND %s
-                  AND grid_cell_id IS NULL
-            """, (lo, hi))
-            rows = cur.rowcount
-            conn.commit()
-            total_updated += rows
-            batch_num     += 1
+            conn.rollback()
+        except Exception:
+            pass
+        _safe_close(conn)
+        conn = _connect_with_retry(DB_DSN, label="formula-reconnect")
+        cur  = conn.cursor()
+        total_updated = 0
 
-            if rows > 0:
-                progress.update(rows)
-
-        except psycopg2.OperationalError as e:
-            log.warning(f"  Connection lost on batch {batch_num} — reconnecting: {e}")
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            _safe_close(conn)
-            time.sleep(10)
-            conn = _connect_with_retry(DB_DSN, label=f"formula-reconnect-{batch_num}")
-            cur  = conn.cursor()
-            log.info(f"  Reconnected — retrying batch (lo={lo})")
-            continue  # retry same batch
-
-        lo += stride
-
-    progress.finish()
     return total_updated, conn, cur
 
 
