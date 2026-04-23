@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spatial Grid Builder
-Version: 2.0  (complete rewrite — fixes all crash/hang/process-leak bugs)
+Version: 2.1  (fix stale total_systems cache + watch command + progress loop)
 
 FORENSIC ANALYSIS — WHY v1.6/v5.0 KEPT CRASHING
 =================================================
@@ -311,36 +311,134 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     grid_cell_id for all unassigned rows. With 32GB shared_buffers the
     table stays in RAM after the first pass. Estimated: 20-60 minutes.
 
-    Monitor progress externally with pg_stat_progress_update — see log.
+    Progress is reported every 60 seconds by polling pg_stat_progress_update
+    on a SEPARATE monitor connection — no interference with the UPDATE itself.
     Fully resumable: WHERE grid_cell_id IS NULL skips already-done rows.
     """
     remaining = total_systems - already_assigned
     log.info(f"  Strategy: single-pass UPDATE (one SQL statement, no batching)")
-    log.info(f"  Remaining: {fmt_num(remaining)} rows")
-    log.info(f"  No progress lines until UPDATE completes — monitor Postgres directly:")
-    log.info(f"  docker exec ed-postgres psql -U edfinder -d edfinder -c \\")
-    log.info(f'  "SELECT phase, tuples_done, tuples_total FROM pg_stat_progress_update;"')
+    log.info(f"  Remaining: {fmt_num(remaining)} rows to assign")
+    log.info(f"  Progress will be logged every 60s from pg_stat_progress_update")
+    log.info(f"  Manual watch command (run in a second terminal on the server):")
+    log.info(f"    watch -n 10 'docker exec ed-postgres psql -U edfinder -d edfinder -tAc"
+             f" \"SELECT phase, tuples_done, tuples_total,"
+             f" CASE WHEN tuples_total>0 THEN ROUND(tuples_done*100.0/tuples_total,1)"
+             f" ELSE 0 END AS pct FROM pg_stat_progress_update;\"'")
     log.info(f"  Starting UPDATE now ...")
 
-    t0 = time.time()
-    try:
-        cur.execute(f"""
-            UPDATE systems
-            SET grid_cell_id = (
-                floor((x - {min_x!r}) / {cell_size!r})::bigint * 100000000 +
-                floor((y - {min_y!r}) / {cell_size!r})::bigint * 10000 +
-                floor((z - {min_z!r}) / {cell_size!r})::bigint
-            )
-            WHERE grid_cell_id IS NULL
-        """)
-        total_updated = cur.rowcount
-        conn.commit()
-        elapsed = time.time() - t0
-        log.info(f"  UPDATE complete — {fmt_num(total_updated)} rows in {fmt_duration(elapsed)} ✓")
+    t0          = time.time()
+    monitor_dsn = DB_DSN  # same direct connection
 
-    except psycopg2.OperationalError as e:
-        log.error(f"  Connection lost during UPDATE: {e}")
-        log.error(f"  Re-run the script — it will resume from where Postgres left off")
+    # Open a separate read-only connection for progress polling.
+    # This MUST NOT share the UPDATE transaction — it uses autocommit so it
+    # sees committed data and pg_stat_progress_update from other backends.
+    monitor_conn = None
+    try:
+        monitor_conn = _connect_with_retry(monitor_dsn, label="progress-monitor",
+                                           retries=3, readonly=True)
+        monitor_conn.autocommit = True
+    except Exception as e:
+        log.warning(f"  Could not open progress monitor connection: {e} (non-fatal)")
+        monitor_conn = None
+
+    # Submit the UPDATE asynchronously by running it in a thread so we can
+    # poll pg_stat_progress_update from the main thread while it runs.
+    # We use psycopg2's own thread-safety (DBAPI level 2, connections are not
+    # thread-safe but we use TWO separate connections — one per thread).
+    import threading
+
+    update_result   = {"rowcount": 0, "error": None}
+    update_done     = threading.Event()
+
+    def _run_update():
+        try:
+            cur.execute(f"""
+                UPDATE systems
+                SET grid_cell_id = (
+                    floor((x - {min_x!r}) / {cell_size!r})::bigint * 100000000 +
+                    floor((y - {min_y!r}) / {cell_size!r})::bigint * 10000 +
+                    floor((z - {min_z!r}) / {cell_size!r})::bigint
+                )
+                WHERE grid_cell_id IS NULL
+            """)
+            update_result["rowcount"] = cur.rowcount
+            conn.commit()
+        except Exception as exc:
+            update_result["error"] = exc
+        finally:
+            update_done.set()
+
+    update_thread = threading.Thread(target=_run_update, daemon=True)
+    update_thread.start()
+
+    # Poll progress every 60 seconds until UPDATE finishes
+    POLL_INTERVAL = 60  # seconds between progress lines
+    last_done     = 0
+
+    while not update_done.wait(timeout=POLL_INTERVAL):
+        if _shutdown:
+            log.warning("  Shutdown signal received — waiting for current UPDATE batch to finish ...")
+            # We cannot cancel the UPDATE mid-flight without losing atomicity.
+            # Let it finish then exit after commit.
+            break
+
+        # Poll pg_stat_progress_update for progress info
+        if monitor_conn is not None:
+            try:
+                with monitor_conn.cursor() as mc:
+                    mc.execute("""
+                        SELECT phase,
+                               COALESCE(tuples_done, 0)  AS done,
+                               COALESCE(tuples_total, 0) AS total
+                        FROM pg_stat_progress_update
+                        WHERE relid = 'systems'::regclass
+                        LIMIT 1
+                    """)
+                    row = mc.fetchone()
+                    if row:
+                        phase, done, total = row
+                        elapsed   = time.time() - t0
+                        rate      = (done - last_done) / POLL_INTERVAL if last_done else 0
+                        pct       = (done / total * 100) if total > 0 else 0
+                        eta_str   = fmt_duration((total - done) / rate) if rate > 0 and done < total else "?"
+                        log.info(
+                            f"  [stage3-formula] phase={phase}"
+                            f"  done={fmt_num(done)}/{fmt_num(total)}"
+                            f"  ({pct:.1f}%)"
+                            f"  rate={fmt_rate(done - last_done, POLL_INTERVAL)}"
+                            f"  elapsed={fmt_duration(elapsed)}"
+                            f"  ETA={eta_str}"
+                        )
+                        last_done = done
+                    else:
+                        # pg_stat_progress_update has no row — UPDATE may not have started
+                        # scanning yet (planner / lock acquisition phase), or it just finished.
+                        elapsed = time.time() - t0
+                        log.info(f"  [stage3-formula] UPDATE in progress ({fmt_duration(elapsed)} elapsed)"
+                                 f" — no pg_stat_progress_update row yet (planning/locking phase)")
+            except Exception as e:
+                log.warning(f"  Progress poll error (non-fatal): {e}")
+        else:
+            # No monitor connection — just heartbeat
+            elapsed = time.time() - t0
+            log.info(f"  [stage3-formula] UPDATE in progress ({fmt_duration(elapsed)} elapsed) ...")
+
+    # Wait for thread to finish (it may have finished already if update_done was set)
+    update_thread.join(timeout=30)
+
+    if monitor_conn is not None:
+        _safe_close(monitor_conn)
+
+    total_updated = update_result["rowcount"]
+    exc           = update_result["error"]
+    elapsed       = time.time() - t0
+
+    if exc is not None:
+        if isinstance(exc, psycopg2.OperationalError):
+            log.error(f"  Connection lost during UPDATE: {exc}")
+            log.error(f"  Re-run the script — it will resume from where Postgres left off")
+        else:
+            log.error(f"  Unexpected error during UPDATE: {exc}")
         try:
             conn.rollback()
         except Exception:
@@ -349,6 +447,8 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
         conn = _connect_with_retry(DB_DSN, label="formula-reconnect")
         cur  = conn.cursor()
         total_updated = 0
+    else:
+        log.info(f"  UPDATE complete — {fmt_num(total_updated)} rows in {fmt_duration(elapsed)} ✓")
 
     return total_updated, conn, cur
 
@@ -499,6 +599,9 @@ Strategies:
                         help='Stage 3 strategy (default: formula)')
     parser.add_argument('--direct-host', default='',
                         help='Override DB host (e.g. "postgres" or "localhost")')
+    parser.add_argument('--reset-cache', action='store_true',
+                        help='Delete cached bounds/total from app_meta and recompute from scratch. '
+                             'Use this if Stage 3 was silently skipping rows.')
     args = parser.parse_args()
 
     cell_size   = args.cell_size
@@ -513,14 +616,14 @@ Strategies:
 
     script_start = time.time()
 
-    startup_banner(log, "Spatial Grid Builder", "v2.0", [
+    startup_banner(log, "Spatial Grid Builder", "v2.1", [
         ("Cell size",    f"{cell_size} LY"),
         ("Strategy",     f"Stage 3 = {strategy}"),
         ("Log file",     LOG_FILE),
         ("DB",           dsn.split('@')[-1]),
         ("Keepalives",   "idle=60s / interval=10s / count=6"),
         ("Direct DB",    "YES — bypasses pgBouncer (transaction-pool safe)"),
-        ("Fixes",        "EXISTS hang, advisory lock, autovacuum deadlock"),
+        ("Fixes",        "EXISTS hang, advisory lock, autovacuum deadlock, stale total_systems"),
     ])
 
     # ------------------------------------------------------------------
@@ -535,6 +638,20 @@ Strategies:
     # ------------------------------------------------------------------
     conn = _connect_with_retry(dsn, label="main")
     cur  = conn.cursor()
+
+    # ------------------------------------------------------------------
+    # Optional: wipe cached app_meta keys so Stage 1 recomputes everything
+    # ------------------------------------------------------------------
+    if args.reset_cache:
+        log.warning("[Reset] --reset-cache specified — deleting cached grid keys from app_meta ...")
+        cur.execute("""
+            DELETE FROM app_meta
+            WHERE key IN ('grid_min_x','grid_max_x','grid_min_y','grid_max_y',
+                          'grid_min_z','grid_max_z','grid_total_systems',
+                          'grid_cell_size','grid_built')
+        """)
+        conn.commit()
+        log.warning("[Reset] Cache cleared — Stage 1 will run full seq scan")
 
     # =========================================================================
     # STAGE 1: Galaxy bounds
@@ -564,22 +681,34 @@ Strategies:
         log.info(f"  Y: [{min_y:.0f}, {max_y:.0f}]")
         log.info(f"  Z: [{min_z:.0f}, {max_z:.0f}]")
 
-        if 'grid_total_systems' in stored:
-            total_systems = int(stored['grid_total_systems'])
-            log.info(f"  Total systems (cached): {fmt_num(total_systems)}")
+        # ALWAYS do a live COUNT(*) — the cached value from app_meta may be
+        # stale if more rows were imported since the last build_grid run.
+        # A stale total_systems causes Stage 3 to think "already done" and skip
+        # assigning the new rows entirely. COUNT(*) on systems is fast (~5s on
+        # 186M rows when pg_class.reltuples is fresh) and MUST match reality.
+        log.info(f"  Counting total systems (live — verifying cache is current) ...")
+        t0 = time.time()
+        cur.execute("SELECT COUNT(*) FROM systems")
+        total_systems = cur.fetchone()[0]
+        elapsed_count = time.time() - t0
+
+        cached_total = int(stored.get('grid_total_systems', 0))
+        if cached_total and cached_total != total_systems:
+            log.warning(f"  ⚠  Cached total ({fmt_num(cached_total)}) differs from live count "
+                        f"({fmt_num(total_systems)}) — import added rows since last run")
+            log.warning(f"  ⚠  Forcing Stage 2 and Stage 3 rebuild to cover new rows")
         else:
-            log.info(f"  Counting total systems ...")
-            t0 = time.time()
-            cur.execute("SELECT COUNT(*) FROM systems")
-            total_systems = cur.fetchone()[0]
-            log.info(f"  COUNT done in {fmt_duration(time.time()-t0)} — {fmt_num(total_systems)} systems")
-            cur.execute("""
-                INSERT INTO app_meta (key, value, updated_at)
-                VALUES ('grid_total_systems', %s, NOW())
-                ON CONFLICT (key) DO UPDATE
-                    SET value = EXCLUDED.value, updated_at = NOW()
-            """, (str(total_systems),))
-            conn.commit()
+            log.info(f"  Total systems: {fmt_num(total_systems)} "
+                     f"(counted in {fmt_duration(elapsed_count)}) ✓")
+
+        # Update cached value to match reality
+        cur.execute("""
+            INSERT INTO app_meta (key, value, updated_at)
+            VALUES ('grid_total_systems', %s, NOW())
+            ON CONFLICT (key) DO UPDATE
+                SET value = EXCLUDED.value, updated_at = NOW()
+        """, (str(total_systems),))
+        conn.commit()
     else:
         log.info(f"  No bounds cached — running full seq scan (once only, takes 5-30 min) ...")
         t0 = time.time()
@@ -704,18 +833,25 @@ Strategies:
     # =========================================================================
     # STAGE 3: Assign grid_cell_id to every system
     # =========================================================================
+    # Count UNASSIGNED rows directly — this is the ground truth.
+    # Do NOT use (total_systems - assigned) because total_systems may still be
+    # off by 1 due to concurrent inserts during import.  Counting unassigned
+    # directly is safer and will be 0 only when every row has a grid_cell_id.
+    cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NULL")
+    unassigned_check = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NOT NULL")
     already_assigned = cur.fetchone()[0]
     resumed          = already_assigned > 0
 
-    if already_assigned >= total_systems:
+    if unassigned_check == 0:
         stage_banner(log, 3, 5, "Assign grid_cell_id", resumed=True)
         log.info(f"  All {fmt_num(total_systems)} systems already assigned — skipping ✓")
+        log.info(f"  (Verified: SELECT COUNT(*) WHERE grid_cell_id IS NULL = 0)")
     else:
         stage_banner(log, 3, 5, "Assign grid_cell_id", resumed=resumed)
         log.info(f"  Total systems    : {fmt_num(total_systems)}")
         log.info(f"  Already assigned : {fmt_num(already_assigned)}  ({fmt_pct(already_assigned, total_systems)})")
-        log.info(f"  Remaining        : {fmt_num(total_systems - already_assigned)}")
+        log.info(f"  Remaining (NULL) : {fmt_num(unassigned_check)}  ← ground truth from live COUNT")
         log.info(f"  Strategy         : {strategy}")
         log.info(f"  Connection       : DIRECT to postgres (not pgBouncer)")
         crash_hint(log, "from last committed batch automatically")
@@ -735,12 +871,10 @@ Strategies:
             pass
 
         if strategy == 'formula':
-            result = stage3_formula(conn, cur, min_x, min_y, min_z,
-                                    cell_size, total_systems, already_assigned)
-            if result:
-                total_rows_updated, conn, cur = result
-            else:
-                total_rows_updated = 0
+            # stage3_formula always returns (total_updated, conn, cur)
+            total_rows_updated, conn, cur = stage3_formula(
+                conn, cur, min_x, min_y, min_z,
+                cell_size, total_systems, already_assigned)
         else:
             total_rows_updated = stage3_batched_cells(
                 conn, cur, cell_count, already_assigned, total_systems)
