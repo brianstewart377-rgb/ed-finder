@@ -1654,10 +1654,10 @@ def main():
 
     total_elapsed = time.time() - total_start
     log.info(f"All imports complete in {total_elapsed/3600:.2f} hours")
-    log.info("Next steps:")
-    log.info("  python3 build_ratings.py   — compute scores for all systems")
-    log.info("  python3 build_grid.py      — build spatial grid")
-    log.info("  python3 build_clusters.py  — build cluster summary (long)")
+    log.info("Next steps (run in this exact order):")
+    log.info("  1. python3 build_grid.py      — build spatial grid (~1h)")
+    log.info("  2. python3 build_ratings.py   — compute economy scores (~3-5h)")
+    log.info("  3. python3 build_clusters.py  — build cluster summary (~8-24h)")
 
 
 if __name__ == '__main__':
