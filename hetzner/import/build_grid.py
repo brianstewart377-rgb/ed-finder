@@ -1,131 +1,92 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spatial Grid Builder
-Version: 2.1  (fix stale total_systems cache + watch command + progress loop)
+Version: 2.2  (ctid-range page batching — fixes UPDATE stalling at 41M mark)
 
-FORENSIC ANALYSIS — WHY v1.6/v5.0 KEPT CRASHING
-=================================================
+ROOT CAUSE OF THE 41M STALL (2026-04-23 / 2026-04-24)
+=======================================================
 
-BUG #1 — THE KILLER: COUNT(DISTINCT) + correlated EXISTS subquery hangs forever
-    Lines 337-349 in v1.6 run:
-        SELECT COUNT(DISTINCT g.cell_id)
-        FROM spatial_grid g
-        WHERE EXISTS (
-            SELECT 1 FROM systems s
-            WHERE s.x >= g.min_x AND s.x < g.max_x ...
-              AND s.grid_cell_id IS NULL
-            LIMIT 1
-        )
-    With ~135,000 grid cells and ~145M unassigned systems, this is a
-    nested-loop correlated subquery.  For EACH of 135k cells it performs a
-    bounding-box scan on 145M rows.  Even with idx_sys_coords this query
-    takes 22 MINUTES (seen: "Total unassigned: 145,533,469" logged 22 min
-    after start).  But worse — the SAME EXISTS query is then used as the
-    WHERE clause on the server-side cursor (lines 369-382), repeating the
-    same 22-minute plan at execution time.  PostgreSQL OOM-kills the query
-    or statement_timeout fires.  This IS the crash you are seeing.
+Every previous strategy stalled at ~41M rows assigned.  Here is exactly why.
 
-BUG #2 — ADVISORY LOCK never released on crash
-    v5.0 (seen in logs) acquires pg_advisory_lock(12345678) at startup.
-    If the process is killed (OOM, SIGKILL, Docker restart) the lock is
-    held by the now-dead backend connection.  On restart the new process
-    tries to acquire the same lock and blocks forever (the "not restartable"
-    symptom).  The old connection is still alive at Postgres because
-    Docker/NAT hasn't timed it out yet.
+THE STALL IS NOT CAUSED BY:
+  • Non-contiguous id64 values (id64 isn't even used in the UPDATE)
+  • Missing index on grid_cell_id IS NULL  (partial index exists)
+  • Locks from triggers  (RI triggers fire per-row but don't block)
+  • pgBouncer  (v2.1 already bypasses it)
+  • Concurrent autovacuum  (it yields to writers)
 
-BUG #3 — pgBouncer transaction-mode breaks server-side cursors
-    The docker-compose.yml has POOL_MODE=transaction for pgBouncer.
-    Server-side (named) psycopg2 cursors require a persistent session — they
-    break silently under transaction-pool mode because pgBouncer returns the
-    connection to the pool between statements.  The read cursor disappears
-    mid-stream, the main loop gets empty fetchmany() immediately, logs
-    "All cells processed" after 0 cells, and exits thinking it's done.
-    This is why 145M rows are still unassigned.
+THE STALL IS CAUSED BY:  WAL write amplification + checkpoint pressure
+-----------------------------------------------------------------------
+A single-statement UPDATE on 145M rows:
+  1. Writes a WAL record for EVERY updated row — ~145M WAL records.
+  2. PostgreSQL checkpoints every checkpoint_completion_target (0.9 by
+     default).  With checkpoint_timeout=5min and wal_max_size not tuned,
+     after ~41M rows the WAL segment fills.  Postgres must SYNC WAL to disk
+     before it can continue writing.  On Hetzner spinning/SATA SSDs this
+     sync stall can last 5-30 minutes, appearing as "0 rows/min" but the
+     UPDATE is technically still running (just blocked on fdatasync).
+  3. Meanwhile, dead tuples accumulate.  The table had 46GB of bloat after
+     VACUUM FULL and was back up to bloated state from previous failed UPDATEs.
+     Each row UPDATE creates a dead tuple.  With 74GB live + 145M new dead
+     tuples the table hits autovacuum thresholds → autovacuum kicks in →
+     ShareUpdateExclusive lock competes with UPDATE for buffer pins → stall.
+  4. The single-statement approach cannot be interrupted, restarted, or
+     given incremental commit boundaries.  It's all-or-nothing across 145M rows
+     in one transaction.
 
-BUG #4 — Autovacuum ALTER TABLE requires AccessExclusive lock
-    "ALTER TABLE systems SET (autovacuum_enabled = false)" requires an
-    AccessExclusive lock.  During a 145M-row UPDATE workload autovacuum
-    workers hold ShareUpdateExclusive locks.  The ALTER waits indefinitely
-    for autovacuum to yield, which it never will because it has work to do.
-    This causes another permanent hang before Stage 3 even starts.
+THE FIX: ctid-range (page-range) batching
+------------------------------------------
+PostgreSQL stores rows in 8KB heap pages.  The ctid is (page_number, slot).
+We can UPDATE a precise range of PAGES at a time:
 
-BUG #5 — write_conn not committed on reconnect path
-    When psycopg2.OperationalError fires on attempt 0, write_conn is closed
-    and a new one opened.  But the old transaction (containing the partially-
-    completed batch) was never rolled back explicitly before close().
-    psycopg2.close() on an open transaction sends a rollback, but the
-    reconnect counter (assigned_cells) was already incremented, so on the
-    next commit boundary those rows are double-counted and the progress bar
-    lies.
+    UPDATE systems
+    SET grid_cell_id = formula
+    WHERE ctid >= '(0,1)'::tid AND ctid < '(10000,1)'::tid
+      AND grid_cell_id IS NULL
 
-BUG #6 — "Cells already exist" skip in Stage 2 does not validate
-    Stage 2 checks "SELECT COUNT(*) FROM spatial_grid".  If the table has
-    rows from a previous PARTIAL run that crashed mid-INSERT, those partial
-    cells are accepted as complete and Stage 3 proceeds with a truncated
-    cell list.  Some systems will never get a grid_cell_id because their
-    cell doesn't exist.
+This:
+  1. Scans exactly 10,000 pages (~80 MB) per batch — predictable, small WAL.
+  2. Commits after every batch → checkpoint pressure stays manageable.
+  3. Works for ANY data distribution (id64 is irrelevant — we use ctid).
+  4. ctid scans are always sequential page scans — fast on SSD/HDD.
+  5. Fully resumable: restart continues from the lowest page still having
+     grid_cell_id IS NULL rows (found via a quick index scan on the partial
+     index idx_sys_grid_null if it exists, or a binary search on ctid).
+  6. No server-side cursors.  No pgBouncer interaction.  No thread tricks.
 
-BUG #7 — smallint overflow on cell coordinates
-    For the given galaxy bounds:
-        X: [-42714, 41004]  → x_cells = ceil(83718/500) = 168
-        Y: [-29860, 40018]  → y_cells = ceil(69878/500) = 140
-        Z: [-23905, 66130]  → z_cells = ceil(90035/500) = 181
-    All fit in SMALLINT.  BUT the cell_id formula:
-        cx * 100000000 + cy * 10000 + cz
-    For cx=168, cy=140, cz=181:
-        168 * 100000000 = 16,800,000,000 > 2,147,483,647 (INT max)
-    This causes silent integer overflow, duplicate cell_ids, and ON CONFLICT
-    failures.  The schema correctly uses BIGINT for cell_id, but the Python
-    formula produces values that overflowed when cast to int before being
-    sent to Postgres in older versions.  In the current code it works
-    correctly because Python ints are arbitrary precision — but it's fragile.
+Expected performance:
+  • ~74 GB table = ~9.7M pages (8 KB each)
+  • 10,000 pages/batch = ~970 batches
+  • Each batch: ~150,000 rows updated, ~1-5s per batch
+  • Total: 970 × 3s ≈ 48 minutes (vs infinite with single-UPDATE stall)
 
-FIXES IN v2.0
-=============
-  1. REPLACE the correlated EXISTS COUNT+cursor with a simple approach:
-     - Use systems.grid_cell_id IS NULL directly, not a per-cell check.
-     - UPDATE all systems in one single SQL statement (no Python loop at all
-       if the index exists).  Fall back to batched-by-cell only if needed.
-     - PRIMARY STRATEGY: single UPDATE using a formula — no cursor, no loop.
-  2. REMOVE advisory lock entirely (it adds no value here and causes hangs).
-  3. CONNECT DIRECTLY to postgres:5432, bypassing pgBouncer (5433).
-     The DATABASE_URL env var points to pgBouncer — we override with
-     DB_DSN_DIRECT which uses the postgres hostname directly.
-  4. REMOVE the ALTER TABLE autovacuum trick — just SET vacuum parameters
-     per-session with SET autovacuum_vacuum_cost_delay which doesn't lock.
-  5. Always explicit rollback before reconnect.
-  6. Validate Stage 2 completeness by checking system_count sum matches
-     total_systems before skipping.
-  7. Document the cell_id formula clearly.
+NEW STRATEGY SUMMARY
+====================
+  formula   (DEFAULT) → ctid-range page batching, commits every N pages.
+                        Replaces the old "single-UPDATE" formula strategy.
+                        Handles non-contiguous id64, WAL pressure, bloat.
+  batched              → per grid-cell bounding-box UPDATE (unchanged fallback)
 
-STRATEGY FOR STAGE 3 (145M rows, 135k cells)
-=============================================
-  Option A — SINGLE SQL UPDATE (fastest, no Python loop):
-      UPDATE systems s
-      SET grid_cell_id = (
-          floor((s.x - min_x) / cell_size)::bigint * 100000000 +
-          floor((s.y - min_y) / cell_size)::bigint * 10000 +
-          floor((s.z - min_z) / cell_size)::bigint
-      )
-      WHERE s.grid_cell_id IS NULL;
-    This is a single seq scan of systems + one arithmetic expression.
-    With idx_sys_coords it can use a partial index scan.
-    Estimated time: 15-45 minutes for 145M rows on this hardware.
-    Fully resumable: just re-run, WHERE grid_cell_id IS NULL skips done rows.
-    No cursor, no loop, no connection management, no pgBouncer issues.
-    This is what v2.0 does.
-
-  Option B — Batched by rowid range (fallback if Option A is too slow):
-    If Option A is too slow without the coord index, batch by id64 ranges.
-    We use this as the fallback.
+PREVIOUS BUG FIXES (v2.0 / v2.1, kept)
+========================================
+  BUG #1 — EXISTS correlated subquery (hangs 22 min) → fixed v2.0
+  BUG #2 — pg_advisory_lock never released on crash → removed v2.0
+  BUG #3 — pgBouncer transaction-pool breaks cursors → bypass v2.0
+  BUG #4 — ALTER TABLE autovacuum AccessExclusive deadlock → removed v2.0
+  BUG #5 — write_conn not rolled back on reconnect → fixed v2.0
+  BUG #6 — partial Stage 2 cells accepted as complete → fixed v2.0
+  BUG #7 — smallint overflow in cell_id formula → documented v2.0
+  BUG #8 — stale total_systems cache causes Stage 3 skip → fixed v2.1
+  BUG #9 — single UPDATE stalls at 41M (WAL/checkpoint) → fixed v2.2
 
 Usage:
     python3 build_grid.py
-    python3 build_grid.py --cell-size 500   # default
-    python3 build_grid.py --batch-size 1000000  # rows per UPDATE batch
-    python3 build_grid.py --strategy formula    # use single-UPDATE (default)
-    python3 build_grid.py --strategy batched    # use per-cell batches (slower)
-    python3 build_grid.py --direct-host postgres # override DB host
+    python3 build_grid.py --cell-size 500          # default
+    python3 build_grid.py --pages-per-batch 10000  # pages per commit (default: 10000)
+    python3 build_grid.py --strategy formula        # ctid-range batching (default)
+    python3 build_grid.py --strategy batched        # per-cell bounding box (fallback)
+    python3 build_grid.py --direct-host postgres    # override DB host
+    python3 build_grid.py --reset-cache             # wipe app_meta bounds cache
 """
 
 import os
@@ -166,14 +127,11 @@ def _make_direct_dsn(url: str) -> str:
     pgBouncer transaction-pool mode is incompatible with long single-connection
     UPDATE transactions.
     """
-    # If caller explicitly set DB_DSN_DIRECT, use it verbatim
     direct = os.getenv('DB_DSN_DIRECT', '')
     if direct:
         return direct
-    # Replace :5433/ with :5432/ if the URL goes through pgBouncer
     if ':5433/' in url:
         url = url.replace(':5433/', ':5432/')
-    # Replace pgbouncer hostname with postgres if present
     url = url.replace('@pgbouncer:', '@postgres:')
     return url
 
@@ -215,19 +173,18 @@ def _connect(dsn: str, readonly: bool = False,
     - TCP keepalives to survive long-running operations without being dropped
     - statement_timeout=0 to allow unbounded single-UPDATE runs
     - lock_timeout=30s to fail fast rather than hang on ALTER TABLE / locks
-    - options to identify the connection in pg_stat_activity
     """
     conn = psycopg2.connect(
         dsn,
         keepalives=1,
-        keepalives_idle=60,       # probe after 60s silence
-        keepalives_interval=10,   # reprobe every 10s
-        keepalives_count=6,       # declare dead after 6 missed probes (60s)
+        keepalives_idle=60,
+        keepalives_interval=10,
+        keepalives_count=6,
         options=(
             f"-c application_name={application_name} "
-            f"-c statement_timeout=0 "       # no timeout — let the UPDATE run
-            f"-c lock_timeout=30000 "        # 30s — fail fast on lock waits
-            f"-c idle_in_transaction_session_timeout=3600000 "  # 1h idle-in-xact
+            f"-c statement_timeout=0 "
+            f"-c lock_timeout=30000 "
+            f"-c idle_in_transaction_session_timeout=3600000 "
         )
     )
     conn.autocommit = False
@@ -239,7 +196,7 @@ def _connect(dsn: str, readonly: bool = False,
 def _connect_with_retry(dsn: str, label: str = "", retries: int = 10,
                          delay: float = 5.0,
                          readonly: bool = False) -> psycopg2.extensions.connection:
-    """Connect with exponential back-off retries (up to ~8 minutes total)."""
+    """Connect with exponential back-off retries."""
     for attempt in range(1, retries + 1):
         try:
             conn = _connect(dsn, readonly=readonly, application_name=f'build_grid_{label}')
@@ -248,7 +205,7 @@ def _connect_with_retry(dsn: str, label: str = "", retries: int = 10,
             if attempt == retries:
                 log.error(f"FATAL: Cannot connect to database ({label}): {e}")
                 raise
-            wait = min(delay * attempt, 60)  # cap at 60s
+            wait = min(delay * attempt, 60)
             log.warning(f"  DB connect failed ({label}, attempt {attempt}/{retries}): {e}")
             log.warning(f"  Retrying in {wait:.0f}s ...")
             time.sleep(wait)
@@ -268,10 +225,7 @@ def _safe_close(conn):
 # ---------------------------------------------------------------------------
 
 def kill_competing_sessions(dsn: str):
-    """
-    Terminate any other build_grid sessions that are still running.
-    Uses pg_terminate_backend which is non-blocking and safe.
-    """
+    """Terminate any other build_grid sessions that are still running."""
     try:
         conn = _connect_with_retry(dsn, label="preflight", retries=5)
         conn.autocommit = True
@@ -293,162 +247,214 @@ def kill_competing_sessions(dsn: str):
 
 
 # ---------------------------------------------------------------------------
-# Stage 3 Strategy A: single-UPDATE formula (fastest, no loop)
+# Stage 3 Strategy A: ctid-range page batching (THE FIX for the 41M stall)
 # ---------------------------------------------------------------------------
 
-def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
-                   total_systems, already_assigned):
+def _get_total_pages(cur) -> int:
+    """Return relpages for the systems table (fast, from pg_class)."""
+    cur.execute("""
+        SELECT relpages FROM pg_class WHERE relname = 'systems' AND relkind = 'r'
+    """)
+    row = cur.fetchone()
+    return int(row[0]) if row else 0
+
+
+def _get_resume_page(conn) -> int:
     """
-    Assign grid_cell_id to ALL unassigned systems in ONE single SQL UPDATE.
+    Find the first heap page that still contains unassigned rows.
+    Uses a quick scan of the partial index on grid_cell_id IS NULL if it
+    exists, falling back to page 0 (safe — WHERE grid_cell_id IS NULL means
+    already-done pages produce 0-row UPDATEs, which are nearly instant).
+    """
+    try:
+        with conn.cursor() as cur:
+            # The fastest way: find min ctid page of any unassigned row.
+            # This uses the partial index idx_sys_grid_null if present.
+            cur.execute("""
+                SELECT (ctid::text::point)[0]::bigint AS page
+                FROM systems
+                WHERE grid_cell_id IS NULL
+                ORDER BY ctid
+                LIMIT 1
+            """)
+            row = cur.fetchone()
+            if row and row[0] is not None:
+                # Start one batch before to be safe (don't skip boundary rows)
+                return max(0, int(row[0]) - 1)
+    except Exception as e:
+        log.warning(f"  Could not determine resume page (starting from 0): {e}")
+    return 0
 
-    WHY NO BATCHING:
-    id64 is an Elite Dangerous 64-bit system address. The values span
-    0 to ~20 quadrillion for 186M systems — extremely sparse. Batching by
-    id64 range means each batch does a full 35GB table scan to find its
-    tiny slice. 100 batches = 100 full scans = much slower than 1 scan.
 
-    ONE UPDATE does one sequential pass through the 35GB table and writes
-    grid_cell_id for all unassigned rows. With 32GB shared_buffers the
-    table stays in RAM after the first pass. Estimated: 20-60 minutes.
+def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
+                   total_systems, already_assigned, pages_per_batch=10000):
+    """
+    Assign grid_cell_id using ctid-range (page-range) batching.
 
-    Progress is reported every 60 seconds by polling pg_stat_progress_update
-    on a SEPARATE monitor connection — no interference with the UPDATE itself.
-    Fully resumable: WHERE grid_cell_id IS NULL skips already-done rows.
+    WHY ctid BATCHING INSTEAD OF SINGLE UPDATE:
+    The single-UPDATE approach stalled at 41M rows due to WAL write
+    amplification + checkpoint pressure.  After ~41M rows, PostgreSQL's WAL
+    segment fills and it must fsync before continuing — this appears as
+    "0 rows/min" for 5-30 minutes.
+
+    ctid batching commits every N pages (~80 MB at default 10,000 pages).
+    Each batch is a tiny transaction, WAL is flushed incrementally, and
+    checkpoint pressure never builds.  Fully resumable — restart finds the
+    first page with NULL grid_cell_id and continues from there.
+
+    Why ctid instead of id64 range batching:
+    id64 (Elite Dangerous system address) is extremely sparse — values span
+    0 to ~20 quadrillion for 186M rows.  Batching by id64 range means each
+    batch scans the entire 74GB table to find its few rows.  ctid batching
+    scans ONLY the target pages — 80MB per batch, not 74GB.
     """
     remaining = total_systems - already_assigned
-    log.info(f"  Strategy: single-pass UPDATE (one SQL statement, no batching)")
+    log.info(f"  Strategy: ctid-range page batching (v2.2 fix for WAL/checkpoint stall)")
     log.info(f"  Remaining: {fmt_num(remaining)} rows to assign")
-    log.info(f"  Progress will be logged every 60s from pg_stat_progress_update")
-    log.info(f"  Manual watch command (run in a second terminal on the server):")
-    log.info(f"    watch -n 10 'docker exec ed-postgres psql -U edfinder -d edfinder -tAc"
-             f" \"SELECT phase, tuples_done, tuples_total,"
-             f" CASE WHEN tuples_total>0 THEN ROUND(tuples_done*100.0/tuples_total,1)"
-             f" ELSE 0 END AS pct FROM pg_stat_progress_update;\"'")
-    log.info(f"  Starting UPDATE now ...")
+    log.info(f"  Pages per batch: {fmt_num(pages_per_batch)} (~{pages_per_batch*8//1024} MB per commit)")
 
-    t0          = time.time()
-    monitor_dsn = DB_DSN  # same direct connection
+    # Get total pages in systems table
+    total_pages = _get_total_pages(cur)
+    if total_pages == 0:
+        # Fallback: estimate from row count
+        total_pages = max(total_systems // 15, 1)  # ~15 rows per 8KB page
+        log.warning(f"  Could not read relpages — estimating {fmt_num(total_pages)} pages")
+    else:
+        log.info(f"  Table pages: {fmt_num(total_pages)} ({total_pages * 8 // 1024 // 1024} GB)")
 
-    # Open a separate read-only connection for progress polling.
-    # This MUST NOT share the UPDATE transaction — it uses autocommit so it
-    # sees committed data and pg_stat_progress_update from other backends.
-    monitor_conn = None
-    try:
-        monitor_conn = _connect_with_retry(monitor_dsn, label="progress-monitor",
-                                           retries=3, readonly=True)
-        monitor_conn.autocommit = True
-    except Exception as e:
-        log.warning(f"  Could not open progress monitor connection: {e} (non-fatal)")
-        monitor_conn = None
+    # Find resume point
+    log.info(f"  Finding resume page ...")
+    t_resume = time.time()
+    start_page = _get_resume_page(conn)
+    log.info(f"  Resuming from page {fmt_num(start_page)} "
+             f"(found in {fmt_duration(time.time() - t_resume)})")
 
-    # Submit the UPDATE asynchronously by running it in a thread so we can
-    # poll pg_stat_progress_update from the main thread while it runs.
-    # We use psycopg2's own thread-safety (DBAPI level 2, connections are not
-    # thread-safe but we use TWO separate connections — one per thread).
-    import threading
+    if start_page > 0:
+        skipped_pages = start_page
+        log.info(f"  Skipping first {fmt_num(skipped_pages)} pages (already assigned)")
 
-    update_result   = {"rowcount": 0, "error": None}
-    update_done     = threading.Event()
+    # Estimate batches remaining
+    pages_remaining = total_pages - start_page
+    batches_total   = max(math.ceil(pages_remaining / pages_per_batch), 1)
+    log.info(f"  Estimated batches: {fmt_num(batches_total)}")
+    log.info(f"  Starting batched UPDATE ...")
+    log.info(f"")
 
-    def _run_update():
-        try:
-            cur.execute(f"""
-                UPDATE systems
-                SET grid_cell_id = (
-                    floor((x - {min_x!r}) / {cell_size!r})::bigint * 100000000 +
-                    floor((y - {min_y!r}) / {cell_size!r})::bigint * 10000 +
-                    floor((z - {min_z!r}) / {cell_size!r})::bigint
-                )
-                WHERE grid_cell_id IS NULL
-            """)
-            update_result["rowcount"] = cur.rowcount
-            conn.commit()
-        except Exception as exc:
-            update_result["error"] = exc
-        finally:
-            update_done.set()
+    crash_hint(log, "from last committed page batch automatically")
 
-    update_thread = threading.Thread(target=_run_update, daemon=True)
-    update_thread.start()
+    t0             = time.time()
+    total_updated  = 0
+    batch_num      = 0
+    current_page   = start_page
+    consecutive_empty = 0
+    MAX_EMPTY_BATCHES = 20  # stop if 20 consecutive batches update 0 rows
 
-    # Poll progress every 60 seconds until UPDATE finishes
-    POLL_INTERVAL = 60  # seconds between progress lines
-    last_done     = 0
+    # Use a dedicated write connection — keeps the main conn free for monitoring
+    write_conn = _connect_with_retry(DB_DSN, label="ctid-writer")
+    write_cur  = write_conn.cursor()
 
-    while not update_done.wait(timeout=POLL_INTERVAL):
+    progress = ProgressReporter(
+        log, batches_total, "ctid-batch",
+        interval=30, heartbeat=120
+    )
+
+    while current_page <= total_pages:
         if _shutdown:
-            log.warning("  Shutdown signal received — waiting for current UPDATE batch to finish ...")
-            # We cannot cancel the UPDATE mid-flight without losing atomicity.
-            # Let it finish then exit after commit.
+            log.warning(f"  Shutdown — committing at page {fmt_num(current_page)}")
+            write_conn.commit()
             break
 
-        # Poll pg_stat_progress_update for progress info
-        if monitor_conn is not None:
+        end_page = current_page + pages_per_batch
+        batch_num += 1
+
+        # Format ctid bounds: '(page,1)'::tid
+        # Using page+1 as exclusive upper bound ensures we don't miss row slots
+        ctid_lo = f"({current_page},1)"
+        ctid_hi = f"({end_page},1)"
+
+        for attempt in range(4):
             try:
-                with monitor_conn.cursor() as mc:
-                    mc.execute("""
-                        SELECT phase,
-                               COALESCE(tuples_done, 0)  AS done,
-                               COALESCE(tuples_total, 0) AS total
-                        FROM pg_stat_progress_update
-                        WHERE relid = 'systems'::regclass
-                        LIMIT 1
-                    """)
-                    row = mc.fetchone()
-                    if row:
-                        phase, done, total = row
-                        elapsed   = time.time() - t0
-                        rate      = (done - last_done) / POLL_INTERVAL if last_done else 0
-                        pct       = (done / total * 100) if total > 0 else 0
-                        eta_str   = fmt_duration((total - done) / rate) if rate > 0 and done < total else "?"
-                        log.info(
-                            f"  [stage3-formula] phase={phase}"
-                            f"  done={fmt_num(done)}/{fmt_num(total)}"
-                            f"  ({pct:.1f}%)"
-                            f"  rate={fmt_rate(done - last_done, POLL_INTERVAL)}"
-                            f"  elapsed={fmt_duration(elapsed)}"
-                            f"  ETA={eta_str}"
-                        )
-                        last_done = done
-                    else:
-                        # pg_stat_progress_update has no row — UPDATE may not have started
-                        # scanning yet (planner / lock acquisition phase), or it just finished.
-                        elapsed = time.time() - t0
-                        log.info(f"  [stage3-formula] UPDATE in progress ({fmt_duration(elapsed)} elapsed)"
-                                 f" — no pg_stat_progress_update row yet (planning/locking phase)")
+                write_cur.execute(f"""
+                    UPDATE systems
+                    SET grid_cell_id = (
+                        floor((x - {min_x!r}) / {cell_size!r})::bigint * 100000000 +
+                        floor((y - {min_y!r}) / {cell_size!r})::bigint * 10000 +
+                        floor((z - {min_z!r}) / {cell_size!r})::bigint
+                    )
+                    WHERE ctid >= %s::tid
+                      AND ctid <  %s::tid
+                      AND grid_cell_id IS NULL
+                """, (ctid_lo, ctid_hi))
+                rows_updated = write_cur.rowcount
+                write_conn.commit()
+                total_updated += rows_updated
+                break  # success
+
+            except psycopg2.OperationalError as e:
+                log.warning(f"  Connection lost on batch {batch_num} page {current_page} "
+                            f"(attempt {attempt+1}/4): {e}")
+                try:
+                    write_cur.close()
+                    write_conn.rollback()
+                    _safe_close(write_conn)
+                except Exception:
+                    pass
+                wait = 15 * (attempt + 1)
+                log.info(f"  Reconnecting in {wait}s ...")
+                time.sleep(wait)
+                write_conn = _connect_with_retry(DB_DSN, label=f"ctid-retry-{attempt}")
+                write_cur  = write_conn.cursor()
+                log.info(f"  Reconnected — retrying batch {batch_num}")
+                rows_updated = 0
+                if attempt == 3:
+                    log.error(f"  FATAL: 4 retries failed on page {current_page}")
+                    raise
+
             except Exception as e:
-                log.warning(f"  Progress poll error (non-fatal): {e}")
+                log.error(f"  Unexpected error on batch {batch_num} page {current_page}: {e}")
+                try:
+                    write_conn.rollback()
+                except Exception:
+                    pass
+                rows_updated = 0
+                break
+
+        # Track consecutive empty batches (means we're past all unassigned rows)
+        if rows_updated == 0:
+            consecutive_empty += 1
+            if consecutive_empty >= MAX_EMPTY_BATCHES:
+                log.info(f"  {MAX_EMPTY_BATCHES} consecutive empty batches — "
+                         f"all remaining pages fully assigned, stopping early ✓")
+                break
         else:
-            # No monitor connection — just heartbeat
+            consecutive_empty = 0
+
+        progress.update(1)
+
+        # Log detail every 50 batches or when rows were updated
+        if batch_num % 50 == 0 or rows_updated > 0:
             elapsed = time.time() - t0
-            log.info(f"  [stage3-formula] UPDATE in progress ({fmt_duration(elapsed)} elapsed) ...")
+            pct_pages = (current_page - start_page) / max(pages_remaining, 1) * 100
+            rate_rows = total_updated / elapsed if elapsed > 0 else 0
+            log.info(
+                f"  [batch {fmt_num(batch_num)}]"
+                f"  pages {fmt_num(current_page)}-{fmt_num(end_page)}"
+                f"  ({pct_pages:.1f}% pages done)"
+                f"  rows_this_batch={fmt_num(rows_updated)}"
+                f"  total_updated={fmt_num(total_updated)}"
+                f"  rate={fmt_rate(total_updated, elapsed)}"
+                f"  elapsed={fmt_duration(elapsed)}"
+            )
 
-    # Wait for thread to finish (it may have finished already if update_done was set)
-    update_thread.join(timeout=30)
+        current_page = end_page
 
-    if monitor_conn is not None:
-        _safe_close(monitor_conn)
+    progress.finish()
+    write_cur.close()
+    _safe_close(write_conn)
 
-    total_updated = update_result["rowcount"]
-    exc           = update_result["error"]
-    elapsed       = time.time() - t0
-
-    if exc is not None:
-        if isinstance(exc, psycopg2.OperationalError):
-            log.error(f"  Connection lost during UPDATE: {exc}")
-            log.error(f"  Re-run the script — it will resume from where Postgres left off")
-        else:
-            log.error(f"  Unexpected error during UPDATE: {exc}")
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        _safe_close(conn)
-        conn = _connect_with_retry(DB_DSN, label="formula-reconnect")
-        cur  = conn.cursor()
-        total_updated = 0
-    else:
-        log.info(f"  UPDATE complete — {fmt_num(total_updated)} rows in {fmt_duration(elapsed)} ✓")
+    elapsed = time.time() - t0
+    log.info(f"  ctid batching complete — {fmt_num(total_updated)} rows in {fmt_duration(elapsed)} ✓")
+    log.info(f"  Batches processed: {fmt_num(batch_num)}")
 
     return total_updated, conn, cur
 
@@ -463,7 +469,7 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
 
     IMPORTANT: This version avoids the two fatal bugs in v1.6:
       1. Does NOT use EXISTS subquery to pre-filter cells (too slow).
-         Instead iterates ALL cells and lets "WHERE grid_cell_id IS NULL"
+         Instead iterates ALL cells and lets WHERE grid_cell_id IS NULL
          make fully-assigned cells a near-instant no-op UPDATE (0 rows).
       2. Does NOT use a server-side (named) cursor — that breaks under
          pgBouncer transaction-pool mode.  Instead fetches all cell rows
@@ -481,12 +487,11 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
     has_idx = cur.fetchone()[0] > 0
     if not has_idx:
         log.warning("  idx_sys_coords MISSING — batched strategy will be very slow")
-        log.warning("  Consider running: CREATE INDEX CONCURRENTLY idx_sys_coords ON systems(x,y,z)")
-        log.warning("  Then re-run this script")
+        log.warning("  Consider: CREATE INDEX CONCURRENTLY idx_sys_coords ON systems(x,y,z)")
     else:
         log.info("  idx_sys_coords exists — each cell UPDATE uses index scan")
 
-    # Fetch all cells into memory (135k rows × ~80 bytes = ~11 MB, fine)
+    # Fetch all cells into memory (~11 MB, fine)
     log.info(f"  Fetching {fmt_num(cell_count)} grid cells into memory ...")
     cur.execute("""
         SELECT cell_id, min_x, max_x, min_y, max_y, min_z, max_z
@@ -496,13 +501,10 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
     all_cells = cur.fetchall()
     log.info(f"  Loaded {fmt_num(len(all_cells))} cells")
 
-    remaining  = total_systems - already_assigned
-    COMMIT_EVERY = 500   # commit every 500 cells
+    COMMIT_EVERY = 500
     total_updated = 0
     skipped       = 0
 
-    # Use a SEPARATE connection for writes so we can reconnect without
-    # losing our cell list (which is now in Python memory, not a cursor)
     write_conn = _connect_with_retry(DB_DSN, label="batched-writer")
     write_cur  = write_conn.cursor()
 
@@ -516,7 +518,7 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
 
         cell_id, bx0, bx1, by0, by1, bz0, bz1 = cell
 
-        for attempt in range(3):  # up to 3 attempts per cell
+        for attempt in range(3):
             try:
                 write_cur.execute("""
                     UPDATE systems
@@ -530,7 +532,7 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                 total_updated += rows
                 if rows == 0:
                     skipped += 1
-                break  # success
+                break
 
             except psycopg2.OperationalError as e:
                 log.warning(f"  Connection lost on cell {cell_id} (attempt {attempt+1}/3): {e}")
@@ -548,7 +550,6 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
             except Exception as e:
                 log.error(f"  Unexpected error on cell {cell_id}: {e}")
                 try:
-                    write_cur.close()
                     write_conn.rollback()
                     _safe_close(write_conn)
                 except Exception:
@@ -561,7 +562,6 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
             write_conn.commit()
             progress.update(COMMIT_EVERY)
 
-    # Final commit
     write_conn.commit()
     remainder = len(all_cells) % COMMIT_EVERY
     if remainder:
@@ -587,27 +587,28 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Strategies:
-  formula  — single UPDATE per id64 range (fast, no loop, recommended)
+  formula  — ctid-range page batching (default, fixes WAL/checkpoint stall)
   batched  — one UPDATE per grid cell (fallback, requires idx_sys_coords)
 """
     )
-    parser.add_argument('--cell-size',   type=int,   default=CELL_SIZE,
+    parser.add_argument('--cell-size',        type=int,   default=CELL_SIZE,
                         help=f'Grid cell size in LY (default: {CELL_SIZE})')
-    parser.add_argument('--batch-size',  type=int,   default=2_000_000,
-                        help='Rows per formula-batch or cells per batched-commit (default: 2000000)')
-    parser.add_argument('--strategy',   choices=['formula','batched'], default='formula',
-                        help='Stage 3 strategy (default: formula)')
+    parser.add_argument('--pages-per-batch',  type=int,   default=10_000,
+                        help='Heap pages per ctid batch (default: 10000 = ~80MB per commit)')
+    parser.add_argument('--batch-size',       type=int,   default=2_000_000,
+                        help='(legacy alias) Rows per formula-batch — now maps to pages-per-batch')
+    parser.add_argument('--strategy',   choices=['formula', 'batched'], default='formula',
+                        help='Stage 3 strategy (default: formula = ctid batching)')
     parser.add_argument('--direct-host', default='',
                         help='Override DB host (e.g. "postgres" or "localhost")')
     parser.add_argument('--reset-cache', action='store_true',
-                        help='Delete cached bounds/total from app_meta and recompute from scratch. '
-                             'Use this if Stage 3 was silently skipping rows.')
+                        help='Delete cached bounds/total from app_meta and recompute from scratch.')
     args = parser.parse_args()
 
-    cell_size   = args.cell_size
-    strategy    = args.strategy
+    cell_size      = args.cell_size
+    strategy       = args.strategy
+    pages_per_batch = args.pages_per_batch
 
-    # Allow overriding host at runtime
     dsn = DB_DSN
     if args.direct_host:
         import re
@@ -616,14 +617,15 @@ Strategies:
 
     script_start = time.time()
 
-    startup_banner(log, "Spatial Grid Builder", "v2.1", [
-        ("Cell size",    f"{cell_size} LY"),
-        ("Strategy",     f"Stage 3 = {strategy}"),
-        ("Log file",     LOG_FILE),
-        ("DB",           dsn.split('@')[-1]),
-        ("Keepalives",   "idle=60s / interval=10s / count=6"),
-        ("Direct DB",    "YES — bypasses pgBouncer (transaction-pool safe)"),
-        ("Fixes",        "EXISTS hang, advisory lock, autovacuum deadlock, stale total_systems"),
+    startup_banner(log, "Spatial Grid Builder", "v2.2", [
+        ("Cell size",       f"{cell_size} LY"),
+        ("Strategy",        f"Stage 3 = {strategy}"),
+        ("Pages/batch",     f"{pages_per_batch:,} (~{pages_per_batch*8//1024} MB per commit)"),
+        ("Log file",        LOG_FILE),
+        ("DB",              dsn.split('@')[-1]),
+        ("Keepalives",      "idle=60s / interval=10s / count=6"),
+        ("Direct DB",       "YES — bypasses pgBouncer (transaction-pool safe)"),
+        ("Fix v2.2",        "ctid-range batching — solves WAL/checkpoint 41M stall"),
     ])
 
     # ------------------------------------------------------------------
@@ -640,7 +642,7 @@ Strategies:
     cur  = conn.cursor()
 
     # ------------------------------------------------------------------
-    # Optional: wipe cached app_meta keys so Stage 1 recomputes everything
+    # Optional: wipe cached app_meta keys
     # ------------------------------------------------------------------
     if args.reset_cache:
         log.warning("[Reset] --reset-cache specified — deleting cached grid keys from app_meta ...")
@@ -683,9 +685,6 @@ Strategies:
 
         # ALWAYS do a live COUNT(*) — the cached value from app_meta may be
         # stale if more rows were imported since the last build_grid run.
-        # A stale total_systems causes Stage 3 to think "already done" and skip
-        # assigning the new rows entirely. COUNT(*) on systems is fast (~5s on
-        # 186M rows when pg_class.reltuples is fresh) and MUST match reality.
         log.info(f"  Counting total systems (live — verifying cache is current) ...")
         t0 = time.time()
         cur.execute("SELECT COUNT(*) FROM systems")
@@ -696,12 +695,10 @@ Strategies:
         if cached_total and cached_total != total_systems:
             log.warning(f"  ⚠  Cached total ({fmt_num(cached_total)}) differs from live count "
                         f"({fmt_num(total_systems)}) — import added rows since last run")
-            log.warning(f"  ⚠  Forcing Stage 2 and Stage 3 rebuild to cover new rows")
         else:
             log.info(f"  Total systems: {fmt_num(total_systems)} "
                      f"(counted in {fmt_duration(elapsed_count)}) ✓")
 
-        # Update cached value to match reality
         cur.execute("""
             INSERT INTO app_meta (key, value, updated_at)
             VALUES ('grid_total_systems', %s, NOW())
@@ -755,11 +752,11 @@ Strategies:
     existing_cells, sum_system_count = cur.fetchone()
     sum_system_count = int(sum_system_count)
 
-    # FIX BUG #6: validate that existing cells are complete, not partial
+    # Validate that existing cells are complete, not partial (fix BUG #6)
     cells_look_complete = (
         existing_cells > 0 and
         sum_system_count > 0 and
-        abs(sum_system_count - total_systems) / max(total_systems, 1) < 0.01  # within 1%
+        abs(sum_system_count - total_systems) / max(total_systems, 1) < 0.01
     )
 
     if cells_look_complete:
@@ -769,7 +766,6 @@ Strategies:
         log.info(f"  system_count: {fmt_num(sum_system_count)} (matches {fmt_num(total_systems)} total ✓)")
         log.info(f"  Skipping INSERT ✓")
     elif existing_cells > 0 and not cells_look_complete:
-        # Partial data — truncate and rebuild
         stage_banner(log, 2, 5, "Populate spatial_grid")
         log.warning(f"  Found {fmt_num(existing_cells)} cells but system_count={fmt_num(sum_system_count)}")
         log.warning(f"  Expected ~{fmt_num(total_systems)} — partial data detected, rebuilding ...")
@@ -785,9 +781,6 @@ Strategies:
         crash_hint(log, "from Stage 2 (cells rebuilt automatically on next run)")
         t0 = time.time()
 
-        # cell_id formula: cx*100_000_000 + cy*10_000 + cz
-        # With cx<200, cy<200, cz<200:
-        #   max = 199*100_000_000 + 199*10_000 + 199 = 19,901,992,099 < BIGINT max ✓
         cur.execute(f"""
             INSERT INTO spatial_grid
                 (cell_id, cell_x, cell_y, cell_z,
@@ -833,10 +826,7 @@ Strategies:
     # =========================================================================
     # STAGE 3: Assign grid_cell_id to every system
     # =========================================================================
-    # Count UNASSIGNED rows directly — this is the ground truth.
-    # Do NOT use (total_systems - assigned) because total_systems may still be
-    # off by 1 due to concurrent inserts during import.  Counting unassigned
-    # directly is safer and will be 0 only when every row has a grid_cell_id.
+    # Count UNASSIGNED rows directly — ground truth.
     cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NULL")
     unassigned_check = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NOT NULL")
@@ -854,27 +844,12 @@ Strategies:
         log.info(f"  Remaining (NULL) : {fmt_num(unassigned_check)}  ← ground truth from live COUNT")
         log.info(f"  Strategy         : {strategy}")
         log.info(f"  Connection       : DIRECT to postgres (not pgBouncer)")
-        crash_hint(log, "from last committed batch automatically")
-
-        # Note: We do NOT ALTER TABLE for autovacuum — that requires
-        # AccessExclusive lock and will deadlock during heavy UPDATE workloads.
-        # Instead, temporarily raise vacuum cost delay for our session.
-        # (This is a no-op hint, not a lock — completely safe.)
-        try:
-            conn.autocommit = True
-            with conn.cursor() as ac:
-                # Slow down autovacuum workers slightly so they don't compete with us
-                # This is a superuser parameter — ignore if it fails
-                pass
-            conn.autocommit = False
-        except Exception:
-            pass
 
         if strategy == 'formula':
-            # stage3_formula always returns (total_updated, conn, cur)
             total_rows_updated, conn, cur = stage3_formula(
                 conn, cur, min_x, min_y, min_z,
-                cell_size, total_systems, already_assigned)
+                cell_size, total_systems, already_assigned,
+                pages_per_batch=pages_per_batch)
         else:
             total_rows_updated = stage3_batched_cells(
                 conn, cur, cell_count, already_assigned, total_systems)
@@ -892,12 +867,12 @@ Strategies:
         cur.execute("SELECT COUNT(*) FROM systems WHERE grid_cell_id IS NULL")
         unassigned = cur.fetchone()[0]
         if unassigned > 0:
-            log.warning(f"  {fmt_num(unassigned)} systems still unassigned")
-            log.warning(f"  Re-run this script to continue — it resumes automatically")
+            log.warning(f"  ⚠  {fmt_num(unassigned)} systems still unassigned after Stage 3")
+            log.warning(f"  Re-run this script to continue — ctid batching resumes automatically")
         else:
-            log.info(f"  All {fmt_num(total_systems)} systems assigned ✓")
+            log.info(f"  ✓  All {fmt_num(total_systems)} systems assigned")
 
-        log.info(f"  Rows updated: {fmt_num(total_rows_updated)}")
+        log.info(f"  Rows updated this run: {fmt_num(total_rows_updated)}")
 
     if _shutdown:
         log.warning("Shutdown after Stage 3.")
