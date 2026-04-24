@@ -604,6 +604,8 @@ Strategies:
                         help='Override DB host (e.g. "postgres" or "localhost")')
     parser.add_argument('--reset-cache', action='store_true',
                         help='Delete cached bounds/total from app_meta and recompute from scratch.')
+    parser.add_argument('--no-disable-triggers', action='store_true',
+                        help='Skip trigger disable (not recommended — Stage 3 will be very slow)')
     args = parser.parse_args()
 
     cell_size      = args.cell_size
@@ -618,7 +620,7 @@ Strategies:
 
     script_start = time.time()
 
-    startup_banner(log, "Spatial Grid Builder", "v2.2", [
+    startup_banner(log, "Spatial Grid Builder", "v2.3", [
         ("Cell size",       f"{cell_size} LY"),
         ("Strategy",        f"Stage 3 = {strategy}"),
         ("Pages/batch",     f"{pages_per_batch:,} (~{pages_per_batch*8//1024} MB per commit)"),
@@ -626,7 +628,7 @@ Strategies:
         ("DB",              dsn.split('@')[-1]),
         ("Keepalives",      "idle=60s / interval=10s / count=6"),
         ("Direct DB",       "YES — bypasses pgBouncer (transaction-pool safe)"),
-        ("Fix v2.2",        "ctid-range batching — solves WAL/checkpoint 41M stall"),
+        ("Fix v2.3",        "disable RI triggers — eliminates 17 trigger evals per row"),
     ])
 
     # ------------------------------------------------------------------

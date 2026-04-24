@@ -364,7 +364,7 @@ def _write_clusters(conn, cur, batch: list):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary table (v1.2)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary table (v1.3)')
     parser.add_argument('--rebuild',    action='store_true',
                         help='Re-compute ALL anchors from scratch (ignores cluster_dirty)')
     parser.add_argument('--dirty-only', action='store_true',
@@ -385,7 +385,7 @@ def main():
     mode_label = ("REBUILD ALL" if args.rebuild
                   else ("DIRTY ONLY" if args.dirty_only
                         else "RESUME (unprocessed only)"))
-    startup_banner(log, "Cluster Summary Builder", "v1.2", [
+    startup_banner(log, "Cluster Summary Builder", "v1.3", [
         ("Mode",       mode_label),
         ("Radius",     f"{args.radius}ly"),
         ("Min score",  str(args.min_score)),
@@ -524,7 +524,7 @@ def main():
                 pending_results.append(
                     pool.apply_async(
                         process_anchor_batch,
-                        (chunks_dispatched % args.workers, batch, DB_DSN,
+                        (chunks_dispatched, batch, DB_DSN,
                          args.radius, args.min_score)
                     )
                 )

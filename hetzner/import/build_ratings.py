@@ -467,7 +467,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.1)')
+    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.2)')
     parser.add_argument('--rebuild',  action='store_true',
                         help='Re-rate ALL systems, not just unrated ones')
     parser.add_argument('--dirty',    action='store_true',
@@ -482,7 +482,7 @@ def main():
 
     # ── Startup banner ────────────────────────────────────────────────────
     mode_label = "REBUILD ALL" if args.rebuild else ("DIRTY ONLY" if args.dirty else "RESUME (unrated only)")
-    startup_banner(log, "Ratings Computer", "v2.1", [
+    startup_banner(log, "Ratings Computer", "v2.2", [
         ("Mode",       mode_label),
         ("Workers",    str(args.workers)),
         ("Chunk size", f"{args.chunk:,} systems"),
@@ -642,7 +642,7 @@ def main():
     if total_errors:
         log.warning(f"  {total_errors:,} systems were skipped due to errors — check DEBUG logs")
 
-    log.info("Next step: python3 build_grid.py")
+    log.info("Next step: python3 build_clusters.py")
 
 
 if __name__ == '__main__':
