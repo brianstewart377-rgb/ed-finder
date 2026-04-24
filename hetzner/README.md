@@ -1,5 +1,5 @@
 # ED Finder — Hetzner PostgreSQL Stack
-## Complete setup guide for production deployment
+## Complete setup and import guide
 
 ---
 
@@ -22,12 +22,79 @@
 
 ---
 
-## First-time setup
+## Import script versions (current)
 
-### 0. Prerequisites — DNS
-Point your domain at the server **before** running setup (Let's Encrypt needs to reach port 80):
-- In Cloudflare DNS: A record → your Hetzner IPv4, AAAA → your Hetzner IPv6
-- SSL/TLS mode: set to **Full** (origin has a real cert)
+| Script | Version | Key fix |
+|---|---|---|
+| `import_spansh.py` | 2.0 | COPY-via-temp-table (10–50× faster than INSERT) |
+| `build_grid.py` | 2.3 | Disable RI triggers + ctid-range batching |
+| `build_ratings.py` | 2.2 | Disable RI triggers on dirty-flag UPDATE |
+| `build_clusters.py` | 1.3 | Disable RI triggers on dirty-flag UPDATE |
+
+---
+
+## Bug history — import scripts
+
+### The 41M stall (root cause, definitively identified)
+
+The `systems` table has 8 child tables with `FOREIGN KEY ... REFERENCES systems(id64)`:
+`bodies`, `stations`, `attractions`, `factions_presence`, `ratings`, `cluster_summary`, `watchlist`, `system_notes`.
+
+PostgreSQL automatically creates **2 referential-integrity (RI) triggers per FK** — one on the child table and one on the parent. This gives:
+
+```
+8 FKs × 2 RI triggers = 16 RI triggers
++ 1 custom trigger (trg_system_dirty)
+= 17 triggers total on systems
+```
+
+These RI triggers fire on **every** `UPDATE systems` — even when only `grid_cell_id`, `rating_dirty`, or `cluster_dirty` is being changed, none of which are FK columns. For the first ~41M rows (colonised systems from `galaxy_populated.json.gz`), each RI trigger fires an index lookup on every child table to verify no orphaned rows. The remaining 145M rows are uncolonised (no children) so the cost is lower — but the damage is done in the first pass.
+
+**Fix (all three scripts):** `SET session_replication_role = replica` at the start of any bulk `UPDATE systems`. This disables non-ALWAYS triggers for the current session only, reverts automatically on disconnect, and is safe because we never modify `id64` (the FK column).
+
+---
+
+### build_grid.py changelog
+
+| Version | Fix |
+|---|---|
+| v1.0 | Initial version |
+| v2.0 | Fixed EXISTS correlated subquery (22-min hang); removed advisory lock that never released on crash; bypassed pgBouncer (transaction-pool breaks long connections); removed ALTER TABLE autovacuum deadlock; fixed write_conn not rolled back on reconnect; fixed partial Stage 2 cells accepted as complete; documented BIGINT overflow in cell_id formula |
+| v2.1 | Fixed stale `total_systems` cache causing Stage 3 to be skipped entirely |
+| v2.2 | Fixed single-UPDATE stalling at 41M rows (WAL/checkpoint pressure); replaced with ctid-range page batching (10,000 pages ≈ 80 MB per commit, fully resumable) |
+| v2.3 | **Root-cause fix** — disabled RI triggers (`SET session_replication_role = replica`) during Stage 3; added `--no-disable-triggers` flag to argparse (was referenced in docs but missing); corrected startup banner version |
+
+### build_ratings.py changelog
+
+| Version | Fix |
+|---|---|
+| v2.0 | Fixed server-side cursor truncation at ~74M rows; batch body fetch (one query per chunk instead of per system); dynamic work dispatch; corrected score_economy() math |
+| v2.1 | Added startup/stage banners, safe log path, per-worker heartbeat |
+| v2.2 | Disabled RI triggers on `UPDATE systems SET rating_dirty = FALSE` — eliminated ~252M spurious trigger evaluations per run; fixed startup banner (was still saying v2.1); fixed "Next step" footer (incorrectly said `build_grid.py` — should be `build_clusters.py`) |
+
+### build_clusters.py changelog
+
+| Version | Fix |
+|---|---|
+| v1.0 | Initial version |
+| v1.1 | Log directory auto-creation; resume-safe mode; grid-aware queries; fetchmany streaming |
+| v1.2 | Added startup/stage banners, per-worker heartbeat, safe log path, spatial-grid-missing warning |
+| v1.3 | Disabled RI triggers on `UPDATE systems SET cluster_dirty = FALSE` — eliminated ~2.5B spurious trigger evaluations across 73M anchors; fixed startup banner (was still saying v1.2); fixed worker_id collision (was `chunks % workers`, causing multiple chunks to share the same ID and produce confusing logs) |
+
+### 002_indexes.sql changelog
+
+| Addition | Reason |
+|---|---|
+| `idx_sys_grid_null` — partial index on `systems(id64) WHERE grid_cell_id IS NULL` | Allows `build_grid.py` v2.2+ to find the resume page in <1s instead of a 74 GB sequential scan (~5 min) on restart |
+
+---
+
+## First-time setup (fresh server)
+
+### 0. DNS prerequisites
+Point your domain at the server **before** running setup (Let's Encrypt needs port 80):
+- Cloudflare DNS: A record → Hetzner IPv4, AAAA → Hetzner IPv6
+- SSL/TLS mode: **Full** (origin has a real cert)
 - Both `ed-finder.app` and `www.ed-finder.app` should resolve to the server
 
 ### 1. Clone and run setup
@@ -50,7 +117,7 @@ The script handles everything automatically:
 > `--all` without downloading first streams the gzip through the JSON parser into
 > PostgreSQL simultaneously — insert speed limits the pipeline to ~300 kB/s,
 > meaning 110 GB takes ~100 hours instead of 15 minutes.
-> 
+>
 > The setup script installs `aria2c`, which opens 16 parallel connections and
 > can saturate the 1 Gbps uplink (~125 MB/s). The full 110 GB downloads in
 > approximately 15–30 minutes.
@@ -66,18 +133,17 @@ Files downloaded (~110 GB total):
 
 | File | Compressed | Contents |
 |---|---|---|
-| `galaxy.json.gz` | ~102 GB | All 186M systems + bodies + stations (single file) |
+| `galaxy.json.gz` | ~102 GB | All 186M systems + bodies + stations |
 | `galaxy_populated.json.gz` | ~3.6 GB | Faction/economy enrichment data |
 | `galaxy_stations.json.gz` | ~3.6 GB | Station market/service data |
 
 > **Note:** Spansh no longer provides separate `bodies.json.gz` or `attractions.json.gz`.
-> All body and station data is now nested inside `galaxy.json.gz`. The importer
-> handles this in a single pass — no separate body import step needed.
+> All body and station data is nested inside `galaxy.json.gz`. The importer handles this
+> in a single pass — no separate body import step needed.
 
 ### 3. Drop indexes before importing (critical for speed)
 
-Dropping non-essential indexes before the bulk load makes the import **10–50× faster**
-(COPY into unindexed tables, rebuild indexes after):
+Dropping non-essential indexes before the bulk load makes the import **10–50× faster**:
 
 ```bash
 docker compose exec postgres psql -U edfinder -d edfinder -c "
@@ -92,7 +158,7 @@ DO \$\$ DECLARE r RECORD; BEGIN
 END \$\$;"
 ```
 
-### 4. Import the downloaded files (~8–24 hrs with COPY, fully resumable)
+### 4. Import the downloaded files (~8–24 hrs, fully resumable)
 
 ```bash
 screen -r import   # re-attach, or: screen -S import
@@ -103,7 +169,6 @@ docker compose --profile import run --rm importer \
 
 ### 5. Monitor the import
 ```bash
-# Re-attach screen
 screen -r import
 
 # Check status table
@@ -113,43 +178,124 @@ docker compose exec postgres psql -U edfinder -d edfinder \
 # Row counts while running
 docker compose exec postgres psql -U edfinder -d edfinder \
     -c "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 10;"
-
-# Disk usage
-df -h /data
 ```
 
-### 6. Rebuild indexes (3–5 hours — run AFTER import completes)
+### 6. Rebuild indexes after import (3–5 hours)
 ```bash
 docker compose exec postgres \
     psql -U edfinder -d edfinder -f /docker-entrypoint-initdb.d/002_indexes.sql
 ```
+
 > Indexes were dropped before the import for speed. Rebuild them now.
+> `idx_sys_grid_null` is included in `002_indexes.sql` — this partial index
+> lets `build_grid.py` resume from exactly the right page in under 1 second.
 
-### 7. Build ratings (2–4 hours)
+### 7. Run the three post-import scripts (in order)
+
+**Always run these in this exact order. Each one depends on the previous.**
+
+#### Pull the latest scripts first
 ```bash
-docker compose --profile import run --rm importer \
-    python3 build_ratings.py --rebuild --workers 12
+cd /opt/ed-finder/hetzner
+git fetch origin && git reset --hard origin/main
 ```
 
-### 8. Build spatial grid (10–30 minutes)
+Verify versions:
 ```bash
-docker compose --profile import run --rm importer python3 build_grid.py
+head -5 import/build_grid.py      # must say: Version: 2.3
+head -5 import/build_ratings.py   # must say: Version: 2.2
+head -5 import/build_clusters.py  # must say: Version: 1.3
 ```
 
-### 9. Build cluster summary (8–24 hours — the long one)
+#### Kill any stuck DB processes
 ```bash
-screen -S clusters
-docker compose --profile import run --rm importer \
-    python3 build_clusters.py --workers 12
-# Ctrl+A D to detach
+docker exec ed-postgres psql -U edfinder -d edfinder -c "
+  SELECT pg_terminate_backend(pid)
+  FROM pg_stat_activity
+  WHERE query LIKE 'UPDATE systems%' AND state != 'idle';"
 ```
 
-### 10. Start EDDN live listener
+#### 7a. build_grid.py (~1 hour)
+
+Assigns every system to a 500ly spatial grid cell. Required before build_clusters.py.
+
+```bash
+docker rm -f ed-importer-run 2>/dev/null
+docker run --rm \
+  --network ed-finder_default \
+  --name ed-importer-run \
+  --entrypoint python3 \
+  -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
+  -e LOG_FILE=/data/logs/build_grid.log \
+  -v /opt/ed-finder/hetzner/import/build_grid.py:/app/build_grid.py \
+  -v /opt/ed-finder/hetzner/import/progress.py:/app/progress.py \
+  -v /data/logs:/data/logs \
+  hetzner-importer:latest \
+  build_grid.py
+```
+
+Wait for: `Spatial Grid Complete` in the output.
+
+If it crashes or is interrupted, re-run the exact same command — it resumes automatically.
+
+#### 7b. build_ratings.py (~3–5 hours)
+
+Computes economy scores for all systems with body data. Required before build_clusters.py.
+
+```bash
+docker rm -f ed-importer-run 2>/dev/null
+docker run --rm \
+  --network ed-finder_default \
+  --name ed-importer-run \
+  --entrypoint python3 \
+  -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
+  -e LOG_FILE=/data/logs/build_ratings.log \
+  -v /opt/ed-finder/hetzner/import/build_ratings.py:/app/build_ratings.py \
+  -v /opt/ed-finder/hetzner/import/progress.py:/app/progress.py \
+  -v /data/logs:/data/logs \
+  hetzner-importer:latest \
+  build_ratings.py
+```
+
+Wait for: `Ratings Complete` in the output.
+
+#### 7c. build_clusters.py (~8–24 hours)
+
+Builds the empire-location cluster summary. The longest step.
+
+```bash
+docker rm -f ed-importer-run 2>/dev/null
+docker run --rm \
+  --network ed-finder_default \
+  --name ed-importer-run \
+  --entrypoint python3 \
+  -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
+  -e LOG_FILE=/data/logs/build_clusters.log \
+  -v /opt/ed-finder/hetzner/import/build_clusters.py:/app/build_clusters.py \
+  -v /opt/ed-finder/hetzner/import/progress.py:/app/progress.py \
+  -v /data/logs:/data/logs \
+  hetzner-importer:latest \
+  build_clusters.py
+```
+
+Wait for: `Cluster Summary Complete` in the output.
+
+> **Checking progress while any script is running** (run in a second terminal):
+> ```bash
+> # Live DB activity
+> docker exec ed-postgres psql -U edfinder -d edfinder \
+>   -c "SELECT phase, rows_done, rows_total FROM pg_stat_progress_update;"
+>
+> # Tail the log
+> tail -f /data/logs/build_grid.log      # or build_ratings / build_clusters
+> ```
+
+### 8. Start EDDN live listener
 ```bash
 docker compose up -d eddn
 ```
 
-### 11. Verify everything
+### 9. Verify everything
 ```bash
 docker compose ps
 curl https://ed-finder.app/api/health
@@ -162,73 +308,94 @@ curl https://ed-finder.app/api/status | python3 -m json.tool
 
 | Step | Duration |
 |---|---|
-| Setup script | 5–10 minutes |
-| Download all dumps (aria2c, 16-conn, 1 Gbps) | 15–30 minutes |
-| Drop indexes (before import) | < 1 minute |
-| Import `galaxy.json.gz` (COPY method) | 8–24 hours |
-| Import `galaxy_populated.json.gz` | 1–2 hours |
-| Import `galaxy_stations.json.gz` | 1–2 hours |
-| Rebuild indexes (002_indexes.sql) | 3–5 hours |
-| Build ratings | 2–4 hours |
-| Build spatial grid | 10–30 minutes |
-| Build cluster_summary | 8–24 hours |
+| Setup script | 5–10 min |
+| Download all dumps (aria2c, 1 Gbps) | 15–30 min |
+| Drop indexes | < 1 min |
+| Import galaxy.json.gz | 8–24 hrs |
+| Import galaxy_populated + stations | 2–4 hrs |
+| Rebuild indexes (002_indexes.sql) | 3–5 hrs |
+| build_grid.py | ~1 hr |
+| build_ratings.py | 3–5 hrs |
+| build_clusters.py | 8–24 hrs |
 | **Total** | **~2–3 days** |
-
-> **Import speed notes:**
-> - **Download**: `aria2c` with 16 parallel connections completes 110 GB in ~15–30 min on Hetzner 1 Gbps. Without aria2c (wget/curl single-stream), ~25–35 min. Streaming directly from URL into PostgreSQL (`--all` without `--download-only` first) is bottlenecked by DB insert speed to ~300 kB/s → ~100 hours — always download first.
-> - **COPY vs INSERT**: The v2.0 importer uses `COPY`-via-temp-table instead of `INSERT … ON CONFLICT`. This is 10–50× faster: ~5–15 MB/s with indexes dropped (target 8–24 h) vs ~250 kB/s with live indexes (~5 days). **Always drop indexes before the bulk import** (step 3) and rebuild afterward (step 6).
-> - **PostgreSQL tuning during import**: The importer automatically applies `synchronous_commit=off`, `work_mem=256MB`, `maintenance_work_mem=4GB` per-session. For even faster loads, also run `ALTER SYSTEM SET fsync=off; SELECT pg_reload_conf();` before importing and re-enable after.
-
-The API serves live traffic as soon as `galaxy.json.gz` import completes.
-Cluster search requires cluster_summary to be built first.
 
 ---
 
-## Known issues and fixes (lessons from first deployment)
+## Re-running scripts on an existing database
+
+All three post-import scripts are **fully resume-safe** by default:
+- `build_grid.py` — skips already-assigned rows; resumes from first unassigned page
+- `build_ratings.py` — skips systems that already have a ratings row
+- `build_clusters.py` — skips anchors that already have a cluster_summary row
+
+To force a full rebuild from scratch:
+```bash
+# Grid (wipe app_meta cache and reset grid_cell_id)
+build_grid.py --reset-cache
+
+# Ratings (re-rate everything)
+build_ratings.py --rebuild
+
+# Clusters (recompute all anchors)
+build_clusters.py --rebuild
+```
+
+---
+
+## Known issues and fixes
 
 ### 1. System nginx grabs port 80
-Ubuntu 24.04 installs nginx as a system service. It starts on boot and holds port 80/443, preventing the Docker nginx container from binding.
+Ubuntu 24.04 installs nginx as a system service. It starts on boot and holds port 80/443.
 ```bash
 # Fix (setup.sh does this automatically):
 systemctl stop nginx && systemctl mask nginx
 ```
 
 ### 2. pgBouncer authentication failure
-PostgreSQL 16 defaults to `scram-sha-256`. The `edoburu/pgbouncer` image uses `AUTH_TYPE=md5` for client connections but needs the password stored as md5 on the postgres side.
+PostgreSQL 16 defaults to `scram-sha-256`. pgBouncer uses md5.
 ```bash
 # Fix (setup.sh does this automatically):
 docker compose exec postgres psql -U edfinder -d edfinder -c \
     "SET password_encryption = md5; ALTER USER edfinder WITH PASSWORD 'yourpassword';"
-docker compose exec postgres sed -i 's/scram-sha-256/md5/g' \
-    /var/lib/postgresql/data/pg_hba.conf
-docker compose exec postgres psql -U edfinder -d edfinder -c "SELECT pg_reload_conf();"
 ```
 
 ### 3. nginx upstream DNS crash on startup
-Static `upstream { server api:8000; }` blocks resolve DNS once at startup. If the `api` container isn't ready yet, nginx crashes with `host not found in upstream`.  
-**Fix**: use Docker's internal resolver + a variable for lazy per-request DNS:
 ```nginx
+# Fix: use Docker's internal resolver + a lazy variable
 resolver 127.0.0.11 valid=10s ipv6=off;
-# then in location blocks:
 set $api_upstream http://api:8000;
 proxy_pass $api_upstream;
 ```
 
 ### 4. Frontend 403 Forbidden
-The compose file originally used `../frontend:/var/www/html:ro` which resolves to `/opt/frontend` (doesn't exist). Files are at `/opt/ed-finder-src/frontend/`.  
-**Fix**: use the absolute path in docker-compose.yml:
+The compose file used `../frontend:/var/www/html:ro` which resolves incorrectly.
 ```yaml
+# Fix: use absolute path
 - /opt/ed-finder-src/frontend:/var/www/html:ro
 ```
-Also ensure files are world-readable: `chmod -R 755 /opt/ed-finder-src/frontend/`
 
 ### 5. Cloudflare 521 (Web server is down)
-Cloudflare couldn't reach the origin. Causes:
-- System nginx holding port 80 (see fix #1)
-- DNS A record not pointing at the Hetzner IP
-- Docker nginx container restarting
+Check: `ss -tlnp | grep -E ':80|:443'` — should show `docker-proxy`, not `nginx`.
 
-Check: `ss -tlnp | grep -E ':80|:443'` — should show `docker-proxy` not `nginx`.
+### 6. Docker container name already in use
+```bash
+docker rm -f ed-importer-run 2>/dev/null
+```
+Always prepend `docker rm -f ed-importer-run 2>/dev/null` to any `docker run` command.
+
+### 7. Wrong Docker network
+The container network is `ed-finder_default` (not `hetzner_default` or `ed-finder-net`).
+Verify with: `docker network ls | grep ed-finder`
+
+### 8. postgres hostname not resolving inside container
+Pass the PostgreSQL container's IP directly via `DATABASE_URL`. Find it with:
+```bash
+docker inspect ed-postgres | grep '"IPAddress"'
+```
+Then use that IP in `DATABASE_URL` instead of the hostname `postgres`.
+
+### 9. build_grid stalling at ~41M rows
+This was the original root cause of the multi-day debugging session. It is **fully fixed in v2.3**. The cause was 17 RI triggers firing per row UPDATE (16 FK triggers + 1 custom). The fix is `SET session_replication_role = replica` which is now applied automatically. Pull the latest code and re-run.
 
 ---
 
@@ -245,36 +412,12 @@ Check: `ss -tlnp | grep -E ':80|:443'` — should show `docker-proxy` not `nginx
 | GET/POST/DELETE | `/api/watchlist/...` | Watchlist CRUD |
 | GET/POST/DELETE | `/api/systems/{id64}/note` | Notes CRUD |
 
-### Galaxy-wide endpoints (requires full import)
+### Galaxy-wide endpoints (requires full import + post-import scripts)
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/search/galaxy` | Galaxy-wide economy search |
 | POST | `/api/search/cluster` | Multi-economy cluster search |
 | GET | `/api/status` | Full import + data status |
-
-#### Galaxy search example
-```json
-POST /api/search/galaxy
-{
-    "economy": "HighTech",
-    "min_score": 50,
-    "limit": 100
-}
-```
-
-#### Cluster search example
-```json
-POST /api/search/cluster
-{
-    "requirements": [
-        {"economy": "HighTech",    "min_count": 1, "min_score": 50},
-        {"economy": "Agriculture", "min_count": 2, "min_score": 40},
-        {"economy": "Refinery",    "min_count": 2, "min_score": 35},
-        {"economy": "Industrial",  "min_count": 1, "min_score": 35}
-    ],
-    "limit": 50
-}
-```
 
 ---
 
@@ -283,13 +426,14 @@ POST /api/search/cluster
 | Table | Rows (est.) | Description |
 |---|---|---|
 | `systems` | 186M | All known systems |
-| `bodies` | ~800M | All scanned bodies (from galaxy.json.gz) |
+| `bodies` | ~800M | All scanned bodies |
 | `stations` | ~5M | Stations, carriers, outposts |
-| `ratings` | ~70M | Pre-computed economy scores |
-| `spatial_grid` | ~100k | 500ly grid cells |
-| `cluster_summary` | ~70M | Pre-aggregated empire coverage |
+| `ratings` | ~70M | Pre-computed economy scores (built by build_ratings.py) |
+| `spatial_grid` | ~100k | 500ly grid cells (built by build_grid.py) |
+| `cluster_summary` | ~70M | Pre-aggregated empire coverage (built by build_clusters.py) |
 | `factions` | ~80k | Player & NPC factions |
 | `import_meta` | 3 rows | Import status per dump file |
+| `app_meta` | ~10 rows | Script state (grid bounds, built flags) |
 | `watchlist` | user data | Watched systems |
 | `system_notes` | user data | Personal notes |
 
@@ -299,7 +443,7 @@ POST /api/search/cluster
 Settings for 128 GB RAM / i7-8700 (12 threads):
 - `shared_buffers = 32GB` — 25% of RAM for Postgres buffer pool
 - `effective_cache_size = 96GB` — planner hint for total available cache
-- `work_mem = 256MB` — per-operation sort/hash memory
+- `work_mem = 256MB` — per-operation sort/hash memory (bulk ops use 512MB+)
 - `maintenance_work_mem = 4GB` — for index builds and VACUUM
 - `max_parallel_workers = 12` — use all 12 threads
 
@@ -307,31 +451,20 @@ Settings for 128 GB RAM / i7-8700 (12 threads):
 
 ## Maintenance
 
-### Reinstall / Nuke
+### Pull latest code and re-run scripts
+```bash
+cd /opt/ed-finder/hetzner
+git fetch origin && git reset --hard origin/main
+# Then re-run whichever script you need
+```
 
+### Reinstall / Nuke
 ```bash
 # Pull latest code and rebuild containers (PRESERVES database):
 sudo bash setup.sh --reinstall
 
 # Destroy EVERYTHING including the database (full re-import required):
 sudo bash setup.sh --nuke
-```
-
-`--reinstall`: stops containers, removes images (forces rebuild), re-pulls code, restarts.  
-`--nuke`: asks for `NUKE IT` confirmation, then destroys all Docker volumes including PostgreSQL data.
-
-### Update the app (no data loss)
-```bash
-cd /opt/ed-finder-src
-git pull origin main
-
-# Copy updated files
-cp hetzner/config/nginx.conf /opt/ed-finder/config/nginx.conf
-cp hetzner/docker-compose.yml /opt/ed-finder/docker-compose.yml
-
-# Rebuild and restart changed services only
-cd /opt/ed-finder
-docker compose up -d --build api nginx
 ```
 
 ### Check import status
@@ -347,11 +480,16 @@ docker compose exec postgres psql -U edfinder -d edfinder \
         FROM pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;"
 ```
 
+### Check post-import script status
+```bash
+docker compose exec postgres psql -U edfinder -d edfinder \
+    -c "SELECT key, value, updated_at FROM app_meta ORDER BY key;"
+# Look for: grid_built=true, ratings_built=true, clusters_built=true
+```
+
 ### Resume a failed import
 ```bash
-screen -S import
 docker compose --profile import run --rm importer import_spansh.py --all --resume
-# Ctrl+A D
 ```
 
 ### Manual nightly update
@@ -361,8 +499,8 @@ docker compose --profile import run --rm importer import_spansh.py --all --resum
 
 ### Restart individual services
 ```bash
-docker compose restart api        # restart API
-docker compose restart nginx      # reload nginx config
-docker compose restart eddn       # restart EDDN listener
-docker compose up -d --build api  # rebuild + restart API
+docker compose restart api
+docker compose restart nginx
+docker compose restart eddn
+docker compose up -d --build api
 ```
