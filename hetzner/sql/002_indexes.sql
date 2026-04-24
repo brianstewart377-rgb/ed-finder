@@ -26,6 +26,15 @@ FROM pg_stat_progress_create_index;'; END $$;
 -- SYSTEMS TABLE INDEXES
 -- =============================================================================
 
+-- CRITICAL for build_grid.py v2.2 (ctid-range batching):
+-- Allows _get_resume_page() to instantly find the first unassigned heap page
+-- on restart without scanning the full 74GB table.
+-- Without this index, resume detection does a full seq scan (~5 minutes).
+-- With this index, resume detection takes < 1 second.
+CREATE INDEX IF NOT EXISTS idx_sys_grid_null
+    ON systems(id64)
+    WHERE grid_cell_id IS NULL;
+
 -- Primary spatial index — bounding box pre-filter (used by almost every query)
 CREATE INDEX IF NOT EXISTS idx_sys_x ON systems(x);
 CREATE INDEX IF NOT EXISTS idx_sys_y ON systems(y);
