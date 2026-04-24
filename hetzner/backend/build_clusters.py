@@ -594,9 +594,7 @@ def main():
             )
 
     log.info("")
-    log.info("Next step: run sql/002_indexes.sql to build all search indexes")
-    log.info("  docker exec -it ed-postgres psql -U edfinder -d edfinder \\")
-    log.info("    -f /path/to/hetzner/sql/002_indexes.sql")
+    log.info("Next step: docker compose up -d eddn   (start the live EDDN listener)")
 
 
 if __name__ == '__main__':

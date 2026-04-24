@@ -1005,7 +1005,7 @@ Strategies:
         f"Systems assigned: {fmt_num(total_systems)}",
         f"Systems/cell    : min={r[0]}  max={r[1]}  avg={r[2]}  median={r[3]}",
     ])
-    log.info("Next step: python3 build_clusters.py")
+    log.info("Next step: python3 build_ratings.py")
 
 
 if __name__ == '__main__':
