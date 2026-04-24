@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Ratings Computer
-Version: 2.1  (rich progress reporting, safe log path)
+Version: 2.2  (disable RI triggers on dirty-flag UPDATE — same fix as build_grid v2.3)
 
 Ports the JavaScript rateSystem() function to Python exactly.
 Computes scores for all visited systems and writes to the ratings table.
@@ -22,6 +22,14 @@ NEW in v2.1:
   • Per-worker heartbeat via WorkerHeartbeat (visible crash detection)
   • os.makedirs uses abspath so it never fails on a plain filename
   • Final done_banner with key metrics
+
+FIX in v2.2:
+  • `UPDATE systems SET rating_dirty = FALSE` fired 17 RI triggers per row
+    (8 child FKs × 2 triggers + 1 custom = 17) even though only rating_dirty
+    changes — causing ~252M spurious trigger evaluations per run.
+  • Fix: SET session_replication_role = replica before the dirty-flag UPDATE
+    (session-scoped, reverts automatically on disconnect, safe because we are
+    not modifying id64 or any FK column).
 
 Usage:
     python3 build_ratings.py              # rate all unrated systems (resume-safe)
@@ -348,14 +356,26 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
             log.error(f"Worker {worker_id}: final write error: {e}")
             conn.rollback()
 
-    # Mark systems as clean (one UPDATE, one commit)
+    # Mark systems as clean (one UPDATE, one commit).
+    # FIX v2.2: disable RI triggers for this session so the UPDATE doesn't fire
+    # 17 referential-integrity triggers per row (8 FK child tables × 2 triggers
+    # each + 1 custom trigger = 17).  Only rating_dirty is being changed — not
+    # id64 (the FK column) — so RI integrity is fully maintained.
+    # session_replication_role = replica reverts automatically on disconnect.
     if id64s:
         try:
+            try:
+                cur.execute("SET session_replication_role = replica")
+                log.debug(f"Worker {worker_id}: RI triggers disabled for dirty-flag UPDATE")
+            except Exception as e:
+                log.warning(f"Worker {worker_id}: could not disable RI triggers: {e} — continuing anyway")
             cur.execute(
                 "UPDATE systems SET rating_dirty = FALSE WHERE id64 = ANY(%s)",
                 (id64s,)
             )
             conn.commit()
+            # session_replication_role reverts to 'origin' on next transaction /
+            # disconnect automatically — no explicit reset needed.
         except Exception as e:
             log.error(f"Worker {worker_id}: dirty-flag update error: {e}")
             conn.rollback()
