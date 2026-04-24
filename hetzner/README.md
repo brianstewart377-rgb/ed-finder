@@ -89,6 +89,46 @@ These RI triggers fire on **every** `UPDATE systems` — even when only `grid_ce
 
 ---
 
+## Repository layout
+
+```
+hetzner/
+├── backend/                 # Docker build context for ALL Python services
+│   ├── Dockerfile           # FastAPI API server (main.py)
+│   ├── Dockerfile.eddn      # EDDN live listener (eddn_listener.py)
+│   ├── Dockerfile.import    # One-shot import runner (import_spansh.py etc.)
+│   ├── requirements.txt     # Shared Python dependencies
+│   ├── main.py              # FastAPI application
+│   ├── eddn_listener.py     # EDDN WebSocket listener
+│   ├── local_search.py      # Search logic (imported by main.py)
+│   ├── import_spansh.py     # Bulk Spansh dump importer
+│   ├── build_grid.py        # Spatial grid builder       (v2.3 — single source)
+│   ├── build_ratings.py     # Economy rating computer    (v2.2 — single source)
+│   ├── build_clusters.py    # Cluster summary builder    (v1.3 — single source)
+│   └── progress.py          # Shared progress-bar helper
+├── config/
+│   └── nginx.conf           # Nginx SSL + proxy config
+├── scripts/
+│   ├── nightly_update.sh    # Nightly delta-import cron script
+│   └── watch_grid.sh        # Live progress watcher for build_grid.py
+├── sql/
+│   ├── 001_schema.sql       # Table definitions (auto-run on first postgres start)
+│   ├── 002_indexes.sql      # All indexes including idx_sys_grid_null
+│   └── 003_functions.sql    # PL/pgSQL helpers (grid lookup, distance, etc.)
+├── tests/
+│   └── test_smoke.py        # Basic smoke tests
+├── docker-compose.yml       # Full service stack
+├── setup.sh                 # First-time server setup script
+└── README.md                # This file
+```
+
+> **Single source of truth:** All import scripts live **only** in `backend/`.
+> The `Dockerfile.import` copies them into the image at build time.
+> When running scripts with `docker run -v`, always mount from `backend/` — there
+> is no separate `import/` directory.
+
+---
+
 ## First-time setup (fresh server)
 
 ### 0. DNS prerequisites
@@ -101,6 +141,9 @@ Point your domain at the server **before** running setup (Let's Encrypt needs po
 ```bash
 git clone https://github.com/brianstewart377-rgb/ed-finder.git /opt/ed-finder-src
 cd /opt/ed-finder-src/hetzner
+
+> **Note:** All paths in this document assume the repo is cloned to `/opt/ed-finder-src`.
+> If you cloned elsewhere, adjust the paths accordingly.
 chmod +x setup.sh
 sudo ./setup.sh
 ```
@@ -196,15 +239,15 @@ docker compose exec postgres \
 
 #### Pull the latest scripts first
 ```bash
-cd /opt/ed-finder/hetzner
+cd /opt/ed-finder-src/hetzner
 git fetch origin && git reset --hard origin/main
 ```
 
 Verify versions:
 ```bash
-head -5 import/build_grid.py      # must say: Version: 2.3
-head -5 import/build_ratings.py   # must say: Version: 2.2
-head -5 import/build_clusters.py  # must say: Version: 1.3
+head -5 backend/build_grid.py      # must say: Version: 2.3
+head -5 backend/build_ratings.py   # must say: Version: 2.2
+head -5 backend/build_clusters.py  # must say: Version: 1.3
 ```
 
 #### Kill any stuck DB processes
@@ -227,8 +270,8 @@ docker run --rm \
   --entrypoint python3 \
   -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
   -e LOG_FILE=/data/logs/build_grid.log \
-  -v /opt/ed-finder/hetzner/import/build_grid.py:/app/build_grid.py \
-  -v /opt/ed-finder/hetzner/import/progress.py:/app/progress.py \
+  -v /opt/ed-finder-src/hetzner/backend/build_grid.py:/app/build_grid.py \
+  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
   -v /data/logs:/data/logs \
   hetzner-importer:latest \
   build_grid.py
@@ -250,8 +293,8 @@ docker run --rm \
   --entrypoint python3 \
   -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
   -e LOG_FILE=/data/logs/build_ratings.log \
-  -v /opt/ed-finder/hetzner/import/build_ratings.py:/app/build_ratings.py \
-  -v /opt/ed-finder/hetzner/import/progress.py:/app/progress.py \
+  -v /opt/ed-finder-src/hetzner/backend/build_ratings.py:/app/build_ratings.py \
+  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
   -v /data/logs:/data/logs \
   hetzner-importer:latest \
   build_ratings.py
@@ -271,8 +314,8 @@ docker run --rm \
   --entrypoint python3 \
   -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
   -e LOG_FILE=/data/logs/build_clusters.log \
-  -v /opt/ed-finder/hetzner/import/build_clusters.py:/app/build_clusters.py \
-  -v /opt/ed-finder/hetzner/import/progress.py:/app/progress.py \
+  -v /opt/ed-finder-src/hetzner/backend/build_clusters.py:/app/build_clusters.py \
+  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
   -v /data/logs:/data/logs \
   hetzner-importer:latest \
   build_clusters.py
@@ -328,17 +371,21 @@ All three post-import scripts are **fully resume-safe** by default:
 - `build_ratings.py` — skips systems that already have a ratings row
 - `build_clusters.py` — skips anchors that already have a cluster_summary row
 
-To force a full rebuild from scratch:
+To force a full rebuild from scratch, pass `--rebuild` (or `--reset-cache` for the grid)
+using the same `docker run` command from step 7, with an extra argument appended:
+
 ```bash
-# Grid (wipe app_meta cache and reset grid_cell_id)
-build_grid.py --reset-cache
+# Grid — wipe app_meta cache and reassign all grid_cell_ids
+docker run ... hetzner-importer:latest build_grid.py --reset-cache
 
-# Ratings (re-rate everything)
-build_ratings.py --rebuild
+# Ratings — re-rate every system (even already-rated ones)
+docker run ... hetzner-importer:latest build_ratings.py --rebuild
 
-# Clusters (recompute all anchors)
-build_clusters.py --rebuild
+# Clusters — recompute all anchors
+docker run ... hetzner-importer:latest build_clusters.py --rebuild
 ```
+
+Replace `...` with the full flags from step 7 (`--network`, `-e`, `-v`, etc.).
 
 ---
 
@@ -453,7 +500,7 @@ Settings for 128 GB RAM / i7-8700 (12 threads):
 
 ### Pull latest code and re-run scripts
 ```bash
-cd /opt/ed-finder/hetzner
+cd /opt/ed-finder-src/hetzner
 git fetch origin && git reset --hard origin/main
 # Then re-run whichever script you need
 ```
@@ -494,7 +541,7 @@ docker compose --profile import run --rm importer import_spansh.py --all --resum
 
 ### Manual nightly update
 ```bash
-/opt/ed-finder/import/nightly_update.sh
+/opt/ed-finder-src/hetzner/scripts/nightly_update.sh
 ```
 
 ### Restart individual services

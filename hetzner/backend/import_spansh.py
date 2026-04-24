@@ -399,7 +399,7 @@ def parse_ts(v) -> Optional[str]:
     """Convert any timestamp value to an ISO8601 string PostgreSQL can accept.
     Handles: Unix epoch int/float, ISO8601 strings, other strings (passed through).
     """
-    if v is None or v == '':
+    if not v:
         return None
     try:
         if isinstance(v, (int, float)):
@@ -560,20 +560,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     with gzip.open(dump_path, 'rb') as f:
         if resume_offset > 0:
-            # NOTE: gzip.GzipFile.seek() decompresses from the start of the
-            # stream up to the target offset — it is O(n), not O(1).  There is
-            # no way to jump directly to a random position inside a gzip stream
-            # without an external index (e.g. zran).  For a 110 GB compressed
-            # file this can take 5-20 minutes.  The alternative — restarting
-            # from scratch — would lose all already-imported rows, so we accept
-            # the O(n) seek cost as the lesser evil.  If resume latency becomes
-            # unacceptable, consider: (a) splitting the dump into chunks before
-            # import, or (b) building a gzip index with the `indexed_gzip`
-            # library (pip install indexed-gzip).
-            log.warning(
-                f"Resuming from decompressed offset {resume_offset:,} bytes. "
-                f"gzip seek is O(n) — this may take several minutes on a 100 GB dump."
-            )
+            log.info(f"Seeking to resume offset {resume_offset:,} ...")
             f.seek(resume_offset)
 
         pbar = tqdm(
@@ -933,10 +920,6 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     with gzip.open(dump_path, 'rb') as f:
         if resume_offset > 0:
-            log.warning(
-                f"Resuming from decompressed offset {resume_offset:,} bytes. "
-                f"gzip seek is O(n) — this may take several minutes on a large dump."
-            )
             f.seek(resume_offset)
 
         pbar = tqdm(
@@ -1078,10 +1061,6 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     with gzip.open(dump_path, 'rb') as f:
         if resume_offset > 0:
-            log.warning(
-                f"Resuming from decompressed offset {resume_offset:,} bytes. "
-                f"gzip seek is O(n) — this may take several minutes on a large dump."
-            )
             f.seek(resume_offset)
 
         pbar = tqdm(
@@ -1207,10 +1186,6 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     with gzip.open(dump_path, 'rb') as f:
         if resume_offset > 0:
-            log.warning(
-                f"Resuming from decompressed offset {resume_offset:,} bytes. "
-                f"gzip seek is O(n) — this may take several minutes on a large dump."
-            )
             f.seek(resume_offset)
 
         pbar = tqdm(

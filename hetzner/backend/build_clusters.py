@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder
-Version: 1.2  (rich progress reporting, per-worker heartbeat)
+Version: 1.3  (disable RI triggers on dirty-flag UPDATE — same fix as build_grid v2.3)
 
 Builds the cluster_summary table: for every visited system, computes
 how many viable uncolonised systems exist for each economy type within
@@ -32,6 +32,13 @@ NEW in v1.2:
   • done_banner with top-5 coverage table
   • Safe log path default (/tmp/build_clusters.log)
   • Explicit "WARNING: spatial grid missing" block with estimated slow-path time
+
+FIX in v1.3:
+  • `UPDATE systems SET cluster_dirty = FALSE` fired 17 RI triggers per row
+    (8 child FKs × 2 triggers + 1 custom = 17) even though only cluster_dirty
+    changes — ~2.5 billion spurious trigger evaluations across 73M anchors.
+  • Fix: SET session_replication_role = replica before the dirty-flag UPDATE
+    (session-scoped, reverts automatically, safe: id64/FK columns not touched).
 
 Usage:
     python3 build_clusters.py                    # build all (resume-safe)
@@ -272,14 +279,26 @@ def process_anchor_batch(
     if cluster_batch:
         _write_clusters(conn, cur, cluster_batch)
 
-    # Mark anchors as clean
+    # Mark anchors as clean.
+    # FIX v1.3: disable RI triggers for this session so the UPDATE doesn't fire
+    # 17 referential-integrity triggers per row (8 FK child tables × 2 triggers
+    # each + 1 custom trigger = 17).  Only cluster_dirty is being changed — not
+    # id64 (the FK column) — so RI integrity is fully maintained.
+    # session_replication_role = replica reverts automatically on disconnect.
     anchor_ids = [a[0] for a in anchor_batch]
     if anchor_ids:
+        try:
+            cur.execute("SET session_replication_role = replica")
+            log.debug(f"Worker {worker_id}: RI triggers disabled for dirty-flag UPDATE")
+        except Exception as e:
+            log.warning(f"Worker {worker_id}: could not disable RI triggers: {e} — continuing anyway")
         cur.execute("""
             UPDATE systems SET cluster_dirty = FALSE
             WHERE id64 = ANY(%s)
         """, (anchor_ids,))
         conn.commit()
+        # session_replication_role reverts to 'origin' on next transaction /
+        # disconnect automatically — no explicit reset needed.
 
     cur.close()
     conn.close()
@@ -345,7 +364,7 @@ def _write_clusters(conn, cur, batch: list):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary table (v1.2)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary table (v1.3)')
     parser.add_argument('--rebuild',    action='store_true',
                         help='Re-compute ALL anchors from scratch (ignores cluster_dirty)')
     parser.add_argument('--dirty-only', action='store_true',
@@ -366,7 +385,7 @@ def main():
     mode_label = ("REBUILD ALL" if args.rebuild
                   else ("DIRTY ONLY" if args.dirty_only
                         else "RESUME (unprocessed only)"))
-    startup_banner(log, "Cluster Summary Builder", "v1.2", [
+    startup_banner(log, "Cluster Summary Builder", "v1.3", [
         ("Mode",       mode_label),
         ("Radius",     f"{args.radius}ly"),
         ("Min score",  str(args.min_score)),
@@ -505,7 +524,7 @@ def main():
                 pending_results.append(
                     pool.apply_async(
                         process_anchor_batch,
-                        (chunks_dispatched % args.workers, batch, DB_DSN,
+                        (chunks_dispatched, batch, DB_DSN,
                          args.radius, args.min_score)
                     )
                 )
