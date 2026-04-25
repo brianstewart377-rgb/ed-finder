@@ -293,16 +293,29 @@ async function openSystemModal(sys) {
   }
 
   _modalSys = full;
-  content.innerHTML = buildModalHTML(full);
-  attachModalEvents(full);
+  try {
+    content.innerHTML = buildModalHTML(full);
+    attachModalEvents(full);
+  } catch (err) {
+    console.error('Modal render error:', err);
+    content.innerHTML = `<div class="error-state">⚠ Failed to render system detail: ${err.message}</div>`;
+  }
 }
+
+// Helper: return value only if it's a non-null, non-"None" string or non-zero number
+function val(v) { return (v != null && v !== 'None' && v !== '' && v !== 0) ? v : null; }
 
 function buildModalHTML(sys) {
   const r = sys._rating || {};
   const coords = sys.coords || { x: sys.x, y: sys.y, z: sys.z };
-  const eco = sys.primaryEconomy || sys.primary_economy || '—';
-  const eco2 = sys.secondaryEconomy || sys.secondary_economy;
-  const edsm = `https://www.edsm.net/en/system/id/${sys.id64}/name/${encodeURIComponent(sys.name || '')}`;
+  // Handle both camelCase (from search results) and snake_case (from /api/system/)
+  const eco  = val(sys.primaryEconomy)   || val(sys.primary_economy)   || '—';
+  const eco2 = val(sys.secondaryEconomy) || val(sys.secondary_economy) || null;
+  const security   = val(sys.security);
+  const allegiance = val(sys.allegiance);
+  const government = val(sys.government);
+  const mainStar   = val(sys.main_star_type);
+  const edsm  = `https://www.edsm.net/en/system/id/${sys.id64}/name/${encodeURIComponent(sys.name || '')}`;
   const inara = `https://inara.cz/elite/starsystem/?search=${encodeURIComponent(sys.name || '')}`;
   const isSaved = Watchlist.has(sys.id64);
   const dSol = distFromSol(coords.x, coords.y, coords.z);
@@ -317,52 +330,49 @@ function buildModalHTML(sys) {
     ['Tourism',     r.scoreTourism     ?? r.score_tourism],
   ].filter(([, v]) => v != null);
 
-  // Bodies list
+  // Bodies list — built via DOM to avoid nested template literal issues
   const bodies = sys.bodies || [];
-  const bodiesHTML = bodies.length ? `
-    <div class="modal-section">
-      <div class="modal-section-title">Bodies (${bodies.length})</div>
-      <div class="body-list">
-        ${bodies.map(b => {
-          const flags = [];
-          if (b.is_earth_like)   flags.push('🌍 ELW');
-          if (b.is_water_world)  flags.push('💧 WW');
-          if (b.is_ammonia_world) flags.push('🟣 AW');
-          if (b.is_landable)     flags.push('⬇ Landable');
-          if (b.is_terraformable) flags.push('♻ Terr.');
-          if (b.bio_signal_count > 0) flags.push(`🧬 ×${b.bio_signal_count}`);
-          if (b.geo_signal_count > 0) flags.push(`🌋 ×${b.geo_signal_count}`);
-          if (b.spectral_class)  flags.push(b.spectral_class + (b.is_scoopable ? ' ⛽' : ''));
-          return `
-          <div class="body-row">
-            <span class="body-row-name">${b.name || '—'}</span>
-            <span class="body-row-type">${b.subtype || b.body_type || '—'}</span>
-            ${flags.length ? `<span style="font-size:0.7rem;color:var(--text-dim)">${flags.join(' · ')}</span>` : ''}
-            ${b.distance_from_star != null ? `<span class="body-row-dist">${Number(b.distance_from_star).toFixed(0)} ls</span>` : ''}
-          </div>`;
-        }).join('')}
-      </div>
-    </div>` : '';
+  let bodiesHTML = '';
+  if (bodies.length) {
+    const rows = bodies.map(b => {
+      const flags = [];
+      if (b.is_earth_like)    flags.push('🌍 ELW');
+      if (b.is_water_world)   flags.push('💧 WW');
+      if (b.is_ammonia_world) flags.push('🟣 AW');
+      if (b.is_landable)      flags.push('⬇ Land');
+      if (b.is_terraformable) flags.push('♻ Terr');
+      if (b.bio_signal_count > 0) flags.push('🧬 ×' + b.bio_signal_count);
+      if (b.geo_signal_count > 0) flags.push('🌋 ×' + b.geo_signal_count);
+      if (b.spectral_class)   flags.push(b.spectral_class + (b.is_scoopable ? ' ⛽' : ''));
+      const distStr = b.distance_from_star != null ? Number(b.distance_from_star).toFixed(0) + ' ls' : '';
+      return '<div class="body-row">'
+        + '<span class="body-row-name">' + (b.name || '—') + '</span>'
+        + '<span class="body-row-type">' + (b.subtype || b.body_type || '—') + '</span>'
+        + (flags.length ? '<span style="font-size:0.7rem;color:var(--text-dim)">' + flags.join(' · ') + '</span>' : '')
+        + (distStr ? '<span class="body-row-dist">' + distStr + '</span>' : '')
+        + '</div>';
+    });
+    bodiesHTML = '<div class="modal-section"><div class="modal-section-title">Bodies (' + bodies.length + ')</div><div class="body-list">' + rows.join('') + '</div></div>';
+  }
 
   // Stations list
   const stations = sys.stations || [];
-  const stationsHTML = stations.length ? `
-    <div class="modal-section">
-      <div class="modal-section-title">Stations (${stations.length})</div>
-      <div class="station-list">
-        ${stations.map(s => `
-          <div class="station-row">
-            <span class="station-row-name">${s.name || '—'}</span>
-            <div class="station-services">
-              <span class="svc-tag ${s.landing_pad_size === 'L' ? 'active' : ''}">${s.landing_pad_size || '?'} pad</span>
-              ${s.has_market ? `<span class="svc-tag active">Market</span>` : ''}
-              ${s.has_shipyard ? `<span class="svc-tag active">Shipyard</span>` : ''}
-              ${s.has_outfitting ? `<span class="svc-tag active">Outfitting</span>` : ''}
-            </div>
-            ${s.distance_from_star != null ? `<span class="body-row-dist">${Number(s.distance_from_star).toFixed(0)} ls</span>` : ''}
-          </div>`).join('')}
-      </div>
-    </div>` : '';
+  let stationsHTML = '';
+  if (stations.length) {
+    const rows = stations.map(s => {
+      const svcTags = '<span class="svc-tag ' + (s.landing_pad_size === 'L' ? 'active' : '') + '">' + (s.landing_pad_size || '?') + ' pad</span>'
+        + (s.has_market     ? '<span class="svc-tag active">Market</span>' : '')
+        + (s.has_shipyard   ? '<span class="svc-tag active">Shipyard</span>' : '')
+        + (s.has_outfitting ? '<span class="svc-tag active">Outfitting</span>' : '');
+      const distStr = s.distance_from_star != null ? Number(s.distance_from_star).toFixed(0) + ' ls' : '';
+      return '<div class="station-row">'
+        + '<span class="station-row-name">' + (s.name || '—') + '</span>'
+        + '<div class="station-services">' + svcTags + '</div>'
+        + (distStr ? '<span class="body-row-dist">' + distStr + '</span>' : '')
+        + '</div>';
+    });
+    stationsHTML = '<div class="modal-section"><div class="modal-section-title">Stations (' + stations.length + ')</div><div class="station-list">' + rows.join('') + '</div></div>';
+  }
 
   return `
     <div class="modal-system-name">
@@ -393,7 +403,7 @@ function buildModalHTML(sys) {
           <span class="modal-field-label">Primary Economy</span>
           <span class="modal-field-value gold">${eco}</span>
         </div>
-        ${eco2 && eco2 !== 'None' ? `
+        ${eco2 ? `
         <div class="modal-field">
           <span class="modal-field-label">Secondary Economy</span>
           <span class="modal-field-value">${eco2}</span>
@@ -404,10 +414,10 @@ function buildModalHTML(sys) {
             ${Number(sys.population) === 0 ? 'Uncolonised' : fmtNum(sys.population)}
           </span>
         </div>
-        ${sys.security ? `<div class="modal-field"><span class="modal-field-label">Security</span><span class="modal-field-value">${sys.security}</span></div>` : ''}
-        ${sys.allegiance ? `<div class="modal-field"><span class="modal-field-label">Allegiance</span><span class="modal-field-value">${sys.allegiance}</span></div>` : ''}
-        ${sys.government ? `<div class="modal-field"><span class="modal-field-label">Government</span><span class="modal-field-value">${sys.government}</span></div>` : ''}
-        ${sys.main_star_type ? `<div class="modal-field"><span class="modal-field-label">Main Star</span><span class="modal-field-value" style="color:var(--purple)">${starLabel(sys.main_star_type, sys.main_star_subtype)}</span></div>` : ''}
+        ${security ? `<div class="modal-field"><span class="modal-field-label">Security</span><span class="modal-field-value">${security}</span></div>` : ''}
+        ${allegiance ? `<div class="modal-field"><span class="modal-field-label">Allegiance</span><span class="modal-field-value">${allegiance}</span></div>` : ''}
+        ${government ? `<div class="modal-field"><span class="modal-field-label">Government</span><span class="modal-field-value">${government}</span></div>` : ''}
+        ${mainStar ? `<div class="modal-field"><span class="modal-field-label">Main Star</span><span class="modal-field-value" style="color:var(--purple)">${starLabel(mainStar, sys.main_star_subtype)}</span></div>` : ''}
         ${(r.economySuggestion || r.economy_suggestion) ? `
         <div class="modal-field">
           <span class="modal-field-label">Suggested Economy</span>
