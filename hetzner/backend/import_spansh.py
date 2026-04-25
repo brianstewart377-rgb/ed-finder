@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spansh Dump Importer  (PostgreSQL / psycopg2 COPY edition)
-Version: 2.2  (auto-resume interrupted imports; fast bulk-skip during resume)
+Version: 2.3  (fixed checkpoint tracking of bytes_processed)
 
 FIX in v2.2:
   • --all now auto-resumes any file whose status is 'running' without needing
@@ -152,18 +152,33 @@ def get_checkpoint(conn, dump_file: str) -> int:
         return row[0] if row else 0
 
 
-def save_checkpoint(conn, dump_file: str, offset: int, rows: int):
-    # offset is now always the ROW count (not a byte offset).
-    # bytes_processed is updated separately via the compressed file position.
+def save_checkpoint(conn, dump_file: str, offset: int, rows: int, bytes_pos: int = 0):
+    """
+    Save checkpoint to import_meta table.
+    
+    FIX in v2.3: now tracks both rows_processed AND bytes_processed for accurate
+    resume position after a crash. bytes_pos should be f_raw.tell() (compressed offset).
+    """
     with conn.cursor() as cur:
-        cur.execute("""
-            UPDATE import_meta
-            SET last_checkpoint = %s,
-                rows_processed  = %s,
-                updated_at      = NOW()
-            WHERE dump_file = %s
-        """, (rows, rows, dump_file))
+        if bytes_pos > 0:
+            cur.execute("""
+                UPDATE import_meta
+                SET last_checkpoint = %s,
+                    rows_processed  = %s,
+                    bytes_processed = %s,
+                    updated_at      = NOW()
+                WHERE dump_file = %s
+            """, (rows, rows, bytes_pos, dump_file))
+        else:
+            cur.execute("""
+                UPDATE import_meta
+                SET last_checkpoint = %s,
+                    rows_processed  = %s,
+                    updated_at      = NOW()
+                WHERE dump_file = %s
+            """, (rows, rows, dump_file))
     conn.commit()
+
 
 
 def mark_running(conn, dump_file: str, total_bytes: int):
@@ -840,7 +855,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     flush_bodies()
                     flush_stations()
                     try:
-                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     except Exception:
                         pass
                     last_save = time.time()
@@ -853,7 +868,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             flush_systems()
             flush_bodies()
             flush_stations()
-            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
             log.info(f"Checkpoint saved at row {total_rows + resume_offset:,} "
                      f"({_skip_count:,} records skipped)")
             sys.exit(0)
@@ -1052,7 +1067,7 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     flush_factions()
                     flush_system_factions()
                     try:
-                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     except Exception:
                         pass
                     last_save = time.time()
@@ -1064,7 +1079,7 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
             flush_sys()
             flush_factions()
             flush_system_factions()
-            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
             sys.exit(0)
 
         flush_sys()
@@ -1196,7 +1211,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 if time.time() - last_save > 60:
                     flush()
                     try:
-                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     except Exception:
                         pass
                     last_save = time.time()
@@ -1206,7 +1221,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
         except KeyboardInterrupt:
             log.info("Interrupted — saving checkpoint ...")
             flush()
-            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
             sys.exit(0)
 
         flush()
@@ -1308,7 +1323,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 if time.time() - last_save > 60:
                     flush()
                     try:
-                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     except Exception:
                         pass
                     last_save = time.time()
@@ -1317,7 +1332,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
         except KeyboardInterrupt:
             flush()
-            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
             sys.exit(0)
 
         flush()
