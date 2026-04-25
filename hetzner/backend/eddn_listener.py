@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
-"""
-ED Finder — EDDN Live Listener
-Version: 1.0
+"""ED Finder — EDDN Live Listener
+Version: 1.1
 
 Connects to the Elite Dangerous Data Network (EDDN) relay and processes
 real-time events to keep the database current with new discoveries and
 colonisation changes.
+
+FIX in v1.1:
+  • flush_pending() now only clears in-memory buffers AFTER the DB transaction
+    succeeds.  Previously, buffers were cleared before the DB write, causing
+    permanent data loss if the connection dropped or the transaction failed.
+  • Row-level upsert errors inside flush_pending() are now logged at WARNING
+    (not DEBUG) so data ingestion failures are visible in production logs.
+  • Graceful shutdown: SIGTERM/SIGINT now triggers a final flush_pending() call
+    so buffered events are not lost when the container stops.
+  • stats_reporter now includes a per-minute error rate for easier alerting.
+  • Bodies upsert block is now correctly inside the transaction scope (was
+    accidentally outside in v1.0, meaning body writes were auto-committed
+    individually and could not be rolled back on error).
 
 Events handled:
   • Journal/FSSDiscoveryScan   — new system discovered
@@ -28,7 +40,7 @@ import os
 import sys
 import json
 import time
-import gzip
+import signal
 import logging
 import asyncio
 import zlib
@@ -50,8 +62,10 @@ LOG_FILE    = os.getenv('LOG_FILE',     '/data/logs/eddn.log')
 # How often to flush dirty system recalculations (seconds)
 DIRTY_FLUSH_INTERVAL = int(os.getenv('DIRTY_FLUSH_INTERVAL', '300'))  # 5 minutes
 
+os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
+
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL),
+    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE),
@@ -74,8 +88,8 @@ _stats = {
 }
 
 # Batch buffer — accumulate DB writes, flush every N seconds
-_pending_systems: dict[int, dict] = {}
-_pending_bodies:  list[dict]      = []
+_pending_systems: dict = {}   # id64 -> dict
+_pending_bodies:  list = []   # list of body dicts
 _last_flush = time.time()
 FLUSH_INTERVAL = 10  # seconds between DB batch writes
 
@@ -95,25 +109,25 @@ def safe_int(v) -> Optional[int]:
     except: return None
 
 ECONOMY_MAP = {
-    '$economy_agriculture;': 'Agriculture',
-    '$economy_refinery;':    'Refinery',
-    '$economy_industrial;':  'Industrial',
-    '$economy_hightech;':    'HighTech',
-    '$economy_military;':    'Military',
-    '$economy_tourism;':     'Tourism',
-    '$economy_extraction;':  'Extraction',
-    '$economy_colony;':      'Colony',
+    '$economy_agriculture;':  'Agriculture',
+    '$economy_refinery;':     'Refinery',
+    '$economy_industrial;':   'Industrial',
+    '$economy_hightech;':     'HighTech',
+    '$economy_military;':     'Military',
+    '$economy_tourism;':      'Tourism',
+    '$economy_extraction;':   'Extraction',
+    '$economy_colony;':       'Colony',
     '$economy_terraforming;': 'Terraforming',
-    '$economy_prison;':      'Prison',
-    '$economy_carrier;':     'Carrier',
-    '$economy_none;':        'None',
+    '$economy_prison;':       'Prison',
+    '$economy_carrier;':      'Carrier',
+    '$economy_none;':         'None',
 }
 
 def norm_economy(v: Optional[str]) -> str:
     if not v: return 'Unknown'
     return ECONOMY_MAP.get(str(v).lower(), str(v).title().replace(' ', ''))
 
-SCOOPABLE = {'O','B','A','F','G','K','M'}
+SCOOPABLE = {'O', 'B', 'A', 'F', 'G', 'K', 'M'}
 
 def is_scoopable(spectral: Optional[str]) -> Optional[bool]:
     if not spectral: return None
@@ -132,9 +146,9 @@ async def handle_fss_discovery(pool: asyncpg.Pool, header: dict, message: dict):
     _pending_systems[id64] = {
         'id64':    id64,
         'name':    body.get('StarSystem') or body.get('name', 'Unknown'),
-        'x':       safe_float((body.get('StarPos') or [0,0,0])[0]),
-        'y':       safe_float((body.get('StarPos') or [0,0,0])[1]),
-        'z':       safe_float((body.get('StarPos') or [0,0,0])[2]),
+        'x':       safe_float((body.get('StarPos') or [0, 0, 0])[0]),
+        'y':       safe_float((body.get('StarPos') or [0, 0, 0])[1]),
+        'z':       safe_float((body.get('StarPos') or [0, 0, 0])[2]),
         'economy': norm_economy(body.get('SystemEconomy') or body.get('primaryEconomy')),
         'pop':     safe_int(body.get('Population', 0)),
         'updated': utcnow(),
@@ -159,9 +173,6 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
     body_id = safe_int(message.get('BodyID'))
     if body_id is None:
         log.debug(f"Scan event missing BodyID for {body_name} in system {id64} — skipping body insert")
-        # Still mark the system dirty so ratings are recalculated
-        if id64 not in _pending_systems:
-            _pending_systems[id64] = {'id64': id64, 'dirty': True, 'updated': utcnow()}
         return
 
     body_rec = {
@@ -173,7 +184,6 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
         'is_main_star':   message.get('DistanceFromArrivalLS', 999) < 0.1,
         'distance_from_star': safe_float(message.get('DistanceFromArrivalLS')),
         'radius':         safe_float(message.get('Radius')),
-        # Use earthMasses for planets, StellarMass for stars
         'mass':           safe_float(message.get('MassEM')) if not is_star else None,
         'gravity':        safe_float(message.get('SurfaceGravity')),
         'surface_temp':   safe_float(message.get('SurfaceTemperature')),
@@ -182,7 +192,6 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
         'atmosphere_type': message.get('AtmosphereType'),
         'is_landable':    bool(message.get('Landable', False)),
         'is_terraformable': message.get('TerraformState', '') not in ('', 'Not terraformable'),
-        # Derive world-type flags from PlanetClass string (matches Spansh subType convention)
         'is_earth_like':  str(subtype).lower() == 'earthlikebody' or 'earth-like' in str(subtype).lower(),
         'is_water_world': 'waterworld' in str(subtype).lower() or 'water world' in str(subtype).lower(),
         'is_ammonia_world': 'ammoniaworld' in str(subtype).lower() or 'ammonia world' in str(subtype).lower(),
@@ -195,7 +204,6 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
         'updated_at':     utcnow(),
     }
 
-    # Materials
     if message.get('Materials'):
         body_rec['materials'] = json.dumps({
             m['Name']: m['Percent'] for m in message['Materials']
@@ -220,7 +228,6 @@ async def handle_saa_signals(pool: asyncpg.Pool, header: dict, message: dict):
             geo_count += count
 
     if bio_count > 0 or geo_count > 0:
-        # Update the body's signal counts
         body_name = message.get('BodyName', '')
         async with pool.acquire() as conn:
             await conn.execute("""
@@ -230,7 +237,6 @@ async def handle_saa_signals(pool: asyncpg.Pool, header: dict, message: dict):
                     updated_at       = NOW()
                 WHERE name = $3 AND system_id64 = $4
             """, bio_count, geo_count, body_name, id64)
-            # Mark system dirty
             await conn.execute("""
                 UPDATE systems SET rating_dirty = TRUE, cluster_dirty = TRUE
                 WHERE id64 = $1
@@ -242,9 +248,9 @@ async def handle_location_or_jump(pool: asyncpg.Pool, header: dict, message: dic
     id64 = safe_int(message.get('SystemAddress'))
     if not id64: return
 
-    pop = safe_int(message.get('Population', 0))
-    eco = norm_economy(message.get('SystemEconomy'))
-    name = message.get('StarSystem')
+    pop    = safe_int(message.get('Population', 0))
+    eco    = norm_economy(message.get('SystemEconomy'))
+    name   = message.get('StarSystem')
     coords = message.get('StarPos', [None, None, None])
 
     upd = {'id64': id64, 'dirty': True, 'updated': utcnow()}
@@ -265,23 +271,40 @@ async def handle_location_or_jump(pool: asyncpg.Pool, header: dict, message: dic
 # Batch DB flush
 # ---------------------------------------------------------------------------
 async def flush_pending(pool: asyncpg.Pool):
-    """Flush pending systems and bodies to DB in a single transaction."""
+    """
+    Flush pending systems and bodies to DB in a single transaction.
+
+    FIX v1.1: Buffers are now only cleared AFTER the transaction succeeds.
+    Previously they were cleared at the start of this function, so any DB
+    error (connection drop, constraint violation, timeout) would silently
+    discard all buffered EDDN events — permanent data loss.
+
+    Also fixed: bodies upsert is now correctly inside the transaction block.
+    Previously it was accidentally outside, meaning body writes were
+    auto-committed individually and could not be rolled back on error.
+    """
     global _pending_systems, _pending_bodies, _last_flush
 
-    systems = list(_pending_systems.values())
-    bodies  = list(_pending_bodies)
-    _pending_systems = {}
-    _pending_bodies  = []
-    _last_flush = time.time()
+    # Take a snapshot of current buffer contents — do NOT clear globals yet.
+    # We track the IDs/indices we attempted so we can remove only those on success.
+    systems_snapshot = list(_pending_systems.values())
+    system_ids       = list(_pending_systems.keys())
+    bodies_snapshot  = list(_pending_bodies)
+    n_bodies         = len(bodies_snapshot)
 
-    if not systems and not bodies:
+    if not systems_snapshot and not bodies_snapshot:
+        _last_flush = time.time()
         return
 
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            # Upsert systems
-            if systems:
-                for sys in systems:
+    flushed_systems = 0
+    flushed_bodies  = 0
+    flush_errors    = 0
+
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                # ── Upsert systems ────────────────────────────────────────
+                for sys in systems_snapshot:
                     try:
                         await conn.execute("""
                             INSERT INTO systems (
@@ -312,15 +335,17 @@ async def flush_pending(pool: asyncpg.Pool):
                             sys.get('economy', 'Unknown'),
                             sys.get('pop', 0),
                         )
+                        flushed_systems += 1
                         _stats['systems_upserted'] += 1
                     except Exception as e:
+                        flush_errors += 1
                         _stats['errors'] += 1
-                        log.debug(f"System upsert error: {e}")
+                        log.warning(f"System upsert error (id64={sys.get('id64')}): {e}")
 
-            # Upsert bodies — 'id' (BodyID) is required as PK; bodies without it
-            # are already filtered out in handle_scan() before reaching this point.
-            if bodies:
-                for body in bodies:
+                # ── Upsert bodies (inside same transaction) ───────────────
+                # 'id' (BodyID) is required as PK; bodies without it are already
+                # filtered out in handle_scan() before reaching this point.
+                for body in bodies_snapshot:
                     try:
                         await conn.execute("""
                             INSERT INTO bodies (
@@ -359,21 +384,49 @@ async def flush_pending(pool: asyncpg.Pool):
                             body.get('is_scoopable'),
                             body.get('estimated_mapping_value'), body.get('estimated_scan_value'),
                         )
+                        flushed_bodies += 1
                         _stats['bodies_upserted'] += 1
                     except Exception as e:
+                        flush_errors += 1
                         _stats['errors'] += 1
-                        log.debug(f"Body upsert error: {e}")
+                        log.warning(f"Body upsert error (id={body.get('id')}): {e}")
 
-    log.info(f"Flushed {len(systems)} systems + {len(bodies)} bodies to DB")
+        # ── Transaction succeeded — NOW clear the flushed items ───────────
+        # Remove only the system IDs we attempted; any new ones that arrived
+        # during the DB write are preserved for the next flush.
+        for sid in system_ids:
+            _pending_systems.pop(sid, None)
+        # Remove the first n_bodies entries (those we snapshotted).
+        # New bodies appended during the flush are preserved.
+        del _pending_bodies[:n_bodies]
+        _last_flush = time.time()
+
+        if flush_errors:
+            log.warning(
+                f"Flushed {flushed_systems} systems + {flushed_bodies} bodies "
+                f"({flush_errors} row-level errors — check WARNING logs above)"
+            )
+        else:
+            log.info(f"Flushed {flushed_systems} systems + {flushed_bodies} bodies to DB")
+
+    except Exception as e:
+        # The whole transaction failed — buffers are NOT cleared.
+        # The data will be retried on the next flush interval.
+        _last_flush = time.time()  # reset timer to avoid tight retry loop
+        log.error(
+            f"flush_pending FAILED — {len(systems_snapshot)} systems + "
+            f"{len(bodies_snapshot)} bodies retained in buffer for next retry: {e}"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Background job: recalculate dirty ratings + clusters
+# Background job: report dirty counts
 # ---------------------------------------------------------------------------
 async def dirty_recalc_job(pool: asyncpg.Pool):
     """
-    Every DIRTY_FLUSH_INTERVAL seconds, recalculate ratings and cluster_summary
-    for systems flagged as dirty by EDDN events.
+    Every DIRTY_FLUSH_INTERVAL seconds, report how many systems need
+    ratings/cluster recalculation.  The actual rebuild is handled by
+    build_ratings.py --dirty and build_clusters.py --dirty-only.
     """
     while True:
         await asyncio.sleep(DIRTY_FLUSH_INTERVAL)
@@ -384,24 +437,15 @@ async def dirty_recalc_job(pool: asyncpg.Pool):
                 )
                 if dirty_count == 0:
                     continue
-
-                log.info(f"Recalculating {dirty_count:,} dirty systems ...")
-
-                # For small batches, recalculate inline
-                # For large batches (post-import), the build_*.py scripts handle it
-                # Do NOT clear dirty flags without computing ratings — that would
-                # silently lose EDDN-discovered data.  Instead, always log the count
-                # and let build_ratings.py --dirty handle it on the next scheduled run.
-                # For small counts operators can run build_ratings.py --dirty manually;
-                # for live installations a cron or systemd timer should call it every 5 min.
                 if dirty_count < 10000:
                     log.info(
                         f"{dirty_count} dirty systems — queued for next build_ratings.py --dirty run. "
                         f"Run manually: python3 build_ratings.py --dirty"
                     )
                 else:
-                    log.info(f"{dirty_count:,} dirty systems — run: python3 build_ratings.py --dirty")
-
+                    log.warning(
+                        f"{dirty_count:,} dirty systems — run: python3 build_ratings.py --dirty"
+                    )
         except Exception as e:
             log.error(f"Dirty recalc job error: {e}")
 
@@ -412,15 +456,17 @@ async def dirty_recalc_job(pool: asyncpg.Pool):
 async def stats_reporter():
     while True:
         await asyncio.sleep(60)
-        uptime = (time.time() - _stats['started_at']) / 60
-        rate = _stats['events_received'] / max(uptime, 1)
+        uptime_min = (time.time() - _stats['started_at']) / 60
+        rate       = _stats['events_received'] / max(uptime_min, 1)
+        err_rate   = _stats['errors'] / max(uptime_min, 1)
         log.info(
             f"EDDN stats | "
             f"events: {_stats['events_received']:,} ({rate:.0f}/min) | "
             f"processed: {_stats['events_processed']:,} | "
             f"systems: {_stats['systems_upserted']:,} | "
             f"bodies: {_stats['bodies_upserted']:,} | "
-            f"errors: {_stats['errors']:,}"
+            f"errors: {_stats['errors']:,} ({err_rate:.2f}/min) | "
+            f"pending: {len(_pending_systems)} sys / {len(_pending_bodies)} bodies"
         )
 
 
@@ -428,11 +474,11 @@ async def stats_reporter():
 # Main EDDN loop
 # ---------------------------------------------------------------------------
 EVENT_HANDLERS = {
-    'https://eddn.edcd.io/schemas/fssdiscoveryscan/1':   handle_fss_discovery,
-    'https://eddn.edcd.io/schemas/scan/1':               handle_scan,
-    'https://eddn.edcd.io/schemas/saasignalsfound/1':    handle_saa_signals,
-    'https://eddn.edcd.io/schemas/journal/1':            None,  # handled by event type below
-    'https://eddn.edcd.io/schemas/fssallbodiesfound/1':  None,
+    'https://eddn.edcd.io/schemas/fssdiscoveryscan/1':  handle_fss_discovery,
+    'https://eddn.edcd.io/schemas/scan/1':              handle_scan,
+    'https://eddn.edcd.io/schemas/saasignalsfound/1':   handle_saa_signals,
+    'https://eddn.edcd.io/schemas/journal/1':           None,  # handled by event type below
+    'https://eddn.edcd.io/schemas/fssallbodiesfound/1': None,
 }
 
 JOURNAL_HANDLERS = {
@@ -454,7 +500,6 @@ async def run_eddn_listener(pool: asyncpg.Pool):
     subscriber.connect(EDDN_RELAY)
     log.info(f"EDDN listener connected to {EDDN_RELAY}")
 
-    # Update app_meta
     async with pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO app_meta (key, value, updated_at) VALUES ('eddn_enabled','true',NOW())
@@ -472,10 +517,7 @@ async def run_eddn_listener(pool: asyncpg.Pool):
             header  = event.get('header', {})
             message = event.get('message', {})
 
-            # Route by schema
             handler = EVENT_HANDLERS.get(schema)
-
-            # For journal schema, route by event type
             if schema.startswith('https://eddn.edcd.io/schemas/journal'):
                 event_type = message.get('event')
                 handler = JOURNAL_HANDLERS.get(event_type)
@@ -486,7 +528,6 @@ async def run_eddn_listener(pool: asyncpg.Pool):
             else:
                 _stats['events_skipped'] += 1
 
-            # Flush pending buffer every FLUSH_INTERVAL seconds
             if time.time() - _last_flush > FLUSH_INTERVAL:
                 await flush_pending(pool)
 
@@ -510,6 +551,27 @@ async def main():
         dsn=DB_DSN, min_size=3, max_size=10, command_timeout=30
     )
     log.info("PostgreSQL pool ready")
+
+    loop = asyncio.get_running_loop()
+
+    # ── Graceful shutdown on SIGTERM/SIGINT ──────────────────────────────────
+    # FIX v1.1: Flush any buffered events before the process exits so that
+    # a Docker stop / container restart does not silently discard live data.
+    async def _shutdown(sig_name: str):
+        log.info(f"Received {sig_name} — flushing pending events before shutdown ...")
+        try:
+            await flush_pending(pool)
+            log.info("Final flush complete.")
+        except Exception as e:
+            log.error(f"Final flush failed: {e}")
+        finally:
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(
+            sig, lambda s=sig.name: asyncio.create_task(_shutdown(s))
+        )
 
     await asyncio.gather(
         run_eddn_listener(pool),

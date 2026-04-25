@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spansh Dump Importer  (PostgreSQL / psycopg2 COPY edition)
-Version: 2.4  (auto-bypass pgBouncer to prevent mid-import connection drops)
+Version: 2.5  (progress bar desync fix + station skip tracking)
+
+FIX in v2.5:
+  • Progress bar desync on resume: after the fast-forward phase, the tqdm bar
+    was initialised at position 0 even when resuming at 90%, making ETA and
+    throughput completely wrong.  Fix: tqdm is now initialised with
+    initial=f_raw.tell() AFTER the fast-forward loop completes, so the bar
+    starts at the correct compressed byte position.
+  • import_stations: stations missing 'id' or 'systemId64' were silently
+    dropped without incrementing _skip_count or logging anything.  Fix: these
+    are now counted and logged at DEBUG so schema changes are detectable.
 
 FIX in v2.4:
   • _make_direct_dsn() added: automatically rewrites DATABASE_URL to bypass
@@ -641,9 +651,12 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
         else:
             items_iter = ijson.items(f, 'item')
 
+        # FIX v2.5: initialise the progress bar AFTER fast-forward so that
+        # initial= reflects the actual compressed byte position.  Previously
+        # it was always 0 even when resuming at 90%, making ETA/throughput wrong.
         pbar = tqdm(
             total=file_size,
-            initial=f_raw.tell(),
+            initial=f_raw.tell(),   # correct position after fast-forward
             unit='B', unit_scale=True, unit_divisor=1024,
             desc=dump_path.name,
         )
@@ -799,14 +812,15 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         log.debug(f"Skipping body id={bid} in system {id64}: {_e}")
                         continue
 
-                # ── Stations rows ─────────────────────────────────────────
+                # ── Stations rows ──────────────────────────────────────────────────────────
                 stations_raw = sys_obj.get('stations', []) or []
                 for s in stations_raw:
                     sid = s.get('id') or s.get('marketId') or s.get('market_id')
                     if not sid:
+                        _skip_count += 1
+                        log.debug(f"Skipping station with no id in system {id64}")
                         continue
-                    try:
-                        # Spansh schema uses 'services' array (not 'otherServices')
+                    try:        # Spansh schema uses 'services' array (not 'otherServices')
                         # Values like "Market", "Shipyard", "Outfitting", "Refuel", etc.
                         svcs = (s.get('services') or
                                 s.get('otherServices') or

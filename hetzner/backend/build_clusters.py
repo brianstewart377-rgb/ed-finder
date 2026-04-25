@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder
-Version: 1.4  (bounding-box pre-filter + 4× batch size for faster cluster build)
+Version: 1.5  (pgBouncer bypass — prevents mid-run connection drops)
 
 Builds the cluster_summary table: for every visited system, computes
 how many viable uncolonised systems exist for each economy type within
@@ -40,6 +40,13 @@ NEW in v1.4:
   • BATCH_SIZE increased from 500 → 2000 (4× fewer DB round-trips per worker).
   • idx_sys_grid_pop_uncolonised and idx_ratings_scores indexes added externally.
   Combined speedup: ~3–5× faster per anchor on large outer-galaxy batches.
+
+FIX in v1.5:
+  • Added _make_direct_dsn() — rewrites DATABASE_URL to bypass pgBouncer
+    (port 5433 → 5432, @pgbouncer: → @postgres:).  build_clusters.py runs
+    for 8-24 hours with long-running cursors; pgBouncer transaction-pool mode
+    will eventually terminate the connection mid-run, causing the script to
+    crash or hang.  DB_DSN_DIRECT env var can override.
 
 FIX in v1.3:
   • `UPDATE systems SET cluster_dirty = FALSE` fired 17 RI triggers per row
@@ -80,7 +87,21 @@ from progress import (
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DB_DSN          = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder')
+def _make_direct_dsn(url: str) -> str:
+    """
+    Ensure the DSN points directly at postgres (port 5432), not pgBouncer (5433).
+    pgBouncer transaction-pool mode is incompatible with long-running cursors and
+    multi-hour batch jobs — it will silently drop connections mid-run.
+    """
+    direct = os.getenv('DB_DSN_DIRECT', '')
+    if direct:
+        return direct
+    if ':5433/' in url:
+        url = url.replace(':5433/', ':5432/')
+    url = url.replace('@pgbouncer:', '@postgres:')
+    return url
+
+DB_DSN          = _make_direct_dsn(os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder'))
 BATCH_SIZE      = int(os.getenv('BATCH_SIZE', '2000'))
 LOG_LEVEL       = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE        = os.getenv('LOG_FILE', '/tmp/build_clusters.log')   # safe Docker default

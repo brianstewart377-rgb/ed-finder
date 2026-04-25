@@ -259,7 +259,9 @@ async def health():
     try:
         async with _pool.acquire() as conn:
             await conn.fetchval('SELECT 1')
-        return {'status': 'ok', 'db': 'connected', 'version': APP_VERSION}
+        # FIX: frontend app.js checks h.database === 'connected';
+        # previously this returned 'db' so the status indicator always showed 'DB Error'.
+        return {'status': 'ok', 'db': 'connected', 'database': 'connected', 'version': APP_VERSION}
     except Exception as e:
         raise HTTPException(503, detail=str(e))
 
