@@ -239,8 +239,9 @@ docker compose exec postgres \
 
 #### Export your password into the shell first (do this once per session)
 ```bash
-cd /opt/ed-finder-src/hetzner
-export POSTGRES_PASSWORD=$(grep POSTGRES_PASSWORD .env | cut -d= -f2)
+# .env lives in /opt/ed-finder/ (the install dir), NOT the repo dir
+export POSTGRES_PASSWORD=$(grep POSTGRES_PASSWORD /opt/ed-finder/.env | cut -d= -f2)
+echo "Password loaded: ${POSTGRES_PASSWORD:0:4}****"  # sanity check
 ```
 
 #### Pull the latest scripts
@@ -426,8 +427,9 @@ systemctl stop nginx && systemctl mask nginx
 PostgreSQL 16 defaults to `scram-sha-256`. pgBouncer uses md5.
 ```bash
 # Fix (setup.sh does this automatically):
+export POSTGRES_PASSWORD=$(grep POSTGRES_PASSWORD /opt/ed-finder/.env | cut -d= -f2)
 docker compose exec postgres psql -U edfinder -d edfinder -c \
-    "SET password_encryption = md5; ALTER USER edfinder WITH PASSWORD 'yourpassword';"
+    "SET password_encryption = md5; ALTER USER edfinder WITH PASSWORD '${POSTGRES_PASSWORD}';"
 ```
 
 ### 3. nginx upstream DNS crash on startup
@@ -572,7 +574,7 @@ docker compose --profile import run --rm importer import_spansh.py --all --resum
 ### Manual nightly update
 ```bash
 # Export password first so the script can use it
-export POSTGRES_PASSWORD=$(grep POSTGRES_PASSWORD /opt/ed-finder-src/hetzner/.env | cut -d= -f2)
+export POSTGRES_PASSWORD=$(grep POSTGRES_PASSWORD /opt/ed-finder/.env | cut -d= -f2)
 /opt/ed-finder-src/hetzner/scripts/nightly_update.sh
 ```
 
