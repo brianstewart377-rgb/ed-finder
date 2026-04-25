@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ED Finder — Import Runner  (v1.2)
+# ED Finder — Import Runner  (v1.3)
 # =============================================================================
 # Always use this script instead of raw 'docker run' commands.
 # It uses 'docker compose' which guarantees:
@@ -20,28 +20,33 @@
 #   ./scripts/run_import.sh build_ratings.py --rebuild
 #   ./scripts/run_import.sh build_clusters.py --rebuild
 #
-# FIX in v1.2:
-#   INSTALL_DIR is now auto-detected as the hetzner/ subdirectory of the repo
-#   (i.e. the directory containing docker-compose.yml), rather than being
-#   hard-coded to /opt/ed-finder.  This fixes the "no configuration file
-#   provided: not found" error when the repo is cloned directly into
-#   /opt/ed-finder/hetzner (or any other path).
+# FIXES in v1.3:
+#   - Orphaned importer containers (ed-importer in Exited state) are removed
+#     automatically before every run, so they never block the next execution.
+#   - Password sync now also restarts pgBouncer when a mismatch is detected,
+#     so both Postgres and pgBouncer are always in sync with .env.
+#   - Password sync tries both 'edfinder' and 'postgres' superuser if the
+#     first attempt fails (handles the case where the password is so wrong
+#     that even the ALTER USER connection fails).
+#   - Clear error message if ed-postgres container is not running at all.
+#
+# FIXES in v1.2:
+#   - INSTALL_DIR is now auto-detected as the directory containing
+#     docker-compose.yml, rather than being hard-coded to /opt/ed-finder.
+#     Fixes "no configuration file provided: not found" error.
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# hetzner/ is the parent of scripts/
 REPO_HETZNER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Auto-detect install dir ──────────────────────────────────────────────────
 # The install dir is the directory that contains docker-compose.yml.
-# We look in the following order:
-#   1. The hetzner/ directory of the repo itself (most common — repo cloned in place)
+# Priority order:
+#   1. The hetzner/ directory of the repo itself (repo cloned in place)
 #   2. /opt/ed-finder/hetzner  (legacy separate-install layout)
 #   3. /opt/ed-finder           (old single-dir layout)
-#
-# You can override by setting INSTALL_DIR in the environment before calling
-# this script:  INSTALL_DIR=/my/path ./scripts/run_import.sh
+# Override: INSTALL_DIR=/my/path ./scripts/run_import.sh
 if [[ -z "${INSTALL_DIR:-}" ]]; then
     if [[ -f "$REPO_HETZNER_DIR/docker-compose.yml" ]]; then
         INSTALL_DIR="$REPO_HETZNER_DIR"
@@ -56,7 +61,6 @@ if [[ -z "${INSTALL_DIR:-}" ]]; then
         echo "        /opt/ed-finder/docker-compose.yml"
         echo ""
         echo "        Set INSTALL_DIR=/path/to/dir/containing/docker-compose.yml"
-        echo "        and re-run this script."
         exit 1
     fi
 fi
@@ -65,8 +69,6 @@ echo "[INFO] Install dir : $INSTALL_DIR"
 echo "[INFO] Repo hetzner: $REPO_HETZNER_DIR"
 
 # ── Sync latest backend scripts from repo into install dir ──────────────────
-# If the install dir IS the repo hetzner dir, this is a no-op (same files).
-# If it's a separate install, it copies the latest code across.
 if [[ "$INSTALL_DIR" != "$REPO_HETZNER_DIR" ]]; then
     echo "[INFO] Syncing scripts from repo to install dir ..."
     mkdir -p "$INSTALL_DIR/backend"
@@ -91,28 +93,93 @@ else
     exit 1
 fi
 
-# Export env vars so docker compose picks them up
 set -a
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 set +a
 
-# Always run compose from the install dir so the project name matches the
-# running stack (project name = ed-finder, network = ed-finder_default)
 cd "$INSTALL_DIR"
 
-# ── Pre-flight: verify DB password is in sync ────────────────────────────────
+# ── Pre-flight 1: Remove orphaned importer containers ────────────────────────
+# docker compose run --rm should remove the container on exit, but if the
+# container is killed (SIGKILL / OOM / daemon crash) the --rm never fires.
+# A leftover ed-importer in Exited state will block the next run with:
+#   "Conflict. The container name '/ed-importer' is already in use"
+echo "[INFO] Checking for orphaned importer containers ..."
+ORPHANS=$(docker ps -a --filter "name=ed-importer" --filter "status=exited" -q 2>/dev/null || true)
+if [[ -n "$ORPHANS" ]]; then
+    COUNT=$(echo "$ORPHANS" | wc -l)
+    echo "[WARN] Found $COUNT orphaned importer container(s) — removing ..."
+    echo "$ORPHANS" | xargs docker rm -f
+    echo "[OK]   Orphaned containers removed."
+else
+    echo "[OK]   No orphaned importer containers."
+fi
+
+# Also remove any containers stuck in Created state (never started)
+CREATED=$(docker ps -a --filter "name=ed-importer" --filter "status=created" -q 2>/dev/null || true)
+if [[ -n "$CREATED" ]]; then
+    echo "[WARN] Found importer container(s) stuck in Created state — removing ..."
+    echo "$CREATED" | xargs docker rm -f
+    echo "[OK]   Removed."
+fi
+
+# ── Pre-flight 2: Verify DB password and sync if needed ──────────────────────
 echo "[INFO] Verifying DB password ..."
-if ! docker exec -i ed-postgres psql \
+
+if ! docker inspect ed-postgres &>/dev/null; then
+    echo "[ERROR] Container ed-postgres is not running."
+    echo "        Start the stack first: docker compose up -d"
+    exit 1
+fi
+
+if docker exec -i ed-postgres psql \
         "postgresql://edfinder:${POSTGRES_PASSWORD}@localhost:5432/edfinder" \
         -c "SELECT 1;" &>/dev/null; then
-    echo "[WARN] Password mismatch — resyncing PostgreSQL password from .env ..."
-    docker exec -i ed-postgres psql -U edfinder -d edfinder \
-        -c "ALTER USER edfinder WITH PASSWORD '${POSTGRES_PASSWORD}';" \
-        && echo "[OK]  Password resynced successfully." \
-        || { echo "[ERROR] Could not resync password. Is ed-postgres running?"; exit 1; }
+    echo "[OK]   DB password verified."
 else
-    echo "[OK]  DB connection verified."
+    echo "[WARN] Password mismatch detected — resyncing ..."
+
+    # Try ALTER USER as edfinder first, then fall back to postgres superuser
+    SYNCED=false
+    if docker exec -i ed-postgres psql -U edfinder -d edfinder \
+            -c "ALTER USER edfinder WITH PASSWORD '${POSTGRES_PASSWORD}';" &>/dev/null; then
+        echo "[OK]   Password updated in PostgreSQL (as edfinder)."
+        SYNCED=true
+    elif docker exec -i ed-postgres psql -U postgres -d postgres \
+            -c "ALTER USER edfinder WITH PASSWORD '${POSTGRES_PASSWORD}';" &>/dev/null; then
+        echo "[OK]   Password updated in PostgreSQL (as postgres superuser)."
+        SYNCED=true
+    fi
+
+    if [[ "$SYNCED" == false ]]; then
+        echo "[ERROR] Could not update password in PostgreSQL."
+        echo "        Run:  bash scripts/sync_password.sh"
+        echo "        Or recreate the container:"
+        echo "          docker compose stop postgres pgbouncer"
+        echo "          docker compose up -d postgres pgbouncer"
+        exit 1
+    fi
+
+    # Restart pgBouncer so it reloads the new hash — without this pgBouncer
+    # keeps its cached (wrong) password and connections still fail.
+    if docker inspect ed-pgbouncer &>/dev/null; then
+        echo "[INFO] Restarting pgBouncer to reload credentials ..."
+        docker restart ed-pgbouncer
+        sleep 3
+        echo "[OK]   pgBouncer restarted."
+    fi
+
+    # Final verification
+    if docker exec -i ed-postgres psql \
+            "postgresql://edfinder:${POSTGRES_PASSWORD}@localhost:5432/edfinder" \
+            -c "SELECT 1;" &>/dev/null; then
+        echo "[OK]   Password sync successful."
+    else
+        echo "[ERROR] Connection still failing after password sync."
+        echo "        Run:  bash scripts/sync_password.sh"
+        exit 1
+    fi
 fi
 
 # ── Determine what to run ────────────────────────────────────────────────────
@@ -129,14 +196,16 @@ else
 fi
 
 echo "=============================================="
-echo " ED Finder Import Runner v1.2"
+echo " ED Finder Import Runner v1.3"
 echo " Script : $SCRIPT ${ARGS:-}"
 echo " Compose: $INSTALL_DIR"
 echo " Env    : $ENV_FILE"
 echo " Network: ed-finder_default (via docker compose)"
 echo "=============================================="
 
-# Use docker compose run — always gets the right network and DNS
+# Use docker compose run — always gets the right network and DNS.
+# --rm ensures the container is removed on clean exit.
+# The orphan cleanup above handles the case where --rm didn't fire.
 docker compose --profile import run --rm \
     --entrypoint python3 \
     -e LOG_FILE="/data/logs/${SCRIPT%.py}.log" \
