@@ -1155,3 +1155,454 @@ details[open] .collapsible-header::after { content: '▴'; }
 @media (max-width: 600px) {
   .live-feed-panel { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   UI IMPROVEMENTS v2.0
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── UI #1: Slider with numeric input side-by-side ── */
+.slider-with-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.slider-with-input .slider { flex: 1; }
+.slider-num-input {
+  width: 64px;
+  flex-shrink: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 0.3rem 0.4rem;
+  font-size: 0.8rem;
+  text-align: center;
+  outline: none;
+}
+.slider-num-input:focus { border-color: var(--accent); }
+
+/* ── UI #2: Search actions row (Search + Clear) ── */
+.search-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+.search-actions .search-btn { flex: 1; margin-top: 0; }
+.clear-btn {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.clear-btn:hover {
+  border-color: var(--red);
+  color: var(--red);
+  background: rgba(239,68,68,0.06);
+}
+
+/* ── UI #3: Active body filter count badge ── */
+.filter-active-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.6rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+/* ── UI #4: Sort header buttons in results header ── */
+.results-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.sort-header-btn {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: all 0.1s;
+}
+.sort-header-btn:hover { border-color: var(--accent); color: var(--accent); }
+.sort-header-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ── UI #5: Skeleton loading cards ── */
+.skeleton-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.skeleton-card {
+  height: 90px;
+  background: linear-gradient(90deg,
+    var(--bg-card) 25%,
+    var(--bg-card-hover) 50%,
+    var(--bg-card) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s infinite;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── UI #6: Search history ── */
+.search-history {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+.search-history-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+.history-list { list-style: none; }
+.history-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: color 0.1s;
+}
+.history-list li:hover { color: var(--accent); }
+.history-list li .history-icon { font-size: 0.7rem; opacity: 0.5; }
+.history-list li .history-remove {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0;
+  color: var(--text-muted);
+  transition: opacity 0.1s;
+}
+.history-list li:hover .history-remove { opacity: 1; }
+
+/* ── UI #7: Watchlist export/import buttons ── */
+.watchlist-io {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.io-btn {
+  flex: 1;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  background: none;
+}
+.io-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+/* ── UI #8: Compare panel (bottom strip) ── */
+.compare-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--accent);
+  padding: 0.6rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  z-index: 150;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.7);
+}
+.compare-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.compare-title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-weight: 600;
+}
+.compare-count {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.compare-clear-btn {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 0.1rem 0.3rem;
+  transition: color 0.1s;
+}
+.compare-clear-btn:hover { color: var(--red); }
+.compare-slots {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+  overflow-x: auto;
+}
+.compare-slot {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+.compare-slot .slot-remove {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: color 0.1s;
+}
+.compare-slot .slot-remove:hover { color: var(--red); }
+.compare-run-btn {
+  width: auto;
+  padding: 0.5rem 1.25rem;
+  flex-shrink: 0;
+  margin-top: 0;
+}
+.compare-run-btn:disabled {
+  background: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Compare modal wide variant */
+.modal-box--wide { max-width: 1100px; }
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.compare-table th, .compare-table td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.compare-table th {
+  background: var(--bg-card);
+  color: var(--accent);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.compare-table tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+.compare-winner { color: var(--green); font-weight: 700; }
+.compare-loser  { color: var(--text-muted); }
+
+/* ── UI #9: Mobile bottom navigation ── */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  z-index: 300;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.mobile-nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.6rem 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: color 0.15s;
+  border-top: 2px solid transparent;
+}
+.mobile-nav-btn.active {
+  color: var(--accent);
+  border-top-color: var(--accent);
+}
+.mobile-nav-icon { font-size: 1.1rem; }
+
+@media (max-width: 640px) {
+  .mobile-nav { display: flex; }
+  #main-nav { display: none; }
+  #app {
+    padding: 1rem;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0));
+  }
+  /* dvh fix — avoids iOS Safari address bar overlap */
+  body { min-height: 100dvh; }
+  .search-panel { position: static; }
+  .live-feed-panel { display: none; }
+  .compare-panel { bottom: 56px; }
+}
+
+/* ── UI #10: Focus-visible ring (keyboard accessibility) ── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+/* ── UI #11: prefers-reduced-motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .skeleton-card { animation: none; background: var(--bg-card); }
+}
+
+/* ── UI #12: Tooltip ── */
+[data-tooltip] {
+  position: relative;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.6rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 400;
+  box-shadow: var(--shadow);
+}
+[data-tooltip]:hover::after { opacity: 1; }
+
+/* ── UI #13: Improved contrast for text-muted ── */
+/* WCAG AA: --text-muted was #3a5068 (2.8:1 on --bg-card), now #5a7a96 (4.5:1) */
+:root {
+  --text-muted: #5a7a96;
+}
+
+/* ── UI #14: Sticky results header ── */
+.results-panel { position: relative; }
+.results-header {
+  position: sticky;
+  top: 60px;
+  background: var(--bg);
+  z-index: 10;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.results-header strong { color: var(--accent); }
+
+/* ── UI #15: System card — CSS Grid layout ── */
+.system-card {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.9rem 1.1rem;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  position: relative;
+}
+.system-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+.system-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.system-card:hover::before { opacity: 1; }
+
+/* Compare checkbox on card */
+.card-compare-check {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.system-card:hover .card-compare-check { opacity: 1; }
+.card-compare-check:checked { opacity: 1; }
+
+/* ── UI #16: Watchlist pagination ── */
+#watchlist-pagination { display: flex; gap: 0.25rem; }
+
+/* ── UI #17: Toast queue — stacked toasts ── */
+.toast-stack {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.4rem;
+  z-index: 1000;
+  pointer-events: none;
+  align-items: center;
+}
+.toast-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 1.1rem;
+  font-size: 0.82rem;
+  color: var(--text);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  animation: toast-in 0.2s ease;
+  max-width: 320px;
+  text-align: center;
+}
+.toast-item.success { border-color: rgba(34,197,94,0.4); color: var(--green); }
+.toast-item.error   { border-color: rgba(239,68,68,0.4);  color: var(--red); }
+.toast-item.info    { border-color: rgba(56,189,248,0.4); color: var(--blue); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

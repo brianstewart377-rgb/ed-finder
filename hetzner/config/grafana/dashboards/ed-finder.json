@@ -1,0 +1,88 @@
+{
+  "title": "ED Finder — Overview",
+  "uid": "ed-finder-overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "API Requests / min",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "rate(http_requests_total{job=\"ed-api\"}[1m]) * 60", "legendFormat": "req/min" }],
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "id": 2, "type": "stat", "title": "API P95 Latency (ms)",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"ed-api\"}[5m])) * 1000", "legendFormat": "p95 ms" }],
+      "options": { "colorMode": "background", "thresholds": { "steps": [{"color":"green","value":null},{"color":"yellow","value":200},{"color":"red","value":500}] } }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Active DB Connections",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "pg_stat_activity_count{job=\"postgres\",state=\"active\"}", "legendFormat": "active" }],
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Redis Memory Used",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "redis_memory_used_bytes{job=\"redis\"} / 1024 / 1024 / 1024", "legendFormat": "GB" }],
+      "fieldConfig": { "defaults": { "unit": "GB", "decimals": 2 } }
+    },
+    {
+      "id": 5, "type": "stat", "title": "Redis Hit Rate %",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100", "legendFormat": "hit %" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1 } }
+    },
+    {
+      "id": 6, "type": "stat", "title": "Systems in DB",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "pg_stat_user_tables_n_live_tup{relname=\"systems\",job=\"postgres\"}", "legendFormat": "rows" }],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "API Request Rate by Endpoint",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "rate(http_requests_total{job=\"ed-api\"}[2m]) * 60", "legendFormat": "{{method}} {{path}}" }]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "API Latency Percentiles",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"ed-api\"}[5m])) * 1000", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"ed-api\"}[5m])) * 1000", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job=\"ed-api\"}[5m])) * 1000", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "PostgreSQL Cache Hit Ratio",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [{ "expr": "pg_stat_database_blks_hit{datname=\"edfinder\"} / (pg_stat_database_blks_hit{datname=\"edfinder\"} + pg_stat_database_blks_read{datname=\"edfinder\"}) * 100", "legendFormat": "cache hit %" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "PostgreSQL Transactions / sec",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(pg_stat_database_xact_commit{datname=\"edfinder\"}[1m])", "legendFormat": "commits/s" },
+        { "expr": "rate(pg_stat_database_xact_rollback{datname=\"edfinder\"}[1m])", "legendFormat": "rollbacks/s" }
+      ]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Dirty Systems Pending Rebuild",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "ed_finder_rating_dirty_count", "legendFormat": "rating dirty" },
+        { "expr": "ed_finder_cluster_dirty_count", "legendFormat": "cluster dirty" }
+      ]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "EDDN Events Received / min",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "targets": [{ "expr": "rate(ed_finder_eddn_events_total[1m]) * 60", "legendFormat": "events/min" }]
+    }
+  ]
+}

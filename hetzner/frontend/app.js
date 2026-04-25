@@ -1095,3 +1095,476 @@ function buildSystemCard(sys, rank) {
     });
   }
 })();
+
+// ═══════════════════════════════════════════════════════════ UI IMPROVEMENTS v2.0
+
+// ── UI #1: Slider ↔ Number input sync ──────────────────────────────────────
+// Keeps range sliders and their companion number inputs in sync bidirectionally
+(function initSliderSync() {
+  const pairs = [
+    ['#local-dist-slider',    '#local-dist-num',    '#local-dist-val',    (v) => `${v} ly`],
+    ['#local-rating-slider',  '#local-rating-num',  '#local-rating-val',  (v) => v],
+    ['#galaxy-score-slider',  '#galaxy-score-num',  '#galaxy-score-val',  (v) => v],
+  ];
+  pairs.forEach(([slideSel, numSel, valSel, fmt]) => {
+    const slider = qs(slideSel);
+    const num    = qs(numSel);
+    const label  = qs(valSel);
+    if (!slider || !num) return;
+    slider.addEventListener('input', () => {
+      num.value = slider.value;
+      if (label) label.textContent = fmt(slider.value);
+    });
+    num.addEventListener('input', () => {
+      const v = Math.min(Number(num.max), Math.max(Number(num.min), Number(num.value)));
+      slider.value = v;
+      num.value = v;
+      if (label) label.textContent = fmt(v);
+    });
+  });
+})();
+
+// ── UI #2: Clear filter buttons ─────────────────────────────────────────────
+(function initClearButtons() {
+  // Local search clear
+  const localClear = qs('#local-clear-btn');
+  if (localClear) {
+    localClear.addEventListener('click', () => {
+      qs('#local-ref-input').value = '';
+      qs('#local-coords-display').hidden = true;
+      qs('#local-dist-slider').value = 500;
+      qs('#local-dist-num').value = 500;
+      qs('#local-dist-val').textContent = '500 ly';
+      qs('#local-rating-slider').value = 0;
+      qs('#local-rating-num').value = 0;
+      qs('#local-rating-val').textContent = '0';
+      qs('#local-galaxy-wide').checked = false;
+      document.querySelector('input[name="local-pop"][value="any"]').checked = true;
+      document.querySelector('input[name="local-sort"][value="rating"]').checked = true;
+      qs('#local-economy').value = 'any';
+      ['#bf-elw','#bf-ww','#bf-ammonia','#bf-gasgiant','#bf-neutron'].forEach(s => { qs(s).value = 0; });
+      ['#bf-bio','#bf-geo','#bf-terra'].forEach(s => { qs(s).checked = false; });
+      updateBodyFilterBadge();
+      toast('Filters cleared');
+    });
+  }
+
+  // Galaxy search clear
+  const galaxyClear = qs('#galaxy-clear-btn');
+  if (galaxyClear) {
+    galaxyClear.addEventListener('click', () => {
+      qs('#galaxy-economy').value = 'HighTech';
+      qs('#galaxy-score-slider').value = 40;
+      qs('#galaxy-score-num').value = 40;
+      qs('#galaxy-score-val').textContent = '40';
+      toast('Filters cleared');
+    });
+  }
+
+  // Cluster search clear
+  const clusterClear = qs('#cluster-clear-btn');
+  if (clusterClear) {
+    clusterClear.addEventListener('click', () => {
+      qs('#cluster-requirements').innerHTML = '';
+      qs('#cluster-ref-input').value = '';
+      qs('#cluster-coords-display').hidden = true;
+      toast('Requirements cleared');
+    });
+  }
+})();
+
+// ── UI #3: Body filter active count badge ───────────────────────────────────
+function updateBodyFilterBadge() {
+  const badge = qs('#body-filter-active-count');
+  if (!badge) return;
+  let count = 0;
+  ['#bf-elw','#bf-ww','#bf-ammonia','#bf-gasgiant','#bf-neutron'].forEach(s => {
+    if (Number(qs(s)?.value) > 0) count++;
+  });
+  ['#bf-bio','#bf-geo','#bf-terra'].forEach(s => {
+    if (qs(s)?.checked) count++;
+  });
+  badge.textContent = count;
+  badge.hidden = count === 0;
+}
+
+(function initBodyFilterBadge() {
+  ['#bf-elw','#bf-ww','#bf-ammonia','#bf-gasgiant','#bf-neutron','#bf-bio','#bf-geo','#bf-terra'].forEach(s => {
+    const el = qs(s);
+    if (el) el.addEventListener('change', updateBodyFilterBadge);
+    if (el) el.addEventListener('input', updateBodyFilterBadge);
+  });
+})();
+
+// ── UI #4: Skeleton loader helpers ──────────────────────────────────────────
+function showSkeleton(skeletonId, resultsId) {
+  const sk = qs(`#${skeletonId}`);
+  const rs = qs(`#${resultsId}`);
+  if (sk) sk.hidden = false;
+  if (rs) rs.style.visibility = 'hidden';
+}
+function hideSkeleton(skeletonId, resultsId) {
+  const sk = qs(`#${skeletonId}`);
+  const rs = qs(`#${resultsId}`);
+  if (sk) sk.hidden = true;
+  if (rs) rs.style.visibility = 'visible';
+}
+
+// Patch local search to use skeleton loaders
+(function patchLocalSearchSkeleton() {
+  const btn = qs('#local-search-btn');
+  if (!btn) return;
+  const orig = btn.onclick;
+  const origClick = btn.addEventListener;
+  // We override the setLoading function by patching the search button's loading state
+  const observer = new MutationObserver(() => {
+    const isLoading = btn.classList.contains('loading');
+    if (isLoading) showSkeleton('local-skeleton', 'local-results');
+    else hideSkeleton('local-skeleton', 'local-results');
+  });
+  observer.observe(btn, { attributes: true, attributeFilter: ['class'] });
+})();
+
+// ── UI #5: Search history (local search) ────────────────────────────────────
+const SearchHistory = {
+  _key: 'ed_search_history',
+  _max: 8,
+  _data: [],
+
+  load() {
+    try { this._data = JSON.parse(localStorage.getItem(this._key) || '[]'); }
+    catch { this._data = []; }
+  },
+
+  add(refName, params) {
+    // Remove duplicate
+    this._data = this._data.filter(h => h.refName !== refName);
+    this._data.unshift({ refName, params, ts: Date.now() });
+    if (this._data.length > this._max) this._data.length = this._max;
+    localStorage.setItem(this._key, JSON.stringify(this._data));
+    this.render();
+  },
+
+  remove(refName) {
+    this._data = this._data.filter(h => h.refName !== refName);
+    localStorage.setItem(this._key, JSON.stringify(this._data));
+    this.render();
+  },
+
+  render() {
+    const container = qs('#local-search-history');
+    const list = qs('#local-history-list');
+    if (!container || !list) return;
+    if (!this._data.length) { container.hidden = true; return; }
+    container.hidden = false;
+    list.innerHTML = '';
+    this._data.forEach(h => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="history-icon">⊕</span> <span class="history-name">${h.refName}</span> <button class="history-remove" title="Remove">✕</button>`;
+      li.querySelector('.history-name').addEventListener('click', () => {
+        qs('#local-ref-input').value = h.refName;
+        toast(`Restored search: ${h.refName}`);
+      });
+      li.querySelector('.history-remove').addEventListener('click', (e) => {
+        e.stopPropagation();
+        SearchHistory.remove(h.refName);
+      });
+      list.appendChild(li);
+    });
+  },
+};
+SearchHistory.load();
+SearchHistory.render();
+
+// Hook into local search to save history entries
+(function hookSearchHistory() {
+  const btn = qs('#local-search-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const refInput = qs('#local-ref-input');
+    if (refInput && refInput.value.trim()) {
+      SearchHistory.add(refInput.value.trim(), {});
+    }
+  }, true); // capture phase so it fires before the search
+})();
+
+// ── UI #6: Watchlist export / import ────────────────────────────────────────
+(function initWatchlistIO() {
+  const ioPanel = qs('#watchlist-io-panel');
+  const exportBtn = qs('#watchlist-export-btn');
+  const importInput = qs('#watchlist-import-input');
+
+  // Show the IO panel when watchlist has items
+  function refreshIOPanel() {
+    if (ioPanel) ioPanel.hidden = Watchlist.count() === 0;
+  }
+
+  // Export
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      const data = JSON.stringify({ version: 1, exported: new Date().toISOString(), systems: Watchlist.getAll() }, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ed-finder-watchlist-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Watchlist exported');
+    });
+  }
+
+  // Import
+  if (importInput) {
+    importInput.addEventListener('change', () => {
+      const file = importInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          const systems = parsed.systems || (Array.isArray(parsed) ? parsed : []);
+          let added = 0;
+          systems.forEach(s => {
+            if (s.id64 && s.name && !Watchlist.has(s.id64)) {
+              Watchlist._data[String(s.id64)] = { ...s, savedAt: s.savedAt || Date.now() };
+              added++;
+            }
+          });
+          Watchlist.save();
+          refreshIOPanel();
+          renderWatchlistTab();
+          toast(`Imported ${added} system${added !== 1 ? 's' : ''}`);
+        } catch {
+          toast('Import failed — invalid JSON file');
+        }
+        importInput.value = '';
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  // Refresh panel state on tab activation
+  qsa('.nav-btn[data-tab="watchlist"]').forEach(btn => {
+    btn.addEventListener('click', refreshIOPanel);
+  });
+  refreshIOPanel();
+})();
+
+// ── UI #7: Compare systems feature ──────────────────────────────────────────
+const Compare = {
+  _items: [],
+  _max: 3,
+
+  add(sys) {
+    if (this._items.find(s => s.id64 === sys.id64)) { toast('Already in compare list'); return; }
+    if (this._items.length >= this._max) { toast(`Maximum ${this._max} systems to compare`); return; }
+    this._items.push(sys);
+    this.render();
+    toast(`Added ${sys.name} to compare`);
+  },
+
+  remove(id64) {
+    this._items = this._items.filter(s => s.id64 !== id64);
+    this.render();
+  },
+
+  clear() {
+    this._items = [];
+    this.render();
+  },
+
+  render() {
+    const panel   = qs('#compare-panel');
+    const slots   = qs('#compare-slots');
+    const count   = qs('#compare-count');
+    const runBtn  = qs('#compare-run-btn');
+    if (!panel) return;
+
+    panel.hidden = this._items.length === 0;
+    if (count) count.textContent = `${this._items.length} / ${this._max}`;
+    if (runBtn) runBtn.disabled = this._items.length < 2;
+
+    if (slots) {
+      slots.innerHTML = '';
+      this._items.forEach(sys => {
+        const slot = document.createElement('div');
+        slot.className = 'compare-slot';
+        slot.innerHTML = `<span>${sys.name}</span><button class="slot-remove" data-id64="${sys.id64}" aria-label="Remove ${sys.name}">✕</button>`;
+        slot.querySelector('.slot-remove').addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.remove(Number(e.target.dataset.id64));
+        });
+        slots.appendChild(slot);
+      });
+    }
+  },
+
+  async showModal() {
+    if (this._items.length < 2) return;
+    const modal   = qs('#compare-modal');
+    const content = qs('#compare-modal-content');
+    if (!modal || !content) return;
+
+    content.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading comparison…</div>';
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+
+    // Fetch full data for each system
+    const systems = await Promise.all(this._items.map(async (s) => {
+      try {
+        const data = await apiFetch(`/api/system/${s.id64}`);
+        return data.record || data.system || data;
+      } catch { return s; }
+    }));
+
+    const fields = [
+      ['Name',           s => s.name || '—'],
+      ['Economy',        s => s.primaryEconomy || s.primary_economy || '—'],
+      ['Population',     s => Number(s.population || 0) === 0 ? 'Uncolonised' : fmtNum(s.population)],
+      ['Overall Score',  s => s._rating?.score != null ? Math.round(s._rating.score) : '—'],
+      ['Agri Score',     s => s._rating?.score_agriculture ?? s._rating?.scoreAgriculture ?? '—'],
+      ['Ref Score',      s => s._rating?.score_refinery    ?? s._rating?.scoreRefinery    ?? '—'],
+      ['Ind Score',      s => s._rating?.score_industrial  ?? s._rating?.scoreIndustrial  ?? '—'],
+      ['HiTec Score',    s => s._rating?.score_hightech    ?? s._rating?.scoreHightech     ?? '—'],
+      ['Mil Score',      s => s._rating?.score_military    ?? s._rating?.scoreMilitary     ?? '—'],
+      ['Tour Score',     s => s._rating?.score_tourism     ?? s._rating?.scoreTourism      ?? '—'],
+      ['ELW Count',      s => s._rating?.elw_count ?? '—'],
+      ['WW Count',       s => s._rating?.ww_count  ?? '—'],
+      ['Bio Signals',    s => s._rating?.bio_signal_total ?? '—'],
+      ['Geo Signals',    s => s._rating?.geo_signal_total ?? '—'],
+      ['Terraformable',  s => s._rating?.terraformable_count ?? '—'],
+      ['Neutron Stars',  s => s._rating?.neutron_count ?? '—'],
+    ];
+
+    const headers = ['Field', ...systems.map(s => s.name || 'Unknown')];
+    const rows = fields.map(([label, fn]) => {
+      const vals = systems.map(fn);
+      const numVals = vals.map(v => typeof v === 'number' ? v : parseFloat(v)).filter(v => !isNaN(v));
+      const maxVal = numVals.length ? Math.max(...numVals) : null;
+      return [label, ...vals.map(v => {
+        const n = typeof v === 'number' ? v : parseFloat(v);
+        const isWinner = !isNaN(n) && maxVal !== null && n === maxVal && numVals.length > 1;
+        return { value: v, isWinner };
+      })];
+    });
+
+    content.innerHTML = `
+      <div style="padding:1.5rem">
+        <h2 style="color:var(--accent);font-size:1rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1.25rem">System Comparison</h2>
+        <div style="overflow-x:auto">
+          <table class="compare-table">
+            <thead><tr>${headers.map((h, i) => `<th${i === 0 ? '' : ' style="text-align:center"'}>${h}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${rows.map(([label, ...cells]) => `
+                <tr>
+                  <td style="color:var(--text-dim);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">${label}</td>
+                  ${cells.map(c => `<td style="text-align:center" class="${c.isWinner ? 'compare-winner' : ''}">${c.value}</td>`).join('')}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  },
+};
+
+(function initCompare() {
+  const clearBtn = qs('#compare-clear-btn');
+  const runBtn   = qs('#compare-run-btn');
+  const modal    = qs('#compare-modal');
+  const closeBtn = qs('#compare-modal-close');
+
+  if (clearBtn) clearBtn.addEventListener('click', () => Compare.clear());
+  if (runBtn)   runBtn.addEventListener('click', () => Compare.showModal());
+  if (closeBtn) closeBtn.addEventListener('click', () => {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+  });
+  if (modal) modal.addEventListener('click', (e) => {
+    if (e.target === modal) { modal.hidden = true; document.body.style.overflow = ''; }
+  });
+
+  // Add compare checkboxes to system cards
+  // We patch buildSystemCard to add a compare checkbox
+  const _origBuildCard = buildSystemCard;
+  window.buildSystemCard = function(sys, rank) {
+    const card = _origBuildCard(sys, rank);
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'card-compare-check';
+    checkbox.title = 'Add to compare';
+    checkbox.setAttribute('aria-label', `Compare ${sys.name}`);
+    checkbox.addEventListener('change', (e) => {
+      e.stopPropagation();
+      if (checkbox.checked) Compare.add(sys);
+      else Compare.remove(sys.id64);
+    });
+    card.appendChild(checkbox);
+    return card;
+  };
+})();
+
+// ── UI #8: Mobile bottom nav wiring ─────────────────────────────────────────
+(function initMobileNav() {
+  const mobileBtns = qsa('.mobile-nav-btn');
+  const desktopBtns = qsa('.nav-btn');
+  const panels = qsa('.tab-panel');
+
+  function activateTab(tabName) {
+    mobileBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+    desktopBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+    panels.forEach(p => {
+      p.classList.toggle('active', p.id === `tab-${tabName}`);
+      p.hidden = p.id !== `tab-${tabName}`;
+    });
+    if (tabName === 'watchlist') renderWatchlistTab();
+    _setUrlParam('tab', tabName === 'local' ? null : tabName);
+  }
+
+  mobileBtns.forEach(btn => {
+    btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+  });
+})();
+
+// ── UI #9: Toast queue (replace single toast with stacked queue) ─────────────
+(function initToastQueue() {
+  // Create toast stack container
+  const stack = document.createElement('div');
+  stack.id = 'toast-stack';
+  stack.className = 'toast-stack';
+  document.body.appendChild(stack);
+
+  // Override the global toast() function
+  window.toast = function(msg, type = 'default', dur = 3500) {
+    const item = document.createElement('div');
+    item.className = `toast-item${type !== 'default' ? ` ${type}` : ''}`;
+    item.textContent = msg;
+    stack.appendChild(item);
+    setTimeout(() => {
+      item.style.opacity = '0';
+      item.style.transition = 'opacity 0.3s';
+      setTimeout(() => item.remove(), 300);
+    }, dur);
+  };
+})();
+
+// ── UI #10: Cluster ref system autocomplete ──────────────────────────────────
+(function initClusterRefAutocomplete() {
+  const input = qs('#cluster-ref-input');
+  const list  = qs('#cluster-ref-suggestions');
+  const disp  = qs('#cluster-coords-display');
+  const xSpan = qs('#cluster-coord-x');
+  const ySpan = qs('#cluster-coord-y');
+  const zSpan = qs('#cluster-coord-z');
+  if (!input || !list) return;
+
+  makeAutocomplete(input, list, (sys) => {
+    if (xSpan) xSpan.textContent = `X: ${fmtCoord(sys.x)}`;
+    if (ySpan) ySpan.textContent = `Y: ${fmtCoord(sys.y)}`;
+    if (zSpan) zSpan.textContent = `Z: ${fmtCoord(sys.z)}`;
+    if (disp) disp.hidden = false;
+    // Broadcast the cluster ref coords
+    document.dispatchEvent(new CustomEvent('ed:clusterrefcoords', { detail: { x: sys.x, y: sys.y, z: sys.z } }));
+  });
+})();

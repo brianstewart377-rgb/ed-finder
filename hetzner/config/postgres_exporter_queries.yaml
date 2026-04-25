@@ -1,0 +1,64 @@
+# Custom postgres-exporter queries for ED Finder specific metrics
+
+ed_finder_dirty_counts:
+  query: |
+    SELECT
+      COUNT(*) FILTER (WHERE rating_dirty)  AS rating_dirty,
+      COUNT(*) FILTER (WHERE cluster_dirty) AS cluster_dirty
+    FROM systems
+  metrics:
+    - rating_dirty:
+        usage: GAUGE
+        description: "Number of systems with rating_dirty = true"
+    - cluster_dirty:
+        usage: GAUGE
+        description: "Number of systems with cluster_dirty = true"
+
+ed_finder_import_progress:
+  query: |
+    SELECT
+      (SELECT value::bigint FROM app_meta WHERE key = 'import_rows_processed') AS rows_processed,
+      (SELECT value::bigint FROM app_meta WHERE key = 'import_rows_total')     AS rows_total
+  metrics:
+    - rows_processed:
+        usage: GAUGE
+        description: "Import rows processed so far"
+    - rows_total:
+        usage: GAUGE
+        description: "Total import rows expected"
+
+ed_finder_table_sizes:
+  query: |
+    SELECT
+      relname AS table_name,
+      pg_total_relation_size(relid) AS total_bytes,
+      pg_relation_size(relid)       AS table_bytes,
+      pg_indexes_size(relid)        AS index_bytes
+    FROM pg_catalog.pg_statio_user_tables
+    WHERE relname IN ('systems', 'bodies', 'stations', 'ratings', 'cluster_summary', 'grid_cells')
+  metrics:
+    - table_name:
+        usage: LABEL
+        description: "Table name"
+    - total_bytes:
+        usage: GAUGE
+        description: "Total bytes (table + indexes + toast)"
+    - table_bytes:
+        usage: GAUGE
+        description: "Table data bytes"
+    - index_bytes:
+        usage: GAUGE
+        description: "Index bytes"
+
+ed_finder_slow_queries:
+  query: |
+    SELECT
+      COUNT(*) AS slow_query_count
+    FROM pg_stat_activity
+    WHERE state = 'active'
+      AND query_start < NOW() - INTERVAL '5 seconds'
+      AND query NOT LIKE '%pg_stat_activity%'
+  metrics:
+    - slow_query_count:
+        usage: GAUGE
+        description: "Number of queries running longer than 5 seconds"

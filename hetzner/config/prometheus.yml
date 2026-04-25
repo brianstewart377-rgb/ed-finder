@@ -1,0 +1,30 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'ed-finder'
+
+rule_files: []
+
+scrape_configs:
+
+  # ── ED Finder FastAPI app metrics ─────────────────────────────────────────
+  - job_name: 'ed-api'
+    static_configs:
+      - targets: ['api:8000']
+    metrics_path: /metrics
+
+  # ── PostgreSQL metrics ────────────────────────────────────────────────────
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres_exporter:9187']
+
+  # ── Redis metrics ─────────────────────────────────────────────────────────
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis_exporter:9121']
+
+  # ── Prometheus self-monitoring ────────────────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
