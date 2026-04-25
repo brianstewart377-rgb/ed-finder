@@ -123,9 +123,8 @@ hetzner/
 ```
 
 > **Single source of truth:** All import scripts live **only** in `backend/`.
-> The `Dockerfile.import` copies them into the image at build time.
-> When running scripts with `docker run -v`, always mount from `backend/` — there
-> is no separate `import/` directory.
+> Always use `scripts/run_import.sh` to run them — never use raw `docker run`.
+> The wrapper script handles network, DNS, password, and volume mounts correctly.
 
 ---
 
@@ -167,8 +166,7 @@ The script handles everything automatically:
 
 ```bash
 screen -S import
-docker compose --profile import run --rm importer \
-    import_spansh.py --download-only
+/opt/ed-finder-src/hetzner/scripts/run_import.sh --download-only
 # Ctrl+A D to detach, reattach: screen -r import
 ```
 
@@ -205,9 +203,8 @@ END \$\$;"
 
 ```bash
 screen -r import   # re-attach, or: screen -S import
-docker compose --profile import run --rm importer \
-    import_spansh.py --all --resume
-# Ctrl+A D to detach
+/opt/ed-finder-src/hetzner/scripts/run_import.sh --all
+# Ctrl+A D to detach — --resume not needed, interrupted imports auto-resume
 ```
 
 ### 5. Monitor the import
@@ -269,44 +266,18 @@ docker exec ed-postgres psql -U edfinder -d edfinder -c "
 Assigns every system to a 500ly spatial grid cell. Required before build_clusters.py.
 
 ```bash
-docker rm -f ed-importer-run 2>/dev/null; true
-docker run --rm \
-  --network ed-finder_default \
-  --name ed-importer-run \
-  --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
-  -e LOG_FILE=/data/logs/build_grid.log \
-  -v /opt/ed-finder-src/hetzner/backend/build_grid.py:/app/build_grid.py \
-  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
-  -v /data/logs:/data/logs \
-  hetzner-importer:latest \
-  build_grid.py
+/opt/ed-finder-src/hetzner/scripts/run_import.sh build_grid.py
 ```
 
-> `${POSTGRES_PASSWORD}` is exported by the shell when you `source .env` or set it
-> manually. Alternatively paste the literal password from `.env`.
-
 Wait for: `Spatial Grid Complete` in the output.
-
-If it crashes or is interrupted, re-run the exact same command — it resumes automatically.
+If it crashes, re-run — it resumes automatically.
 
 #### 7b. build_ratings.py (~3–5 hours)
 
 Computes economy scores for all systems with body data. Required before build_clusters.py.
 
 ```bash
-docker rm -f ed-importer-run 2>/dev/null; true
-docker run --rm \
-  --network ed-finder_default \
-  --name ed-importer-run \
-  --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
-  -e LOG_FILE=/data/logs/build_ratings.log \
-  -v /opt/ed-finder-src/hetzner/backend/build_ratings.py:/app/build_ratings.py \
-  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
-  -v /data/logs:/data/logs \
-  hetzner-importer:latest \
-  build_ratings.py
+/opt/ed-finder-src/hetzner/scripts/run_import.sh build_ratings.py
 ```
 
 Wait for: `Ratings Complete` in the output.
@@ -316,18 +287,7 @@ Wait for: `Ratings Complete` in the output.
 Builds the empire-location cluster summary. The longest step.
 
 ```bash
-docker rm -f ed-importer-run 2>/dev/null; true
-docker run --rm \
-  --network ed-finder_default \
-  --name ed-importer-run \
-  --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
-  -e LOG_FILE=/data/logs/build_clusters.log \
-  -v /opt/ed-finder-src/hetzner/backend/build_clusters.py:/app/build_clusters.py \
-  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
-  -v /data/logs:/data/logs \
-  hetzner-importer:latest \
-  build_clusters.py
+/opt/ed-finder-src/hetzner/scripts/run_import.sh build_clusters.py
 ```
 
 Wait for: `Cluster Summary Complete` in the output.
@@ -380,36 +340,17 @@ All three post-import scripts are **fully resume-safe** by default:
 - `build_ratings.py` — skips systems that already have a ratings row
 - `build_clusters.py` — skips anchors that already have a cluster_summary row
 
-To force a full rebuild from scratch, pass `--rebuild` (or `--reset-cache` for the grid)
-using the same `docker run` command from step 7, with an extra argument appended:
+To force a full rebuild from scratch, pass `--rebuild` (or `--reset-cache` for the grid):
 
 ```bash
 # Grid — wipe app_meta cache and reassign all grid_cell_ids
-docker run --rm --network ed-finder_default --name ed-importer-run --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
-  -e LOG_FILE=/data/logs/build_grid.log \
-  -v /opt/ed-finder-src/hetzner/backend/build_grid.py:/app/build_grid.py \
-  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
-  -v /data/logs:/data/logs \
-  hetzner-importer:latest build_grid.py --reset-cache
+/opt/ed-finder-src/hetzner/scripts/run_import.sh build_grid.py --reset-cache
 
 # Ratings — re-rate every system (even already-rated ones)
-docker run --rm --network ed-finder_default --name ed-importer-run --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
-  -e LOG_FILE=/data/logs/build_ratings.log \
-  -v /opt/ed-finder-src/hetzner/backend/build_ratings.py:/app/build_ratings.py \
-  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
-  -v /data/logs:/data/logs \
-  hetzner-importer:latest build_ratings.py --rebuild
+/opt/ed-finder-src/hetzner/scripts/run_import.sh build_ratings.py --rebuild
 
 # Clusters — recompute all anchors
-docker run --rm --network ed-finder_default --name ed-importer-run --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
-  -e LOG_FILE=/data/logs/build_clusters.log \
-  -v /opt/ed-finder-src/hetzner/backend/build_clusters.py:/app/build_clusters.py \
-  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
-  -v /data/logs:/data/logs \
-  hetzner-importer:latest build_clusters.py --rebuild
+/opt/ed-finder-src/hetzner/scripts/run_import.sh build_clusters.py --rebuild
 ```
 
 ---
@@ -568,7 +509,8 @@ docker compose exec postgres psql -U edfinder -d edfinder \
 
 ### Resume a failed import
 ```bash
-docker compose --profile import run --rm importer import_spansh.py --all --resume
+/opt/ed-finder-src/hetzner/scripts/run_import.sh --all
+# No --resume flag needed — interrupted imports auto-resume from checkpoint
 ```
 
 ### Manual nightly update

@@ -22,7 +22,7 @@ services:
         -c shared_buffers=32GB
         -c effective_cache_size=96GB
         -c maintenance_work_mem=8GB
-        -c checkpoint_completion_target=0.9
+        -c checkpoint_completion_target=0.99
         -c wal_buffers=256MB
         -c default_statistics_target=500
         -c random_page_cost=1.0
@@ -41,8 +41,8 @@ services:
         -c autovacuum_vacuum_scale_factor=0.05
         -c autovacuum_analyze_scale_factor=0.02
         -c autovacuum_max_workers=4
-        -c max_wal_size=8GB
-        -c min_wal_size=2GB
+        -c max_wal_size=32GB
+        -c min_wal_size=4GB
         -c wal_compression=on
         -c huge_pages=try
     healthcheck:
@@ -173,6 +173,9 @@ services:
       retries: 3
 
   # ── Import runner (one-shot, run manually) ─────────────────────────────────
+  # Always use docker compose --profile import run --rm importer <args>
+  # This guarantees the correct network (ed-finder_default) and DNS (postgres)
+  # regardless of how many times postgres has been recreated.
   importer:
     build:
       context: ./backend
@@ -189,6 +192,12 @@ services:
     volumes:
       - /data/dumps:/data/dumps
       - /data/logs:/data/logs
+      # Mount latest scripts directly — no image rebuild needed after code changes
+      - ./backend/import_spansh.py:/app/import_spansh.py:ro
+      - ./backend/progress.py:/app/progress.py:ro
+      - ./backend/build_grid.py:/app/build_grid.py:ro
+      - ./backend/build_ratings.py:/app/build_ratings.py:ro
+      - ./backend/build_clusters.py:/app/build_clusters.py:ro
     depends_on:
       postgres:
         condition: service_healthy
