@@ -23,17 +23,34 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_HETZNER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Determine the install dir (.env location) — setup.sh puts it in /opt/ed-finder
-# If running from the repo directly, fall back to the compose dir
-if [[ -f "/opt/ed-finder/.env" ]]; then
-    ENV_FILE="/opt/ed-finder/.env"
-elif [[ -f "$COMPOSE_DIR/.env" ]]; then
-    ENV_FILE="$COMPOSE_DIR/.env"
+# The stack always runs from /opt/ed-finder (the install dir created by setup.sh).
+# Running docker compose from a different directory creates a different project name
+# which causes network conflicts. Always use the install dir.
+INSTALL_DIR="/opt/ed-finder"
+
+if [[ ! -d "$INSTALL_DIR" ]]; then
+    echo "[ERROR] Install dir $INSTALL_DIR not found — has setup.sh been run?"
+    exit 1
+fi
+
+# Sync latest scripts from repo into install dir so compose picks them up
+echo "[INFO] Syncing scripts from repo to install dir ..."
+cp "$REPO_HETZNER_DIR/backend/import_spansh.py" "$INSTALL_DIR/backend/import_spansh.py"
+cp "$REPO_HETZNER_DIR/backend/progress.py"      "$INSTALL_DIR/backend/progress.py"
+cp "$REPO_HETZNER_DIR/backend/build_grid.py"    "$INSTALL_DIR/backend/build_grid.py"
+cp "$REPO_HETZNER_DIR/backend/build_ratings.py" "$INSTALL_DIR/backend/build_ratings.py"
+cp "$REPO_HETZNER_DIR/backend/build_clusters.py" "$INSTALL_DIR/backend/build_clusters.py"
+
+# Determine .env location
+if [[ -f "$INSTALL_DIR/.env" ]]; then
+    ENV_FILE="$INSTALL_DIR/.env"
+elif [[ -f "$REPO_HETZNER_DIR/.env" ]]; then
+    ENV_FILE="$REPO_HETZNER_DIR/.env"
 else
-    echo "[ERROR] .env not found at /opt/ed-finder/.env or $COMPOSE_DIR/.env"
-    echo "        Create it with: echo 'POSTGRES_PASSWORD=yourpassword' > /opt/ed-finder/.env"
+    echo "[ERROR] .env not found at $INSTALL_DIR/.env"
+    echo "        Create it with: echo 'POSTGRES_PASSWORD=yourpassword' > $INSTALL_DIR/.env"
     exit 1
 fi
 
@@ -42,7 +59,9 @@ set -a
 source "$ENV_FILE"
 set +a
 
-cd "$COMPOSE_DIR"
+# Always run compose from the install dir so the project name matches the
+# running stack (project name = ed-finder, network = ed-finder_default)
+cd "$INSTALL_DIR"
 
 # Determine what to run
 if [[ $# -eq 0 ]]; then
