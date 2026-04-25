@@ -82,7 +82,7 @@ fi
 echo "=============================================="
 echo " ED Finder Import Runner"
 echo " Script : $SCRIPT $ARGS"
-echo " Compose: $COMPOSE_DIR"
+echo " Compose: $INSTALL_DIR"
 echo " Env    : $ENV_FILE"
 echo " Network: ed-finder_default (via docker compose)"
 echo "=============================================="
