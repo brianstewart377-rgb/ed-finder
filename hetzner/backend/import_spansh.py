@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spansh Dump Importer  (PostgreSQL / psycopg2 COPY edition)
-Version: 2.3  (fixed checkpoint tracking of bytes_processed)
+Version: 2.4  (auto-bypass pgBouncer to prevent mid-import connection drops)
+
+FIX in v2.4:
+  • _make_direct_dsn() added: automatically rewrites DATABASE_URL to bypass
+    pgBouncer (port 5433 → 5432, @pgbouncer: → @postgres:).  pgBouncer
+    transaction-pool mode silently drops connections mid-import, causing
+    incomplete imports.  DB_DSN_DIRECT env var can override.
 
 FIX in v2.2:
   • --all now auto-resumes any file whose status is 'running' without needing
@@ -83,8 +89,24 @@ def _json_dumps(obj) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DB_DSN          = os.getenv('DATABASE_URL',
-                    'postgresql://edfinder:edfinder@localhost:5432/edfinder')
+
+def _make_direct_dsn(url: str) -> str:
+    """
+    Ensure the DSN points directly at postgres (port 5432), not pgBouncer (5433).
+    pgBouncer transaction-pool mode is incompatible with COPY and long-running
+    import transactions — it can silently drop connections mid-import, causing
+    incomplete imports.
+    """
+    direct = os.getenv('DB_DSN_DIRECT', '')
+    if direct:
+        return direct
+    if ':5433/' in url:
+        url = url.replace(':5433/', ':5432/')
+    url = url.replace('@pgbouncer:', '@postgres:')
+    return url
+
+DB_DSN          = _make_direct_dsn(os.getenv('DATABASE_URL',
+                    'postgresql://edfinder:edfinder@localhost:5432/edfinder'))
 DUMP_DIR        = Path(os.getenv('DUMP_DIR', '/data/dumps'))
 BATCH_SIZE      = int(os.getenv('BATCH_SIZE', '50000'))   # much larger for COPY
 LOG_LEVEL       = os.getenv('LOG_LEVEL', 'INFO')

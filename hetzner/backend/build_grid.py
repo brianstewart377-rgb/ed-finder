@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spatial Grid Builder
-Version: 2.3  (disable RI triggers during bulk UPDATE — the real fix)
+Version: 2.4  (apply RI trigger disable to write_conn, not monitoring conn)
 
 ROOT CAUSE OF THE 41M STALL — DEFINITIVE ANSWER
 =================================================
@@ -78,6 +78,7 @@ PREVIOUS BUG FIXES (v2.0 / v2.1 / v2.2, kept)
   BUG #8 — stale total_systems cache causes Stage 3 skip → fixed v2.1
   BUG #9 — single UPDATE stalls at 41M (WAL/checkpoint) → fixed v2.2
   BUG #10 — RI triggers fire on every row UPDATE (the real killer) → fixed v2.3
+  BUG #11 — session_replication_role set on monitoring conn, not write_conn → fixed v2.4
 
 Usage:
     python3 build_grid.py
@@ -352,6 +353,17 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
 
     # Use a dedicated write connection — keeps the main conn free for monitoring
     write_conn = _connect_with_retry(DB_DSN, label="ctid-writer")
+    # FIX v2.3 (corrected): session_replication_role must be set on the write_conn
+    # that actually executes the UPDATE statements, not the monitoring connection.
+    # The setting is session-scoped and reverts automatically on disconnect.
+    try:
+        write_conn.autocommit = True
+        with write_conn.cursor() as _wac:
+            _wac.execute("SET session_replication_role = replica")
+        write_conn.autocommit = False
+        log.info("  ✓ RI triggers disabled on write_conn (ctid-writer)")
+    except Exception as _e:
+        log.warning(f"  Could not disable RI triggers on write_conn: {_e} — continuing (Stage 3 may be slow)")
     write_cur  = write_conn.cursor()
 
     progress = ProgressReporter(
@@ -404,6 +416,13 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                 log.info(f"  Reconnecting in {wait}s ...")
                 time.sleep(wait)
                 write_conn = _connect_with_retry(DB_DSN, label=f"ctid-retry-{attempt}")
+                try:
+                    write_conn.autocommit = True
+                    with write_conn.cursor() as _wac:
+                        _wac.execute("SET session_replication_role = replica")
+                    write_conn.autocommit = False
+                except Exception:
+                    pass
                 write_cur  = write_conn.cursor()
                 log.info(f"  Reconnected — retrying batch {batch_num}")
                 rows_updated = 0
@@ -507,6 +526,16 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
     skipped       = 0
 
     write_conn = _connect_with_retry(DB_DSN, label="batched-writer")
+    # FIX v2.3 (corrected): apply session_replication_role to the write_conn
+    # that executes the UPDATE, not the monitoring connection.
+    try:
+        write_conn.autocommit = True
+        with write_conn.cursor() as _wac:
+            _wac.execute("SET session_replication_role = replica")
+        write_conn.autocommit = False
+        log.info("  ✓ RI triggers disabled on write_conn (batched-writer)")
+    except Exception as _e:
+        log.warning(f"  Could not disable RI triggers on write_conn: {_e} — continuing (Stage 3 may be slow)")
     write_cur  = write_conn.cursor()
 
     progress = ProgressReporter(log, len(all_cells), "cell-assign", interval=30, heartbeat=120)
@@ -545,6 +574,13 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                     pass
                 time.sleep(10 * (attempt + 1))
                 write_conn = _connect_with_retry(DB_DSN, label=f"batched-retry-{attempt}")
+                try:
+                    write_conn.autocommit = True
+                    with write_conn.cursor() as _wac:
+                        _wac.execute("SET session_replication_role = replica")
+                    write_conn.autocommit = False
+                except Exception:
+                    pass
                 write_cur  = write_conn.cursor()
                 log.info(f"  Reconnected — retrying cell {cell_id}")
 
@@ -556,6 +592,13 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                 except Exception:
                     pass
                 write_conn = _connect_with_retry(DB_DSN, label=f"batched-error-{i}")
+                try:
+                    write_conn.autocommit = True
+                    with write_conn.cursor() as _wac:
+                        _wac.execute("SET session_replication_role = replica")
+                    write_conn.autocommit = False
+                except Exception:
+                    pass
                 write_cur  = write_conn.cursor()
                 break
 
@@ -620,7 +663,7 @@ Strategies:
 
     script_start = time.time()
 
-    startup_banner(log, "Spatial Grid Builder", "v2.3", [
+    startup_banner(log, "Spatial Grid Builder", "v2.4", [
         ("Cell size",       f"{cell_size} LY"),
         ("Strategy",        f"Stage 3 = {strategy}"),
         ("Pages/batch",     f"{pages_per_batch:,} (~{pages_per_batch*8//1024} MB per commit)"),
@@ -629,6 +672,7 @@ Strategies:
         ("Keepalives",      "idle=60s / interval=10s / count=6"),
         ("Direct DB",       "YES — bypasses pgBouncer (transaction-pool safe)"),
         ("Fix v2.3",        "disable RI triggers — eliminates 17 trigger evals per row"),
+        ("Fix v2.4",        "apply session_replication_role to write_conn (not monitoring conn)"),
     ])
 
     # ------------------------------------------------------------------

@@ -29,7 +29,9 @@ from build_ratings import (
     score_economy,
     rate_system,
     ECO_WEIGHTS,
-    ECO_THRESHOLDS,
+    # ECO_THRESHOLDS was removed in v2.0 when scoring was refactored to use
+    # linear scaling with hardcoded caps inside score_economy() instead of
+    # a separate threshold dict. Import removed to prevent ImportError.
     SCOOPABLE_STARS,
 )
 
