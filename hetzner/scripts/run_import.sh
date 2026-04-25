@@ -88,7 +88,8 @@ echo " Network: ed-finder_default (via docker compose)"
 echo "=============================================="
 
 # Use docker compose run — always gets the right network and DNS
+# The importer service entrypoint is already 'python3', so just pass the script and args
 docker compose --profile import run --rm \
     -e LOG_FILE="/data/logs/${SCRIPT%.py}.log" \
     importer \
-    python3 "$SCRIPT" $ARGS
+    "$SCRIPT" $ARGS
