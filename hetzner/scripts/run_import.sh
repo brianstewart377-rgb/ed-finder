@@ -63,6 +63,23 @@ set +a
 # running stack (project name = ed-finder, network = ed-finder_default)
 cd "$INSTALL_DIR"
 
+# ── Pre-flight: verify DB password is in sync ────────────────────────────────
+# The password in .env must match what PostgreSQL has. If they're out of sync
+# (e.g. after manual ALTER USER or container recreation), sync them now.
+echo "[INFO] Verifying DB password ..."
+if ! docker exec -i ed-postgres psql \
+        "postgresql://edfinder:${POSTGRES_PASSWORD}@localhost:5432/edfinder" \
+        -c "SELECT 1;" &>/dev/null; then
+    echo "[WARN] Password mismatch — resyncing PostgreSQL password from .env ..."
+    docker exec -i ed-postgres psql -U edfinder -d edfinder \
+        -c "ALTER USER edfinder WITH PASSWORD '${POSTGRES_PASSWORD}';" \
+        && echo "[OK]  Password resynced successfully." \
+        || { echo "[ERROR] Could not resync password. Is ed-postgres running?"; exit 1; }
+else
+    echo "[OK]  DB connection verified."
+fi
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Determine what to run
 if [[ $# -eq 0 ]]; then
     # No args — show status
