@@ -250,30 +250,45 @@ async function openSystemModal(sys) {
     if (sys.id64) {
       const data = await apiFetch(`/api/system/${sys.id64}`);
       full = data.record || data.system || data;
-      full._rating = full._rating || {
-        score: full.score,
-        scoreAgriculture: full.score_agriculture,
-        scoreRefinery: full.score_refinery,
-        scoreIndustrial: full.score_industrial,
-        scoreHightech: full.score_hightech,
-        scoreMilitary: full.score_military,
-        scoreTourism: full.score_tourism,
-        economySuggestion: full.economy_suggestion,
-        elw_count: full.elw_count,
-        ww_count: full.ww_count,
-        ammonia_count: full.ammonia_count,
-        gas_giant_count: full.gas_giant_count,
-        landable_count: full.landable_count,
-        terraformable_count: full.terraformable_count,
-        bio_signal_total: full.bio_signal_total,
-        geo_signal_total: full.geo_signal_total,
-        neutron_count: full.neutron_count,
-        black_hole_count: full.black_hole_count,
-        white_dwarf_count: full.white_dwarf_count,
+
+      // The API returns flat snake_case fields at the top level (score, score_agriculture, etc.)
+      // AND a nested _rating object. We normalise into a single _rating with both naming styles
+      // so the modal always finds what it needs regardless of which keys are present.
+      const existingRating = full._rating || {};
+      full._rating = {
+        // Flat top-level fields (authoritative from DB)
+        score:           full.score           ?? existingRating.score,
+        score_agriculture: full.score_agriculture ?? existingRating.score_agriculture ?? existingRating.scoreAgriculture,
+        score_refinery:  full.score_refinery  ?? existingRating.score_refinery  ?? existingRating.scoreRefinery,
+        score_industrial: full.score_industrial ?? existingRating.score_industrial ?? existingRating.scoreIndustrial,
+        score_hightech:  full.score_hightech  ?? existingRating.score_hightech  ?? existingRating.scoreHightech,
+        score_military:  full.score_military  ?? existingRating.score_military  ?? existingRating.scoreMilitary,
+        score_tourism:   full.score_tourism   ?? existingRating.score_tourism   ?? existingRating.scoreTourism,
+        economy_suggestion: full.economy_suggestion ?? existingRating.economy_suggestion ?? existingRating.economySuggestion,
+        // camelCase aliases for modal rendering
+        scoreAgriculture: full.score_agriculture ?? existingRating.scoreAgriculture,
+        scoreRefinery:    full.score_refinery    ?? existingRating.scoreRefinery,
+        scoreIndustrial:  full.score_industrial  ?? existingRating.scoreIndustrial,
+        scoreHightech:    full.score_hightech    ?? existingRating.scoreHightech,
+        scoreMilitary:    full.score_military    ?? existingRating.scoreMilitary,
+        scoreTourism:     full.score_tourism     ?? existingRating.scoreTourism,
+        economySuggestion: full.economy_suggestion ?? existingRating.economySuggestion,
+        // Body counts
+        elw_count:          full.elw_count          ?? existingRating.elw_count,
+        ww_count:           full.ww_count            ?? existingRating.ww_count,
+        ammonia_count:      full.ammonia_count       ?? existingRating.ammonia_count,
+        gas_giant_count:    full.gas_giant_count     ?? existingRating.gas_giant_count,
+        landable_count:     full.landable_count      ?? existingRating.landable_count,
+        terraformable_count: full.terraformable_count ?? existingRating.terraformable_count,
+        bio_signal_total:   full.bio_signal_total    ?? existingRating.bio_signal_total,
+        geo_signal_total:   full.geo_signal_total    ?? existingRating.geo_signal_total,
+        neutron_count:      full.neutron_count       ?? existingRating.neutron_count,
+        black_hole_count:   full.black_hole_count    ?? existingRating.black_hole_count,
+        white_dwarf_count:  full.white_dwarf_count   ?? existingRating.white_dwarf_count,
       };
     }
   } catch (e) {
-    // Use the card data we already have
+    // Use the card data we already have (don't blank the modal on network error)
     full = sys;
   }
 
@@ -393,7 +408,7 @@ function buildModalHTML(sys) {
         ${sys.allegiance ? `<div class="modal-field"><span class="modal-field-label">Allegiance</span><span class="modal-field-value">${sys.allegiance}</span></div>` : ''}
         ${sys.government ? `<div class="modal-field"><span class="modal-field-label">Government</span><span class="modal-field-value">${sys.government}</span></div>` : ''}
         ${sys.main_star_type ? `<div class="modal-field"><span class="modal-field-label">Main Star</span><span class="modal-field-value" style="color:var(--purple)">${starLabel(sys.main_star_type, sys.main_star_subtype)}</span></div>` : ''}
-        ${r.economySuggestion || r.economy_suggestion ? `
+        ${(r.economySuggestion || r.economy_suggestion) ? `
         <div class="modal-field">
           <span class="modal-field-label">Suggested Economy</span>
           <span class="modal-field-value accent">${r.economySuggestion || r.economy_suggestion}</span>
