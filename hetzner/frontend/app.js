@@ -332,6 +332,7 @@ function buildModalHTML(sys) {
 
   // Bodies list — built via DOM to avoid nested template literal issues
   const bodies = sys.bodies || [];
+  console.log('[ED Finder] bodies array:', bodies.length, 'entries', bodies[0]);
   let bodiesHTML = '';
   if (bodies.length) {
     const rows = bodies.map(b => {
@@ -352,6 +353,7 @@ function buildModalHTML(sys) {
         + (distStr ? '<span class="body-row-dist">' + distStr + '</span>' : '')
         + '</div>';
     });
+    console.log('[ED Finder] body rows generated:', rows.length, 'first row preview:', rows[0]?.substring(0, 80));
     bodiesHTML = '<div class="modal-section"><div class="modal-section-title">Bodies (' + bodies.length + ')</div><div class="body-list">' + rows.join('') + '</div></div>';
   }
 
