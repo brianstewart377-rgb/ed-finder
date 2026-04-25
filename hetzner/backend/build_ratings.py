@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Ratings Computer
-Version: 2.2  (disable RI triggers on dirty-flag UPDATE — same fix as build_grid v2.3)
+Version: 2.3  (pgBouncer bypass + write-before-clear dirty fix + connection retry)
 
 Ports the JavaScript rateSystem() function to Python exactly.
 Computes scores for all visited systems and writes to the ratings table.
@@ -30,6 +30,20 @@ FIX in v2.2:
   • Fix: SET session_replication_role = replica before the dirty-flag UPDATE
     (session-scoped, reverts automatically on disconnect, safe because we are
     not modifying id64 or any FK column).
+
+FIX in v2.3:
+  • pgBouncer bypass: DATABASE_URL now goes through _make_direct_dsn() just
+    like build_grid.py and import_spansh.py.  If DATABASE_URL points at
+    pgBouncer (port 5433), long-running worker connections and the server-side
+    streaming cursor in main() would be silently dropped mid-run.
+  • Write-before-clear: worker_process() previously cleared rating_batch and
+    then cleared rating_dirty even when _write_ratings() raised an exception.
+    Systems whose ratings failed to write were marked clean — they would never
+    be re-rated on resume.  Fix: dirty-flag clear is now skipped for any id64
+    whose rating write failed, so they remain dirty and are retried next run.
+  • Connection retry: main() now wraps psycopg2.connect() in a retry loop
+    (up to 10 attempts with exponential back-off) matching build_grid.py.
+    Previously a transient DB hiccup at startup would abort the entire run.
 
 Usage:
     python3 build_ratings.py              # rate all unrated systems (resume-safe)
@@ -63,7 +77,54 @@ from progress import (
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DB_DSN     = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder')
+
+def _make_direct_dsn(url: str) -> str:
+    """
+    Ensure the DSN points directly at postgres (port 5432), not pgBouncer (5433).
+    pgBouncer transaction-pool mode is incompatible with long-running worker
+    connections and server-side streaming cursors — it silently drops them
+    mid-run, causing incomplete ratings builds that are hard to diagnose.
+    Set DB_DSN_DIRECT env var to override completely.
+    """
+    direct = os.getenv('DB_DSN_DIRECT', '')
+    if direct:
+        return direct
+    if ':5433/' in url:
+        url = url.replace(':5433/', ':5432/')
+    url = url.replace('@pgbouncer:', '@postgres:')
+    return url
+
+
+def _connect_with_retry(dsn: str, label: str = 'ratings', retries: int = 10,
+                        delay: float = 5.0):
+    """Connect with exponential back-off retries — matches build_grid.py."""
+    for attempt in range(1, retries + 1):
+        try:
+            conn = psycopg2.connect(
+                dsn,
+                keepalives=1,
+                keepalives_idle=60,
+                keepalives_interval=10,
+                keepalives_count=6,
+                options=(
+                    f"-c application_name={label} "
+                    f"-c statement_timeout=0 "
+                    f"-c idle_in_transaction_session_timeout=3600000"
+                )
+            )
+            return conn
+        except Exception as e:
+            if attempt == retries:
+                log.error(f"FATAL: Cannot connect to database ({label}): {e}")
+                raise
+            wait = min(delay * attempt, 60)
+            log.warning(f"  DB connect failed ({label}, attempt {attempt}/{retries}): {e}")
+            log.warning(f"  Retrying in {wait:.0f}s ...")
+            time.sleep(wait)
+
+
+_raw_url   = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@postgres:5432/edfinder')
+DB_DSN     = _make_direct_dsn(_raw_url)
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '5000'))   # rows per INSERT batch
 LOG_LEVEL  = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE   = os.getenv('LOG_FILE', '/tmp/build_ratings.log')   # safe Docker default
@@ -283,6 +344,8 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
     instead of one query per system. Reduces round-trips from N to ~N/5000.
     v2.1: WorkerHeartbeat prints progress every 60s so Docker logs show
     the worker is alive (not silently crashed).
+    v2.3: failed_ids tracks systems whose rating write failed so we do NOT
+    mark them clean — they stay dirty and are retried on the next run.
     """
     conn = psycopg2.connect(db_dsn)
     conn.autocommit = False
@@ -291,6 +354,7 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
     processed    = 0
     errors       = 0
     rating_batch = []
+    failed_ids: set = set()  # id64s whose rating write failed — do NOT clear dirty
 
     hb = WorkerHeartbeat(worker_id, total=len(system_batch),
                          label="ratings", interval=60.0)
@@ -346,6 +410,10 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
             except Exception as e:
                 log.error(f"Worker {worker_id}: write error: {e}")
                 conn.rollback()
+                # Track which systems failed so we do NOT mark them clean below.
+                # They remain rating_dirty=TRUE and will be retried on next run.
+                for r in rating_batch:
+                    failed_ids.add(r['system_id64'])
             rating_batch.clear()
 
     # Final flush
@@ -355,6 +423,8 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
         except Exception as e:
             log.error(f"Worker {worker_id}: final write error: {e}")
             conn.rollback()
+            for r in rating_batch:
+                failed_ids.add(r['system_id64'])
 
     # Mark systems as clean (one UPDATE, one commit).
     # FIX v2.2: disable RI triggers for this session so the UPDATE doesn't fire
@@ -362,16 +432,30 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
     # each + 1 custom trigger = 17).  Only rating_dirty is being changed — not
     # id64 (the FK column) — so RI integrity is fully maintained.
     # session_replication_role = replica reverts automatically on disconnect.
-    if id64s:
+    #
+    # FIX v2.3: only clear dirty for systems whose ratings were successfully
+    # written.  Systems in failed_ids had a write error — they stay dirty so
+    # the next run will retry them.  Previously ALL id64s were cleared even
+    # when some writes failed, permanently losing those ratings.
+    clean_ids = [i for i in id64s if i not in failed_ids]
+    if failed_ids:
+        log.warning(
+            f"Worker {worker_id}: {len(failed_ids)} systems kept dirty "
+            f"(write failed) — will retry next run"
+        )
+    if clean_ids:
         try:
             try:
                 cur.execute("SET session_replication_role = replica")
                 log.debug(f"Worker {worker_id}: RI triggers disabled for dirty-flag UPDATE")
             except Exception as e:
-                log.warning(f"Worker {worker_id}: could not disable RI triggers: {e} — continuing anyway")
+                log.warning(
+                    f"Worker {worker_id}: could not disable RI triggers: {e} "
+                    f"— continuing anyway"
+                )
             cur.execute(
                 "UPDATE systems SET rating_dirty = FALSE WHERE id64 = ANY(%s)",
-                (id64s,)
+                (clean_ids,)
             )
             conn.commit()
             # session_replication_role reverts to 'origin' on next transaction /
@@ -467,7 +551,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.2)')
+    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.3)')
     parser.add_argument('--rebuild',  action='store_true',
                         help='Re-rate ALL systems, not just unrated ones')
     parser.add_argument('--dirty',    action='store_true',
@@ -482,7 +566,7 @@ def main():
 
     # ── Startup banner ────────────────────────────────────────────────────
     mode_label = "REBUILD ALL" if args.rebuild else ("DIRTY ONLY" if args.dirty else "RESUME (unrated only)")
-    startup_banner(log, "Ratings Computer", "v2.2", [
+    startup_banner(log, "Ratings Computer", "v2.3", [
         ("Mode",       mode_label),
         ("Workers",    str(args.workers)),
         ("Chunk size", f"{args.chunk:,} systems"),
@@ -493,7 +577,7 @@ def main():
     # ── Connect and diagnostic counts ─────────────────────────────────────
     stage_banner(log, 1, 3, "Diagnostic counts")
     try:
-        conn = psycopg2.connect(DB_DSN)
+        conn = _connect_with_retry(DB_DSN, label='ratings-diag')
     except Exception as e:
         log.error(f"FATAL: Cannot connect to database: {e}")
         sys.exit(1)
@@ -533,7 +617,7 @@ def main():
     log.info(f"  Using server-side streaming cursor (avoids 74M truncation bug)")
     log.info(f"  Workers emit heartbeat every 60s — silence > 5 min means a crash")
 
-    stream_conn = psycopg2.connect(DB_DSN)
+    stream_conn = _connect_with_retry(DB_DSN, label='ratings-stream')
     stream_conn.autocommit = False
     stream_conn.set_session(readonly=True)
 
@@ -613,7 +697,7 @@ def main():
 
     # ── Finalise ──────────────────────────────────────────────────────────
     stage_banner(log, 3, 3, "Finalise — write app_meta")
-    conn2 = psycopg2.connect(DB_DSN)
+    conn2 = _connect_with_retry(DB_DSN, label='ratings-finalise')
     with conn2.cursor() as cur:
         cur.execute("""
             INSERT INTO app_meta (key, value, updated_at)
