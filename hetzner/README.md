@@ -237,9 +237,14 @@ docker compose exec postgres \
 
 **Always run these in this exact order. Each one depends on the previous.**
 
-#### Pull the latest scripts first
+#### Export your password into the shell first (do this once per session)
 ```bash
 cd /opt/ed-finder-src/hetzner
+export POSTGRES_PASSWORD=$(grep POSTGRES_PASSWORD .env | cut -d= -f2)
+```
+
+#### Pull the latest scripts
+```bash
 git fetch origin && git reset --hard origin/main
 ```
 
@@ -263,12 +268,12 @@ docker exec ed-postgres psql -U edfinder -d edfinder -c "
 Assigns every system to a 500ly spatial grid cell. Required before build_clusters.py.
 
 ```bash
-docker rm -f ed-importer-run 2>/dev/null
+docker rm -f ed-importer-run 2>/dev/null; true
 docker run --rm \
   --network ed-finder_default \
   --name ed-importer-run \
   --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
+  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
   -e LOG_FILE=/data/logs/build_grid.log \
   -v /opt/ed-finder-src/hetzner/backend/build_grid.py:/app/build_grid.py \
   -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
@@ -276,6 +281,9 @@ docker run --rm \
   hetzner-importer:latest \
   build_grid.py
 ```
+
+> `${POSTGRES_PASSWORD}` is exported by the shell when you `source .env` or set it
+> manually. Alternatively paste the literal password from `.env`.
 
 Wait for: `Spatial Grid Complete` in the output.
 
@@ -286,12 +294,12 @@ If it crashes or is interrupted, re-run the exact same command — it resumes au
 Computes economy scores for all systems with body data. Required before build_clusters.py.
 
 ```bash
-docker rm -f ed-importer-run 2>/dev/null
+docker rm -f ed-importer-run 2>/dev/null; true
 docker run --rm \
   --network ed-finder_default \
   --name ed-importer-run \
   --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
+  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
   -e LOG_FILE=/data/logs/build_ratings.log \
   -v /opt/ed-finder-src/hetzner/backend/build_ratings.py:/app/build_ratings.py \
   -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
@@ -307,12 +315,12 @@ Wait for: `Ratings Complete` in the output.
 Builds the empire-location cluster summary. The longest step.
 
 ```bash
-docker rm -f ed-importer-run 2>/dev/null
+docker rm -f ed-importer-run 2>/dev/null; true
 docker run --rm \
   --network ed-finder_default \
   --name ed-importer-run \
   --entrypoint python3 \
-  -e DATABASE_URL="postgresql://edfinder:PASSWORD@POSTGRES_IP:5432/edfinder" \
+  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
   -e LOG_FILE=/data/logs/build_clusters.log \
   -v /opt/ed-finder-src/hetzner/backend/build_clusters.py:/app/build_clusters.py \
   -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
@@ -376,16 +384,32 @@ using the same `docker run` command from step 7, with an extra argument appended
 
 ```bash
 # Grid — wipe app_meta cache and reassign all grid_cell_ids
-docker run ... hetzner-importer:latest build_grid.py --reset-cache
+docker run --rm --network ed-finder_default --name ed-importer-run --entrypoint python3 \
+  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
+  -e LOG_FILE=/data/logs/build_grid.log \
+  -v /opt/ed-finder-src/hetzner/backend/build_grid.py:/app/build_grid.py \
+  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
+  -v /data/logs:/data/logs \
+  hetzner-importer:latest build_grid.py --reset-cache
 
 # Ratings — re-rate every system (even already-rated ones)
-docker run ... hetzner-importer:latest build_ratings.py --rebuild
+docker run --rm --network ed-finder_default --name ed-importer-run --entrypoint python3 \
+  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
+  -e LOG_FILE=/data/logs/build_ratings.log \
+  -v /opt/ed-finder-src/hetzner/backend/build_ratings.py:/app/build_ratings.py \
+  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
+  -v /data/logs:/data/logs \
+  hetzner-importer:latest build_ratings.py --rebuild
 
 # Clusters — recompute all anchors
-docker run ... hetzner-importer:latest build_clusters.py --rebuild
+docker run --rm --network ed-finder_default --name ed-importer-run --entrypoint python3 \
+  -e DATABASE_URL="postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder" \
+  -e LOG_FILE=/data/logs/build_clusters.log \
+  -v /opt/ed-finder-src/hetzner/backend/build_clusters.py:/app/build_clusters.py \
+  -v /opt/ed-finder-src/hetzner/backend/progress.py:/app/progress.py \
+  -v /data/logs:/data/logs \
+  hetzner-importer:latest build_clusters.py --rebuild
 ```
-
-Replace `...` with the full flags from step 7 (`--network`, `-e`, `-v`, etc.).
 
 ---
 
@@ -430,16 +454,22 @@ docker rm -f ed-importer-run 2>/dev/null
 ```
 Always prepend `docker rm -f ed-importer-run 2>/dev/null` to any `docker run` command.
 
-### 7. Wrong Docker network
-The container network is `ed-finder_default` (not `hetzner_default` or `ed-finder-net`).
-Verify with: `docker network ls | grep ed-finder`
+### 7. Wrong Docker network / connection timeout
+The `docker-compose.yml` now pins the network name to `ed-finder_default` via an explicit
+`networks:` block, so the name is always predictable regardless of which directory
+`docker compose` is run from. All `docker run` commands below use `--network ed-finder_default`.
 
-### 8. postgres hostname not resolving inside container
-Pass the PostgreSQL container's IP directly via `DATABASE_URL`. Find it with:
+If you ever see a timeout and want to double-check:
 ```bash
-docker inspect ed-postgres | grep '"IPAddress"'
+docker network ls | grep ed
+# Should show: ed-finder_default
 ```
-Then use that IP in `DATABASE_URL` instead of the hostname `postgres`.
+
+### 8. Use the service hostname, not the container IP
+Always use `@postgres:5432` in `DATABASE_URL` when the importer container is on
+`ed-finder_default` — Docker DNS resolves the service name automatically.
+Do **not** use the raw container IP (`172.19.0.x`); it can change between restarts
+and bypasses Docker DNS.
 
 ### 9. build_grid stalling at ~41M rows
 This was the original root cause of the multi-day debugging session. It is **fully fixed in v2.3**. The cause was 17 RI triggers firing per row UPDATE (16 FK triggers + 1 custom). The fix is `SET session_replication_role = replica` which is now applied automatically. Pull the latest code and re-run.
@@ -541,6 +571,8 @@ docker compose --profile import run --rm importer import_spansh.py --all --resum
 
 ### Manual nightly update
 ```bash
+# Export password first so the script can use it
+export POSTGRES_PASSWORD=$(grep POSTGRES_PASSWORD /opt/ed-finder-src/hetzner/.env | cut -d= -f2)
 /opt/ed-finder-src/hetzner/scripts/nightly_update.sh
 ```
 
