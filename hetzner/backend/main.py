@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Hetzner Backend
-Version: 2.0 (PostgreSQL 16 / asyncpg)
+Version: 2.1 (PostgreSQL 16 / asyncpg)
 
 Server: Hetzner AX41-SSD — i7-8700, 128 GB RAM, 3×1 TB NVMe RAID-5
 DB:     PostgreSQL 16 via asyncpg connection pool → pgBouncer
@@ -44,7 +44,8 @@ import asyncpg
 import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -65,7 +66,7 @@ except ImportError:
 DB_DSN      = os.getenv('DATABASE_URL',  'postgresql://edfinder:edfinder@postgres:5432/edfinder')
 REDIS_URL   = os.getenv('REDIS_URL',     'redis://redis:6379/0')
 LOG_LEVEL   = os.getenv('LOG_LEVEL',     'INFO')
-APP_VERSION = '2.0.0-hetzner'
+APP_VERSION = '2.1.0-hetzner'
 
 # Cache TTLs (seconds)
 TTL_SEARCH      = int(os.getenv('TTL_SEARCH',  '3600'))    # 1 hour
@@ -110,9 +111,18 @@ async def lifespan(app: FastAPI):
         server_settings={'application_name': 'ed_finder_api'},
     )
     try:
-        _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        # Improvement #2: explicit Redis connection pool — prevents connection exhaustion
+        # under concurrent search traffic
+        _redis = aioredis.from_url(
+            REDIS_URL,
+            decode_responses=True,
+            max_connections=int(os.getenv('REDIS_MAX_CONNECTIONS', '20')),
+            socket_connect_timeout=3,
+            socket_timeout=3,
+            retry_on_timeout=True,
+        )
         await _redis.ping()
-        log.info("Redis connected ✓")
+        log.info("Redis connected ✓ (pool max=%s)", os.getenv('REDIS_MAX_CONNECTIONS', '20'))
     except Exception as e:
         log.warning(f"Redis unavailable ({e}) — running without cache")
         _redis = None
@@ -136,6 +146,8 @@ app.add_middleware(
     allow_methods=['*'],
     allow_headers=['*'],
 )
+# Improvement #3: GZip compress all responses >= 1 KB — reduces bandwidth ~70% for large result sets
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -226,9 +238,11 @@ class ClusterRequirement(BaseModel):
     min_score:  int = Field(default=40, ge=0, le=100)
 
 class ClusterSearchRequest(BaseModel):
-    requirements:   list[ClusterRequirement]
-    limit:          int = Field(default=50, le=200)
-    offset:         int = 0
+    requirements:      list[ClusterRequirement]
+    limit:             int = Field(default=50, le=200)
+    offset:            int = 0
+    # Improvement #6: optional reference coords for distance-sorted cluster results
+    reference_coords:  Optional[dict] = None   # {x, y, z}
 
 class WatchlistAlert(BaseModel):
     min_score:  Optional[int] = None
@@ -669,8 +683,10 @@ async def cluster_search(req: ClusterSearchRequest):
     if _LS_AVAILABLE:
         try:
             body_dict = {
-                'requirements': [r.model_dump() for r in req.requirements],
-                'limit':        req.limit,
+                'requirements':    [r.model_dump() for r in req.requirements],
+                'limit':           req.limit,
+                # Improvement #6: pass reference coords through to cluster search
+                'reference_coords': req.reference_coords,
             }
             return await _ls.local_db_cluster_search(body_dict, _pool)
         except Exception as exc:
@@ -1009,6 +1025,93 @@ async def cache_clear():
     async with _pool.acquire() as conn:
         await conn.execute("DELETE FROM api_cache WHERE expires_at <= NOW()")
     return {'ok': True, 'message': 'Cache cleared'}
+
+
+# ---------------------------------------------------------------------------
+# Improvement #7: Live EDDN events SSE endpoint
+# Streams real-time system/body update events from the eddn_log table.
+# The frontend connects with EventSource and displays a live feed.
+# ---------------------------------------------------------------------------
+_sse_clients: list = []
+
+@app.get('/api/events/live')
+async def live_events(request: Request):
+    """
+    Server-Sent Events stream of live EDDN updates.
+    Each event is a JSON object: {type, system_name, id64, timestamp}.
+    Clients reconnect automatically via the EventSource API.
+    """
+    queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _sse_clients.append(queue)
+
+    async def event_generator():
+        try:
+            # Send a heartbeat every 25s to keep the connection alive through proxies
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = queue.get_nowait()
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
+                except asyncio.QueueEmpty:
+                    yield ": heartbeat\n\n"
+                    await asyncio.sleep(25)
+        finally:
+            try:
+                _sse_clients.remove(queue)
+            except ValueError:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',   # Disable nginx buffering for SSE
+        },
+    )
+
+
+async def _broadcast_eddn_event(event: dict):
+    """Called by the EDDN listener (or a background task) to push events to all SSE clients."""
+    dead = []
+    for q in _sse_clients:
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            dead.append(q)  # Client too slow — drop it
+    for q in dead:
+        try:
+            _sse_clients.remove(q)
+        except ValueError:
+            pass
+
+
+@app.get('/api/events/recent')
+async def recent_events(limit: int = 50):
+    """
+    Return the most recent EDDN events from the database.
+    Used to populate the live feed on initial page load.
+    """
+    limit = min(limit, 200)
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT system_name, system_id64, event_type, received_at
+            FROM eddn_log
+            ORDER BY received_at DESC
+            LIMIT $1
+        """, limit)
+    return {
+        'events': [
+            {
+                'system_name': r['system_name'],
+                'id64':        r['system_id64'],
+                'type':        r['event_type'],
+                'timestamp':   r['received_at'].isoformat() if r['received_at'] else None,
+            }
+            for r in rows
+        ]
+    }
 
 
 if __name__ == '__main__':

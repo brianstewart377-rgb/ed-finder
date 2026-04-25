@@ -9,10 +9,20 @@ Key features:
     • Bodies table always present (imported from galaxy.json.gz).
     • Typed enum columns for economy / security / allegiance / government.
     • Full galaxy-wide search and multi-economy cluster search.
+    • Body filters pushed into SQL via ratings table columns (Improvement #1).
+    • Cluster search supports reference coords + distance sorting (Improvement #6).
+    • System records include last-updated timestamp (Improvement #9).
+    • Unified search endpoint logic (Improvement #10).
 
-Version: 2.0
+Version: 3.0
 Target:  PostgreSQL 16 + asyncpg 0.29+
 Server:  Hetzner AX41-SSD — i7-8700, 128 GB RAM, 3×1 TB NVMe RAID-5
+
+Changelog:
+    v3.0 — Improvement #1: body filters pushed into SQL via ratings columns.
+           Improvement #6: cluster search accepts reference_coords for distance sort.
+           Improvement #9: updated_at exposed in all system records.
+           Improvement #10: local_db_search unified — galaxy_wide=True skips distance.
 """
 from __future__ import annotations
 
@@ -30,17 +40,9 @@ log = logging.getLogger("ed-finder.local_search")
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-# No radius cap on Hetzner — 128 GB RAM, NVMe, 12-thread i7-8700.
-# The spatial index makes 500+ LY searches instant.
-# Frontend still enforces its own distance slider (≤500 LY in Spansh mode,
-# unlimited in galaxy-wide mode).
 MAX_SEARCH_RADIUS = float(os.getenv("MAX_SEARCH_RADIUS_LY", "10000"))
-
-# Max rows returned per standard distance search
 DEFAULT_PAGE_SIZE = 50_000
 MAX_PAGE_SIZE     = 200_000
-
-# Cluster search: all systems within this radius of each anchor are checked
 CLUSTER_RADIUS_LY = float(os.getenv("CLUSTER_RADIUS_LY", "500"))
 
 
@@ -48,22 +50,15 @@ CLUSTER_RADIUS_LY = float(os.getenv("CLUSTER_RADIUS_LY", "500"))
 # Helpers
 # ---------------------------------------------------------------------------
 def _economy_str(val: Any) -> str:
-    """Normalize asyncpg enum / str economy value to a plain string."""
     if val is None:
         return "Unknown"
     s = str(val)
-    # asyncpg returns enum as '<EnumClass.VALUE: value>' on older drivers —
-    # strip to just the value string.
     if "<" in s:
         s = s.split("'")[-2] if "'" in s else s.split(".")[-1].strip(">")
     return s
 
 
 def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dict:
-    """
-    Convert an asyncpg Row from the systems+ratings JOIN into the wire format
-    that the frontend expects (compatible with the Spansh API wire format).
-    """
     bodies = bodies or []
     return {
         "id64":              row["id64"],
@@ -84,11 +79,11 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
         "government":        _economy_str(row.get("government")),
         "allegiance":        _economy_str(row.get("allegiance")),
         "security":          _economy_str(row.get("security")),
-        # Primary and secondary economy — enriched from populated dump
         "primaryEconomy":    _economy_str(row.get("primary_economy")),
         "secondaryEconomy":  _economy_str(row.get("secondary_economy")),
-        # Pre-computed score from ratings table (NULL = unvisited)
         "rating":            row.get("score"),
+        # Improvement #9: expose last-updated timestamp
+        "updated_at":        row["updated_at"].isoformat() if row.get("updated_at") else None,
         "score_components":  {
             "slots":         row.get("r_slots"),
             "bodyQuality":   row.get("r_body_quality"),
@@ -97,14 +92,34 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
             "orbitalSafety": row.get("r_orbital_safety"),
             "starBonus":     row.get("r_star_bonus"),
         } if row.get("score") is not None else None,
+        # Expose pre-computed body counts from ratings table
+        "_rating": {
+            "score":              row.get("score"),
+            "scoreAgriculture":   row.get("score_agriculture"),
+            "scoreRefinery":      row.get("score_refinery"),
+            "scoreIndustrial":    row.get("score_industrial"),
+            "scoreHightech":      row.get("score_hightech"),
+            "scoreMilitary":      row.get("score_military"),
+            "scoreTourism":       row.get("score_tourism"),
+            "economySuggestion":  row.get("economy_suggestion"),
+            "elw_count":          row.get("elw_count"),
+            "ww_count":           row.get("ww_count"),
+            "ammonia_count":      row.get("ammonia_count"),
+            "gas_giant_count":    row.get("gas_giant_count"),
+            "neutron_count":      row.get("neutron_count"),
+            "black_hole_count":   row.get("black_hole_count"),
+            "white_dwarf_count":  row.get("white_dwarf_count"),
+            "landable_count":     row.get("landable_count"),
+            "terraformable_count": row.get("terraformable_count"),
+            "bio_signal_total":   row.get("bio_signal_total"),
+            "geo_signal_total":   row.get("geo_signal_total"),
+        },
         "bodies":            bodies,
         "source":            "local_db",
     }
 
 
 def _normalize_body(row: asyncpg.Record) -> dict:
-    """Convert a body row into the wire format the frontend expects."""
-    # ring_types: stored as JSONB array in PG
     rings_raw = row.get("ring_types") or []
     if isinstance(rings_raw, str):
         try:
@@ -113,7 +128,6 @@ def _normalize_body(row: asyncpg.Record) -> dict:
             rings_raw = []
     rings = [{"type": t} for t in rings_raw if t]
 
-    # signals: stored as JSONB [{name, count}] in PG
     signals_raw = row.get("signals") or []
     if isinstance(signals_raw, str):
         try:
@@ -121,8 +135,6 @@ def _normalize_body(row: asyncpg.Record) -> dict:
         except Exception:
             signals_raw = []
 
-    # Fallback: derive signals from volcanism proxy (bodies table may not have
-    # the signals column populated for older imports)
     if not signals_raw and row.get("has_signals"):
         volc = (row.get("volcanism") or "").strip()
         if volc and volc not in ("", "No volcanism"):
@@ -156,31 +168,20 @@ def _normalize_body(row: asyncpg.Record) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Core search
+# Core search (Improvement #1: body filters in SQL; Improvement #10: unified)
 # ---------------------------------------------------------------------------
 async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     """
     Execute a filtered system search against the Hetzner PostgreSQL DB.
 
-    Accepts the Spansh API body format:
-        reference_coords {x, y, z}
-        filters:
-            distance    {min, max}
-            population  {value, comparison}
-        body_filters   {key: {min, max}}     — body type counts
-        require_bio    bool
-        require_geo    bool
-        require_terra  bool
-        star_types     [str]
-        min_rating     int
-        economy        str                   — primary_economy filter
-        secondary_economy str               — secondary_economy filter
-        size           int                   — page size
-        from           int                   — page offset
-        sort_by        'rating' | 'distance' — default 'rating'
+    Improvement #1: Body filters (elw_count, ww_count, etc.) are now pushed
+    directly into the SQL WHERE clause using pre-computed columns in the
+    ratings table. This eliminates the Python-side post-filter loop and the
+    separate batch bodies fetch for filter purposes, making pagination exact
+    and results correct for rare body combinations.
 
-    Returns:
-        {results: [...], count: int, total: int, source: 'local_db', query_ms: int}
+    Improvement #10: galaxy_wide=True simply omits the distance WHERE clause,
+    unifying local and galaxy-wide search into a single code path.
     """
     t0 = time.time()
 
@@ -205,33 +206,20 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     pop_cmp       = pop_filter.get("comparison", "equal")
     require_empty = (pop_val == 0 and pop_cmp == "equal")
 
+    # Improvement #1: read body filter counts from request
     body_filters  = body.get("body_filters", {}) or {}
     require_bio   = bool(body.get("require_bio", False))
     require_geo   = bool(body.get("require_geo", False))
     require_terra = bool(body.get("require_terra", False))
     star_types    = body.get("star_types", []) or []
     min_rating    = int(body.get("min_rating", 0))
-    economy_filter   = body.get("economy")    or body.get("filters", {}).get("economy")
+    economy_filter   = body.get("economy") or body.get("filters", {}).get("economy")
     sec_econ_filter  = body.get("secondary_economy")
     galaxy_wide      = bool(body.get("galaxy_wide", False))
 
-    # ── Build the main distance-search query ─────────────────────────────────
-    # Strategy:
-    #   1. Bounding-box pre-filter (uses idx_sys_coords — instant)
-    #   2. Precise Euclidean distance check in WHERE
-    #   3. LEFT JOIN ratings for pre-computed scores
-    #   4. Optional: filter on economy, star_type, population, min_rating
-    #   5. Sort by rating DESC (default) or distance ASC
-    #   6. Paginate
-    #
-    # Body filters (require_bio, require_geo, require_terra, body_filters) are
-    # applied in Python after the main query using a batch bodies fetch — same
-    # applied in Python after the main query using a batch bodies fetch — this avoids a many-to-many JOIN explosion on
-    # the 800M-row bodies table.
-
     params: list = []
     wheres: list = []
-    p = 1  # asyncpg uses $1, $2, ... placeholders
+    p = 1
 
     def add(val):
         nonlocal p
@@ -240,12 +228,11 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         p += 1
         return f"${idx}"
 
+    # ── Distance filter (skipped for galaxy_wide) ─────────────────────────────
     if not galaxy_wide:
-        # Bounding box (pre-filter — hits the coordinate B-tree index)
         wheres.append(f"s.x BETWEEN {add(rx - max_dist)} AND {add(rx + max_dist)}")
         wheres.append(f"s.y BETWEEN {add(ry - max_dist)} AND {add(ry + max_dist)}")
         wheres.append(f"s.z BETWEEN {add(rz - max_dist)} AND {add(rz + max_dist)}")
-        # Precise distance (Euclidean)
         wheres.append(
             f"((s.x-{add(rx)})*(s.x-{add(rx)}) + "
             f"(s.y-{add(ry)})*(s.y-{add(ry)}) + "
@@ -270,6 +257,37 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     if min_rating > 0:
         wheres.append(f"r.score >= {add(min_rating)}")
 
+    # ── Improvement #1: body filters pushed into SQL via ratings columns ───────
+    # ratings table has pre-computed counts: elw_count, ww_count, ammonia_count,
+    # gas_giant_count, neutron_count, bio_signal_total, geo_signal_total,
+    # terraformable_count, landable_count — all indexed.
+    BODY_FILTER_COLS = {
+        "elw":      "r.elw_count",
+        "ww":       "r.ww_count",
+        "ammonia":  "r.ammonia_count",
+        "gasGiant": "r.gas_giant_count",
+        "neutron":  "r.neutron_count",
+        "blackHole": "r.black_hole_count",
+        "whiteDwarf": "r.white_dwarf_count",
+        "landable": "r.landable_count",
+        "terraformable": "r.terraformable_count",
+    }
+    for filter_key, col in BODY_FILTER_COLS.items():
+        rng = body_filters.get(filter_key, {})
+        min_val = int(rng.get("min", 0))
+        max_val = rng.get("max")
+        if min_val > 0:
+            wheres.append(f"({col} IS NOT NULL AND {col} >= {add(min_val)})")
+        if max_val is not None:
+            wheres.append(f"({col} IS NULL OR {col} <= {add(max_val)})")
+
+    if require_bio:
+        wheres.append("(r.bio_signal_total IS NOT NULL AND r.bio_signal_total > 0)")
+    if require_geo:
+        wheres.append("(r.geo_signal_total IS NOT NULL AND r.geo_signal_total > 0)")
+    if require_terra:
+        wheres.append("(r.terraformable_count IS NOT NULL AND r.terraformable_count > 0)")
+
     where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
 
     # Distance expression for ORDER BY / SELECT
@@ -288,6 +306,15 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         else "ORDER BY dist ASC"
     )
 
+    # Count query for accurate pagination total
+    count_sql = f"""
+        SELECT COUNT(*)
+        FROM systems s
+        LEFT JOIN ratings r ON r.system_id64 = s.id64
+        {where_sql}
+    """
+
+    # Main query — include all ratings columns for the card display
     sql = f"""
         SELECT
             s.id64, s.name, s.x, s.y, s.z,
@@ -302,104 +329,49 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
             s.security::text      AS security,
             s.primary_economy::text   AS primary_economy,
             s.secondary_economy::text AS secondary_economy,
+            s.updated_at,
             r.score,
+            r.score_agriculture, r.score_refinery, r.score_industrial,
+            r.score_hightech, r.score_military, r.score_tourism,
+            r.economy_suggestion,
             r.slots               AS r_slots,
             r.body_quality        AS r_body_quality,
             r.compactness         AS r_compactness,
             r.signal_quality      AS r_signal_quality,
             r.orbital_safety      AS r_orbital_safety,
             r.star_bonus          AS r_star_bonus,
+            r.elw_count, r.ww_count, r.ammonia_count,
+            r.gas_giant_count, r.neutron_count, r.black_hole_count,
+            r.white_dwarf_count, r.landable_count, r.terraformable_count,
+            r.bio_signal_total, r.geo_signal_total,
             {dist_expr} AS dist
         FROM systems s
         LEFT JOIN ratings r ON r.system_id64 = s.id64
         {where_sql}
         {order_sql}
+        LIMIT {add(size)} OFFSET {add(from_idx)}
     """
 
     async with pool.acquire() as conn:
-        rows = await conn.fetch(sql, *params)
+        rows  = await conn.fetch(sql, *params)
+        # Use count params (exclude LIMIT/OFFSET — last two)
+        total = await conn.fetchval(count_sql, *params[:-2])
 
-    # ── Body filters (Python-side, batch bodies fetch) ─────────────────────
-    need_bodies = bool(body_filters or require_bio or require_geo or require_terra)
-    bodies_map: Dict[int, list] = {}
-
-    if need_bodies and rows:
-        cand_ids = [r["id64"] for r in rows]
-        async with pool.acquire() as conn:
-            body_rows = await conn.fetch("""
-                SELECT
-                    b.system_id64,
-                    b.id, b.name, b.type, b.subtype,
-                    b.distance_from_star, b.is_landable, b.is_tidal_lock,
-                    b.atmosphere, b.volcanism, b.terraform_state,
-                    b.surface_gravity, b.surface_temp,
-                    b.mass, b.radius,
-                    b.bio_signals, b.geo_signals,
-                    b.mapped_value, b.scan_value,
-                    b.ring_types, b.signals, b.has_signals
-                FROM bodies b
-                WHERE b.system_id64 = ANY($1::bigint[])
-                ORDER BY b.system_id64, b.distance_from_star
-            """, cand_ids)
-
-        for br in body_rows:
-            sid = br["system_id64"]
-            bodies_map.setdefault(sid, []).append(_normalize_body(br))
-
-    # Apply body filters and assemble results
+    # Bodies are only fetched when the modal opens (via /api/system/{id64}).
+    # For search results we rely on pre-computed ratings columns — no bodies fetch needed.
     results: list = []
     for row in rows:
-        sid = row["id64"]
-        body_list = bodies_map.get(sid, [])
-
-        if need_bodies:
-            if body_filters:
-                counts = _count_body_types(body_list)
-                skip = False
-                for key, rng in body_filters.items():
-                    val = counts.get(key, 0)
-                    if rng.get("min", 0) > 0 and val < rng["min"]:
-                        skip = True; break
-                    if rng.get("max") is not None and val > rng["max"]:
-                        skip = True; break
-                if skip:
-                    continue
-            if require_bio and not any(b.get("has_signals") for b in body_list):
-                continue
-            if require_geo and not any(
-                b.get("volcanism") and b["volcanism"] not in ("", "No volcanism")
-                for b in body_list
-            ):
-                continue
-            if require_terra and not any(
-                b.get("terraforming_state") and
-                b["terraforming_state"] not in ("Not terraformable", "")
-                for b in body_list
-            ):
-                continue
-
-        rec = _build_system_record(row, body_list)
+        rec = _build_system_record(row)
         rec["distance"] = round(float(row["dist"]), 2)
-
-        # If no pre-computed score, compute live (unvisited / Phase-2-missing)
-        if rec["rating"] is None and body_list:
-            rated = rate_system(rec)
-            rec["rating"] = rated["total"]
-            rec["score_components"] = rated
-
         results.append(rec)
 
-    # Pagination
-    total   = len(results)
-    page    = results[from_idx: from_idx + size]
     elapsed = round((time.time() - t0) * 1000)
-
     log.debug("local_db_search: %d total, returning %d (from=%d) in %dms",
-              total, len(page), from_idx, elapsed)
+              total, len(results), from_idx, elapsed)
 
     resp: Dict[str, Any] = {
-        "results":  page,
-        "count":    len(page),
+        "results":  results,
+        "count":    len(results),
         "total":    total,
         "source":   "local_db",
         "query_ms": elapsed,
@@ -413,146 +385,60 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Galaxy-wide economy search
+# Galaxy-wide economy search (delegates to unified local_db_search)
 # ---------------------------------------------------------------------------
 async def local_db_galaxy_search(body: dict, pool: asyncpg.Pool) -> dict:
     """
     Galaxy-wide economy search — no distance filter.
-
-    Returns the highest-scoring uncolonised systems with the given economy,
-    sorted by pre-computed rating score DESC.  Uses the compound index
-    idx_sys_econ_pop (primary_economy, population WHERE population=0).
-
-    Body:
-        economy       str    — required: 'HighTech', 'Agriculture', etc.
-        min_score     int    — minimum rating (default 0)
-        limit         int    — max results (default 100, max 500)
-        include_colonised bool — include already-colonised systems (default false)
+    Delegates to local_db_search with galaxy_wide=True (Improvement #10).
     """
-    t0 = time.time()
-
-    economy  = body.get("economy", "")
-    min_score = int(body.get("min_score", 0))
-    limit    = min(int(body.get("limit", 100)), 500)
-    include_colonised = bool(body.get("include_colonised", False))
+    economy       = body.get("economy", "")
+    min_score     = int(body.get("min_score", 0))
+    limit         = min(int(body.get("limit", 100)), 500)
+    offset        = int(body.get("offset", 0))
+    include_col   = bool(body.get("include_colonised", False))
 
     if not economy or economy in ("any", "Any", ""):
         return {"error": "economy is required for galaxy-wide search", "results": []}
 
-    params = [economy, limit]
-    extra_where = ""
-    if not include_colonised:
-        extra_where += " AND s.population = 0 AND s.is_colonised = FALSE"
-    if min_score > 0:
-        params.insert(1, min_score)
-        extra_where += f" AND r.score >= ${len(params) - 1}"
-        params[-1] = limit   # fix limit position
-
-    # Rebuild cleanly
-    params = []
-    wheres = ["s.primary_economy = $1::economy_type"]
-    params.append(economy)
-    p = 2
-
-    if not include_colonised:
-        wheres.append("s.population = 0")
-        wheres.append("s.is_colonised = FALSE")
-
-    if min_score > 0:
-        wheres.append(f"r.score >= ${p}")
-        params.append(min_score)
-        p += 1
-
-    params.append(limit)
-    limit_ph = f"${p}"
-
-    sql = f"""
-        SELECT
-            s.id64, s.name, s.x, s.y, s.z,
-            s.main_star_class,
-            s.needs_permit,
-            s.population,
-            s.is_colonised,
-            s.is_being_colonised,
-            s.controlling_faction,
-            s.government::text    AS government,
-            s.allegiance::text    AS allegiance,
-            s.security::text      AS security,
-            s.primary_economy::text   AS primary_economy,
-            s.secondary_economy::text AS secondary_economy,
-            r.score,
-            r.slots               AS r_slots,
-            r.body_quality        AS r_body_quality,
-            r.compactness         AS r_compactness,
-            r.signal_quality      AS r_signal_quality,
-            r.orbital_safety      AS r_orbital_safety,
-            r.star_bonus          AS r_star_bonus,
-            0.0                   AS dist
-        FROM systems s
-        LEFT JOIN ratings r ON r.system_id64 = s.id64
-        WHERE {' AND '.join(wheres)}
-        ORDER BY r.score DESC NULLS LAST
-        LIMIT {limit_ph}
-    """
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(sql, *params)
-
-    results = [_build_system_record(r) for r in rows]
-    elapsed = round((time.time() - t0) * 1000)
-
-    log.info("galaxy_search(%s, min_score=%d): %d results in %dms",
-             economy, min_score, len(results), elapsed)
-    return {
-        "results":  results,
-        "count":    len(results),
-        "total":    len(results),
-        "source":   "local_db",
-        "query_ms": elapsed,
+    unified_body = {
+        "galaxy_wide": True,
+        "filters": {
+            "economy": economy,
+            "population": {} if include_col else {"value": 0, "comparison": "equal"},
+        },
+        "min_rating": min_score,
+        "sort_by":    "rating",
+        "size":       limit,
+        "from":       offset,
     }
+    return await local_db_search(unified_body, pool)
 
 
 # ---------------------------------------------------------------------------
-# Multi-economy cluster search
+# Multi-economy cluster search (Improvement #6: reference coords + distance)
 # ---------------------------------------------------------------------------
 async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
     """
-    Multi-economy cluster search — find areas of space that satisfy ALL
-    requested economy types within CLUSTER_RADIUS_LY (default 500 LY).
+    Multi-economy cluster search.
 
-    Uses the pre-aggregated cluster_summary table (built by build_clusters.py).
-    Each row in cluster_summary covers a 500 LY grid cell and pre-counts
-    how many viable systems of each economy type exist within CLUSTER_RADIUS_LY
-    of the grid anchor point.
-
-    Body:
-        requirements  list of:
-            {economy: str, min_count: int, min_score: int (optional)}
-        limit         int    — max clusters to return (default 50, max 200)
-        min_total_score int  — minimum sum of best scores across requirements
-
-    Returns:
-        {clusters: [...], count: int, query_ms: int}
-        Each cluster:
-            anchor_id64, anchor_name, anchor_x/y/z,
-            satisfied_requirements: [{economy, count, best_score}],
-            total_best_score,
-            systems: [list of top matching systems per economy]
+    Improvement #6: Accepts optional reference_coords {x, y, z}.
+    When provided, results are sorted by distance from the reference point
+    instead of total_best_score, allowing users to find the closest cluster
+    that satisfies their requirements.
     """
     t0 = time.time()
 
-    requirements = body.get("requirements", [])
-    limit        = min(int(body.get("limit", 50)), 200)
+    requirements    = body.get("requirements", [])
+    limit           = min(int(body.get("limit", 50)), 200)
+    ref             = body.get("reference_coords") or {}
+    has_ref         = bool(ref.get("x") is not None)
+    rx              = float(ref.get("x", 0))
+    ry              = float(ref.get("y", 0))
+    rz              = float(ref.get("z", 0))
 
     if not requirements:
         return {"error": "requirements list is required", "clusters": []}
-
-    # Build WHERE clause on cluster_summary
-    # cluster_summary columns: grid_cell_id, economy_type, viable_count,
-    #   best_score, anchor_id64, anchor_x, anchor_y, anchor_z
-    # We need clusters that satisfy ALL requirements simultaneously.
-    # Approach: use a HAVING COUNT(DISTINCT economy) = N after aggregating
-    # grid cells that pass each individual economy requirement.
 
     req_parts = []
     params    = []
@@ -578,11 +464,23 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
     if not req_parts:
         return {"error": "No valid requirements provided", "clusters": []}
 
-    n_requirements = len(req_parts)
+    n_requirements  = len(req_parts)
     combined_filter = " OR ".join(f"({r})" for r in req_parts)
 
     params.append(n_requirements)
     params.append(limit)
+
+    # Improvement #6: distance expression from reference coords
+    if has_ref:
+        dist_expr = (
+            f"SQRT(POWER(cs.anchor_x - {rx}, 2) + "
+            f"POWER(cs.anchor_y - {ry}, 2) + "
+            f"POWER(cs.anchor_z - {rz}, 2))"
+        )
+        order_clause = f"{dist_expr} ASC"
+    else:
+        dist_expr    = "NULL::float"
+        order_clause = "total_best_score DESC"
 
     sql = f"""
         SELECT
@@ -592,6 +490,7 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
             cs.anchor_x, cs.anchor_y, cs.anchor_z,
             COUNT(DISTINCT cs.economy_type)     AS economies_satisfied,
             SUM(cs.best_score)                  AS total_best_score,
+            {dist_expr}                         AS distance_ly,
             JSON_AGG(JSON_BUILD_OBJECT(
                 'economy',    cs.economy_type::text,
                 'count',      cs.viable_count,
@@ -603,7 +502,7 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
         GROUP BY cs.grid_cell_id, cs.anchor_id64, s.name,
                  cs.anchor_x, cs.anchor_y, cs.anchor_z
         HAVING COUNT(DISTINCT cs.economy_type) >= ${p - 1}
-        ORDER BY total_best_score DESC
+        ORDER BY {order_clause}
         LIMIT ${p}
     """
 
@@ -619,6 +518,8 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
             except Exception:
                 breakdown = []
 
+        dist_ly = float(row["distance_ly"]) if row["distance_ly"] is not None else None
+
         clusters.append({
             "grid_cell_id":             row["grid_cell_id"],
             "anchor_id64":              row["anchor_id64"],
@@ -630,13 +531,14 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
             },
             "economies_satisfied":      row["economies_satisfied"],
             "total_best_score":         row["total_best_score"],
+            "distance_ly":              round(dist_ly, 1) if dist_ly is not None else None,
             "economy_breakdown":        breakdown,
             "cluster_radius_ly":        CLUSTER_RADIUS_LY,
         })
 
     elapsed = round((time.time() - t0) * 1000)
-    log.info("cluster_search(%d requirements): %d clusters in %dms",
-             n_requirements, len(clusters), elapsed)
+    log.info("cluster_search(%d requirements, ref=%s): %d clusters in %dms",
+             n_requirements, "yes" if has_ref else "no", len(clusters), elapsed)
 
     return {
         "clusters":     clusters,
@@ -652,9 +554,8 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
 # ---------------------------------------------------------------------------
 async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
     """
-    Return full system data from local DB, including bodies.
-    Returns None if not found.
-    Response shape: {"record": {...}}  — wire-compatible with Spansh /system/{id64}.
+    Return full system data from local DB, including bodies and stations.
+    Improvement #9: updated_at is included in the response.
     """
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
@@ -671,13 +572,21 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
                 s.security::text      AS security,
                 s.primary_economy::text   AS primary_economy,
                 s.secondary_economy::text AS secondary_economy,
+                s.updated_at,
                 r.score,
+                r.score_agriculture, r.score_refinery, r.score_industrial,
+                r.score_hightech, r.score_military, r.score_tourism,
+                r.economy_suggestion,
                 r.slots               AS r_slots,
                 r.body_quality        AS r_body_quality,
                 r.compactness         AS r_compactness,
                 r.signal_quality      AS r_signal_quality,
                 r.orbital_safety      AS r_orbital_safety,
                 r.star_bonus          AS r_star_bonus,
+                r.elw_count, r.ww_count, r.ammonia_count,
+                r.gas_giant_count, r.neutron_count, r.black_hole_count,
+                r.white_dwarf_count, r.landable_count, r.terraformable_count,
+                r.bio_signal_total, r.geo_signal_total,
                 0.0                   AS dist
             FROM systems s
             LEFT JOIN ratings r ON r.system_id64 = s.id64
@@ -703,7 +612,6 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
         """, id64)
 
     body_list = [_normalize_body(b) for b in body_rows]
-
     record = _build_system_record(row, body_list)
     record["body_count"] = len(body_list)
 
@@ -765,7 +673,6 @@ async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
         return []
 
     async with pool.acquire() as conn:
-        # Try exact prefix first (fastest, uses idx_sys_name btree)
         rows = await conn.fetch("""
             SELECT id64, name, x, y, z
             FROM systems
@@ -774,7 +681,6 @@ async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
             LIMIT 10
         """, q + "%")
 
-        # If fewer than 5 exact-prefix results, supplement with trigram search
         if len(rows) < 5 and len(q) >= 3:
             trgm_rows = await conn.fetch("""
                 SELECT id64, name, x, y, z
@@ -784,7 +690,6 @@ async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
                 ORDER BY similarity(name, $1) DESC
                 LIMIT $3
             """, q, q + "%", 10 - len(rows))
-            # Deduplicate
             seen_ids = {r["id64"] for r in rows}
             rows = list(rows) + [r for r in trgm_rows if r["id64"] not in seen_ids]
 
@@ -792,6 +697,9 @@ async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
         {
             "name":   r["name"],
             "id64":   r["id64"],
+            "x":      float(r["x"]),
+            "y":      float(r["y"]),
+            "z":      float(r["z"]),
             "record": {
                 "id64": r["id64"],
                 "name": r["name"],
@@ -808,10 +716,7 @@ async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
 # Status
 # ---------------------------------------------------------------------------
 async def local_db_status(pool: asyncpg.Pool) -> dict:
-    """
-    Return info about the Hetzner PostgreSQL database.
-    Return info about the Hetzner PostgreSQL database and import progress.
-    """
+    """Return info about the Hetzner PostgreSQL database and import progress."""
     try:
         async with pool.acquire() as conn:
             sys_count   = await conn.fetchval("SELECT COUNT(*) FROM systems")
@@ -823,7 +728,6 @@ async def local_db_status(pool: asyncpg.Pool) -> dict:
             cluster_count = await conn.fetchval("SELECT COUNT(*) FROM cluster_summary")
             grid_count    = await conn.fetchval("SELECT COUNT(*) FROM spatial_grid")
 
-            # Import progress
             import_rows = await conn.fetch(
                 "SELECT dump_name, status, rows_imported, started_at, completed_at "
                 "FROM import_progress ORDER BY started_at DESC"
@@ -838,18 +742,14 @@ async def local_db_status(pool: asyncpg.Pool) -> dict:
                 for r in import_rows
             }
 
-            # DB size
             db_size_bytes = await conn.fetchval(
                 "SELECT pg_database_size(current_database())"
             )
 
-            # Last EDDN update
             eddn_row = await conn.fetchrow(
                 "SELECT last_seen FROM eddn_log ORDER BY last_seen DESC LIMIT 1"
             )
             eddn_last = eddn_row["last_seen"].isoformat() if eddn_row else None
-
-            # PostgreSQL version
             pg_version = await conn.fetchval("SELECT version()")
 
         return {
@@ -857,10 +757,10 @@ async def local_db_status(pool: asyncpg.Pool) -> dict:
             "backend":              "postgresql",
             "pg_version":           pg_version,
             "systems_count":        sys_count,
-            "rated_count":          rated_count,    # systems with a pre-computed score
+            "rated_count":          rated_count,
             "body_count":           body_count,
             "station_count":        station_count,
-            "cluster_count":        cluster_count,  # rows in cluster_summary
+            "cluster_count":        cluster_count,
             "grid_cells":           grid_count,
             "db_size_mb":           round(db_size_bytes / 1_048_576, 1) if db_size_bytes else 0,
             "import_status":        import_status,
@@ -876,19 +776,13 @@ async def local_db_status(pool: asyncpg.Pool) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Body type counting (mirrors frontend countBodyTypes exactly)
+# Body type counting (kept for backwards compatibility / modal use)
 # ---------------------------------------------------------------------------
 def _count_body_types(bodies: list) -> dict:
-    """
-    Count body subtypes for filter matching.
-    Mirrors countBodyTypes() in frontend/index.html.
-    Input: list of normalised body dicts (from _normalize_body).
-    """
     from collections import defaultdict
     counts: dict = defaultdict(int)
 
     SUBTYPE_MAP = {
-        # Terrestrial planets
         "Earth-like world":         "elw",
         "Water world":              "ww",
         "Ammonia world":            "ammonia",
@@ -897,7 +791,6 @@ def _count_body_types(bodies: list) -> dict:
         "Rocky body":               "rocky",
         "Rocky Ice world":          "rockyIce",
         "Icy body":                 "icy",
-        # Gas giants — all classes map to the same counter
         "Class I gas giant":                    "gasGiant",
         "Class II gas giant":                   "gasGiant",
         "Class III gas giant":                  "gasGiant",
@@ -908,10 +801,8 @@ def _count_body_types(bodies: list) -> dict:
         "Water giant":                          "gasGiant",
         "Helium-rich gas giant":                "gasGiant",
         "Helium gas giant":                     "gasGiant",
-        # Stellar remnants
         "Black Hole":    "blackHoles",
         "Neutron Star":  "neutron",
-        # White Dwarfs have spectral suffixes — handled via substring below
     }
 
     for b in bodies:
@@ -937,7 +828,6 @@ def _count_body_types(bodies: list) -> dict:
             if (not atm or atm.lower() in ("", "no atmosphere", "none")) and not is_tidal:
                 counts["walkable"] += 1
 
-        # Signals — prefer normalised signals array, fall back to bio/geo_signals int cols
         sigs = b.get("signals")
         if isinstance(sigs, list) and sigs:
             for sig in sigs:
@@ -954,7 +844,6 @@ def _count_body_types(bodies: list) -> dict:
             if geo_sigs:
                 counts["geoSignal"] += 1
 
-        # Rings
         rings_list = b.get("rings")
         if isinstance(rings_list, list):
             counts["rings"] += len(rings_list)
@@ -963,27 +852,9 @@ def _count_body_types(bodies: list) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Server-side rating (mirrors frontend rateSystem() — keep in sync)
+# Server-side rating (fallback for systems without pre-computed scores)
 # ---------------------------------------------------------------------------
 def rate_system(sys: dict) -> dict:
-    """
-    Compute colonisation-suitability rating for a system dict.
-
-    Used for systems that do not have a pre-computed score in the ratings table
-    (e.g. systems visited after the last build_ratings.py run, or systems
-     where only star-class data is available).
-
-    Mirrors rateSystem() in frontend/index.html exactly.
-
-    Score components (max):
-        starBonus      10  — spectral class
-        slots          20  — landable + orbital body count
-        bodyQuality    25  — ELW / WW / Ammonia + terraformable bonuses
-        compactness    20  — max planet distance to arrival
-        signalQuality  15  — bio / geo signals
-        orbitalSafety  10  — moon-of-moon proximity penalty
-    Total max: 100
-    """
     bodies = sys.get("bodies") or []
 
     if sys.get("needs_permit"):
@@ -991,7 +862,6 @@ def rate_system(sys: dict) -> dict:
                 "compactness": 0, "signalQuality": 0,
                 "orbitalSafety": 0, "starBonus": 0}
 
-    # ── Star type bonus ───────────────────────────────────────────────────────
     main_star = (
         sys.get("main_star") or
         sys.get("main_star_class") or
@@ -1012,9 +882,8 @@ def rate_system(sys: dict) -> dict:
     elif "BLACK HOLE" in main_star:
         star_bonus = 2
     else:
-        star_bonus = 4  # unknown / other
+        star_bonus = 4
 
-    # ── Slot score ────────────────────────────────────────────────────────────
     landable = sum(1 for b in bodies if b.get("type") == "Planet" and b.get("is_landable"))
     orbital  = (
         sum(1 for b in bodies if b.get("type") == "Planet" and not b.get("is_landable")) +
@@ -1025,7 +894,6 @@ def rate_system(sys: dict) -> dict:
     else:
         slots = min(20, round((min(landable, 10) / 10 + min(orbital, 10) / 10) * 10))
 
-    # ── Body quality ──────────────────────────────────────────────────────────
     body_quality = 0
     for b in bodies:
         sub  = (b.get("subtype") or "").strip()
@@ -1060,7 +928,6 @@ def rate_system(sys: dict) -> dict:
 
     body_quality = min(25, body_quality)
 
-    # ── Compactness ───────────────────────────────────────────────────────────
     planets = [b for b in bodies if b.get("type") == "Planet"]
     if not planets:
         compactness = 10
@@ -1074,7 +941,6 @@ def rate_system(sys: dict) -> dict:
         elif max_d <= 250000: compactness = 3
         else:                 compactness = 0
 
-    # ── Signal quality ────────────────────────────────────────────────────────
     bio_count = sum(1 for b in bodies if any(
         s.get("name") == "Biological" for s in (b.get("signals") or [])))
     geo_count = sum(1 for b in bodies if any(
@@ -1089,7 +955,6 @@ def rate_system(sys: dict) -> dict:
         both_sigs * 3
     )
 
-    # ── Orbital safety ────────────────────────────────────────────────────────
     close_pairs = sum(
         1 for b in bodies
         if any(p.get("type") == "Planet" for p in (b.get("parents") or []))

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   ED Finder — Frontend Application v2.0
+   ED Finder — Frontend Application v2.1
    ═══════════════════════════════════════════════════════════════════════════ */
 
 'use strict';
@@ -9,6 +9,7 @@
 function qs(sel, root = document) { return root.querySelector(sel); }
 function qsa(sel, root = document) { return [...root.querySelectorAll(sel)]; }
 
+// Improvement #4: AbortController-aware fetch — callers can cancel in-flight requests
 async function apiFetch(path, opts = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -16,6 +17,13 @@ async function apiFetch(path, opts = {}) {
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
+}
+
+// Returns a {fetch, abort} pair. Calling abort() cancels the in-flight request.
+function abortableFetch(path, opts = {}) {
+  const controller = new AbortController();
+  const promise = apiFetch(path, { ...opts, signal: controller.signal });
+  return { promise, abort: () => controller.abort() };
 }
 
 let _toastTimer;
@@ -134,22 +142,35 @@ Watchlist.load();
 
 // ═══════════════════════════════════════════════════════════════ NAVBAR
 
+// Improvement #5: URL deep linking helpers
+function _setUrlParam(key, value) {
+  const url = new URL(window.location);
+  if (value == null || value === '' || value === 'any') { url.searchParams.delete(key); }
+  else { url.searchParams.set(key, value); }
+  history.replaceState(null, '', url);
+}
+function _getUrlParam(key) {
+  return new URL(window.location).searchParams.get(key);
+}
+
 (function initNav() {
   const btns = qsa('.nav-btn');
   const panels = qsa('.tab-panel');
 
+  function activateTab(tabName) {
+    btns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+    panels.forEach(p => p.classList.toggle('active', p.id === `tab-${tabName}`));
+    if (tabName === 'watchlist') renderWatchlistTab();
+    _setUrlParam('tab', tabName === 'local' ? null : tabName);
+  }
+
   btns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      btns.forEach(b => b.classList.remove('active'));
-      panels.forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      const panel = qs(`#tab-${btn.dataset.tab}`);
-      if (panel) {
-        panel.classList.add('active');
-        if (btn.dataset.tab === 'watchlist') renderWatchlistTab();
-      }
-    });
+    btn.addEventListener('click', () => activateTab(btn.dataset.tab));
   });
+
+  // Restore tab from URL on load
+  const savedTab = _getUrlParam('tab');
+  if (savedTab && qs(`#tab-${savedTab}`)) activateTab(savedTab);
 })();
 
 // ═══════════════════════════════════════════════════════════════ STATUS
@@ -496,15 +517,20 @@ function attachModalEvents(sys) {
 
 // ═══════════════════════════════════════════════════════════════ WATCHLIST TAB
 
-function renderWatchlistTab() {
-  const items = Watchlist.getAll();
+// Improvement #8: Watchlist pagination
+const WL_PAGE_SIZE = 20;
+let _wlPage = 1;
+
+function renderWatchlistTab(page) {
+  if (page !== undefined) _wlPage = page;
+  const allItems  = Watchlist.getAll();
   const resultsEl = qs('#watchlist-results');
   const headerEl  = qs('#watchlist-results-header');
   const countEl   = qs('#watchlist-results-count');
   const hint      = qs('#watchlist-empty-hint');
   const clearBtn  = qs('#watchlist-clear-btn');
 
-  if (!items.length) {
+  if (!allItems.length) {
     resultsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">★</div><div class="empty-title">Your watchlist is empty</div><div class="empty-sub">Save systems from any search result</div></div>`;
     headerEl.hidden = true;
     hint.hidden = false;
@@ -512,14 +538,17 @@ function renderWatchlistTab() {
     return;
   }
 
+  const total = allItems.length;
+  const start = (_wlPage - 1) * WL_PAGE_SIZE;
+  const items = allItems.slice(start, start + WL_PAGE_SIZE);
+
   hint.hidden = true;
   clearBtn.hidden = false;
-  countEl.innerHTML = `<strong>${items.length}</strong> saved ${items.length === 1 ? 'system' : 'systems'}`;
+  countEl.innerHTML = `<strong>${total}</strong> saved ${total === 1 ? 'system' : 'systems'} — showing ${start + 1}–${Math.min(start + WL_PAGE_SIZE, total)}`;
   headerEl.hidden = false;
   resultsEl.innerHTML = '';
 
   items.forEach((entry, i) => {
-    // Build a minimal system-like object for the card
     const fakeSys = {
       id64: entry.id64,
       name: entry.name,
@@ -529,7 +558,20 @@ function renderWatchlistTab() {
       population: 0,
       _rating: { score: entry.score },
     };
-    resultsEl.appendChild(buildSystemCard(fakeSys, i + 1));
+    resultsEl.appendChild(buildSystemCard(fakeSys, start + i + 1));
+  });
+
+  // Render pagination below results
+  let paginEl = qs('#watchlist-pagination');
+  if (!paginEl) {
+    paginEl = document.createElement('div');
+    paginEl.id = 'watchlist-pagination';
+    paginEl.className = 'pagination';
+    headerEl.appendChild(paginEl);
+  }
+  buildPagination(paginEl, total, WL_PAGE_SIZE, _wlPage, (p) => {
+    renderWatchlistTab(p);
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
 
@@ -652,6 +694,7 @@ function buildSystemCard(sys, rank) {
   const paginEl     = qs('#local-pagination');
 
   let refCoords = null, currentPage = 1, lastParams = null;
+  let _activeSearch = null;  // Improvement #4: track in-flight request for cancellation
   const PAGE_SIZE = 20;
 
   distSlider.addEventListener('input', () => { distVal.textContent = `${distSlider.value} ly`; });
@@ -669,6 +712,8 @@ function buildSystemCard(sys, rank) {
     ySpan.textContent = `Y: ${fmtCoord(sys.y)}`;
     zSpan.textContent = `Z: ${fmtCoord(sys.z)}`;
     coordDisp.hidden = false;
+    // Improvement #6: broadcast reference coords so cluster search can use them
+    document.dispatchEvent(new CustomEvent('ed:refcoords', { detail: refCoords }));
   });
 
   searchBtn.addEventListener('click', () => { currentPage = 1; doSearch(); });
@@ -709,13 +754,22 @@ function buildSystemCard(sys, rank) {
 
   async function doSearch() {
     if (!refCoords) { toast('Please select a reference system first'); refInput.focus(); return; }
+    // Improvement #4: cancel any previous in-flight search before starting a new one
+    if (_activeSearch) { _activeSearch.abort(); _activeSearch = null; }
     lastParams = getParams();
     setLoading(true);
+    const req = abortableFetch('/api/local/search', { method: 'POST', body: JSON.stringify(lastParams) });
+    _activeSearch = req;
     try {
-      const data = await apiFetch('/api/local/search', { method: 'POST', body: JSON.stringify(lastParams) });
+      const data = await req.promise;
       renderResults(data.results || [], data.total || 0);
-    } catch (e) { showError(e.message); }
-    finally { setLoading(false); }
+    } catch (e) {
+      if (e.name === 'AbortError') return;  // Silently ignore cancelled requests
+      showError(e.message);
+    } finally {
+      _activeSearch = null;
+      setLoading(false);
+    }
   }
 
   function setLoading(on) {
@@ -843,6 +897,15 @@ function buildSystemCard(sys, rank) {
 
   searchBtn.addEventListener('click', doSearch);
 
+  // Improvement #6: cluster search sends reference coords for distance-sorted results
+  // The reference coords come from the local search reference system (shared state)
+  let _clusterRefCoords = null;
+
+  // Listen for local search reference system selection to share coords with cluster search
+  document.addEventListener('ed:refcoords', (e) => {
+    _clusterRefCoords = e.detail;
+  });
+
   async function doSearch() {
     const requirements = qsa('.economy-req-row', reqs).map(row => ({
       economy:   row.querySelector('.req-eco').value,
@@ -851,10 +914,17 @@ function buildSystemCard(sys, rank) {
     }));
     if (!requirements.length) { toast('Add at least one economy requirement'); return; }
 
+    const payload = {
+      requirements,
+      limit: Number(limitSel.value),
+      // Improvement #6: include reference coords if available for distance sorting
+      reference_coords: _clusterRefCoords || null,
+    };
+
     setLoading(true);
     try {
-      const data = await apiFetch('/api/search/cluster', { method: 'POST', body: JSON.stringify({ requirements, limit: Number(limitSel.value) }) });
-      renderResults(data.results || [], data.total || 0);
+      const data = await apiFetch('/api/search/cluster', { method: 'POST', body: JSON.stringify(payload) });
+      renderResults(data.clusters || data.results || [], (data.clusters || data.results || []).length);
     } catch (e) { showError(e.message); }
     finally { setLoading(false); }
   }
@@ -879,19 +949,32 @@ function buildSystemCard(sys, rank) {
   }
 
   function buildClusterCard(c, rank) {
-    const ecos = [
-      ['Agriculture', c.agriculture_count, c.agriculture_best],
-      ['Refinery',    c.refinery_count,    c.refinery_best],
-      ['Industrial',  c.industrial_count,  c.industrial_best],
-      ['HighTech',    c.hightech_count,    c.hightech_best],
-      ['Military',    c.military_count,    c.military_best],
-      ['Tourism',     c.tourism_count,     c.tourism_best],
-    ].filter(([, count]) => count > 0);
+    // Support both old (flat) and new (economy_breakdown array) API response formats
+    let ecos = [];
+    if (Array.isArray(c.economy_breakdown)) {
+      // New format from local_search.py v3.0
+      ecos = c.economy_breakdown.map(e => [e.economy, e.count, e.best_score]).filter(([, count]) => count > 0);
+    } else {
+      // Legacy flat format
+      ecos = [
+        ['Agriculture', c.agriculture_count, c.agriculture_best],
+        ['Refinery',    c.refinery_count,    c.refinery_best],
+        ['Industrial',  c.industrial_count,  c.industrial_best],
+        ['HighTech',    c.hightech_count,    c.hightech_best],
+        ['Military',    c.military_count,    c.military_best],
+        ['Tourism',     c.tourism_count,     c.tourism_best],
+      ].filter(([, count]) => count > 0);
+    }
 
-    const coverageScore = c.coverage_score != null ? Math.round(c.coverage_score) : null;
+    const coverageScore = c.total_best_score != null ? Math.round(c.total_best_score) : (c.coverage_score != null ? Math.round(c.coverage_score) : null);
     const anchorName = c.anchor_name || c.name || 'Unknown';
-    const cx = c.x, cy = c.y, cz = c.z;
+    const coords = c.anchor_coords || {};
+    const cx = coords.x ?? c.x;
+    const cy = coords.y ?? c.y;
+    const cz = coords.z ?? c.z;
     const dSol = distFromSol(cx, cy, cz);
+    // Improvement #6: show distance from reference if available
+    const dRef = c.distance_ly != null ? c.distance_ly : null;
 
     const card = document.createElement('article');
     card.className = 'cluster-card';
@@ -899,12 +982,11 @@ function buildSystemCard(sys, rank) {
       <div class="cluster-header">
         <span class="card-rank">#${rank}</span>
         <span class="cluster-name">${anchorName}</span>
-        ${coverageScore != null ? `<span class="cluster-score">⬡ ${coverageScore}</span>` : ''}
+        ${coverageScore != null ? `<span class="cluster-score">⧡ ${coverageScore}</span>` : ''}
       </div>
       <div class="card-meta" style="margin-bottom:0.6rem">
-        ${dSol != null ? `<span class="meta-tag distance">⊕ ${fmtDist(dSol)} from Sol</span>` : ''}
-        ${c.total_viable > 0 ? `<span class="meta-tag">${fmtNum(c.total_viable)} viable</span>` : ''}
-        ${c.economy_diversity ? `<span class="meta-tag">${c.economy_diversity} econ types</span>` : ''}
+        ${dRef != null ? `<span class="meta-tag distance">⊕ ${fmtDist(dRef)} from ref</span>` : (dSol != null ? `<span class="meta-tag distance">⊕ ${fmtDist(dSol)} from Sol</span>` : '')}
+        ${c.economies_satisfied > 0 ? `<span class="meta-tag">${c.economies_satisfied} econ types</span>` : (c.economy_diversity ? `<span class="meta-tag">${c.economy_diversity} econ types</span>` : '')}
       </div>
       <div class="cluster-economies">
         ${ecos.map(([eco, count, best]) => {
@@ -916,13 +998,100 @@ function buildSystemCard(sys, rank) {
     card.addEventListener('click', () => {
       openSystemModal({
         name: anchorName,
-        id64: c.system_id64 || c.anchor_id64,
+        id64: c.anchor_id64 || c.system_id64,
         x: cx, y: cy, z: cz,
         coords: { x: cx, y: cy, z: cz },
         population: 0,
-        _rating: { score: c.coverage_score, economySuggestion: null },
+        _rating: { score: coverageScore, economySuggestion: null },
       });
     });
     return card;
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════ LIVE EDDN FEED
+// Improvement #9: Real-time EDDN event feed via Server-Sent Events
+// Shows live system/body updates as they arrive from the EDDN network.
+
+(function initLiveFeed() {
+  const feedEl   = qs('#live-feed-list');
+  const countEl  = qs('#live-feed-count');
+  const dotEl    = qs('#live-feed-dot');
+  const toggleEl = qs('#live-feed-toggle');
+
+  if (!feedEl) return;  // Element not present in this build of index.html
+
+  const MAX_EVENTS = 50;
+  let eventCount = 0;
+  let es = null;
+  let paused = false;
+
+  function fmtRelTime(isoStr) {
+    if (!isoStr) return '';
+    const diff = Math.round((Date.now() - new Date(isoStr)) / 1000);
+    if (diff < 60)  return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    return `${Math.floor(diff / 3600)}h ago`;
+  }
+
+  function addEvent(ev) {
+    if (paused) return;
+    eventCount++;
+    if (countEl) countEl.textContent = eventCount;
+
+    const item = document.createElement('li');
+    item.className = 'feed-item';
+    item.innerHTML = `
+      <span class="feed-type feed-type-${(ev.type || 'update').toLowerCase()}">${ev.type || 'update'}</span>
+      <span class="feed-name" title="${ev.system_name || ''}">${ev.system_name || 'Unknown'}</span>
+      <span class="feed-time">${fmtRelTime(ev.timestamp)}</span>
+    `;
+    item.addEventListener('click', () => {
+      if (ev.id64) openSystemModal({ id64: ev.id64, name: ev.system_name, coords: {}, _rating: {} });
+    });
+
+    feedEl.prepend(item);
+
+    // Cap list length
+    while (feedEl.children.length > MAX_EVENTS) {
+      feedEl.removeChild(feedEl.lastChild);
+    }
+
+    // Flash the live dot
+    if (dotEl) {
+      dotEl.classList.add('pulse');
+      setTimeout(() => dotEl.classList.remove('pulse'), 600);
+    }
+  }
+
+  // Load recent events on startup
+  apiFetch('/api/events/recent?limit=20')
+    .then(data => (data.events || []).reverse().forEach(addEvent))
+    .catch(() => {});  // Silently ignore if endpoint not yet deployed
+
+  // Connect SSE stream
+  function connect() {
+    if (es) { es.close(); es = null; }
+    es = new EventSource('/api/events/live');
+    es.onmessage = (e) => {
+      try { addEvent(JSON.parse(e.data)); } catch (_) {}
+    };
+    es.onerror = () => {
+      // Reconnect after 10s on error
+      es.close();
+      es = null;
+      setTimeout(connect, 10000);
+    };
+  }
+
+  connect();
+
+  // Pause/resume toggle
+  if (toggleEl) {
+    toggleEl.addEventListener('click', () => {
+      paused = !paused;
+      toggleEl.textContent = paused ? 'Resume' : 'Pause';
+      toggleEl.classList.toggle('paused', paused);
+    });
   }
 })();
