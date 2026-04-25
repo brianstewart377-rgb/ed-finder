@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spansh Dump Importer  (PostgreSQL / psycopg2 COPY edition)
-Version: 2.0
+Version: 2.1  (fix progress >100% and broken resume — use row-count checkpoint)
+
+FIX in v2.1:
+  • gzip f.tell() returns the DECOMPRESSED byte offset which is much larger
+    than the compressed file size — causing progress to show >100% and the
+    status table to show e.g. "115%".
+  • Resume (--resume) was seeking to the decompressed offset inside the gzip
+    stream which is valid but extremely slow on a 102 GB file (O(n) seek).
+  • Fix: track progress using the raw compressed file position (f_raw.tell())
+    so the percentage is always accurate (0-100%).  Checkpoint now stores the
+    ROW count instead of a byte offset; resume skips that many rows at stream
+    start (fast for small resume counts, acceptable for large ones).
 
 Why psycopg2 COPY instead of INSERT ... ON CONFLICT:
   • COPY is the fastest possible PostgreSQL bulk-load method — it bypasses the
@@ -133,15 +144,16 @@ def get_checkpoint(conn, dump_file: str) -> int:
 
 
 def save_checkpoint(conn, dump_file: str, offset: int, rows: int):
+    # offset is now always the ROW count (not a byte offset).
+    # bytes_processed is updated separately via the compressed file position.
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE import_meta
             SET last_checkpoint = %s,
                 rows_processed  = %s,
-                bytes_processed = %s,
                 updated_at      = NOW()
             WHERE dump_file = %s
-        """, (offset, rows, offset, dump_file))
+        """, (rows, rows, dump_file))
     conn.commit()
 
 
@@ -484,6 +496,11 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
       - Stations batch: 50,000 rows → COPY to temp → upsert to stations
 
     Performance target: 5-15 MB/s on Hetzner AX41 with indexes dropped.
+
+    NOTE: resume_offset is a ROW count (not a byte offset). We skip that
+    many rows at the start of the stream rather than seeking in the gzip.
+    Progress is tracked using the compressed file position (f_raw.tell())
+    so the percentage never exceeds 100%.
     """
     log.info(f"Importing systems+bodies+stations from {dump_path.name} ...")
     set_import_optimisations(conn)
@@ -558,22 +575,30 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             upsert_via_temp(conn, 'stations', STA_COLS, sta_batch, 'id')
             sta_batch.clear()
 
-    with gzip.open(dump_path, 'rb') as f:
+    # Open the raw compressed file separately so we can track compressed
+    # position (f_raw.tell()) for accurate progress — gzip f.tell() returns
+    # the decompressed offset which is larger than the file and causes >100%.
+    with open(dump_path, 'rb') as f_raw, gzip.open(f_raw, 'rb') as f:
         if resume_offset > 0:
-            log.info(f"Seeking to resume offset {resume_offset:,} ...")
-            f.seek(resume_offset)
+            # resume_offset is a row count — skip that many systems at stream start
+            log.info(f"Resuming from row {resume_offset:,} — skipping forward in stream ...")
 
         pbar = tqdm(
             total=file_size,
-            initial=resume_offset,
+            initial=0,
             unit='B', unit_scale=True, unit_divisor=1024,
             desc=dump_path.name,
         )
 
         _skip_count = 0  # count of individual bad records skipped
+        _rows_skipped = 0  # rows skipped during resume
 
         try:
             for sys_obj in ijson.items(f, 'item'):
+                # Resume: skip already-imported rows by row count
+                if _rows_skipped < resume_offset:
+                    _rows_skipped += 1
+                    continue
                 id64 = sys_obj.get('id64')
                 if not id64:
                     continue
@@ -799,19 +824,21 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     flush_bodies()
                     flush_stations()
                     try:
-                        save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
+                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
                     except Exception:
                         pass
                     last_save = time.time()
-                    pbar.update(f.tell() - pbar.n - resume_offset)
+                    compressed_pos = f_raw.tell()
+                    pbar.n = compressed_pos
+                    pbar.refresh()
 
         except KeyboardInterrupt:
             log.info("Interrupted — saving checkpoint ...")
             flush_systems()
             flush_bodies()
             flush_stations()
-            save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
-            log.info(f"Checkpoint saved at {f.tell():,} bytes, {total_rows:,} systems "
+            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
+            log.info(f"Checkpoint saved at row {total_rows + resume_offset:,} "
                      f"({_skip_count:,} records skipped)")
             sys.exit(0)
 
@@ -835,6 +862,7 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
     """
     Enrich populated systems with faction, economy, security, government data.
     Also upserts factions and system_factions tables.
+    resume_offset is a ROW count.
     """
     log.info(f"Importing populated systems from {dump_path.name} ...")
     set_import_optimisations(conn)
@@ -918,18 +946,23 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
         conn.commit()
         fac_batch.clear()
 
-    with gzip.open(dump_path, 'rb') as f:
+    with open(dump_path, 'rb') as f_raw, gzip.open(f_raw, 'rb') as f:
         if resume_offset > 0:
-            f.seek(resume_offset)
+            log.info(f"Resuming from row {resume_offset:,} — skipping forward in stream ...")
 
         pbar = tqdm(
-            total=file_size, initial=resume_offset,
+            total=file_size, initial=0,
             unit='B', unit_scale=True, unit_divisor=1024,
             desc=dump_path.name,
         )
 
+        _rows_skipped = 0
         try:
             for sys_obj in ijson.items(f, 'item'):
+                if _rows_skipped < resume_offset:
+                    _rows_skipped += 1
+                    continue
+
                 id64 = sys_obj.get('id64')
                 if not id64:
                     continue
@@ -998,18 +1031,19 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     flush_factions()
                     flush_system_factions()
                     try:
-                        save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
+                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
                     except Exception:
                         pass
                     last_save = time.time()
-                    pbar.update(f.tell() - pbar.n - resume_offset)
+                    pbar.n = f_raw.tell()
+                    pbar.refresh()
 
         except KeyboardInterrupt:
             log.info("Interrupted — saving checkpoint ...")
             flush_sys()
             flush_factions()
             flush_system_factions()
-            save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
+            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
             sys.exit(0)
 
         flush_sys()
@@ -1029,6 +1063,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
     """
     Re-import all stations with latest market/service/economy state.
     galaxy_stations.json.gz is a flat list of station objects (not nested).
+    resume_offset is a ROW count.
     """
     log.info(f"Importing stations from {dump_path.name} ...")
     set_import_optimisations(conn)
@@ -1059,19 +1094,23 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
             upsert_via_temp(conn, 'stations', STA_COLS, sta_batch, 'id')
             sta_batch.clear()
 
-    with gzip.open(dump_path, 'rb') as f:
+    with open(dump_path, 'rb') as f_raw, gzip.open(f_raw, 'rb') as f:
         if resume_offset > 0:
-            f.seek(resume_offset)
+            log.info(f"Resuming from row {resume_offset:,} — skipping forward in stream ...")
 
         pbar = tqdm(
-            total=file_size, initial=resume_offset,
+            total=file_size, initial=0,
             unit='B', unit_scale=True, unit_divisor=1024,
             desc=dump_path.name,
         )
 
         _skip_count = 0
+        _rows_skipped = 0
         try:
             for s in ijson.items(f, 'item'):
+                if _rows_skipped < resume_offset:
+                    _rows_skipped += 1
+                    continue
                 sid      = s.get('id') or s.get('marketId') or s.get('market_id')
                 sys_id64 = s.get('systemId64') or s.get('system_id64')
                 if not sid or not sys_id64:
@@ -1130,16 +1169,17 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 if time.time() - last_save > 60:
                     flush()
                     try:
-                        save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
+                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
                     except Exception:
                         pass
                     last_save = time.time()
-                    pbar.update(f.tell() - pbar.n - resume_offset)
+                    pbar.n = f_raw.tell()
+                    pbar.refresh()
 
         except KeyboardInterrupt:
             log.info("Interrupted — saving checkpoint ...")
             flush()
-            save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
+            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
             sys.exit(0)
 
         flush()
@@ -1159,6 +1199,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
     """
     Import a Spansh systems delta file (flat list of system objects).
     Used for nightly updates — much smaller than galaxy.json.gz.
+    resume_offset is a ROW count.
     """
     log.info(f"Importing systems delta from {dump_path.name} ...")
     set_import_optimisations(conn)
@@ -1184,18 +1225,23 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             update_cols=[c for c in SYS_COLS if c != 'id64'])
             sys_batch.clear()
 
-    with gzip.open(dump_path, 'rb') as f:
+    with open(dump_path, 'rb') as f_raw, gzip.open(f_raw, 'rb') as f:
         if resume_offset > 0:
-            f.seek(resume_offset)
+            log.info(f"Resuming from row {resume_offset:,} — skipping forward in stream ...")
 
         pbar = tqdm(
-            total=file_size, initial=resume_offset,
+            total=file_size, initial=0,
             unit='B', unit_scale=True, unit_divisor=1024,
             desc=dump_path.name,
         )
 
+        _rows_skipped = 0
         try:
             for sys_obj in ijson.items(f, 'item'):
+                if _rows_skipped < resume_offset:
+                    _rows_skipped += 1
+                    continue
+
                 id64 = sys_obj.get('id64')
                 if not id64:
                     continue
@@ -1235,15 +1281,16 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 if time.time() - last_save > 60:
                     flush()
                     try:
-                        save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
+                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
                     except Exception:
                         pass
                     last_save = time.time()
-                    pbar.update(f.tell() - pbar.n - resume_offset)
+                    pbar.n = f_raw.tell()
+                    pbar.refresh()
 
         except KeyboardInterrupt:
             flush()
-            save_checkpoint(conn, dump_path.name, f.tell(), total_rows)
+            save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset)
             sys.exit(0)
 
         flush()
