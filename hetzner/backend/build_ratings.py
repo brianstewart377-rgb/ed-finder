@@ -551,13 +551,15 @@ def _write_ratings(conn, cur, batch: list) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.3)')
+    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.4)')
     parser.add_argument('--rebuild',  action='store_true',
                         help='Re-rate ALL systems, not just unrated ones')
     parser.add_argument('--dirty',    action='store_true',
                         help='Only re-rate systems with rating_dirty = TRUE')
     parser.add_argument('--workers',  type=int, default=mp.cpu_count(),
                         help='Parallel worker processes (default: CPU count)')
+    parser.add_argument('--max-workers', type=int, default=None,
+                        help='Hard cap on worker count (prevents 1000%% CPU on large servers)')
     parser.add_argument('--chunk',    type=int, default=50_000,
                         help='Systems per worker chunk (default: 50000)')
     parser.add_argument('--limit',    type=int, default=None,
@@ -565,10 +567,15 @@ def main():
     args = parser.parse_args()
 
     # ── Startup banner ────────────────────────────────────────────────────
+    worker_count = args.workers
+    if args.max_workers and worker_count > args.max_workers:
+        log.info(f"  Note: Capping workers from {worker_count} to {args.max_workers} (--max-workers)")
+        worker_count = args.max_workers
+
     mode_label = "REBUILD ALL" if args.rebuild else ("DIRTY ONLY" if args.dirty else "RESUME (unrated only)")
-    startup_banner(log, "Ratings Computer", "v2.3", [
+    startup_banner(log, "Ratings Computer", "v2.4", [
         ("Mode",       mode_label),
-        ("Workers",    str(args.workers)),
+        ("Workers",    str(worker_count)),
         ("Chunk size", f"{args.chunk:,} systems"),
         ("Log file",   LOG_FILE),
         ("DB",         DB_DSN.split('@')[-1]),
@@ -661,7 +668,7 @@ def main():
         progress = ProgressReporter(log, total=to_process or 1,
                                     label="ratings", interval=60, heartbeat=180)
 
-        with mp.Pool(processes=args.workers) as pool:
+        with mp.Pool(processes=worker_count) as pool:
 
             while limit_remaining > 0:
                 fetch_n = min(args.chunk, limit_remaining)
@@ -678,19 +685,37 @@ def main():
                 )
 
                 # Drain completed work (keep at most workers*2 in-flight)
-                while len(pending_results) >= args.workers * 2:
-                    done = pending_results.pop(0)
+                # Optimized: wait for ANY result when full, then drain all ready ones
+                if len(pending_results) >= worker_count * 2:
+                    # Wait for the oldest one to finish
+                    pending_results[0].wait()
+                    
+                    # Now drain all that are ready
+                    still_pending = []
+                    for res in pending_results:
+                        if res.ready():
+                            try:
+                                p, e = res.get()
+                                total_processed += p
+                                total_errors    += e
+                                progress.update(p, errors=e)
+                            except Exception as ex:
+                                log.error(f"Worker task failed with exception: {ex}")
+                                total_errors += args.chunk # Estimate
+                        else:
+                            still_pending.append(res)
+                    pending_results = still_pending
+
+            log.info(f"  All {chunks_dispatched} chunks dispatched — draining worker pool...")
+            for done in pending_results:
+                try:
                     p, e = done.get()
                     total_processed += p
                     total_errors    += e
                     progress.update(p, errors=e)
-
-            log.info(f"  All {chunks_dispatched} chunks dispatched — draining worker pool...")
-            for done in pending_results:
-                p, e = done.get()
-                total_processed += p
-                total_errors    += e
-                progress.update(p, errors=e)
+                except Exception as ex:
+                    log.error(f"Worker task failed during drain: {ex}")
+                    total_errors += args.chunk
 
     stream_conn.close()
     elapsed = time.time() - script_start
