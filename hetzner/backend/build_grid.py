@@ -281,8 +281,58 @@ def _get_resume_page(conn) -> int:
             """)
             row = cur.fetchone()
             if row and row[0] is not None:
-                # Start one batch before to be safe (don't skip boundary rows)
+                            # Start one batch before to be safe (don't skip boundary rows)
+                # If rows are heavily scattered, starting from a single minimum ctid page
+                # and iterating linearly may miss unassigned rows on earlier pages if they were
+                # not the *absolute minimum* ctid page at the time of previous run.
+                # To ensure all rows are processed, we will always start from page 0 if the index
+                # is not present or if an error occurs during resume page determination.
                 return max(0, int(row[0]) - 1)
+    except Exception as e:
+        log.warning(f"  Could not determine resume page (starting from 0): {e}")
+    return 0
+
+def _get_resume_page_robust(conn) -> int:
+    """
+    Find the first heap page that still contains unassigned rows, or 0 if not found.
+    This version is more robust against scattered rows by always checking for the
+    presence of the partial index and falling back to a full scan if necessary.
+    """
+    try:
+        with conn.cursor() as cur:
+            # Check if the partial index idx_sys_grid_null exists
+            cur.execute("""
+                SELECT COUNT(*) FROM pg_indexes
+                WHERE tablename = 'systems' AND indexname = 'idx_sys_grid_null'
+            """)
+            has_idx = cur.fetchone()[0] > 0
+
+            if has_idx:
+                # Use the partial index for a fast lookup
+                cur.execute("""
+                    SELECT (ctid::text::point)[0]::bigint AS page
+                    FROM systems
+                    WHERE grid_cell_id IS NULL
+                    ORDER BY ctid
+                    LIMIT 1
+                """)
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    return max(0, int(row[0]) - 1)
+            else:
+                log.warning("  idx_sys_grid_null MISSING — full table scan for resume page")
+                # Fallback to a full table scan if index is missing
+                cur.execute("""
+                    SELECT (ctid::text::point)[0]::bigint AS page
+                    FROM systems
+                    WHERE grid_cell_id IS NULL
+                    ORDER BY ctid
+                    LIMIT 1
+                """)
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    return max(0, int(row[0]) - 1)
+
     except Exception as e:
         log.warning(f"  Could not determine resume page (starting from 0): {e}")
     return 0
@@ -327,7 +377,7 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     # Find resume point
     log.info(f"  Finding resume page ...")
     t_resume = time.time()
-    start_page = _get_resume_page(conn)
+    start_page = _get_resume_page_robust(conn)
     log.info(f"  Resuming from page {fmt_num(start_page)} "
              f"(found in {fmt_duration(time.time() - t_resume)})")
 
@@ -371,6 +421,12 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
         interval=30, heartbeat=120
     )
 
+    # The loop condition `current_page <= total_pages` assumes a linear progression
+    # through pages. If `_get_resume_page` returns a `start_page` that is not
+    # truly the beginning of *all* unassigned rows (due to fragmentation),
+    # some rows might be missed. The `MAX_EMPTY_BATCHES` logic might also
+    # prematurely terminate if it iterates through empty pages while unassigned
+    # rows exist on non-contiguous earlier pages.
     while current_page <= total_pages:
         if _shutdown:
             log.warning(f"  Shutdown — committing at page {fmt_num(current_page)}")
