@@ -406,14 +406,23 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     # FIX v2.3 (corrected): session_replication_role must be set on the write_conn
     # that actually executes the UPDATE statements, not the monitoring connection.
     # The setting is session-scoped and reverts automatically on disconnect.
+    # Disable triggers if possible. session_replication_role requires superuser.
+    # ALTER TABLE ... DISABLE TRIGGER ALL requires table ownership.
     try:
         write_conn.autocommit = True
         with write_conn.cursor() as _wac:
-            _wac.execute("SET session_replication_role = replica")
+            try:
+                _wac.execute("SET session_replication_role = replica")
+                log.info("  ✓ RI triggers disabled via session_replication_role = replica")
+            except Exception:
+                # Fallback: Try ALTER TABLE (requires ownership)
+                write_conn.rollback()
+                _wac.execute("ALTER TABLE systems DISABLE TRIGGER ALL")
+                log.info("  ✓ RI triggers disabled via ALTER TABLE DISABLE TRIGGER ALL")
         write_conn.autocommit = False
-        log.info("  ✓ RI triggers disabled on write_conn (ctid-writer)")
     except Exception as _e:
-        log.warning(f"  Could not disable RI triggers on write_conn: {_e} — continuing (Stage 3 may be slow)")
+        log.warning(f"  Could not disable triggers (not superuser or owner?): {_e}")
+        log.warning("  Continuing with triggers ENABLED — Stage 3 will be significantly slower.")
     write_cur  = write_conn.cursor()
 
     progress = ProgressReporter(
@@ -495,13 +504,21 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                 rows_updated = 0
                 break
 
-        # Track consecutive empty batches (means we're past all unassigned rows)
+        # Track consecutive empty batches
         if rows_updated == 0:
             consecutive_empty += 1
+            # If we've hit many empty batches, re-verify if any unassigned rows remain further ahead
             if consecutive_empty >= MAX_EMPTY_BATCHES:
-                log.info(f"  {MAX_EMPTY_BATCHES} consecutive empty batches — "
-                         f"all remaining pages fully assigned, stopping early ✓")
-                break
+                log.info(f"  {MAX_EMPTY_BATCHES} consecutive empty batches — checking for further unassigned rows...")
+                next_unassigned = _get_resume_page_robust(conn)
+                if next_unassigned > current_page:
+                    log.info(f"  Found more unassigned rows starting at page {fmt_num(next_unassigned)} — jumping ahead")
+                    current_page = next_unassigned
+                    consecutive_empty = 0
+                    continue
+                else:
+                    log.info(f"  No more unassigned rows found in table — stopping early ✓")
+                    break
         else:
             consecutive_empty = 0
 
@@ -525,6 +542,16 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
         current_page = end_page
 
     progress.finish()
+    
+    # Re-enable triggers if we used ALTER TABLE
+    try:
+        write_conn.autocommit = True
+        with write_conn.cursor() as _wac:
+            _wac.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
+            log.info("  ✓ Triggers re-enabled")
+    except Exception:
+        pass
+
     write_cur.close()
     _safe_close(write_conn)
 
@@ -668,6 +695,16 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
         progress.update(remainder)
 
     progress.finish()
+    
+    # Re-enable triggers if we used ALTER TABLE
+    try:
+        write_conn.autocommit = True
+        with write_conn.cursor() as _wac:
+            _wac.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
+            log.info("  ✓ Triggers re-enabled")
+    except Exception:
+        pass
+
     write_cur.close()
     _safe_close(write_conn)
 
