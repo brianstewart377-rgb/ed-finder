@@ -369,6 +369,27 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
 
     # Find resume point
     log.info(f"  Finding resume page ...")
+    
+    # Auto-fix: Try to create the index if it's missing
+    try:
+        with conn.cursor() as _cur:
+            _cur.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'idx_sys_grid_null'")
+            if not _cur.fetchone():
+                log.info("  [Auto-Fix] Index 'idx_sys_grid_null' is missing. Attempting to create it...")
+                # We need a non-transactional connection for CREATE INDEX CONCURRENTLY
+                # but since we're already in a script that bypasses pgbouncer, we'll try a simple CREATE INDEX.
+                # If it fails (e.g. permission), we just log it and continue with the fallback logic.
+                try:
+                    old_autocommit = conn.autocommit
+                    conn.autocommit = True
+                    _cur.execute("CREATE INDEX IF NOT EXISTS idx_sys_grid_null ON systems(id64) WHERE grid_cell_id IS NULL")
+                    conn.autocommit = old_autocommit
+                    log.info("  [Auto-Fix] ✓ Index created successfully.")
+                except Exception as _e:
+                    log.warning(f"  [Auto-Fix] Could not create index automatically: {_e}")
+    except Exception:
+        pass
+
     t_resume = time.time()
     start_page = _get_resume_page_robust(conn)
     log.info(f"  Resuming from page {fmt_num(start_page)} "
