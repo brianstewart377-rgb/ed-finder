@@ -320,18 +320,11 @@ def _get_resume_page_robust(conn) -> int:
                 if row and row[0] is not None:
                     return max(0, int(row[0]) - 1)
             else:
-                log.warning("  idx_sys_grid_null MISSING — full table scan for resume page")
-                # Fallback to a full table scan if index is missing
-                cur.execute("""
-                    SELECT (ctid::text::point)[0]::bigint AS page
-                    FROM systems
-                    WHERE grid_cell_id IS NULL
-                    ORDER BY ctid
-                    LIMIT 1
-                """)
-                row = cur.fetchone()
-                if row and row[0] is not None:
-                    return max(0, int(row[0]) - 1)
+                log.warning("  idx_sys_grid_null MISSING — fallback to page 0")
+                # DO NOT do a full scan for resume page if index is missing.
+                # It's better to just start from 0 and let the WHERE clause
+                # skip already-assigned rows.
+                return 0
 
     except Exception as e:
         log.warning(f"  Could not determine resume page (starting from 0): {e}")
@@ -510,14 +503,25 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
             # If we've hit many empty batches, re-verify if any unassigned rows remain further ahead
             if consecutive_empty >= MAX_EMPTY_BATCHES:
                 log.info(f"  {MAX_EMPTY_BATCHES} consecutive empty batches — checking for further unassigned rows...")
-                next_unassigned = _get_resume_page_robust(conn)
-                if next_unassigned > current_page:
-                    log.info(f"  Found more unassigned rows starting at page {fmt_num(next_unassigned)} — jumping ahead")
-                    current_page = next_unassigned
-                    consecutive_empty = 0
-                    continue
+                # Only attempt jump if we have the index, otherwise it's a full scan every time
+                cur.execute("""
+                    SELECT COUNT(*) FROM pg_indexes
+                    WHERE tablename = 'systems' AND indexname = 'idx_sys_grid_null'
+                """)
+                if cur.fetchone()[0] > 0:
+                    next_unassigned = _get_resume_page_robust(conn)
+                    if next_unassigned > current_page:
+                        log.info(f"  Found more unassigned rows starting at page {fmt_num(next_unassigned)} — jumping ahead")
+                        current_page = next_unassigned
+                        consecutive_empty = 0
+                        continue
+                    else:
+                        log.info(f"  No more unassigned rows found via index — stopping early ✓")
+                        break
                 else:
-                    log.info(f"  No more unassigned rows found in table — stopping early ✓")
+                    log.warning("  idx_sys_grid_null missing — cannot jump gaps. Stopping early to prevent infinite empty scan.")
+                    log.warning("  CRITICAL: Create the index manually to resume correctly: ")
+                    log.warning("  CREATE INDEX CONCURRENTLY idx_sys_grid_null ON systems(id64) WHERE grid_cell_id IS NULL;")
                     break
         else:
             consecutive_empty = 0
