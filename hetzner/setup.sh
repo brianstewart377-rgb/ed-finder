@@ -300,32 +300,45 @@ docker compose exec -T postgres psql -U edfinder -d edfinder -c "SELECT pg_reloa
 success "PostgreSQL auth set to md5"
 
 # ---------------------------------------------------------------------------
-# Step 14 — Start remaining services
+# Step 14 — Automated Index Rebuild
 # ---------------------------------------------------------------------------
-step "14. Start all services"
+# If this is a fresh install or nuke, we MUST rebuild the indexes that were
+# dropped in Step 2. If it's a reinstall, the indexes are likely already there.
+step "14. Rebuild indexes"
+info "Checking if indexes need to be rebuilt ..."
+INDEX_COUNT=$(docker compose exec -T postgres psql -U edfinder -d edfinder -tAc "SELECT count(*) FROM pg_indexes WHERE tablename = 'systems' AND indexname NOT LIKE '%pkey%';")
+if [[ "$INDEX_COUNT" -lt 5 ]]; then
+    info "Found only $INDEX_COUNT indexes on 'systems'. Rebuilding all indexes from 002_indexes.sql ..."
+    docker compose exec -T postgres psql -U edfinder -d edfinder -f /docker-entrypoint-initdb.d/002_indexes.sql
+    success "Indexes rebuilt successfully"
+else
+    success "Indexes already exist ($INDEX_COUNT found) — skipping rebuild"
+fi
+
+# Step 15 — Start remaining services
+# ---------------------------------------------------------------------------
+step "15. Start all services"
 docker compose up -d
 sleep 10
 docker compose ps
 
 # ---------------------------------------------------------------------------
-# Step 15 — Health checks
+# Step 16 — Health checks
 # ---------------------------------------------------------------------------
-step "15. Health checks"
+step "16. Health checks"
 sleep 15
 API_HEALTH=$(curl -sf http://localhost:8000/api/health 2>/dev/null || echo '{"status":"unreachable"}')
 info "API: $API_HEALTH"
-
 HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" http://localhost/ 2>/dev/null || echo "000")
 if [[ "$HTTP_CODE" == "200" || "$HTTP_CODE" == "301" ]]; then
     success "nginx serving frontend (HTTP $HTTP_CODE)"
 else
     warn "nginx returned HTTP $HTTP_CODE — may need SSL cert or container restart"
 fi
-
 # ---------------------------------------------------------------------------
-# Step 16 — Nightly update cron
+# Step 17 — Nightly update cron
 # ---------------------------------------------------------------------------
-step "16. Nightly cron"
+step "17. Nightly cron"
 NIGHTLY_SCRIPT="$INSTALL_DIR/import/nightly_update.sh"
 if [[ -f "$NIGHTLY_SCRIPT" ]]; then
     chmod +x "$NIGHTLY_SCRIPT"
