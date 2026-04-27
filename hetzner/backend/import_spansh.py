@@ -1786,6 +1786,40 @@ def main():
 
     total_elapsed = time.time() - total_start
     log.info(f"All imports complete in {total_elapsed/3600:.2f} hours")
+
+    # FIX v2.6: Automatically rebuild indexes if they were dropped for the import.
+    # This prevents the "hang" in post-import scripts like build_grid.py and build_ratings.py.
+    if args.all or args.file:
+        try:
+            with conn.cursor() as _cur:
+                _cur.execute("SELECT count(*) FROM pg_indexes WHERE tablename = 'systems' AND indexname NOT LIKE '%pkey%'")
+                idx_count = _cur.fetchone()[0]
+                if idx_count < 5:
+                    log.info("--- AUTOMATIC INDEX REBUILD ---")
+                    log.info("Indexes are missing (likely dropped for import). Starting rebuild from 002_indexes.sql ...")
+                    log.info("This will take 1-3 hours. Do not interrupt.")
+                    
+                    # We need to run this outside of a transaction
+                    old_autocommit = conn.autocommit
+                    conn.autocommit = True
+                    
+                    # Read and execute 002_indexes.sql
+                    sql_path = Path(__file__).parent.parent / 'sql' / '002_indexes.sql'
+                    if sql_path.exists():
+                        with open(sql_path, 'r') as sql_f:
+                            sql_commands = sql_f.read()
+                            # execute() can run multiple statements separated by semicolons
+                            _cur.execute(sql_commands)
+                        log.info("✅ Indexes rebuilt successfully.")
+                    else:
+                        log.warning(f"Could not find {sql_path} — please run manually.")
+                    
+                    conn.autocommit = old_autocommit
+                else:
+                    log.info(f"Indexes already exist ({idx_count} found) — skipping auto-rebuild.")
+        except Exception as e:
+            log.error(f"Failed to auto-rebuild indexes: {e}")
+
     log.info("Next steps (run in this exact order):")
     log.info("  1. python3 build_grid.py      — build spatial grid (~1h)")
     log.info("  2. python3 build_ratings.py   — compute economy scores (~3-5h)")
