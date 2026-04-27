@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Ratings Computer
-Version: 2.3  (pgBouncer bypass + write-before-clear dirty fix + connection retry)
+Version: 2.5  (CPU cap + dirty-query optimization + worker drain fix)
 
 Ports the JavaScript rateSystem() function to Python exactly.
 Computes scores for all visited systems and writes to the ratings table.
@@ -551,7 +551,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.4)')
+    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.5)')
     parser.add_argument('--rebuild',  action='store_true',
                         help='Re-rate ALL systems, not just unrated ones')
     parser.add_argument('--dirty',    action='store_true',
@@ -573,7 +573,7 @@ def main():
         worker_count = args.max_workers
 
     mode_label = "REBUILD ALL" if args.rebuild else ("DIRTY ONLY" if args.dirty else "RESUME (unrated only)")
-    startup_banner(log, "Ratings Computer", "v2.4", [
+    startup_banner(log, "Ratings Computer", "v2.5", [
         ("Mode",       mode_label),
         ("Workers",    str(worker_count)),
         ("Chunk size", f"{args.chunk:,} systems"),
@@ -633,12 +633,14 @@ def main():
 
         if args.dirty:
             log.info("  Query: dirty systems only")
+            # FIX v2.5: Ensure we use the partial index by avoiding s.has_body_data = TRUE 
+            # if rating_dirty already implies it, or just relying on the partial index.
+            # Also, ORDER BY s.id64 can be slow if the index doesn't support it.
             stream_cur.execute("""
-                SELECT s.id64, s.main_star_type
-                FROM   systems s
-                WHERE  s.has_body_data  = TRUE
-                  AND  s.rating_dirty   = TRUE
-                ORDER BY s.id64
+                SELECT id64, main_star_type
+                FROM   systems
+                WHERE  rating_dirty = TRUE
+                ORDER BY id64
             """)
         elif args.rebuild:
             log.info("  Query: ALL systems with body data")

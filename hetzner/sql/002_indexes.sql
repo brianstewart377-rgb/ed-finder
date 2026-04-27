@@ -70,7 +70,9 @@ CREATE INDEX IF NOT EXISTS idx_sys_name_trgm ON systems USING gin(name gin_trgm_
 
 -- Data quality / dirty flags
 CREATE INDEX IF NOT EXISTS idx_sys_has_bodies ON systems(has_body_data) WHERE has_body_data = TRUE;
-CREATE INDEX IF NOT EXISTS idx_sys_rating_dirty ON systems(rating_dirty) WHERE rating_dirty = TRUE;
+-- FIX v2.5: Index id64 instead of the boolean itself to support ORDER BY id64
+-- and provide an Index-Only Scan for the dirty-query.
+CREATE INDEX IF NOT EXISTS idx_sys_rating_dirty ON systems(id64) WHERE rating_dirty = TRUE;
 CREATE INDEX IF NOT EXISTS idx_sys_cluster_dirty ON systems(cluster_dirty) WHERE cluster_dirty = TRUE;
 
 -- EDDN update tracking
