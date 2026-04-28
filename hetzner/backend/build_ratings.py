@@ -719,6 +719,8 @@ def main():
                     log.error(f"Worker task failed during drain: {ex}")
                     total_errors += args.chunk
 
+        progress.finish()
+
     stream_conn.close()
     elapsed = time.time() - script_start
 
