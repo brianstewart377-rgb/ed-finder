@@ -22,7 +22,7 @@ hetzner/
 
 | Script | Version |
 |---|---|
-| `import_spansh.py` | 2.0 |
-| `build_grid.py` | 2.3 |
-| `build_ratings.py` | 2.2 |
-| `build_clusters.py` | 1.3 |
+| `import_spansh.py` | 2.6 |
+| `build_grid.py` | 2.4 |
+| `build_ratings.py` | 2.5 |
+| `build_clusters.py` | 1.4 |

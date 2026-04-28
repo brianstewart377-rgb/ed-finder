@@ -63,6 +63,7 @@ These RI triggers fire on **every** `UPDATE systems` — even when only `grid_ce
 | v2.1 | Fixed stale `total_systems` cache causing Stage 3 to be skipped entirely |
 | v2.2 | Fixed single-UPDATE stalling at 41M rows (WAL/checkpoint pressure); replaced with ctid-range page batching (10,000 pages ≈ 80 MB per commit, fully resumable) |
 | v2.3 | **Root-cause fix** — disabled RI triggers (`SET session_replication_role = replica`) during Stage 3; added `--no-disable-triggers` flag to argparse (was referenced in docs but missing); corrected startup banner version |
+| v2.4 | **Auto-fix missing index** — Script now detects if `idx_sys_grid_null` is missing and attempts to create it automatically to ensure instant resume. |
 
 ### build_ratings.py changelog
 
@@ -71,6 +72,8 @@ These RI triggers fire on **every** `UPDATE systems` — even when only `grid_ce
 | v2.0 | Fixed server-side cursor truncation at ~74M rows; batch body fetch (one query per chunk instead of per system); dynamic work dispatch; corrected score_economy() math |
 | v2.1 | Added startup/stage banners, safe log path, per-worker heartbeat |
 | v2.2 | Disabled RI triggers on `UPDATE systems SET rating_dirty = FALSE` — eliminated ~252M spurious trigger evaluations per run; fixed startup banner (was still saying v2.1); fixed "Next step" footer (incorrectly said `build_grid.py` — should be `build_clusters.py`) |
+| v2.4 | **CPU Protection** — Added `--max-workers` to prevent 1000%+ CPU usage on high-core servers; optimized result draining to prevent main-loop stalls. |
+| v2.5 | **Query Optimization** — Rewrote dirty-system query to be index-only scan friendly; fixed missing completion banner bug. |
 
 ### build_clusters.py changelog
 
@@ -80,12 +83,15 @@ These RI triggers fire on **every** `UPDATE systems` — even when only `grid_ce
 | v1.1 | Log directory auto-creation; resume-safe mode; grid-aware queries; fetchmany streaming |
 | v1.2 | Added startup/stage banners, per-worker heartbeat, safe log path, spatial-grid-missing warning |
 | v1.3 | Disabled RI triggers on `UPDATE systems SET cluster_dirty = FALSE` — eliminated ~2.5B spurious trigger evaluations across 73M anchors; fixed startup banner (was still saying v1.2); fixed worker_id collision (was `chunks % workers`, causing multiple chunks to share the same ID and produce confusing logs) |
+| v1.4 | Standardized progress banners and fixed RI trigger disable logic on reconnect. |
 
 ### 002_indexes.sql changelog
 
 | Addition | Reason |
 |---|---|
 | `idx_sys_grid_null` — partial index on `systems(id64) WHERE grid_cell_id IS NULL` | Allows `build_grid.py` v2.2+ to find the resume page in <1s instead of a 74 GB sequential scan (~5 min) on restart |
+| `idx_sys_rating_dirty` — optimized partial index | Updated in v2.5 to index `id64` directly, allowing instant "dirty" system lookups via Index-Only Scan. |
+| **002_indexes_optimized.sql** | New safe indexing script for 128GB RAM servers; limits parallel workers and memory to prevent SSH/system crashes (OOM). |
 
 ---
 
@@ -527,3 +533,10 @@ docker compose restart nginx
 docker compose restart eddn
 docker compose up -d --build api
 ```
+
+### import_spansh.py changelog
+
+| Version | Fix |
+|---|---|
+| v2.0 | Initial high-speed COPY importer |
+| v2.6 | **Auto-Finalize** — Automatically triggers the index rebuild from `002_indexes.sql` once the import is complete, ensuring the database is ready for post-import scripts immediately. |
