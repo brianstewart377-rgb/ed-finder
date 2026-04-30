@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder (STABILIZED & OPTIMIZED)
-Version: 2.2
+Version: 2.6
 
 Strategy:
   • Hybrid Approach: Iterates through "Anchors" (systems with data) but uses 
@@ -19,6 +19,7 @@ import logging
 import argparse
 import multiprocessing as mp
 from collections import defaultdict
+from urllib.parse import urlparse
 
 import psycopg2
 import psycopg2.extras
@@ -32,21 +33,37 @@ from progress import (
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-def _make_direct_dsn(url: str) -> str:
-    direct = os.getenv('DB_DSN_DIRECT', '')
-    if direct: return direct
+def get_db_config():
+    """
+    Explicitly pull database configuration from environment variables.
+    This bypasses DSN/URL conflicts where old passwords might be cached.
+    """
+    url = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@postgres:5432/edfinder')
+    parsed = urlparse(url)
     
-    # If the URL is the default or missing, try to reconstruct it with the password
-    if 'edfinder:edfinder@' in url:
-        pw = os.getenv('POSTGRES_PASSWORD')
-        if pw and pw != 'edfinder':
-            url = url.replace('edfinder:edfinder@', f'edfinder:{pw}@')
+    # Defaults
+    config = {
+        'user':     parsed.username or 'edfinder',
+        'password': parsed.password or os.getenv('POSTGRES_PASSWORD', 'edfinder'),
+        'host':     parsed.hostname or 'postgres',
+        'port':     parsed.port or 5432,
+        'database': parsed.path.lstrip('/') or 'edfinder'
+    }
     
-    if ':5433/' in url: url = url.replace(':5433/', ':5432/')
-    url = url.replace('@pgbouncer:', '@postgres:')
-    return url
+    # Priority Override: If POSTGRES_PASSWORD is set, it ALWAYS wins
+    env_pw = os.getenv('POSTGRES_PASSWORD')
+    if env_pw:
+        config['password'] = env_pw
+        
+    # Priority Override: If we are in the 'importer' container, we MUST use 'postgres' host
+    # (pgbouncer is for the API, not for bulk builds)
+    if config['host'] == 'pgbouncer':
+        config['host'] = 'postgres'
+        config['port'] = 5432
 
-DB_DSN          = _make_direct_dsn(os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@postgres:5432/edfinder'))
+    return config
+
+DB_CONFIG       = get_db_config()
 BATCH_SIZE      = 1000
 LOG_LEVEL       = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE        = os.getenv('LOG_FILE', '/tmp/build_clusters.log')
@@ -79,11 +96,11 @@ def compute_coverage_score(counts: dict, bests: dict) -> float:
             score += (best / 100.0 + count_bonus) * weight
     return round(min(score * 100, 100.0), 1)
 
-def process_anchor_batch(worker_id: int, anchor_batch: list, db_dsn: str, radius: float, min_score: int):
+def process_anchor_batch(worker_id: int, anchor_batch: list, db_config: dict, radius: float, min_score: int):
     """
     Worker: For each anchor, find neighbors within 500ly that meet the score threshold.
     """
-    conn = psycopg2.connect(db_dsn)
+    conn = psycopg2.connect(**db_config)
     cur = conn.cursor()
 
     # Load grid params
@@ -169,7 +186,7 @@ def process_anchor_batch(worker_id: int, anchor_batch: list, db_dsn: str, radius
     return results
 
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary (v2.2 - STABILIZED)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary (v2.6 - STABILIZED)')
     parser.add_argument('--workers', type=int, default=6)
     parser.add_argument('--radius', type=float, default=500.0)
     parser.add_argument('--min-score', type=int, default=DEFAULT_SCORE)
@@ -177,9 +194,9 @@ def main():
     args = parser.parse_args()
 
     script_start = time.time()
-    startup_banner(log, "Cluster Summary Builder", "2.2 (Stabilized)")
+    startup_banner(log, "Cluster Summary Builder", "2.6 (Stabilized)")
 
-    conn = psycopg2.connect(DB_DSN)
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor(name='anchor_cursor')
 
     # 1. Identify anchors to process
@@ -209,7 +226,7 @@ def main():
             
             worker_results = []
             for i, sub in enumerate(sub_batches):
-                worker_results.append(pool.apply_async(process_anchor_batch, (i, sub, DB_DSN, args.radius, args.min_score)))
+                worker_results.append(pool.apply_async(process_anchor_batch, (i, sub, DB_CONFIG, args.radius, args.min_score)))
             
             # Write results
             write_batch = []
@@ -241,7 +258,7 @@ def main():
     ])
 
 def _write_to_db(batch):
-    conn = psycopg2.connect(DB_DSN)
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     psycopg2.extras.execute_values(cur, """
         INSERT INTO cluster_summary (
@@ -289,7 +306,7 @@ def _write_to_db(batch):
 
 def _clear_dirty_flags(ids):
     if not ids: return
-    conn = psycopg2.connect(DB_DSN)
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute("UPDATE systems SET cluster_dirty = FALSE WHERE id64 = ANY(%s)", (ids,))
     conn.commit()

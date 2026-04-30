@@ -174,8 +174,6 @@ services:
 
   # ── Import runner (one-shot, run manually) ─────────────────────────────────
   # Always use docker compose --profile import run --rm importer <args>
-  # This guarantees the correct network (ed-finder_default) and DNS (postgres)
-  # regardless of how many times postgres has been recreated.
   importer:
     build:
       context: ./backend
@@ -185,8 +183,8 @@ services:
     env_file:
       - .env
     environment:
-      # Connect DIRECTLY to postgres (bypass pgBouncer) for bulk COPY loads
-      DATABASE_URL: postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
+      # Explicitly pass the password to bypass any URL caching/conflicts
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DUMP_DIR:     /data/dumps
       BATCH_SIZE:   50000
       LOG_LEVEL:    INFO
@@ -203,11 +201,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["python3", "import_spansh.py", "--status"]
 
   # ── Prometheus (metrics collection) ──────────────────────────────────────
-  # Access: http://your-server:9090  (bind to 127.0.0.1 for security)
-  # Profile: monitoring — start with: docker compose --profile monitoring up -d
   prometheus:
     image: prom/prometheus:latest
     container_name: ed-prometheus
@@ -229,8 +224,6 @@ services:
       - api
 
   # ── Grafana (dashboards) ──────────────────────────────────────────────────
-  # Access: http://your-server:3000  (default login: admin / admin — CHANGE THIS)
-  # Profile: monitoring — start with: docker compose --profile monitoring up -d
   grafana:
     image: grafana/grafana:latest
     container_name: ed-grafana
