@@ -841,6 +841,60 @@ function buildSystemCard(sys, rank) {
 
   function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${msg}</div>`; }
 
+  function renderResults(systems, total) {
+    resultsEl.innerHTML = '';
+    if (!systems.length) {
+      resultsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">◈</div><div class="empty-title">No systems found</div><div class="empty-sub">Try adjusting your filters or increasing the search radius</div></div>`;
+      headerEl.hidden = true; return;
+    }
+    countEl.innerHTML = `Found <strong>${fmtNum(total)}</strong> matching systems`;
+    headerEl.hidden = false;
+    systems.forEach((sys, i) => resultsEl.appendChild(buildSystemCard(sys, (currentPage - 1) * PAGE_SIZE + i + 1)));
+    buildPagination(paginEl, total, PAGE_SIZE, currentPage, (p) => { currentPage = p; doSearch(); });
+    // Broadcast results to map
+    document.dispatchEvent(new CustomEvent('ed:searchresults', { detail: { systems, ref: refCoords } }));
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════ GALAXY SEARCH
+
+(function initGalaxySearch() {
+  const ecoSel      = qs('#galaxy-economy');
+  const scoreSlider = qs('#galaxy-score-slider');
+  const scoreVal    = qs('#galaxy-score-val');
+  const searchBtn   = qs('#galaxy-search-btn');
+  const resultsEl   = qs('#galaxy-results');
+  const headerEl    = qs('#galaxy-results-header');
+  const countEl     = qs('#galaxy-results-count');
+  const paginEl     = qs('#galaxy-pagination');
+  let currentPage = 1, lastParams = null;
+  const PAGE_SIZE = 20;
+
+  scoreSlider.addEventListener('input', () => { scoreVal.textContent = scoreSlider.value; });
+  searchBtn.addEventListener('click', () => { currentPage = 1; doSearch(); });
+
+  function getParams() {
+    return { economy: ecoSel.value, min_score: Number(scoreSlider.value), limit: PAGE_SIZE, offset: (currentPage - 1) * PAGE_SIZE };
+  }
+
+  async function doSearch() {
+    lastParams = getParams();
+    setLoading(true);
+    try {
+      const data = await apiFetch('/api/search/galaxy', { method: 'POST', body: JSON.stringify(lastParams) });
+      renderResults(data.results || [], data.total || 0);
+    } catch (e) { showError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  function setLoading(on) {
+    searchBtn.disabled = on;
+    searchBtn.classList.toggle('loading', on);
+    if (on) { resultsEl.innerHTML = `<div class="loading-state"><div class="spinner"></div>Searching galaxy…</div>`; headerEl.hidden = true; }
+  }
+
+  function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${msg}</div>`; }
+
   function renderResults(results, total) {
     resultsEl.innerHTML = '';
     if (!results.length) {
@@ -858,6 +912,8 @@ function buildSystemCard(sys, rank) {
         .catch(e => showError(e.message));
       resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
+    // Broadcast results to map
+    document.dispatchEvent(new CustomEvent('ed:searchresults', { detail: { systems: results, ref: null } }));
   }
 })();
 
@@ -946,6 +1002,8 @@ function buildSystemCard(sys, rank) {
     countEl.innerHTML = `Found <strong>${fmtNum(total)}</strong> matching clusters`;
     headerEl.hidden = false;
     results.forEach((cluster, i) => resultsEl.appendChild(buildClusterCard(cluster, i + 1)));
+    // Broadcast cluster results to map
+    document.dispatchEvent(new CustomEvent('ed:clusterresults', { detail: { clusters: results } }));
   }
 
   function buildClusterCard(c, rank) {
@@ -1567,4 +1625,771 @@ const Compare = {
     // Broadcast the cluster ref coords
     document.dispatchEvent(new CustomEvent('ed:clusterrefcoords', { detail: { x: sys.x, y: sys.y, z: sys.z } }));
   });
+})();
+
+
+// ═══════════════════════════════════════════════════════════ ED MAP MODULE
+// Shared Three.js scene for both 2D galactic map and 3D star map tabs.
+// 2D view: orthographic camera, top-down (X/Z plane), pan + zoom.
+// 3D view: perspective camera, orbit controls (drag to rotate, scroll to zoom).
+// All 10 map improvements are implemented here.
+
+const EDMap = (function () {
+  'use strict';
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let _scene2d = null, _renderer2d = null, _camera2d = null;
+  let _scene3d = null, _renderer3d = null, _camera3d = null;
+  let _controls3d = null;
+  let _points2d = null, _points3d = null;
+  let _watchlistPoints2d = null, _watchlistPoints3d = null;
+  let _radiusMesh2d = null, _radiusMesh3d = null;
+  let _landmarkLabels2d = [];
+  let _selectedSystem = null;
+  let _resultSystems = [];   // last search results
+  let _clusterSystems = [];  // last cluster results
+  let _refCoords = null;     // reference system coords
+  let _animFrameId2d = null, _animFrameId3d = null;
+
+  // Galaxy scale: ED coords → Three.js units (1 unit = 100 ly)
+  const SCALE = 0.01;
+
+  // Landmark systems for orientation
+  const LANDMARKS = [
+    { name: 'Sol',              x: 0,       y: 0,      z: 0 },
+    { name: 'Colonia',          x: -9530.5, y: -910.3, z: 19808.1 },
+    { name: 'Sagittarius A*',   x: 25.22,   y: -20.9,  z: 25899.97 },
+    { name: 'Beagle Point',     x: -1111.6, y: -134.2, z: 65269.8 },
+    { name: 'Jaques Station',   x: -9530.5, y: -910.3, z: 19808.1 },
+    { name: 'Bubble',           x: 0,       y: 0,      z: 0 },  // alias
+  ];
+
+  // Approximate nebula regions (centre + radius in ly)
+  const NEBULAE = [
+    { name: 'Orion Nebula',     x: -342,    y: -46,    z: 1344,   r: 200 },
+    { name: 'Pleiades',         x: -81.1,   y: -149.4, z: 378.2,  r: 150 },
+    { name: 'California Neb.',  x: -299,    y: -78,    z: 1000,   r: 120 },
+    { name: 'Rosette Nebula',   x: -461,    y: -1.4,   z: 5198,   r: 180 },
+    { name: 'Eagle Nebula',     x: 2088,    y: 0,      z: 6514,   r: 160 },
+    { name: 'Lagoon Nebula',    x: 4093,    y: -209,   z: 5765,   r: 140 },
+    { name: 'Crab Nebula',      x: 5765,    y: 2035,   z: 3310,   r: 100 },
+  ];
+
+  // Economy colour map
+  const ECO_COLORS = {
+    agriculture: 0x22c55e,
+    refinery:    0xf97316,
+    industrial:  0x3b82f6,
+    hightech:    0xa855f7,
+    'high tech': 0xa855f7,
+    military:    0xef4444,
+    tourism:     0xd4a832,
+    extraction:  0x6b7280,
+    colony:      0x14b8a6,
+  };
+
+  function ecoColor(eco) {
+    if (!eco) return 0x6b8599;
+    return ECO_COLORS[eco.toLowerCase()] || 0x6b8599;
+  }
+
+  function scoreToColor(s) {
+    if (s == null) return 0x6b8599;
+    if (s >= 75) return 0x22c55e;
+    if (s >= 50) return 0xd4a832;
+    if (s >= 25) return 0xf97316;
+    return 0x6b8599;
+  }
+
+  function distToColor(d, maxD) {
+    if (d == null || maxD === 0) return 0x6b8599;
+    const t = Math.min(d / maxD, 1);
+    // blue → green → yellow → red
+    const r = Math.round(t * 255);
+    const g = Math.round((1 - Math.abs(t - 0.5) * 2) * 255);
+    const b = Math.round((1 - t) * 255);
+    return (r << 16) | (g << 8) | b;
+  }
+
+  // Convert ED coords to Three.js coords (X=X, Y=Z, Z=-Y for top-down view)
+  function toScene(x, y, z) {
+    return {
+      sx: (x || 0) * SCALE,
+      sy: (y || 0) * SCALE,
+      sz: (z || 0) * SCALE,
+    };
+  }
+
+  // ── 2D MAP SETUP ───────────────────────────────────────────────────────────
+
+  function init2D() {
+    const canvas = document.getElementById('galactic-map');
+    if (!canvas || !window.THREE) return false;
+    if (_renderer2d) return true;  // already initialised
+
+    const w = canvas.clientWidth  || canvas.parentElement.clientWidth  || 800;
+    const h = canvas.clientHeight || canvas.parentElement.clientHeight || 600;
+
+    _renderer2d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    _renderer2d.setPixelRatio(window.devicePixelRatio);
+    _renderer2d.setSize(w, h);
+    _renderer2d.setClearColor(0x060d14, 1);
+
+    const aspect = w / h;
+    const viewSize = 800;  // ly visible at default zoom
+    _camera2d = new THREE.OrthographicCamera(
+      -viewSize * aspect * SCALE / 2, viewSize * aspect * SCALE / 2,
+       viewSize * SCALE / 2,         -viewSize * SCALE / 2,
+      -1000, 1000
+    );
+    _camera2d.position.set(0, 100, 0);
+    _camera2d.lookAt(0, 0, 0);
+    _camera2d.up.set(0, 0, -1);
+
+    _scene2d = new THREE.Scene();
+
+    // Pan & zoom
+    _init2DControls(canvas);
+
+    // Resize observer
+    new ResizeObserver(() => _resize2D()).observe(canvas.parentElement);
+
+    return true;
+  }
+
+  function _resize2D() {
+    if (!_renderer2d || !_camera2d) return;
+    const canvas = document.getElementById('galactic-map');
+    if (!canvas) return;
+    const w = canvas.parentElement.clientWidth  || 800;
+    const h = canvas.parentElement.clientHeight || 600;
+    _renderer2d.setSize(w, h);
+    const aspect = w / h;
+    const viewSize = (_camera2d.top - _camera2d.bottom);
+    _camera2d.left   = -viewSize * aspect / 2;
+    _camera2d.right  =  viewSize * aspect / 2;
+    _camera2d.updateProjectionMatrix();
+  }
+
+  function _init2DControls(canvas) {
+    let dragging = false, lastX = 0, lastY = 0;
+
+    canvas.addEventListener('mousedown', (e) => {
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+    canvas.addEventListener('mousemove', (e) => {
+      if (!dragging) { _handle2DHover(e, canvas); return; }
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      const viewW = _camera2d.right - _camera2d.left;
+      const viewH = _camera2d.top - _camera2d.bottom;
+      _camera2d.position.x -= (dx / w) * viewW;
+      _camera2d.position.z += (dy / h) * viewH;
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 1.15 : 0.87;
+      const aspect = canvas.clientWidth / canvas.clientHeight;
+      const viewH = (_camera2d.top - _camera2d.bottom) * factor;
+      const viewW = viewH * aspect;
+      _camera2d.left   = -viewW / 2 + _camera2d.position.x;
+      _camera2d.right  =  viewW / 2 + _camera2d.position.x;
+      _camera2d.top    =  viewH / 2 - _camera2d.position.z;
+      _camera2d.bottom = -viewH / 2 - _camera2d.position.z;
+      _camera2d.updateProjectionMatrix();
+    }, { passive: false });
+    canvas.addEventListener('click', (e) => { _handle2DClick(e, canvas); });
+  }
+
+  // ── 3D MAP SETUP ───────────────────────────────────────────────────────────
+
+  function init3D() {
+    const canvas = document.getElementById('map3d-canvas');
+    if (!canvas || !window.THREE) return false;
+    if (_renderer3d) return true;
+
+    const w = canvas.clientWidth  || canvas.parentElement.clientWidth  || 800;
+    const h = canvas.clientHeight || canvas.parentElement.clientHeight || 600;
+
+    _renderer3d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    _renderer3d.setPixelRatio(window.devicePixelRatio);
+    _renderer3d.setSize(w, h);
+    _renderer3d.setClearColor(0x060d14, 1);
+
+    _camera3d = new THREE.PerspectiveCamera(60, w / h, 0.01, 5000);
+    _camera3d.position.set(0, 80, 120);
+    _camera3d.lookAt(0, 0, 0);
+
+    _scene3d = new THREE.Scene();
+
+    // Ambient light for any mesh objects
+    _scene3d.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+    // Orbit controls (manual implementation — no OrbitControls import needed)
+    _init3DControls(canvas);
+
+    new ResizeObserver(() => _resize3D()).observe(canvas.parentElement);
+
+    return true;
+  }
+
+  function _resize3D() {
+    if (!_renderer3d || !_camera3d) return;
+    const canvas = document.getElementById('map3d-canvas');
+    if (!canvas) return;
+    const w = canvas.parentElement.clientWidth  || 800;
+    const h = canvas.parentElement.clientHeight || 600;
+    _renderer3d.setSize(w, h);
+    _camera3d.aspect = w / h;
+    _camera3d.updateProjectionMatrix();
+  }
+
+  function _init3DControls(canvas) {
+    let isDragging = false, lastX = 0, lastY = 0;
+    let spherical = { theta: 0.5, phi: 1.0, radius: 150 };
+    let target = new THREE.Vector3(0, 0, 0);
+
+    function updateCamera() {
+      const x = spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+      const y = spherical.radius * Math.cos(spherical.phi);
+      const z = spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+      _camera3d.position.set(target.x + x, target.y + y, target.z + z);
+      _camera3d.lookAt(target);
+    }
+    updateCamera();
+
+    canvas.addEventListener('mousedown', (e) => {
+      isDragging = true; lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { isDragging = false; });
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isDragging) { _handle3DHover(e, canvas); return; }
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      spherical.theta -= dx * 0.005;
+      spherical.phi   = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi + dy * 0.005));
+      updateCamera();
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      spherical.radius = Math.max(2, Math.min(2000, spherical.radius * (e.deltaY > 0 ? 1.1 : 0.9)));
+      updateCamera();
+    }, { passive: false });
+    canvas.addEventListener('click', (e) => { _handle3DClick(e, canvas); });
+
+    // Store updateCamera so reset can use it
+    canvas._resetCamera = () => {
+      spherical = { theta: 0.5, phi: 1.0, radius: 150 };
+      target = new THREE.Vector3(0, 0, 0);
+      updateCamera();
+    };
+  }
+
+  // ── POINT CLOUD BUILDER ────────────────────────────────────────────────────
+
+  function _buildPointCloud(systems, colourMode, sizeMode, refCoords) {
+    if (!systems.length) return null;
+
+    const maxDist = refCoords ? Math.max(...systems.map(s => {
+      const dx = (s.x || 0) - refCoords.x;
+      const dy = (s.y || 0) - refCoords.y;
+      const dz = (s.z || 0) - refCoords.z;
+      return Math.sqrt(dx*dx + dy*dy + dz*dz);
+    })) : 1;
+
+    const positions = new Float32Array(systems.length * 3);
+    const colors    = new Float32Array(systems.length * 3);
+    const sizes     = new Float32Array(systems.length);
+
+    systems.forEach((s, i) => {
+      const { sx, sy, sz } = toScene(s.x, s.y, s.z);
+      positions[i*3]   = sx;
+      positions[i*3+1] = sy;
+      positions[i*3+2] = sz;
+
+      let col;
+      if (colourMode === 'economy') {
+        col = new THREE.Color(ecoColor(s.primaryEconomy || s.primary_economy));
+      } else if (colourMode === 'distance' && refCoords) {
+        const dx = (s.x||0)-refCoords.x, dy = (s.y||0)-refCoords.y, dz = (s.z||0)-refCoords.z;
+        col = new THREE.Color(distToColor(Math.sqrt(dx*dx+dy*dy+dz*dz), maxDist));
+      } else if (colourMode === 'population') {
+        col = new THREE.Color(Number(s.population||0) === 0 ? 0x22c55e : 0x6b8599);
+      } else {
+        const score = s._rating?.score ?? s.score;
+        col = new THREE.Color(scoreToColor(score));
+      }
+      colors[i*3]   = col.r;
+      colors[i*3+1] = col.g;
+      colors[i*3+2] = col.b;
+
+      let sz2 = 3;
+      if (sizeMode === 'rating') {
+        const score = s._rating?.score ?? s.score ?? 0;
+        sz2 = 2 + (score / 100) * 6;
+      } else if (sizeMode === 'population') {
+        const pop = Number(s.population || 0);
+        sz2 = pop === 0 ? 4 : Math.min(2 + Math.log10(pop + 1), 8);
+      }
+      sizes[i] = sz2;
+    });
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('size',     new THREE.BufferAttribute(sizes, 1));
+
+    // Store system data for raycasting
+    geo._systems = systems;
+
+    const mat = new THREE.PointsMaterial({
+      size: 3,
+      vertexColors: true,
+      sizeAttenuation: false,
+      transparent: true,
+      opacity: 0.85,
+    });
+
+    return new THREE.Points(geo, mat);
+  }
+
+  // ── LANDMARK SPRITES ───────────────────────────────────────────────────────
+
+  function _buildLandmarkSprites(scene, is3d) {
+    LANDMARKS.forEach(lm => {
+      const { sx, sy, sz } = toScene(lm.x, lm.y, lm.z);
+      const geo = new THREE.SphereGeometry(is3d ? 0.5 : 0.3, 8, 8);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffd700 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(sx, is3d ? sy : 0.1, sz);
+      mesh._landmark = lm;
+      scene.add(mesh);
+    });
+  }
+
+  // ── NEBULA RINGS (2D only) ─────────────────────────────────────────────────
+
+  function _buildNebulaeOverlay(scene) {
+    NEBULAE.forEach(neb => {
+      const { sx, sz } = toScene(neb.x, 0, neb.z);
+      const r = neb.r * SCALE;
+      const geo = new THREE.RingGeometry(r * 0.85, r, 48);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x7c3aed, transparent: true, opacity: 0.18, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(sx, 0.05, sz);
+      scene.add(mesh);
+    });
+  }
+
+  // ── RADIUS SPHERE / CIRCLE ─────────────────────────────────────────────────
+
+  function _buildRadiusIndicator(scene, cx, cy, cz, is3d) {
+    const { sx, sy, sz } = toScene(cx, cy, cz);
+    const r = 500 * SCALE;
+    if (is3d) {
+      const geo = new THREE.SphereGeometry(r, 32, 16);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8, wireframe: true, transparent: true, opacity: 0.15,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(sx, sy, sz);
+      return mesh;
+    } else {
+      const geo = new THREE.RingGeometry(r * 0.98, r, 64);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(sx, 0.2, sz);
+      return mesh;
+    }
+  }
+
+  // ── RAYCASTING HELPERS ─────────────────────────────────────────────────────
+
+  function _pickSystem(event, canvas, camera, scene) {
+    const rect = canvas.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width)  * 2 - 1;
+    const y = -((event.clientY - rect.top)  / rect.height) * 2 + 1;
+    const mouse = new THREE.Vector2(x, y);
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, camera);
+    raycaster.params.Points.threshold = 0.5;
+
+    const pointObjects = scene.children.filter(c => c instanceof THREE.Points);
+    const hits = raycaster.intersectObjects(pointObjects);
+    if (!hits.length) return null;
+    const hit = hits[0];
+    const systems = hit.object.geometry._systems;
+    if (!systems) return null;
+    return systems[hit.index];
+  }
+
+  // ── TOOLTIP ────────────────────────────────────────────────────────────────
+
+  function _showTooltip(tooltipEl, event, canvas, sys) {
+    if (!sys) { tooltipEl.hidden = true; return; }
+    const rect = canvas.getBoundingClientRect();
+    const score = sys._rating?.score ?? sys.score;
+    const eco   = sys.primaryEconomy || sys.primary_economy || '';
+    tooltipEl.innerHTML = `
+      <strong>${sys.name || 'Unknown'}</strong>
+      ${score != null ? `<br>★ ${Math.round(score)}` : ''}
+      ${eco ? `<br>${eco}` : ''}
+    `;
+    tooltipEl.hidden = false;
+    tooltipEl.style.left = (event.clientX - rect.left + 12) + 'px';
+    tooltipEl.style.top  = (event.clientY - rect.top  - 8)  + 'px';
+  }
+
+  function _handle2DHover(e, canvas) {
+    const tooltipEl = document.getElementById('map-tooltip');
+    if (!_scene2d || !_camera2d) return;
+    const sys = _pickSystem(e, canvas, _camera2d, _scene2d);
+    _showTooltip(tooltipEl, e, canvas, sys);
+  }
+
+  function _handle3DHover(e, canvas) {
+    const tooltipEl = document.getElementById('map3d-tooltip');
+    if (!_scene3d || !_camera3d) return;
+    const sys = _pickSystem(e, canvas, _camera3d, _scene3d);
+    _showTooltip(tooltipEl, e, canvas, sys);
+  }
+
+  function _handle2DClick(e, canvas) {
+    if (!_scene2d || !_camera2d) return;
+    const sys = _pickSystem(e, canvas, _camera2d, _scene2d);
+    if (sys) { _selectedSystem = sys; openSystemModal(sys); }
+  }
+
+  function _handle3DClick(e, canvas) {
+    if (!_scene3d || !_camera3d) return;
+    const sys = _pickSystem(e, canvas, _camera3d, _scene3d);
+    if (sys) { _selectedSystem = sys; openSystemModal(sys); }
+  }
+
+  // ── RENDER LOOPS ───────────────────────────────────────────────────────────
+
+  function _startRender2D() {
+    if (_animFrameId2d) cancelAnimationFrame(_animFrameId2d);
+    function loop() {
+      _animFrameId2d = requestAnimationFrame(loop);
+      if (_renderer2d && _scene2d && _camera2d) _renderer2d.render(_scene2d, _camera2d);
+    }
+    loop();
+  }
+
+  function _startRender3D() {
+    if (_animFrameId3d) cancelAnimationFrame(_animFrameId3d);
+    function loop() {
+      _animFrameId3d = requestAnimationFrame(loop);
+      if (_renderer3d && _scene3d && _camera3d) _renderer3d.render(_scene3d, _camera3d);
+    }
+    loop();
+  }
+
+  // ── SCENE BUILDERS ─────────────────────────────────────────────────────────
+
+  function _buildScene2D() {
+    if (!_scene2d) return;
+    // Clear existing dynamic objects
+    const toRemove = _scene2d.children.filter(c => c._dynamic);
+    toRemove.forEach(c => _scene2d.remove(c));
+
+    const colourMode = document.getElementById('map-colour-mode')?.value || 'rating';
+    const showWatchlist = document.getElementById('map-show-watchlist')?.checked;
+    const showClusters  = document.getElementById('map-show-clusters')?.checked;
+    const showRadius    = document.getElementById('map-show-radius')?.checked;
+    const showNebulae   = document.getElementById('map-nebula-overlay')?.checked;
+    const showLandmarks = document.getElementById('map-show-landmarks')?.checked;
+
+    const allSystems = [
+      ..._resultSystems,
+      ...(showClusters ? _clusterSystems : []),
+    ];
+
+    const emptyEl = document.getElementById('map-empty');
+    if (emptyEl) emptyEl.hidden = allSystems.length > 0;
+
+    if (allSystems.length) {
+      const pts = _buildPointCloud(allSystems, colourMode, 'uniform', _refCoords);
+      if (pts) { pts._dynamic = true; _scene2d.add(pts); _points2d = pts; }
+    }
+
+    if (showWatchlist) {
+      const wlSystems = Watchlist.getAll().map(e => ({
+        id64: e.id64, name: e.name, x: e.x, y: e.y, z: e.z,
+        primaryEconomy: e.economy, _rating: { score: e.score },
+      }));
+      if (wlSystems.length) {
+        const wlPts = _buildPointCloud(wlSystems, 'rating', 'uniform', _refCoords);
+        if (wlPts) {
+          // Override colour to gold
+          const colors = wlPts.geometry.attributes.color;
+          for (let i = 0; i < colors.count; i++) {
+            colors.setXYZ(i, 0.83, 0.66, 0.20);
+          }
+          colors.needsUpdate = true;
+          wlPts._dynamic = true;
+          _scene2d.add(wlPts);
+        }
+      }
+    }
+
+    if (showRadius && _selectedSystem) {
+      const rm = _buildRadiusIndicator(_scene2d,
+        _selectedSystem.x || 0, _selectedSystem.y || 0, _selectedSystem.z || 0, false);
+      rm._dynamic = true;
+      _scene2d.add(rm);
+    }
+
+    if (showNebulae) {
+      const nebGroup = new THREE.Group();
+      nebGroup._dynamic = true;
+      _buildNebulaeOverlay(nebGroup);
+      _scene2d.add(nebGroup);
+    }
+
+    if (showLandmarks) {
+      const lmGroup = new THREE.Group();
+      lmGroup._dynamic = true;
+      _buildLandmarkSprites(lmGroup, false);
+      _scene2d.add(lmGroup);
+    }
+
+    _buildLegend2D(colourMode);
+  }
+
+  function _buildScene3D() {
+    if (!_scene3d) return;
+    const toRemove = _scene3d.children.filter(c => c._dynamic);
+    toRemove.forEach(c => _scene3d.remove(c));
+
+    const colourMode = document.getElementById('map3d-colour-mode')?.value || 'rating';
+    const sizeMode   = document.getElementById('map3d-size-mode')?.value   || 'uniform';
+    const showWatchlist = document.getElementById('map3d-show-watchlist')?.checked;
+    const showClusters  = document.getElementById('map3d-show-clusters')?.checked;
+    const showRadius    = document.getElementById('map3d-show-radius')?.checked;
+    const showLandmarks = document.getElementById('map3d-show-landmarks')?.checked;
+
+    const allSystems = [
+      ..._resultSystems,
+      ...(showClusters ? _clusterSystems : []),
+    ];
+
+    const emptyEl = document.getElementById('map3d-empty');
+    if (emptyEl) emptyEl.hidden = allSystems.length > 0;
+
+    if (allSystems.length) {
+      const pts = _buildPointCloud(allSystems, colourMode, sizeMode, _refCoords);
+      if (pts) { pts._dynamic = true; _scene3d.add(pts); _points3d = pts; }
+    }
+
+    if (showWatchlist) {
+      const wlSystems = Watchlist.getAll().map(e => ({
+        id64: e.id64, name: e.name, x: e.x, y: e.y, z: e.z,
+        primaryEconomy: e.economy, _rating: { score: e.score },
+      }));
+      if (wlSystems.length) {
+        const wlPts = _buildPointCloud(wlSystems, 'rating', 'uniform', _refCoords);
+        if (wlPts) {
+          const colors = wlPts.geometry.attributes.color;
+          for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 0.83, 0.66, 0.20);
+          colors.needsUpdate = true;
+          wlPts._dynamic = true;
+          _scene3d.add(wlPts);
+        }
+      }
+    }
+
+    if (showRadius && _selectedSystem) {
+      const rm = _buildRadiusIndicator(_scene3d,
+        _selectedSystem.x || 0, _selectedSystem.y || 0, _selectedSystem.z || 0, true);
+      rm._dynamic = true;
+      _scene3d.add(rm);
+    }
+
+    if (showLandmarks) {
+      const lmGroup = new THREE.Group();
+      lmGroup._dynamic = true;
+      _buildLandmarkSprites(lmGroup, true);
+      _scene3d.add(lmGroup);
+    }
+  }
+
+  // ── LEGEND ─────────────────────────────────────────────────────────────────
+
+  function _buildLegend2D(colourMode) {
+    const legendEl = document.getElementById('map-legend');
+    if (!legendEl) return;
+    let items = [];
+    if (colourMode === 'rating') {
+      items = [
+        { color: '#22c55e', label: 'Score ≥ 75' },
+        { color: '#d4a832', label: 'Score 50–74' },
+        { color: '#f97316', label: 'Score 25–49' },
+        { color: '#6b8599', label: 'Score < 25' },
+      ];
+    } else if (colourMode === 'economy') {
+      items = Object.entries(ECO_COLORS).slice(0, 7).map(([eco, hex]) => ({
+        color: '#' + hex.toString(16).padStart(6, '0'),
+        label: eco.charAt(0).toUpperCase() + eco.slice(1),
+      }));
+    } else if (colourMode === 'population') {
+      items = [
+        { color: '#22c55e', label: 'Uncolonised' },
+        { color: '#6b8599', label: 'Colonised' },
+      ];
+    }
+    items.push({ color: '#ffd700', label: 'Watchlist' });
+    legendEl.innerHTML = items.map(i =>
+      `<div class="legend-item"><span class="legend-dot" style="background:${i.color}"></span>${i.label}</div>`
+    ).join('');
+  }
+
+  // ── SAVE PNG ───────────────────────────────────────────────────────────────
+
+  function _savePng(renderer, filename) {
+    if (!renderer) return;
+    renderer.render(renderer._scene, renderer._camera);
+    const url = renderer.domElement.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+  }
+
+  // ── PUBLIC API ─────────────────────────────────────────────────────────────
+
+  function setResults(systems) {
+    _resultSystems = systems || [];
+  }
+
+  function setClusters(clusters) {
+    _clusterSystems = (clusters || []).map(c => ({
+      id64: c.anchor_id64 || c.system_id64,
+      name: c.anchor_name || c.name,
+      x: c.anchor_coords?.x ?? c.x,
+      y: c.anchor_coords?.y ?? c.y,
+      z: c.anchor_coords?.z ?? c.z,
+      primaryEconomy: null,
+      _rating: { score: c.total_best_score ?? c.coverage_score },
+    }));
+  }
+
+  function setRef(coords) {
+    _refCoords = coords;
+  }
+
+  function setSelected(sys) {
+    _selectedSystem = sys;
+  }
+
+  function draw2D() {
+    if (!init2D()) return;
+    _buildScene2D();
+    _startRender2D();
+  }
+
+  function draw3D() {
+    if (!init3D()) return;
+    _buildScene3D();
+    _startRender3D();
+  }
+
+  function reset2D() {
+    if (!_camera2d) return;
+    const aspect = (document.getElementById('galactic-map')?.clientWidth || 800) /
+                   (document.getElementById('galactic-map')?.clientHeight || 600);
+    const viewSize = 800;
+    _camera2d.left   = -viewSize * aspect * SCALE / 2;
+    _camera2d.right  =  viewSize * aspect * SCALE / 2;
+    _camera2d.top    =  viewSize * SCALE / 2;
+    _camera2d.bottom = -viewSize * SCALE / 2;
+    _camera2d.position.set(0, 100, 0);
+    _camera2d.updateProjectionMatrix();
+  }
+
+  function reset3D() {
+    const canvas = document.getElementById('map3d-canvas');
+    if (canvas?._resetCamera) canvas._resetCamera();
+  }
+
+  // ── WIRE UP CONTROLS ───────────────────────────────────────────────────────
+
+  (function wireControls() {
+    // 2D controls
+    const redrawBtn  = document.getElementById('map-redraw-btn');
+    const resetBtn   = document.getElementById('map-reset-btn');
+    const savePngBtn = document.getElementById('map-save-png-btn');
+    const colourSel  = document.getElementById('map-colour-mode');
+    const topNSlider = document.getElementById('map-top-n');
+    const topNVal    = document.getElementById('map-top-n-val');
+
+    if (redrawBtn)  redrawBtn.addEventListener('click',  () => draw2D());
+    if (resetBtn)   resetBtn.addEventListener('click',   () => { reset2D(); draw2D(); });
+    if (savePngBtn) savePngBtn.addEventListener('click', () => {
+      if (_renderer2d) { _renderer2d._scene = _scene2d; _renderer2d._camera = _camera2d; _savePng(_renderer2d, 'ed-finder-map.png'); }
+    });
+    if (colourSel)  colourSel.addEventListener('change', () => { if (_scene2d) _buildScene2D(); });
+    if (topNSlider) topNSlider.addEventListener('input', () => {
+      if (topNVal) topNVal.textContent = topNSlider.value;
+    });
+
+    // Overlay checkboxes 2D
+    ['map-show-watchlist','map-show-clusters','map-show-radius','map-nebula-overlay','map-show-landmarks'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', () => { if (_scene2d) _buildScene2D(); });
+    });
+
+    // 3D controls
+    const reset3dBtn   = document.getElementById('map3d-reset-btn');
+    const savePng3dBtn = document.getElementById('map3d-save-png-btn');
+    const colour3dSel  = document.getElementById('map3d-colour-mode');
+    const size3dSel    = document.getElementById('map3d-size-mode');
+
+    if (reset3dBtn)   reset3dBtn.addEventListener('click',   () => { reset3D(); });
+    if (savePng3dBtn) savePng3dBtn.addEventListener('click', () => {
+      if (_renderer3d) { _renderer3d._scene = _scene3d; _renderer3d._camera = _camera3d; _savePng(_renderer3d, 'ed-finder-3d.png'); }
+    });
+    if (colour3dSel)  colour3dSel.addEventListener('change', () => { if (_scene3d) _buildScene3D(); });
+    if (size3dSel)    size3dSel.addEventListener('change',   () => { if (_scene3d) _buildScene3D(); });
+
+    ['map3d-show-watchlist','map3d-show-clusters','map3d-show-radius','map3d-show-landmarks'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', () => { if (_scene3d) _buildScene3D(); });
+    });
+  })();
+
+  // ── LISTEN FOR SEARCH RESULTS ─────────────────────────────────────────────
+
+  // When local search or cluster search completes, update the map data
+  document.addEventListener('ed:searchresults', (e) => {
+    setResults(e.detail.systems || []);
+    if (e.detail.ref) setRef(e.detail.ref);
+    // If map tab is active, redraw immediately
+    if (document.getElementById('tab-map')?.classList.contains('active')) draw2D();
+    if (document.getElementById('tab-map3d')?.classList.contains('active')) draw3D();
+  });
+
+  document.addEventListener('ed:clusterresults', (e) => {
+    setClusters(e.detail.clusters || []);
+    if (document.getElementById('tab-map')?.classList.contains('active')) draw2D();
+    if (document.getElementById('tab-map3d')?.classList.contains('active')) draw3D();
+  });
+
+  document.addEventListener('ed:refcoords', (e) => {
+    setRef(e.detail);
+  });
+
+  return { draw2D, draw3D, reset2D, reset3D, setResults, setClusters, setRef, setSelected };
 })();

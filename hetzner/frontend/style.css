@@ -1606,3 +1606,168 @@ details[open] .collapsible-header::after { content: '▴'; }
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ═══════════════════════════════════════════════════════════ MAP TABS */
+
+/* Full-bleed panel layout for map tabs */
+.tab-panel--full {
+  display: none;
+  flex-direction: column;
+  height: calc(100vh - 60px);
+  overflow: hidden;
+}
+.tab-panel--full.active {
+  display: flex;
+}
+
+.map-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Map controls sidebar */
+.map-controls-panel {
+  width: 220px;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  padding: 1rem 0.875rem;
+  overflow-y: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Canvas area */
+.map-canvas-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #060d14;
+}
+
+.map-canvas-area canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.map-canvas-area--3d canvas {
+  cursor: grab;
+}
+.map-canvas-area--3d canvas:active {
+  cursor: grabbing;
+}
+
+/* Map empty state */
+.map-empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 2rem;
+  pointer-events: none;
+}
+
+/* Map tooltip */
+.map-tooltip {
+  position: absolute;
+  background: rgba(10, 20, 30, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  pointer-events: none;
+  z-index: 10;
+  max-width: 200px;
+  line-height: 1.4;
+  backdrop-filter: blur(4px);
+}
+
+/* Map detail panel (2D) */
+.map-detail-panel {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  background: rgba(10, 20, 30, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.8rem;
+  color: var(--text);
+  max-width: 240px;
+  z-index: 10;
+  backdrop-filter: blur(6px);
+}
+
+/* 3D detail panel */
+.map3d-detail {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  margin-top: 0.5rem;
+}
+
+/* Map legend */
+.map-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Checkbox column in map controls */
+.checkbox-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+/* Mobile: stack map controls above canvas */
+@media (max-width: 640px) {
+  .map-layout {
+    flex-direction: column;
+  }
+  .map-controls-panel {
+    width: 100%;
+    min-width: unset;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 200px;
+    overflow-y: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+  .map-canvas-area {
+    min-height: 300px;
+  }
+}

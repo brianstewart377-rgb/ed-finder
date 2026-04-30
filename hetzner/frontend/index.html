@@ -3,26 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ED Finder — Elite Dangerous System Search</title>
-  <meta name="description" content="Search 186 million Elite Dangerous star systems. Find the best colonisation candidates by economy, body types, distance and exploration rating.">
-  <meta name="theme-color" content="#0d1117">
-  <!-- Open Graph -->
-  <meta property="og:title" content="ED Finder">
-  <meta property="og:description" content="Search 186M Elite Dangerous star systems for colonisation candidates.">
-  <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌌</text></svg>">
+  <title>ED Finder — Elite Dangerous Colony Planner</title>
+  <meta name="description" content="Find the best uncolonised star systems in Elite Dangerous for colonisation. Search by economy, distance, body types and cluster coverage.">
   <link rel="stylesheet" href="style.css">
+  <!-- Three.js r160 — used for 2D galactic map and 3D star map -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
 </head>
 <body>
 
 <!-- ═══════════════════════════════════════════════════════════ HEADER -->
 <header id="site-header" role="banner">
   <div class="header-inner">
-    <div class="logo" aria-label="ED Finder home">
+    <a class="logo" href="/" aria-label="ED Finder home">
       <span class="logo-icon" aria-hidden="true">◈</span>
       <span class="logo-text">ED <strong>FINDER</strong></span>
       <span class="logo-sub">186M star systems</span>
-    </div>
+    </a>
     <!-- Desktop nav -->
     <nav id="main-nav" role="navigation" aria-label="Main navigation">
       <button class="nav-btn active" data-tab="local" aria-selected="true" role="tab">Local Search</button>
@@ -31,6 +27,8 @@
       <button class="nav-btn" data-tab="watchlist" id="watchlist-nav-btn" aria-selected="false" role="tab">
         Watchlist <span id="watchlist-count-badge" class="nav-badge" hidden aria-live="polite">0</span>
       </button>
+      <button class="nav-btn" data-tab="map" aria-selected="false" role="tab">🌌 Map</button>
+      <button class="nav-btn" data-tab="map3d" aria-selected="false" role="tab">🔮 3D Map</button>
     </nav>
     <div id="status-indicator" role="status" aria-live="polite" aria-label="Database connection status">
       <span class="status-dot" id="status-dot" aria-hidden="true"></span>
@@ -98,8 +96,8 @@
         <!-- Economy -->
         <div class="field-group">
           <label class="field-label" for="local-economy">Primary Economy</label>
-          <select id="local-economy" class="field-select">
-            <option value="any">Any</option>
+          <select id="local-economy" class="field-select" aria-label="Filter by economy type">
+            <option value="any">Any Economy</option>
             <option value="Agriculture">Agriculture</option>
             <option value="Refinery">Refinery</option>
             <option value="Industrial">Industrial</option>
@@ -110,7 +108,6 @@
             <option value="Colony">Colony</option>
           </select>
         </div>
-
         <!-- Min Rating -->
         <div class="field-group">
           <label class="field-label" for="local-rating-slider">
@@ -123,7 +120,6 @@
           </div>
           <div class="slider-labels" aria-hidden="true"><span>Any</span><span>100</span></div>
         </div>
-
         <!-- Body Filters -->
         <details class="collapsible" id="body-filters-details">
           <summary class="collapsible-header">
@@ -160,7 +156,6 @@
             </div>
           </div>
         </details>
-
         <!-- Sort -->
         <div class="field-group" role="group" aria-labelledby="sort-label">
           <span class="field-label" id="sort-label">Sort By</span>
@@ -169,7 +164,6 @@
             <label class="radio-option"><input type="radio" name="local-sort" value="distance"> Distance</label>
           </div>
         </div>
-
         <!-- Action buttons -->
         <div class="search-actions">
           <button id="local-search-btn" class="search-btn" aria-label="Run local search">
@@ -179,14 +173,12 @@
             ✕ Clear
           </button>
         </div>
-
         <!-- Search history -->
         <div id="local-search-history" class="search-history" hidden>
           <div class="search-history-label">Recent searches</div>
           <ul id="local-history-list" class="history-list"></ul>
         </div>
       </aside>
-
       <!-- Results -->
       <div class="results-panel" aria-live="polite" aria-label="Search results">
         <div id="local-results-header" class="results-header" hidden>
@@ -194,10 +186,12 @@
           <div class="results-header-actions">
             <button id="local-sort-distance-btn" class="sort-header-btn" data-sort="distance" title="Sort by distance">Distance ↕</button>
             <button id="local-sort-rating-btn" class="sort-header-btn active" data-sort="rating" title="Sort by rating">Rating ↕</button>
+            <!-- UI #1: Show on map button -->
+            <button id="local-show-map-btn" class="sort-header-btn map-btn" title="Show results on map" hidden>🌌 Map</button>
             <div class="pagination" id="local-pagination"></div>
           </div>
         </div>
-        <!-- Skeleton loader (UI #1) -->
+        <!-- Skeleton loader -->
         <div id="local-skeleton" class="skeleton-list" hidden aria-hidden="true">
           <div class="skeleton-card"></div>
           <div class="skeleton-card"></div>
@@ -207,90 +201,89 @@
         </div>
         <div id="local-results" class="results-list">
           <div class="empty-state" role="status">
-            <div class="empty-icon" aria-hidden="true">⊕</div>
+            <div class="empty-icon" aria-hidden="true">◉</div>
             <div class="empty-title">Enter a reference system and search</div>
-            <div class="empty-sub">Start typing a system name to find nearby candidates</div>
+            <div class="empty-sub">Results will appear here</div>
           </div>
         </div>
       </div>
-
     </div>
   </section>
 
   <!-- ──────────────────────────────────────── TAB: GALAXY SEARCH -->
   <section id="tab-galaxy" class="tab-panel" role="tabpanel" aria-label="Galaxy Search" hidden>
     <div class="panel-layout">
-
       <aside class="search-panel" aria-label="Galaxy search filters">
         <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">✦</span> Galaxy Search</h2>
         <p class="panel-desc">Find the best uncolonised systems galaxy-wide for a specific economy type, sorted by suitability score.</p>
-
         <div class="field-group">
           <label class="field-label" for="galaxy-economy">Economy Type</label>
           <select id="galaxy-economy" class="field-select">
+            <option value="any">Any Economy</option>
             <option value="Agriculture">Agriculture</option>
             <option value="Refinery">Refinery</option>
             <option value="Industrial">Industrial</option>
-            <option value="HighTech" selected>High Tech</option>
+            <option value="HighTech">High Tech</option>
             <option value="Military">Military</option>
             <option value="Tourism">Tourism</option>
           </select>
         </div>
-
         <div class="field-group">
-          <label class="field-label" for="galaxy-score-slider">Min Score: <strong id="galaxy-score-val">40</strong></label>
+          <label class="field-label" for="galaxy-score-slider">
+            Min Score: <strong id="galaxy-score-val">65</strong>
+          </label>
           <div class="slider-with-input">
-            <input type="range" id="galaxy-score-slider" class="slider" min="0" max="100" step="5" value="40"
-                   aria-label="Minimum score" aria-valuemin="0" aria-valuemax="100" aria-valuenow="40">
-            <input type="number" id="galaxy-score-num" class="slider-num-input" min="0" max="100" step="5" value="40" aria-label="Score value">
+            <input type="range" id="galaxy-score-slider" class="slider" min="0" max="100" step="5" value="65"
+                   aria-label="Minimum score">
+            <input type="number" id="galaxy-score-num" class="slider-num-input" min="0" max="100" step="5" value="65" aria-label="Score value">
           </div>
-          <div class="slider-labels" aria-hidden="true"><span>0</span><span>100</span></div>
+          <div class="slider-labels" aria-hidden="true"><span>Any</span><span>100</span></div>
         </div>
-
         <div class="search-actions">
           <button id="galaxy-search-btn" class="search-btn" aria-label="Search galaxy">
-            <span class="btn-icon" aria-hidden="true">◉</span> Search Galaxy
+            <span class="btn-icon" aria-hidden="true">✦</span> Search Galaxy
           </button>
-          <button id="galaxy-clear-btn" class="clear-btn" aria-label="Clear galaxy filters">✕ Clear</button>
         </div>
       </aside>
-
       <div class="results-panel" aria-live="polite">
         <div id="galaxy-results-header" class="results-header" hidden>
           <span id="galaxy-results-count"></span>
           <div class="pagination" id="galaxy-pagination"></div>
         </div>
-        <div id="galaxy-skeleton" class="skeleton-list" hidden aria-hidden="true">
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-        </div>
         <div id="galaxy-results" class="results-list">
           <div class="empty-state" role="status">
             <div class="empty-icon" aria-hidden="true">✦</div>
-            <div class="empty-title">Select an economy and search</div>
-            <div class="empty-sub">Returns the top uncolonised systems galaxy-wide</div>
+            <div class="empty-title">Search the galaxy</div>
+            <div class="empty-sub">Find top-rated systems galaxy-wide for any economy type</div>
           </div>
         </div>
       </div>
-
     </div>
   </section>
 
   <!-- ──────────────────────────────────────── TAB: CLUSTER SEARCH -->
   <section id="tab-cluster" class="tab-panel" role="tabpanel" aria-label="Cluster Search" hidden>
     <div class="panel-layout">
-
       <aside class="search-panel" aria-label="Cluster search filters">
         <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">⬡</span> Cluster Search</h2>
         <p class="panel-desc">Find the best anchor point in the galaxy where a 500 ly bubble contains all your required economy types.</p>
 
-        <div id="cluster-requirements" role="list" aria-label="Economy requirements"></div>
+        <!-- UI #5: Economy presets -->
+        <div class="field-group">
+          <span class="field-label">Quick Presets</span>
+          <div class="preset-grid">
+            <button class="preset-btn" data-preset="full-colony" title="Agriculture, Refinery, Industrial, High Tech, Military, Tourism">Full Colony Stack</button>
+            <button class="preset-btn" data-preset="industry-refinery" title="Industrial + Refinery">Industry + Refinery</button>
+            <button class="preset-btn" data-preset="agri-hitech" title="Agriculture + High Tech">Agri + HiTech</button>
+            <button class="preset-btn" data-preset="military-tourism" title="Military + Tourism">Military + Tourism</button>
+            <button class="preset-btn" data-preset="core-three" title="Agriculture, Industrial, High Tech">Core Three</button>
+          </div>
+        </div>
 
+        <div id="cluster-requirements" role="list" aria-label="Economy requirements"></div>
         <button id="add-economy-btn" class="add-btn" aria-label="Add economy requirement">
           <span aria-hidden="true">＋</span> Add Economy Requirement
         </button>
-
         <div class="field-group" style="margin-top: 1.5rem;">
           <label class="field-label" for="cluster-limit">Results</label>
           <select id="cluster-limit" class="field-select">
@@ -300,7 +293,6 @@
             <option value="100">Top 100</option>
           </select>
         </div>
-
         <!-- Reference system for distance sorting -->
         <div class="field-group">
           <label class="field-label" for="cluster-ref-input">Sort by distance from (optional)</label>
@@ -315,18 +307,40 @@
             <span class="coord-tag" id="cluster-coord-z"></span>
           </div>
         </div>
-
+        <!-- UI #4: Jump range for hop count -->
+        <div class="field-group">
+          <label class="field-label" for="cluster-jump-range">
+            Ship Jump Range: <strong id="cluster-jump-range-val">50 ly</strong>
+          </label>
+          <div class="slider-with-input">
+            <input type="range" id="cluster-jump-range" class="slider" min="10" max="500" step="5" value="50"
+                   aria-label="Ship jump range in light years">
+            <input type="number" id="cluster-jump-range-num" class="slider-num-input" min="10" max="500" step="5" value="50" aria-label="Jump range value">
+          </div>
+          <div class="slider-labels" aria-hidden="true"><span>10 ly</span><span>500 ly</span></div>
+        </div>
         <div class="search-actions">
           <button id="cluster-search-btn" class="search-btn" aria-label="Find clusters">
             <span class="btn-icon" aria-hidden="true">◉</span> Find Clusters
           </button>
           <button id="cluster-clear-btn" class="clear-btn" aria-label="Clear cluster requirements">✕ Clear</button>
         </div>
+        <!-- UI #9: Cluster sort options -->
+        <div class="field-group" style="margin-top:1rem" role="group" aria-labelledby="cluster-sort-label">
+          <span class="field-label" id="cluster-sort-label">Sort Results By</span>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="cluster-sort" value="coverage" checked> Coverage Score</label>
+            <label class="radio-option"><input type="radio" name="cluster-sort" value="total"> Total Viable</label>
+            <label class="radio-option"><input type="radio" name="cluster-sort" value="distance"> Distance</label>
+            <label class="radio-option"><input type="radio" name="cluster-sort" value="diversity"> Diversity</label>
+          </div>
+        </div>
       </aside>
-
       <div class="results-panel" aria-live="polite">
         <div id="cluster-results-header" class="results-header" hidden>
           <span id="cluster-results-count"></span>
+          <!-- UI #1: Show on map button for clusters -->
+          <button id="cluster-show-map-btn" class="sort-header-btn map-btn" title="Show clusters on map" hidden>🌌 Map</button>
         </div>
         <div id="cluster-skeleton" class="skeleton-list" hidden aria-hidden="true">
           <div class="skeleton-card"></div>
@@ -341,25 +355,32 @@
           </div>
         </div>
       </div>
-
     </div>
   </section>
 
   <!-- ──────────────────────────────────────── TAB: WATCHLIST -->
   <section id="tab-watchlist" class="tab-panel" role="tabpanel" aria-label="Watchlist" hidden>
     <div class="panel-layout">
-
       <aside class="search-panel" aria-label="Watchlist controls">
         <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">★</span> Watchlist</h2>
-        <p class="panel-desc">Systems you've saved for later. Stored locally in your browser.</p>
-        <div id="watchlist-empty-hint" class="watchlist-hint" role="status">
-          <div class="empty-icon" style="font-size:2rem" aria-hidden="true">★</div>
+        <p class="panel-desc">Systems you've saved for tracking. Click any entry to view full details.</p>
+        <!-- UI #8: Status filter -->
+        <div class="field-group" role="group" aria-labelledby="wl-status-label">
+          <span class="field-label" id="wl-status-label">Filter by Status</span>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="wl-status-filter" value="all" checked> All</label>
+            <label class="radio-option"><input type="radio" name="wl-status-filter" value="unvisited"> Unvisited</label>
+            <label class="radio-option"><input type="radio" name="wl-status-filter" value="scouted"> Scouted</label>
+            <label class="radio-option"><input type="radio" name="wl-status-filter" value="colonised"> Colonised</label>
+          </div>
+        </div>
+        <div class="empty-state" id="watchlist-empty-state" role="status">
+          <div class="empty-icon" aria-hidden="true">★</div>
           <div>No systems saved yet.</div>
           <div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted)">
             Open any system's detail view and click "Save to Watchlist".
           </div>
         </div>
-
         <!-- Export / Import -->
         <div class="watchlist-io" id="watchlist-io-panel" hidden>
           <button id="watchlist-export-btn" class="io-btn" aria-label="Export watchlist as JSON">
@@ -370,12 +391,10 @@
             <input type="file" id="watchlist-import-input" accept=".json" style="display:none">
           </label>
         </div>
-
         <button id="watchlist-clear-btn" class="danger-btn" hidden aria-label="Clear all watchlist entries">
           Clear All
         </button>
       </aside>
-
       <div class="results-panel" aria-live="polite">
         <div id="watchlist-results-header" class="results-header" hidden>
           <span id="watchlist-results-count"></span>
@@ -389,7 +408,130 @@
           </div>
         </div>
       </div>
+    </div>
+  </section>
 
+  <!-- ──────────────────────────────────────── TAB: 2D MAP -->
+  <section id="tab-map" class="tab-panel tab-panel--full" role="tabpanel" aria-label="Galactic Map" hidden>
+    <div class="map-layout">
+      <!-- Map controls sidebar -->
+      <aside class="map-controls-panel" aria-label="Map controls">
+        <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">🌌</span> Galactic Map</h2>
+        <p class="panel-desc">Scroll to zoom · Drag to pan · Double-click to reset · Click dot for details</p>
+
+        <div class="field-group">
+          <label class="field-label" for="map-plane">View Plane</label>
+          <select id="map-plane" class="field-select">
+            <option value="xz">Top-down (X / Z)</option>
+            <option value="xy">Front (X / Y)</option>
+            <option value="yz">Side (Y / Z)</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="map-colour-mode">Colour Mode</label>
+          <select id="map-colour-mode" class="field-select">
+            <option value="rating">Rating</option>
+            <option value="economy">Economy</option>
+            <option value="distance">Distance from Ref</option>
+            <option value="population">Population</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <span class="field-label">Overlays</span>
+          <div class="checkbox-col">
+            <label class="checkbox-option"><input type="checkbox" id="map-show-watchlist" checked> 👁 Watchlist</label>
+            <label class="checkbox-option"><input type="checkbox" id="map-show-clusters"> ⬡ Cluster results</label>
+            <label class="checkbox-option"><input type="checkbox" id="map-show-radius"> ◎ 500 ly radius</label>
+            <label class="checkbox-option"><input type="checkbox" id="map-nebula-overlay"> 🌫️ Nebulae</label>
+            <label class="checkbox-option"><input type="checkbox" id="map-show-landmarks" checked> ★ Landmarks</label>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="map-top-n">
+            Label top <strong id="map-top-n-val">5</strong> systems
+          </label>
+          <input type="range" id="map-top-n" class="slider" min="0" max="20" step="1" value="5">
+        </div>
+
+        <div class="search-actions">
+          <button id="map-redraw-btn" class="search-btn" aria-label="Redraw map">↺ Redraw</button>
+          <button id="map-reset-btn" class="clear-btn" aria-label="Reset view">⊙ Reset</button>
+        </div>
+        <button id="map-save-png-btn" class="io-btn" style="margin-top:0.5rem;width:100%" aria-label="Save map as PNG">💾 Save PNG</button>
+
+        <!-- Map legend -->
+        <div id="map-legend" class="map-legend" aria-label="Map legend"></div>
+      </aside>
+
+      <!-- Canvas area -->
+      <div class="map-canvas-area">
+        <canvas id="galactic-map" aria-label="2D galactic map"></canvas>
+        <div id="map-tooltip" class="map-tooltip" hidden></div>
+        <div id="map-detail-panel" class="map-detail-panel" hidden></div>
+        <div id="map-empty" class="map-empty-state">
+          Run a search first, then return here to see your results on the map.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────────────────────────────────────── TAB: 3D MAP -->
+  <section id="tab-map3d" class="tab-panel tab-panel--full" role="tabpanel" aria-label="3D Star Map" hidden>
+    <div class="map-layout">
+      <!-- 3D controls sidebar -->
+      <aside class="map-controls-panel" aria-label="3D map controls">
+        <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">🔮</span> 3D Star Map</h2>
+        <p class="panel-desc">Drag to rotate · Scroll to zoom · Click dot for details</p>
+
+        <div class="field-group">
+          <label class="field-label" for="map3d-colour-mode">Colour Mode</label>
+          <select id="map3d-colour-mode" class="field-select">
+            <option value="rating">Rating</option>
+            <option value="economy">Economy</option>
+            <option value="distance">Distance from Ref</option>
+            <option value="population">Population</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="map3d-size-mode">Point Size</label>
+          <select id="map3d-size-mode" class="field-select">
+            <option value="uniform">Uniform</option>
+            <option value="rating">By Rating</option>
+            <option value="population">By Population</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <span class="field-label">Overlays</span>
+          <div class="checkbox-col">
+            <label class="checkbox-option"><input type="checkbox" id="map3d-show-watchlist" checked> 👁 Watchlist</label>
+            <label class="checkbox-option"><input type="checkbox" id="map3d-show-clusters"> ⬡ Cluster results</label>
+            <label class="checkbox-option"><input type="checkbox" id="map3d-show-radius"> ◎ 500 ly sphere</label>
+            <label class="checkbox-option"><input type="checkbox" id="map3d-show-landmarks" checked> ★ Landmarks</label>
+          </div>
+        </div>
+
+        <div class="search-actions">
+          <button id="map3d-reset-btn" class="search-btn" aria-label="Reset camera">⊙ Reset Camera</button>
+        </div>
+        <button id="map3d-save-png-btn" class="io-btn" style="margin-top:0.5rem;width:100%" aria-label="Save 3D view as PNG">💾 Save PNG</button>
+
+        <!-- 3D detail panel -->
+        <div id="map3d-detail-panel" class="map3d-detail" hidden></div>
+      </aside>
+
+      <!-- 3D canvas area -->
+      <div class="map-canvas-area map-canvas-area--3d">
+        <canvas id="map3d-canvas" aria-label="3D star map"></canvas>
+        <div id="map3d-tooltip" class="map-tooltip" hidden></div>
+        <div id="map3d-empty" class="map-empty-state">
+          Run a search first, then return here for a 3D view of your results.
+        </div>
+      </div>
     </div>
   </section>
 
@@ -459,6 +601,10 @@
   <button class="mobile-nav-btn" data-tab="watchlist" aria-label="Watchlist">
     <span class="mobile-nav-icon" aria-hidden="true">★</span>
     <span class="mobile-nav-label">Watchlist</span>
+  </button>
+  <button class="mobile-nav-btn" data-tab="map" aria-label="Map">
+    <span class="mobile-nav-icon" aria-hidden="true">🌌</span>
+    <span class="mobile-nav-label">Map</span>
   </button>
 </nav>
 
