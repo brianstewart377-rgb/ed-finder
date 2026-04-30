@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder
-Version: 3.1
+Version: 3.2
 
 Strategy:
-  • Pure SQL Aggregation: The entire computation runs inside PostgreSQL.
+  • Pure SQL Aggregation per grid cell, parallelised across N workers.
   • No Python iteration over anchors — the DB engine does the spatial JOIN.
-  • For each anchor (body-data system), finds all viable systems within 500 ly
-    using the grid_cell_id index, then aggregates per economy type.
-  • Processes in batches of grid cells to keep memory and transaction size bounded.
+  • Each worker picks up one viable grid cell at a time from a shared queue,
+    runs the SQL aggregation for that cell, and writes results.
   • Default Quality: Score 65+ (Focuses on Terraformables and ELWs).
 
-Why this is fast:
-  • The old approach: 73M Python→DB round-trips (6/s = 3,255 hours).
-  • This approach: ~125K grid-cell batches processed entirely inside the DB.
-    Each batch is a single SQL statement using existing indexes.
-    Expected ETA: 2-8 hours total.
+Performance:
+  • v2.9: 73M Python→DB round-trips  → 3,255 h ETA
+  • v3.1: 125K SQL aggregations (1 thread) → 8–14 h ETA
+  • v3.2: 125K SQL aggregations (6 threads) → 1.5–3 h ETA
 """
 
 import os
 import sys
-import math
 import time
 import logging
 import argparse
+import multiprocessing as mp
+from multiprocessing import Queue, Value
+import ctypes
 
 import psycopg2
 import psycopg2.extras
@@ -52,25 +52,12 @@ logging.basicConfig(
 log = logging.getLogger('build_clusters')
 
 # ---------------------------------------------------------------------------
-# SQL: Core aggregation query
+# SQL: Core aggregation query (runs entirely inside PostgreSQL)
 # ---------------------------------------------------------------------------
-# For a given set of anchor grid cells, this query:
-#   1. Finds all anchors (body-data, unpopulated) in those cells.
-#   2. For each anchor, finds viable systems within radius using the grid index.
-#   3. Aggregates counts, best scores, and top system IDs per economy type.
-#   4. Computes total_viable and economy_diversity.
-#
-# The coverage_score is computed in Python after the fact (it needs the
-# weighted formula), but everything else is done in SQL.
-#
-# Note: distance_ly and in_bounding_box are SQL functions already defined
-# in the database (003_functions.sql).
-
 AGGREGATE_SQL = """
 WITH viable AS (
-    -- All viable systems (score >= threshold) in the search area
     SELECT
-        s.id64, s.x, s.y, s.z, s.grid_cell_id,
+        s.id64, s.x, s.y, s.z,
         r.score_agriculture, r.score_refinery, r.score_industrial,
         r.score_hightech, r.score_military, r.score_tourism
     FROM systems s
@@ -81,14 +68,12 @@ WITH viable AS (
            r.score_military    >= %(min_score)s OR r.score_tourism   >= %(min_score)s)
 ),
 anchors AS (
-    -- All potential cluster centres in the anchor cells
-    SELECT id64, x, y, z, grid_cell_id
+    SELECT id64, x, y, z
     FROM systems
     WHERE has_body_data = TRUE
-      AND grid_cell_id = ANY(%(anchor_cells)s)
+      AND grid_cell_id = %(anchor_cell)s
 ),
 pairs AS (
-    -- Cross-join anchors with viable systems that are within radius
     SELECT
         a.id64  AS anchor_id,
         v.id64  AS viable_id,
@@ -105,97 +90,227 @@ pairs AS (
 ),
 agg AS (
     SELECT
-        anchor_id                                                           AS system_id64,
-        COUNT(*) FILTER (WHERE score_agriculture >= %(min_score)s)         AS agriculture_count,
+        anchor_id                                                                AS system_id64,
+        COUNT(*) FILTER (WHERE score_agriculture >= %(min_score)s)              AS agriculture_count,
         MAX(score_agriculture) FILTER (WHERE score_agriculture >= %(min_score)s) AS agriculture_best,
-        COUNT(*) FILTER (WHERE score_refinery    >= %(min_score)s)         AS refinery_count,
+        COUNT(*) FILTER (WHERE score_refinery    >= %(min_score)s)              AS refinery_count,
         MAX(score_refinery)    FILTER (WHERE score_refinery    >= %(min_score)s) AS refinery_best,
-        COUNT(*) FILTER (WHERE score_industrial  >= %(min_score)s)         AS industrial_count,
+        COUNT(*) FILTER (WHERE score_industrial  >= %(min_score)s)              AS industrial_count,
         MAX(score_industrial)  FILTER (WHERE score_industrial  >= %(min_score)s) AS industrial_best,
-        COUNT(*) FILTER (WHERE score_hightech    >= %(min_score)s)         AS hightech_count,
+        COUNT(*) FILTER (WHERE score_hightech    >= %(min_score)s)              AS hightech_count,
         MAX(score_hightech)    FILTER (WHERE score_hightech    >= %(min_score)s) AS hightech_best,
-        COUNT(*) FILTER (WHERE score_military    >= %(min_score)s)         AS military_count,
+        COUNT(*) FILTER (WHERE score_military    >= %(min_score)s)              AS military_count,
         MAX(score_military)    FILTER (WHERE score_military    >= %(min_score)s) AS military_best,
-        COUNT(*) FILTER (WHERE score_tourism     >= %(min_score)s)         AS tourism_count,
+        COUNT(*) FILTER (WHERE score_tourism     >= %(min_score)s)              AS tourism_count,
         MAX(score_tourism)     FILTER (WHERE score_tourism     >= %(min_score)s) AS tourism_best,
-        COUNT(*)                                                            AS total_viable
+        COUNT(*)                                                                 AS total_viable
     FROM pairs
     GROUP BY anchor_id
     HAVING COUNT(*) > 0
 ),
-top_ids AS (
-    -- For each anchor+economy, find the system_id64 with the best score
-    SELECT DISTINCT ON (anchor_id, economy)
-        anchor_id,
-        economy,
-        viable_id AS top_id
-    FROM (
-        SELECT anchor_id, viable_id, 'Agriculture' AS economy, score_agriculture AS sc FROM pairs WHERE score_agriculture >= %(min_score)s
-        UNION ALL
-        SELECT anchor_id, viable_id, 'Refinery',   score_refinery   FROM pairs WHERE score_refinery   >= %(min_score)s
-        UNION ALL
-        SELECT anchor_id, viable_id, 'Industrial',  score_industrial  FROM pairs WHERE score_industrial  >= %(min_score)s
-        UNION ALL
-        SELECT anchor_id, viable_id, 'HighTech',    score_hightech    FROM pairs WHERE score_hightech    >= %(min_score)s
-        UNION ALL
-        SELECT anchor_id, viable_id, 'Military',    score_military    FROM pairs WHERE score_military    >= %(min_score)s
-        UNION ALL
-        SELECT anchor_id, viable_id, 'Tourism',     score_tourism     FROM pairs WHERE score_tourism     >= %(min_score)s
-    ) sub
-    ORDER BY anchor_id, economy, sc DESC
-)
+top_ag  AS (SELECT DISTINCT ON (anchor_id) anchor_id, viable_id FROM pairs WHERE score_agriculture >= %(min_score)s ORDER BY anchor_id, score_agriculture DESC),
+top_re  AS (SELECT DISTINCT ON (anchor_id) anchor_id, viable_id FROM pairs WHERE score_refinery    >= %(min_score)s ORDER BY anchor_id, score_refinery    DESC),
+top_in  AS (SELECT DISTINCT ON (anchor_id) anchor_id, viable_id FROM pairs WHERE score_industrial  >= %(min_score)s ORDER BY anchor_id, score_industrial  DESC),
+top_ht  AS (SELECT DISTINCT ON (anchor_id) anchor_id, viable_id FROM pairs WHERE score_hightech    >= %(min_score)s ORDER BY anchor_id, score_hightech    DESC),
+top_mi  AS (SELECT DISTINCT ON (anchor_id) anchor_id, viable_id FROM pairs WHERE score_military    >= %(min_score)s ORDER BY anchor_id, score_military    DESC),
+top_to  AS (SELECT DISTINCT ON (anchor_id) anchor_id, viable_id FROM pairs WHERE score_tourism     >= %(min_score)s ORDER BY anchor_id, score_tourism     DESC)
 SELECT
     agg.system_id64,
-    agg.agriculture_count,  agg.agriculture_best,
-        (SELECT top_id FROM top_ids WHERE anchor_id = agg.system_id64 AND economy = 'Agriculture' LIMIT 1) AS agriculture_top_id,
-    agg.refinery_count,     agg.refinery_best,
-        (SELECT top_id FROM top_ids WHERE anchor_id = agg.system_id64 AND economy = 'Refinery'    LIMIT 1) AS refinery_top_id,
-    agg.industrial_count,   agg.industrial_best,
-        (SELECT top_id FROM top_ids WHERE anchor_id = agg.system_id64 AND economy = 'Industrial'  LIMIT 1) AS industrial_top_id,
-    agg.hightech_count,     agg.hightech_best,
-        (SELECT top_id FROM top_ids WHERE anchor_id = agg.system_id64 AND economy = 'HighTech'    LIMIT 1) AS hightech_top_id,
-    agg.military_count,     agg.military_best,
-        (SELECT top_id FROM top_ids WHERE anchor_id = agg.system_id64 AND economy = 'Military'    LIMIT 1) AS military_top_id,
-    agg.tourism_count,      agg.tourism_best,
-        (SELECT top_id FROM top_ids WHERE anchor_id = agg.system_id64 AND economy = 'Tourism'     LIMIT 1) AS tourism_top_id,
+    agg.agriculture_count, agg.agriculture_best, top_ag.viable_id AS agriculture_top_id,
+    agg.refinery_count,    agg.refinery_best,    top_re.viable_id AS refinery_top_id,
+    agg.industrial_count,  agg.industrial_best,  top_in.viable_id AS industrial_top_id,
+    agg.hightech_count,    agg.hightech_best,    top_ht.viable_id AS hightech_top_id,
+    agg.military_count,    agg.military_best,    top_mi.viable_id AS military_top_id,
+    agg.tourism_count,     agg.tourism_best,     top_to.viable_id AS tourism_top_id,
     agg.total_viable
 FROM agg
+LEFT JOIN top_ag ON top_ag.anchor_id = agg.system_id64
+LEFT JOIN top_re ON top_re.anchor_id = agg.system_id64
+LEFT JOIN top_in ON top_in.anchor_id = agg.system_id64
+LEFT JOIN top_ht ON top_ht.anchor_id = agg.system_id64
+LEFT JOIN top_mi ON top_mi.anchor_id = agg.system_id64
+LEFT JOIN top_to ON top_to.anchor_id = agg.system_id64
 """
 
+INSERT_SQL = """
+    INSERT INTO cluster_summary (
+        system_id64,
+        agriculture_count, agriculture_best, agriculture_top_id,
+        refinery_count,    refinery_best,    refinery_top_id,
+        industrial_count,  industrial_best,  industrial_top_id,
+        hightech_count,    hightech_best,    hightech_top_id,
+        military_count,    military_best,    military_top_id,
+        tourism_count,     tourism_best,     tourism_top_id,
+        total_viable, coverage_score, economy_diversity,
+        search_radius, dirty, computed_at, updated_at
+    ) VALUES %s
+    ON CONFLICT (system_id64) DO UPDATE SET
+        agriculture_count  = EXCLUDED.agriculture_count,
+        agriculture_best   = EXCLUDED.agriculture_best,
+        agriculture_top_id = EXCLUDED.agriculture_top_id,
+        refinery_count     = EXCLUDED.refinery_count,
+        refinery_best      = EXCLUDED.refinery_best,
+        refinery_top_id    = EXCLUDED.refinery_top_id,
+        industrial_count   = EXCLUDED.industrial_count,
+        industrial_best    = EXCLUDED.industrial_best,
+        industrial_top_id  = EXCLUDED.industrial_top_id,
+        hightech_count     = EXCLUDED.hightech_count,
+        hightech_best      = EXCLUDED.hightech_best,
+        hightech_top_id    = EXCLUDED.hightech_top_id,
+        military_count     = EXCLUDED.military_count,
+        military_best      = EXCLUDED.military_best,
+        military_top_id    = EXCLUDED.military_top_id,
+        tourism_count      = EXCLUDED.tourism_count,
+        tourism_best       = EXCLUDED.tourism_best,
+        tourism_top_id     = EXCLUDED.tourism_top_id,
+        total_viable       = EXCLUDED.total_viable,
+        coverage_score     = EXCLUDED.coverage_score,
+        economy_diversity  = EXCLUDED.economy_diversity,
+        dirty              = FALSE,
+        updated_at         = NOW()
+"""
+
+INSERT_TEMPLATE = """(%s,
+    %s,%s,%s, %s,%s,%s, %s,%s,%s,
+    %s,%s,%s, %s,%s,%s, %s,%s,%s,
+    %s,%s,%s, %s, FALSE, NOW(), NOW())"""
+
 # ---------------------------------------------------------------------------
-# Coverage score (Python side — same formula as before)
+# Coverage score (Python side)
 # ---------------------------------------------------------------------------
-def compute_coverage_score(row: dict) -> float:
+def compute_coverage_score(rd: dict) -> float:
     weights = {
-        'Agriculture': 0.25, 'Refinery': 0.20, 'Industrial': 0.20,
-        'HighTech': 0.20, 'Military': 0.10, 'Tourism': 0.05,
+        'agriculture': 0.25, 'refinery': 0.20, 'industrial': 0.20,
+        'hightech': 0.20, 'military': 0.10, 'tourism': 0.05,
     }
     score = 0.0
     for eco, weight in weights.items():
-        best  = row.get(f'{eco.lower()}_best') or 0
-        count = row.get(f'{eco.lower()}_count') or 0
+        best  = rd.get(f'{eco}_best') or 0
+        count = rd.get(f'{eco}_count') or 0
         if best > 0:
             count_bonus = min(count / 3.0, 1.0) * 0.1
             score += (best / 100.0 + count_bonus) * weight
     return round(min(score * 100, 100.0), 1)
 
 # ---------------------------------------------------------------------------
+# Worker function
+# ---------------------------------------------------------------------------
+def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
+              radius: float, min_score: int, dirty_only: bool):
+    """
+    Pull grid cells from the queue and process each one with a SQL aggregation.
+    """
+    try:
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = False
+        cur = conn.cursor()
+    except Exception as e:
+        print(f"[W{worker_id}] DB connect failed: {e}", flush=True)
+        return
+
+    while True:
+        try:
+            anchor_cell = cell_queue.get(timeout=5)
+        except Exception:
+            break  # Queue empty
+
+        if anchor_cell is None:
+            break  # Sentinel
+
+        # Build 27-cell neighbourhood
+        vcz = anchor_cell % 10000
+        rem = anchor_cell // 10000
+        vcy = rem % 10000
+        vcx = rem // 10000
+        search_cells = [
+            (vcx + dx) * 100_000_000 + (vcy + dy) * 10_000 + (vcz + dz)
+            for dx in range(-1, 2)
+            for dy in range(-1, 2)
+            for dz in range(-1, 2)
+        ]
+
+        params = {
+            'anchor_cell':  anchor_cell,
+            'search_cells': search_cells,
+            'radius':       radius,
+            'min_score':    min_score,
+        }
+
+        try:
+            cur.execute(AGGREGATE_SQL, params)
+            rows = cur.fetchall()
+        except Exception as e:
+            print(f"[W{worker_id}] Cell {anchor_cell} query error: {e}", flush=True)
+            conn.rollback()
+            with done_counter.get_lock():
+                done_counter.value += 1
+            continue
+
+        if rows:
+            cols = [d[0] for d in cur.description]
+            write_batch = []
+            for row in rows:
+                rd = dict(zip(cols, row))
+                coverage  = compute_coverage_score(rd)
+                diversity = sum(1 for eco in ('agriculture','refinery','industrial',
+                                              'hightech','military','tourism')
+                                if (rd.get(f'{eco}_count') or 0) > 0)
+                write_batch.append((
+                    rd['system_id64'],
+                    rd['agriculture_count'], rd['agriculture_best'], rd['agriculture_top_id'],
+                    rd['refinery_count'],    rd['refinery_best'],    rd['refinery_top_id'],
+                    rd['industrial_count'],  rd['industrial_best'],  rd['industrial_top_id'],
+                    rd['hightech_count'],    rd['hightech_best'],    rd['hightech_top_id'],
+                    rd['military_count'],    rd['military_best'],    rd['military_top_id'],
+                    rd['tourism_count'],     rd['tourism_best'],     rd['tourism_top_id'],
+                    rd['total_viable'],      coverage,               diversity,
+                    radius,
+                ))
+
+            try:
+                psycopg2.extras.execute_values(
+                    cur, INSERT_SQL, write_batch,
+                    template=INSERT_TEMPLATE, page_size=200
+                )
+                conn.commit()
+            except Exception as e:
+                print(f"[W{worker_id}] Cell {anchor_cell} write error: {e}", flush=True)
+                conn.rollback()
+
+        if dirty_only:
+            try:
+                cur.execute(
+                    "UPDATE systems SET cluster_dirty = FALSE "
+                    "WHERE grid_cell_id = %s AND has_body_data = TRUE",
+                    (anchor_cell,)
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+        with done_counter.get_lock():
+            done_counter.value += 1
+
+    cur.close()
+    conn.close()
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary (v3.1 - Pure SQL)')
-    parser.add_argument('--radius',    type=float, default=DEFAULT_RADIUS)
-    parser.add_argument('--min-score', type=int,   default=DEFAULT_SCORE)
+    parser = argparse.ArgumentParser(description='Build cluster_summary (v3.2 - Parallel SQL)')
+    parser.add_argument('--workers',    type=int,   default=6)
+    parser.add_argument('--radius',     type=float, default=DEFAULT_RADIUS)
+    parser.add_argument('--min-score',  type=int,   default=DEFAULT_SCORE)
     parser.add_argument('--dirty-only', action='store_true',
                         help='Only rebuild clusters for dirty anchors')
     args = parser.parse_args()
 
     script_start = time.time()
-    startup_banner(log, "Cluster Summary Builder", "3.1 (Pure SQL)")
+    startup_banner(log, "Cluster Summary Builder", "3.2 (Parallel SQL)")
 
     try:
         conn = psycopg2.connect(DATABASE_URL)
-        conn.autocommit = False
     except Exception as e:
         log.error(f"FATAL: Cannot connect to database: {e}")
         sys.exit(1)
@@ -203,18 +318,7 @@ def main():
     cur = conn.cursor()
 
     # ------------------------------------------------------------------
-    # Step 1: Load grid metadata
-    # ------------------------------------------------------------------
-    cur.execute("SELECT key, value FROM app_meta WHERE key IN ('grid_cell_size','grid_min_x','grid_min_y','grid_min_z')")
-    meta = {r[0]: float(r[1]) for r in cur.fetchall()}
-    cell_size = meta.get('grid_cell_size', 500.0)
-    gmin_x    = meta.get('grid_min_x', 0.0)
-    gmin_y    = meta.get('grid_min_y', 0.0)
-    gmin_z    = meta.get('grid_min_z', 0.0)
-    log.info(f"  Grid: cell_size={cell_size} ly, origin=({gmin_x}, {gmin_y}, {gmin_z})")
-
-    # ------------------------------------------------------------------
-    # Step 2: Find all grid cells that contain at least one viable system
+    # Step 1: Find all viable grid cells
     # ------------------------------------------------------------------
     log.info("  Finding viable grid cells...")
     if args.dirty_only:
@@ -238,149 +342,86 @@ def main():
         """, (args.min_score,) * 6)
 
     viable_cells = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+
     if not viable_cells:
         log.warning("No viable systems found. Are ratings built? Exiting.")
         sys.exit(0)
-    log.info(f"  Found {fmt_num(len(viable_cells))} viable grid cells.")
+
+    total_cells = len(viable_cells)
+    log.info(f"  Found {fmt_num(total_cells)} viable grid cells.")
+    log.info(f"  Launching {args.workers} parallel workers...")
 
     # ------------------------------------------------------------------
-    # Step 3: Process one viable cell at a time
-    #
-    # For each viable cell C, the search area is C and its 26 neighbours.
-    # We only look for anchors in C itself (not the neighbours), to avoid
-    # double-counting. Viable systems from all 27 cells are included in
-    # the neighbour search.
-    #
-    # This gives us ~125K batches, each running a fast SQL aggregation.
+    # Step 2: Fill the work queue
     # ------------------------------------------------------------------
-    total_cells    = len(viable_cells)
-    total_written  = 0
-    progress       = ProgressReporter(log, total=total_cells, label="cells", interval=30)
+    cell_queue   = Queue()
+    done_counter = Value(ctypes.c_int, 0)
 
-    for idx, anchor_cell in enumerate(viable_cells):
-        # Compute the 27-cell neighbourhood (anchor cell + 26 neighbours)
-        vcz = anchor_cell % 10000
-        rem = anchor_cell // 10000
-        vcy = rem % 10000
-        vcx = rem // 10000
-
-        search_cells = []
-        for dx in range(-1, 2):
-            for dy in range(-1, 2):
-                for dz in range(-1, 2):
-                    search_cells.append(
-                        (vcx + dx) * 100_000_000 + (vcy + dy) * 10_000 + (vcz + dz)
-                    )
-
-        params = {
-            'anchor_cells': [anchor_cell],
-            'search_cells': search_cells,
-            'radius':       args.radius,
-            'min_score':    args.min_score,
-        }
-
-        try:
-            cur.execute(AGGREGATE_SQL, params)
-            rows = cur.fetchall()
-        except Exception as e:
-            log.warning(f"  Cell {anchor_cell} query failed: {e} — skipping")
-            conn.rollback()
-            progress.update(1)
-            continue
-
-        if rows:
-            cols = [d[0] for d in cur.description]
-            write_batch = []
-            for row in rows:
-                rd = dict(zip(cols, row))
-                coverage  = compute_coverage_score(rd)
-                diversity = sum(1 for eco in ('agriculture','refinery','industrial','hightech','military','tourism')
-                                if (rd.get(f'{eco}_count') or 0) > 0)
-                write_batch.append((
-                    rd['system_id64'],
-                    rd['agriculture_count'], rd['agriculture_best'], rd['agriculture_top_id'],
-                    rd['refinery_count'],    rd['refinery_best'],    rd['refinery_top_id'],
-                    rd['industrial_count'],  rd['industrial_best'],  rd['industrial_top_id'],
-                    rd['hightech_count'],    rd['hightech_best'],    rd['hightech_top_id'],
-                    rd['military_count'],    rd['military_best'],    rd['military_top_id'],
-                    rd['tourism_count'],     rd['tourism_best'],     rd['tourism_top_id'],
-                    rd['total_viable'],      coverage,               diversity,
-                    args.radius,
-                ))
-
-            psycopg2.extras.execute_values(cur, """
-                INSERT INTO cluster_summary (
-                    system_id64,
-                    agriculture_count, agriculture_best, agriculture_top_id,
-                    refinery_count,    refinery_best,    refinery_top_id,
-                    industrial_count,  industrial_best,  industrial_top_id,
-                    hightech_count,    hightech_best,    hightech_top_id,
-                    military_count,    military_best,    military_top_id,
-                    tourism_count,     tourism_best,     tourism_top_id,
-                    total_viable, coverage_score, economy_diversity,
-                    search_radius, dirty, computed_at, updated_at
-                ) VALUES %s
-                ON CONFLICT (system_id64) DO UPDATE SET
-                    agriculture_count  = EXCLUDED.agriculture_count,
-                    agriculture_best   = EXCLUDED.agriculture_best,
-                    agriculture_top_id = EXCLUDED.agriculture_top_id,
-                    refinery_count     = EXCLUDED.refinery_count,
-                    refinery_best      = EXCLUDED.refinery_best,
-                    refinery_top_id    = EXCLUDED.refinery_top_id,
-                    industrial_count   = EXCLUDED.industrial_count,
-                    industrial_best    = EXCLUDED.industrial_best,
-                    industrial_top_id  = EXCLUDED.industrial_top_id,
-                    hightech_count     = EXCLUDED.hightech_count,
-                    hightech_best      = EXCLUDED.hightech_best,
-                    hightech_top_id    = EXCLUDED.hightech_top_id,
-                    military_count     = EXCLUDED.military_count,
-                    military_best      = EXCLUDED.military_best,
-                    military_top_id    = EXCLUDED.military_top_id,
-                    tourism_count      = EXCLUDED.tourism_count,
-                    tourism_best       = EXCLUDED.tourism_best,
-                    tourism_top_id     = EXCLUDED.tourism_top_id,
-                    total_viable       = EXCLUDED.total_viable,
-                    coverage_score     = EXCLUDED.coverage_score,
-                    economy_diversity  = EXCLUDED.economy_diversity,
-                    dirty              = FALSE,
-                    updated_at         = NOW()
-            """, write_batch, template="""(%s,
-                %s,%s,%s, %s,%s,%s, %s,%s,%s,
-                %s,%s,%s, %s,%s,%s, %s,%s,%s,
-                %s,%s,%s, %s, FALSE, NOW(), NOW())""", page_size=200)
-
-            conn.commit()
-            total_written += len(write_batch)
-
-        # Clear dirty flags for anchors in this cell
-        if args.dirty_only:
-            cur.execute(
-                "UPDATE systems SET cluster_dirty = FALSE WHERE grid_cell_id = %s AND has_body_data = TRUE",
-                (anchor_cell,)
-            )
-            conn.commit()
-
-        progress.update(1)
+    for cell in viable_cells:
+        cell_queue.put(cell)
+    # Sentinel values to stop workers
+    for _ in range(args.workers):
+        cell_queue.put(None)
 
     # ------------------------------------------------------------------
-    # Step 4: Mark build complete
+    # Step 3: Start workers
     # ------------------------------------------------------------------
-    cur.execute("""
+    workers = []
+    for wid in range(args.workers):
+        p = mp.Process(
+            target=worker_fn,
+            args=(wid, cell_queue, done_counter, DATABASE_URL,
+                  args.radius, args.min_score, args.dirty_only),
+            daemon=True,
+        )
+        p.start()
+        workers.append(p)
+
+    # ------------------------------------------------------------------
+    # Step 4: Progress reporting in main process
+    # ------------------------------------------------------------------
+    progress = ProgressReporter(log, total=total_cells, label="cells", interval=30)
+    last_done = 0
+
+    while any(p.is_alive() for p in workers):
+        time.sleep(5)
+        current = done_counter.value
+        delta = current - last_done
+        if delta > 0:
+            progress.update(delta)
+            last_done = current
+
+    # Final update
+    current = done_counter.value
+    delta = current - last_done
+    if delta > 0:
+        progress.update(delta)
+
+    for p in workers:
+        p.join()
+
+    # ------------------------------------------------------------------
+    # Step 5: Mark build complete
+    # ------------------------------------------------------------------
+    conn2 = psycopg2.connect(DATABASE_URL)
+    cur2  = conn2.cursor()
+    cur2.execute("""
         INSERT INTO app_meta (key, value, updated_at)
         VALUES ('clusters_built', 'true', NOW())
         ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
     """)
-    conn.commit()
+    conn2.commit()
+    cur2.close()
+    conn2.close()
 
     elapsed = time.time() - script_start
     done_banner(log, "Cluster Build Complete", elapsed, [
         f"Viable cells processed : {fmt_num(total_cells)}",
-        f"Cluster rows written   : {fmt_num(total_written)}",
+        f"Workers used           : {args.workers}",
         f"Total time             : {fmt_duration(elapsed)}",
     ])
-
-    cur.close()
-    conn.close()
 
 
 if __name__ == '__main__':
