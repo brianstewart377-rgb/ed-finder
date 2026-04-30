@@ -156,18 +156,18 @@ function _getUrlParam(key) {
 (function initNav() {
   const btns = qsa('.nav-btn');
   const panels = qsa('.tab-panel');
-
   function activateTab(tabName) {
     btns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
     panels.forEach(p => p.classList.toggle('active', p.id === `tab-${tabName}`));
     if (tabName === 'watchlist') renderWatchlistTab();
+    // Redraw map when map tabs are activated so data is always fresh
+    if (tabName === 'map')    { setTimeout(() => window.EDMap?.draw2D(), 50); }
+    if (tabName === 'map3d')  { setTimeout(() => window.EDMap?.draw3D(), 50); }
     _setUrlParam('tab', tabName === 'local' ? null : tabName);
   }
-
   btns.forEach(btn => {
     btn.addEventListener('click', () => activateTab(btn.dataset.tab));
   });
-
   // Restore tab from URL on load
   const savedTab = _getUrlParam('tab');
   if (savedTab && qs(`#tab-${savedTab}`)) activateTab(savedTab);
@@ -474,6 +474,7 @@ function buildModalHTML(sys) {
         <button class="watchlist-add-btn ${isSaved ? 'saved' : ''}" id="modal-watchlist-btn" data-id64="${sys.id64}">
           ${isSaved ? '★ Saved — click to remove' : '☆ Save to Watchlist'}
         </button>
+        <button class="modal-map-btn" id="modal-show-on-map-btn" title="Show on Map">🌌 Show on Map</button>
         <a href="${edsm}" target="_blank" rel="noopener" class="modal-edsm-link">↗ EDSM</a>
         <a href="${inara}" target="_blank" rel="noopener" class="modal-edsm-link">↗ Inara</a>
       </div>
@@ -489,7 +490,6 @@ function attachModalEvents(sys) {
       copyText(btn.dataset.copy);
     });
   });
-
   // Watchlist toggle
   const wlBtn = qs('#modal-watchlist-btn');
   if (wlBtn) {
@@ -498,6 +498,14 @@ function attachModalEvents(sys) {
       wlBtn.classList.toggle('saved', saved);
       wlBtn.textContent = saved ? '★ Saved — click to remove' : '☆ Save to Watchlist';
       if (qs('#tab-watchlist.active')) renderWatchlistTab();
+    });
+  }
+  // Show on Map button
+  const mapBtn = qs('#modal-show-on-map-btn');
+  if (mapBtn) {
+    mapBtn.addEventListener('click', () => {
+      closeModal();
+      window.EDMap?.focusSystem(sys);
     });
   }
 }
@@ -652,6 +660,7 @@ function buildSystemCard(sys, rank) {
       <span class="card-name">${sys.name || 'Unknown'}</span>
       ${score != null ? `<span class="card-score">★ ${score}</span>` : ''}
       ${isSaved ? `<span title="Saved" style="color:var(--gold);font-size:0.8rem;margin-left:0.25rem">★</span>` : ''}
+      <button class="card-show-on-map" title="Show on Map" aria-label="Show on Map">🌌</button>
     </div>
     <div class="card-meta">
       ${dist ? `<span class="meta-tag distance">⊕ ${dist}</span>` : ''}
@@ -670,9 +679,16 @@ function buildSystemCard(sys, rank) {
     </div>` : ''}
   `;
   card.addEventListener('click', () => openSystemModal(sys));
+  // Show on Map button — stops propagation so it doesn't also open the modal
+  const mapBtn = card.querySelector('.card-show-on-map');
+  if (mapBtn) {
+    mapBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.EDMap?.focusSystem(sys);
+    });
+  }
   return card;
 }
-
 // ═══════════════════════════════════════════════════════════════ LOCAL SEARCH
 
 (function initLocalSearch() {
@@ -1041,6 +1057,7 @@ function buildSystemCard(sys, rank) {
         <span class="card-rank">#${rank}</span>
         <span class="cluster-name">${anchorName}</span>
         ${coverageScore != null ? `<span class="cluster-score">⧡ ${coverageScore}</span>` : ''}
+        <button class="card-show-on-map" title="Show on Map" aria-label="Show on Map">🌌</button>
       </div>
       <div class="card-meta" style="margin-bottom:0.6rem">
         ${dRef != null ? `<span class="meta-tag distance">⊕ ${fmtDist(dRef)} from ref</span>` : (dSol != null ? `<span class="meta-tag distance">⊕ ${fmtDist(dSol)} from Sol</span>` : '')}
@@ -1053,16 +1070,15 @@ function buildSystemCard(sys, rank) {
         }).join('')}
       </div>
     `;
-    card.addEventListener('click', () => {
-      openSystemModal({
-        name: anchorName,
-        id64: c.anchor_id64 || c.system_id64,
-        x: cx, y: cy, z: cz,
-        coords: { x: cx, y: cy, z: cz },
-        population: 0,
-        _rating: { score: coverageScore, economySuggestion: null },
+    const clusterSys = { name: anchorName, id64: c.anchor_id64 || c.system_id64, x: cx, y: cy, z: cz, coords: { x: cx, y: cy, z: cz }, population: 0, _rating: { score: coverageScore } };
+    card.addEventListener('click', () => openSystemModal(clusterSys));
+    const mapBtn = card.querySelector('.card-show-on-map');
+    if (mapBtn) {
+      mapBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.EDMap?.focusSystem(clusterSys);
       });
-    });
+    }
     return card;
   }
 })();
@@ -1568,7 +1584,6 @@ const Compare = {
   const mobileBtns = qsa('.mobile-nav-btn');
   const desktopBtns = qsa('.nav-btn');
   const panels = qsa('.tab-panel');
-
   function activateTab(tabName) {
     mobileBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
     desktopBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
@@ -1577,9 +1592,10 @@ const Compare = {
       p.hidden = p.id !== `tab-${tabName}`;
     });
     if (tabName === 'watchlist') renderWatchlistTab();
+    if (tabName === 'map')   { setTimeout(() => window.EDMap?.draw2D(), 50); }
+    if (tabName === 'map3d') { setTimeout(() => window.EDMap?.draw3D(), 50); }
     _setUrlParam('tab', tabName === 'local' ? null : tabName);
   }
-
   mobileBtns.forEach(btn => {
     btn.addEventListener('click', () => activateTab(btn.dataset.tab));
   });
@@ -1791,6 +1807,7 @@ const EDMap = (function () {
       const viewH = _camera2d.top - _camera2d.bottom;
       _camera2d.position.x -= (dx / w) * viewW;
       _camera2d.position.z += (dy / h) * viewH;
+      document.dispatchEvent(new Event('ed:panned'));
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -1803,6 +1820,7 @@ const EDMap = (function () {
       _camera2d.top    =  viewH / 2 - _camera2d.position.z;
       _camera2d.bottom = -viewH / 2 - _camera2d.position.z;
       _camera2d.updateProjectionMatrix();
+      document.dispatchEvent(new Event('ed:panned'));
     }, { passive: false });
     canvas.addEventListener('click', (e) => { _handle2DClick(e, canvas); });
   }
@@ -1974,6 +1992,57 @@ const EDMap = (function () {
     });
   }
 
+  // ── DENSITY HEAT OVERLAY (2D only) ───────────────────────────────────────
+  // Renders a low-res heatmap as a canvas overlay behind the Three.js canvas.
+  // Uses a separate 2D canvas element positioned absolutely over the map canvas.
+
+  function _buildHeatOverlay(systems) {
+    const mapCanvas = document.getElementById('galactic-map');
+    if (!mapCanvas || !_camera2d) return;
+    let heatCanvas = document.getElementById('map-heat-canvas');
+    if (!heatCanvas) {
+      heatCanvas = document.createElement('canvas');
+      heatCanvas.id = 'map-heat-canvas';
+      heatCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;opacity:0.45;';
+      mapCanvas.parentElement.style.position = 'relative';
+      mapCanvas.parentElement.insertBefore(heatCanvas, mapCanvas);
+    }
+    const w = mapCanvas.clientWidth;
+    const h = mapCanvas.clientHeight;
+    heatCanvas.width  = w;
+    heatCanvas.height = h;
+    const ctx = heatCanvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    if (!systems.length) return;
+
+    // Convert world coords to screen coords using the current camera frustum
+    function worldToScreen(wx, wz) {
+      const frustumW = _camera2d.right - _camera2d.left;
+      const frustumH = _camera2d.top   - _camera2d.bottom;
+      const sx2 = ((wx - _camera2d.left) / frustumW) * w;
+      const sy2 = ((1 - ((-wz) - _camera2d.bottom) / frustumH)) * h;
+      return [sx2, sy2];
+    }
+
+    const RADIUS = Math.max(20, Math.min(80, w / 12));
+    systems.forEach(sys => {
+      const { sx, sz } = toScene(sys.x || 0, 0, sys.z || 0);
+      const [px, py] = worldToScreen(sx, sz);
+      const grad = ctx.createRadialGradient(px, py, 0, px, py, RADIUS);
+      grad.addColorStop(0, 'rgba(56,189,248,0.35)');
+      grad.addColorStop(1, 'rgba(56,189,248,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(px, py, RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function _clearHeatOverlay() {
+    const heatCanvas = document.getElementById('map-heat-canvas');
+    if (heatCanvas) heatCanvas.getContext('2d').clearRect(0, 0, heatCanvas.width, heatCanvas.height);
+  }
+
   // ── NEBULA RINGS (2D only) ─────────────────────────────────────────────────
 
   function _buildNebulaeOverlay(scene) {
@@ -2113,6 +2182,7 @@ const EDMap = (function () {
     const showRadius    = document.getElementById('map-show-radius')?.checked;
     const showNebulae   = document.getElementById('map-nebula-overlay')?.checked;
     const showLandmarks = document.getElementById('map-show-landmarks')?.checked;
+    const showHeat      = document.getElementById('map-show-heat')?.checked;
 
     const allSystems = [
       ..._resultSystems,
@@ -2168,7 +2238,53 @@ const EDMap = (function () {
       _scene2d.add(lmGroup);
     }
 
+    // Reference system marker (crosshair ring)
+    if (_refCoords) {
+      const { sx, sz } = toScene(_refCoords.x, 0, _refCoords.z);
+      const refGeo = new THREE.RingGeometry(0.12, 0.18, 32);
+      const refMat = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+      const refMesh = new THREE.Mesh(refGeo, refMat);
+      refMesh.rotation.x = -Math.PI / 2;
+      refMesh.position.set(sx, 0.3, sz);
+      refMesh._dynamic = true;
+      _scene2d.add(refMesh);
+    }
+
+    // Jump route line from ref to selected system
+    if (_refCoords && _selectedSystem) {
+      const jumpRange = Number(document.getElementById('map-jump-range')?.value || 50);
+      const r0 = toScene(_refCoords.x, 0, _refCoords.z);
+      const r1 = toScene(_selectedSystem.x || 0, 0, _selectedSystem.z || 0);
+      const pts = [new THREE.Vector3(r0.sx, 0.25, r0.sz), new THREE.Vector3(r1.sx, 0.25, r1.sz)];
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+      const lineMat = new THREE.LineDashedMaterial({ color: 0xf97316, dashSize: 0.3, gapSize: 0.15, opacity: 0.6, transparent: true });
+      const line = new THREE.Line(lineGeo, lineMat);
+      line.computeLineDistances();
+      line._dynamic = true;
+      _scene2d.add(line);
+      // Jump count label
+      const dx = (_selectedSystem.x || 0) - _refCoords.x;
+      const dy = (_selectedSystem.y || 0) - _refCoords.y;
+      const dz = (_selectedSystem.z || 0) - _refCoords.z;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      const jumps = jumpRange > 0 ? Math.ceil(dist / jumpRange) : '?';
+      const detailEl = document.getElementById('map-detail-panel');
+      if (detailEl && _selectedSystem) {
+        detailEl.hidden = false;
+        detailEl.innerHTML = `<strong>${_selectedSystem.name || 'Selected'}</strong><br>
+          ${Math.round(dist)} ly from ref · ~${jumps} jumps @ ${jumpRange} ly`;
+      }
+    }
+
     _buildLegend2D(colourMode);
+
+    // Density heat overlay (2D canvas overlay)
+    if (showHeat && allSystems.length) {
+      // Defer slightly so the Three.js frame has rendered first
+      setTimeout(() => _buildHeatOverlay(allSystems), 50);
+    } else {
+      _clearHeatOverlay();
+    }
   }
 
   function _buildScene3D() {
@@ -2225,6 +2341,30 @@ const EDMap = (function () {
       lmGroup._dynamic = true;
       _buildLandmarkSprites(lmGroup, true);
       _scene3d.add(lmGroup);
+    }
+
+    // Reference system marker (orange sphere)
+    if (_refCoords) {
+      const { sx, sy, sz } = toScene(_refCoords.x, _refCoords.y || 0, _refCoords.z);
+      const refGeo = new THREE.SphereGeometry(0.4, 12, 8);
+      const refMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+      const refMesh = new THREE.Mesh(refGeo, refMat);
+      refMesh.position.set(sx, sy, sz);
+      refMesh._dynamic = true;
+      _scene3d.add(refMesh);
+    }
+
+    // Jump route line from ref to selected system (3D)
+    if (_refCoords && _selectedSystem) {
+      const r0 = toScene(_refCoords.x, _refCoords.y || 0, _refCoords.z);
+      const r1 = toScene(_selectedSystem.x || 0, _selectedSystem.y || 0, _selectedSystem.z || 0);
+      const pts3 = [new THREE.Vector3(r0.sx, r0.sy, r0.sz), new THREE.Vector3(r1.sx, r1.sy, r1.sz)];
+      const lg3 = new THREE.BufferGeometry().setFromPoints(pts3);
+      const lm3 = new THREE.LineDashedMaterial({ color: 0xf97316, dashSize: 0.4, gapSize: 0.2, opacity: 0.7, transparent: true });
+      const line3 = new THREE.Line(lg3, lm3);
+      line3.computeLineDistances();
+      line3._dynamic = true;
+      _scene3d.add(line3);
     }
   }
 
@@ -2294,6 +2434,66 @@ const EDMap = (function () {
     _selectedSystem = sys;
   }
 
+  // Focus the 2D map on a specific system: switch to map tab, pan camera, highlight, redraw
+  function focusSystem(sys) {
+    if (!sys) return;
+    _selectedSystem = sys;
+    // Switch to map tab
+    const mapTab = document.querySelector('.nav-btn[data-tab="map"]');
+    if (mapTab) mapTab.click();
+    // Pan 2D camera to the system after a short delay (tab switch needs time)
+    setTimeout(() => {
+      if (!_camera2d) { draw2D(); return; }
+      const { sx, sz } = toScene(sys.x || 0, 0, sys.z || 0);
+      const viewW = _camera2d.right - _camera2d.left;
+      const viewH = _camera2d.top - _camera2d.bottom;
+      _camera2d.position.x = sx;
+      _camera2d.position.z = sz;
+      _camera2d.left   = sx - viewW / 2;
+      _camera2d.right  = sx + viewW / 2;
+      _camera2d.top    = -sz + viewH / 2;
+      _camera2d.bottom = -sz - viewH / 2;
+      _camera2d.updateProjectionMatrix();
+      _buildScene2D();
+      // Also enable the 500 ly radius overlay
+      const radiusChk = document.getElementById('map-show-radius');
+      if (radiusChk && !radiusChk.checked) { radiusChk.checked = true; }
+      _buildScene2D();
+    }, 120);
+  }
+
+  // Viewport persistence: save/restore camera state to localStorage
+  function saveViewport() {
+    if (!_camera2d) return;
+    try {
+      const vp = {
+        x: _camera2d.position.x, z: _camera2d.position.z,
+        viewH: _camera2d.top - _camera2d.bottom,
+      };
+      localStorage.setItem('edmap_viewport', JSON.stringify(vp));
+    } catch (e) { /* ignore */ }
+  }
+
+  function restoreViewport() {
+    if (!_camera2d) return;
+    try {
+      const raw = localStorage.getItem('edmap_viewport');
+      if (!raw) return;
+      const vp = JSON.parse(raw);
+      const canvas = document.getElementById('galactic-map');
+      const aspect = canvas ? canvas.clientWidth / canvas.clientHeight : 4/3;
+      const viewH = vp.viewH || 8;
+      const viewW = viewH * aspect;
+      _camera2d.position.x = vp.x || 0;
+      _camera2d.position.z = vp.z || 0;
+      _camera2d.left   = vp.x - viewW / 2;
+      _camera2d.right  = vp.x + viewW / 2;
+      _camera2d.top    = -vp.z + viewH / 2;
+      _camera2d.bottom = -vp.z - viewH / 2;
+      _camera2d.updateProjectionMatrix();
+    } catch (e) { /* ignore */ }
+  }
+
   function draw2D() {
     if (!init2D()) return;
     _buildScene2D();
@@ -2346,7 +2546,7 @@ const EDMap = (function () {
     });
 
     // Overlay checkboxes 2D
-    ['map-show-watchlist','map-show-clusters','map-show-radius','map-nebula-overlay','map-show-landmarks'].forEach(id => {
+    ['map-show-watchlist','map-show-clusters','map-show-radius','map-nebula-overlay','map-show-landmarks','map-show-heat'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', () => { if (_scene2d) _buildScene2D(); });
     });
@@ -2383,13 +2583,58 @@ const EDMap = (function () {
 
   document.addEventListener('ed:clusterresults', (e) => {
     setClusters(e.detail.clusters || []);
+    // Auto-enable cluster overlay when cluster results arrive
+    const clChk2d = document.getElementById('map-show-clusters');
+    const clChk3d = document.getElementById('map3d-show-clusters');
+    if (clChk2d) clChk2d.checked = true;
+    if (clChk3d) clChk3d.checked = true;
     if (document.getElementById('tab-map')?.classList.contains('active')) draw2D();
     if (document.getElementById('tab-map3d')?.classList.contains('active')) draw3D();
   });
 
-  document.addEventListener('ed:refcoords', (e) => {
+  document.addEventListener('ed:clusterrefcoords', (e) => {
     setRef(e.detail);
   });
 
-  return { draw2D, draw3D, reset2D, reset3D, setResults, setClusters, setRef, setSelected };
+  // Jump range slider wiring (map tab)
+  (function wireJumpRange() {
+    const slider = document.getElementById('map-jump-range');
+    const valEl  = document.getElementById('map-jump-range-val');
+    if (!slider) return;
+    slider.addEventListener('input', () => {
+      if (valEl) valEl.textContent = slider.value + ' ly';
+      if (_scene2d) _buildScene2D();
+    });
+  })();
+
+  // Save viewport on pan/zoom (throttled)
+  let _vpSaveTimer = null;
+  function _scheduleViewportSave() {
+    clearTimeout(_vpSaveTimer);
+    _vpSaveTimer = setTimeout(saveViewport, 800);
+  }
+  document.addEventListener('ed:panned', _scheduleViewportSave);
+  // Restore viewport when 2D map first draws
+  const _origDraw2D = draw2D;
+  function draw2DWithRestore() {
+    _origDraw2D();
+    setTimeout(restoreViewport, 80);
+  }
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    // Ignore when typing in an input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'm' || e.key === 'M') {
+      if (e.shiftKey) {
+        document.querySelector('.nav-btn[data-tab="map3d"]')?.click();
+      } else {
+        document.querySelector('.nav-btn[data-tab="map"]')?.click();
+      }
+    }
+  });
+
+  return { draw2D, draw3D, reset2D, reset3D, setResults, setClusters, setRef, setSelected, focusSystem, saveViewport, restoreViewport };
 })();
+
+window.EDMap = EDMap;

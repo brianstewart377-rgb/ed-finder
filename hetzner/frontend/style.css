@@ -1771,3 +1771,47 @@ details[open] .collapsible-header::after { content: '▴'; }
     min-height: 300px;
   }
 }
+
+/* ── Show on Map button (card header) ──────────────────────────────────────── */
+.card-show-on-map {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+  margin-left: auto;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.card-show-on-map:hover {
+  opacity: 1;
+  background: rgba(56, 189, 248, 0.15);
+}
+
+/* ── Show on Map button (modal actions) ────────────────────────────────────── */
+.modal-map-btn {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: var(--blue);
+  border-radius: 6px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.modal-map-btn:hover {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.6);
+}
+
+/* ── Field hint text ────────────────────────────────────────────────────────── */
+.field-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0.2rem 0 0;
+  line-height: 1.3;
+}

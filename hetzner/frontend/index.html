@@ -446,6 +446,7 @@
             <label class="checkbox-option"><input type="checkbox" id="map-show-radius"> ◎ 500 ly radius</label>
             <label class="checkbox-option"><input type="checkbox" id="map-nebula-overlay"> 🌫️ Nebulae</label>
             <label class="checkbox-option"><input type="checkbox" id="map-show-landmarks" checked> ★ Landmarks</label>
+            <label class="checkbox-option"><input type="checkbox" id="map-show-heat"> 🔥 Density Heat</label>
           </div>
         </div>
 
@@ -454,6 +455,14 @@
             Label top <strong id="map-top-n-val">5</strong> systems
           </label>
           <input type="range" id="map-top-n" class="slider" min="0" max="20" step="1" value="5">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="map-jump-range">
+            Jump range: <strong id="map-jump-range-val">50 ly</strong>
+          </label>
+          <input type="range" id="map-jump-range" class="slider" min="10" max="500" step="5" value="50" aria-label="Ship jump range for route calculation">
+          <p class="field-hint">Used to estimate hop count when a system is selected</p>
         </div>
 
         <div class="search-actions">
@@ -605,6 +614,10 @@
   <button class="mobile-nav-btn" data-tab="map" aria-label="Map">
     <span class="mobile-nav-icon" aria-hidden="true">🌌</span>
     <span class="mobile-nav-label">Map</span>
+  </button>
+  <button class="mobile-nav-btn" data-tab="map3d" aria-label="3D Map">
+    <span class="mobile-nav-icon" aria-hidden="true">🔮</span>
+    <span class="mobile-nav-label">3D Map</span>
   </button>
 </nav>
 
