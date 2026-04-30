@@ -173,21 +173,25 @@ def main():
 
     try:
         conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor(name='anchor_cursor')
     except Exception as e:
         log.error(f"FATAL: Main process failed to connect to database: {e}")
         sys.exit(1)
 
-    # 1. Identify anchors to process
+    # 1. Identify anchors to process — use a plain cursor for COUNT, named cursor only for streaming
+    count_cur = conn.cursor()
     if args.dirty_only:
         log.info("  Mode: Incremental (Dirty Anchors Only)")
-        cur.execute("SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE")
-        total_anchors = cur.fetchone()[0]
+        count_cur.execute("SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE")
+        total_anchors = count_cur.fetchone()[0]
+        count_cur.close()
+        cur = conn.cursor(name='anchor_cursor')
         cur.execute("SELECT id64, x, y, z FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE")
     else:
         log.info("  Mode: Full Rebuild (All Anchors)")
-        cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
-        total_anchors = cur.fetchone()[0]
+        count_cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
+        total_anchors = count_cur.fetchone()[0]
+        count_cur.close()
+        cur = conn.cursor(name='anchor_cursor')
         cur.execute("SELECT id64, x, y, z FROM systems WHERE has_body_data = TRUE")
     
     log.info(f"  Processing {fmt_num(total_anchors)} anchors...")
