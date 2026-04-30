@@ -86,6 +86,7 @@ def process_anchor_batch(worker_id: int, anchor_batch: list, db_url: str, radius
 
     results = []
     hb = WorkerHeartbeat(worker_id, total=len(anchor_batch), label="clusters", interval=60.0)
+    done_count = 0
 
     for anchor in anchor_batch:
         aid, ax, ay, az = anchor
@@ -154,7 +155,8 @@ def process_anchor_batch(worker_id: int, anchor_batch: list, db_url: str, radius
                     total_viable, coverage, diversity, radius
                 ))
 
-        hb.tick()
+        done_count += 1
+        hb.tick(done_count)
 
     cur.close()
     conn.close()
