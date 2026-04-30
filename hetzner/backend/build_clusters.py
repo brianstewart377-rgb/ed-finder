@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder (STABILIZED & OPTIMIZED)
-Version: 2.6
+Version: 2.7
 
 Strategy:
   • Hybrid Approach: Iterates through "Anchors" (systems with data) but uses 
@@ -35,28 +35,26 @@ from progress import (
 # ---------------------------------------------------------------------------
 def get_db_config():
     """
-    Explicitly pull database configuration from environment variables.
-    This bypasses DSN/URL conflicts where old passwords might be cached.
+    Final, robust method for retrieving database configuration.
+    Prioritizes explicit environment variables to bypass DSN conflicts.
     """
+    # 1. Start with the absolute source of truth: POSTGRES_PASSWORD
+    env_pw = os.getenv('POSTGRES_PASSWORD')
+    
+    # 2. Parse the DATABASE_URL if it exists
     url = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@postgres:5432/edfinder')
     parsed = urlparse(url)
     
-    # Defaults
+    # 3. Build config with high-priority overrides
     config = {
         'user':     parsed.username or 'edfinder',
-        'password': parsed.password or os.getenv('POSTGRES_PASSWORD', 'edfinder'),
+        'password': env_pw if env_pw else (parsed.password or 'edfinder'),
         'host':     parsed.hostname or 'postgres',
         'port':     parsed.port or 5432,
         'database': parsed.path.lstrip('/') or 'edfinder'
     }
     
-    # Priority Override: If POSTGRES_PASSWORD is set, it ALWAYS wins
-    env_pw = os.getenv('POSTGRES_PASSWORD')
-    if env_pw:
-        config['password'] = env_pw
-        
-    # Priority Override: If we are in the 'importer' container, we MUST use 'postgres' host
-    # (pgbouncer is for the API, not for bulk builds)
+    # 4. Importer-specific override: MUST connect directly to 'postgres' host
     if config['host'] == 'pgbouncer':
         config['host'] = 'postgres'
         config['port'] = 5432
@@ -100,8 +98,13 @@ def process_anchor_batch(worker_id: int, anchor_batch: list, db_config: dict, ra
     """
     Worker: For each anchor, find neighbors within 500ly that meet the score threshold.
     """
-    conn = psycopg2.connect(**db_config)
-    cur = conn.cursor()
+    try:
+        conn = psycopg2.connect(**db_config)
+        cur = conn.cursor()
+    except Exception as e:
+        # If connection fails, log it and return empty results to prevent worker crash
+        print(f"Worker {worker_id} failed to connect: {e}")
+        return []
 
     # Load grid params
     cur.execute("SELECT key, value FROM app_meta WHERE key IN ('grid_cell_size','grid_min_x','grid_min_y','grid_min_z')")
@@ -186,7 +189,7 @@ def process_anchor_batch(worker_id: int, anchor_batch: list, db_config: dict, ra
     return results
 
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary (v2.6 - STABILIZED)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary (v2.7 - STABILIZED)')
     parser.add_argument('--workers', type=int, default=6)
     parser.add_argument('--radius', type=float, default=500.0)
     parser.add_argument('--min-score', type=int, default=DEFAULT_SCORE)
@@ -194,10 +197,14 @@ def main():
     args = parser.parse_args()
 
     script_start = time.time()
-    startup_banner(log, "Cluster Summary Builder", "2.6 (Stabilized)")
+    startup_banner(log, "Cluster Summary Builder", "2.7 (Stabilized)")
 
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor(name='anchor_cursor')
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor(name='anchor_cursor')
+    except Exception as e:
+        log.error(f"FATAL: Main process failed to connect to database: {e}")
+        sys.exit(1)
 
     # 1. Identify anchors to process
     if args.dirty_only:
