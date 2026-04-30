@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder (STABILIZED & OPTIMIZED)
-Version: 2.9
+Version: 3.0
 
 Strategy:
   • Hybrid Approach: Iterates through "Anchors" (systems with data) but uses 
@@ -32,7 +32,7 @@ from progress import (
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-# Version 2.9: Use the DATABASE_URL exactly as provided in the environment.
+# Version 3.0: Uses a grid pre-filter to skip empty space anchors, drastically reducing ETA.
 # This is the same URL that the API uses successfully.
 DATABASE_URL    = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@postgres:5432/edfinder')
 BATCH_SIZE      = 1000
@@ -163,7 +163,7 @@ def process_anchor_batch(worker_id: int, anchor_batch: list, db_url: str, radius
     return results
 
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary (v2.9 - STABILIZED)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary (v3.0 - PRE-FILTERED)')
     parser.add_argument('--workers', type=int, default=6)
     parser.add_argument('--radius', type=float, default=500.0)
     parser.add_argument('--min-score', type=int, default=DEFAULT_SCORE)
@@ -171,7 +171,7 @@ def main():
     args = parser.parse_args()
 
     script_start = time.time()
-    startup_banner(log, "Cluster Summary Builder", "2.9 (Stabilized)")
+    startup_banner(log, "Cluster Summary Builder", "3.0 (Pre-filtered)")
 
     try:
         conn = psycopg2.connect(DATABASE_URL)
@@ -179,24 +179,64 @@ def main():
         log.error(f"FATAL: Main process failed to connect to database: {e}")
         sys.exit(1)
 
-    # 1. Identify anchors to process — use a plain cursor for COUNT, named cursor only for streaming
+    # 1. Pre-filter: Find all grid cells that contain at least one viable system
+    log.info("  Pre-filtering grid cells for viable systems...")
+    prefilter_cur = conn.cursor()
+    prefilter_cur.execute("""
+        SELECT DISTINCT s.grid_cell_id 
+        FROM systems s
+        JOIN ratings r ON r.system_id64 = s.id64
+        WHERE (r.score_agriculture >= %s OR r.score_refinery >= %s OR 
+               r.score_industrial >= %s OR r.score_hightech >= %s OR 
+               r.score_military >= %s OR r.score_tourism >= %s)
+    """, (args.min_score, args.min_score, args.min_score, args.min_score, args.min_score, args.min_score))
+    
+    viable_cells = [row[0] for row in prefilter_cur.fetchall()]
+    prefilter_cur.close()
+    
+    if not viable_cells:
+        log.warning("No viable systems found at all! Are ratings built? Exiting.")
+        sys.exit(0)
+        
+    log.info(f"  Found {fmt_num(len(viable_cells))} grid cells with viable systems.")
+
+    # Expand the viable cells to include adjacent cells, because an anchor in an adjacent cell
+    # might still be within 500ly of the viable system.
+    # The grid cells are packed: x * 100,000,000 + y * 10,000 + z
+    expanded_cells = set()
+    for cell in viable_cells:
+        # Unpack the cell ID
+        vcz = cell % 10000
+        rem = cell // 10000
+        vcy = rem % 10000
+        vcx = rem // 10000
+        
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                for dz in range(-1, 2):
+                    expanded_cells.add((vcx+dx) * 100_000_000 + (vcy+dy) * 10_000 + (vcz+dz))
+                    
+    expanded_cells_list = list(expanded_cells)
+    log.info(f"  Expanded to {fmt_num(len(expanded_cells_list))} adjacent cells for the search area.")
+
+    # 2. Identify anchors to process — use a plain cursor for COUNT, named cursor only for streaming
     count_cur = conn.cursor()
     if args.dirty_only:
         log.info("  Mode: Incremental (Dirty Anchors Only)")
-        count_cur.execute("SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE")
+        count_cur.execute("SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE AND grid_cell_id = ANY(%s)", (expanded_cells_list,))
         total_anchors = count_cur.fetchone()[0]
         count_cur.close()
         cur = conn.cursor(name='anchor_cursor')
-        cur.execute("SELECT id64, x, y, z FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE")
+        cur.execute("SELECT id64, x, y, z FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE AND grid_cell_id = ANY(%s)", (expanded_cells_list,))
     else:
         log.info("  Mode: Full Rebuild (All Anchors)")
-        count_cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
+        count_cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE AND grid_cell_id = ANY(%s)", (expanded_cells_list,))
         total_anchors = count_cur.fetchone()[0]
         count_cur.close()
         cur = conn.cursor(name='anchor_cursor')
-        cur.execute("SELECT id64, x, y, z FROM systems WHERE has_body_data = TRUE")
+        cur.execute("SELECT id64, x, y, z FROM systems WHERE has_body_data = TRUE AND grid_cell_id = ANY(%s)", (expanded_cells_list,))
     
-    log.info(f"  Processing {fmt_num(total_anchors)} anchors...")
+    log.info(f"  Processing {fmt_num(total_anchors)} pre-filtered anchors...")
 
     # 2. Parallel Processing
     with mp.Pool(processes=args.workers) as pool:
