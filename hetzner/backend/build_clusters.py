@@ -35,11 +35,18 @@ from progress import (
 def _make_direct_dsn(url: str) -> str:
     direct = os.getenv('DB_DSN_DIRECT', '')
     if direct: return direct
+    
+    # If the URL is the default or missing, try to reconstruct it with the password
+    if 'edfinder:edfinder@' in url:
+        pw = os.getenv('POSTGRES_PASSWORD')
+        if pw and pw != 'edfinder':
+            url = url.replace('edfinder:edfinder@', f'edfinder:{pw}@')
+    
     if ':5433/' in url: url = url.replace(':5433/', ':5432/')
     url = url.replace('@pgbouncer:', '@postgres:')
     return url
 
-DB_DSN          = _make_direct_dsn(os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder'))
+DB_DSN          = _make_direct_dsn(os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@postgres:5432/edfinder'))
 BATCH_SIZE      = 1000
 LOG_LEVEL       = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE        = os.getenv('LOG_FILE', '/tmp/build_clusters.log')
