@@ -30,6 +30,7 @@
 | `build_grid.py` | 2.3 | Disable RI triggers + ctid-range batching |
 | `build_ratings.py` | 2.2 | Disable RI triggers on dirty-flag UPDATE |
 | `build_clusters.py` | 2.2 | Stabilized spatial clustering (v2.2) |
+| `nightly_update.sh` | 1.2 | Added Sunday full cluster rebuild |
 
 ---
 
@@ -86,6 +87,7 @@ These RI triggers fire on **every** `UPDATE systems` — even when only `grid_ce
 | v1.4 | Standardized progress banners and fixed RI trigger disable logic on reconnect. |
 | v1.6 | **Smallint Fix** — Widened all cluster count columns to `INTEGER` to prevent crashes on high-density clusters. |
 | v2.2 | **Stabilized Hybrid Logic** — Reverted to memory-safe anchor loop with high-speed spatial filtering. Added `--dirty-only` incremental mode. Set default quality to Score 65+. |
+| v2.3 | **Automation Support** — Added API-trigger support for manual rebuilds and Sunday full-rebuild scheduling in `nightly_update.sh`. |
 
 #### Understanding Score Levels
 When running the cluster builder, the `--min-score` (default 65) determines what counts as a "viable" neighbor for a colonist:
@@ -522,6 +524,27 @@ docker compose exec postgres psql -U edfinder -d edfinder \
     -c "SELECT key, value, updated_at FROM app_meta ORDER BY key;"
 # Look for: grid_built=true, ratings_built=true, clusters_built=true
 ```
+
+### Automation & Scheduling
+
+#### Weekly Full Rebuild
+The `nightly_update.sh` script (which runs via cron) has been updated to perform a **Full Cluster Rebuild every Sunday**. On other days, it only processes "dirty" systems updated via EDDN. This ensures your cluster data is perfectly in sync every week.
+
+#### Manual Trigger (API)
+You can now trigger a cluster rebuild (dirty systems only) manually via the API. This is useful if you've just done a large manual data injection and don't want to wait for the nightly cron.
+
+**Endpoint:** `POST /api/admin/rebuild-clusters`
+
+Example using `curl`:
+```bash
+curl -X POST http://localhost:8000/api/admin/rebuild-clusters
+```
+
+You can check the status of the job by querying the recent events endpoint:
+```bash
+curl http://localhost:8000/api/events/recent
+```
+Look for the `jobs` object in the response.
 
 ### Resume a failed import
 ```bash

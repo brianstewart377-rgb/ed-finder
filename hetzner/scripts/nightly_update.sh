@@ -195,24 +195,36 @@ if (( DIRTY_COUNT > 0 )); then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Rebuild dirty clusters
+# 4. Rebuild clusters
 # ---------------------------------------------------------------------------
-log "--- Step 4: Rebuild dirty clusters ---"
-DIRTY_CLUSTERS=$(pg_count "SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE")
-log "Dirty cluster anchors: $DIRTY_CLUSTERS"
+log "--- Step 4: Rebuild clusters ---"
 
-if (( DIRTY_CLUSTERS > 0 )); then
-    log "Running build_clusters.py --dirty-only ..."
-    run_importer "build_clusters" build_clusters.py --dirty-only \
-        && success "Dirty clusters rebuilt" \
-        || warn "Cluster rebuild had errors (check ${LOG_DIR}/build_clusters.log)"
+# Strategy:
+# - Sunday (DOW=7): Full rebuild (ensures everything is in sync)
+# - Other days:     Incremental rebuild (dirty anchors only)
 
-    # Post-rebuild verification
-    STILL_DIRTY_C=$(pg_count "SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE")
-    if (( STILL_DIRTY_C > 0 )); then
-        warn "Cluster rebuild incomplete: $STILL_DIRTY_C systems still have cluster_dirty=TRUE"
-    else
-        success "All cluster_dirty flags cleared"
+if [[ "$DOW" == "7" ]]; then
+    log "Weekly full cluster rebuild (Sunday) ..."
+    run_importer "build_clusters_full" build_clusters.py --workers 6 \
+        && success "Full cluster rebuild complete" \
+        || warn "Full cluster rebuild had errors (check ${LOG_DIR}/build_clusters_full.log)"
+else
+    DIRTY_CLUSTERS=$(pg_count "SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE")
+    log "Dirty cluster anchors: $DIRTY_CLUSTERS"
+
+    if (( DIRTY_CLUSTERS > 0 )); then
+        log "Running build_clusters.py --dirty-only ..."
+        run_importer "build_clusters" build_clusters.py --dirty-only --workers 6 \
+            && success "Dirty clusters rebuilt" \
+            || warn "Cluster rebuild had errors (check ${LOG_DIR}/build_clusters.log)"
+
+        # Post-rebuild verification
+        STILL_DIRTY_C=$(pg_count "SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE")
+        if (( STILL_DIRTY_C > 0 )); then
+            warn "Cluster rebuild incomplete: $STILL_DIRTY_C systems still have cluster_dirty=TRUE"
+        else
+            success "All cluster_dirty flags cleared"
+        fi
     fi
 fi
 

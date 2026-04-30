@@ -42,6 +42,7 @@ Endpoints:
   GET  /api/metrics                — Prometheus-style metrics
   GET  /api/events/live            — SSE live EDDN feed
   GET  /api/events/recent          — recent EDDN events
+  POST /api/admin/rebuild-clusters — trigger cluster rebuild
   GET  /docs                       — Swagger UI (auto-generated from response models)
 """
 
@@ -51,6 +52,7 @@ import time
 import json
 import logging
 import asyncio
+import subprocess
 from datetime import datetime, timezone
 from typing import Optional, Any, AsyncGenerator
 from contextlib import asynccontextmanager
@@ -128,6 +130,63 @@ _metrics: dict[str, Any] = {
     'errors_total':    0,
     'startup_time':    time.time(),
 }
+
+# ---------------------------------------------------------------------------
+# Background workers for long-running tasks
+# ---------------------------------------------------------------------------
+_active_jobs: dict[str, Any] = {}
+
+def run_cluster_rebuild():
+    """Run build_clusters.py as a subprocess and track status."""
+    job_id = "cluster_rebuild"
+    if _active_jobs.get(job_id, {}).get("status") == "running":
+        log.warning("Cluster rebuild already in progress, skipping trigger.")
+        return
+
+    _active_jobs[job_id] = {
+        "status": "running",
+        "start_time": datetime.now(timezone.utc).isoformat(),
+        "end_time": None,
+        "exit_code": None,
+        "error": None
+    }
+
+    try:
+        # Use the absolute path and the correct docker compose profile
+        cmd = [
+            "docker", "compose", 
+            "--project-directory", "/opt/ed-finder/hetzner",
+            "--profile", "import", 
+            "run", "--rm", "importer", 
+            "python3", "build_clusters.py", "--dirty-only", "--workers", "6"
+        ]
+        log.info("Triggering background cluster rebuild: %s", " ".join(cmd))
+        
+        # We use check=True to raise an error if the script fails
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        _active_jobs[job_id].update({
+            "status": "completed",
+            "end_time": datetime.now(timezone.utc).isoformat(),
+            "exit_code": 0
+        })
+        log.info("Background cluster rebuild completed successfully.")
+        
+    except subprocess.CalledProcessError as e:
+        _active_jobs[job_id].update({
+            "status": "failed",
+            "end_time": datetime.now(timezone.utc).isoformat(),
+            "exit_code": e.returncode,
+            "error": e.stderr or str(e)
+        })
+        log.error("Background cluster rebuild failed (exit %d): %s", e.returncode, e.stderr)
+    except Exception as e:
+        _active_jobs[job_id].update({
+            "status": "failed",
+            "end_time": datetime.now(timezone.utc).isoformat(),
+            "error": str(e)
+        })
+        log.exception("Unexpected error during background cluster rebuild")
 
 # ---------------------------------------------------------------------------
 # Startup / shutdown
@@ -1315,8 +1374,24 @@ async def recent_events(
                 'timestamp':   r['received_at'].isoformat() if r['received_at'] else None,
             }
             for r in rows
-        ]
+        ],
+        'jobs': _active_jobs
     }
+
+
+@app.post('/api/admin/rebuild-clusters')
+@limiter.limit('1/minute')
+async def trigger_rebuild_clusters(request: Request, background_tasks: BackgroundTasks):
+    """Trigger a background cluster rebuild (dirty anchors only)."""
+    job_id = "cluster_rebuild"
+    if _active_jobs.get(job_id, {}).get("status") == "running":
+        return JSONResponse(
+            status_code=409,
+            content={"message": "A cluster rebuild is already in progress.", "job": _active_jobs[job_id]}
+        )
+    
+    background_tasks.add_task(run_cluster_rebuild)
+    return {"message": "Cluster rebuild triggered in background.", "job_id": job_id}
 
 
 if __name__ == '__main__':
