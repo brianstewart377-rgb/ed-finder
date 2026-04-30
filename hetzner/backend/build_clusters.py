@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder
-Version: 3.2
+Version: 3.3
 
 Strategy:
   • Pure SQL Aggregation per grid cell, parallelised across N workers.
@@ -14,6 +14,8 @@ Performance:
   • v2.9: 73M Python→DB round-trips  → 3,255 h ETA
   • v3.1: 125K SQL aggregations (1 thread) → 8–14 h ETA
   • v3.2: 125K SQL aggregations (6 threads) → 1.5–3 h ETA
+  • v3.3: Adds statement_timeout + anchor-count pre-check to skip pathological
+          dense cells (Sol/core) that would otherwise stall for hours.
 """
 
 import os
@@ -196,7 +198,8 @@ def compute_coverage_score(rd: dict) -> float:
 # Worker function
 # ---------------------------------------------------------------------------
 def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
-              radius: float, min_score: int, dirty_only: bool):
+              radius: float, min_score: int, dirty_only: bool,
+              cell_timeout: int = 120, max_anchors: int = 50000):
     """
     Pull grid cells from the queue and process each one with a SQL aggregation.
     """
@@ -204,6 +207,9 @@ def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
         conn = psycopg2.connect(db_url)
         conn.autocommit = False
         cur = conn.cursor()
+        # Set per-statement timeout to avoid stalling on dense cells
+        cur.execute(f"SET statement_timeout = '{cell_timeout}s'")
+        conn.commit()
     except Exception as e:
         print(f"[W{worker_id}] DB connect failed: {e}", flush=True)
         return
@@ -236,11 +242,30 @@ def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
             'min_score':    min_score,
         }
 
+        # Pre-check: skip cells with too many anchors (they would stall the DB)
+        try:
+            cur.execute(
+                "SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE AND grid_cell_id = %s",
+                (anchor_cell,)
+            )
+            anchor_count = cur.fetchone()[0]
+            if anchor_count > max_anchors:
+                print(f"[W{worker_id}] Cell {anchor_cell} has {anchor_count} anchors — skipping (too dense)", flush=True)
+                with done_counter.get_lock():
+                    done_counter.value += 1
+                continue
+        except Exception as e:
+            print(f"[W{worker_id}] Cell {anchor_cell} count check failed: {e}", flush=True)
+            conn.rollback()
+            with done_counter.get_lock():
+                done_counter.value += 1
+            continue
+
         try:
             cur.execute(AGGREGATE_SQL, params)
             rows = cur.fetchall()
         except Exception as e:
-            print(f"[W{worker_id}] Cell {anchor_cell} query error: {e}", flush=True)
+            print(f"[W{worker_id}] Cell {anchor_cell} query error (timeout or other): {e}", flush=True)
             conn.rollback()
             with done_counter.get_lock():
                 done_counter.value += 1
@@ -298,16 +323,20 @@ def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary (v3.2 - Parallel SQL)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary (v3.3 - Parallel SQL + Timeout)')
     parser.add_argument('--workers',    type=int,   default=6)
     parser.add_argument('--radius',     type=float, default=DEFAULT_RADIUS)
     parser.add_argument('--min-score',  type=int,   default=DEFAULT_SCORE)
     parser.add_argument('--dirty-only', action='store_true',
                         help='Only rebuild clusters for dirty anchors')
+    parser.add_argument('--cell-timeout', type=int, default=120,
+                        help='Max seconds per cell query before skipping (default: 120)')
+    parser.add_argument('--max-anchors', type=int, default=50000,
+                        help='Skip cells with more than this many anchors (default: 50000)')
     args = parser.parse_args()
 
     script_start = time.time()
-    startup_banner(log, "Cluster Summary Builder", "3.2 (Parallel SQL)")
+    startup_banner(log, "Cluster Summary Builder", "3.3 (Parallel SQL + Timeout)")
 
     try:
         conn = psycopg2.connect(DATABASE_URL)
@@ -373,7 +402,8 @@ def main():
         p = mp.Process(
             target=worker_fn,
             args=(wid, cell_queue, done_counter, DATABASE_URL,
-                  args.radius, args.min_score, args.dirty_only),
+                  args.radius, args.min_score, args.dirty_only,
+                  args.cell_timeout, args.max_anchors),
             daemon=True,
         )
         p.start()
