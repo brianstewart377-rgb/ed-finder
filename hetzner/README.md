@@ -29,7 +29,7 @@
 | `import_spansh.py` | 2.0 | COPY-via-temp-table (10–50× faster than INSERT) |
 | `build_grid.py` | 2.3 | Disable RI triggers + ctid-range batching |
 | `build_ratings.py` | 2.2 | Disable RI triggers on dirty-flag UPDATE |
-| `build_clusters.py` | 1.3 | Disable RI triggers on dirty-flag UPDATE |
+| `build_clusters.py` | 2.2 | Stabilized spatial clustering (v2.2) |
 
 ---
 
@@ -84,6 +84,16 @@ These RI triggers fire on **every** `UPDATE systems` — even when only `grid_ce
 | v1.2 | Added startup/stage banners, per-worker heartbeat, safe log path, spatial-grid-missing warning |
 | v1.3 | Disabled RI triggers on `UPDATE systems SET cluster_dirty = FALSE` — eliminated ~2.5B spurious trigger evaluations across 73M anchors; fixed startup banner (was still saying v1.2); fixed worker_id collision (was `chunks % workers`, causing multiple chunks to share the same ID and produce confusing logs) |
 | v1.4 | Standardized progress banners and fixed RI trigger disable logic on reconnect. |
+| v1.6 | **Smallint Fix** — Widened all cluster count columns to `INTEGER` to prevent crashes on high-density clusters. |
+| v2.2 | **Stabilized Hybrid Logic** — Reverted to memory-safe anchor loop with high-speed spatial filtering. Added `--dirty-only` incremental mode. Set default quality to Score 65+. |
+
+#### Understanding Score Levels
+When running the cluster builder, the `--min-score` (default 65) determines what counts as a "viable" neighbor for a colonist:
+*   **Score 40-50**: Basic viability. Includes systems with metal-rich planets or basic gas giants. Very common.
+*   **Score 60-70**: High quality. Usually requires at least one **Terraformable** planet or high biological signal density.
+*   **Score 80+**: "Jackpot" systems. Earth-like Worlds (ELWs), multiple Terraformables, or Neutron stars.
+
+Higher scores lead to fewer, but much higher quality, suggested "Empire" locations.
 
 ### 002_indexes.sql changelog
 

@@ -1,24 +1,14 @@
 #!/usr/bin/env python3
 """
-ED Finder — Cluster Summary Builder (HIGH PERFORMANCE)
-Version: 2.0  (Bottom-Up Strategy)
+ED Finder — Cluster Summary Builder (STABILIZED & OPTIMIZED)
+Version: 2.2
 
-Speedup Strategy:
-  Original (v1.x): For each of 73M anchors, find neighbors within 500ly.
-                   73M queries * ~38k rows/query = ~2.7 Trillion row-checks.
-                   ETA: 7 months.
-
-  New (v2.0):      1. Identify all "Viable Systems" (score >= 40, population = 0).
-                      (Only ~5-10M systems vs 186M total).
-                   2. For each viable system, find all "Anchors" (has_body_data = TRUE)
-                      within 500ly of IT.
-                   3. Increment counts and track best scores for those anchors.
-                   4. Batch-write the final aggregates.
-
-  Benefits:        • Only processes regions of space that actually HAVE viable systems.
-                   • Skips millions of empty anchors in the void.
-                   • Uses a single pass over the viable systems.
-                   • ETA: ~4-8 hours.
+Strategy:
+  • Hybrid Approach: Iterates through "Anchors" (systems with data) but uses 
+    a high-speed spatial pre-filter to skip the empty void.
+  • Performance: Uses server-side cursors and parallel workers.
+  • Stability: Low memory footprint. Processes in small chunks to prevent crashes.
+  • Default Quality: Score 65+ (Focuses on Terraformables and ELWs).
 """
 
 import os
@@ -50,11 +40,11 @@ def _make_direct_dsn(url: str) -> str:
     return url
 
 DB_DSN          = _make_direct_dsn(os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder'))
-BATCH_SIZE      = 5000  # Larger batches for the bottom-up approach
+BATCH_SIZE      = 1000
 LOG_LEVEL       = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE        = os.getenv('LOG_FILE', '/tmp/build_clusters.log')
 DEFAULT_RADIUS  = 500   # LY
-MIN_VIABLE      = 40    # minimum score to count as "viable"
+DEFAULT_SCORE   = 65    # Focus on high-quality systems (Terraformables/ELWs)
 
 os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 logging.basicConfig(
@@ -82,10 +72,9 @@ def compute_coverage_score(counts: dict, bests: dict) -> float:
             score += (best / 100.0 + count_bonus) * weight
     return round(min(score * 100, 100.0), 1)
 
-def process_viable_batch(worker_id: int, viable_batch: list, db_dsn: str, radius: float):
+def process_anchor_batch(worker_id: int, anchor_batch: list, db_dsn: str, radius: float, min_score: int):
     """
-    Worker: For each viable system, find all anchors within 500ly.
-    Returns a mapping: {anchor_id: {eco: (count, best_score, best_id)}}
+    Worker: For each anchor, find neighbors within 500ly that meet the score threshold.
     """
     conn = psycopg2.connect(db_dsn)
     cur = conn.cursor()
@@ -96,177 +85,157 @@ def process_viable_batch(worker_id: int, viable_batch: list, db_dsn: str, radius
     cell_size = meta.get('grid_cell_size', 500.0)
     gmin_x, gmin_y, gmin_z = meta.get('grid_min_x'), meta.get('grid_min_y'), meta.get('grid_min_z')
 
-    # Local aggregation for this batch
-    # { anchor_id: { eco: [count, best_score, best_sid] } }
-    local_agg = defaultdict(lambda: defaultdict(lambda: [0, 0, 0]))
-    # { anchor_id: set(viable_sids) } for total_viable count
-    local_viable_sets = defaultdict(set)
+    results = []
+    hb = WorkerHeartbeat(worker_id, total=len(anchor_batch), label="clusters", interval=60.0)
 
-    hb = WorkerHeartbeat(worker_id, total=len(viable_batch), label="mapping", interval=60.0)
-
-    for viable in viable_batch:
-        sid, vx, vy, vz, eco_sug, s_ag, s_re, s_in, s_ht, s_mi, s_to = viable
-        scores = {
-            'Agriculture': s_ag, 'Refinery': s_re, 'Industrial': s_in,
-            'HighTech': s_ht, 'Military': s_mi, 'Tourism': s_to
-        }
+    for anchor in anchor_batch:
+        aid, ax, ay, az = anchor
 
         # Grid cells for the search
-        vcx = int(math.floor((vx - gmin_x) / cell_size))
-        vcy = int(math.floor((vy - gmin_y) / cell_size))
-        vcz = int(math.floor((vz - gmin_z) / cell_size))
+        vcx = int(math.floor((ax - gmin_x) / cell_size))
+        vcy = int(math.floor((ay - gmin_y) / cell_size))
+        vcz = int(math.floor((az - gmin_z) / cell_size))
         adj_cells = []
         for dx in range(-1, 2):
             for dy in range(-1, 2):
                 for dz in range(-1, 2):
                     adj_cells.append((vcx+dx) * 100_000_000 + (vcy+dy) * 10_000 + (vcz+dz))
 
-        # Find anchors (has_body_data) in these cells
+        # Query for viable neighbors within radius
         cur.execute("""
-            SELECT id64 FROM systems
-            WHERE has_body_data = TRUE
-              AND grid_cell_id = ANY(%s)
-              AND in_bounding_box(x, y, z, %s, %s, %s, %s)
-              AND distance_ly(x, y, z, %s, %s, %s) <= %s
-        """, (adj_cells, vx, vy, vz, radius, vx, vy, vz, radius))
+            SELECT 
+                r.score_agriculture, r.score_refinery, r.score_industrial,
+                r.score_hightech, r.score_military, r.score_tourism,
+                s.id64
+            FROM systems s
+            JOIN ratings r ON r.system_id64 = s.id64
+            WHERE s.population = 0
+              AND s.grid_cell_id = ANY(%s)
+              AND in_bounding_box(s.x, s.y, s.z, %s, %s, %s, %s)
+              AND distance_ly(s.x, s.y, s.z, %s, %s, %s) <= %s
+              AND (r.score_agriculture >= %s OR r.score_refinery >= %s OR 
+                   r.score_industrial >= %s OR r.score_hightech >= %s OR 
+                   r.score_military >= %s OR r.score_tourism >= %s)
+        """, (adj_cells, ax, ay, az, radius, ax, ay, az, radius, min_score, min_score, min_score, min_score, min_score, min_score))
         
-        anchors = cur.fetchall()
-        for (a_id,) in anchors:
-            if a_id == sid: continue # Don't count self if anchor
-            local_viable_sets[a_id].add(sid)
-            for eco, score in scores.items():
-                if score and score >= MIN_VIABLE:
-                    stats = local_agg[a_id][eco]
-                    stats[0] += 1 # count
-                    if score > stats[1]:
-                        stats[1] = score
-                        stats[2] = sid # best_id
+        neighbors = cur.fetchall()
+        
+        if neighbors:
+            counts = defaultdict(int)
+            bests = defaultdict(int)
+            top_ids = defaultdict(int)
+            total_viable = 0
+            
+            for s_ag, s_re, s_in, s_ht, s_mi, s_to, sid in neighbors:
+                if sid == aid: continue
+                total_viable += 1
+                scores = {
+                    'Agriculture': s_ag, 'Refinery': s_re, 'Industrial': s_in,
+                    'HighTech': s_ht, 'Military': s_mi, 'Tourism': s_to
+                }
+                for eco, score in scores.items():
+                    if score >= min_score:
+                        counts[eco] += 1
+                        if score > bests[eco]:
+                            bests[eco] = score
+                            top_ids[eco] = sid
+            
+            if total_viable > 0:
+                coverage = compute_coverage_score(counts, bests)
+                diversity = sum(1 for c in counts.values() if c > 0)
+                
+                results.append((
+                    aid,
+                    counts.get('Agriculture', 0), bests.get('Agriculture'), top_ids.get('Agriculture'),
+                    counts.get('Refinery', 0),    bests.get('Refinery'),    top_ids.get('Refinery'),
+                    counts.get('Industrial', 0),  bests.get('Industrial'),  top_ids.get('Industrial'),
+                    counts.get('HighTech', 0),    bests.get('HighTech'),    top_ids.get('HighTech'),
+                    counts.get('Military', 0),    bests.get('Military'),    top_ids.get('Military'),
+                    counts.get('Tourism', 0),     bests.get('Tourism'),     top_ids.get('Tourism'),
+                    total_viable, coverage, diversity, radius
+                ))
 
         hb.tick()
 
     cur.close()
     conn.close()
-    
-    # Convert sets to counts for serialization
-    final_viable_counts = {aid: len(sids) for aid, sids in local_viable_sets.items()}
-    return dict(local_agg), final_viable_counts
+    return results
 
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary (v2.0 - HIGH PERFORMANCE)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary (v2.2 - STABILIZED)')
     parser.add_argument('--workers', type=int, default=6)
     parser.add_argument('--radius', type=float, default=500.0)
-    parser.add_argument('--min-score', type=int, default=40)
+    parser.add_argument('--min-score', type=int, default=DEFAULT_SCORE)
+    parser.add_argument('--dirty-only', action='store_true', help='Only rebuild clusters for dirty anchors')
     args = parser.parse_args()
 
     script_start = time.time()
-    startup_banner(log, "Cluster Summary Builder", "2.0 (Bottom-Up)")
+    startup_banner(log, "Cluster Summary Builder", "2.2 (Stabilized)")
 
     conn = psycopg2.connect(DB_DSN)
-    cur = conn.cursor()
+    cur = conn.cursor(name='anchor_cursor')
 
-    # 1. Get all viable systems
-    stage_banner(log, 1, 3, "Identify viable systems")
-    cur.execute("""
-        SELECT 
-            s.id64, s.x, s.y, s.z, r.economy_suggestion,
-            r.score_agriculture, r.score_refinery, r.score_industrial,
-            r.score_hightech, r.score_military, r.score_tourism
-        FROM systems s
-        JOIN ratings r ON r.system_id64 = s.id64
-        WHERE s.population = 0
-          AND (r.score_agriculture >= %s OR r.score_refinery >= %s OR 
-               r.score_industrial >= %s OR r.score_hightech >= %s OR 
-               r.score_military >= %s OR r.score_tourism >= %s)
-    """, [args.min_score]*6)
+    # 1. Identify anchors to process
+    if args.dirty_only:
+        log.info("  Mode: Incremental (Dirty Anchors Only)")
+        cur.execute("SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE")
+        total_anchors = cur.fetchone()[0]
+        cur.execute("SELECT id64, x, y, z FROM systems WHERE cluster_dirty = TRUE AND has_body_data = TRUE")
+    else:
+        log.info("  Mode: Full Rebuild (All Anchors)")
+        cur.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
+        total_anchors = cur.fetchone()[0]
+        cur.execute("SELECT id64, x, y, z FROM systems WHERE has_body_data = TRUE")
     
-    viable_systems = cur.fetchall()
-    log.info(f"  Found {fmt_num(len(viable_systems))} viable systems to map.")
+    log.info(f"  Processing {fmt_num(total_anchors)} anchors...")
 
-    # 2. Map viable systems to anchors in parallel
-    stage_banner(log, 2, 3, "Map viable systems to anchors")
-    chunk_size = 2000
-    chunks = [viable_systems[i:i + chunk_size] for i in range(0, len(viable_systems), chunk_size)]
-    
-    # Global aggregation
-    # anchor_id -> { eco: [count, best_score, best_sid] }
-    global_agg = defaultdict(lambda: defaultdict(lambda: [0, 0, 0]))
-    global_viable_counts = defaultdict(int)
-
+    # 2. Parallel Processing
     with mp.Pool(processes=args.workers) as pool:
-        results = []
-        for i, chunk in enumerate(chunks):
-            results.append(pool.apply_async(process_viable_batch, (i, chunk, DB_DSN, args.radius)))
+        progress = ProgressReporter(log, total=total_anchors, label="anchors", interval=30)
         
-        progress = ProgressReporter(log, total=len(viable_systems), label="mapping", interval=30)
-        for r in results:
-            batch_agg, batch_viable_counts = r.get()
-            # Merge into global
-            for aid, ecos in batch_agg.items():
-                for eco, stats in ecos.items():
-                    g_stats = global_agg[aid][eco]
-                    g_stats[0] += stats[0]
-                    if stats[1] > g_stats[1]:
-                        g_stats[1] = stats[1]
-                        g_stats[2] = stats[2]
-            for aid, count in batch_viable_counts.items():
-                global_viable_counts[aid] += count
-            progress.update(chunk_size)
-
-    # 3. Finalize and Write
-    stage_banner(log, 3, 3, "Compute coverage and write to DB")
-    
-    # Clear old summary (Bottom-up requires a clean slate or careful delta)
-    log.info("  Clearing cluster_summary table for fresh build...")
-    cur.execute("TRUNCATE TABLE cluster_summary")
-    conn.commit()
-
-    write_batch = []
-    log.info(f"  Finalizing {fmt_num(len(global_agg))} anchor summaries...")
-    
-    for aid, ecos in global_agg.items():
-        counts = {eco: stats[0] for eco, stats in ecos.items()}
-        bests = {eco: stats[1] for eco, stats in ecos.items()}
-        top_ids = {eco: stats[2] for eco, stats in ecos.items()}
-        
-        coverage = compute_coverage_score(counts, bests)
-        diversity = sum(1 for c in counts.values() if c > 0)
-        total_viable = global_viable_counts[aid]
-
-        write_batch.append((
-            aid,
-            counts.get('Agriculture', 0), bests.get('Agriculture'), top_ids.get('Agriculture'),
-            counts.get('Refinery', 0),    bests.get('Refinery'),    top_ids.get('Refinery'),
-            counts.get('Industrial', 0),  bests.get('Industrial'),  top_ids.get('Industrial'),
-            counts.get('HighTech', 0),    bests.get('HighTech'),    top_ids.get('HighTech'),
-            counts.get('Military', 0),    bests.get('Military'),    top_ids.get('Military'),
-            counts.get('Tourism', 0),     bests.get('Tourism'),     top_ids.get('Tourism'),
-            total_viable, coverage, diversity, args.radius
-        ))
-
-        if len(write_batch) >= BATCH_SIZE:
-            _bulk_insert(cur, write_batch)
+        while True:
+            batch = cur.fetchmany(BATCH_SIZE * args.workers)
+            if not batch: break
+            
+            # Split batch for workers
+            sub_batches = [batch[i:i + BATCH_SIZE] for i in range(0, len(batch), BATCH_SIZE)]
+            
+            worker_results = []
+            for i, sub in enumerate(sub_batches):
+                worker_results.append(pool.apply_async(process_anchor_batch, (i, sub, DB_DSN, args.radius, args.min_score)))
+            
+            # Write results
             write_batch = []
-            conn.commit()
-
-    if write_batch:
-        _bulk_insert(cur, write_batch)
-        conn.commit()
+            processed_ids = []
+            for r in worker_results:
+                res = r.get()
+                write_batch.extend(res)
+            
+            # We also need the IDs of all anchors in the batch to clear their dirty flags
+            processed_ids = [a[0] for a in batch]
+            
+            if write_batch:
+                _write_to_db(write_batch)
+            
+            # Clear dirty flags
+            _clear_dirty_flags(processed_ids)
+            
+            progress.update(len(batch))
 
     # Finalize meta
-    cur.execute("INSERT INTO app_meta (key, value, updated_at) VALUES ('clusters_built', 'true', NOW()) ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()")
-    cur.execute("UPDATE systems SET cluster_dirty = FALSE")
+    cur_meta = conn.cursor()
+    cur_meta.execute("INSERT INTO app_meta (key, value, updated_at) VALUES ('clusters_built', 'true', NOW()) ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()")
     conn.commit()
-    cur.close()
-    conn.close()
-
+    
     elapsed = time.time() - script_start
-    done_banner(log, "High-Speed Cluster Build Complete", elapsed, [
-        f"Anchors computed : {fmt_num(len(global_agg))}",
-        f"Viable systems mapped: {fmt_num(len(viable_systems))}",
-        f"Total time : {fmt_duration(elapsed)}",
+    done_banner(log, "Stabilized Cluster Build Complete", elapsed, [
+        f"Anchors processed : {fmt_num(total_anchors)}",
+        f"Total time        : {fmt_duration(elapsed)}",
     ])
 
-def _bulk_insert(cur, batch):
+def _write_to_db(batch):
+    conn = psycopg2.connect(DB_DSN)
+    cur = conn.cursor()
     psycopg2.extras.execute_values(cur, """
         INSERT INTO cluster_summary (
             system_id64,
@@ -279,10 +248,46 @@ def _bulk_insert(cur, batch):
             total_viable, coverage_score, economy_diversity,
             search_radius, dirty, computed_at, updated_at
         ) VALUES %s
+        ON CONFLICT (system_id64) DO UPDATE SET
+            agriculture_count = EXCLUDED.agriculture_count,
+            agriculture_best  = EXCLUDED.agriculture_best,
+            agriculture_top_id = EXCLUDED.agriculture_top_id,
+            refinery_count    = EXCLUDED.refinery_count,
+            refinery_best     = EXCLUDED.refinery_best,
+            refinery_top_id   = EXCLUDED.refinery_top_id,
+            industrial_count  = EXCLUDED.industrial_count,
+            industrial_best   = EXCLUDED.industrial_best,
+            industrial_top_id = EXCLUDED.industrial_top_id,
+            hightech_count    = EXCLUDED.hightech_count,
+            hightech_best     = EXCLUDED.hightech_best,
+            hightech_top_id   = EXCLUDED.hightech_top_id,
+            military_count    = EXCLUDED.military_count,
+            military_best     = EXCLUDED.military_best,
+            military_top_id   = EXCLUDED.military_top_id,
+            tourism_count     = EXCLUDED.tourism_count,
+            tourism_best      = EXCLUDED.tourism_best,
+            tourism_top_id    = EXCLUDED.tourism_top_id,
+            total_viable      = EXCLUDED.total_viable,
+            coverage_score    = EXCLUDED.coverage_score,
+            economy_diversity = EXCLUDED.economy_diversity,
+            dirty             = FALSE,
+            updated_at        = NOW()
     """, batch, template="""(%s,
         %s,%s,%s, %s,%s,%s, %s,%s,%s,
         %s,%s,%s, %s,%s,%s, %s,%s,%s,
-        %s,%s,%s, %s, FALSE, NOW(), NOW())""", page_size=len(batch))
+        %s,%s,%s, %s, FALSE, NOW(), NOW())""", page_size=100)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def _clear_dirty_flags(ids):
+    if not ids: return
+    conn = psycopg2.connect(DB_DSN)
+    cur = conn.cursor()
+    cur.execute("UPDATE systems SET cluster_dirty = FALSE WHERE id64 = ANY(%s)", (ids,))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 if __name__ == '__main__':
     main()
