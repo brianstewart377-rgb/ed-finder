@@ -1866,3 +1866,114 @@ details[open] .collapsible-header::after { content: '▴'; }
   background: var(--accent-glow);
   color: var(--accent);
 }
+
+
+/* ═══════════════════════════════════════════════════════════ HELP SYSTEM */
+
+/* Help icon button — small circled-i next to labels */
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 1px solid var(--accent, #4a9eff);
+  background: transparent;
+  color: var(--accent, #4a9eff);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  vertical-align: middle;
+  margin-left: 0.25rem;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.help-icon:hover,
+.help-icon:focus-visible {
+  opacity: 1;
+  background: rgba(74, 158, 255, 0.15);
+  outline: none;
+}
+
+/* Help popover — floating panel */
+.help-popover {
+  position: fixed;
+  z-index: 9999;
+  width: 320px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--panel-bg, #1a2332);
+  border: 1px solid var(--border, #2a3a4a);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  padding: 1rem 1rem 1rem 1rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--text, #c8d8e8);
+}
+.help-popover[hidden] { display: none; }
+
+.help-popover-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #6b8599);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  line-height: 1;
+}
+.help-popover-close:hover { color: var(--text, #c8d8e8); background: rgba(255,255,255,0.06); }
+
+.help-popover-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--accent, #4a9eff);
+  margin: 0 1.5rem 0.6rem 0;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border, #2a3a4a);
+}
+
+.help-popover-content p { margin: 0 0 0.5rem; }
+.help-popover-content p:last-child { margin-bottom: 0; }
+.help-popover-content ul {
+  margin: 0.3rem 0 0.5rem 1rem;
+  padding: 0;
+}
+.help-popover-content ul li { margin-bottom: 0.2rem; }
+.help-popover-content table { margin-top: 0.4rem; }
+.help-popover-content th,
+.help-popover-content td { color: var(--text, #c8d8e8); }
+
+/* Info callout — blue-tinted info box */
+.info-callout {
+  background: rgba(74, 158, 255, 0.08);
+  border-left: 3px solid var(--accent, #4a9eff);
+  border-radius: 0 6px 6px 0;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text, #c8d8e8);
+  margin-bottom: 1rem;
+}
+.info-callout strong { color: var(--accent, #4a9eff); }
+
+/* kbd styling for keyboard shortcut hints */
+kbd {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.75rem;
+  font-family: monospace;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid var(--border, #2a3a4a);
+  border-radius: 3px;
+  color: var(--text, #c8d8e8);
+  line-height: 1.4;
+}

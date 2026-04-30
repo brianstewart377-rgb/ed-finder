@@ -47,11 +47,11 @@
       <!-- Search Controls -->
       <aside class="search-panel" aria-label="Local search filters">
         <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">⊕</span> Local Search</h2>
-        <p class="panel-desc">Find systems near a reference point by distance, economy, and body types.</p>
+        <p class="panel-desc">Find systems near a reference point by distance, economy, and body types. Results are scored 0–100 for colonisation suitability.</p>
 
         <!-- Reference System -->
         <div class="field-group">
-          <label class="field-label" for="local-ref-input">Reference System</label>
+          <label class="field-label" for="local-ref-input">Reference System <button class="help-icon" data-help="ref-system" aria-label="Help: Reference System" type="button">ⓘ</button></label>
           <div class="autocomplete-wrap" role="combobox" aria-expanded="false" aria-haspopup="listbox">
             <input type="text" id="local-ref-input" class="field-input" placeholder="e.g. Sol, Colonia, Sagittarius A*"
                    autocomplete="off" aria-autocomplete="list" aria-controls="local-ref-suggestions">
@@ -69,6 +69,7 @@
           <div class="label-row">
             <label class="field-label" for="local-dist-slider">
               Max Distance: <strong id="local-dist-val">500 ly</strong>
+              <button class="help-icon" data-help="distance" aria-label="Help: Distance" type="button">ⓘ</button>
             </label>
             <label class="toggle-inline" title="Search entire galaxy (ignores distance limit)">
               <input type="checkbox" id="local-galaxy-wide">
@@ -86,7 +87,7 @@
 
         <!-- Population -->
         <div class="field-group" role="group" aria-labelledby="pop-label">
-          <span class="field-label" id="pop-label">Population</span>
+          <span class="field-label" id="pop-label">Population <button class="help-icon" data-help="population" aria-label="Help: Population" type="button">ⓘ</button></span>
           <div class="radio-group">
             <label class="radio-option"><input type="radio" name="local-pop" value="any" checked> Any</label>
             <label class="radio-option"><input type="radio" name="local-pop" value="zero"> Uncolonised</label>
@@ -95,7 +96,7 @@
 
         <!-- Economy -->
         <div class="field-group">
-          <label class="field-label" for="local-economy">Primary Economy</label>
+          <label class="field-label" for="local-economy">Primary Economy <button class="help-icon" data-help="economy" aria-label="Help: Economy types" type="button">ⓘ</button></label>
           <select id="local-economy" class="field-select" aria-label="Filter by economy type">
             <option value="any">Any Economy</option>
             <option value="Agriculture">Agriculture</option>
@@ -112,6 +113,7 @@
         <div class="field-group">
           <label class="field-label" for="local-rating-slider">
             Min Rating: <strong id="local-rating-val">0</strong>
+            <button class="help-icon" data-help="rating" aria-label="Help: Rating score" type="button">ⓘ</button>
           </label>
           <div class="slider-with-input">
             <input type="range" id="local-rating-slider" class="slider" min="0" max="100" step="5" value="0"
@@ -123,7 +125,7 @@
         <!-- Body Filters -->
         <details class="collapsible" id="body-filters-details">
           <summary class="collapsible-header">
-            <span>Body Filters</span>
+            <span>Body Filters <button class="help-icon" data-help="body-filters" aria-label="Help: Body filters" type="button">ⓘ</button></span>
             <span id="body-filter-active-count" class="filter-active-badge" hidden>0</span>
           </summary>
           <div class="collapsible-body">
@@ -215,7 +217,7 @@
     <div class="panel-layout">
       <aside class="search-panel" aria-label="Galaxy search filters">
         <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">✦</span> Galaxy Search</h2>
-        <p class="panel-desc">Find the best uncolonised systems galaxy-wide for a specific economy type, sorted by suitability score.</p>
+        <p class="panel-desc">Find the best uncolonised systems galaxy-wide for a specific economy type, sorted by suitability score. Scores are pre-computed from body composition, star type, and distance from the bubble.</p>
         <div class="field-group">
           <label class="field-label" for="galaxy-economy">Economy Type</label>
           <select id="galaxy-economy" class="field-select">
@@ -231,6 +233,7 @@
         <div class="field-group">
           <label class="field-label" for="galaxy-score-slider">
             Min Score: <strong id="galaxy-score-val">65</strong>
+            <button class="help-icon" data-help="rating" aria-label="Help: Score" type="button">ⓘ</button>
           </label>
           <div class="slider-with-input">
             <input type="range" id="galaxy-score-slider" class="slider" min="0" max="100" step="5" value="65"
@@ -266,11 +269,14 @@
     <div class="panel-layout">
       <aside class="search-panel" aria-label="Cluster search filters">
         <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">⬡</span> Cluster Search</h2>
-        <p class="panel-desc">Find the best anchor point in the galaxy where a 500 ly bubble contains all your required economy types.</p>
+        <p class="panel-desc">Find the best <strong>anchor system</strong> where a 500 ly bubble around it contains all your required economy types.</p>
+        <div class="info-callout">
+          <strong>How it works:</strong> Add the economy types your colony network needs. The search finds the best hub system where all those economy types exist within 500 ly — the ideal base for a multi-economy colony chain.
+        </div>
 
         <!-- UI #5: Economy presets -->
         <div class="field-group">
-          <span class="field-label">Quick Presets</span>
+          <span class="field-label">Quick Presets <button class="help-icon" data-help="presets" aria-label="Help: Presets" type="button">ⓘ</button></span>
           <div class="preset-grid">
             <button class="preset-btn" data-preset="full-colony" title="Agriculture, Refinery, Industrial, High Tech, Military, Tourism">Full Colony Stack</button>
             <button class="preset-btn" data-preset="industry-refinery" title="Industrial + Refinery">Industry + Refinery</button>
@@ -327,7 +333,7 @@
         </div>
         <!-- UI #9: Cluster sort options -->
         <div class="field-group" style="margin-top:1rem" role="group" aria-labelledby="cluster-sort-label">
-          <span class="field-label" id="cluster-sort-label">Sort Results By</span>
+          <span class="field-label" id="cluster-sort-label">Sort Results By <button class="help-icon" data-help="cluster-sort" aria-label="Help: Sort options" type="button">ⓘ</button></span>
           <div class="radio-group">
             <label class="radio-option"><input type="radio" name="cluster-sort" value="coverage" checked> Coverage Score</label>
             <label class="radio-option"><input type="radio" name="cluster-sort" value="total"> Total Viable</label>
@@ -460,6 +466,7 @@
         <div class="field-group">
           <label class="field-label" for="map-jump-range">
             Jump range: <strong id="map-jump-range-val">50 ly</strong>
+            <button class="help-icon" data-help="jump-range" aria-label="Help: Jump range" type="button">ⓘ</button>
           </label>
           <input type="range" id="map-jump-range" class="slider" min="10" max="500" step="5" value="50" aria-label="Ship jump range for route calculation">
           <p class="field-hint">Used to estimate hop count when a system is selected</p>
@@ -493,7 +500,7 @@
       <!-- 3D controls sidebar -->
       <aside class="map-controls-panel" aria-label="3D map controls">
         <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">🔮</span> 3D Star Map</h2>
-        <p class="panel-desc">Drag to rotate · Scroll to zoom · Click dot for details</p>
+        <p class="panel-desc">Drag to rotate · Scroll to zoom · Click dot for details · Press <kbd>Shift+M</kbd> to open</p>
 
         <div class="field-group">
           <label class="field-label" for="map3d-colour-mode">Colour Mode</label>
@@ -591,7 +598,13 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════ TOAST -->
-<div id="toast" class="toast" hidden role="alert" aria-live="assertive"></div>
+  <div id="toast" class="toast" hidden role="alert" aria-live="assertive"></div>
+
+<!-- ═══════════════════════════════════════════════════════════ HELP POPOVER -->
+<div id="help-popover" class="help-popover" hidden role="tooltip" aria-live="polite">
+  <button id="help-popover-close" class="help-popover-close" aria-label="Close help" type="button">✕</button>
+  <div id="help-popover-content" class="help-popover-content"></div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════ MOBILE BOTTOM NAV -->
 <nav id="mobile-nav" class="mobile-nav" role="navigation" aria-label="Mobile navigation">

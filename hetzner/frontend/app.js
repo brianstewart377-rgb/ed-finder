@@ -2638,3 +2638,97 @@ const EDMap = (function () {
 })();
 
 window.EDMap = EDMap;
+
+// ═══════════════════════════════════════════════════════════ HELP POPOVER SYSTEM
+(function initHelpSystem() {
+  const HELP = {
+    'ref-system': {
+      title: 'Reference System',
+      body: '<p>The system you are searching <em>from</em>. Start typing any system name — the field autocompletes from the database of 186 million systems.</p><p>Common starting points: <strong>Sol</strong> (human bubble), <strong>Colonia</strong> (~22,000 ly from Sol), <strong>Sagittarius A*</strong> (galactic centre).</p><p>Once selected, the system coordinates are shown below the field and used for all distance calculations.</p>'
+    },
+    'distance': {
+      title: 'Max Distance',
+      body: '<p>Only return systems within this many light years of your reference system.</p><ul><li><strong>50–200 ly</strong> — immediate neighbourhood, easy supply runs</li><li><strong>500 ly</strong> — standard colonisation bubble</li><li><strong>1,000+ ly</strong> — deep space expansion</li></ul><p>Enable <strong>Galaxy-wide</strong> to ignore this limit and search all 186 million systems.</p>'
+    },
+    'population': {
+      title: 'Population Filter',
+      body: '<p><strong>Any</strong> — returns all systems regardless of colonisation status.</p><p><strong>Uncolonised</strong> — only returns systems with population = 0. These are available for colonisation. Already-colonised systems cannot be claimed.</p>'
+    },
+    'economy': {
+      title: 'Economy Types',
+      body: '<p>The primary economy type determines what a colonised station produces and what commodities it demands.</p><table style="width:100%;border-collapse:collapse;font-size:0.82rem"><tr style="border-bottom:1px solid #334"><th style="text-align:left;padding:3px 6px">Economy</th><th style="text-align:left;padding:3px 6px">Key output</th></tr><tr><td style="padding:3px 6px">Agriculture</td><td style="padding:3px 6px">Food, Grain, CMM Composites</td></tr><tr><td style="padding:3px 6px">Refinery</td><td style="padding:3px 6px">Metals, Steel, Titanium</td></tr><tr><td style="padding:3px 6px">Industrial</td><td style="padding:3px 6px">Machinery, Consumer goods</td></tr><tr><td style="padding:3px 6px">High Tech</td><td style="padding:3px 6px">Technology, Computers</td></tr><tr><td style="padding:3px 6px">Military</td><td style="padding:3px 6px">Weapons, Battle weapons</td></tr><tr><td style="padding:3px 6px">Tourism</td><td style="padding:3px 6px">Passenger cabins, Luxury goods</td></tr><tr><td style="padding:3px 6px">Extraction</td><td style="padding:3px 6px">Ore, Minerals</td></tr><tr><td style="padding:3px 6px">Colony</td><td style="padding:3px 6px">Basic essentials</td></tr></table>'
+    },
+    'rating': {
+      title: 'Suitability Score (0–100)',
+      body: '<p>A composite score measuring how suitable a system is for a given economy type.</p><p><strong>Factors:</strong> star type, planetary bodies (Earth-likes, water worlds, terraformables boost the score), biological/geological signals, distance from the bubble.</p><ul><li><span style="color:#22c55e">■</span> <strong>80–100</strong> — Excellent: rare, highly desirable</li><li><span style="color:#a3e635">■</span> <strong>65–79</strong> — Good: strong candidate</li><li><span style="color:#facc15">■</span> <strong>45–64</strong> — Average: viable</li><li><span style="color:#f97316">■</span> <strong>0–44</strong> — Poor: limited suitability</li></ul><p>A threshold of <strong>65+</strong> is a good starting point.</p>'
+    },
+    'body-filters': {
+      title: 'Body Filters',
+      body: '<p>Filter systems by the types of bodies they contain. Set a minimum count — only systems with at least that many of that body type are returned.</p><ul><li><strong>Earth-like</strong> — Rare worlds with breathable atmospheres</li><li><strong>Water World</strong> — Ocean worlds</li><li><strong>Ammonia World</strong> — Ammonia-atmosphere worlds</li><li><strong>Gas Giant</strong> — Any gas giant (Class I–V)</li><li><strong>Neutron Star</strong> — Useful for FSD supercharging</li><li><strong>Bio Signals</strong> — Has biological signals (Odyssey)</li><li><strong>Geo Signals</strong> — Has geological signals</li><li><strong>Terraformable</strong> — Has at least one terraformable body</li></ul>'
+    },
+    'presets': {
+      title: 'Quick Presets',
+      body: '<p>Presets fill in the economy requirements automatically for common colony configurations:</p><ul><li><strong>Full Colony Stack</strong> — All six types: Agriculture, Refinery, Industrial, High Tech, Military, Tourism.</li><li><strong>Industry + Refinery</strong> — Core production chain for manufacturing colonies.</li><li><strong>Agri + HiTech</strong> — Food production paired with advanced technology.</li><li><strong>Military + Tourism</strong> — Defence and passenger income.</li><li><strong>Core Three</strong> — Agriculture, Industrial, High Tech — minimum viable diversified colony.</li></ul>'
+    },
+    'cluster-sort': {
+      title: 'Sort Options',
+      body: '<ul><li><strong>Coverage Score</strong> — Composite: how many required economy types are satisfied + quality of the best system for each type + diversity. Best overall ranking.</li><li><strong>Total Viable</strong> — Total systems in the 500 ly bubble scoring 65+ for any economy.</li><li><strong>Distance</strong> — Distance from your reference system (set in Local Search first).</li><li><strong>Diversity</strong> — Number of distinct economy types present in the bubble.</li></ul>'
+    },
+    'map-colour': {
+      title: 'Map Colour Modes',
+      body: '<ul><li><strong>Rating</strong> — Green (high score) to orange to grey (low score).</li><li><strong>Economy</strong> — Each economy type has a distinct colour: Agriculture (green), Refinery (orange), Industrial (blue), High Tech (cyan), Military (red), Tourism (pink).</li><li><strong>Distance from Ref</strong> — Blue (close) to red (far). Requires a reference system.</li><li><strong>Population</strong> — Bright green = uncolonised, dim = already colonised.</li></ul>'
+    },
+    'jump-range': {
+      title: 'Jump Range',
+      body: '<p>Your ship maximum jump range in light years. Used to estimate the hop count to reach a selected system from your reference point.</p><p>When you click a dot on the map, a dashed line appears labelled with the estimated hops (straight-line distance divided by jump range).</p><p>Typical ranges: 30–50 ly (standard), 60–80 ly (engineered), 80–120 ly (exploration builds).</p>'
+    }
+  };
+
+  const popover    = document.getElementById('help-popover');
+  const popContent = document.getElementById('help-popover-content');
+  const popClose   = document.getElementById('help-popover-close');
+  if (!popover || !popContent) return;
+
+  function showHelp(key, anchorEl) {
+    const data = HELP[key];
+    if (!data) return;
+    popContent.innerHTML = '<h3 class="help-popover-title">' + data.title + '</h3>' + data.body;
+    popover.hidden = false;
+    const rect = anchorEl.getBoundingClientRect();
+    const pw = 320;
+    let left = rect.right + 10;
+    let top  = rect.top;
+    if (left + pw > window.innerWidth - 12) left = rect.left - pw - 10;
+    if (left < 8) left = 8;
+    const ph = popover.offsetHeight || 200;
+    if (top + ph > window.innerHeight - 12) top = window.innerHeight - ph - 12;
+    if (top < 8) top = 8;
+    popover.style.left = left + 'px';
+    popover.style.top  = top  + 'px';
+  }
+
+  function hideHelp() { popover.hidden = true; }
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.help-icon');
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const key = btn.dataset.help;
+      if (!popover.hidden && popover.dataset.activeKey === key) {
+        hideHelp();
+      } else {
+        popover.dataset.activeKey = key;
+        showHelp(key, btn);
+      }
+      return;
+    }
+    if (!popover.hidden && !popover.contains(e.target)) hideHelp();
+  });
+
+  if (popClose) popClose.addEventListener('click', hideHelp);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !popover.hidden) hideHelp();
+  });
+})();
