@@ -452,16 +452,23 @@ function buildModalHTML(sys) {
     ${scoreItems.length ? `
     <div class="modal-section">
       <div class="modal-section-title">Suitability Scores</div>
-      <div class="modal-score-grid">
+      <div class="score-chart">
         ${scoreItems.map(([label, val]) => {
           const pct = Math.round(val);
+          const band = pct >= 80 ? 'Excellent' : pct >= 65 ? 'Good' : pct >= 45 ? 'Average' : 'Poor';
           return `
-          <div class="modal-score-item">
-            <div class="modal-score-label">${label}</div>
-            <div class="modal-score-value" style="color:${scoreColor(pct)}">${pct}</div>
-            <div class="modal-score-bar"><div class="modal-score-bar-fill" style="width:${pct}%;background:${scoreColor(pct)}"></div></div>
+          <div class="score-chart-row">
+            <div class="score-chart-label">${label}</div>
+            <div class="score-chart-bar-wrap"><div class="score-chart-bar" style="width:${pct}%;background:${scoreColor(pct)}"></div></div>
+            <div class="score-chart-val" style="color:${scoreColor(pct)}" title="${band}">${pct}</div>
           </div>`;
         }).join('')}
+      </div>
+      <div class="score-band-legend">
+        <span style="color:#4caf50">■ 80–100 Excellent</span>
+        <span style="color:#8bc34a">■ 65–79 Good</span>
+        <span style="color:#ff9800">■ 45–64 Average</span>
+        <span style="color:#9e9e9e">■ 0–44 Poor</span>
       </div>
     </div>` : ''}
 
@@ -479,9 +486,17 @@ function buildModalHTML(sys) {
         <a href="${inara}" target="_blank" rel="noopener" class="modal-edsm-link">↗ Inara</a>
       </div>
     </div>
+    <div class="modal-section modal-notes-section">
+      <div class="modal-section-title">Commander Notes</div>
+      <textarea id="modal-note-area" class="note-area" placeholder="Add your notes about this system…" rows="3" data-id64="${sys.id64}"></textarea>
+      <div class="note-actions">
+        <button id="modal-note-save" class="note-save-btn">Save Note</button>
+        <button id="modal-note-delete" class="note-delete-btn" hidden>Delete</button>
+        <span id="modal-note-status" class="note-status"></span>
+      </div>
+    </div>
   `;
 }
-
 function attachModalEvents(sys) {
   // Copy buttons
   qsa('.copy-btn').forEach(btn => {
@@ -508,8 +523,45 @@ function attachModalEvents(sys) {
       window.EDMap?.focusSystem(sys);
     });
   }
+  // Commander Notes
+  const noteArea   = qs('#modal-note-area');
+  const noteSave   = qs('#modal-note-save');
+  const noteDelete = qs('#modal-note-delete');
+  const noteStatus = qs('#modal-note-status');
+  if (noteArea && sys.id64) {
+    apiFetch(`/api/systems/${sys.id64}/note`)
+      .then(d => { if (d.note) { noteArea.value = d.note; if (noteDelete) noteDelete.hidden = false; } })
+      .catch(() => {});
+    noteArea.addEventListener('input', () => { noteArea.style.height = 'auto'; noteArea.style.height = noteArea.scrollHeight + 'px'; });
+    if (noteSave) {
+      noteSave.addEventListener('click', async () => {
+        const note = noteArea.value.trim();
+        noteSave.disabled = true;
+        try {
+          if (note) {
+            await apiFetch(`/api/systems/${sys.id64}/note`, { method: 'POST', body: JSON.stringify({ note }) });
+            if (noteDelete) noteDelete.hidden = false;
+            if (noteStatus) { noteStatus.textContent = 'Saved ✓'; noteStatus.className = 'note-status saved'; setTimeout(() => { noteStatus.textContent = ''; }, 2000); }
+          } else {
+            await apiFetch(`/api/systems/${sys.id64}/note`, { method: 'DELETE' });
+            if (noteDelete) noteDelete.hidden = true;
+            if (noteStatus) { noteStatus.textContent = 'Deleted'; noteStatus.className = 'note-status deleted'; setTimeout(() => { noteStatus.textContent = ''; }, 2000); }
+          }
+        } catch { if (noteStatus) { noteStatus.textContent = 'Failed'; noteStatus.className = 'note-status error'; } }
+        finally { noteSave.disabled = false; }
+      });
+    }
+    if (noteDelete) {
+      noteDelete.addEventListener('click', async () => {
+        if (!confirm('Delete this note?')) return;
+        await apiFetch(`/api/systems/${sys.id64}/note`, { method: 'DELETE' });
+        noteArea.value = '';
+        noteDelete.hidden = true;
+        if (noteStatus) { noteStatus.textContent = 'Deleted'; noteStatus.className = 'note-status deleted'; setTimeout(() => { noteStatus.textContent = ''; }, 2000); }
+      });
+    }
+  }
 }
-
 (function initModal() {
   const modal = qs('#system-modal');
   qs('#modal-close-btn').addEventListener('click', closeModal);
@@ -828,61 +880,6 @@ function buildSystemCard(sys, rank) {
   const headerEl    = qs('#galaxy-results-header');
   const countEl     = qs('#galaxy-results-count');
   const paginEl     = qs('#galaxy-pagination');
-
-  let currentPage = 1, lastParams = null;
-  const PAGE_SIZE = 20;
-
-  scoreSlider.addEventListener('input', () => { scoreVal.textContent = scoreSlider.value; });
-  searchBtn.addEventListener('click', () => { currentPage = 1; doSearch(); });
-
-  function getParams() {
-    return { economy: ecoSel.value, min_score: Number(scoreSlider.value), limit: PAGE_SIZE, offset: (currentPage - 1) * PAGE_SIZE };
-  }
-
-  async function doSearch() {
-    lastParams = getParams();
-    setLoading(true);
-    try {
-      const data = await apiFetch('/api/search/galaxy', { method: 'POST', body: JSON.stringify(lastParams) });
-      renderResults(data.results || [], data.total || 0);
-    } catch (e) { showError(e.message); }
-    finally { setLoading(false); }
-  }
-
-  function setLoading(on) {
-    searchBtn.disabled = on;
-    searchBtn.classList.toggle('loading', on);
-    if (on) { resultsEl.innerHTML = `<div class="loading-state"><div class="spinner"></div>Searching galaxy…</div>`; headerEl.hidden = true; }
-  }
-
-  function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${msg}</div>`; }
-
-  function renderResults(systems, total) {
-    resultsEl.innerHTML = '';
-    if (!systems.length) {
-      resultsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">◈</div><div class="empty-title">No systems found</div><div class="empty-sub">Try adjusting your filters or increasing the search radius</div></div>`;
-      headerEl.hidden = true; return;
-    }
-    countEl.innerHTML = `Found <strong>${fmtNum(total)}</strong> matching systems`;
-    headerEl.hidden = false;
-    systems.forEach((sys, i) => resultsEl.appendChild(buildSystemCard(sys, (currentPage - 1) * PAGE_SIZE + i + 1)));
-    buildPagination(paginEl, total, PAGE_SIZE, currentPage, (p) => { currentPage = p; doSearch(); });
-    // Broadcast results to map
-    document.dispatchEvent(new CustomEvent('ed:searchresults', { detail: { systems, ref: refCoords } }));
-  }
-})();
-
-// ═══════════════════════════════════════════════════════════════ GALAXY SEARCH
-
-(function initGalaxySearch() {
-  const ecoSel      = qs('#galaxy-economy');
-  const scoreSlider = qs('#galaxy-score-slider');
-  const scoreVal    = qs('#galaxy-score-val');
-  const searchBtn   = qs('#galaxy-search-btn');
-  const resultsEl   = qs('#galaxy-results');
-  const headerEl    = qs('#galaxy-results-header');
-  const countEl     = qs('#galaxy-results-count');
-  const paginEl     = qs('#galaxy-pagination');
   let currentPage = 1, lastParams = null;
   const PAGE_SIZE = 20;
 
@@ -991,6 +988,7 @@ function buildSystemCard(sys, rank) {
       limit: Number(limitSel.value),
       // Improvement #6: include reference coords if available for distance sorting
       reference_coords: _clusterRefCoords || null,
+      max_dist: qs('#cluster-max-dist') ? Number(qs('#cluster-max-dist').value) || null : null,
     };
 
     setLoading(true);
@@ -1071,6 +1069,48 @@ function buildSystemCard(sys, rank) {
       </div>
     `;
     const clusterSys = { name: anchorName, id64: c.anchor_id64 || c.system_id64, x: cx, y: cy, z: cz, coords: { x: cx, y: cy, z: cz }, population: 0, _rating: { score: coverageScore } };
+    // Expand/collapse top systems per economy
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'cluster-expand-btn';
+    expandBtn.textContent = '▶ Show top systems';
+    expandBtn.setAttribute('aria-expanded', 'false');
+    card.appendChild(expandBtn);
+    const expandPanel = document.createElement('div');
+    expandPanel.className = 'cluster-expand-panel';
+    expandPanel.hidden = true;
+    card.appendChild(expandPanel);
+    let expanded = false, loaded = false;
+    expandBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      expanded = !expanded;
+      expandBtn.textContent = expanded ? '▼ Hide top systems' : '▶ Show top systems';
+      expandBtn.setAttribute('aria-expanded', String(expanded));
+      expandPanel.hidden = !expanded;
+      if (expanded && !loaded) {
+        loaded = true;
+        expandPanel.innerHTML = '<div class="loading-state" style="padding:0.5rem"><div class="spinner"></div></div>';
+        const ECO_KEYS = ['agriculture', 'refinery', 'industrial', 'hightech', 'military', 'tourism'];
+        const topIds = [];
+        ECO_KEYS.forEach(eco => { const id = c[`${eco}_top_id`]; if (id) topIds.push({ eco, id64: id }); });
+        if (!topIds.length) { expandPanel.innerHTML = '<div class="cluster-top-empty">Top system data not yet available.</div>'; return; }
+        try {
+          const data = await apiFetch('/api/systems/batch', { method: 'POST', body: JSON.stringify({ ids: topIds.map(t => t.id64) }) });
+          const sysMap = {};
+          (data.systems || []).forEach(s => { sysMap[String(s.id64)] = s; });
+          expandPanel.innerHTML = '';
+          topIds.forEach(({ eco, id64 }) => {
+            const s = sysMap[String(id64)];
+            if (!s) return;
+            const score = s.score != null ? Math.round(s.score) : '—';
+            const row = document.createElement('div');
+            row.className = 'cluster-top-system';
+            row.innerHTML = `<span class="cts-eco">${eco.charAt(0).toUpperCase() + eco.slice(1, 4)}</span><span class="cts-name">${s.name || 'Unknown'}</span><span class="cts-score" style="color:${scoreColor(score)}">★${score}</span>`;
+            row.addEventListener('click', (ev) => { ev.stopPropagation(); openSystemModal(s); });
+            expandPanel.appendChild(row);
+          });
+        } catch { expandPanel.innerHTML = '<div class="cluster-top-empty">Failed to load top systems.</div>'; }
+      }
+    });
     card.addEventListener('click', () => openSystemModal(clusterSys));
     const mapBtn = card.querySelector('.card-show-on-map');
     if (mapBtn) {
@@ -1080,6 +1120,7 @@ function buildSystemCard(sys, rank) {
       });
     }
     return card;
+  }
   }
 })();
 
@@ -1108,8 +1149,14 @@ function buildSystemCard(sys, rank) {
     return `${Math.floor(diff / 3600)}h ago`;
   }
 
+  let feedFilterText = '';
+  const feedFilterInput = qs('#live-feed-filter');
+  if (feedFilterInput) {
+    feedFilterInput.addEventListener('input', () => { feedFilterText = feedFilterInput.value.trim().toLowerCase(); });
+  }
   function addEvent(ev) {
     if (paused) return;
+    if (feedFilterText && !(ev.system_name || '').toLowerCase().includes(feedFilterText)) return;
     eventCount++;
     if (countEl) countEl.textContent = eventCount;
 
@@ -1304,27 +1351,39 @@ const SearchHistory = {
   _key: 'ed_search_history',
   _max: 8,
   _data: [],
-
   load() {
     try { this._data = JSON.parse(localStorage.getItem(this._key) || '[]'); }
     catch { this._data = []; }
   },
-
   add(refName, params) {
-    // Remove duplicate
     this._data = this._data.filter(h => h.refName !== refName);
     this._data.unshift({ refName, params, ts: Date.now() });
     if (this._data.length > this._max) this._data.length = this._max;
     localStorage.setItem(this._key, JSON.stringify(this._data));
     this.render();
   },
-
   remove(refName) {
     this._data = this._data.filter(h => h.refName !== refName);
     localStorage.setItem(this._key, JSON.stringify(this._data));
     this.render();
   },
-
+  _restore(h) {
+    const p = h.params || {};
+    const refInput = qs('#local-ref-input');
+    if (refInput) refInput.value = h.refName;
+    const distSlider = qs('#local-dist-slider');
+    const distVal    = qs('#local-dist-val');
+    if (distSlider && p.max_dist != null) { distSlider.value = p.max_dist; if (distVal) distVal.textContent = `${p.max_dist} ly`; }
+    const ratingSlider = qs('#local-rating-slider');
+    const ratingVal    = qs('#local-rating-val');
+    if (ratingSlider && p.min_rating != null) { ratingSlider.value = p.min_rating; if (ratingVal) ratingVal.textContent = p.min_rating; }
+    const ecoSel = qs('#local-economy');
+    if (ecoSel && p.economy) ecoSel.value = p.economy;
+    if (p.population != null) { const r = document.querySelector(`input[name="local-pop"][value="${p.population}"]`); if (r) r.checked = true; }
+    const gwCheck = qs('#local-galaxy-wide');
+    if (gwCheck && p.galaxy_wide != null) gwCheck.checked = p.galaxy_wide;
+    toast(`Restored: ${h.refName}`);
+  },
   render() {
     const container = qs('#local-search-history');
     const list = qs('#local-history-list');
@@ -1334,32 +1393,81 @@ const SearchHistory = {
     list.innerHTML = '';
     this._data.forEach(h => {
       const li = document.createElement('li');
-      li.innerHTML = `<span class="history-icon">⊕</span> <span class="history-name">${h.refName}</span> <button class="history-remove" title="Remove">✕</button>`;
-      li.querySelector('.history-name').addEventListener('click', () => {
-        qs('#local-ref-input').value = h.refName;
-        toast(`Restored search: ${h.refName}`);
-      });
-      li.querySelector('.history-remove').addEventListener('click', (e) => {
-        e.stopPropagation();
-        SearchHistory.remove(h.refName);
-      });
+      const eco = h.params?.economy && h.params.economy !== 'any' ? ` · ${h.params.economy}` : '';
+      const dist = h.params?.max_dist ? ` · ${h.params.max_dist} ly` : '';
+      li.innerHTML = `<span class="history-icon">⊕</span> <span class="history-name" title="Click to restore all settings">${h.refName}<span class="history-meta">${eco}${dist}</span></span> <button class="history-remove" title="Remove">✕</button>`;
+      li.querySelector('.history-name').addEventListener('click', () => SearchHistory._restore(h));
+      li.querySelector('.history-remove').addEventListener('click', (e) => { e.stopPropagation(); SearchHistory.remove(h.refName); });
       list.appendChild(li);
     });
   },
 };
 SearchHistory.load();
 SearchHistory.render();
+// ── Recently Viewed ─────────────────────────────────────────────────────────
+const RecentlyViewed = {
+  _key: 'ed_recently_viewed',
+  _max: 10,
+  _data: [],
+  load() {
+    try { this._data = JSON.parse(localStorage.getItem(this._key) || '[]'); }
+    catch { this._data = []; }
+  },
+  add(sys) {
+    if (!sys || !sys.id64) return;
+    this._data = this._data.filter(s => s.id64 !== sys.id64);
+    this._data.unshift({ id64: sys.id64, name: sys.name || 'Unknown', ts: Date.now() });
+    if (this._data.length > this._max) this._data.length = this._max;
+    localStorage.setItem(this._key, JSON.stringify(this._data));
+    this.render();
+  },
+  render() {
+    const container = qs('#recently-viewed-panel');
+    const list = qs('#recently-viewed-list');
+    if (!container || !list) return;
+    if (!this._data.length) { container.hidden = true; return; }
+    container.hidden = false;
+    list.innerHTML = '';
+    this._data.forEach(s => {
+      const li = document.createElement('li');
+      li.className = 'recently-viewed-item';
+      li.innerHTML = `<span class="rv-icon">◎</span><span class="rv-name">${s.name}</span>`;
+      li.addEventListener('click', () => openSystemModal({ id64: s.id64, name: s.name }));
+      list.appendChild(li);
+    });
+  },
+};
+RecentlyViewed.load();
+RecentlyViewed.render();
+// Wrap openSystemModal to track recently viewed
+const _origOpenSystemModal = openSystemModal;
+openSystemModal = async function(sys) {
+  RecentlyViewed.add(sys);
+  return _origOpenSystemModal(sys);
+};
 
-// Hook into local search to save history entries
+// Hook into local search to save full params on search
 (function hookSearchHistory() {
   const btn = qs('#local-search-btn');
   if (!btn) return;
   btn.addEventListener('click', () => {
     const refInput = qs('#local-ref-input');
-    if (refInput && refInput.value.trim()) {
-      SearchHistory.add(refInput.value.trim(), {});
-    }
-  }, true); // capture phase so it fires before the search
+    if (!refInput || !refInput.value.trim()) return;
+    const distSlider   = qs('#local-dist-slider');
+    const ratingSlider = qs('#local-rating-slider');
+    const ecoSel       = qs('#local-economy');
+    const gwCheck      = qs('#local-galaxy-wide');
+    const popRadio     = document.querySelector('input[name="local-pop"]:checked');
+    const params = {
+      max_dist:    distSlider   ? Number(distSlider.value)   : 500,
+      min_rating:  ratingSlider ? Number(ratingSlider.value) : 0,
+      economy:     ecoSel ? ecoSel.value : 'any',
+      galaxy_wide: gwCheck ? gwCheck.checked : false,
+      population:  popRadio ? popRadio.value : 'all',
+    };
+    SearchHistory.add(refInput.value.trim(), params);
+  }, true);
+})();
 })();
 
 // ── UI #6: Watchlist export / import ────────────────────────────────────────
@@ -1420,9 +1528,38 @@ SearchHistory.render();
 
   // Refresh panel state on tab activation
   qsa('.nav-btn[data-tab="watchlist"]').forEach(btn => {
-    btn.addEventListener('click', refreshIOPanel);
+    btn.addEventListener('click', () => { refreshIOPanel(); });
   });
   refreshIOPanel();
+})();
+
+
+// ── Watchlist Changelog ──────────────────────────────────────────────────────
+(function initWatchlistChangelog() {
+  function loadChangelog() {
+    const panel = qs('#watchlist-changelog-panel');
+    const list  = qs('#watchlist-changelog-list');
+    if (!panel || !list) return;
+    apiFetch('/api/watchlist/changelog')
+      .then(data => {
+        const changes = data.changes || [];
+        if (!changes.length) { panel.hidden = true; return; }
+        panel.hidden = false;
+        list.innerHTML = '';
+        changes.slice(0, 20).forEach(c => {
+          const li = document.createElement('li');
+          li.className = 'changelog-item';
+          const ts = c.detected_at ? new Date(c.detected_at).toLocaleDateString() : '';
+          li.innerHTML = `<span class="cl-name">${c.name || 'Unknown'}</span><span class="cl-field">${c.field_changed || ''}</span><span class="cl-old">${c.old_value ?? '—'}</span><span class="cl-arrow">→</span><span class="cl-new">${c.new_value ?? '—'}</span><span class="cl-ts">${ts}</span>`;
+          li.addEventListener('click', () => openSystemModal({ id64: c.system_id64, name: c.name }));
+          list.appendChild(li);
+        });
+      })
+      .catch(() => {});
+  }
+  document.querySelectorAll('.nav-btn[data-tab="watchlist"]').forEach(btn => btn.addEventListener('click', loadChangelog));
+  loadChangelog();
+})();
 })();
 
 // ── UI #7: Compare systems feature ──────────────────────────────────────────
@@ -2638,6 +2775,39 @@ const EDMap = (function () {
 })();
 
 window.EDMap = EDMap;
+
+// ═══════════════════════════════════════════════════════════ KEYBOARD NAVIGATION
+(function initKeyboardNav() {
+  let focusedIdx = -1;
+  function getCards() {
+    const activePanel = document.querySelector('.tab-panel.active .results-list');
+    if (!activePanel) return [];
+    return Array.from(activePanel.querySelectorAll('.system-card, .cluster-card'));
+  }
+  function setFocus(idx) {
+    const cards = getCards();
+    if (!cards.length) return;
+    focusedIdx = Math.max(0, Math.min(idx, cards.length - 1));
+    cards.forEach((c, i) => c.classList.toggle('keyboard-focused', i === focusedIdx));
+    cards[focusedIdx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  function clearFocus() {
+    getCards().forEach(c => c.classList.remove('keyboard-focused'));
+    focusedIdx = -1;
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (qs('#system-modal') && !qs('#system-modal').hidden) return;
+    const cards = getCards();
+    if (!cards.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); setFocus(focusedIdx < 0 ? 0 : focusedIdx + 1); }
+    else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); setFocus(focusedIdx <= 0 ? 0 : focusedIdx - 1); }
+    else if (e.key === 'Enter' && focusedIdx >= 0) { e.preventDefault(); cards[focusedIdx]?.click(); }
+    else if (e.key === 'Escape') clearFocus();
+  });
+  document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', clearFocus));
+})();
+
 
 // ═══════════════════════════════════════════════════════════ HELP POPOVER SYSTEM
 (function initHelpSystem() {

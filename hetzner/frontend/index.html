@@ -175,6 +175,11 @@
             ✕ Clear
           </button>
         </div>
+        <!-- Recently Viewed -->
+        <div id="recently-viewed-panel" class="recently-viewed" hidden>
+          <div class="history-title">Recently Viewed</div>
+          <ul id="recently-viewed-list" class="recently-viewed-list"></ul>
+        </div>
         <!-- Search history -->
         <div id="local-search-history" class="search-history" hidden>
           <div class="search-history-label">Recent searches</div>
@@ -400,6 +405,11 @@
         <button id="watchlist-clear-btn" class="danger-btn" hidden aria-label="Clear all watchlist entries">
           Clear All
         </button>
+        <!-- Watchlist Changelog -->
+        <div id="watchlist-changelog" class="watchlist-changelog" hidden>
+          <div class="history-title">Recent Changes</div>
+          <ul id="watchlist-changelog-list" class="changelog-list"></ul>
+        </div>
       </aside>
       <div class="results-panel" aria-live="polite">
         <div id="watchlist-results-header" class="results-header" hidden>
@@ -575,6 +585,9 @@
     </span>
     <span id="live-feed-count" class="feed-count" aria-live="polite">0</span>
     <button id="live-feed-toggle" class="feed-toggle-btn" aria-label="Pause live feed">Pause</button>
+  </div>
+  <div class="feed-filter-row">
+    <input type="text" id="live-feed-filter" class="feed-filter-input" placeholder="Filter by system name or type…" aria-label="Filter live feed events">
   </div>
   <ul id="live-feed-list" class="feed-list" role="log" aria-live="polite" aria-label="Live EDDN events"></ul>
 </aside>
