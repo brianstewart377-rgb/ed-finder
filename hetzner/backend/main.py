@@ -875,13 +875,20 @@ async def galaxy_search(
         """, economy if economy.lower() != 'any' else 'HighTech',
             min_score, limit, offset)
 
-        total = await conn.fetchval("""
+        _eco_col = {
+            'agriculture': 'score_agriculture', 'refinery': 'score_refinery',
+            'industrial': 'score_industrial', 'hightech': 'score_hightech',
+            'high tech': 'score_hightech', 'military': 'score_military',
+            'tourism': 'score_tourism',
+        }.get(economy.lower(), 'score')
+        total = await conn.fetchval(f"""
             SELECT COUNT(*)
             FROM ratings r
             JOIN systems s ON s.id64 = r.system_id64
             WHERE s.population = 0
-              AND r.score IS NOT NULL
-        """)
+              AND r.{_eco_col} IS NOT NULL
+              AND r.{_eco_col} >= $1
+        """, min_score)
 
     results = []
     for r in rows:
@@ -953,6 +960,8 @@ async def cluster_search(
             }.get(r.economy.lower())
             if col:
                 parts.append(f'{col} >= {r.min_count}')
+            else:
+                log.warning('cluster_search: unknown economy name %r — skipping from total count', r.economy)
         where = ' AND '.join(parts) if parts else 'TRUE'
         total = await conn.fetchval(f"""
             SELECT COUNT(*) FROM cluster_summary

@@ -535,7 +535,7 @@ function renderWatchlistTab(page) {
   const resultsEl = qs('#watchlist-results');
   const headerEl  = qs('#watchlist-results-header');
   const countEl   = qs('#watchlist-results-count');
-  const hint      = qs('#watchlist-empty-hint');
+  const hint      = qs('#watchlist-empty-state');
   const clearBtn  = qs('#watchlist-clear-btn');
 
   if (!allItems.length) {
@@ -1746,7 +1746,7 @@ const EDMap = (function () {
     const w = canvas.clientWidth  || canvas.parentElement.clientWidth  || 800;
     const h = canvas.clientHeight || canvas.parentElement.clientHeight || 600;
 
-    _renderer2d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    _renderer2d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true });
     _renderer2d.setPixelRatio(window.devicePixelRatio);
     _renderer2d.setSize(w, h);
     _renderer2d.setClearColor(0x060d14, 1);
@@ -1835,7 +1835,7 @@ const EDMap = (function () {
     const w = canvas.clientWidth  || canvas.parentElement.clientWidth  || 800;
     const h = canvas.clientHeight || canvas.parentElement.clientHeight || 600;
 
-    _renderer3d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    _renderer3d = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true });
     _renderer3d.setPixelRatio(window.devicePixelRatio);
     _renderer3d.setSize(w, h);
     _renderer3d.setClearColor(0x060d14, 1);
@@ -2020,7 +2020,7 @@ const EDMap = (function () {
       const frustumW = _camera2d.right - _camera2d.left;
       const frustumH = _camera2d.top   - _camera2d.bottom;
       const sx2 = ((wx - _camera2d.left) / frustumW) * w;
-      const sy2 = ((1 - ((-wz) - _camera2d.bottom) / frustumH)) * h;
+      const sy2 = ((1 - (wz - _camera2d.bottom) / frustumH)) * h;
       return [sx2, sy2];
     }
 
@@ -2427,7 +2427,7 @@ const EDMap = (function () {
   }
 
   function setRef(coords) {
-    _refCoords = coords;
+    _refCoords = coords ? { x: coords.x ?? 0, y: coords.y ?? 0, z: coords.z ?? 0 } : null;
   }
 
   function setSelected(sys) {
@@ -2634,7 +2634,7 @@ const EDMap = (function () {
     }
   });
 
-  return { draw2D, draw3D, reset2D, reset3D, setResults, setClusters, setRef, setSelected, focusSystem, saveViewport, restoreViewport };
+  return { draw2D: draw2DWithRestore, draw3D, reset2D, reset3D, setResults, setClusters, setRef, setSelected, focusSystem, saveViewport, restoreViewport };
 })();
 
 window.EDMap = EDMap;

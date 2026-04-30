@@ -442,6 +442,14 @@ def main():
         VALUES ('clusters_built', 'true', NOW())
         ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
     """)
+    # On a full rebuild, clear all cluster_dirty flags so the next incremental
+    # run does not re-process everything unnecessarily.
+    if not args.dirty_only:
+        log.info("Clearing cluster_dirty flags after full rebuild...")
+        cur2.execute(
+            "UPDATE systems SET cluster_dirty = FALSE WHERE has_body_data = TRUE"
+        )
+        log.info("cluster_dirty flags cleared.")
     conn2.commit()
     cur2.close()
     conn2.close()
