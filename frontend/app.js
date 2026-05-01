@@ -784,14 +784,34 @@ function buildSystemCard(sys, rank) {
   }
 
   function connect() {
-    if (es) es.close();
-    if (dotEl) dotEl.className = 'feed-dot connecting';
-    es = new EventSource('/api/events/live');
-    es.onopen = () => { if (dotEl) dotEl.className = 'feed-dot active'; };
-    es.onerror = () => { if (dotEl) dotEl.className = 'feed-dot inactive'; setTimeout(connect, 5000); };
-    es.onmessage = (e) => { try { const data = JSON.parse(e.data); if (data && data.id64) addEvent(data); } catch {} };
+    try {
+      if (es) es.close();
+      if (dotEl) dotEl.className = 'feed-dot connecting';
+      es = new EventSource('/api/events/live');
+      es.onopen = () => { if (dotEl) dotEl.className = 'feed-dot active'; };
+      es.onerror = () => {
+        if (dotEl) dotEl.className = 'feed-dot inactive';
+        if (es) es.close();
+        setTimeout(connect, 5000);
+      };
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data && data.id64) addEvent(data);
+        } catch (err) {}
+      };
+    } catch (err) {
+      console.error('SSE Connection failed:', err);
+      setTimeout(connect, 5000);
+    }
   }
-  connect();
+
+  // Delay connection to avoid interrupting page load
+  if (document.readyState === 'complete') {
+    setTimeout(connect, 1000);
+  } else {
+    window.addEventListener('load', () => setTimeout(connect, 1000));
+  }
 })();
 
 // ═══════════════════════════════════════════════════════════════ WATCHLIST TAB
