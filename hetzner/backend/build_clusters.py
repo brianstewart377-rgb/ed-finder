@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ED Finder — Cluster Summary Builder
-Version: 3.3
+Version: 3.4
 
 Strategy:
   • Pure SQL Aggregation per grid cell, parallelised across N workers.
@@ -15,6 +15,7 @@ Performance:
   • v3.1: 125K SQL aggregations (1 thread) → 8–14 h ETA
   • v3.2: 125K SQL aggregations (6 threads) → 1.5–3 h ETA
   • v3.3: Adds statement_timeout + anchor-count pre-check to skip pathological
+  • v3.4: Adds worker connection retry with exponential backoff — survives DB crashes
           dense cells (Sol/core) that would otherwise stall for hours.
 """
 
@@ -197,21 +198,41 @@ def compute_coverage_score(rd: dict) -> float:
 # ---------------------------------------------------------------------------
 # Worker function
 # ---------------------------------------------------------------------------
+def _connect_with_retry(worker_id: int, db_url: str, cell_timeout: int,
+                        max_attempts: int = 10) -> tuple:
+    """
+    Connect to the DB with exponential backoff retry.
+    Returns (conn, cur) or raises after max_attempts.
+    """
+    import time as _time
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conn = psycopg2.connect(db_url)
+            conn.autocommit = False
+            cur = conn.cursor()
+            cur.execute(f"SET statement_timeout = '{cell_timeout}s'")
+            conn.commit()
+            if attempt > 1:
+                print(f"[W{worker_id}] Reconnected after {attempt} attempts", flush=True)
+            return conn, cur
+        except Exception as e:
+            wait = min(2 ** attempt, 60)  # cap at 60s
+            print(f"[W{worker_id}] DB connect attempt {attempt} failed: {e} — retrying in {wait}s", flush=True)
+            _time.sleep(wait)
+    raise RuntimeError(f"[W{worker_id}] Could not connect to DB after {max_attempts} attempts")
+
+
 def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
               radius: float, min_score: int, dirty_only: bool,
               cell_timeout: int = 120, max_anchors: int = 50000):
     """
     Pull grid cells from the queue and process each one with a SQL aggregation.
+    Automatically reconnects if the DB connection is lost.
     """
     try:
-        conn = psycopg2.connect(db_url)
-        conn.autocommit = False
-        cur = conn.cursor()
-        # Set per-statement timeout to avoid stalling on dense cells
-        cur.execute(f"SET statement_timeout = '{cell_timeout}s'")
-        conn.commit()
+        conn, cur = _connect_with_retry(worker_id, db_url, cell_timeout)
     except Exception as e:
-        print(f"[W{worker_id}] DB connect failed: {e}", flush=True)
+        print(f"[W{worker_id}] DB connect failed permanently: {e}", flush=True)
         return
 
     while True:
@@ -264,9 +285,25 @@ def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
         try:
             cur.execute(AGGREGATE_SQL, params)
             rows = cur.fetchall()
+        except psycopg2.OperationalError as e:
+            # DB connection lost — attempt to reconnect before giving up on this cell
+            print(f"[W{worker_id}] Cell {anchor_cell} connection lost: {e} — reconnecting", flush=True)
+            try:
+                conn, cur = _connect_with_retry(worker_id, db_url, cell_timeout)
+                # Retry the cell once after reconnect
+                cur.execute(AGGREGATE_SQL, params)
+                rows = cur.fetchall()
+            except Exception as e2:
+                print(f"[W{worker_id}] Cell {anchor_cell} failed after reconnect: {e2}", flush=True)
+                with done_counter.get_lock():
+                    done_counter.value += 1
+                continue
         except Exception as e:
             print(f"[W{worker_id}] Cell {anchor_cell} query error (timeout or other): {e}", flush=True)
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             with done_counter.get_lock():
                 done_counter.value += 1
             continue
@@ -298,9 +335,23 @@ def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
                     template=INSERT_TEMPLATE, page_size=200
                 )
                 conn.commit()
+            except psycopg2.OperationalError as e:
+                print(f"[W{worker_id}] Cell {anchor_cell} write lost connection: {e} — reconnecting", flush=True)
+                try:
+                    conn, cur = _connect_with_retry(worker_id, db_url, cell_timeout)
+                    psycopg2.extras.execute_values(
+                        cur, INSERT_SQL, write_batch,
+                        template=INSERT_TEMPLATE, page_size=200
+                    )
+                    conn.commit()
+                except Exception as e2:
+                    print(f"[W{worker_id}] Cell {anchor_cell} write failed after reconnect: {e2}", flush=True)
             except Exception as e:
                 print(f"[W{worker_id}] Cell {anchor_cell} write error: {e}", flush=True)
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
 
         if dirty_only:
             try:
@@ -311,7 +362,10 @@ def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
                 )
                 conn.commit()
             except Exception:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
 
         with done_counter.get_lock():
             done_counter.value += 1
@@ -323,7 +377,7 @@ def worker_fn(worker_id: int, cell_queue: Queue, done_counter, db_url: str,
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description='Build cluster_summary (v3.3 - Parallel SQL + Timeout)')
+    parser = argparse.ArgumentParser(description='Build cluster_summary (v3.4 - Parallel SQL + Timeout + Retry)')
     parser.add_argument('--workers',    type=int,   default=6)
     parser.add_argument('--radius',     type=float, default=DEFAULT_RADIUS)
     parser.add_argument('--min-score',  type=int,   default=DEFAULT_SCORE)
@@ -336,7 +390,7 @@ def main():
     args = parser.parse_args()
 
     script_start = time.time()
-    startup_banner(log, "Cluster Summary Builder", "3.3 (Parallel SQL + Timeout)")
+    startup_banner(log, "Cluster Summary Builder", "3.4 (Parallel SQL + Timeout + Retry)")
 
     try:
         conn = psycopg2.connect(DATABASE_URL)
