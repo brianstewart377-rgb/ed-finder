@@ -2984,6 +2984,8 @@ function _scheduleApiPoll(online) {
 async function spanshFetch(url, options = {}) {
   // Rewrite spansh.co.uk URLs to our backend
   const localUrl = url
+    .replace('https://spansh.co.uk/api/search', API_BASE + '/local/autocomplete')
+    .replace('https://www.spansh.co.uk/api/search', API_BASE + '/local/autocomplete')
     .replace('https://spansh.co.uk/api/', API_BASE + '/')
     .replace('https://www.spansh.co.uk/api/', API_BASE + '/');
   const r = await fetch(localUrl, {
@@ -2997,6 +2999,8 @@ async function spanshFetch(url, options = {}) {
 async function spanshPost(url, body, signal) {
   // Rewrite spansh.co.uk URLs to our backend
   const localUrl = url
+    .replace('https://spansh.co.uk/api/search', API_BASE + '/local/autocomplete')
+    .replace('https://www.spansh.co.uk/api/search', API_BASE + '/local/autocomplete')
     .replace('https://spansh.co.uk/api/', API_BASE + '/')
     .replace('https://www.spansh.co.uk/api/', API_BASE + '/');
   const r = await fetch(localUrl, {
@@ -7167,7 +7171,7 @@ function showSearchHistory() {
           ${filterLine}
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          <span style="color:var(--text-dim);font-size:10px">${h.ts?h.ts.slice(0,10):''}</span>
+          <span style="color:var(--text-dim);font-size:10px">${h.ts?new Date(h.ts).toISOString().slice(0,10):''}</span>
           <button class="btn btn-secondary" style="font-size:9px;padding:1px 5px;line-height:1.4"
             onclick="event.stopPropagation();_saveHistoryAsPreset(${i})" title="Save as preset">💾</button>
         </div>
