@@ -8561,7 +8561,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Feature 21: phase 2 auto-detect poll
   _startPhase2Poll();
   // Feature 22: SSE live EDDN
-  _connectSSE();
+  setTimeout(_connectSSE, 3000);
   // Restore CMDR name
   try {
     const cn = localStorage.getItem('ed_cmdr_name');
@@ -10193,7 +10193,7 @@ function _showPhase2Toast(bodyCount) {
 // FEATURE 22: SSE LIVE EDDN UPDATES FOR WATCHED SYSTEMS
 // ────────────────────────────────────────────────────────────────────
 let _sseSource = null;
-const SSE_ENDPOINT = `${API_BASE}/sse/eddn`;
+const SSE_ENDPOINT = `${API_BASE}/events/live`;
 
 function _connectSSE() {
   if (typeof EventSource === 'undefined') return; // no SSE support
