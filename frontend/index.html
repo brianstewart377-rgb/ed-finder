@@ -3,651 +3,92 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ED Finder — Elite Dangerous Colony Planner</title>
-  <meta name="description" content="Find the best uncolonised star systems in Elite Dangerous for colonisation. Search by economy, distance, body types and cluster coverage.">
+  <title>ED Finder | Elite Dangerous Colonisation Planner</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Three.js r160 — used for 2D galactic map and 3D star map -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+  <meta name="theme-color" content="#0a0c0e">
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════ HEADER -->
-<header id="site-header" role="banner">
-  <div class="header-inner">
-    <a class="logo" href="/" aria-label="ED Finder home">
-      <span class="logo-icon" aria-hidden="true">◈</span>
-      <span class="logo-text">ED <strong>FINDER</strong></span>
-      <span class="logo-sub">186M star systems</span>
-    </a>
-    <!-- Desktop nav -->
-    <nav id="main-nav" role="navigation" aria-label="Main navigation">
-      <button class="nav-btn active" data-tab="local" aria-selected="true" role="tab">Local Search</button>
-      <button class="nav-btn" data-tab="galaxy" aria-selected="false" role="tab">Galaxy Search</button>
-      <button class="nav-btn" data-tab="cluster" aria-selected="false" role="tab">Cluster Search</button>
-      <button class="nav-btn" data-tab="watchlist" id="watchlist-nav-btn" aria-selected="false" role="tab">
-        Watchlist <span id="watchlist-count-badge" class="nav-badge" hidden aria-live="polite">0</span>
-      </button>
-      <button class="nav-btn" data-tab="map" aria-selected="false" role="tab">🌌 Map</button>
-      <button class="nav-btn" data-tab="map3d" aria-selected="false" role="tab">🔮 3D Map</button>
-    </nav>
-    <div id="status-indicator" role="status" aria-live="polite" aria-label="Database connection status">
-      <span class="status-dot" id="status-dot" aria-hidden="true"></span>
-      <span id="status-text">Connecting…</span>
-    </div>
-  </div>
-</header>
+<div id="app-container" style="display: none; opacity: 0; transition: opacity 0.5s ease;">
+  <header id="site-header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">◉</span>
+        <span class="logo-text">ED <strong>Finder</strong></span>
+        <span class="logo-sub">Colonisation</span>
+      </div>
+      
+      <nav id="main-nav">
+        <button class="nav-btn" data-tab="local">Local Search</button>
+        <button class="nav-btn" data-tab="galaxy">Galaxy Search</button>
+        <button class="nav-btn" data-tab="cluster">Cluster Search</button>
+        <button class="nav-btn" data-tab="watchlist">Watchlist</button>
+      </nav>
 
-<!-- ═══════════════════════════════════════════════════════════ MAIN -->
-<div id="app-container">
-<main id="app" role="main">
-
-  <!-- ──────────────────────────────────────── TAB: LOCAL SEARCH -->
-  <section id="tab-local" class="tab-panel active" role="tabpanel" aria-label="Local Search">
-    <div class="panel-layout">
-
-      <!-- Search Controls -->
-      <aside class="search-panel" aria-label="Local search filters">
-        <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">⊕</span> Local Search</h2>
-        <p class="panel-desc">Find systems near a reference point by distance, economy, and body types. Results are scored 0–100 for colonisation suitability.</p>
-
-        <!-- Reference System -->
-        <div class="field-group">
-          <label class="field-label" for="local-ref-input">Reference System <button class="help-icon" data-help="ref-system" aria-label="Help: Reference System" type="button">ⓘ</button></label>
-          <div class="autocomplete-wrap" role="combobox" aria-expanded="false" aria-haspopup="listbox">
-            <input type="text" id="local-ref-input" class="field-input" placeholder="e.g. Sol, Colonia, Sagittarius A*"
-                   autocomplete="off" aria-autocomplete="list" aria-controls="local-ref-suggestions">
-            <ul id="local-ref-suggestions" class="autocomplete-list" role="listbox" hidden aria-label="System suggestions"></ul>
-          </div>
-          <div class="coord-display" id="local-coords-display" hidden aria-live="polite">
-            <span class="coord-tag" id="local-coord-x"></span>
-            <span class="coord-tag" id="local-coord-y"></span>
-            <span class="coord-tag" id="local-coord-z"></span>
-          </div>
-        </div>
-
-        <!-- Distance + Galaxy-wide toggle -->
-        <div class="field-group">
-          <div class="label-row">
-            <label class="field-label" for="local-dist-slider">
-              Max Distance: <strong id="local-dist-val">500 ly</strong>
-              <button class="help-icon" data-help="distance" aria-label="Help: Distance" type="button">ⓘ</button>
-            </label>
-            <label class="toggle-inline" title="Search entire galaxy (ignores distance limit)">
-              <input type="checkbox" id="local-galaxy-wide">
-              <span class="toggle-track" aria-hidden="true"></span>
-              <span class="toggle-label">Galaxy-wide</span>
-            </label>
-          </div>
-          <div class="slider-with-input">
-            <input type="range" id="local-dist-slider" class="slider" min="50" max="5000" step="50" value="500"
-                   aria-label="Maximum distance in light years" aria-valuemin="50" aria-valuemax="5000" aria-valuenow="500">
-            <input type="number" id="local-dist-num" class="slider-num-input" min="50" max="5000" step="50" value="500" aria-label="Distance value">
-          </div>
-          <div class="slider-labels" aria-hidden="true"><span>50 ly</span><span>5000 ly</span></div>
-        </div>
-
-        <!-- Population -->
-        <div class="field-group" role="group" aria-labelledby="pop-label">
-          <span class="field-label" id="pop-label">Population <button class="help-icon" data-help="population" aria-label="Help: Population" type="button">ⓘ</button></span>
-          <div class="radio-group">
-            <label class="radio-option"><input type="radio" name="local-pop" value="any" checked> Any</label>
-            <label class="radio-option"><input type="radio" name="local-pop" value="zero"> Uncolonised</label>
-          </div>
-        </div>
-
-        <!-- Economy -->
-        <div class="field-group">
-          <label class="field-label" for="local-economy">Primary Economy <button class="help-icon" data-help="economy" aria-label="Help: Economy types" type="button">ⓘ</button></label>
-          <select id="local-economy" class="field-select" aria-label="Filter by economy type">
-            <option value="any">Any Economy</option>
-            <option value="Agriculture">Agriculture</option>
-            <option value="Refinery">Refinery</option>
-            <option value="Industrial">Industrial</option>
-            <option value="HighTech">High Tech</option>
-            <option value="Military">Military</option>
-            <option value="Tourism">Tourism</option>
-            <option value="Extraction">Extraction</option>
-            <option value="Colony">Colony</option>
-          </select>
-        </div>
-        <!-- Min Rating -->
-        <div class="field-group">
-          <label class="field-label" for="local-rating-slider">
-            Min Rating: <strong id="local-rating-val">0</strong>
-            <button class="help-icon" data-help="rating" aria-label="Help: Rating score" type="button">ⓘ</button>
-          </label>
-          <div class="slider-with-input">
-            <input type="range" id="local-rating-slider" class="slider" min="0" max="100" step="5" value="0"
-                   aria-label="Minimum rating score" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-            <input type="number" id="local-rating-num" class="slider-num-input" min="0" max="100" step="5" value="0" aria-label="Rating value">
-          </div>
-          <div class="slider-labels" aria-hidden="true"><span>Any</span><span>100</span></div>
-        </div>
-        <!-- Body Filters -->
-        <details class="collapsible" id="body-filters-details">
-          <summary class="collapsible-header">
-            <span>Body Filters <button class="help-icon" data-help="body-filters" aria-label="Help: Body filters" type="button">ⓘ</button></span>
-            <span id="body-filter-active-count" class="filter-active-badge" hidden>0</span>
-          </summary>
-          <div class="collapsible-body">
-            <div class="body-filter-grid">
-              <div class="body-filter-item">
-                <label for="bf-elw">🌍 Earth-like ≥</label>
-                <input type="number" id="bf-elw" class="num-input" min="0" max="10" value="0">
-              </div>
-              <div class="body-filter-item">
-                <label for="bf-ww">💧 Water World ≥</label>
-                <input type="number" id="bf-ww" class="num-input" min="0" max="10" value="0">
-              </div>
-              <div class="body-filter-item">
-                <label for="bf-ammonia">🟣 Ammonia ≥</label>
-                <input type="number" id="bf-ammonia" class="num-input" min="0" max="10" value="0">
-              </div>
-              <div class="body-filter-item">
-                <label for="bf-gasgiant">🔵 Gas Giant ≥</label>
-                <input type="number" id="bf-gasgiant" class="num-input" min="0" max="10" value="0">
-              </div>
-              <div class="body-filter-item">
-                <label for="bf-neutron">💫 Neutron ≥</label>
-                <input type="number" id="bf-neutron" class="num-input" min="0" max="10" value="0">
-              </div>
-            </div>
-            <div class="checkbox-row">
-              <label class="checkbox-option"><input type="checkbox" id="bf-bio"> Bio Signals</label>
-              <label class="checkbox-option"><input type="checkbox" id="bf-geo"> Geo Signals</label>
-              <label class="checkbox-option"><input type="checkbox" id="bf-terra"> Terraformable</label>
-            </div>
-          </div>
-        </details>
-        <!-- Sort -->
-        <div class="field-group" role="group" aria-labelledby="sort-label">
-          <span class="field-label" id="sort-label">Sort By</span>
-          <div class="radio-group">
-            <label class="radio-option"><input type="radio" name="local-sort" value="rating" checked> Rating</label>
-            <label class="radio-option"><input type="radio" name="local-sort" value="distance"> Distance</label>
-          </div>
-        </div>
-        <!-- Action buttons -->
-        <div class="search-actions">
-          <button id="local-search-btn" class="search-btn" aria-label="Run local search">
-            <span class="btn-icon" aria-hidden="true">◉</span> Search
-          </button>
-          <button id="local-clear-btn" class="clear-btn" aria-label="Clear all filters" title="Reset all filters to defaults">
-            ✕ Clear
-          </button>
-        </div>
-        <!-- Recently Viewed -->
-        <div id="recently-viewed-panel" class="recently-viewed" hidden>
-          <div class="history-title">Recently Viewed</div>
-          <ul id="recently-viewed-list" class="recently-viewed-list"></ul>
-        </div>
-        <!-- Search history -->
-        <div id="local-search-history" class="search-history" hidden>
-          <div class="search-history-label">Recent searches</div>
-          <ul id="local-history-list" class="history-list"></ul>
-        </div>
-      </aside>
-      <!-- Results -->
-      <div class="results-panel" aria-live="polite" aria-label="Search results">
-        <div id="local-results-header" class="results-header" hidden>
-          <span id="local-results-count"></span>
-          <div class="results-header-actions">
-            <button id="local-sort-distance-btn" class="sort-header-btn" data-sort="distance" title="Sort by distance">Distance ↕</button>
-            <button id="local-sort-rating-btn" class="sort-header-btn active" data-sort="rating" title="Sort by rating">Rating ↕</button>
-            <!-- UI #1: Show on map button -->
-            <button id="local-show-map-btn" class="sort-header-btn map-btn" title="Show results on map" hidden>🌌 Map</button>
-            <div class="pagination" id="local-pagination"></div>
-          </div>
-        </div>
-        <!-- Skeleton loader -->
-        <div id="local-skeleton" class="skeleton-list" hidden aria-hidden="true">
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-        </div>
-        <div id="local-results" class="results-list">
-          <div class="empty-state" role="status">
-            <div class="empty-icon" aria-hidden="true">◉</div>
-            <div class="empty-title">Enter a reference system and search</div>
-            <div class="empty-sub">Results will appear here</div>
-          </div>
+      <div class="header-status">
+        <div id="status-badge" class="status-badge">
+          <span class="status-dot"></span>
+          <span class="status-text">API</span>
         </div>
       </div>
     </div>
-  </section>
+  </header>
 
-  <!-- ──────────────────────────────────────── TAB: GALAXY SEARCH -->
-  <section id="tab-galaxy" class="tab-panel" role="tabpanel" aria-label="Galaxy Search" hidden>
-    <div class="panel-layout">
-      <aside class="search-panel" aria-label="Galaxy search filters">
-        <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">✦</span> Galaxy Search</h2>
-        <p class="panel-desc">Find the best uncolonised systems galaxy-wide for a specific economy type, sorted by suitability score. Scores are pre-computed from body composition, star type, and distance from the bubble.</p>
-        <div class="field-group">
-          <label class="field-label" for="galaxy-economy">Economy Type</label>
-          <select id="galaxy-economy" class="field-select">
-            <option value="any">Any Economy</option>
-            <option value="Agriculture">Agriculture</option>
-            <option value="Refinery">Refinery</option>
-            <option value="Industrial">Industrial</option>
-            <option value="HighTech">High Tech</option>
-            <option value="Military">Military</option>
-            <option value="Tourism">Tourism</option>
-          </select>
-        </div>
-        <div class="field-group">
-          <label class="field-label" for="galaxy-score-slider">
-            Min Score: <strong id="galaxy-score-val">65</strong>
-            <button class="help-icon" data-help="rating" aria-label="Help: Score" type="button">ⓘ</button>
-          </label>
-          <div class="slider-with-input">
-            <input type="range" id="galaxy-score-slider" class="slider" min="0" max="100" step="5" value="65"
-                   aria-label="Minimum score">
-            <input type="number" id="galaxy-score-num" class="slider-num-input" min="0" max="100" step="5" value="65" aria-label="Score value">
+  <main id="main-content">
+    <section id="tab-local" class="tab-panel">
+      <div class="panel-layout">
+        <aside class="search-panel">
+          <h2 class="panel-title">Local Search</h2>
+          <div class="field-group">
+            <label class="field-label">Reference System</label>
+            <input type="text" id="local-ref-input" class="field-input" placeholder="e.g. Sol">
           </div>
-          <div class="slider-labels" aria-hidden="true"><span>Any</span><span>100</span></div>
-        </div>
-        <div class="search-actions">
-          <button id="galaxy-search-btn" class="search-btn" aria-label="Search galaxy">
-            <span class="btn-icon" aria-hidden="true">✦</span> Search Galaxy
-          </button>
-        </div>
-      </aside>
-      <div class="results-panel" aria-live="polite">
-        <div id="galaxy-results-header" class="results-header" hidden>
-          <span id="galaxy-results-count"></span>
-          <div class="pagination" id="galaxy-pagination"></div>
-        </div>
-        <div id="galaxy-results" class="results-list">
-          <div class="empty-state" role="status">
-            <div class="empty-icon" aria-hidden="true">✦</div>
-            <div class="empty-title">Search the galaxy</div>
-            <div class="empty-sub">Find top-rated systems galaxy-wide for any economy type</div>
-          </div>
+          <button id="local-search-btn" class="search-btn">Search</button>
+        </aside>
+        <div class="results-panel">
+          <div id="local-results" class="results-list"></div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ──────────────────────────────────────── TAB: CLUSTER SEARCH -->
-  <section id="tab-cluster" class="tab-panel" role="tabpanel" aria-label="Cluster Search" hidden>
-    <div class="panel-layout">
-      <aside class="search-panel" aria-label="Cluster search filters">
-        <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">⬡</span> Cluster Search</h2>
-        <p class="panel-desc">Find the best <strong>anchor system</strong> where a 500 ly bubble around it contains all your required economy types.</p>
-        <div class="info-callout">
-          <strong>How it works:</strong> Add the economy types your colony network needs. The search finds the best hub system where all those economy types exist within 500 ly — the ideal base for a multi-economy colony chain.
-        </div>
-
-        <!-- UI #5: Economy presets -->
-        <div class="field-group">
-          <span class="field-label">Quick Presets <button class="help-icon" data-help="presets" aria-label="Help: Presets" type="button">ⓘ</button></span>
-          <div class="preset-grid">
-            <button class="preset-btn" data-preset="full-colony" title="Agriculture, Refinery, Industrial, High Tech, Military, Tourism">Full Colony Stack</button>
-            <button class="preset-btn" data-preset="industry-refinery" title="Industrial + Refinery">Industry + Refinery</button>
-            <button class="preset-btn" data-preset="agri-hitech" title="Agriculture + High Tech">Agri + HiTech</button>
-            <button class="preset-btn" data-preset="military-tourism" title="Military + Tourism">Military + Tourism</button>
-            <button class="preset-btn" data-preset="core-three" title="Agriculture, Industrial, High Tech">Core Three</button>
-          </div>
-        </div>
-
-        <div id="cluster-requirements" role="list" aria-label="Economy requirements"></div>
-        <button id="add-economy-btn" class="add-btn" aria-label="Add economy requirement">
-          <span aria-hidden="true">＋</span> Add Economy Requirement
-        </button>
-        <div class="field-group" style="margin-top: 1.5rem;">
-          <label class="field-label" for="cluster-limit">Results</label>
-          <select id="cluster-limit" class="field-select">
-            <option value="10">Top 10</option>
-            <option value="25" selected>Top 25</option>
-            <option value="50">Top 50</option>
-            <option value="100">Top 100</option>
-          </select>
-        </div>
-        <!-- Reference system for distance sorting -->
-        <div class="field-group">
-          <label class="field-label" for="cluster-ref-input">Sort by distance from (optional)</label>
-          <div class="autocomplete-wrap">
-            <input type="text" id="cluster-ref-input" class="field-input" placeholder="e.g. Sol, Colonia…"
-                   autocomplete="off" aria-autocomplete="list" aria-controls="cluster-ref-suggestions">
-            <ul id="cluster-ref-suggestions" class="autocomplete-list" role="listbox" hidden></ul>
-          </div>
-          <div class="coord-display" id="cluster-coords-display" hidden aria-live="polite">
-            <span class="coord-tag" id="cluster-coord-x"></span>
-            <span class="coord-tag" id="cluster-coord-y"></span>
-            <span class="coord-tag" id="cluster-coord-z"></span>
-          </div>
-        </div>
-        <!-- UI #4: Jump range for hop count -->
-        <div class="field-group">
-          <label class="field-label" for="cluster-jump-range">
-            Ship Jump Range: <strong id="cluster-jump-range-val">50 ly</strong>
-          </label>
-          <div class="slider-with-input">
-            <input type="range" id="cluster-jump-range" class="slider" min="10" max="500" step="5" value="50"
-                   aria-label="Ship jump range in light years">
-            <input type="number" id="cluster-jump-range-num" class="slider-num-input" min="10" max="500" step="5" value="50" aria-label="Jump range value">
-          </div>
-          <div class="slider-labels" aria-hidden="true"><span>10 ly</span><span>500 ly</span></div>
-        </div>
-        <div class="search-actions">
-          <button id="cluster-search-btn" class="search-btn" aria-label="Find clusters">
-            <span class="btn-icon" aria-hidden="true">◉</span> Find Clusters
-          </button>
-          <button id="cluster-clear-btn" class="clear-btn" aria-label="Clear cluster requirements">✕ Clear</button>
-        </div>
-        <!-- UI #9: Cluster sort options -->
-        <div class="field-group" style="margin-top:1rem" role="group" aria-labelledby="cluster-sort-label">
-          <span class="field-label" id="cluster-sort-label">Sort Results By <button class="help-icon" data-help="cluster-sort" aria-label="Help: Sort options" type="button">ⓘ</button></span>
-          <div class="radio-group">
-            <label class="radio-option"><input type="radio" name="cluster-sort" value="coverage" checked> Coverage Score</label>
-            <label class="radio-option"><input type="radio" name="cluster-sort" value="total"> Total Viable</label>
-            <label class="radio-option"><input type="radio" name="cluster-sort" value="distance"> Distance</label>
-            <label class="radio-option"><input type="radio" name="cluster-sort" value="diversity"> Diversity</label>
-          </div>
-        </div>
-      </aside>
-      <div class="results-panel" aria-live="polite">
-        <div id="cluster-results-header" class="results-header" hidden>
-          <span id="cluster-results-count"></span>
-          <!-- UI #1: Show on map button for clusters -->
-          <button id="cluster-show-map-btn" class="sort-header-btn map-btn" title="Show clusters on map" hidden>🌌 Map</button>
-        </div>
-        <div id="cluster-skeleton" class="skeleton-list" hidden aria-hidden="true">
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-        </div>
-        <div id="cluster-results" class="results-list">
-          <div class="empty-state" role="status">
-            <div class="empty-icon" aria-hidden="true">⬡</div>
-            <div class="empty-title">Add economy requirements and search</div>
-            <div class="empty-sub">Find anchor points covering multiple economy types within 500 ly</div>
-          </div>
+    <section id="tab-galaxy" class="tab-panel" hidden>
+      <div class="panel-layout">
+        <aside class="search-panel">
+          <h2 class="panel-title">Galaxy Search</h2>
+          <button id="galaxy-search-btn" class="search-btn">Search Galaxy</button>
+        </aside>
+        <div class="results-panel">
+          <div id="galaxy-results" class="results-list"></div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ──────────────────────────────────────── TAB: WATCHLIST -->
-  <section id="tab-watchlist" class="tab-panel" role="tabpanel" aria-label="Watchlist" hidden>
-    <div class="panel-layout">
-      <aside class="search-panel" aria-label="Watchlist controls">
-        <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">★</span> Watchlist</h2>
-        <p class="panel-desc">Systems you've saved for tracking. Click any entry to view full details.</p>
-        <!-- UI #8: Status filter -->
-        <div class="field-group" role="group" aria-labelledby="wl-status-label">
-          <span class="field-label" id="wl-status-label">Filter by Status</span>
-          <div class="radio-group">
-            <label class="radio-option"><input type="radio" name="wl-status-filter" value="all" checked> All</label>
-            <label class="radio-option"><input type="radio" name="wl-status-filter" value="unvisited"> Unvisited</label>
-            <label class="radio-option"><input type="radio" name="wl-status-filter" value="scouted"> Scouted</label>
-            <label class="radio-option"><input type="radio" name="wl-status-filter" value="colonised"> Colonised</label>
-          </div>
-        </div>
-        <div class="empty-state" id="watchlist-empty-state" role="status">
-          <div class="empty-icon" aria-hidden="true">★</div>
-          <div>No systems saved yet.</div>
-          <div style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted)">
-            Open any system's detail view and click "Save to Watchlist".
-          </div>
-        </div>
-        <!-- Export / Import -->
-        <div class="watchlist-io" id="watchlist-io-panel" hidden>
-          <button id="watchlist-export-btn" class="io-btn" aria-label="Export watchlist as JSON">
-            ↓ Export JSON
-          </button>
-          <label class="io-btn" aria-label="Import watchlist from JSON file">
-            ↑ Import JSON
-            <input type="file" id="watchlist-import-input" accept=".json" style="display:none">
-          </label>
-        </div>
-        <button id="watchlist-clear-btn" class="danger-btn" hidden aria-label="Clear all watchlist entries">
-          Clear All
-        </button>
-        <!-- Watchlist Changelog -->
-        <div id="watchlist-changelog" class="watchlist-changelog" hidden>
-          <div class="history-title">Recent Changes</div>
-          <ul id="watchlist-changelog-list" class="changelog-list"></ul>
-        </div>
-      </aside>
-      <div class="results-panel" aria-live="polite">
-        <div id="watchlist-results-header" class="results-header" hidden>
-          <span id="watchlist-results-count"></span>
-          <div class="pagination" id="watchlist-pagination"></div>
-        </div>
-        <div id="watchlist-results" class="results-list">
-          <div class="empty-state" role="status">
-            <div class="empty-icon" aria-hidden="true">★</div>
-            <div class="empty-title">Your watchlist is empty</div>
-            <div class="empty-sub">Save systems from any search result to track them here</div>
-          </div>
+    <section id="tab-cluster" class="tab-panel" hidden>
+      <div class="panel-layout">
+        <aside class="search-panel">
+          <h2 class="panel-title">Cluster Search</h2>
+          <button id="cluster-search-btn" class="search-btn">Find Clusters</button>
+        </aside>
+        <div class="results-panel">
+          <div id="cluster-results" class="results-list"></div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ──────────────────────────────────────── TAB: 2D MAP -->
-  <section id="tab-map" class="tab-panel tab-panel--full" role="tabpanel" aria-label="Galactic Map" hidden>
-    <div class="map-layout">
-      <!-- Map controls sidebar -->
-      <aside class="map-controls-panel" aria-label="Map controls">
-        <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">🌌</span> Galactic Map</h2>
-        <p class="panel-desc">Scroll to zoom · Drag to pan · Double-click to reset · Click dot for details</p>
-
-        <div class="field-group">
-          <label class="field-label" for="map-plane">View Plane</label>
-          <select id="map-plane" class="field-select">
-            <option value="xz">Top-down (X / Z)</option>
-            <option value="xy">Front (X / Y)</option>
-            <option value="yz">Side (Y / Z)</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="map-colour-mode">Colour Mode</label>
-          <select id="map-colour-mode" class="field-select">
-            <option value="rating">Rating</option>
-            <option value="economy">Economy</option>
-            <option value="distance">Distance from Ref</option>
-            <option value="population">Population</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <span class="field-label">Overlays</span>
-          <div class="checkbox-col">
-            <label class="checkbox-option"><input type="checkbox" id="map-show-watchlist" checked> 👁 Watchlist</label>
-            <label class="checkbox-option"><input type="checkbox" id="map-show-clusters"> ⬡ Cluster results</label>
-            <label class="checkbox-option"><input type="checkbox" id="map-show-radius"> ◎ 500 ly radius</label>
-            <label class="checkbox-option"><input type="checkbox" id="map-nebula-overlay"> 🌫️ Nebulae</label>
-            <label class="checkbox-option"><input type="checkbox" id="map-show-landmarks" checked> ★ Landmarks</label>
-            <label class="checkbox-option"><input type="checkbox" id="map-show-heat"> 🔥 Density Heat</label>
-          </div>
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="map-top-n">
-            Label top <strong id="map-top-n-val">5</strong> systems
-          </label>
-          <input type="range" id="map-top-n" class="slider" min="0" max="20" step="1" value="5">
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="map-jump-range">
-            Jump range: <strong id="map-jump-range-val">50 ly</strong>
-            <button class="help-icon" data-help="jump-range" aria-label="Help: Jump range" type="button">ⓘ</button>
-          </label>
-          <input type="range" id="map-jump-range" class="slider" min="10" max="500" step="5" value="50" aria-label="Ship jump range for route calculation">
-          <p class="field-hint">Used to estimate hop count when a system is selected</p>
-        </div>
-
-        <div class="search-actions">
-          <button id="map-redraw-btn" class="search-btn" aria-label="Redraw map">↺ Redraw</button>
-          <button id="map-reset-btn" class="clear-btn" aria-label="Reset view">⊙ Reset</button>
-        </div>
-        <button id="map-save-png-btn" class="io-btn" style="margin-top:0.5rem;width:100%" aria-label="Save map as PNG">💾 Save PNG</button>
-
-        <!-- Map legend -->
-        <div id="map-legend" class="map-legend" aria-label="Map legend"></div>
-      </aside>
-
-      <!-- Canvas area -->
-      <div class="map-canvas-area">
-        <canvas id="galactic-map" aria-label="2D galactic map"></canvas>
-        <div id="map-tooltip" class="map-tooltip" hidden></div>
-        <div id="map-detail-panel" class="map-detail-panel" hidden></div>
-        <div id="map-empty" class="map-empty-state">
-          Run a search first, then return here to see your results on the map.
+    <section id="tab-watchlist" class="tab-panel" hidden>
+      <div class="panel-layout">
+        <aside class="search-panel">
+          <h2 class="panel-title">Watchlist</h2>
+        </aside>
+        <div class="results-panel">
+          <div id="watchlist-results" class="results-list"></div>
         </div>
       </div>
-    </div>
-  </section>
-
-  <!-- ──────────────────────────────────────── TAB: 3D MAP -->
-  <section id="tab-map3d" class="tab-panel tab-panel--full" role="tabpanel" aria-label="3D Star Map" hidden>
-    <div class="map-layout">
-      <!-- 3D controls sidebar -->
-      <aside class="map-controls-panel" aria-label="3D map controls">
-        <h2 class="panel-title"><span class="panel-icon" aria-hidden="true">🔮</span> 3D Star Map</h2>
-        <p class="panel-desc">Drag to rotate · Scroll to zoom · Click dot for details · Press <kbd>Shift+M</kbd> to open</p>
-
-        <div class="field-group">
-          <label class="field-label" for="map3d-colour-mode">Colour Mode</label>
-          <select id="map3d-colour-mode" class="field-select">
-            <option value="rating">Rating</option>
-            <option value="economy">Economy</option>
-            <option value="distance">Distance from Ref</option>
-            <option value="population">Population</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="map3d-size-mode">Point Size</label>
-          <select id="map3d-size-mode" class="field-select">
-            <option value="uniform">Uniform</option>
-            <option value="rating">By Rating</option>
-            <option value="population">By Population</option>
-          </select>
-        </div>
-
-        <div class="field-group">
-          <span class="field-label">Overlays</span>
-          <div class="checkbox-col">
-            <label class="checkbox-option"><input type="checkbox" id="map3d-show-watchlist" checked> 👁 Watchlist</label>
-            <label class="checkbox-option"><input type="checkbox" id="map3d-show-clusters"> ⬡ Cluster results</label>
-            <label class="checkbox-option"><input type="checkbox" id="map3d-show-radius"> ◎ 500 ly sphere</label>
-            <label class="checkbox-option"><input type="checkbox" id="map3d-show-landmarks" checked> ★ Landmarks</label>
-          </div>
-        </div>
-
-        <div class="search-actions">
-          <button id="map3d-reset-btn" class="search-btn" aria-label="Reset camera">⊙ Reset Camera</button>
-        </div>
-        <button id="map3d-save-png-btn" class="io-btn" style="margin-top:0.5rem;width:100%" aria-label="Save 3D view as PNG">💾 Save PNG</button>
-
-        <!-- 3D detail panel -->
-        <div id="map3d-detail-panel" class="map3d-detail" hidden></div>
-      </aside>
-
-      <!-- 3D canvas area -->
-      <div class="map-canvas-area map-canvas-area--3d">
-        <canvas id="map3d-canvas" aria-label="3D star map"></canvas>
-        <div id="map3d-tooltip" class="map-tooltip" hidden></div>
-        <div id="map3d-empty" class="map-empty-state">
-          Run a search first, then return here for a 3D view of your results.
-        </div>
-      </div>
-    </div>
-  </section>
-
-</main>
+    </section>
+  </main>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════ COMPARE PANEL -->
-<aside id="compare-panel" class="compare-panel" hidden aria-label="Compare systems" role="complementary">
-  <div class="compare-header">
-    <span class="compare-title">Compare Systems</span>
-    <span id="compare-count" class="compare-count">0 / 3</span>
-    <button id="compare-clear-btn" class="compare-clear-btn" aria-label="Clear comparison">✕</button>
-  </div>
-  <div id="compare-slots" class="compare-slots"></div>
-  <button id="compare-run-btn" class="search-btn compare-run-btn" disabled aria-label="Run comparison">
-    Compare
-  </button>
-</aside>
-
-<!-- ═══════════════════════════════════════════════════════════ LIVE EDDN FEED -->
-<aside id="live-feed-panel" class="live-feed-panel" role="complementary" aria-label="Live EDDN events">
-  <div class="live-feed-header">
-    <span class="live-feed-title">
-      <span id="live-feed-dot" class="feed-dot" aria-hidden="true"></span>
-      EDDN Live
-    </span>
-    <span id="live-feed-count" class="feed-count" aria-live="polite">0</span>
-    <button id="live-feed-toggle" class="feed-toggle-btn" aria-label="Pause live feed">Pause</button>
-  </div>
-  <div class="feed-filter-row">
-    <input type="text" id="live-feed-filter" class="feed-filter-input" placeholder="Filter by system name or type…" aria-label="Filter live feed events">
-  </div>
-  <ul id="live-feed-list" class="feed-list" role="log" aria-live="polite" aria-label="Live EDDN events"></ul>
-</aside>
-
-<!-- ═══════════════════════════════════════════════════════════ DETAIL MODAL -->
-<div id="system-modal" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="modal-system-name">
-  <div class="modal-box">
-    <button class="modal-close" id="modal-close-btn" aria-label="Close system detail">✕</button>
-    <div id="modal-content">
-      <div class="loading-state" role="status"><div class="spinner" aria-hidden="true"></div>Loading system data…</div>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════ COMPARE MODAL -->
-<div id="compare-modal" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-label="System comparison">
-  <div class="modal-box modal-box--wide">
-    <button class="modal-close" id="compare-modal-close" aria-label="Close comparison">✕</button>
-    <div id="compare-modal-content"></div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════ TOAST -->
-  <div id="toast" class="toast" hidden role="alert" aria-live="assertive"></div>
-
-<!-- ═══════════════════════════════════════════════════════════ HELP POPOVER -->
-<div id="help-popover" class="help-popover" hidden role="tooltip" aria-live="polite">
-  <button id="help-popover-close" class="help-popover-close" aria-label="Close help" type="button">✕</button>
-  <div id="help-popover-content" class="help-popover-content"></div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════ MOBILE BOTTOM NAV -->
-<nav id="mobile-nav" class="mobile-nav" role="navigation" aria-label="Mobile navigation">
-  <button class="mobile-nav-btn active" data-tab="local" aria-label="Local Search">
-    <span class="mobile-nav-icon" aria-hidden="true">⊕</span>
-    <span class="mobile-nav-label">Local</span>
-  </button>
-  <button class="mobile-nav-btn" data-tab="galaxy" aria-label="Galaxy Search">
-    <span class="mobile-nav-icon" aria-hidden="true">✦</span>
-    <span class="mobile-nav-label">Galaxy</span>
-  </button>
-  <button class="mobile-nav-btn" data-tab="cluster" aria-label="Cluster Search">
-    <span class="mobile-nav-icon" aria-hidden="true">⬡</span>
-    <span class="mobile-nav-label">Cluster</span>
-  </button>
-  <button class="mobile-nav-btn" data-tab="watchlist" aria-label="Watchlist">
-    <span class="mobile-nav-icon" aria-hidden="true">★</span>
-    <span class="mobile-nav-label">Watchlist</span>
-  </button>
-  <button class="mobile-nav-btn" data-tab="map" aria-label="Map">
-    <span class="mobile-nav-icon" aria-hidden="true">🌌</span>
-    <span class="mobile-nav-label">Map</span>
-  </button>
-  <button class="mobile-nav-btn" data-tab="map3d" aria-label="3D Map">
-    <span class="mobile-nav-icon" aria-hidden="true">🔮</span>
-    <span class="mobile-nav-label">3D Map</span>
-  </button>
-</nav>
+<div id="toast" class="toast" hidden></div>
 
 <script src="app.js"></script>
 </body>
