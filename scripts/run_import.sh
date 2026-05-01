@@ -38,26 +38,22 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_HETZNER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Auto-detect install dir ──────────────────────────────────────────────────
 # The install dir is the directory that contains docker-compose.yml.
 # Priority order:
-#   1. The hetzner/ directory of the repo itself (repo cloned in place)
-#   2. /opt/ed-finder/hetzner  (legacy separate-install layout)
-#   3. /opt/ed-finder           (old single-dir layout)
+#   1. The repo root itself (repo cloned in place)
+#   2. /opt/ed-finder (deployed install)
 # Override: INSTALL_DIR=/my/path ./scripts/run_import.sh
 if [[ -z "${INSTALL_DIR:-}" ]]; then
-    if [[ -f "$REPO_HETZNER_DIR/docker-compose.yml" ]]; then
-        INSTALL_DIR="$REPO_HETZNER_DIR"
-    elif [[ -f "/opt/ed-finder/hetzner/docker-compose.yml" ]]; then
-        INSTALL_DIR="/opt/ed-finder/hetzner"
+    if [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
+        INSTALL_DIR="$REPO_ROOT"
     elif [[ -f "/opt/ed-finder/docker-compose.yml" ]]; then
         INSTALL_DIR="/opt/ed-finder"
     else
         echo "[ERROR] Cannot find docker-compose.yml — tried:"
-        echo "        $REPO_HETZNER_DIR/docker-compose.yml"
-        echo "        /opt/ed-finder/hetzner/docker-compose.yml"
+        echo "        $REPO_ROOT/docker-compose.yml"
         echo "        /opt/ed-finder/docker-compose.yml"
         echo ""
         echo "        Set INSTALL_DIR=/path/to/dir/containing/docker-compose.yml"
@@ -65,18 +61,18 @@ if [[ -z "${INSTALL_DIR:-}" ]]; then
     fi
 fi
 
-echo "[INFO] Install dir : $INSTALL_DIR"
-echo "[INFO] Repo hetzner: $REPO_HETZNER_DIR"
+echo "[INFO] Install dir: $INSTALL_DIR"
+echo "[INFO] Repo root  : $REPO_ROOT"
 
 # ── Sync latest backend scripts from repo into install dir ──────────────────
-if [[ "$INSTALL_DIR" != "$REPO_HETZNER_DIR" ]]; then
+if [[ "$INSTALL_DIR" != "$REPO_ROOT" ]]; then
     echo "[INFO] Syncing scripts from repo to install dir ..."
     mkdir -p "$INSTALL_DIR/backend"
-    cp "$REPO_HETZNER_DIR/backend/import_spansh.py"  "$INSTALL_DIR/backend/import_spansh.py"
-    cp "$REPO_HETZNER_DIR/backend/progress.py"       "$INSTALL_DIR/backend/progress.py"
-    cp "$REPO_HETZNER_DIR/backend/build_grid.py"     "$INSTALL_DIR/backend/build_grid.py"
-    cp "$REPO_HETZNER_DIR/backend/build_ratings.py"  "$INSTALL_DIR/backend/build_ratings.py"
-    cp "$REPO_HETZNER_DIR/backend/build_clusters.py" "$INSTALL_DIR/backend/build_clusters.py"
+    cp "$REPO_ROOT/backend/import_spansh.py"  "$INSTALL_DIR/backend/import_spansh.py"
+    cp "$REPO_ROOT/backend/progress.py"       "$INSTALL_DIR/backend/progress.py"
+    cp "$REPO_ROOT/backend/build_grid.py"     "$INSTALL_DIR/backend/build_grid.py"
+    cp "$REPO_ROOT/backend/build_ratings.py"  "$INSTALL_DIR/backend/build_ratings.py"
+    cp "$REPO_ROOT/backend/build_clusters.py" "$INSTALL_DIR/backend/build_clusters.py"
     echo "[INFO] Scripts synced."
 else
     echo "[INFO] Install dir is the repo — no sync needed."
@@ -85,8 +81,8 @@ fi
 # ── Locate .env ──────────────────────────────────────────────────────────────
 if [[ -f "$INSTALL_DIR/.env" ]]; then
     ENV_FILE="$INSTALL_DIR/.env"
-elif [[ -f "$REPO_HETZNER_DIR/.env" ]]; then
-    ENV_FILE="$REPO_HETZNER_DIR/.env"
+elif [[ -f "$REPO_ROOT/.env" ]]; then
+    ENV_FILE="$REPO_ROOT/.env"
 else
     echo "[ERROR] .env not found. Create it with:"
     echo "        echo 'POSTGRES_PASSWORD=yourpassword' > $INSTALL_DIR/.env"

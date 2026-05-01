@@ -155,7 +155,7 @@ def run_cluster_rebuild():
         # Use the absolute path and the correct docker compose profile
         cmd = [
             "docker", "compose", 
-            "--project-directory", "/opt/ed-finder/hetzner",
+            "--project-directory", "/opt/ed-finder",
             "--profile", "import", 
             "run", "--rm", "importer", 
             "python3", "build_clusters.py", "--dirty-only", "--workers", "6"

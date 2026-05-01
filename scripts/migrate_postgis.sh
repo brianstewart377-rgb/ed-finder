@@ -9,7 +9,7 @@
 # Disk:    ~12 GB additional (geometry column + GIST index)
 #
 # Usage:
-#   cd /opt/ed-finder/hetzner
+#   cd /opt/ed-finder
 #   bash scripts/migrate_postgis.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail

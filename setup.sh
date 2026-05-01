@@ -179,10 +179,14 @@ fi
 # Step 6 — Copy project files
 # ---------------------------------------------------------------------------
 step "6. Deploy files"
-cp -r "$REPO_ROOT"/hetzner/. "$INSTALL_DIR/"
-# Update importer with latest COPY-based version
-cp "$REPO_ROOT/hetzner/backend/import_spansh.py" "$INSTALL_DIR/backend/import_spansh.py" 2>/dev/null || true
-# Frontend (served by nginx)
+# Copy project files from repo root to install dir
+for d in backend config frontend scripts sql tests; do
+    [[ -d "$REPO_ROOT/$d" ]] && cp -r "$REPO_ROOT/$d" "$INSTALL_DIR/"
+done
+for f in docker-compose.yml setup.sh; do
+    [[ -f "$REPO_ROOT/$f" ]] && cp "$REPO_ROOT/$f" "$INSTALL_DIR/"
+done
+# Frontend (served by nginx directly from repo checkout)
 if [[ -d "$REPO_ROOT/frontend" ]]; then
     chmod -R 755 "$REPO_ROOT/frontend"
     success "Frontend at $REPO_ROOT/frontend"
@@ -339,7 +343,7 @@ fi
 # Step 17 — Nightly update cron
 # ---------------------------------------------------------------------------
 step "17. Nightly cron"
-NIGHTLY_SCRIPT="$INSTALL_DIR/import/nightly_update.sh"
+NIGHTLY_SCRIPT="$INSTALL_DIR/scripts/nightly_update.sh"
 if [[ -f "$NIGHTLY_SCRIPT" ]]; then
     chmod +x "$NIGHTLY_SCRIPT"
     CRON_LINE="0 2 * * * $NIGHTLY_SCRIPT >> /data/logs/nightly.log 2>&1"

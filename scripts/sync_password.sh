@@ -31,7 +31,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_HETZNER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 VERIFY_ONLY=false
 if [[ "${1:-}" == "--verify-only" ]]; then
@@ -39,15 +39,13 @@ if [[ "${1:-}" == "--verify-only" ]]; then
 fi
 
 # ── Locate .env ──────────────────────────────────────────────────────────────
-if [[ -f "$REPO_HETZNER_DIR/.env" ]]; then
-    ENV_FILE="$REPO_HETZNER_DIR/.env"
-elif [[ -f "/opt/ed-finder/hetzner/.env" ]]; then
-    ENV_FILE="/opt/ed-finder/hetzner/.env"
+if [[ -f "$REPO_ROOT/.env" ]]; then
+    ENV_FILE="$REPO_ROOT/.env"
 elif [[ -f "/opt/ed-finder/.env" ]]; then
     ENV_FILE="/opt/ed-finder/.env"
 else
     echo "[ERROR] .env not found. Create it with:"
-    echo "        echo 'POSTGRES_PASSWORD=yourpassword' > $REPO_HETZNER_DIR/.env"
+    echo "        echo 'POSTGRES_PASSWORD=yourpassword' > $REPO_ROOT/.env"
     exit 1
 fi
 
@@ -70,7 +68,7 @@ echo "=============================================="
 # ── Step 1: Check postgres container is running ──────────────────────────────
 if ! docker inspect ed-postgres &>/dev/null; then
     echo "[ERROR] Container ed-postgres is not running."
-    echo "        Start the stack first: cd /opt/ed-finder/hetzner && docker compose up -d"
+    echo "        Start the stack first: cd /opt/ed-finder && docker compose up -d"
     exit 1
 fi
 
@@ -140,7 +138,7 @@ else
     echo ""
     echo "[ERROR] Connection still failing after sync."
     echo "        Try recreating the postgres container (DATA IS PRESERVED in the volume):"
-    echo "          cd /opt/ed-finder/hetzner"
+    echo "          cd /opt/ed-finder"
     echo "          docker compose stop postgres pgbouncer"
     echo "          docker compose up -d postgres pgbouncer"
     echo "          bash scripts/sync_password.sh"

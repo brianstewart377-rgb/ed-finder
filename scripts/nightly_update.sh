@@ -37,13 +37,10 @@ LOG=${LOG_DIR}/nightly.log
 DUMP_DIR=/data/dumps
 
 # Auto-detect the directory containing docker-compose.yml
-# Supports both /opt/ed-finder/hetzner (repo-in-place) and /opt/ed-finder (legacy)
-if [[ -f "/opt/ed-finder/hetzner/docker-compose.yml" ]]; then
-    COMPOSE=/opt/ed-finder/hetzner
-elif [[ -f "/opt/ed-finder/docker-compose.yml" ]]; then
+if [[ -f "/opt/ed-finder/docker-compose.yml" ]]; then
     COMPOSE=/opt/ed-finder
 else
-    fatal "Cannot find docker-compose.yml in /opt/ed-finder/hetzner or /opt/ed-finder"
+    fatal "Cannot find docker-compose.yml in /opt/ed-finder"
 fi
 
 mkdir -p "$LOG_DIR"
