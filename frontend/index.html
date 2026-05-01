@@ -3046,15 +3046,15 @@ async function fetchAutoComplete(q, mode) {
       return;
     }
 
-    const systems = data.results.filter(r => r.record && r.record.name).slice(0, 8);
+    // Normalise: our backend returns flat {name,x,y,z} while Spansh returns {record:{name,x,y,z}}
+    const systems = data.results.filter(r => (r.record && r.record.name) || r.name).slice(0, 8);
     if (!systems.length) { list.style.display = 'none'; return; }
-
     list.innerHTML = systems.map((s, _acIdx) => {
-      const rec = s.record;
+      const rec = s.record || s;
       const dx = rec.x - refSystem.x, dy = rec.y - refSystem.y, dz = rec.z - refSystem.z;
       const dist = rec.x !== undefined ? Math.round(Math.sqrt(dx*dx + dy*dy + dz*dz) * 10) / 10 : '?';
       const x = rec.x || 0, y = rec.y || 0, z = rec.z || 0;
-      return `<div class="autocomplete-item" role="option" id="ac-item-${listId}-${_acIdx}" aria-selected="false" onclick="selectSystem('${rec.name.replace(/'/g,"\\'")}',${x},${y},${z},'${mode}')">
+      return `<div class="autocomplete-item" role="option" id="ac-item-${listId}-${_acIdx}" aria-selected="false" onclick="selectSystem('${rec.name.replace(/'/g,"\\'")}',${ x},${y},${z},'${mode}')">
         📍 ${rec.name}
         <span class="dist-badge">${dist} LY</span>
       </div>`;
@@ -7544,10 +7544,10 @@ async function onRouteInput() {
     // undefined — route autocomplete was silently broken. Use spanshFetch directly.
     const data = await spanshFetch(`https://spansh.co.uk/api/search?q=${encodeURIComponent(q)}`);
     if (!data || !data.results || !data.results.length) { dd.style.display = 'none'; return; }
-    const systems = data.results.filter(r => r.record && r.record.name).slice(0, 8);
+    const systems = data.results.filter(r => (r.record && r.record.name) || r.name).slice(0, 8);
     dd._acActive = -1;
     dd.innerHTML = systems.map((r, _rIdx) => {
-      const rec = r.record;
+      const rec = r.record || r;
       const x = rec.x || 0, y = rec.y || 0, z = rec.z || 0;
       const safeName_r = rec.name.replace(/'/g, "&#39;");  // B-2-FIX: proper attribute-safe escaping
       return '<div class="autocomplete-item" role="option" id="ac-item-route-autocomplete-' + _rIdx + '" aria-selected="false" onclick="selectSystem(\'' + safeName_r + '\',' + x + ',' + y + ',' + z + ',\'route\')">&#x1F4CD; ' + rec.name + '</div>';
