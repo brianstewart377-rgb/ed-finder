@@ -3121,7 +3121,7 @@ async function appendSearch(page) {
     // Use local DB if available, otherwise Spansh via backend proxy
     const data = _localDbAvailable
       ? await spanshPost(API_BASE + '/local/search', appendBody)
-      : await spanshPost(API_BASE + '/systems/search', appendBody);
+      : await spanshPost(API_BASE + '/local/search', appendBody);
     if (!data || !data.results) return;
 
     const rawResults = data.results.slice(0, size);
@@ -3296,7 +3296,7 @@ async function runSearch(page = 0) {
     if (_localDbAvailable) {
       data = await spanshPost(API_BASE + '/local/search', searchBody, searchSignal);
     } else {
-      data = await spanshPost(API_BASE + '/systems/search', searchBody, searchSignal);
+      data = await spanshPost(API_BASE + '/local/search', searchBody, searchSignal);
     }
 
     if (!data || !data.results) throw new Error('No results from API');
@@ -3579,7 +3579,7 @@ async function runDeepScan() {
 
       // Deep scan requests can take a while — use a longer timeout (90s)
       const deepSignal = AbortSignal.timeout(90000);
-      const data = await spanshPost(API_BASE + '/systems/search', {
+      const data = await spanshPost(API_BASE + '/local/search', {
         filters,
         reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
         sort: [{ distance: { direction: 'asc' } }],
@@ -3594,7 +3594,7 @@ async function runDeepScan() {
       const pages = Math.min(Math.ceil(bandTotal / 500), 20);
       for (let pi = 1; pi < pages; pi++) {
         try {
-          const pageData = await spanshPost(API_BASE + '/systems/search', {
+          const pageData = await spanshPost(API_BASE + '/local/search', {
             filters,
             reference_coords: { x: refSystem.x, y: refSystem.y, z: refSystem.z },
             sort: [{ distance: { direction: 'asc' } }],
@@ -5467,7 +5467,7 @@ async function triggerRefresh(e) {
   btn.disabled = true;
   btn.textContent = '⏳ Syncing…';
   try {
-    const r = await fetch(`${API_BASE}/refresh`, { method: 'POST' });
+    const r = { ok: false, status: 404 }; // /api/refresh not available in this backend version
     const d = await r.json();
     btn.textContent = '✅ Sync started';
     setTimeout(() => { btn.disabled = false; btn.textContent = '↺ Sync Now'; checkApiConnection(); }, 3000);
@@ -7512,18 +7512,12 @@ async function loadCacheStats() {
     el.innerHTML = `
       ${localDbHtml}
       <div class="stat-grid">
-        <div class="stat-card"><div class="stat-num">${d.total||0}</div><div class="stat-lbl">Total Entries</div></div>
-        <div class="stat-card"><div class="stat-num" style="color:var(--red)">${d.expiring_soon||0}</div><div class="stat-lbl">Expiring &lt;1h</div></div>
+        <div class="stat-card"><div class="stat-num">${(d.redis_hits||0)+(d.cache_hits||0)}</div><div class="stat-lbl">Cache Hits</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--red)">${(d.redis_misses||0)+(d.cache_misses||0)}</div><div class="stat-lbl">Cache Misses</div></div>
       </div>
-      ${Object.entries(bp).map(([k,v]) => `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px">
-          <span style="width:65px;color:var(--text-dim);text-align:right">${k}:</span>
-          <div class="cache-bar-wrap" style="flex:1"><div class="cache-bar" style="width:${Math.round(v/total*100)}%"></div></div>
-          <span style="width:36px;text-align:right">${v}</span>
-        </div>`).join('')}
-      <div style="font-size:11px;color:var(--text-dim);margin-top:8px">
-        Oldest: ${d.oldest_entry?d.oldest_entry.slice(0,16).replace('T',' '):'N/A'}<br>
-        Newest: ${d.newest_entry?d.newest_entry.slice(0,16).replace('T',' '):'N/A'}
+      <div style="font-size:12px;color:var(--text-dim);margin-top:8px">
+        Redis memory: <strong style="color:var(--text)">${d.redis_memory_mb||0} MB</strong><br>
+        DB cache rows: <strong style="color:var(--text)">${d.db_cache_rows||0}</strong>
       </div>
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;margin-top:10px;width:100%"
         onclick="fetch(API_BASE+'/cache/clear',{method:'POST'}).then(()=>loadCacheStats())">🗑️ Clear All Cache</button>`;
@@ -7681,7 +7675,7 @@ async function runRouteSearch() {
           sort: [{ distance: { direction: 'asc' } }],
           size: 10, from: 0
         };
-        const data = await spanshPost(`${API_BASE}/systems/search`, body);
+        const data = await spanshPost(`${API_BASE}/local/search`, body);
         return { hop: i+1, waypoint: wp, systems: data.results || [], error: null };
       } catch(e) {
         return { hop: i+1, waypoint: wp, systems: [], error: e.message };
@@ -8983,7 +8977,7 @@ async function batchAddToWatchlist() {
   for (const name of names) {
     try {
       // Try to look up coords via autocomplete
-      const r = await fetch(`${API_BASE}/autocomplete?q=${encodeURIComponent(name)}`);
+      const r = await fetch(`${API_BASE}/local/autocomplete?q=${encodeURIComponent(name)}`);
       const d = r.ok ? await r.json() : null;
       const found = d?.results?.find(s => s.name.toLowerCase() === name.toLowerCase()) || d?.results?.[0];
       const sysData = found
@@ -9520,7 +9514,7 @@ async function _pollColonyPopulations() {
     try {
       const url = col.id64
         ? `${API_BASE}/local/system/${col.id64}`
-        : `${API_BASE}/system/name/${encodeURIComponent(col.name)}`;
+        : `${API_BASE}/local/autocomplete?q=${encodeURIComponent(col.name)}&limit=1`;
       const data = await fetch(url).then(r => r.ok ? r.json() : null);
       if (data && data.population != null) {
         col.population = data.population;
