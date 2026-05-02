@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ED Finder — Password Sync Utility  (v1.0)
+# ED Finder — Password Sync Utility  (v1.1)
 # =============================================================================
 # Fixes the "password authentication failed for user edfinder" error.
 #
@@ -24,6 +24,11 @@
 #   3. Restarts pgBouncer so it reloads the new hash from postgres
 #   4. Verifies the connection works end-to-end
 #
+# CHANGES in v1.1:
+#   - Removed the hardcoded /opt/ed-finder/.env fallback. The .env is now
+#     always expected in the repo root (one level up from scripts/).
+#     This matches the simplified single-directory deployment model.
+#
 # Usage:
 #   bash scripts/sync_password.sh
 #   bash scripts/sync_password.sh --verify-only   # just test, don't change anything
@@ -31,7 +36,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 VERIFY_ONLY=false
 if [[ "${1:-}" == "--verify-only" ]]; then
@@ -39,13 +44,10 @@ if [[ "${1:-}" == "--verify-only" ]]; then
 fi
 
 # ── Locate .env ──────────────────────────────────────────────────────────────
-if [[ -f "$REPO_ROOT/.env" ]]; then
-    ENV_FILE="$REPO_ROOT/.env"
-elif [[ -f "/opt/ed-finder/.env" ]]; then
-    ENV_FILE="/opt/ed-finder/.env"
-else
-    echo "[ERROR] .env not found. Create it with:"
-    echo "        echo 'POSTGRES_PASSWORD=yourpassword' > $REPO_ROOT/.env"
+ENV_FILE="$INSTALL_DIR/.env"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "[ERROR] .env not found at $ENV_FILE. Create it with:"
+    echo "        echo 'POSTGRES_PASSWORD=yourpassword' > $ENV_FILE"
     exit 1
 fi
 
@@ -68,7 +70,7 @@ echo "=============================================="
 # ── Step 1: Check postgres container is running ──────────────────────────────
 if ! docker inspect ed-postgres &>/dev/null; then
     echo "[ERROR] Container ed-postgres is not running."
-    echo "        Start the stack first: cd /opt/ed-finder && docker compose up -d"
+    echo "        Start the stack first: cd $INSTALL_DIR && docker compose up -d"
     exit 1
 fi
 
@@ -109,6 +111,7 @@ if [[ "$NEEDS_PG_FIX" == true ]]; then
     else
         echo "[ERROR] Could not update password in PostgreSQL."
         echo "        The postgres container may need to be recreated:"
+        echo "          cd $INSTALL_DIR"
         echo "          docker compose stop postgres"
         echo "          docker compose up -d postgres"
         exit 1
@@ -138,9 +141,9 @@ else
     echo ""
     echo "[ERROR] Connection still failing after sync."
     echo "        Try recreating the postgres container (DATA IS PRESERVED in the volume):"
-    echo "          cd /opt/ed-finder"
+    echo "          cd $INSTALL_DIR"
     echo "          docker compose stop postgres pgbouncer"
     echo "          docker compose up -d postgres pgbouncer"
-    echo "          bash scripts/sync_password.sh"
+    echo "          bash $INSTALL_DIR/scripts/sync_password.sh"
     exit 1
 fi

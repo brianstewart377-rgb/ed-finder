@@ -152,12 +152,14 @@ def run_cluster_rebuild():
     }
 
     try:
-        # Use the absolute path and the correct docker compose profile
+        # Resolve the compose project directory from env var (set in docker-compose.yml
+        # via COMPOSE_PROJECT_DIR) or fall back to the standard install path.
+        compose_dir = os.environ.get("COMPOSE_PROJECT_DIR", "/opt/ed-finder")
         cmd = [
-            "docker", "compose", 
-            "--project-directory", "/opt/ed-finder",
-            "--profile", "import", 
-            "run", "--rm", "importer", 
+            "docker", "compose",
+            "--project-directory", compose_dir,
+            "--profile", "import",
+            "run", "--rm", "importer",
             "python3", "build_clusters.py", "--dirty-only", "--workers", "6"
         ]
         log.info("Triggering background cluster rebuild: %s", " ".join(cmd))

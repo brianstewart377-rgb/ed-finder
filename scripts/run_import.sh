@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ED Finder — Import Runner  (v1.3)
+# ED Finder — Import Runner  (v2.0)
 # =============================================================================
 # Always use this script instead of raw 'docker run' commands.
 # It uses 'docker compose' which guarantees:
@@ -20,72 +20,41 @@
 #   ./scripts/run_import.sh build_ratings.py --rebuild
 #   ./scripts/run_import.sh build_clusters.py --rebuild
 #
-# FIXES in v1.3:
-#   - Orphaned importer containers (ed-importer in Exited state) are removed
-#     automatically before every run, so they never block the next execution.
-#   - Password sync now also restarts pgBouncer when a mismatch is detected,
-#     so both Postgres and pgBouncer are always in sync with .env.
-#   - Password sync tries both 'edfinder' and 'postgres' superuser if the
-#     first attempt fails (handles the case where the password is so wrong
-#     that even the ALTER USER connection fails).
-#   - Clear error message if ed-postgres container is not running at all.
+# CHANGES in v2.0:
+#   - Removed the two-directory deployment model. The script now always runs
+#     from the directory containing docker-compose.yml (the repo root), which
+#     is /opt/ed-finder. There is no longer a separate /opt/ed-finder-src.
+#   - Removed the file-sync block that copied Python scripts between directories.
+#   - Simplified .env detection to look only in the script's parent directory.
 #
-# FIXES in v1.2:
-#   - INSTALL_DIR is now auto-detected as the directory containing
-#     docker-compose.yml, rather than being hard-coded to /opt/ed-finder.
-#     Fixes "no configuration file provided: not found" error.
+# FIXES in v1.3 (retained):
+#   - Orphaned importer containers (ed-importer in Exited state) are removed
+#     automatically before every run.
+#   - Password sync also restarts pgBouncer when a mismatch is detected.
+#   - Password sync tries both 'edfinder' and 'postgres' superuser.
+#   - Clear error message if ed-postgres container is not running at all.
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# The repo root is one level up from scripts/
+INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# ── Auto-detect install dir ──────────────────────────────────────────────────
-# The install dir is the directory that contains docker-compose.yml.
-# Priority order:
-#   1. The repo root itself (repo cloned in place)
-#   2. /opt/ed-finder (deployed install)
-# Override: INSTALL_DIR=/my/path ./scripts/run_import.sh
-if [[ -z "${INSTALL_DIR:-}" ]]; then
-    if [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-        INSTALL_DIR="$REPO_ROOT"
-    elif [[ -f "/opt/ed-finder/docker-compose.yml" ]]; then
-        INSTALL_DIR="/opt/ed-finder"
-    else
-        echo "[ERROR] Cannot find docker-compose.yml — tried:"
-        echo "        $REPO_ROOT/docker-compose.yml"
-        echo "        /opt/ed-finder/docker-compose.yml"
-        echo ""
-        echo "        Set INSTALL_DIR=/path/to/dir/containing/docker-compose.yml"
-        exit 1
-    fi
+# Verify docker-compose.yml is present
+if [[ ! -f "$INSTALL_DIR/docker-compose.yml" ]]; then
+    echo "[ERROR] docker-compose.yml not found at $INSTALL_DIR"
+    echo "        This script must be run from within the ed-finder repo."
+    echo "        Expected location: /opt/ed-finder/scripts/run_import.sh"
+    exit 1
 fi
 
 echo "[INFO] Install dir: $INSTALL_DIR"
-echo "[INFO] Repo root  : $REPO_ROOT"
-
-# ── Sync latest backend scripts from repo into install dir ──────────────────
-if [[ "$INSTALL_DIR" != "$REPO_ROOT" ]]; then
-    echo "[INFO] Syncing scripts from repo to install dir ..."
-    mkdir -p "$INSTALL_DIR/backend"
-    cp "$REPO_ROOT/backend/import_spansh.py"  "$INSTALL_DIR/backend/import_spansh.py"
-    cp "$REPO_ROOT/backend/progress.py"       "$INSTALL_DIR/backend/progress.py"
-    cp "$REPO_ROOT/backend/build_grid.py"     "$INSTALL_DIR/backend/build_grid.py"
-    cp "$REPO_ROOT/backend/build_ratings.py"  "$INSTALL_DIR/backend/build_ratings.py"
-    cp "$REPO_ROOT/backend/build_clusters.py" "$INSTALL_DIR/backend/build_clusters.py"
-    echo "[INFO] Scripts synced."
-else
-    echo "[INFO] Install dir is the repo — no sync needed."
-fi
 
 # ── Locate .env ──────────────────────────────────────────────────────────────
-if [[ -f "$INSTALL_DIR/.env" ]]; then
-    ENV_FILE="$INSTALL_DIR/.env"
-elif [[ -f "$REPO_ROOT/.env" ]]; then
-    ENV_FILE="$REPO_ROOT/.env"
-else
-    echo "[ERROR] .env not found. Create it with:"
-    echo "        echo 'POSTGRES_PASSWORD=yourpassword' > $INSTALL_DIR/.env"
+ENV_FILE="$INSTALL_DIR/.env"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "[ERROR] .env not found at $ENV_FILE. Create it with:"
+    echo "        echo 'POSTGRES_PASSWORD=yourpassword' > $ENV_FILE"
     exit 1
 fi
 
@@ -125,7 +94,7 @@ echo "[INFO] Verifying DB password ..."
 
 if ! docker inspect ed-postgres &>/dev/null; then
     echo "[ERROR] Container ed-postgres is not running."
-    echo "        Start the stack first: docker compose up -d"
+    echo "        Start the stack first: cd $INSTALL_DIR && docker compose up -d"
     exit 1
 fi
 
@@ -150,8 +119,9 @@ else
 
     if [[ "$SYNCED" == false ]]; then
         echo "[ERROR] Could not update password in PostgreSQL."
-        echo "        Run:  bash scripts/sync_password.sh"
+        echo "        Run:  bash $INSTALL_DIR/scripts/sync_password.sh"
         echo "        Or recreate the container:"
+        echo "          cd $INSTALL_DIR"
         echo "          docker compose stop postgres pgbouncer"
         echo "          docker compose up -d postgres pgbouncer"
         exit 1
@@ -173,7 +143,7 @@ else
         echo "[OK]   Password sync successful."
     else
         echo "[ERROR] Connection still failing after password sync."
-        echo "        Run:  bash scripts/sync_password.sh"
+        echo "        Run:  bash $INSTALL_DIR/scripts/sync_password.sh"
         exit 1
     fi
 fi
@@ -192,9 +162,9 @@ else
 fi
 
 echo "=============================================="
-echo " ED Finder Import Runner v1.3"
+echo " ED Finder Import Runner v2.0"
 echo " Script : $SCRIPT ${ARGS:-}"
-echo " Compose: $INSTALL_DIR"
+echo " Dir    : $INSTALL_DIR"
 echo " Env    : $ENV_FILE"
 echo " Network: ed-finder_default (via docker compose)"
 echo "=============================================="

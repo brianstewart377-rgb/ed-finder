@@ -1,7 +1,13 @@
 #!/bin/bash
 # =============================================================================
-# ED Finder — Nightly Update Script  (v1.1)
+# ED Finder — Nightly Update Script  (v1.2)
 # Runs at 02:00 daily via cron.
+#
+# FIX in v1.2:
+#   • Removed hardcoded /opt/ed-finder path. The script now auto-detects
+#     the compose directory as the parent of the scripts/ folder. This means
+#     the script works correctly regardless of where the repo is cloned,
+#     and no longer fails if the old two-directory layout is not present.
 #
 # FIX in v1.1:
 #   • Each long-running Python job now writes to its OWN log file under
@@ -36,11 +42,14 @@ LOG_DIR=/data/logs
 LOG=${LOG_DIR}/nightly.log
 DUMP_DIR=/data/dumps
 
-# Auto-detect the directory containing docker-compose.yml
-if [[ -f "/opt/ed-finder/docker-compose.yml" ]]; then
-    COMPOSE=/opt/ed-finder
-else
-    fatal "Cannot find docker-compose.yml in /opt/ed-finder"
+# Auto-detect the compose directory as the parent of this script's directory.
+# This works whether the repo is at /opt/ed-finder or anywhere else.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSE="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [[ ! -f "$COMPOSE/docker-compose.yml" ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL] Cannot find docker-compose.yml at $COMPOSE" | tee -a "$LOG"
+    exit 1
 fi
 
 mkdir -p "$LOG_DIR"
@@ -53,7 +62,7 @@ fatal()   { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL] $*" | tee -a "$LOG"; exit
 # Accumulate non-fatal warnings for end-of-run summary
 ERRORS=""
 
-log "=== Nightly update started ==="
+log "=== Nightly update started (compose dir: $COMPOSE) ==="
 cd "$COMPOSE"
 
 # Determine day of week (1=Mon … 7=Sun) and day of month

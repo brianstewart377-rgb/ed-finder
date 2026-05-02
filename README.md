@@ -149,9 +149,11 @@ ed-finder/
 └── README.md                # This file
 ```
 
-> **Single source of truth:** All import scripts live **only** in `backend/`.
-> Always use `scripts/run_import.sh` to run them — never use raw `docker run`.
-> The wrapper script handles network, DNS, password, and volume mounts correctly.
+> **Single directory deployment:** The repo is cloned directly to `/opt/ed-finder`.
+> All services run from that one directory — there is no separate `/opt/ed-finder-src`.
+> All import scripts live **only** in `backend/`. Always use `scripts/run_import.sh`
+> to run them — never use raw `docker run`. The wrapper handles network, DNS,
+> password verification, and volume mounts correctly.
 
 ---
 
@@ -165,14 +167,14 @@ Point your domain at the server **before** running setup (Let's Encrypt needs po
 
 ### 1. Clone and run setup
 ```bash
-git clone https://github.com/brianstewart377-rgb/ed-finder.git /opt/ed-finder-src
-cd /opt/ed-finder-src
-
-> **Note:** All paths in this document assume the repo is cloned to `/opt/ed-finder-src`.
-> If you cloned elsewhere, adjust the paths accordingly.
+git clone https://github.com/brianstewart377-rgb/ed-finder.git /opt/ed-finder
+cd /opt/ed-finder
 chmod +x setup.sh
 sudo ./setup.sh
 ```
+
+> **Note:** All paths in this document assume the repo is cloned to `/opt/ed-finder`.
+> This is the single working directory — there is no separate source/install split.
 
 The script handles everything automatically:
 - Kills system nginx (Ubuntu 24.04 ships with it pre-installed — it grabs port 80)
@@ -193,7 +195,7 @@ The script handles everything automatically:
 
 ```bash
 screen -S import
-/opt/ed-finder-src/scripts/run_import.sh --download-only
+/opt/ed-finder/scripts/run_import.sh --download-only
 # Ctrl+A D to detach, reattach: screen -r import
 ```
 
@@ -227,7 +229,7 @@ docker compose exec postgres psql -U edfinder -d edfinder \
 
 ```bash
 screen -r import
-/opt/ed-finder-src/scripts/run_import.sh --all
+/opt/ed-finder/scripts/run_import.sh --all
 # Ctrl+A D to detach
 ```
 
@@ -241,10 +243,10 @@ docker compose exec postgres psql -U edfinder -d edfinder \
 ### 6. Build ratings + grid + clusters
 
 ```bash
-/opt/ed-finder-src/scripts/run_import.sh build_ratings.py --rebuild --workers 12
-/opt/ed-finder-src/scripts/run_import.sh build_grid.py
+/opt/ed-finder/scripts/run_import.sh build_ratings.py --rebuild --workers 12
+/opt/ed-finder/scripts/run_import.sh build_grid.py
 screen -S clusters
-/opt/ed-finder-src/scripts/run_import.sh build_clusters.py --workers 12
+/opt/ed-finder/scripts/run_import.sh build_clusters.py --workers 12
 ```
 
 ### 7. Start EDDN listener
@@ -261,6 +263,8 @@ docker compose up -d eddn
 
 ```bash
 # Pull latest code and rebuild containers (PRESERVES database):
+cd /opt/ed-finder
+git pull origin main
 sudo bash setup.sh --reinstall
 
 # Destroy EVERYTHING including the database (full re-import required):
@@ -310,7 +314,7 @@ Look for the `jobs` object in the response.
 
 ### Resume a failed import
 ```bash
-/opt/ed-finder-src/scripts/run_import.sh --all
+/opt/ed-finder/scripts/run_import.sh --all
 # No --resume flag needed — interrupted imports auto-resume from checkpoint
 ```
 
@@ -318,7 +322,7 @@ Look for the `jobs` object in the response.
 ```bash
 # Export password first so the script can use it
 export POSTGRES_PASSWORD=$(grep POSTGRES_PASSWORD /opt/ed-finder/.env | cut -d= -f2)
-/opt/ed-finder-src/scripts/nightly_update.sh
+/opt/ed-finder/scripts/nightly_update.sh
 ```
 
 ### Restart individual services
