@@ -1,49 +1,36 @@
 #!/usr/bin/env python3
 """
 ED Finder — Ratings Computer
-Version: 2.5  (CPU cap + dirty-query optimization + worker drain fix)
+Version: 3.0  (Colonisation-accurate scoring engine)
 
-Ports the JavaScript rateSystem() function to Python exactly.
-Computes scores for all visited systems and writes to the ratings table.
+COMPLETE REWRITE of the scoring system based on official Elite Dangerous
+Trailblazers Update 3 economy mechanics (April 2025) and the System
+Colonisation wiki.
 
-KEY FIXES in v2.0:
-  • Server-side named cursor streams rows — fetchall() was silently truncating
-    at ~74M rows when PostgreSQL's statement_timeout or client RAM was hit.
-  • Batch body fetch — one ANY(%s) query per chunk instead of per system.
-  • Dynamic work dispatch — pool.apply_async() drains completed work
-    continuously instead of starmap() blocking until ALL chunks finish.
-  • Correct score_economy() math — integer division // was collapsing all
-    counts > 0 to the same score; fixed to proper linear scaling with caps.
+Key design principles:
+  1. Scores reflect ACTUAL colonisation utility, not just body counts.
+  2. Contamination is modelled: geo/bio signals on Rocky bodies reduce the
+     Refinery score because they add competing economies (Extraction+Industrial
+     or Agriculture+Terraforming) that require extra Refinery Hubs to overcome.
+  3. Surface vs orbital distinction: systems with zero landable bodies are
+     capped for Refinery (cannot produce CMM Composite without a surface port).
+  4. The Top Two Economies rule (Aug 2025) means contamination is manageable
+     with Refinery Hubs — so contaminated bodies are penalised but not zeroed.
+  5. Economy scores are independent (0-100 each). The overall score reflects
+     the system's best economy + slot capacity + strategic assets + safety.
+  6. Display: show the searched economy score when filtering, primary economy
+     score when browsing. Both are stored in the ratings table.
 
-NEW in v2.1:
-  • Startup banner with config summary
-  • Stage banners and crash-recovery hints
-  • Safe log path default (/tmp/build_ratings.log) — Docker doesn't mount /data/logs/
-  • Per-worker heartbeat via WorkerHeartbeat (visible crash detection)
-  • os.makedirs uses abspath so it never fails on a plain filename
-  • Final done_banner with key metrics
+Score Bands (what they mean to a colonist):
+  0–30  : Barely viable. Single-economy, few bodies, limited slots.
+  31–50 : Functional. Good for one economy but missing key assets.
+  51–65 : Solid. Good body mix, clean economies, worth considering.
+  66–80 : Excellent. Multiple strong economies, good slot count, strategic assets.
+  81–100: Exceptional. Near-perfect body composition, ELWs, clean stacks.
 
-FIX in v2.2:
-  • `UPDATE systems SET rating_dirty = FALSE` fired 17 RI triggers per row
-    (8 child FKs × 2 triggers + 1 custom = 17) even though only rating_dirty
-    changes — causing ~252M spurious trigger evaluations per run.
-  • Fix: SET session_replication_role = replica before the dirty-flag UPDATE
-    (session-scoped, reverts automatically on disconnect, safe because we are
-    not modifying id64 or any FK column).
-
-FIX in v2.3:
-  • pgBouncer bypass: DATABASE_URL now goes through _make_direct_dsn() just
-    like build_grid.py and import_spansh.py.  If DATABASE_URL points at
-    pgBouncer (port 5433), long-running worker connections and the server-side
-    streaming cursor in main() would be silently dropped mid-run.
-  • Write-before-clear: worker_process() previously cleared rating_batch and
-    then cleared rating_dirty even when _write_ratings() raised an exception.
-    Systems whose ratings failed to write were marked clean — they would never
-    be re-rated on resume.  Fix: dirty-flag clear is now skipped for any id64
-    whose rating write failed, so they remain dirty and are retried next run.
-  • Connection retry: main() now wraps psycopg2.connect() in a retry loop
-    (up to 10 attempts with exponential back-off) matching build_grid.py.
-    Previously a transient DB hiccup at startup would abort the entire run.
+Official sources:
+  - Trailblazers Update 3 patch notes (April 25, 2025)
+  - System Colonisation wiki (elite-dangerous.fandom.com)
 
 Usage:
     python3 build_ratings.py              # rate all unrated systems (resume-safe)
@@ -51,8 +38,6 @@ Usage:
     python3 build_ratings.py --dirty      # only re-rate systems flagged dirty
     python3 build_ratings.py --workers 4  # set worker count (default: CPU count)
     python3 build_ratings.py --chunk 50000 # systems per worker chunk
-
-Runtime estimate: ~3-5 hours for 186M systems on i7-8700 with --workers 4
 """
 
 import os
@@ -79,13 +64,7 @@ from progress import (
 # ---------------------------------------------------------------------------
 
 def _make_direct_dsn(url: str) -> str:
-    """
-    Ensure the DSN points directly at postgres (port 5432), not pgBouncer (5433).
-    pgBouncer transaction-pool mode is incompatible with long-running worker
-    connections and server-side streaming cursors — it silently drops them
-    mid-run, causing incomplete ratings builds that are hard to diagnose.
-    Set DB_DSN_DIRECT env var to override completely.
-    """
+    """Bypass pgBouncer — transaction-pool mode breaks long-running workers."""
     direct = os.getenv('DB_DSN_DIRECT', '')
     if direct:
         return direct
@@ -97,7 +76,7 @@ def _make_direct_dsn(url: str) -> str:
 
 def _connect_with_retry(dsn: str, label: str = 'ratings', retries: int = 10,
                         delay: float = 5.0):
-    """Connect with exponential back-off retries — matches build_grid.py."""
+    """Connect with exponential back-off retries."""
     for attempt in range(1, retries + 1):
         try:
             conn = psycopg2.connect(
@@ -125,9 +104,9 @@ def _connect_with_retry(dsn: str, label: str = 'ratings', retries: int = 10,
 
 _raw_url   = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@postgres:5432/edfinder')
 DB_DSN     = _make_direct_dsn(_raw_url)
-BATCH_SIZE = int(os.getenv('BATCH_SIZE', '5000'))   # rows per INSERT batch
+BATCH_SIZE = int(os.getenv('BATCH_SIZE', '5000'))
 LOG_LEVEL  = os.getenv('LOG_LEVEL', 'INFO')
-LOG_FILE   = os.getenv('LOG_FILE', '/tmp/build_ratings.log')   # safe Docker default
+LOG_FILE   = os.getenv('LOG_FILE', '/tmp/build_ratings.log')
 
 os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 
@@ -142,164 +121,660 @@ logging.basicConfig(
 log = logging.getLogger('build_ratings')
 
 # ---------------------------------------------------------------------------
-# Scoring constants — must mirror frontend rateSystem() exactly
+# Body classification
 # ---------------------------------------------------------------------------
+# These are the OFFICIAL body-type-to-economy overrides from Trailblazers
+# Update 3 (April 2025). The scoring engine uses these to determine how
+# each body contributes to (or contaminates) each economy.
 
-ECO_WEIGHTS = {
-    'Agriculture': {
-        'elw':           40,
-        'ww':            20,
-        'terraformable': 15,
-        'bio':           10,
-        'landable':       5,
-        'starBonus':     10,
-    },
-    'Refinery': {
-        'rocky':         25,
-        'metalRich':     25,
-        'hmc':           20,
-        'icy':           15,
-        'rockyIce':      15,
-    },
-    'Industrial': {
-        'gasGiant':      30,
-        'rockyIce':      20,
-        'icy':           20,
-        'hmc':           15,
-        'rocky':         15,
-    },
-    'HighTech': {
-        'elw':           35,
-        'ammonia':       25,
-        'gasGiant':      20,
-        'blackHole':     10,
-        'neutron':       10,
-    },
-    'Military': {
-        'gasGiant':      30,
-        'landable':      20,
-        'rocky':         20,
-        'blackHole':     15,
-        'neutron':       15,
-    },
-    'Tourism': {
-        'elw':           25,
-        'blackHole':     25,
-        'neutron':       20,
-        'ammonia':       15,
-        'ww':            15,
-    },
-}
-
-SCOOPABLE_STARS = {'G', 'K', 'F', 'A'}
+SCOOPABLE_STARS = {'O', 'B', 'A', 'F', 'G', 'K', 'M'}
 
 
-def count_bodies(bodies: list) -> dict:
-    """Count bodies by type — mirrors frontend countBodyTypes()."""
+def classify_bodies(bodies: list) -> dict:
+    """
+    Classify all bodies in a system and return a rich dict of counts and
+    modifier flags that the scoring functions use.
+
+    Returns:
+        counts: dict with body type counts and modifier totals
+        modifiers: dict with system-level flags (has_black_hole, etc.)
+    """
     counts = {
-        'elw': 0, 'ww': 0, 'ammonia': 0, 'gasGiant': 0,
-        'rocky': 0, 'metalRich': 0, 'icy': 0, 'rockyIce': 0,
-        'hmc': 0, 'landable': 0, 'terraformable': 0,
-        'bio': 0, 'geo': 0, 'neutron': 0, 'blackHole': 0,
-        'whiteDwarf': 0,
+        # Pure body types (no modifiers)
+        'rocky_clean':    0,  # Rocky, no geo/bio/rings
+        'rocky_geo':      0,  # Rocky + geo signals (adds Extraction+Industrial)
+        'rocky_bio':      0,  # Rocky + bio signals (adds Agriculture+Terraforming)
+        'rocky_rings':    0,  # Rocky + rings (adds Extraction)
+        'rocky_mixed':    0,  # Rocky + multiple modifiers
+        'rocky_ice':      0,  # Rocky Ice (inherently Industrial+Refinery)
+        'icy':            0,  # Icy (Industrial only)
+        'hmc':            0,  # High Metal Content (Extraction only)
+        'hmc_geo':        0,  # HMC + geo signals
+        'metal_rich':     0,  # Metal Rich (Extraction only)
+        'gas_giant':      0,  # Gas Giant (HighTech+Industrial)
+        'elw':            0,  # Earth-like World
+        'ww':             0,  # Water World
+        'ammonia':        0,  # Ammonia World
+        # Landable counts (for surface port availability)
+        'landable':       0,  # Total landable bodies
+        'landable_rocky_clean': 0,  # Landable clean Rocky (ideal for CMM)
+        'landable_rocky_any':   0,  # Landable Rocky (any modifier)
+        'landable_hmc':         0,  # Landable HMC
+        # Terraformable
+        'terraformable':  0,
+        # Signals (totals)
+        'bio':            0,  # Total bio signal count
+        'geo':            0,  # Total geo signal count
+        # Tidal locking
+        'tidal_lock':     0,  # Bodies with tidal locking
+        # Stars
+        'neutron':        0,
+        'black_hole':     0,
+        'white_dwarf':    0,
+        # Generic counts for backward compatibility
+        'rocky':          0,  # All rocky bodies (any modifier)
+        'metal_rich_count': 0,
+        'icy_count':      0,
+        'rocky_ice_count': 0,
+        'hmc_count':      0,
+        'gas_giant_count': 0,
+        'ww_count':       0,
+        'ammonia_count':  0,
+        'elw_count':      0,
     }
+
     for b in bodies:
         sub = str(b.get('subtype') or b.get('sub_type') or '').lower()
-        if b.get('is_earth_like') or 'earth-like' in sub:
-            counts['elw'] += 1
-        if b.get('is_water_world') or 'water world' in sub:
-            counts['ww'] += 1
-        if b.get('is_ammonia_world') or 'ammonia' in sub:
-            counts['ammonia'] += 1
-        if 'gas giant' in sub or 'gas_giant' in sub:
-            counts['gasGiant'] += 1
-        if 'rocky body' in sub or sub == 'rocky':
-            counts['rocky'] += 1
-        if 'metal-rich' in sub or 'metal rich' in sub:
-            counts['metalRich'] += 1
-        if 'icy body' in sub or sub == 'icy':
-            counts['icy'] += 1
-        if 'rocky ice' in sub:
-            counts['rockyIce'] += 1
-        if 'high metal content' in sub:
-            counts['hmc'] += 1
-        if b.get('is_landable'):
-            counts['landable'] += 1
-        if b.get('is_terraformable'):
+        is_landable     = bool(b.get('is_landable', False))
+        is_terraformable = bool(b.get('is_terraformable', False))
+        is_tidal_lock   = bool(b.get('is_tidal_lock', False))
+        bio_count       = int(b.get('bio_signal_count') or 0)
+        geo_count       = int(b.get('geo_signal_count') or 0)
+
+        counts['bio'] += bio_count
+        counts['geo'] += geo_count
+        if is_tidal_lock:
+            counts['tidal_lock'] += 1
+        if is_terraformable:
             counts['terraformable'] += 1
-        counts['bio'] += int(b.get('bio_signal_count') or 0)
-        counts['geo'] += int(b.get('geo_signal_count') or 0)
+        if is_landable:
+            counts['landable'] += 1
+
+        # ── Stars ─────────────────────────────────────────────────────────
         if 'neutron' in sub:
             counts['neutron'] += 1
+            continue
         if 'black hole' in sub:
-            counts['blackHole'] += 1
+            counts['black_hole'] += 1
+            continue
         if 'white dwarf' in sub:
-            counts['whiteDwarf'] += 1
+            counts['white_dwarf'] += 1
+            continue
+
+        # ── Special worlds ────────────────────────────────────────────────
+        is_elw = bool(b.get('is_earth_like')) or 'earth-like' in sub
+        is_ww  = bool(b.get('is_water_world')) or 'water world' in sub
+        is_amm = bool(b.get('is_ammonia_world')) or 'ammonia' in sub
+
+        if is_elw:
+            counts['elw'] += 1
+            counts['elw_count'] += 1
+            if is_landable:
+                counts['landable'] += 0  # already counted above
+            continue
+        if is_ww:
+            counts['ww'] += 1
+            counts['ww_count'] += 1
+            continue
+        if is_amm:
+            counts['ammonia'] += 1
+            counts['ammonia_count'] += 1
+            continue
+
+        # ── Gas Giants ────────────────────────────────────────────────────
+        if 'gas giant' in sub:
+            counts['gas_giant'] += 1
+            counts['gas_giant_count'] += 1
+            continue
+
+        # ── Rocky bodies (most complex — contamination logic) ─────────────
+        is_rocky = 'rocky body' in sub or sub == 'rocky'
+        is_rocky_ice = 'rocky ice' in sub
+        is_icy   = 'icy body' in sub or sub == 'icy'
+        is_hmc   = 'high metal content' in sub
+        is_metal_rich = 'metal-rich' in sub or 'metal rich' in sub
+
+        if is_rocky:
+            counts['rocky'] += 1
+            has_geo   = geo_count > 0
+            has_bio   = bio_count > 0
+            has_rings = bool(b.get('has_rings', False)) or 'ring' in sub
+
+            if has_geo and has_bio:
+                counts['rocky_mixed'] += 1
+            elif has_geo:
+                counts['rocky_geo'] += 1
+            elif has_bio:
+                counts['rocky_bio'] += 1
+            elif has_rings:
+                counts['rocky_rings'] += 1
+            else:
+                counts['rocky_clean'] += 1
+
+            if is_landable:
+                counts['landable_rocky_any'] += 1
+                if not has_geo and not has_bio:
+                    counts['landable_rocky_clean'] += 1
+            continue
+
+        if is_rocky_ice:
+            counts['rocky_ice'] += 1
+            counts['rocky_ice_count'] += 1
+            continue
+
+        if is_icy:
+            counts['icy'] += 1
+            counts['icy_count'] += 1
+            continue
+
+        if is_hmc:
+            counts['hmc'] += 1
+            counts['hmc_count'] += 1
+            has_geo = geo_count > 0
+            has_bio = bio_count > 0
+            if has_geo or has_bio:
+                counts['hmc_geo'] += 1
+            if is_landable:
+                counts['landable_hmc'] += 1
+            continue
+
+        if is_metal_rich:
+            counts['metal_rich'] += 1
+            counts['metal_rich_count'] += 1
+            continue
+
     return counts
 
 
-def score_economy(counts: dict, eco: str, star_type: Optional[str]) -> int:
+# ---------------------------------------------------------------------------
+# Economy scoring functions
+# ---------------------------------------------------------------------------
+
+def score_refinery(counts: dict) -> int:
     """
-    Score a system for a specific economy type (0-100).
+    Score a system for Refinery economy (0-100).
 
-    FIX v2.0: the original code used integer division (//) which collapsed
-    every count > 0 to the same score regardless of quantity.
-    Now uses simple linear scaling with hard caps.
+    Based on official mechanics:
+    - Rocky bodies = Refinery base economy
+    - Geo signals on Rocky = adds Extraction+Industrial (severe contamination)
+    - Bio signals on Rocky = adds Agriculture+Terraforming (moderate contamination)
+    - Rings on Rocky = adds Extraction (mild contamination — Extraction doesn't consume CMM)
+    - Rocky Ice = Industrial+Refinery (mixed, moderate penalty)
+    - HMC = Extraction only, but can host Refinery Hubs (workable with effort)
+    - Zero landable bodies = cap at 25 (cannot build surface CMM port)
+
+    Contamination philosophy: penalise but don't zero out contaminated bodies,
+    because the Top Two Economies rule means you can compensate with Refinery Hubs.
+    The penalty reflects the extra effort required.
     """
-    weights = ECO_WEIGHTS.get(eco, {})
-    raw = 0
+    score = 0.0
 
-    raw += min(counts['elw'],            4) * weights.get('elw',           0)
-    raw += min(counts['ww'],             4) * weights.get('ww',            0)
-    raw += min(counts['ammonia'],        3) * weights.get('ammonia',        0)
-    raw += min(counts['gasGiant'],       3) * weights.get('gasGiant',       0)
-    raw += min(counts['rocky'],          5) * weights.get('rocky',          0)
-    raw += min(counts['metalRich'],      4) * weights.get('metalRich',      0)
-    raw += min(counts['icy'],            5) * weights.get('icy',            0)
-    raw += min(counts['rockyIce'],       5) * weights.get('rockyIce',       0)
-    raw += min(counts['hmc'],            5) * weights.get('hmc',            0)
-    raw += min(counts['landable'],      10) * weights.get('landable',       0)
-    raw += min(counts['terraformable'],  5) * weights.get('terraformable',  0)
-    raw += min(counts['bio'],           10) * weights.get('bio',            0)
-    raw += min(counts['neutron'],        2) * weights.get('neutron',        0)
-    raw += min(counts['blackHole'],      1) * weights.get('blackHole',      0)
+    # Clean Rocky: ideal Refinery body (Refinery only, no contamination)
+    # 4 clean Rocky bodies = 72 pts (solid Refinery score)
+    # 6 clean Rocky bodies = 100 pts (exceptional)
+    score += min(counts['rocky_clean'], 6) * 18.0       # up to 6 clean Rocky = 108 pts (capped at 100)
 
-    if eco == 'Agriculture' and star_type:
-        if star_type[0].upper() in SCOOPABLE_STARS:
-            raw += weights.get('starBonus', 0)
+    # Rocky + Rings: Refinery + Extraction (mild contamination)
+    # Extraction doesn't consume CMM, so this is manageable
+    score += min(counts['rocky_rings'], 4) * 11.0       # 61% of clean Rocky value
 
-    return min(int(raw), 100)
+    # Rocky + Bio signals: Refinery + Agriculture + Terraforming (moderate contamination)
+    # Need extra Refinery Hubs to stay in top 2
+    score += min(counts['rocky_bio'], 3) * 6.0          # 33% of clean Rocky value
+
+    # Rocky + Geo signals: Refinery + Extraction + Industrial (severe contamination)
+    # Industrial competes directly with Refinery for CMM production
+    score += min(counts['rocky_geo'], 3) * 3.5          # 19% of clean Rocky value
+
+    # Rocky + multiple modifiers: worst case
+    score += min(counts['rocky_mixed'], 2) * 2.0        # 11% of clean Rocky value
+
+    # Rocky Ice: inherently Industrial+Refinery (mixed from the start)
+    score += min(counts['rocky_ice'], 4) * 7.0          # 39% of clean Rocky value
+
+    # HMC: Extraction only, but can host Refinery Hubs for CMM
+    # Workable but requires significant extra construction effort
+    score += min(counts['hmc'], 4) * 5.0                # 28% of clean Rocky value
+
+    # Surface port requirement: if no landable bodies, CMM Composite is impossible
+    # Cap the score — the system is still useful for Insulating Membranes (orbital)
+    # but severely limited for the most valuable Refinery commodities
+    if counts['landable'] == 0:
+        score = min(score, 25.0)
+    elif counts['landable_rocky_clean'] == 0 and counts['landable_rocky_any'] == 0 and counts['landable_hmc'] == 0:
+        # Has landable bodies but none are Rocky or HMC — CMM is very hard
+        score = min(score, 40.0)
+
+    return min(int(score), 100)
+
+
+def score_agriculture(counts: dict, main_star_type: Optional[str]) -> int:
+    """
+    Score a system for Agriculture economy (0-100).
+
+    Based on official mechanics:
+    - ELW: inherent Agriculture + strong link boosted by orbiting ELW
+    - Water World: inherent Agriculture
+    - Terraformable bodies: Agriculture strong link boosted
+    - Bio signals: Agriculture + Terraforming added, strong link boosted
+    - Tidal locking: Agriculture strong link decreased
+    - Icy bodies: Agriculture strong link decreased
+    - Scoopable star: bonus (supports long-term population growth)
+    """
+    score = 0.0
+
+    # ELW: Agriculture + HighTech + Military + Tourism inherent
+    # Strong link boosted by orbiting ELW — the gold standard for Agriculture
+    score += min(counts['elw'], 4) * 20.0               # up to 4 ELWs = 80 pts
+
+    # Water World: Agriculture + Tourism inherent
+    score += min(counts['ww'], 4) * 12.0                # up to 4 WWs = 48 pts
+
+    # Terraformable bodies: Agriculture strong link boosted
+    score += min(counts['terraformable'], 5) * 5.0      # up to 5 terraformables = 25 pts
+
+    # Bio signals: Agriculture + Terraforming added, strong link boosted
+    # Diminishing returns — 10 bio signals is not 10x better than 1
+    bio_score = min(counts['bio'], 15) * 2.0            # up to 15 bio signals = 30 pts
+    score += bio_score
+
+    # Tidal locking: Agriculture strong link decreased
+    # This is a LINK penalty, not an economy penalty — moderate reduction
+    tidal_penalty = min(counts['tidal_lock'], 5) * 3.0
+    score -= tidal_penalty
+
+    # Icy bodies: Agriculture strong link decreased
+    icy_penalty = min(counts['icy'], 5) * 2.0
+    score -= icy_penalty
+
+    # Scoopable main star: supports population growth and trade routes
+    if main_star_type and main_star_type[0].upper() in SCOOPABLE_STARS:
+        score += 8.0
+
+    return min(max(int(score), 0), 100)
+
+
+def score_industrial(counts: dict) -> int:
+    """
+    Score a system for Industrial economy (0-100).
+
+    Based on official mechanics:
+    - Icy bodies: Industrial only (pure, ideal)
+    - Rocky Ice: Industrial + Refinery (mixed, still good)
+    - Gas Giants: HighTech + Industrial (good pairing)
+    - Geo signals: Extraction + Industrial added (bonus for Industrial)
+    - Pristine/Major reserves: Industrial strong link boosted (not in body data)
+    """
+    score = 0.0
+
+    # Icy: pure Industrial — ideal
+    score += min(counts['icy'], 6) * 14.0               # up to 6 Icy = 84 pts
+
+    # Rocky Ice: Industrial + Refinery — good but mixed
+    score += min(counts['rocky_ice'], 4) * 10.0         # up to 4 Rocky Ice = 40 pts
+
+    # Gas Giants: HighTech + Industrial — excellent pairing
+    score += min(counts['gas_giant'], 4) * 8.0          # up to 4 Gas Giants = 32 pts
+
+    # Geo signals: Extraction + Industrial added — bonus for Industrial
+    # (Extraction pairs well with Industrial)
+    score += min(counts['geo'], 10) * 2.0               # up to 10 geo signals = 20 pts
+
+    return min(int(score), 100)
+
+
+def score_hightech(counts: dict) -> int:
+    """
+    Score a system for High Tech economy (0-100).
+
+    Based on official mechanics:
+    - ELW: Agriculture + HighTech + Military + Tourism inherent, strong link boosted
+    - Ammonia World: HighTech + Tourism inherent, strong link boosted
+    - Gas Giant: HighTech + Industrial inherent
+    - Geo signals: HighTech strong link boosted
+    - Bio signals: HighTech strong link boosted
+    - Black Hole / Neutron Star / White Dwarf: HighTech + Tourism inherent
+    """
+    score = 0.0
+
+    # ELW: inherent HighTech + strong link boosted
+    score += min(counts['elw'], 4) * 20.0               # up to 4 ELWs = 80 pts
+
+    # Ammonia World: inherent HighTech + strong link boosted
+    score += min(counts['ammonia'], 3) * 18.0           # up to 3 Ammonia = 54 pts
+
+    # Gas Giant: inherent HighTech + Industrial
+    score += min(counts['gas_giant'], 4) * 10.0         # up to 4 Gas Giants = 40 pts
+
+    # Black Hole / Neutron Star / White Dwarf: inherent HighTech + Tourism
+    exotic_count = min(counts['neutron'] + counts['black_hole'] + counts['white_dwarf'], 2)
+    score += exotic_count * 10.0
+
+    # Geo signals: HighTech strong link boosted
+    score += min(counts['geo'], 10) * 2.0
+
+    # Bio signals: HighTech strong link boosted
+    score += min(counts['bio'], 10) * 1.5
+
+    return min(int(score), 100)
+
+
+def score_military(counts: dict, main_star_type: Optional[str]) -> int:
+    """
+    Score a system for Military economy (0-100).
+
+    Based on official mechanics:
+    - ELW: inherent Military (among others)
+    - Brown Dwarfs / other star types: Military inherent
+    - Landable bodies: provide surface slots for Military Settlements
+    - Gas Giants: useful for Military (orbital Military facilities)
+    - Black Holes / Neutron Stars: HighTech + Tourism (not Military directly,
+      but their presence boosts system prestige)
+    """
+    score = 0.0
+
+    # ELW: inherent Military + Agriculture + HighTech + Tourism
+    score += min(counts['elw'], 4) * 18.0               # up to 4 ELWs = 72 pts
+
+    # Landable bodies: surface slots for Military Settlements
+    # Military Settlements are critical for offsetting security drain
+    score += min(counts['landable'], 10) * 5.0          # up to 10 landable = 50 pts
+
+    # Gas Giants: useful for orbital Military facilities
+    score += min(counts['gas_giant'], 3) * 6.0          # up to 3 Gas Giants = 18 pts
+
+    # Rocky bodies: landable rocky = Military Settlement slots
+    score += min(counts['rocky_clean'] + counts['rocky_rings'], 4) * 4.0
+
+    # Exotic objects: boost system prestige (indirectly useful for Military)
+    exotic = min(counts['neutron'] + counts['black_hole'], 2)
+    score += exotic * 5.0
+
+    # Non-scoopable main star (Brown Dwarf etc.) = inherent Military economy
+    if main_star_type and main_star_type[0].upper() not in SCOOPABLE_STARS:
+        if main_star_type[0].upper() not in ('N', 'H', 'D'):  # not neutron/BH/WD
+            score += 10.0
+
+    return min(int(score), 100)
+
+
+def score_tourism(counts: dict) -> int:
+    """
+    Score a system for Tourism economy (0-100).
+
+    Based on official mechanics:
+    - ELW: inherent Tourism + strong link boosted
+    - Water World: inherent Tourism + strong link boosted
+    - Ammonia World: inherent Tourism + strong link boosted
+    - Black Hole in system: Tourism strong link boosted
+    - White Dwarf in system: Tourism strong link boosted
+    - Neutron Star in system: Tourism strong link boosted
+    - Geo signals: Tourism strong link boosted
+    - Bio signals: Tourism strong link boosted
+    """
+    score = 0.0
+
+    # ELW: inherent Tourism + strong link boosted by orbiting ELW
+    score += min(counts['elw'], 4) * 18.0               # up to 4 ELWs = 72 pts
+
+    # Water World: inherent Tourism + strong link boosted
+    score += min(counts['ww'], 4) * 12.0                # up to 4 WWs = 48 pts
+
+    # Ammonia World: inherent Tourism + strong link boosted
+    score += min(counts['ammonia'], 3) * 14.0           # up to 3 Ammonia = 42 pts
+
+    # Exotic objects: massive Tourism boost (unique attractions)
+    # Black Hole: Tourism strong link boosted — unique attraction
+    score += min(counts['black_hole'], 2) * 25.0        # up to 2 BHs = 50 pts
+
+    # White Dwarf: Tourism strong link boosted
+    score += min(counts['white_dwarf'], 2) * 12.0       # up to 2 WDs = 24 pts
+
+    # Neutron Star: Tourism strong link boosted
+    score += min(counts['neutron'], 2) * 10.0           # up to 2 Neutrons = 20 pts
+
+    # Geo signals: Tourism strong link boosted
+    score += min(counts['geo'], 10) * 1.5
+
+    # Bio signals: Tourism strong link boosted
+    score += min(counts['bio'], 10) * 1.5
+
+    return min(int(score), 100)
+
+
+def score_extraction(counts: dict) -> int:
+    """
+    Score a system for Extraction economy (0-100).
+
+    Based on official mechanics:
+    - HMC / Metal Rich: inherent Extraction
+    - Geo signals (volcanism): Extraction strong link boosted
+    - Rings: Extraction added to any body with rings
+    - Pristine/Major reserves: Extraction strong link boosted (not in body data)
+    """
+    score = 0.0
+
+    # HMC: pure Extraction — ideal
+    score += min(counts['hmc'], 6) * 14.0               # up to 6 HMC = 84 pts
+
+    # Metal Rich: pure Extraction
+    score += min(counts['metal_rich'], 4) * 12.0        # up to 4 Metal Rich = 48 pts
+
+    # Geo signals: Extraction strong link boosted (volcanism)
+    score += min(counts['geo'], 10) * 2.5               # up to 10 geo = 25 pts
+
+    # Rocky with rings: Extraction added
+    score += min(counts['rocky_rings'], 3) * 5.0
+
+    return min(int(score), 100)
+
+
+# ---------------------------------------------------------------------------
+# Overall score and system profile
+# ---------------------------------------------------------------------------
+
+def compute_slot_score(counts: dict) -> int:
+    """
+    Score the system's slot capacity (0-100).
+
+    A good colonisation system needs BOTH surface and orbital slots.
+    The score rewards a healthy mix.
+    """
+    landable  = counts['landable']
+    orbital   = (counts['gas_giant'] + counts['elw'] + counts['ww'] +
+                 counts['ammonia'] + counts['rocky_clean'] + counts['rocky_rings'] +
+                 counts['rocky_bio'] + counts['rocky_geo'] + counts['rocky_ice'] +
+                 counts['icy'] + counts['hmc'] + counts['metal_rich'])
+
+    # Surface slot score (landable bodies)
+    if landable == 0:
+        surface_score = 0
+    elif landable <= 2:
+        surface_score = 25
+    elif landable <= 5:
+        surface_score = 50
+    elif landable <= 10:
+        surface_score = 75
+    else:
+        surface_score = 100
+
+    # Orbital slot score (total bodies)
+    if orbital <= 2:
+        orbital_score = 20
+    elif orbital <= 5:
+        orbital_score = 50
+    elif orbital <= 10:
+        orbital_score = 75
+    else:
+        orbital_score = 100
+
+    # Bonus for having BOTH surface and orbital (the ideal mix)
+    mix_bonus = 15 if (landable > 0 and orbital > 2) else 0
+
+    return min(int((surface_score * 0.5 + orbital_score * 0.35) + mix_bonus), 100)
+
+
+def compute_strategic_score(counts: dict, main_star_type: Optional[str]) -> int:
+    """
+    Score the system's strategic assets (0-100).
+
+    Strategic assets are things that add long-term value regardless of economy:
+    ELWs, terraformables, scoopable star, bio signals, exotic objects.
+    """
+    score = 0.0
+
+    # ELW: the most valuable strategic asset in the game
+    score += min(counts['elw'], 3) * 25.0               # up to 3 ELWs = 75 pts
+
+    # Terraformable bodies: future population growth potential
+    score += min(counts['terraformable'], 5) * 6.0      # up to 5 = 30 pts
+
+    # Scoopable main star: enables fuel scooping, supports trade routes
+    if main_star_type and main_star_type[0].upper() in SCOOPABLE_STARS:
+        score += 15.0
+
+    # Bio signals: unique biological content (Tourism + Agriculture bonus)
+    score += min(counts['bio'], 10) * 1.5               # up to 10 = 15 pts
+
+    # Exotic objects: unique attractions (Tourism + HighTech)
+    exotic = counts['neutron'] + counts['black_hole'] + counts['white_dwarf']
+    score += min(exotic, 3) * 5.0                       # up to 3 = 15 pts
+
+    # Water Worlds: Agriculture + Tourism, aesthetically valuable
+    score += min(counts['ww'], 3) * 5.0
+
+    return min(int(score), 100)
+
+
+def compute_safety_score(counts: dict, main_star_type: Optional[str]) -> int:
+    """
+    Score the system's safety for colonisation (0-100).
+
+    Starts at 100, penalised for hazardous objects near the main star.
+    Note: Black Holes and Neutron Stars are actually GOOD for Tourism/HighTech,
+    so we only penalise White Dwarfs (exclusion zone hazard with no upside).
+    """
+    score = 100
+
+    # White Dwarfs: exclusion zone hazard, no economy benefit
+    score -= min(counts['white_dwarf'], 2) * 15
+
+    # Neutron Stars: dangerous but boost Tourism/HighTech — minor penalty
+    score -= min(counts['neutron'], 2) * 5
+
+    # Black Holes: dangerous but boost Tourism/HighTech — minor penalty
+    score -= min(counts['black_hole'], 2) * 5
+
+    return max(score, 0)
 
 
 def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -> dict:
-    """Compute full rating for a system. Returns dict matching the ratings table."""
-    counts = count_bodies(bodies)
+    """
+    Compute the full colonisation rating for a system.
 
+    Returns a dict matching the ratings table schema.
+
+    The overall score is NOT a simple average of economy scores.
+    It reflects: "If I build the best possible economy here, how good is
+    the system overall?" — weighted by slot capacity, strategic assets, safety.
+
+    Economy scores are stored independently so the frontend can show the
+    searched economy score when filtering, or the primary economy score
+    when browsing without a filter.
+    """
+    counts = classify_bodies(bodies)
+
+    # ── Compute all economy scores ─────────────────────────────────────────
     scores = {
-        'Agriculture': score_economy(counts, 'Agriculture', main_star_type),
-        'Refinery':    score_economy(counts, 'Refinery',    main_star_type),
-        'Industrial':  score_economy(counts, 'Industrial',  main_star_type),
-        'HighTech':    score_economy(counts, 'HighTech',    main_star_type),
-        'Military':    score_economy(counts, 'Military',    main_star_type),
-        'Tourism':     score_economy(counts, 'Tourism',     main_star_type),
+        'Agriculture': score_agriculture(counts, main_star_type),
+        'Refinery':    score_refinery(counts),
+        'Industrial':  score_industrial(counts),
+        'HighTech':    score_hightech(counts),
+        'Military':    score_military(counts, main_star_type),
+        'Tourism':     score_tourism(counts),
+        'Extraction':  score_extraction(counts),
     }
 
+    # ── Compute dimensional scores ─────────────────────────────────────────
+    slot_score      = compute_slot_score(counts)
+    strategic_score = compute_strategic_score(counts, main_star_type)
+    safety_score    = compute_safety_score(counts, main_star_type)
+
+    # ── Determine primary and secondary economy ────────────────────────────
+    # Sort by score descending to find the top two
+    sorted_ecos = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    primary_eco   = sorted_ecos[0][0]
+    primary_score = sorted_ecos[0][1]
+    secondary_eco = sorted_ecos[1][0] if len(sorted_ecos) > 1 else None
+
+    economy_suggestion = primary_eco if primary_score >= 20 else None
+
+    # ── Overall score: best economy + slot capacity + strategic + safety ───
+    # This answers: "How good is this system at what it does best?"
+    # Weight: 45% best economy, 25% slots, 20% strategic assets, 10% safety
     overall = int(
-        scores['Agriculture'] * 0.20 +
-        scores['Refinery']    * 0.18 +
-        scores['Industrial']  * 0.18 +
-        scores['HighTech']    * 0.20 +
-        scores['Military']    * 0.12 +
-        scores['Tourism']     * 0.12
+        primary_score  * 0.45 +
+        slot_score     * 0.25 +
+        strategic_score * 0.20 +
+        safety_score   * 0.10
     )
 
-    best_eco   = max(scores, key=scores.get)
-    best_score = scores[best_eco]
-    economy_suggestion = best_eco if best_score >= 20 else None
+    # ── Score components (for API popover display) ─────────────────────────
+    # These map to the score_components field in the API response
+    star_bonus = 0
+    if main_star_type:
+        st = main_star_type[0].upper()
+        if st in ('O', 'B'):
+            star_bonus = 10
+        elif st in ('A', 'F'):
+            star_bonus = 7
+        elif st in ('G', 'K'):
+            star_bonus = 5
+        elif st == 'M':
+            star_bonus = 3
+        elif st == 'N':
+            star_bonus = 4
+        elif st == 'H':
+            star_bonus = 2
 
+    # ── Score breakdown for frontend popover ──────────────────────────────
     breakdown = {
-        'economies': scores,
-        'bodies': {k: v for k, v in counts.items() if v > 0},
+        'economies':    {k: v for k, v in scores.items() if k != 'Extraction'},
+        'extraction':   scores['Extraction'],
+        'dimensions': {
+            'slots':     slot_score,
+            'strategic': strategic_score,
+            'safety':    safety_score,
+        },
+        'bodies': {
+            'rocky_clean':  counts['rocky_clean'],
+            'rocky_geo':    counts['rocky_geo'],
+            'rocky_bio':    counts['rocky_bio'],
+            'rocky_rings':  counts['rocky_rings'],
+            'rocky_ice':    counts['rocky_ice'],
+            'icy':          counts['icy'],
+            'hmc':          counts['hmc'],
+            'gas_giant':    counts['gas_giant'],
+            'elw':          counts['elw'],
+            'ww':           counts['ww'],
+            'ammonia':      counts['ammonia'],
+            'landable':     counts['landable'],
+            'terraformable': counts['terraformable'],
+            'bio':          counts['bio'],
+            'geo':          counts['geo'],
+        },
+        'primary_economy':   primary_eco,
+        'secondary_economy': secondary_eco,
     }
 
     return {
@@ -312,22 +787,30 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -
         'score_military':     scores['Military'],
         'score_tourism':      scores['Tourism'],
         'economy_suggestion': economy_suggestion,
+        # Body counts (for frontend filters)
         'elw_count':          counts['elw'],
         'ww_count':           counts['ww'],
         'ammonia_count':      counts['ammonia'],
-        'gas_giant_count':    counts['gasGiant'],
+        'gas_giant_count':    counts['gas_giant'],
         'rocky_count':        counts['rocky'],
-        'metal_rich_count':   counts['metalRich'],
+        'metal_rich_count':   counts['metal_rich'],
         'icy_count':          counts['icy'],
-        'rocky_ice_count':    counts['rockyIce'],
+        'rocky_ice_count':    counts['rocky_ice'],
         'hmc_count':          counts['hmc'],
         'landable_count':     counts['landable'],
         'terraformable_count': counts['terraformable'],
         'bio_signal_total':   counts['bio'],
         'geo_signal_total':   counts['geo'],
         'neutron_count':      counts['neutron'],
-        'black_hole_count':   counts['blackHole'],
-        'white_dwarf_count':  counts['whiteDwarf'],
+        'black_hole_count':   counts['black_hole'],
+        'white_dwarf_count':  counts['white_dwarf'],
+        # Score components (for API score_components field)
+        'slots':              slot_score,
+        'body_quality':       strategic_score,
+        'compactness':        min(int(counts['landable'] / max(counts['landable'] + counts['gas_giant'] + 1, 1) * 100), 100),
+        'signal_quality':     min(int((min(counts['bio'], 10) * 5 + min(counts['geo'], 5) * 4)), 100),
+        'orbital_safety':     safety_score,
+        'star_bonus':         star_bonus,
         'score_breakdown':    breakdown,
     }
 
@@ -339,13 +822,8 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -
 def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
     """
     Process a chunk of systems.
-
-    FIX v2.0: fetch ALL bodies for the entire chunk in ONE batched query
-    instead of one query per system. Reduces round-trips from N to ~N/5000.
-    v2.1: WorkerHeartbeat prints progress every 60s so Docker logs show
-    the worker is alive (not silently crashed).
-    v2.3: failed_ids tracks systems whose rating write failed so we do NOT
-    mark them clean — they stay dirty and are retried on the next run.
+    v3.0: Uses new classify_bodies() which fetches is_tidal_lock and has_rings
+    in addition to the existing body fields.
     """
     conn = psycopg2.connect(db_dsn)
     conn.autocommit = False
@@ -354,12 +832,13 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
     processed    = 0
     errors       = 0
     rating_batch = []
-    failed_ids: set = set()  # id64s whose rating write failed — do NOT clear dirty
+    failed_ids: set = set()
 
     hb = WorkerHeartbeat(worker_id, total=len(system_batch),
                          label="ratings", interval=60.0)
 
-    # ── Batch-fetch all bodies for this chunk in one pass ─────────────────
+    # ── Batch-fetch all bodies for this chunk ─────────────────────────────
+    # v3.0: fetch is_tidal_lock and has_rings for contamination scoring
     id64s = [s[0] for s in system_batch]
     bodies_by_system: dict = {}
 
@@ -369,8 +848,9 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
         try:
             cur.execute("""
                 SELECT system_id64,
-                       subtype, is_earth_like, is_water_world, is_ammonia_world,
-                       is_landable, is_terraformable,
+                       subtype,
+                       is_earth_like, is_water_world, is_ammonia_world,
+                       is_landable, is_terraformable, is_tidal_lock,
                        bio_signal_count, geo_signal_count
                 FROM   bodies
                 WHERE  system_id64 = ANY(%s)
@@ -384,13 +864,14 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                     'is_ammonia_world': row[4],
                     'is_landable':      row[5],
                     'is_terraformable': row[6],
-                    'bio_signal_count': row[7],
-                    'geo_signal_count': row[8],
+                    'is_tidal_lock':    row[7],
+                    'bio_signal_count': row[8],
+                    'geo_signal_count': row[9],
                 })
         except Exception as e:
             log.error(f"Worker {worker_id}: body fetch error (offset {start}): {e}")
 
-    # ── Compute ratings using the in-memory body dict ──────────────────────
+    # ── Compute ratings ────────────────────────────────────────────────────
     for system_id64, main_star_type in system_batch:
         try:
             bodies = bodies_by_system.get(system_id64, [])
@@ -410,8 +891,6 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
             except Exception as e:
                 log.error(f"Worker {worker_id}: write error: {e}")
                 conn.rollback()
-                # Track which systems failed so we do NOT mark them clean below.
-                # They remain rating_dirty=TRUE and will be retried on next run.
                 for r in rating_batch:
                     failed_ids.add(r['system_id64'])
             rating_batch.clear()
@@ -426,17 +905,7 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
             for r in rating_batch:
                 failed_ids.add(r['system_id64'])
 
-    # Mark systems as clean (one UPDATE, one commit).
-    # FIX v2.2: disable RI triggers for this session so the UPDATE doesn't fire
-    # 17 referential-integrity triggers per row (8 FK child tables × 2 triggers
-    # each + 1 custom trigger = 17).  Only rating_dirty is being changed — not
-    # id64 (the FK column) — so RI integrity is fully maintained.
-    # session_replication_role = replica reverts automatically on disconnect.
-    #
-    # FIX v2.3: only clear dirty for systems whose ratings were successfully
-    # written.  Systems in failed_ids had a write error — they stay dirty so
-    # the next run will retry them.  Previously ALL id64s were cleared even
-    # when some writes failed, permanently losing those ratings.
+    # Mark systems clean — disable RI triggers to avoid 17-trigger overhead
     clean_ids = [i for i in id64s if i not in failed_ids]
     if failed_ids:
         log.warning(
@@ -445,21 +914,12 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
         )
     if clean_ids:
         try:
-            try:
-                cur.execute("SET session_replication_role = replica")
-                log.debug(f"Worker {worker_id}: RI triggers disabled for dirty-flag UPDATE")
-            except Exception as e:
-                log.warning(
-                    f"Worker {worker_id}: could not disable RI triggers: {e} "
-                    f"— continuing anyway"
-                )
+            cur.execute("SET session_replication_role = replica")
             cur.execute(
                 "UPDATE systems SET rating_dirty = FALSE WHERE id64 = ANY(%s)",
                 (clean_ids,)
             )
             conn.commit()
-            # session_replication_role reverts to 'origin' on next transaction /
-            # disconnect automatically — no explicit reset needed.
         except Exception as e:
             log.error(f"Worker {worker_id}: dirty-flag update error: {e}")
             conn.rollback()
@@ -488,6 +948,12 @@ def _write_ratings(conn, cur, batch: list) -> None:
         r['bio_signal_total'],  r['geo_signal_total'],
         r['neutron_count'],     r['black_hole_count'],
         r['white_dwarf_count'],
+        r.get('slots'),
+        r.get('body_quality'),
+        r.get('compactness'),
+        r.get('signal_quality'),
+        r.get('orbital_safety'),
+        r.get('star_bonus'),
         json.dumps(r['score_breakdown']),
         now_iso,
     ) for r in batch]
@@ -505,6 +971,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
             hmc_count, landable_count, terraformable_count,
             bio_signal_total, geo_signal_total,
             neutron_count, black_hole_count, white_dwarf_count,
+            slots, body_quality, compactness, signal_quality, orbital_safety, star_bonus,
             score_breakdown, updated_at
         ) VALUES %s
         ON CONFLICT (system_id64) DO UPDATE SET
@@ -532,6 +999,12 @@ def _write_ratings(conn, cur, batch: list) -> None:
             neutron_count       = EXCLUDED.neutron_count,
             black_hole_count    = EXCLUDED.black_hole_count,
             white_dwarf_count   = EXCLUDED.white_dwarf_count,
+            slots               = EXCLUDED.slots,
+            body_quality        = EXCLUDED.body_quality,
+            compactness         = EXCLUDED.compactness,
+            signal_quality      = EXCLUDED.signal_quality,
+            orbital_safety      = EXCLUDED.orbital_safety,
+            star_bonus          = EXCLUDED.star_bonus,
             score_breakdown     = EXCLUDED.score_breakdown,
             updated_at          = NOW()
         """,
@@ -539,7 +1012,8 @@ def _write_ratings(conn, cur, batch: list) -> None:
         template=(
             "(%s,%s,%s,%s,%s,%s,%s,%s,"
             "%s::economy_type,"
-            "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+            "%s,%s,%s,%s,%s,%s,%s,%s)"
         ),
         page_size=BATCH_SIZE,
     )
@@ -551,37 +1025,38 @@ def _write_ratings(conn, cur, batch: list) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Build pre-computed ratings (v2.5)')
-    parser.add_argument('--rebuild',  action='store_true',
+    parser = argparse.ArgumentParser(
+        description='Build pre-computed colonisation ratings (v3.0 — accuracy rewrite)'
+    )
+    parser.add_argument('--rebuild',     action='store_true',
                         help='Re-rate ALL systems, not just unrated ones')
-    parser.add_argument('--dirty',    action='store_true',
+    parser.add_argument('--dirty',       action='store_true',
                         help='Only re-rate systems with rating_dirty = TRUE')
-    parser.add_argument('--workers',  type=int, default=mp.cpu_count(),
+    parser.add_argument('--workers',     type=int, default=mp.cpu_count(),
                         help='Parallel worker processes (default: CPU count)')
     parser.add_argument('--max-workers', type=int, default=None,
-                        help='Hard cap on worker count (prevents 1000%% CPU on large servers)')
-    parser.add_argument('--chunk',    type=int, default=50_000,
+                        help='Hard cap on worker count')
+    parser.add_argument('--chunk',       type=int, default=50_000,
                         help='Systems per worker chunk (default: 50000)')
-    parser.add_argument('--limit',    type=int, default=None,
+    parser.add_argument('--limit',       type=int, default=None,
                         help='Stop after N systems total (for testing)')
     args = parser.parse_args()
 
-    # ── Startup banner ────────────────────────────────────────────────────
     worker_count = args.workers
     if args.max_workers and worker_count > args.max_workers:
-        log.info(f"  Note: Capping workers from {worker_count} to {args.max_workers} (--max-workers)")
+        log.info(f"  Note: Capping workers from {worker_count} to {args.max_workers}")
         worker_count = args.max_workers
 
     mode_label = "REBUILD ALL" if args.rebuild else ("DIRTY ONLY" if args.dirty else "RESUME (unrated only)")
-    startup_banner(log, "Ratings Computer", "v2.5", [
+    startup_banner(log, "Ratings Computer", "v3.0 (Colonisation-accurate)", [
         ("Mode",       mode_label),
         ("Workers",    str(worker_count)),
         ("Chunk size", f"{args.chunk:,} systems"),
         ("Log file",   LOG_FILE),
         ("DB",         DB_DSN.split('@')[-1]),
+        ("Scoring",    "Official ED Trailblazers Update 3 mechanics"),
     ])
 
-    # ── Connect and diagnostic counts ─────────────────────────────────────
     stage_banner(log, 1, 3, "Diagnostic counts")
     try:
         conn = _connect_with_retry(DB_DSN, label='ratings-diag')
@@ -601,28 +1076,31 @@ def main():
     log.info(f"  Already rated          : {fmt_num(already_rated)}")
     log.info(f"  Remaining (resume)     : {fmt_num(remaining)}")
     log.info(f"  Coverage               : {fmt_pct(already_rated, total_with_bodies)}")
+    log.info(f"")
+    log.info(f"  Score bands:")
+    log.info(f"    0–30  : Barely viable (single economy, few bodies)")
+    log.info(f"    31–50 : Functional (good for one economy, missing assets)")
+    log.info(f"    51–65 : Solid (good body mix, clean economies)")
+    log.info(f"    66–80 : Excellent (multiple strong economies, strategic assets)")
+    log.info(f"    81–100: Exceptional (ELWs, clean stacks, near-perfect)")
 
     if args.rebuild:
         to_process = total_with_bodies
     elif args.dirty:
-        to_process = None   # unknown until we stream
+        to_process = None
     else:
         to_process = remaining
 
     if to_process == 0 and not args.rebuild:
-        log.info("")
         log.info("  ✓ All systems already rated — nothing to do!")
         log.info("    Use --rebuild to force re-rate everything.")
         return
 
-    est_h = (to_process or remaining) / 1_000_000 / max(args.workers, 1) * 0.8
-    log.info(f"  Estimated time         : {est_h:.1f}h with {args.workers} workers")
+    est_h = (to_process or remaining) / 1_000_000 / max(worker_count, 1) * 0.8
+    log.info(f"  Estimated time         : {est_h:.1f}h with {worker_count} workers")
 
-    # ── Stream and dispatch ────────────────────────────────────────────────
     stage_banner(log, 2, 3, "Stream & rate systems")
     crash_hint(log, "automatically from the last rated system")
-    log.info(f"  Using server-side streaming cursor (avoids 74M truncation bug)")
-    log.info(f"  Workers emit heartbeat every 60s — silence > 5 min means a crash")
 
     stream_conn = _connect_with_retry(DB_DSN, label='ratings-stream')
     stream_conn.autocommit = False
@@ -633,9 +1111,6 @@ def main():
 
         if args.dirty:
             log.info("  Query: dirty systems only")
-            # FIX v2.5: Ensure we use the partial index by avoiding s.has_body_data = TRUE 
-            # if rating_dirty already implies it, or just relying on the partial index.
-            # Also, ORDER BY s.id64 can be slow if the index doesn't support it.
             stream_cur.execute("""
                 SELECT id64, main_star_type
                 FROM   systems
@@ -651,7 +1126,7 @@ def main():
                 ORDER BY s.id64
             """)
         else:
-            log.info("  Query: unrated systems (LEFT JOIN, resume-safe)")
+            log.info("  Query: unrated systems (resume-safe)")
             stream_cur.execute("""
                 SELECT s.id64, s.main_star_type
                 FROM   systems s
@@ -671,7 +1146,6 @@ def main():
                                     label="ratings", interval=60, heartbeat=180)
 
         with mp.Pool(processes=worker_count) as pool:
-
             while limit_remaining > 0:
                 fetch_n = min(args.chunk, limit_remaining)
                 batch   = stream_cur.fetchmany(fetch_n)
@@ -686,13 +1160,8 @@ def main():
                     pool.apply_async(worker_process, (chunks_dispatched, batch, DB_DSN))
                 )
 
-                # Drain completed work (keep at most workers*2 in-flight)
-                # Optimized: wait for ANY result when full, then drain all ready ones
                 if len(pending_results) >= worker_count * 2:
-                    # Wait for the oldest one to finish
                     pending_results[0].wait()
-                    
-                    # Now drain all that are ready
                     still_pending = []
                     for res in pending_results:
                         if res.ready():
@@ -702,13 +1171,13 @@ def main():
                                 total_errors    += e
                                 progress.update(p, errors=e)
                             except Exception as ex:
-                                log.error(f"Worker task failed with exception: {ex}")
-                                total_errors += args.chunk # Estimate
+                                log.error(f"Worker task failed: {ex}")
+                                total_errors += args.chunk
                         else:
                             still_pending.append(res)
                     pending_results = still_pending
 
-            log.info(f"  All {chunks_dispatched} chunks dispatched — draining worker pool...")
+            log.info(f"  All {chunks_dispatched} chunks dispatched — draining pool...")
             for done in pending_results:
                 try:
                     p, e = done.get()
@@ -724,7 +1193,6 @@ def main():
     stream_conn.close()
     elapsed = time.time() - script_start
 
-    # ── Finalise ──────────────────────────────────────────────────────────
     stage_banner(log, 3, 3, "Finalise — write app_meta")
     conn2 = _connect_with_retry(DB_DSN, label='ratings-finalise')
     with conn2.cursor() as cur:
@@ -733,7 +1201,6 @@ def main():
             VALUES ('ratings_built', 'true', NOW())
             ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
         """)
-        # Quick sanity stats
         cur.execute("""
             SELECT COUNT(*), COUNT(*) FILTER (WHERE score = 0),
                    MIN(score), MAX(score), AVG(score)::int

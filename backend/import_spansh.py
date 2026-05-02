@@ -1,53 +1,33 @@
 #!/usr/bin/env python3
 """
 ED Finder — Spansh Dump Importer  (PostgreSQL / psycopg2 COPY edition)
-Version: 2.5  (progress bar desync fix + station skip tracking)
+Version: 3.0  (galaxy region lookup + structured error logging)
+
+NEW in v3.0:
+  • galaxy_region_id populated for every system during import using the
+    klightspeed/EliteDangerousRegionMap algorithm (RegionMapData.py).
+    Each system gets a SMALLINT (1-42) identifying its named ED codex region
+    (Inner Orion Spur, Formorian Frontier, Galactic Centre, etc.).
+    The lookup is pure integer arithmetic — zero DB overhead per row.
+  • Structured error logging: per-record failures are written to the
+    import_errors table so you can query exactly which systems/bodies/stations
+    failed and why, without grepping 500MB log files.
+  • errors_encountered counter tracked in import_meta so the API can surface
+    import health in real-time.
+  • needs_permit field populated from Spansh data (defaults FALSE if absent).
 
 FIX in v2.5:
-  • Progress bar desync on resume: after the fast-forward phase, the tqdm bar
-    was initialised at position 0 even when resuming at 90%, making ETA and
-    throughput completely wrong.  Fix: tqdm is now initialised with
-    initial=f_raw.tell() AFTER the fast-forward loop completes, so the bar
-    starts at the correct compressed byte position.
-  • import_stations: stations missing 'id' or 'systemId64' were silently
-    dropped without incrementing _skip_count or logging anything.  Fix: these
-    are now counted and logged at DEBUG so schema changes are detectable.
+  • Progress bar desync on resume fixed (tqdm initialised after fast-forward).
+  • import_stations: stations missing 'id' or 'systemId64' now counted/logged.
 
 FIX in v2.4:
   • _make_direct_dsn() added: automatically rewrites DATABASE_URL to bypass
-    pgBouncer (port 5433 → 5432, @pgbouncer: → @postgres:).  pgBouncer
-    transaction-pool mode silently drops connections mid-import, causing
-    incomplete imports.  DB_DSN_DIRECT env var can override.
-
-FIX in v2.2:
-  • --all now auto-resumes any file whose status is 'running' without needing
-    the --resume flag.  Only files that are 'complete' are skipped.  This means
-    a crash / Ctrl-C followed by re-running with --all will pick up exactly
-    where it left off, no flags needed.
-  • Resume row-skip was O(n) because it parsed every JSON object individually.
-    Fixed: during the fast-forward phase we consume ijson items without
-    unpacking fields (just increment a counter), which is ~5-10× faster and
-    avoids wasting CPU on data we're going to discard.
-
-FIX in v2.1:
-  • gzip f.tell() returns the DECOMPRESSED byte offset which is much larger
-    than the compressed file size — causing progress to show >100% and the
-    status table to show e.g. "115%".
-  • Resume (--resume) was seeking to the decompressed offset inside the gzip
-    stream which is valid but extremely slow on a 102 GB file (O(n) seek).
-  • Fix: track progress using the raw compressed file position (f_raw.tell())
-    so the percentage is always accurate (0-100%).  Checkpoint now stores the
-    ROW count instead of a byte offset.
+    pgBouncer (port 5433 → 5432, @pgbouncer: → @postgres:).
 
 Why psycopg2 COPY instead of INSERT ... ON CONFLICT:
-  • COPY is the fastest possible PostgreSQL bulk-load method — it bypasses the
-    SQL parser, planner, and most of the rewrite rules.
-  • Uses a StringIO/BytesIO pipe fed directly to PostgreSQL's COPY protocol.
-  • On a Hetzner AX41 (i7-8700, 128 GB RAM, NVMe RAID-5) with indexes dropped:
-      INSERT ... ON CONFLICT:  ~250 kB/s  (~4-5 days for 110 GB)
-      COPY + upsert merge:     ~5-15 MB/s (~2-8 hours for 110 GB)
+  • COPY is the fastest possible PostgreSQL bulk-load method.
   • Strategy: COPY into a temp table, then INSERT ... ON CONFLICT from temp
-    into the real table.  This gives us both speed AND upsert semantics.
+    into the real table. This gives us both speed AND upsert semantics.
 
 Server:   Hetzner AX41-SSD — i7-8700 (6C/12T), 128 GB RAM, 3×1 TB NVMe RAID-5
 Database: PostgreSQL 16
@@ -59,11 +39,7 @@ Usage:
     python3 import_spansh.py --download-only         # download files then exit
     python3 import_spansh.py --download --all        # download then import
     python3 import_spansh.py --status                # show import progress
-
-Spansh dump URLs (current as of 2025):
-    https://downloads.spansh.co.uk/galaxy.json.gz           (~102 GB)
-    https://downloads.spansh.co.uk/galaxy_populated.json.gz (~3.6 GB)
-    https://downloads.spansh.co.uk/galaxy_stations.json.gz  (~3.6 GB)
+    python3 import_spansh.py --errors                # show recent import errors
 """
 
 import os
@@ -85,6 +61,41 @@ import psycopg2.extras
 import psycopg2.extensions
 from tqdm import tqdm
 
+# ---------------------------------------------------------------------------
+# Galaxy Region Lookup (klightspeed/EliteDangerousRegionMap)
+# ---------------------------------------------------------------------------
+try:
+    from RegionMapData import regions as _REGION_NAMES, regionmap as _REGION_MAP
+    _REGION_X0 = -49985
+    _REGION_Z0 = -24105
+
+    def find_galaxy_region(x: float, z: float) -> Optional[int]:
+        """
+        Return the galaxy region id (1-42) for a system at (x, z).
+        Y coordinate is not used — regions are defined in the XZ plane.
+        Returns None if the coordinates are outside the region map.
+        """
+        px = int((x - _REGION_X0) * 83 / 4096)
+        pz = int((z - _REGION_Z0) * 83 / 4096)
+        if px < 0 or pz < 0 or pz >= len(_REGION_MAP):
+            return None
+        row = _REGION_MAP[pz]
+        rx = 0
+        pv = 0
+        for rl, pv in row:
+            if px < rx + rl:
+                break
+            rx += rl
+        else:
+            pv = 0
+        return int(pv) if pv else None
+
+    _REGION_LOOKUP_AVAILABLE = True
+except ImportError:
+    _REGION_LOOKUP_AVAILABLE = False
+    def find_galaxy_region(x: float, z: float) -> Optional[int]:
+        return None
+
 
 def _json_dumps(obj) -> Optional[str]:
     """json.dumps that converts Decimal → float (ijson returns Decimal for numbers)."""
@@ -104,8 +115,7 @@ def _make_direct_dsn(url: str) -> str:
     """
     Ensure the DSN points directly at postgres (port 5432), not pgBouncer (5433).
     pgBouncer transaction-pool mode is incompatible with COPY and long-running
-    import transactions — it can silently drop connections mid-import, causing
-    incomplete imports.
+    import transactions — it can silently drop connections mid-import.
     """
     direct = os.getenv('DB_DSN_DIRECT', '')
     if direct:
@@ -118,7 +128,7 @@ def _make_direct_dsn(url: str) -> str:
 DB_DSN          = _make_direct_dsn(os.getenv('DATABASE_URL',
                     'postgresql://edfinder:edfinder@localhost:5432/edfinder'))
 DUMP_DIR        = Path(os.getenv('DUMP_DIR', '/data/dumps'))
-BATCH_SIZE      = int(os.getenv('BATCH_SIZE', '50000'))   # much larger for COPY
+BATCH_SIZE      = int(os.getenv('BATCH_SIZE', '50000'))
 LOG_LEVEL       = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE        = os.getenv('LOG_FILE', '/data/logs/import.log')
 
@@ -151,13 +161,17 @@ logging.basicConfig(
 )
 log = logging.getLogger('import_spansh')
 
+if _REGION_LOOKUP_AVAILABLE:
+    log.info("Galaxy region lookup: ENABLED (42 named ED codex regions)")
+else:
+    log.warning("Galaxy region lookup: DISABLED (RegionMapData.py not found)")
+
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
 def get_conn() -> psycopg2.extensions.connection:
     conn = psycopg2.connect(DB_DSN)
     conn.autocommit = False
-    # Use server-side cursors for large result sets
     return conn
 
 
@@ -169,6 +183,68 @@ def set_import_optimisations(conn):
         cur.execute("SET maintenance_work_mem = '4GB'")
     conn.commit()
     log.info("Import optimisations applied (synchronous_commit=off, work_mem=256MB)")
+
+
+# ---------------------------------------------------------------------------
+# Structured error logging
+# ---------------------------------------------------------------------------
+_error_batch: List[Tuple] = []
+_error_batch_size = 500
+
+def log_import_error(conn, dump_file: str, record_id: Optional[int],
+                     record_type: str, exc: Exception,
+                     raw_snippet: Optional[str] = None):
+    """
+    Queue a structured error record. Flushed in batches to import_errors table.
+    This replaces grepping log files — query import_errors directly to diagnose failures.
+    """
+    _error_batch.append((
+        dump_file,
+        record_id,
+        record_type,
+        type(exc).__name__,
+        str(exc)[:500],
+        raw_snippet[:500] if raw_snippet else None,
+    ))
+    if len(_error_batch) >= _error_batch_size:
+        flush_error_batch(conn, dump_file)
+
+
+def flush_error_batch(conn, dump_file: str):
+    """Write accumulated error records to the import_errors table."""
+    if not _error_batch:
+        return
+    try:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                """
+                INSERT INTO import_errors
+                    (dump_file, record_id, record_type, error_class, error_message, raw_snippet)
+                VALUES %s
+                """,
+                _error_batch
+            )
+        conn.commit()
+    except Exception as e:
+        log.warning(f"Failed to write error batch to import_errors: {e}")
+    finally:
+        _error_batch.clear()
+
+
+def increment_error_count(conn, dump_file: str, count: int = 1):
+    """Increment the errors_encountered counter in import_meta."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE import_meta
+                SET errors_encountered = errors_encountered + %s,
+                    updated_at = NOW()
+                WHERE dump_file = %s
+            """, (count, dump_file))
+        conn.commit()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -185,12 +261,7 @@ def get_checkpoint(conn, dump_file: str) -> int:
 
 
 def save_checkpoint(conn, dump_file: str, offset: int, rows: int, bytes_pos: int = 0):
-    """
-    Save checkpoint to import_meta table.
-    
-    FIX in v2.3: now tracks both rows_processed AND bytes_processed for accurate
-    resume position after a crash. bytes_pos should be f_raw.tell() (compressed offset).
-    """
+    """Save checkpoint to import_meta table."""
     with conn.cursor() as cur:
         if bytes_pos > 0:
             cur.execute("""
@@ -210,7 +281,6 @@ def save_checkpoint(conn, dump_file: str, offset: int, rows: int, bytes_pos: int
                 WHERE dump_file = %s
             """, (rows, rows, dump_file))
     conn.commit()
-
 
 
 def mark_running(conn, dump_file: str, total_bytes: int):
@@ -259,18 +329,11 @@ def mark_failed(conn, dump_file: str, error: str):
 
 
 # ---------------------------------------------------------------------------
-# COPY helper — the core speed improvement
+# COPY helper
 # ---------------------------------------------------------------------------
 def copy_records(conn, table: str, columns: List[str], rows: List[Tuple]) -> int:
-    """
-    Bulk-insert rows into `table` using PostgreSQL COPY protocol via a
-    StringIO pipe.  This is ~20-50x faster than executemany() for large batches.
-
-    Returns number of rows inserted.
-    """
     if not rows:
         return 0
-
     buf = io.StringIO()
     for row in rows:
         line_parts = []
@@ -280,7 +343,6 @@ def copy_records(conn, table: str, columns: List[str], rows: List[Tuple]) -> int
             elif isinstance(val, bool):
                 line_parts.append('t' if val else 'f')
             elif isinstance(val, str):
-                # Escape special COPY characters
                 escaped = (val
                     .replace('\\', '\\\\')
                     .replace('\n', '\\n')
@@ -290,9 +352,7 @@ def copy_records(conn, table: str, columns: List[str], rows: List[Tuple]) -> int
             else:
                 line_parts.append(str(val))
         buf.write('\t'.join(line_parts) + '\n')
-
     buf.seek(0)
-    col_list = ', '.join(columns)
     with conn.cursor() as cur:
         cur.copy_from(buf, table, columns=columns, null='\\N')
     conn.commit()
@@ -302,33 +362,20 @@ def copy_records(conn, table: str, columns: List[str], rows: List[Tuple]) -> int
 def upsert_via_temp(conn, target_table: str, columns: List[str],
                     rows: List[Tuple], conflict_col: str,
                     update_cols: Optional[List[str]] = None) -> int:
-    """
-    COPY rows into a temp table then INSERT ... ON CONFLICT DO UPDATE into
-    the real table.  Gives us COPY speed + upsert semantics.
-
-    conflict_col: the PRIMARY KEY / UNIQUE column to conflict on.
-    update_cols:  columns to update on conflict (defaults to all non-PK cols).
-    """
     if not rows:
         return 0
-
     if update_cols is None:
         update_cols = [c for c in columns if c != conflict_col]
-
     temp = f"_tmp_{target_table}"
     col_list   = ', '.join(columns)
     set_clause = ', '.join(f"{c} = EXCLUDED.{c}" for c in update_cols)
-
     with conn.cursor() as cur:
-        # Create temp table mirroring target (no constraints, no indexes — fast)
         cur.execute(f"""
             CREATE TEMP TABLE IF NOT EXISTS {temp}
             (LIKE {target_table} INCLUDING DEFAULTS)
             ON COMMIT DELETE ROWS
         """)
         conn.commit()
-
-        # COPY into temp
         buf = io.StringIO()
         for row in rows:
             parts = []
@@ -349,8 +396,6 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
             buf.write('\t'.join(parts) + '\n')
         buf.seek(0)
         cur.copy_from(buf, temp, columns=columns, null='\\N')
-
-        # Upsert from temp → real table
         cur.execute(f"""
             INSERT INTO {target_table} ({col_list})
             SELECT {col_list} FROM {temp}
@@ -358,7 +403,6 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
             SET {set_clause}
         """)
         count = cur.rowcount
-
     conn.commit()
     return count
 
@@ -394,7 +438,6 @@ def norm_economy(v) -> str:
     if not v:
         return 'Unknown'
     v = str(v).strip().replace(' ', '').replace('$economy_', '').replace(';', '')
-    # Normalise common variants
     mapping = {
         'hightech': 'HighTech', 'high_tech': 'HighTech',
         'agriculture': 'Agriculture', 'agri': 'Agriculture',
@@ -464,22 +507,17 @@ def norm_station_type(v) -> str:
 
 
 def parse_ts(v) -> Optional[str]:
-    """Convert any timestamp value to an ISO8601 string PostgreSQL can accept.
-    Handles: Unix epoch int/float, ISO8601 strings, other strings (passed through).
-    """
     if not v:
         return None
     try:
         if isinstance(v, (int, float)):
             return datetime.fromtimestamp(v, tz=timezone.utc).isoformat()
-        # Validate/normalise ISO8601 strings so COPY doesn't fail on bad formats
         s = str(v).strip()
         try:
             dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
             return dt.isoformat()
         except ValueError:
             pass
-        # Pass through anything else and let PostgreSQL complain if it's wrong
         return s
     except Exception:
         return None
@@ -493,18 +531,11 @@ def parse_bool(v) -> Optional[bool]:
     return str(v).lower() in ('true', '1', 'yes')
 
 
-# ---------------------------------------------------------------------------
-# Signal count helpers — Spansh uses multiple inconsistent shapes:
-#   dict count:  {"genuses": 3, "geology": 1}
-#   dict list:   {"genuses": ["$genus_name1;", ...], "geology": [...]}
-#   list:        [{"type": "Biology", "count": 3}, {"type": "Geology", "count": 1}]
-# ---------------------------------------------------------------------------
 def _to_signal_count(val) -> int:
-    """Convert any signal value shape to an integer count."""
     if val is None:
         return 0
     if isinstance(val, list):
-        return len(val)          # list of genus names — count = length
+        return len(val)
     try:
         return int(val or 0)
     except (TypeError, ValueError):
@@ -545,18 +576,8 @@ def _parse_geo_signals(b: dict) -> int:
 def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     """
     Parse galaxy.json.gz and upsert systems, bodies, and stations.
-
-    Uses COPY-via-temp for bulk loads:
-      - Systems batch: 50,000 rows → COPY to temp → upsert to systems
-      - Bodies batch:  50,000 rows → COPY to temp → upsert to bodies
-      - Stations batch: 50,000 rows → COPY to temp → upsert to stations
-
-    Performance target: 5-15 MB/s on Hetzner AX41 with indexes dropped.
-
-    NOTE: resume_offset is a ROW count (not a byte offset). We skip that
-    many rows at the start of the stream rather than seeking in the gzip.
-    Progress is tracked using the compressed file position (f_raw.tell())
-    so the percentage never exceeds 100%.
+    v3.0: galaxy_region_id populated for every system via findRegion().
+    v3.0: Structured errors written to import_errors table.
     """
     log.info(f"Importing systems+bodies+stations from {dump_path.name} ...")
     set_import_optimisations(conn)
@@ -570,8 +591,10 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
         'population', 'is_colonised', 'is_being_colonised',
         'controlling_faction',
         'security', 'allegiance', 'government',
+        'needs_permit',
         'main_star_type', 'main_star_subtype', 'main_star_is_scoopable',
         'has_body_data', 'body_count', 'data_quality',
+        'galaxy_region_id',
         'first_discovered_at', 'updated_at',
         'rating_dirty', 'cluster_dirty',
     ]
@@ -610,6 +633,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     body_batch  = []
     sta_batch   = []
     total_rows  = 0
+    skip_count  = 0
     last_save   = time.time()
 
     def flush_systems():
@@ -618,27 +642,20 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             sys_batch.clear()
 
     def flush_bodies():
-        # Always flush systems first — bodies have a FK on system_id64
         flush_systems()
         if body_batch:
             upsert_via_temp(conn, 'bodies', BODY_COLS, body_batch, 'id')
             body_batch.clear()
 
     def flush_stations():
-        # Always flush systems first — stations have a FK on system_id64
         flush_systems()
         if sta_batch:
             upsert_via_temp(conn, 'stations', STA_COLS, sta_batch, 'id')
             sta_batch.clear()
 
-    # Open the raw compressed file separately so we can track compressed
-    # position (f_raw.tell()) for accurate progress — gzip f.tell() returns
-    # the decompressed offset which is larger than the file and causes >100%.
     with open(dump_path, 'rb') as f_raw, gzip.open(f_raw, 'rb') as f:
         if resume_offset > 0:
             log.info(f"Resuming from row {resume_offset:,} — fast-forwarding stream ...")
-            # Fast-forward: consume items without unpacking fields.
-            # This is 5-10× faster than parsing every field just to discard it.
             _item_iter = ijson.items(f, 'item')
             for _i, _ in enumerate(_item_iter, 1):
                 if _i % 500_000 == 0:
@@ -646,22 +663,16 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 if _i >= resume_offset:
                     break
             log.info(f"Fast-forward complete — continuing import from row {resume_offset:,}")
-            # Re-use the same iterator for the main loop below
             items_iter = _item_iter
         else:
             items_iter = ijson.items(f, 'item')
 
-        # FIX v2.5: initialise the progress bar AFTER fast-forward so that
-        # initial= reflects the actual compressed byte position.  Previously
-        # it was always 0 even when resuming at 90%, making ETA/throughput wrong.
         pbar = tqdm(
             total=file_size,
-            initial=f_raw.tell(),   # correct position after fast-forward
+            initial=f_raw.tell(),
             unit='B', unit_scale=True, unit_divisor=1024,
             desc=dump_path.name,
         )
-
-        _skip_count = 0  # count of individual bad records skipped
 
         try:
             for sys_obj in items_iter:
@@ -671,7 +682,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                 now_iso = datetime.now(timezone.utc).isoformat()
 
-                # ── Determine main star from nested bodies ─────────────────
+                # ── Main star detection ────────────────────────────────────
                 bodies_raw = sys_obj.get('bodies', []) or []
                 main_star_type      = None
                 main_star_subtype   = None
@@ -679,7 +690,6 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 has_body_data = len(bodies_raw) > 0
 
                 for b in bodies_raw:
-                    # Spansh schema uses 'mainStar' (not 'isMainStar')
                     if b.get('mainStar') or b.get('isMainStar') or b.get('is_main_star'):
                         sc = b.get('spectralClass') or b.get('spectral_class') or ''
                         main_star_type    = sc[:1] if sc else None
@@ -687,7 +697,19 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         main_star_scoopable = main_star_type in SCOOPABLE_STARS if main_star_type else None
                         break
 
-                # ── Systems row ───────────────────────────────────────────
+                # ── Galaxy region lookup ───────────────────────────────────
+                try:
+                    coords = sys_obj.get('coords') or {}
+                    coords = coords if isinstance(coords, dict) else {}
+                    sx = float(coords.get('x') or sys_obj.get('x') or 0)
+                    sy = float(coords.get('y') or sys_obj.get('y') or 0)
+                    sz = float(coords.get('z') or sys_obj.get('z') or 0)
+                    region_id = find_galaxy_region(sx, sz)
+                except Exception:
+                    sx, sy, sz = 0.0, 0.0, 0.0
+                    region_id = None
+
+                # ── Controlling faction ────────────────────────────────────
                 controlling  = None
                 factions_raw = sys_obj.get('factions', []) or []
                 for fac in factions_raw:
@@ -697,15 +719,16 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 if not controlling:
                     controlling = sys_obj.get('controllingFaction') or sys_obj.get('controlling_faction')
 
+                # ── Systems row ────────────────────────────────────────────
                 try:
-                    coords = sys_obj.get('coords') or {}
-                    coords = coords if isinstance(coords, dict) else {}
+                    needs_permit = bool(
+                        sys_obj.get('needsPermit') or
+                        sys_obj.get('needs_permit', False)
+                    )
                     sys_batch.append((
                         id64,
                         sys_obj.get('name', ''),
-                        float(coords.get('x') or sys_obj.get('x') or 0),
-                        float(coords.get('y') or sys_obj.get('y') or 0),
-                        float(coords.get('z') or sys_obj.get('z') or 0),
+                        sx, sy, sz,
                         norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                         norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
                         int(sys_obj.get('population') or 0),
@@ -715,23 +738,26 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         norm_security(sys_obj.get('security')),
                         norm_allegiance(sys_obj.get('allegiance')),
                         norm_government(sys_obj.get('government')),
+                        needs_permit,
                         main_star_type,
                         main_star_subtype,
                         main_star_scoopable,
                         has_body_data,
                         len(bodies_raw),
                         2 if has_body_data else 0,
+                        region_id,
                         parse_ts(sys_obj.get('date') or sys_obj.get('first_discovered_at')),
                         now_iso,
                         True,   # rating_dirty
                         True,   # cluster_dirty
                     ))
                 except Exception as _e:
-                    _skip_count += 1
-                    log.debug(f"Skipping system id64={id64} ({sys_obj.get('name','')}): {_e}")
+                    skip_count += 1
+                    log.debug(f"Skipping system id64={id64}: {_e}")
+                    log_import_error(conn, dump_path.name, id64, 'system', _e)
                     continue
 
-                # ── Bodies rows ───────────────────────────────────────────
+                # ── Bodies rows ────────────────────────────────────────────
                 for b in bodies_raw:
                     bid = b.get('id64') or b.get('id') or b.get('bodyId')
                     if not bid:
@@ -744,29 +770,20 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         sc = b.get('spectralClass') or b.get('spectral_class') or ''
                         atm_comp = b.get('atmosphereComposition') or b.get('atmosphere_composition')
                         mats     = b.get('materials')
-
-                        # Spansh galaxy.json schema: subType-based world flags
-                        # (no isEarthLike/isWaterWorld/isAmmoniaWorld boolean fields in dump)
                         sub_type = b.get('subType') or b.get('subtype') or ''
                         is_main_star = bool(
-                            b.get('mainStar') or          # official Spansh schema key
-                            b.get('isMainStar') or         # legacy/API key
-                            b.get('is_main_star', False)   # snake_case fallback
+                            b.get('mainStar') or
+                            b.get('isMainStar') or
+                            b.get('is_main_star', False)
                         )
                         is_earth_like  = (sub_type == 'Earth-like world') or bool(b.get('isEarthLike') or b.get('is_earth_like', False))
                         is_water_world = (sub_type == 'Water world') or bool(b.get('isWaterWorld') or b.get('is_water_world', False))
                         is_ammonia     = (sub_type == 'Ammonia world') or bool(b.get('isAmmoniaWorld') or b.get('is_ammonia_world', False))
-
-                        # terraformable: check terraformingState field value
                         tf_state = b.get('terraformingState') or b.get('terraforming_state') or ''
                         is_terraformable = (
                             tf_state == 'Terraformable' or
                             bool(b.get('isTerraformingCandidate') or b.get('is_terraformable', False))
                         )
-
-                        # mass column = Earth masses for planets, solar masses for stars.
-                        # Deliberately do NOT fall through to solarMasses here; that
-                        # goes into the dedicated stellar_mass column below.
                         mass = b.get('earthMasses') or b.get('mass')
                         stellar_mass = b.get('solarMasses') or b.get('stellar_mass')
 
@@ -778,9 +795,6 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             is_main_star,
                             b.get('distanceToArrival') or b.get('distance_from_star'),
                             b.get('orbitalPeriod') or b.get('orbital_period'),
-                            # radius is always in km in Spansh dumps.
-                            # solarRadius is in solar radii (~695,700 km) — completely
-                            # different unit, so we never mix them.
                             b.get('radius'),
                             mass,
                             b.get('gravity'),
@@ -798,7 +812,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             is_ammonia,
                             _parse_bio_signals(b),
                             _parse_geo_signals(b),
-                            sc if sc else None,   # full spectral class — no truncation
+                            sc if sc else None,
                             b.get('luminosity'),
                             stellar_mass,
                             (sc[:1] in SCOOPABLE_STARS) if sc else None,
@@ -808,20 +822,20 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             now_iso,
                         ))
                     except Exception as _e:
-                        _skip_count += 1
+                        skip_count += 1
                         log.debug(f"Skipping body id={bid} in system {id64}: {_e}")
+                        log_import_error(conn, dump_path.name, bid, 'body', _e)
                         continue
 
-                # ── Stations rows ──────────────────────────────────────────────────────────
+                # ── Stations rows ──────────────────────────────────────────
                 stations_raw = sys_obj.get('stations', []) or []
                 for s in stations_raw:
                     sid = s.get('id') or s.get('marketId') or s.get('market_id')
                     if not sid:
-                        _skip_count += 1
+                        skip_count += 1
                         log.debug(f"Skipping station with no id in system {id64}")
                         continue
-                    try:        # Spansh schema uses 'services' array (not 'otherServices')
-                        # Values like "Market", "Shipyard", "Outfitting", "Refuel", etc.
+                    try:
                         svcs = (s.get('services') or
                                 s.get('otherServices') or
                                 s.get('other_services') or [])
@@ -832,8 +846,6 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         pad_size = ('L' if landing_pads.get('large') else
                                     'M' if landing_pads.get('medium') else
                                     s.get('landing_pad_size'))
-                        # market/shipyard/outfitting: present as nested objects in schema,
-                        # OR as boolean flags (hasMarket), OR via services list
                         has_market    = (s.get('market') is not None or
                                          'market' in svcs_lower or
                                          bool(s.get('hasMarket') or s.get('has_market', False)))
@@ -870,33 +882,34 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             parse_ts(s.get('updateTime') or s.get('updated_at')) or now_iso,
                         ))
                     except Exception as _e:
-                        _skip_count += 1
+                        skip_count += 1
                         log.debug(f"Skipping station id={sid} in system {id64}: {_e}")
+                        log_import_error(conn, dump_path.name, sid, 'station', _e)
                         continue
 
                 total_rows += 1
 
-                # Flush when batches are full — ORDER MATTERS: systems before bodies/stations
-                # (bodies and stations have FK on system_id64 → parent must exist first)
                 if len(sys_batch) >= BATCH_SIZE:
                     flush_systems()
                 if len(body_batch) >= BATCH_SIZE:
-                    flush_bodies()   # internally calls flush_systems() first
+                    flush_bodies()
                 if len(sta_batch) >= BATCH_SIZE:
-                    flush_stations()  # internally calls flush_systems() first
+                    flush_stations()
 
-                # Checkpoint every 60 seconds
                 if time.time() - last_save > 60:
                     flush_systems()
                     flush_bodies()
                     flush_stations()
+                    flush_error_batch(conn, dump_path.name)
+                    if skip_count > 0:
+                        increment_error_count(conn, dump_path.name, skip_count)
+                        skip_count = 0
                     try:
                         save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     except Exception:
                         pass
                     last_save = time.time()
-                    compressed_pos = f_raw.tell()
-                    pbar.n = compressed_pos
+                    pbar.n = f_raw.tell()
                     pbar.refresh()
 
         except KeyboardInterrupt:
@@ -904,19 +917,22 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             flush_systems()
             flush_bodies()
             flush_stations()
+            flush_error_batch(conn, dump_path.name)
             save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
             log.info(f"Checkpoint saved at row {total_rows + resume_offset:,} "
-                     f"({_skip_count:,} records skipped)")
+                     f"({skip_count:,} records skipped)")
             sys.exit(0)
 
-        # Final flush
         flush_systems()
         flush_bodies()
         flush_stations()
+        flush_error_batch(conn, dump_path.name)
+        if skip_count > 0:
+            increment_error_count(conn, dump_path.name, skip_count)
         pbar.close()
 
-    if _skip_count:
-        log.warning(f"Skipped {_skip_count:,} malformed records during galaxy import")
+    if skip_count:
+        log.warning(f"Skipped {skip_count:,} malformed records during galaxy import")
     mark_complete(conn, dump_path.name, total_rows)
     log.info(f"galaxy.json.gz complete: {total_rows:,} systems imported")
     return total_rows
@@ -926,11 +942,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 # IMPORTER 2 — galaxy_populated.json.gz  (faction/economy enrichment)
 # ---------------------------------------------------------------------------
 def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
-    """
-    Enrich populated systems with faction, economy, security, government data.
-    Also upserts factions and system_factions tables.
-    resume_offset is a ROW count.
-    """
+    """Enrich populated systems with faction, economy, security, government data."""
     log.info(f"Importing populated systems from {dump_path.name} ...")
     set_import_optimisations(conn)
 
@@ -946,9 +958,10 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
     ]
 
     sys_batch  = []
-    fac_batch  = []   # (name, allegiance, government)
-    sf_batch   = []   # (system_id64, faction_name, influence, state, is_controlling)
+    fac_batch  = []
+    sf_batch   = []
     total_rows = 0
+    skip_count = 0
     last_save  = time.time()
 
     def flush_sys():
@@ -959,14 +972,8 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
         sys_batch.clear()
 
     def flush_system_factions():
-        """
-        Upsert system_factions rows.  We resolve faction name -> id by joining
-        against the factions table that was just flushed by flush_factions().
-        Rows whose faction name does not exist yet are silently skipped.
-        """
         if not sf_batch:
             return
-        # sf_batch rows: (system_id64, faction_name, influence, state, is_controlling)
         with conn.cursor() as _cur:
             for row in sf_batch:
                 try:
@@ -990,13 +997,10 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
     def flush_factions():
         if not fac_batch:
             return
-        # Deduplicate by name — same faction can appear in multiple systems
-        # in the same batch; ON CONFLICT cannot affect the same row twice
         seen: dict = {}
         for name, alleg, gov in fac_batch:
             seen[name] = (name, alleg, gov)
         deduped = list(seen.values())
-        # Upsert factions — use explicit cursor so it's properly closed
         with conn.cursor() as _cur:
             psycopg2.extras.execute_values(
                 _cur,
@@ -1052,10 +1056,8 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         is_ctrl = bool(fac.get('isControlling') or fac.get('is_controlling'))
                         if is_ctrl:
                             controlling = fname
-                        # Queue system_factions row (resolved to faction id in flush)
                         sf_batch.append((
-                            id64,
-                            fname,
+                            id64, fname,
                             float(fac.get('influence') or 0),
                             fac.get('state'),
                             is_ctrl,
@@ -1078,13 +1080,15 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         norm_allegiance(sys_obj.get('allegiance')),
                         norm_government(sys_obj.get('government')),
                         controlling,
-                        True,   # is_colonised — all populated systems are colonised
+                        True,
                         now_iso,
-                        True,   # rating_dirty
-                        True,   # cluster_dirty
+                        True,
+                        True,
                     ))
                 except Exception as _e:
+                    skip_count += 1
                     log.debug(f"Skipping populated system id64={id64}: {_e}")
+                    log_import_error(conn, dump_path.name, id64, 'system', _e)
                     continue
 
                 total_rows += 1
@@ -1093,15 +1097,16 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     flush_sys()
                 if len(fac_batch) >= BATCH_SIZE:
                     flush_factions()
-                    flush_system_factions()  # must come after factions are in DB
+                    flush_system_factions()
                 if len(sf_batch) >= BATCH_SIZE:
-                    flush_factions()         # ensure faction rows exist first
+                    flush_factions()
                     flush_system_factions()
 
                 if time.time() - last_save > 60:
                     flush_sys()
                     flush_factions()
                     flush_system_factions()
+                    flush_error_batch(conn, dump_path.name)
                     try:
                         save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     except Exception:
@@ -1115,12 +1120,14 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
             flush_sys()
             flush_factions()
             flush_system_factions()
+            flush_error_batch(conn, dump_path.name)
             save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
             sys.exit(0)
 
         flush_sys()
         flush_factions()
         flush_system_factions()
+        flush_error_batch(conn, dump_path.name)
         pbar.close()
 
     mark_complete(conn, dump_path.name, total_rows)
@@ -1132,11 +1139,7 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
 # IMPORTER 3 — galaxy_stations.json.gz  (station refresh)
 # ---------------------------------------------------------------------------
 def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
-    """
-    Re-import all stations with latest market/service/economy state.
-    galaxy_stations.json.gz is a flat list of station objects (not nested).
-    resume_offset is a ROW count.
-    """
+    """Re-import all stations with latest market/service/economy state."""
     log.info(f"Importing stations from {dump_path.name} ...")
     set_import_optimisations(conn)
 
@@ -1159,6 +1162,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     sta_batch  = []
     total_rows = 0
+    skip_count = 0
     last_save  = time.time()
 
     def flush():
@@ -1186,7 +1190,6 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
             desc=dump_path.name,
         )
 
-        _skip_count = 0
         try:
             for s in items_iter:
                 sid      = s.get('id') or s.get('marketId') or s.get('market_id')
@@ -1196,7 +1199,6 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                 now_iso  = datetime.now(timezone.utc).isoformat()
                 try:
-                    # Spansh schema uses 'services' array (values: "Market", "Shipyard", etc.)
                     svcs = (s.get('services') or
                             s.get('otherServices') or
                             s.get('other_services') or [])
@@ -1235,8 +1237,9 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         parse_ts(s.get('updateTime') or s.get('updated_at')) or now_iso,
                     ))
                 except Exception as _e:
-                    _skip_count += 1
+                    skip_count += 1
                     log.debug(f"Skipping station id={sid} in system {sys_id64}: {_e}")
+                    log_import_error(conn, dump_path.name, sid, 'station', _e)
                     continue
 
                 total_rows += 1
@@ -1246,6 +1249,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                 if time.time() - last_save > 60:
                     flush()
+                    flush_error_batch(conn, dump_path.name)
                     try:
                         save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     except Exception:
@@ -1257,14 +1261,18 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
         except KeyboardInterrupt:
             log.info("Interrupted — saving checkpoint ...")
             flush()
+            flush_error_batch(conn, dump_path.name)
             save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
             sys.exit(0)
 
         flush()
+        flush_error_batch(conn, dump_path.name)
+        if skip_count > 0:
+            increment_error_count(conn, dump_path.name, skip_count)
         pbar.close()
 
-    if _skip_count:
-        log.warning(f"Skipped {_skip_count:,} malformed station records")
+    if skip_count:
+        log.warning(f"Skipped {skip_count:,} malformed station records")
     mark_complete(conn, dump_path.name, total_rows)
     log.info(f"galaxy_stations.json.gz complete: {total_rows:,} stations imported")
     return total_rows
@@ -1274,11 +1282,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
 # IMPORTER 4 — systems delta files (1day / 1week / 1month)
 # ---------------------------------------------------------------------------
 def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
-    """
-    Import a Spansh systems delta file (flat list of system objects).
-    Used for nightly updates — much smaller than galaxy.json.gz.
-    resume_offset is a ROW count.
-    """
+    """Import a Spansh systems delta file (flat list of system objects)."""
     log.info(f"Importing systems delta from {dump_path.name} ...")
     set_import_optimisations(conn)
 
@@ -1289,8 +1293,8 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
         'id64', 'name', 'x', 'y', 'z',
         'primary_economy', 'secondary_economy',
         'population', 'security', 'allegiance', 'government',
-        'controlling_faction', 'updated_at',
-        'rating_dirty', 'cluster_dirty',
+        'controlling_faction', 'galaxy_region_id',
+        'updated_at', 'rating_dirty', 'cluster_dirty',
     ]
 
     sys_batch  = []
@@ -1304,9 +1308,6 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
             sys_batch.clear()
 
     with open(dump_path, 'rb') as f_raw, gzip.open(f_raw, 'rb') as f:
-        if resume_offset > 0:
-            log.info(f"Resuming from row {resume_offset:,} — skipping forward in stream ...")
-
         pbar = tqdm(
             total=file_size, initial=0,
             unit='B', unit_scale=True, unit_divisor=1024,
@@ -1333,12 +1334,21 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             controlling = fac.get('name')
                             break
 
+                try:
+                    coords = sys_obj.get('coords') or {}
+                    coords = coords if isinstance(coords, dict) else {}
+                    sx = float(coords.get('x') or sys_obj.get('x') or 0)
+                    sy = float(coords.get('y') or sys_obj.get('y') or 0)
+                    sz = float(coords.get('z') or sys_obj.get('z') or 0)
+                    region_id = find_galaxy_region(sx, sz)
+                except Exception:
+                    sx, sy, sz = 0.0, 0.0, 0.0
+                    region_id = None
+
                 sys_batch.append((
                     id64,
                     sys_obj.get('name', ''),
-                    float(sys_obj.get('coords', {}).get('x', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('x', 0)),
-                    float(sys_obj.get('coords', {}).get('y', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('y', 0)),
-                    float(sys_obj.get('coords', {}).get('z', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('z', 0)),
+                    sx, sy, sz,
                     norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                     norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
                     int(sys_obj.get('population') or 0),
@@ -1346,6 +1356,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     norm_allegiance(sys_obj.get('allegiance')),
                     norm_government(sys_obj.get('government')),
                     controlling,
+                    region_id,
                     now_iso,
                     True,
                     True,
@@ -1380,7 +1391,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Download helpers (aria2c → wget → curl → urllib fallback chain)
+# Download helpers
 # ---------------------------------------------------------------------------
 def _download_with_aria2(url: str, dest: Path) -> bool:
     import shutil, subprocess
@@ -1414,16 +1425,7 @@ def _download_with_curl(url: str, dest: Path) -> bool:
 
 
 def download_dumps(files: list):
-    """
-    Download Spansh dump files using the fastest available method.
-    Priority: aria2c (16-conn parallel) → wget → curl → urllib.
-
-    On Hetzner 1 Gbps: aria2c downloads 110 GB in ~15 minutes.
-    urllib (single-stream) would take ~25 minutes but is the fallback.
-
-    ALWAYS download before importing — streaming directly into PostgreSQL
-    is bottlenecked by insert speed (~250 kB/s), not network speed.
-    """
+    """Download Spansh dump files using the fastest available method."""
     import urllib.request
     DUMP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1435,7 +1437,6 @@ def download_dumps(files: list):
 
         url = f"{SPANSH_BASE}/{fname}"
         log.info(f"Downloading {url}")
-        log.info(f"  → {dest}")
         tmp = dest.with_suffix(dest.suffix + '.tmp')
         ok  = False
 
@@ -1472,7 +1473,7 @@ def show_status(conn):
     with conn.cursor() as cur:
         cur.execute("""
             SELECT dump_file, status, rows_processed, bytes_processed,
-                   bytes_total,
+                   bytes_total, errors_encountered,
                    CASE WHEN bytes_total > 0
                        THEN round(bytes_processed::numeric / bytes_total * 100, 1)
                        ELSE 0 END AS pct,
@@ -1481,15 +1482,42 @@ def show_status(conn):
         """)
         rows = cur.fetchall()
 
-    print(f"\n{'File':<35} {'Status':<10} {'Rows':>12} {'Progress':>10} {'Started':<22}")
-    print("-" * 95)
+    print(f"\n{'File':<35} {'Status':<10} {'Rows':>12} {'Errors':>8} {'Progress':>10} {'Started':<22}")
+    print("-" * 105)
     for r in rows:
-        fname, status, rows_proc, bytes_proc, bytes_total, pct, started, completed, err = r
+        fname, status, rows_proc, bytes_proc, bytes_total, errors, pct, started, completed, err = r
         started_str = started.strftime('%Y-%m-%d %H:%M') if started else 'not started'
         pct_str = f"{pct}%" if pct else "0%"
-        print(f"{fname:<35} {str(status):<10} {(rows_proc or 0):>12,} {pct_str:>10} {started_str:<22}")
+        err_str = f"{errors:,}" if errors else "0"
+        print(f"{fname:<35} {str(status):<10} {(rows_proc or 0):>12,} {err_str:>8} {pct_str:>10} {started_str:<22}")
         if err:
-            print(f"  ERROR: {err[:80]}")
+            print(f"  LAST ERROR: {err[:80]}")
+    print()
+
+
+def show_errors(conn, limit: int = 50):
+    """Show recent structured import errors from the import_errors table."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT dump_file, record_type, record_id, error_class,
+                   error_message, occurred_at
+            FROM import_errors
+            ORDER BY occurred_at DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+
+    if not rows:
+        print("\nNo import errors recorded.")
+        return
+
+    print(f"\n{'Time':<22} {'File':<30} {'Type':<10} {'ID':>15} {'Error'}")
+    print("-" * 110)
+    for r in rows:
+        dump_file, rec_type, rec_id, err_class, err_msg, occurred = r
+        t = occurred.strftime('%Y-%m-%d %H:%M:%S') if occurred else '?'
+        rid = str(rec_id) if rec_id else 'N/A'
+        print(f"{t:<22} {dump_file:<30} {rec_type:<10} {rid:>15}  [{err_class}] {err_msg[:60]}")
     print()
 
 
@@ -1513,196 +1541,22 @@ IMPORT_ORDER = [
 
 
 # ---------------------------------------------------------------------------
-# Probe helper — print actual JSON keys from the first few records
-# Usage: python3 import_spansh.py --probe galaxy.json.gz
-# ---------------------------------------------------------------------------
-def _probe_dump(fname: str, n_systems: int = 2):
-    """
-    Dry-run validator: scan up to 50,000 systems, collecting stats on what
-    the importer would actually write to the DB.  No DB connection needed.
-    Reports:
-      - Counts of ELW / WW / ammonia / terraformable / landable / bio / geo
-      - Sample of interesting bodies with their extracted values
-      - Station service detection sample
-    """
-    dump_path = DUMP_DIR / fname
-    if not dump_path.exists():
-        print(f"ERROR: {dump_path} not found. Set DUMP_DIR or use --dump-dir.")
-        return
-
-    MAX_SCAN = 50_000
-    print(f"\n=== Dry-run validation of {fname} (scanning up to {MAX_SCAN:,} systems) ===\n")
-
-    # Counters
-    stats = {
-        'systems': 0, 'bodies': 0, 'stars': 0, 'planets': 0, 'stations': 0,
-        'main_star_found': 0, 'main_star_missed': 0,
-        'landable': 0, 'elw': 0, 'ww': 0, 'ammonia': 0,
-        'terraformable': 0, 'bio': 0, 'geo': 0,
-        'has_market': 0, 'has_shipyard': 0, 'has_outfitting': 0,
-        'sta_via_services': 0, 'sta_via_object': 0, 'sta_via_bool': 0,
-    }
-
-    # Samples of interesting finds to print
-    samples = {
-        'elw': [], 'ww': [], 'ammonia': [], 'terraformable': [],
-        'station': [], 'bio': [],
-    }
-    MAX_SAMPLES = 3
-
-    all_body_keys: set = set()
-    all_sta_keys: set  = set()
-    all_subtypes: dict = {}  # subType → count
-
-    with gzip.open(dump_path, 'rb') as f:
-        for sys_obj in ijson.items(f, 'item'):
-            if stats['systems'] >= MAX_SCAN:
-                break
-            stats['systems'] += 1
-            now_iso = datetime.now(timezone.utc).isoformat()
-
-            bodies_raw   = sys_obj.get('bodies') or []
-            stations_raw = sys_obj.get('stations') or []
-
-            # ── Main star detection ──────────────────────────────────────
-            found_main = False
-            for b in bodies_raw:
-                if b.get('mainStar') or b.get('isMainStar') or b.get('is_main_star'):
-                    found_main = True
-                    break
-            if found_main:
-                stats['main_star_found'] += 1
-            elif bodies_raw:
-                stats['main_star_missed'] += 1
-
-            # ── Bodies ──────────────────────────────────────────────────
-            for b in bodies_raw:
-                stats['bodies'] += 1
-                all_body_keys.update(b.keys())
-                btype = b.get('type', 'Unknown')
-                if btype == 'Star':
-                    stats['stars'] += 1
-                elif btype == 'Planet':
-                    stats['planets'] += 1
-
-                sub_type = b.get('subType') or b.get('subtype') or ''
-                all_subtypes[sub_type] = all_subtypes.get(sub_type, 0) + 1
-
-                # Derived flags — exactly as the importer does
-                is_elw   = (sub_type == 'Earth-like world')
-                is_ww    = (sub_type == 'Water world')
-                is_amm   = (sub_type == 'Ammonia world')
-                tf_state = b.get('terraformingState') or b.get('terraforming_state') or ''
-                is_tf    = (tf_state == 'Terraformable') or bool(b.get('isTerraformingCandidate'))
-                is_land  = bool(b.get('isLandable') or b.get('is_landable', False))
-                bio      = _parse_bio_signals(b)
-                geo      = _parse_geo_signals(b)
-
-                if is_land:  stats['landable']      += 1
-                if is_elw:   stats['elw']            += 1
-                if is_ww:    stats['ww']             += 1
-                if is_amm:   stats['ammonia']        += 1
-                if is_tf:    stats['terraformable']  += 1
-                if bio > 0:  stats['bio']            += 1
-                if geo > 0:  stats['geo']            += 1
-
-                sname = sys_obj.get('name', '?')
-                if is_elw and len(samples['elw']) < MAX_SAMPLES:
-                    samples['elw'].append(f"  ELW: {b.get('name')} in {sname} | subType={sub_type!r} | landable={is_land} | scan={b.get('estimatedScanValue')}")
-                if is_ww and len(samples['ww']) < MAX_SAMPLES:
-                    samples['ww'].append(f"  WW:  {b.get('name')} in {sname} | subType={sub_type!r} | landable={is_land}")
-                if is_amm and len(samples['ammonia']) < MAX_SAMPLES:
-                    samples['ammonia'].append(f"  AMM: {b.get('name')} in {sname} | subType={sub_type!r}")
-                if is_tf and len(samples['terraformable']) < MAX_SAMPLES:
-                    samples['terraformable'].append(f"  TF:  {b.get('name')} in {sname} | subType={sub_type!r} | terraformingState={tf_state!r}")
-                if bio > 0 and len(samples['bio']) < MAX_SAMPLES:
-                    samples['bio'].append(f"  BIO: {b.get('name')} in {sname} | bio={bio} | geo={geo}")
-
-            # ── Stations ────────────────────────────────────────────────
-            for s in stations_raw:
-                stats['stations'] += 1
-                all_sta_keys.update(s.keys())
-
-                svcs = (s.get('services') or s.get('otherServices') or s.get('other_services') or [])
-                svcs_lower = {str(x).lower() for x in svcs}
-
-                has_mkt  = (s.get('market') is not None or 'market' in svcs_lower or bool(s.get('hasMarket')))
-                has_shy  = (s.get('shipyard') is not None or 'shipyard' in svcs_lower or bool(s.get('hasShipyard')))
-                has_out  = (s.get('outfitting') is not None or 'outfitting' in svcs_lower or bool(s.get('hasOutfitting')))
-
-                if has_mkt: stats['has_market']    += 1
-                if has_shy: stats['has_shipyard']  += 1
-                if has_out: stats['has_outfitting'] += 1
-
-                # Track how detection happened
-                if svcs:            stats['sta_via_services'] += 1
-                elif s.get('market') is not None: stats['sta_via_object'] += 1
-                elif s.get('hasMarket'): stats['sta_via_bool'] += 1
-
-                if len(samples['station']) < MAX_SAMPLES:
-                    samples['station'].append(
-                        f"  STA: {s.get('name')!r} | services={svcs[:4]} | "
-                        f"market={has_mkt} shipyard={has_shy} outfitting={has_out}"
-                    )
-
-    # ── Print results ────────────────────────────────────────────────────
-    print(f"Scanned {stats['systems']:,} systems | {stats['bodies']:,} bodies | {stats['stations']:,} stations\n")
-
-    print("── Body flag extraction results ──")
-    print(f"  Main star found:    {stats['main_star_found']:>8,}  (missed: {stats['main_star_missed']:,})")
-    print(f"  Stars:              {stats['stars']:>8,}")
-    print(f"  Planets:            {stats['planets']:>8,}")
-    print(f"  Landable:           {stats['landable']:>8,}")
-    print(f"  Earth-like world:   {stats['elw']:>8,}")
-    print(f"  Water world:        {stats['ww']:>8,}")
-    print(f"  Ammonia world:      {stats['ammonia']:>8,}")
-    print(f"  Terraformable:      {stats['terraformable']:>8,}")
-    print(f"  Bio signals:        {stats['bio']:>8,}")
-    print(f"  Geo signals:        {stats['geo']:>8,}")
-
-    print(f"\n── Station service detection ──")
-    print(f"  Total stations:     {stats['stations']:>8,}")
-    print(f"  Has market:         {stats['has_market']:>8,}")
-    print(f"  Has shipyard:       {stats['has_shipyard']:>8,}")
-    print(f"  Has outfitting:     {stats['has_outfitting']:>8,}")
-    print(f"  Detected via services array: {stats['sta_via_services']:,}")
-    print(f"  Detected via market object:  {stats['sta_via_object']:,}")
-    print(f"  Detected via hasMarket bool: {stats['sta_via_bool']:,}")
-
-    print(f"\n── Samples ──")
-    for key, label in [('elw','ELW'), ('ww','Water worlds'), ('ammonia','Ammonia worlds'),
-                       ('terraformable','Terraformable'), ('bio','Bio signals'), ('station','Stations')]:
-        if samples[key]:
-            print(f"\n{label}:")
-            for s in samples[key]:
-                print(s)
-        else:
-            print(f"\n{label}: none found in {MAX_SCAN:,} systems")
-
-    print(f"\n── Top 20 subTypes seen ──")
-    for st, cnt in sorted(all_subtypes.items(), key=lambda x: -x[1])[:20]:
-        print(f"  {cnt:>8,}  {st!r}")
-
-    print(f"\n── All body keys seen ──\n{sorted(all_body_keys)}")
-    print(f"\n── All station keys seen ──\n{sorted(all_sta_keys)}")
-
-
-# ---------------------------------------------------------------------------
 # main()
 # ---------------------------------------------------------------------------
 def main():
     global DUMP_DIR, BATCH_SIZE
 
     parser = argparse.ArgumentParser(
-        description='ED Finder — Spansh dump importer (PostgreSQL COPY edition)'
+        description='ED Finder — Spansh dump importer v3.0 (PostgreSQL COPY + region lookup)'
     )
     parser.add_argument('--all',           action='store_true', help='Import all dumps in order')
     parser.add_argument('--file',          type=str,            help='Import a specific dump file')
     parser.add_argument('--resume',        action='store_true', help='Resume from last checkpoint')
     parser.add_argument('--download',      action='store_true', help='Download dumps before importing')
-    parser.add_argument('--download-only', action='store_true', help='Download dumps then exit (recommended first step)')
+    parser.add_argument('--download-only', action='store_true', help='Download dumps then exit')
     parser.add_argument('--status',        action='store_true', help='Show import status')
-    parser.add_argument('--probe',         type=str,            help='Print field keys from first 3 systems in dump file (for debugging)')
+    parser.add_argument('--errors',        action='store_true', help='Show recent import errors from DB')
+    parser.add_argument('--probe',         type=str,            help='Print field keys from dump file')
     parser.add_argument('--dump-dir',      type=str,            help=f'Dump directory (default: {DUMP_DIR})')
     parser.add_argument('--batch-size',    type=int,            help=f'Batch size for COPY (default: {BATCH_SIZE})')
     args = parser.parse_args()
@@ -1718,8 +1572,8 @@ def main():
         show_status(conn)
         return
 
-    if args.probe:
-        _probe_dump(args.probe)
+    if args.errors:
+        show_errors(conn)
         return
 
     if args.download or getattr(args, 'download_only', False):
@@ -1735,7 +1589,6 @@ def main():
         parser.print_help()
         return
 
-    # Pre-load import_meta status so we can skip completed files
     def _get_status(fname: str) -> Optional[str]:
         try:
             with conn.cursor() as _cur:
@@ -1758,16 +1611,11 @@ def main():
             log.error(f"No importer for: {fname}")
             continue
 
-        # Auto-resume logic:
-        #   complete  → skip unless --resume explicitly set
-        #   running   → always resume (was interrupted mid-import)
-        #   pending   → start fresh
         current_status = _get_status(fname)
         if current_status == 'complete' and not args.resume:
             log.info(f"⏭  {fname}: already complete — skipping (use --resume to re-run)")
             continue
 
-        # Auto-resume if previously interrupted (status=running), or if --resume flag set
         auto_resume = (current_status == 'running') or args.resume
         resume_offset = get_checkpoint(conn, fname) if auto_resume else 0
         if resume_offset > 0:
@@ -1787,8 +1635,7 @@ def main():
     total_elapsed = time.time() - total_start
     log.info(f"All imports complete in {total_elapsed/3600:.2f} hours")
 
-    # FIX v2.6: Automatically rebuild indexes if they were dropped for the import.
-    # This prevents the "hang" in post-import scripts like build_grid.py and build_ratings.py.
+    # Auto-rebuild indexes if they were dropped for the import
     if args.all or args.file:
         try:
             with conn.cursor() as _cur:
@@ -1798,22 +1645,16 @@ def main():
                     log.info("--- AUTOMATIC INDEX REBUILD ---")
                     log.info("Indexes are missing (likely dropped for import). Starting rebuild from 002_indexes.sql ...")
                     log.info("This will take 1-3 hours. Do not interrupt.")
-                    
-                    # We need to run this outside of a transaction
                     old_autocommit = conn.autocommit
                     conn.autocommit = True
-                    
-                    # Read and execute 002_indexes.sql
                     sql_path = Path(__file__).parent.parent / 'sql' / '002_indexes.sql'
                     if sql_path.exists():
                         with open(sql_path, 'r') as sql_f:
                             sql_commands = sql_f.read()
-                            # execute() can run multiple statements separated by semicolons
                             _cur.execute(sql_commands)
                         log.info("✅ Indexes rebuilt successfully.")
                     else:
                         log.warning(f"Could not find {sql_path} — please run manually.")
-                    
                     conn.autocommit = old_autocommit
                 else:
                     log.info(f"Indexes already exist ({idx_count} found) — skipping auto-rebuild.")
@@ -1821,9 +1662,9 @@ def main():
             log.error(f"Failed to auto-rebuild indexes: {e}")
 
     log.info("Next steps (run in this exact order):")
-    log.info("  1. python3 build_grid.py      — build spatial grid (~1h)")
+    log.info("  1. python3 build_grid.py      — build 500 LY + 2000 LY spatial grids (~1-2h)")
     log.info("  2. python3 build_ratings.py   — compute economy scores (~3-5h)")
-    log.info("  3. python3 build_clusters.py  — build cluster summary (~8-24h)")
+    log.info("  3. python3 build_clusters.py  — build cluster summaries (~2-4h)")
 
 
 if __name__ == '__main__':

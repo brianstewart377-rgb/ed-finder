@@ -781,7 +781,7 @@ Strategies:
 
     script_start = time.time()
 
-    startup_banner(log, "Spatial Grid Builder", "v2.4", [
+    startup_banner(log, "Spatial Grid Builder", "v3.0", [
         ("Cell size",       f"{cell_size} LY"),
         ("Strategy",        f"Stage 3 = {strategy}"),
         ("Pages/batch",     f"{pages_per_batch:,} (~{pages_per_batch*8//1024} MB per commit)"),
@@ -791,6 +791,7 @@ Strategies:
         ("Direct DB",       "YES — bypasses pgBouncer (transaction-pool safe)"),
         ("Fix v2.3",        "disable RI triggers — eliminates 17 trigger evals per row"),
         ("Fix v2.4",        "apply session_replication_role to write_conn (not monitoring conn)"),
+        ("v3.0",             "add 2000 LY macro-grid for cluster builder"),
     ])
 
     # ------------------------------------------------------------------
@@ -1108,9 +1109,153 @@ Strategies:
         sys.exit(0)
 
     # =========================================================================
-    # STAGE 4: Update visited_count per cell
+    # STAGE 3b: Assign macro_grid_id (2000 LY cubes) to every system
     # =========================================================================
-    stage_banner(log, 4, 5, "Update visited_count")
+    MACRO_CELL_SIZE = 2000
+    stage_banner(log, 4, 6, "Assign macro_grid_id (2000 LY macro-grid)")
+
+    cur.execute("SELECT COUNT(*) FROM systems WHERE macro_grid_id IS NULL")
+    macro_unassigned = cur.fetchone()[0]
+
+    if macro_unassigned == 0:
+        log.info(f"  All {fmt_num(total_systems)} systems already have macro_grid_id — skipping ✓")
+    else:
+        log.info(f"  Assigning macro_grid_id to {fmt_num(macro_unassigned)} systems ...")
+        log.info(f"  Macro cell size: {MACRO_CELL_SIZE} LY")
+
+        # Build the macro_grid table
+        cur.execute("SELECT COUNT(*) FROM macro_grid")
+        macro_cells_existing = cur.fetchone()[0]
+        if macro_cells_existing == 0:
+            log.info(f"  Building macro_grid table ...")
+            t0 = time.time()
+            cur.execute(f"""
+                INSERT INTO macro_grid
+                    (cell_id, cell_x, cell_y, cell_z,
+                     min_x, max_x, min_y, max_y, min_z, max_z,
+                     system_count)
+                WITH cells AS (
+                    SELECT
+                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r})::bigint AS cx,
+                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r})::bigint AS cy,
+                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})::bigint AS cz,
+                        COUNT(*) AS cnt
+                    FROM systems
+                    GROUP BY
+                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r}),
+                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r}),
+                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})
+                )
+                SELECT
+                    (cx * 100000000 + cy * 10000 + cz) AS cell_id,
+                    cx::smallint, cy::smallint, cz::smallint,
+                    (cx * {MACRO_CELL_SIZE!r} + {min_x!r})::real,
+                    (cx * {MACRO_CELL_SIZE!r} + {min_x!r} + {MACRO_CELL_SIZE!r})::real,
+                    (cy * {MACRO_CELL_SIZE!r} + {min_y!r})::real,
+                    (cy * {MACRO_CELL_SIZE!r} + {min_y!r} + {MACRO_CELL_SIZE!r})::real,
+                    (cz * {MACRO_CELL_SIZE!r} + {min_z!r})::real,
+                    (cz * {MACRO_CELL_SIZE!r} + {min_z!r} + {MACRO_CELL_SIZE!r})::real,
+                    cnt
+                FROM cells
+                ON CONFLICT (cell_x, cell_y, cell_z) DO UPDATE SET
+                    system_count = EXCLUDED.system_count
+            """)
+            conn.commit()
+            cur.execute("SELECT COUNT(*) FROM macro_grid")
+            macro_cell_count = cur.fetchone()[0]
+            log.info(f"  Created {fmt_num(macro_cell_count)} macro-grid cells in {fmt_duration(time.time()-t0)} ✓")
+        else:
+            log.info(f"  macro_grid already has {fmt_num(macro_cells_existing)} cells — skipping rebuild")
+
+        # Assign macro_grid_id to systems using ctid batching (same approach as 500 LY grid)
+        log.info(f"  Assigning macro_grid_id via ctid batching ...")
+        t0 = time.time()
+
+        macro_write_conn = _connect_with_retry(dsn, label="macro-writer")
+        try:
+            macro_write_conn.autocommit = True
+            with macro_write_conn.cursor() as _wac:
+                _wac.execute("SET session_replication_role = replica")
+            macro_write_conn.autocommit = False
+        except Exception:
+            pass
+        macro_write_cur = macro_write_conn.cursor()
+
+        total_pages = _get_total_pages(cur)
+        macro_updated = 0
+        current_page = 0
+        pages_per_batch = 10000
+        consecutive_empty = 0
+
+        while current_page <= total_pages:
+            if _shutdown:
+                macro_write_conn.commit()
+                break
+            end_page = current_page + pages_per_batch
+            ctid_lo = f"({current_page},1)"
+            ctid_hi = f"({end_page},1)"
+            try:
+                macro_write_cur.execute(f"""
+                    UPDATE systems
+                    SET macro_grid_id = (
+                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r})::bigint * 100000000 +
+                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r})::bigint * 10000 +
+                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})::bigint
+                    )
+                    WHERE ctid >= %s::tid
+                      AND ctid <  %s::tid
+                      AND macro_grid_id IS NULL
+                """, (ctid_lo, ctid_hi))
+                rows = macro_write_cur.rowcount
+                macro_write_conn.commit()
+                macro_updated += rows
+                if rows == 0:
+                    consecutive_empty += 1
+                    if consecutive_empty >= 20:
+                        break
+                else:
+                    consecutive_empty = 0
+            except Exception as e:
+                log.warning(f"  macro_grid batch error at page {current_page}: {e}")
+                try:
+                    macro_write_conn.rollback()
+                except Exception:
+                    pass
+            current_page = end_page
+
+        macro_write_cur.close()
+        _safe_close(macro_write_conn)
+
+        # Update anchor_count in macro_grid
+        cur.execute("""
+            UPDATE macro_grid g
+            SET anchor_count = COALESCE(v.cnt, 0)
+            FROM (
+                SELECT macro_grid_id, COUNT(*) AS cnt
+                FROM systems
+                WHERE has_body_data = TRUE AND macro_grid_id IS NOT NULL
+                GROUP BY macro_grid_id
+            ) v
+            WHERE g.cell_id = v.macro_grid_id
+        """)
+        conn.commit()
+
+        cur.execute("""
+            INSERT INTO app_meta (key, value, updated_at)
+            VALUES ('macro_grid_built', 'true', NOW())
+            ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
+        """)
+        conn.commit()
+        log.info(f"  macro_grid_id assigned to {fmt_num(macro_updated)} systems in {fmt_duration(time.time()-t0)} ✓")
+
+    if _shutdown:
+        log.warning("Shutdown after Stage 3b.")
+        sys.exit(0)
+
+    # =========================================================================
+    # STAGE 5: Update visited_count per cell
+    # =========================================================================
+    stage_banner(log, 5, 6, "Update visited_count")
     log.info(f"  Aggregating scanned systems by grid_cell_id ...")
     t0 = time.time()
     cur.execute("""
@@ -1131,7 +1276,7 @@ Strategies:
     # =========================================================================
     # STAGE 5: Save parameters to app_meta
     # =========================================================================
-    stage_banner(log, 5, 5, "Save parameters to app_meta")
+    stage_banner(log, 6, 6, "Save parameters to app_meta")
     cur.execute("""
         INSERT INTO app_meta (key, value, updated_at)
         VALUES

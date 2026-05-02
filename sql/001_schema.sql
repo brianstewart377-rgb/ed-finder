@@ -1,17 +1,21 @@
 -- =============================================================================
 -- ED Finder — Hetzner PostgreSQL Schema
--- Version: 1.0
+-- Version: 2.0
 -- Target:  PostgreSQL 16
 -- Server:  Hetzner AX41 (i7-8700, 128GB RAM, 2×1TB SSD)
 --
--- Design principles:
---   • Indexes created SEPARATELY in 002_indexes.sql (after bulk import)
---   • All coords stored as REAL (4-byte float) — matches Elite's precision
---   • id64 is BIGINT throughout (Elite's 64-bit system addresses)
---   • NULL score = unvisited / insufficient data (never fabricated)
---   • cluster_summary pre-aggregated for sub-second multi-economy searches
---   • spatial_grid partitions galaxy into 500ly cubes for O(1) neighbour lookup
---   • All tables have updated_at for delta tracking
+-- Changes in v2.0:
+--   • Added galaxy_regions table (42 named ED codex regions)
+--   • Added galaxy_region_id to systems (populated during import)
+--   • Added needs_permit to systems (fixes API/schema disconnect)
+--   • Added main_star_class to systems (alias for main_star_type, fixes API)
+--   • Added macro_grid_id to systems (2000 LY cube for cluster builder)
+--   • Added macro_grid table (2000 LY cubes, unit of work for clusters)
+--   • Added slots, body_quality, compactness, signal_quality,
+--     orbital_safety, star_bonus to ratings (fixes API/schema disconnect)
+--   • Added import_errors table (structured error logging)
+--   • Replaced cluster_summary with region_clusters (macro-grid approach)
+--   • Kept cluster_summary for incremental EDDN dirty-rebuild path
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -60,6 +64,62 @@ CREATE TYPE import_status AS ENUM (
 );
 
 -- ---------------------------------------------------------------------------
+-- 0. GALAXY_REGIONS  (42 named Elite Dangerous codex regions)
+--    Populated once at startup from the static RegionMapData.
+--    id matches the region index from klightspeed/EliteDangerousRegionMap.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS galaxy_regions (
+    id          SMALLINT    PRIMARY KEY,   -- 1–42, matches RegionMapData index
+    name        TEXT        NOT NULL UNIQUE
+);
+
+-- Pre-populate all 42 named regions
+INSERT INTO galaxy_regions (id, name) VALUES
+    (1,  'Galactic Centre'),
+    (2,  'Empyrean Straits'),
+    (3,  'Ryker''s Hope'),
+    (4,  'Odin''s Hold'),
+    (5,  'Norma Arm'),
+    (6,  'Arcadian Stream'),
+    (7,  'Izanami'),
+    (8,  'Inner Orion-Perseus Conflux'),
+    (9,  'Inner Scutum-Centaurus Arm'),
+    (10, 'Norma Expanse'),
+    (11, 'Trojan Belt'),
+    (12, 'The Veils'),
+    (13, 'Newton''s Vault'),
+    (14, 'The Conduit'),
+    (15, 'Outer Orion-Perseus Conflux'),
+    (16, 'Orion-Cygnus Arm'),
+    (17, 'Temple'),
+    (18, 'Inner Orion Spur'),
+    (19, 'Hawking''s Gap'),
+    (20, 'Dryman''s Point'),
+    (21, 'Sagittarius-Carina Arm'),
+    (22, 'Mare Somnia'),
+    (23, 'Acheron'),
+    (24, 'Formorian Frontier'),
+    (25, 'Hieronymus Delta'),
+    (26, 'Outer Scutum-Centaurus Arm'),
+    (27, 'Outer Arm'),
+    (28, 'Aquila''s Halo'),
+    (29, 'Errant Marches'),
+    (30, 'Perseus Arm'),
+    (31, 'Formidine Rift'),
+    (32, 'Vulcan Gate'),
+    (33, 'Elysian Shore'),
+    (34, 'Sanguineous Rim'),
+    (35, 'Outer Orion Spur'),
+    (36, 'Achilles''s Altar'),
+    (37, 'Xibalba'),
+    (38, 'Lyra''s Song'),
+    (39, 'Tenebrae'),
+    (40, 'The Abyss'),
+    (41, 'Kepler''s Crest'),
+    (42, 'The Void')
+ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
 -- 1. SYSTEMS  (186M rows)
 --    Core system data from galaxy.json.gz + galaxy_populated.json.gz
 -- ---------------------------------------------------------------------------
@@ -87,23 +147,36 @@ CREATE TABLE IF NOT EXISTS systems (
     allegiance          allegiance_type NOT NULL DEFAULT 'Unknown',
     government          government_type NOT NULL DEFAULT 'Unknown',
 
-    -- Primary star (from first body scan — quick filter without joining bodies)
-    main_star_type      TEXT,
-    main_star_subtype   TEXT,
+    -- Permit requirement (some systems require a permit to enter)
+    needs_permit        BOOLEAN         NOT NULL DEFAULT FALSE,
+
+    -- Primary star
+    main_star_type      TEXT,           -- single letter: O, B, A, F, G, K, M, etc.
+    main_star_subtype   TEXT,           -- remainder of spectral class
     main_star_is_scoopable BOOLEAN      DEFAULT NULL,
+    -- Alias used by the API layer (same as main_star_type, kept for compatibility)
+    main_star_class     TEXT
+        GENERATED ALWAYS AS (main_star_type) STORED,
 
     -- Spatial grid cell (set by build_grid.py, 500ly cubes)
-    grid_cell_id        BIGINT          DEFAULT NULL,  -- was INTEGER; must match spatial_grid.cell_id BIGINT
+    grid_cell_id        BIGINT          DEFAULT NULL,
+
+    -- Macro-grid cell (set by build_grid.py, 2000ly cubes — cluster builder unit)
+    macro_grid_id       BIGINT          DEFAULT NULL,
+
+    -- Named galactic region (1–42, set during import via findRegion())
+    galaxy_region_id    SMALLINT        DEFAULT NULL
+                            REFERENCES galaxy_regions(id) ON DELETE SET NULL,
 
     -- Data quality flags
-    has_body_data       BOOLEAN         NOT NULL DEFAULT FALSE,  -- bodies table has rows for this system
+    has_body_data       BOOLEAN         NOT NULL DEFAULT FALSE,
     body_count          INTEGER         NOT NULL DEFAULT 0,
-    data_quality        SMALLINT        NOT NULL DEFAULT 0,      -- 0=coords only, 1=star, 2=full bodies
+    data_quality        SMALLINT        NOT NULL DEFAULT 0,
 
     -- Timestamps
     first_discovered_at TIMESTAMPTZ     DEFAULT NULL,
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    eddn_updated_at     TIMESTAMPTZ     DEFAULT NULL,            -- last EDDN event for this system
+    eddn_updated_at     TIMESTAMPTZ     DEFAULT NULL,
 
     -- Dirty flags for incremental rebuild jobs
     rating_dirty        BOOLEAN         NOT NULL DEFAULT TRUE,
@@ -112,22 +185,19 @@ CREATE TABLE IF NOT EXISTS systems (
 
 -- ---------------------------------------------------------------------------
 -- 2. BODIES  (~800M rows)
---    Every scanned body from bodies.json.gz
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS bodies (
-    id                  BIGINT          PRIMARY KEY,   -- Spansh body ID
+    id                  BIGINT          PRIMARY KEY,
     system_id64         BIGINT          NOT NULL REFERENCES systems(id64) ON DELETE CASCADE,
     name                TEXT            NOT NULL,
 
-    -- Classification
     body_type           body_type       NOT NULL DEFAULT 'Unknown',
-    subtype             TEXT,           -- e.g. 'Earth-like world', 'M (Red dwarf) Star'
+    subtype             TEXT,
     is_main_star        BOOLEAN         NOT NULL DEFAULT FALSE,
 
-    -- Orbital properties
-    distance_from_star  REAL            DEFAULT NULL,   -- light seconds
-    orbital_period      REAL            DEFAULT NULL,   -- days
-    semi_major_axis     REAL            DEFAULT NULL,   -- AU
+    distance_from_star  REAL            DEFAULT NULL,
+    orbital_period      REAL            DEFAULT NULL,
+    semi_major_axis     REAL            DEFAULT NULL,
     orbital_eccentricity REAL           DEFAULT NULL,
     orbital_inclination REAL            DEFAULT NULL,
     arg_of_periapsis    REAL            DEFAULT NULL,
@@ -135,23 +205,19 @@ CREATE TABLE IF NOT EXISTS bodies (
     ascending_node      REAL            DEFAULT NULL,
     is_tidal_lock       BOOLEAN         DEFAULT NULL,
 
-    -- Physical properties
-    radius              REAL            DEFAULT NULL,   -- km
-    mass                REAL            DEFAULT NULL,   -- Earth masses (planet) / Solar (star)
-    gravity             REAL            DEFAULT NULL,   -- g
-    surface_temp        REAL            DEFAULT NULL,   -- K
-    surface_pressure    REAL            DEFAULT NULL,   -- atm
+    radius              REAL            DEFAULT NULL,
+    mass                REAL            DEFAULT NULL,
+    gravity             REAL            DEFAULT NULL,
+    surface_temp        REAL            DEFAULT NULL,
+    surface_pressure    REAL            DEFAULT NULL,
 
-    -- Atmosphere
     atmosphere_type     TEXT            DEFAULT NULL,
-    atmosphere_composition JSONB        DEFAULT NULL,   -- {N2: 0.7, O2: 0.2, ...}
+    atmosphere_composition JSONB        DEFAULT NULL,
 
-    -- Surface
     volcanism           TEXT            DEFAULT NULL,
-    solid_composition   JSONB           DEFAULT NULL,   -- {Rock: 0.7, Metal: 0.3}
-    materials           JSONB           DEFAULT NULL,   -- {Iron: 19.8, Nickel: 14.9, ...}
+    solid_composition   JSONB           DEFAULT NULL,
+    materials           JSONB           DEFAULT NULL,
 
-    -- Terraforming & habitability
     terraforming_state  TEXT            DEFAULT NULL,
     is_terraformable    BOOLEAN         NOT NULL DEFAULT FALSE,
     is_landable         BOOLEAN         NOT NULL DEFAULT FALSE,
@@ -159,23 +225,19 @@ CREATE TABLE IF NOT EXISTS bodies (
     is_earth_like       BOOLEAN         NOT NULL DEFAULT FALSE,
     is_ammonia_world    BOOLEAN         NOT NULL DEFAULT FALSE,
 
-    -- Biological / geological signals
     bio_signal_count    SMALLINT        NOT NULL DEFAULT 0,
     geo_signal_count    SMALLINT        NOT NULL DEFAULT 0,
 
-    -- Star-specific fields
     spectral_class      TEXT            DEFAULT NULL,
     luminosity          TEXT            DEFAULT NULL,
     stellar_mass        REAL            DEFAULT NULL,
     absolute_magnitude  REAL            DEFAULT NULL,
-    age_my              INTEGER         DEFAULT NULL,   -- million years
+    age_my              INTEGER         DEFAULT NULL,
     is_scoopable        BOOLEAN         DEFAULT NULL,
 
-    -- Mapped / scan values
     estimated_mapping_value  INTEGER    DEFAULT NULL,
     estimated_scan_value     INTEGER    DEFAULT NULL,
 
-    -- Timestamps
     first_discovered_at TIMESTAMPTZ     DEFAULT NULL,
     first_mapped_at     TIMESTAMPTZ     DEFAULT NULL,
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
@@ -183,7 +245,6 @@ CREATE TABLE IF NOT EXISTS bodies (
 
 -- ---------------------------------------------------------------------------
 -- 3. STATIONS  (~5M rows)
---    All stations, outposts, carriers from galaxy_stations.json.gz
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS stations (
     id                  BIGINT          PRIMARY KEY,
@@ -191,12 +252,10 @@ CREATE TABLE IF NOT EXISTS stations (
     name                TEXT            NOT NULL,
     station_type        station_type    NOT NULL DEFAULT 'Unknown',
 
-    -- Location
-    distance_from_star  REAL            DEFAULT NULL,   -- light seconds
-    body_name           TEXT            DEFAULT NULL,   -- which body it orbits
+    distance_from_star  REAL            DEFAULT NULL,
+    body_name           TEXT            DEFAULT NULL,
 
-    -- Capabilities
-    landing_pad_size    TEXT            DEFAULT NULL,   -- 'S', 'M', 'L'
+    landing_pad_size    TEXT            DEFAULT NULL,
     has_market          BOOLEAN         NOT NULL DEFAULT FALSE,
     has_shipyard        BOOLEAN         NOT NULL DEFAULT FALSE,
     has_outfitting      BOOLEAN         NOT NULL DEFAULT FALSE,
@@ -210,22 +269,19 @@ CREATE TABLE IF NOT EXISTS stations (
     has_universal_cartographics BOOLEAN NOT NULL DEFAULT FALSE,
     has_search_rescue   BOOLEAN         NOT NULL DEFAULT FALSE,
 
-    -- Economy & market
     primary_economy     economy_type    DEFAULT NULL,
     secondary_economy   economy_type    DEFAULT NULL,
     prohibited_commodities JSONB        DEFAULT NULL,
 
-    -- Controlling faction
     controlling_faction TEXT            DEFAULT NULL,
     allegiance          allegiance_type NOT NULL DEFAULT 'Unknown',
     government          government_type NOT NULL DEFAULT 'Unknown',
 
-    -- Timestamps
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------------
--- 4. STATION_ECONOMIES  (many-to-many station↔economy with proportions)
+-- 4. STATION_ECONOMIES
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS station_economies (
     station_id          BIGINT          NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
@@ -235,7 +291,7 @@ CREATE TABLE IF NOT EXISTS station_economies (
 );
 
 -- ---------------------------------------------------------------------------
--- 5. FACTIONS  (faction data from populated systems)
+-- 5. FACTIONS
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS factions (
     id                  SERIAL          PRIMARY KEY,
@@ -248,21 +304,20 @@ CREATE TABLE IF NOT EXISTS factions (
 );
 
 -- ---------------------------------------------------------------------------
--- 6. SYSTEM_FACTIONS  (which factions are present in which systems)
+-- 6. SYSTEM_FACTIONS
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS system_factions (
     system_id64         BIGINT          NOT NULL REFERENCES systems(id64) ON DELETE CASCADE,
     faction_id          INTEGER         NOT NULL REFERENCES factions(id) ON DELETE CASCADE,
-    influence           REAL            DEFAULT NULL,   -- 0.0 – 1.0
-    state               TEXT            DEFAULT NULL,   -- 'CivilWar', 'Boom', etc.
+    influence           REAL            DEFAULT NULL,
+    state               TEXT            DEFAULT NULL,
     is_controlling      BOOLEAN         NOT NULL DEFAULT FALSE,
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     PRIMARY KEY (system_id64, faction_id)
 );
 
 -- ---------------------------------------------------------------------------
--- 7. ATTRACTIONS  (~2M rows)
---    Biologicals, geology, Guardian/Thargoid sites, POIs
+-- 7. ATTRACTIONS
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS attractions (
     id                  BIGSERIAL       PRIMARY KEY,
@@ -270,28 +325,23 @@ CREATE TABLE IF NOT EXISTS attractions (
     body_id             BIGINT          DEFAULT NULL REFERENCES bodies(id) ON DELETE SET NULL,
     body_name           TEXT            DEFAULT NULL,
 
-    -- Classification
-    attraction_type     TEXT            NOT NULL,  -- 'Biology', 'Geology', 'Guardian', 'Thargoid', 'Other'
-    subtype             TEXT            DEFAULT NULL,  -- 'Bacterium Nebulus', 'Fumarole', etc.
-    genus               TEXT            DEFAULT NULL,  -- biological genus
-    species             TEXT            DEFAULT NULL,  -- biological species
-    variant             TEXT            DEFAULT NULL,  -- colour/variant
+    attraction_type     TEXT            NOT NULL,
+    subtype             TEXT            DEFAULT NULL,
+    genus               TEXT            DEFAULT NULL,
+    species             TEXT            DEFAULT NULL,
+    variant             TEXT            DEFAULT NULL,
 
-    -- Location on body
     latitude            REAL            DEFAULT NULL,
     longitude           REAL            DEFAULT NULL,
 
-    -- Value
-    estimated_value     BIGINT          DEFAULT NULL,  -- credits
+    estimated_value     BIGINT          DEFAULT NULL,
 
-    -- Timestamps
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------------
 -- 8. RATINGS  (pre-computed scores for all visited systems)
---    Mirrors the JavaScript rateSystem() function exactly.
---    NULL score = unvisited / insufficient body data.
+--    v2.0: Added detailed score components to match what the API expects.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ratings (
     system_id64         BIGINT          PRIMARY KEY REFERENCES systems(id64) ON DELETE CASCADE,
@@ -328,7 +378,15 @@ CREATE TABLE IF NOT EXISTS ratings (
     black_hole_count    SMALLINT        NOT NULL DEFAULT 0,
     white_dwarf_count   SMALLINT        NOT NULL DEFAULT 0,
 
-    -- Score breakdown (mirrors frontend popover data)
+    -- Detailed score components (v2.0 — matches API score_components field)
+    slots               SMALLINT        DEFAULT NULL,  -- available build slots (0-20)
+    body_quality        SMALLINT        DEFAULT NULL,  -- body quality score (0-100)
+    compactness         SMALLINT        DEFAULT NULL,  -- orbital compactness (0-100)
+    signal_quality      SMALLINT        DEFAULT NULL,  -- bio/geo signal quality (0-100)
+    orbital_safety      SMALLINT        DEFAULT NULL,  -- orbital safety score (0-100)
+    star_bonus          SMALLINT        DEFAULT NULL,  -- star type bonus (0-10)
+
+    -- Full score breakdown JSON (for popover display)
     score_breakdown     JSONB           DEFAULT NULL,
 
     -- Timestamps
@@ -337,19 +395,15 @@ CREATE TABLE IF NOT EXISTS ratings (
 );
 
 -- ---------------------------------------------------------------------------
--- 9. SPATIAL_GRID  (500ly cube partitioning for fast neighbour queries)
---    Built by build_grid.py after import.
---    Each system gets a grid_cell_id pointing to its 500ly cube.
+-- 9. SPATIAL_GRID  (500ly cube partitioning)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS spatial_grid (
-    cell_id             BIGINT          PRIMARY KEY,  -- was INTEGER; BIGINT needed for collision-free encoding
+    cell_id             BIGINT          PRIMARY KEY,
 
-    -- Grid coordinates (cell_x = floor(x / 500), etc.)
     cell_x              SMALLINT        NOT NULL,
     cell_y              SMALLINT        NOT NULL,
     cell_z              SMALLINT        NOT NULL,
 
-    -- Bounding box of this cell (actual LY coords)
     min_x               REAL            NOT NULL,
     max_x               REAL            NOT NULL,
     min_y               REAL            NOT NULL,
@@ -357,7 +411,6 @@ CREATE TABLE IF NOT EXISTS spatial_grid (
     min_z               REAL            NOT NULL,
     max_z               REAL            NOT NULL,
 
-    -- Stats (for query optimisation)
     system_count        INTEGER         NOT NULL DEFAULT 0,
     visited_count       INTEGER         NOT NULL DEFAULT 0,
 
@@ -365,19 +418,44 @@ CREATE TABLE IF NOT EXISTS spatial_grid (
 );
 
 -- ---------------------------------------------------------------------------
--- 10. CLUSTER_SUMMARY  (pre-aggregated multi-economy coverage per anchor)
---     Built by build_clusters.py after ratings + spatial_grid are ready.
---     One row per visited system = "if you colonise HERE, what can you build
---     within 500ly?"
+-- 10. MACRO_GRID  (2000ly cube partitioning — unit of work for cluster builder)
+--     Each cell covers a 2000 LY cube. There are roughly 500–1000 populated
+--     macro-cells across the inhabited galaxy vs 125,000 500 LY cells.
+--     The cluster builder processes one macro-cell at a time, finding the
+--     top 50 anchors within it and computing their 500 LY bubble stats.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS macro_grid (
+    cell_id             BIGINT          PRIMARY KEY,
+
+    cell_x              SMALLINT        NOT NULL,
+    cell_y              SMALLINT        NOT NULL,
+    cell_z              SMALLINT        NOT NULL,
+
+    min_x               REAL            NOT NULL,
+    max_x               REAL            NOT NULL,
+    min_y               REAL            NOT NULL,
+    max_y               REAL            NOT NULL,
+    min_z               REAL            NOT NULL,
+    max_z               REAL            NOT NULL,
+
+    system_count        INTEGER         NOT NULL DEFAULT 0,
+    anchor_count        INTEGER         NOT NULL DEFAULT 0,  -- systems with body data
+
+    UNIQUE (cell_x, cell_y, cell_z)
+);
+
+-- ---------------------------------------------------------------------------
+-- 11. CLUSTER_SUMMARY  (pre-aggregated per-anchor bubble stats)
+--     Built by build_clusters.py. One row per anchor system.
+--     The macro-grid approach means we only compute this for the top-50
+--     anchors per macro-cell, not every system in the galaxy.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cluster_summary (
     system_id64         BIGINT          PRIMARY KEY REFERENCES systems(id64) ON DELETE CASCADE,
 
-    -- How many viable (score >= 40) uncolonised systems for each economy
-    -- within 500ly of this anchor
     agriculture_count   SMALLINT        NOT NULL DEFAULT 0,
-    agriculture_best    SMALLINT        DEFAULT NULL,   -- highest score
-    agriculture_top_id  BIGINT          DEFAULT NULL,   -- id64 of best system
+    agriculture_best    SMALLINT        DEFAULT NULL,
+    agriculture_top_id  BIGINT          DEFAULT NULL,
 
     refinery_count      SMALLINT        NOT NULL DEFAULT 0,
     refinery_best       SMALLINT        DEFAULT NULL,
@@ -399,29 +477,22 @@ CREATE TABLE IF NOT EXISTS cluster_summary (
     tourism_best        SMALLINT        DEFAULT NULL,
     tourism_top_id      BIGINT          DEFAULT NULL,
 
-    -- Total viable systems across all economy types within 500ly
     total_viable        SMALLINT        NOT NULL DEFAULT 0,
-
-    -- Weighted coverage score (0-100) — how well does this bubble cover
-    -- all economy types? Higher = more self-sufficient empire possible
     coverage_score      REAL            DEFAULT NULL,
-
-    -- How many distinct economy types have at least 1 viable system
     economy_diversity   SMALLINT        NOT NULL DEFAULT 0,
-
-    -- Radius actually searched (almost always 500, but stored for flexibility)
     search_radius       SMALLINT        NOT NULL DEFAULT 500,
 
-    -- Dirty flag — set TRUE by EDDN ingestion, cleared by rebuild job
+    -- Which macro-cell this anchor belongs to (for region-aware queries)
+    macro_grid_id       BIGINT          DEFAULT NULL REFERENCES macro_grid(cell_id) ON DELETE SET NULL,
+
     dirty               BOOLEAN         NOT NULL DEFAULT TRUE,
 
-    -- Timestamps
     computed_at         TIMESTAMPTZ     DEFAULT NULL,
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------------
--- 11. WATCHLIST
+-- 12. WATCHLIST
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS watchlist (
     id                  SERIAL          PRIMARY KEY,
@@ -441,20 +512,20 @@ CREATE TABLE IF NOT EXISTS watchlist (
 );
 
 -- ---------------------------------------------------------------------------
--- 12. WATCHLIST_CHANGELOG
+-- 13. WATCHLIST_CHANGELOG
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS watchlist_changelog (
     id                  BIGSERIAL       PRIMARY KEY,
     system_id64         BIGINT          NOT NULL,
     system_name         TEXT            NOT NULL,
-    change_type         TEXT            NOT NULL,   -- 'colonised','population','economy','score'
+    change_type         TEXT            NOT NULL,
     old_value           TEXT            DEFAULT NULL,
     new_value           TEXT            DEFAULT NULL,
     detected_at         TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------------
--- 13. SYSTEM_NOTES
+-- 14. SYSTEM_NOTES
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS system_notes (
     system_id64         BIGINT          PRIMARY KEY REFERENCES systems(id64) ON DELETE CASCADE,
@@ -463,7 +534,7 @@ CREATE TABLE IF NOT EXISTS system_notes (
 );
 
 -- ---------------------------------------------------------------------------
--- 14. API_CACHE  (Redis handles hot cache; this is the persistent layer)
+-- 15. API_CACHE
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS api_cache (
     cache_key           TEXT            PRIMARY KEY,
@@ -474,30 +545,31 @@ CREATE TABLE IF NOT EXISTS api_cache (
 );
 
 -- ---------------------------------------------------------------------------
--- 15. EDDN_LOG  (recent raw EDDN events — rolling 7-day window)
+-- 16. EDDN_LOG  (rolling 7-day window)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS eddn_log (
     id                  BIGSERIAL       PRIMARY KEY,
-    event_type          TEXT            NOT NULL,   -- 'FSSDiscoveryScan', 'Scan', 'NavBeaconScan', etc.
+    event_type          TEXT            NOT NULL,
     system_id64         BIGINT          DEFAULT NULL,
     system_name         TEXT            DEFAULT NULL,
-    raw_event           JSONB           NOT NULL,
+    raw_event           JSONB           DEFAULT NULL,
     processed           BOOLEAN         NOT NULL DEFAULT FALSE,
     received_at         TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------------
--- 16. IMPORT_META  (track import progress — resumable checkpoints)
+-- 17. IMPORT_META  (resumable import checkpoints)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS import_meta (
     id                  SERIAL          PRIMARY KEY,
-    dump_file           TEXT            NOT NULL UNIQUE,  -- 'galaxy.json.gz', etc.
+    dump_file           TEXT            NOT NULL UNIQUE,
     status              import_status   NOT NULL DEFAULT 'pending',
     rows_processed      BIGINT          NOT NULL DEFAULT 0,
     rows_total          BIGINT          DEFAULT NULL,
     bytes_processed     BIGINT          NOT NULL DEFAULT 0,
     bytes_total         BIGINT          DEFAULT NULL,
-    last_checkpoint     BIGINT          NOT NULL DEFAULT 0, -- byte offset for resume
+    errors_encountered  INTEGER         NOT NULL DEFAULT 0,  -- v2.0: track error count
+    last_checkpoint     BIGINT          NOT NULL DEFAULT 0,
     started_at          TIMESTAMPTZ     DEFAULT NULL,
     completed_at        TIMESTAMPTZ     DEFAULT NULL,
     error_message       TEXT            DEFAULT NULL,
@@ -505,9 +577,6 @@ CREATE TABLE IF NOT EXISTS import_meta (
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
--- Pre-populate known dump files
--- NOTE: bodies.json.gz and attractions.json.gz were removed by Spansh in 2025.
---       galaxy.json.gz now contains systems + bodies + stations (all-in-one).
 INSERT INTO import_meta (dump_file) VALUES
     ('galaxy.json.gz'),
     ('galaxy_populated.json.gz'),
@@ -515,7 +584,23 @@ INSERT INTO import_meta (dump_file) VALUES
 ON CONFLICT (dump_file) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- 17. APP_META  (key-value store for app-level settings & state)
+-- 18. IMPORT_ERRORS  (structured per-record error log — v2.0)
+--     Replaces grepping 500MB log files. Query directly to see exactly
+--     which systems/bodies failed and why.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS import_errors (
+    id                  BIGSERIAL       PRIMARY KEY,
+    dump_file           TEXT            NOT NULL,
+    record_id           BIGINT          DEFAULT NULL,   -- id64 or body id
+    record_type         TEXT            NOT NULL,       -- 'system', 'body', 'station'
+    error_class         TEXT            NOT NULL,       -- exception class name
+    error_message       TEXT            NOT NULL,
+    raw_snippet         TEXT            DEFAULT NULL,   -- first 500 chars of the raw record
+    occurred_at         TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+-- ---------------------------------------------------------------------------
+-- 19. APP_META  (key-value store for app-level settings & state)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS app_meta (
     key                 TEXT            PRIMARY KEY,
@@ -524,10 +609,11 @@ CREATE TABLE IF NOT EXISTS app_meta (
 );
 
 INSERT INTO app_meta (key, value) VALUES
-    ('schema_version',      '1.0'),
+    ('schema_version',      '2.0'),
     ('import_complete',     'false'),
     ('ratings_built',       'false'),
     ('grid_built',          'false'),
+    ('macro_grid_built',    'false'),
     ('clusters_built',      'false'),
     ('eddn_enabled',        'false'),
     ('last_nightly_update', 'never')

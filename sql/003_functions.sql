@@ -1,15 +1,16 @@
 -- =============================================================================
 -- ED Finder — SQL Functions & Views
--- Version: 1.0
+-- Version: 2.0
 --
--- Contains:
---   • Distance function (3D Euclidean)
---   • Bounding-box pre-filter helper
---   • Galaxy-wide economy search function
---   • Cluster search function (multi-economy, anchor-based)
---   • Cluster coverage score calculator
---   • Materialized view: best_uncolonised (top 10k uncolonised by score)
---   • Trigger: auto-set dirty flags on system/body update
+-- Changes in v2.0:
+--   • search_galaxy_economy: added galaxy_region_id filter parameter
+--   • search_economy_near: added galaxy_region_id filter parameter
+--   • search_cluster: updated to use new cluster_summary schema (v4.0)
+--     with per-economy count/best/top_id columns
+--   • search_cluster_in_region: new function for region-aware cluster search
+--   • compute_coverage_score: updated weights to match build_clusters.py v4.0
+--   • Trigger: fn_mark_system_dirty updated to use BEFORE trigger correctly
+--   • Views: updated to include galaxy_region_id and new ratings columns
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -28,9 +29,7 @@ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- 2. BOUNDING BOX CHECK  (cheap pre-filter before exact distance)
---    Returns TRUE if point (px,py,pz) is within a cube of side 2r
---    centred on (cx,cy,cz). Use before calling distance_ly().
+-- 2. BOUNDING BOX CHECK
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION in_bounding_box(
     px REAL, py REAL, pz REAL,
@@ -46,18 +45,19 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- 3. GALAXY-WIDE ECONOMY SEARCH
---    Returns top N uncolonised systems for a given economy type,
---    sorted by the economy-specific score descending.
---    Optional: filter by minimum score threshold.
+--    Returns top N uncolonised systems for a given economy type.
+--    v2.0: Added p_region_id parameter for named region filtering.
 --
 --    Usage:
---      SELECT * FROM search_galaxy_economy('HighTech', 40, 100);
+--      SELECT * FROM search_galaxy_economy('Refinery', 65, 100, 0);
+--      SELECT * FROM search_galaxy_economy('Refinery', 65, 100, 0, 18);  -- Inner Orion Spur
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION search_galaxy_economy(
     p_economy       TEXT,
     p_min_score     SMALLINT    DEFAULT 0,
     p_limit         INTEGER     DEFAULT 100,
-    p_offset        INTEGER     DEFAULT 0
+    p_offset        INTEGER     DEFAULT 0,
+    p_region_id     SMALLINT    DEFAULT NULL
 )
 RETURNS TABLE (
     id64            BIGINT,
@@ -69,6 +69,7 @@ RETURNS TABLE (
     population      BIGINT,
     score           SMALLINT,
     economy_score   SMALLINT,
+    galaxy_region_id SMALLINT,
     elw_count       SMALLINT,
     ammonia_count   SMALLINT,
     gas_giant_count SMALLINT,
@@ -78,79 +79,7 @@ RETURNS TABLE (
 LANGUAGE plpgsql STABLE PARALLEL SAFE AS $$
 DECLARE
     v_score_col TEXT;
-BEGIN
-    -- Map economy name to the correct score column
-    v_score_col := CASE lower(p_economy)
-        WHEN 'agriculture' THEN 'score_agriculture'
-        WHEN 'refinery'    THEN 'score_refinery'
-        WHEN 'industrial'  THEN 'score_industrial'
-        WHEN 'hightech'    THEN 'score_hightech'
-        WHEN 'high tech'   THEN 'score_hightech'
-        WHEN 'military'    THEN 'score_military'
-        WHEN 'tourism'     THEN 'score_tourism'
-        ELSE 'score'  -- fallback to overall score
-    END;
-
-    RETURN QUERY EXECUTE format('
-        SELECT
-            s.id64, s.name, s.x, s.y, s.z,
-            s.primary_economy, s.population,
-            r.score,
-            r.%I AS economy_score,
-            r.elw_count, r.ammonia_count, r.gas_giant_count,
-            r.bio_signal_total, r.score_breakdown
-        FROM ratings r
-        JOIN systems s ON s.id64 = r.system_id64
-        WHERE s.population = 0
-          AND r.%I IS NOT NULL
-          AND r.%I >= $1
-        ORDER BY r.%I DESC NULLS LAST
-        LIMIT $2 OFFSET $3
-    ', v_score_col, v_score_col, v_score_col, v_score_col)
-    USING p_min_score, p_limit, p_offset;
-END;
-$$;
-
--- ---------------------------------------------------------------------------
--- 4. DISTANCE-LIMITED ECONOMY SEARCH
---    Same as above but within a radius of a reference point.
---    Used for standard searches (existing app behaviour).
---
---    Usage:
---      SELECT * FROM search_economy_near(
---          'HighTech', 0, 0, 0, 200, 40, 100, 0
---      );
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION search_economy_near(
-    p_economy       TEXT,
-    p_ref_x         REAL,
-    p_ref_y         REAL,
-    p_ref_z         REAL,
-    p_radius        REAL        DEFAULT 200,
-    p_min_score     SMALLINT    DEFAULT 0,
-    p_limit         INTEGER     DEFAULT 100,
-    p_offset        INTEGER     DEFAULT 0
-)
-RETURNS TABLE (
-    id64            BIGINT,
-    name            TEXT,
-    x               REAL,
-    y               REAL,
-    z               REAL,
-    distance        REAL,
-    primary_economy economy_type,
-    population      BIGINT,
-    score           SMALLINT,
-    economy_score   SMALLINT,
-    elw_count       SMALLINT,
-    ammonia_count   SMALLINT,
-    gas_giant_count SMALLINT,
-    bio_signal_total SMALLINT,
-    score_breakdown JSONB
-)
-LANGUAGE plpgsql STABLE PARALLEL SAFE AS $$
-DECLARE
-    v_score_col TEXT;
+    v_region_clause TEXT;
 BEGIN
     v_score_col := CASE lower(p_economy)
         WHEN 'agriculture' THEN 'score_agriculture'
@@ -163,6 +92,89 @@ BEGIN
         ELSE 'score'
     END;
 
+    v_region_clause := CASE
+        WHEN p_region_id IS NOT NULL
+        THEN format('AND s.galaxy_region_id = %s', p_region_id)
+        ELSE ''
+    END;
+
+    RETURN QUERY EXECUTE format('
+        SELECT
+            s.id64, s.name, s.x, s.y, s.z,
+            s.primary_economy, s.population,
+            r.score,
+            r.%I AS economy_score,
+            s.galaxy_region_id,
+            r.elw_count, r.ammonia_count, r.gas_giant_count,
+            r.bio_signal_total, r.score_breakdown
+        FROM ratings r
+        JOIN systems s ON s.id64 = r.system_id64
+        WHERE s.population = 0
+          AND r.%I IS NOT NULL
+          AND r.%I >= $1
+          %s
+        ORDER BY r.%I DESC NULLS LAST
+        LIMIT $2 OFFSET $3
+    ', v_score_col, v_score_col, v_score_col, v_region_clause, v_score_col)
+    USING p_min_score, p_limit, p_offset;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 4. DISTANCE-LIMITED ECONOMY SEARCH
+--    v2.0: Added p_region_id parameter.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION search_economy_near(
+    p_economy       TEXT,
+    p_ref_x         REAL,
+    p_ref_y         REAL,
+    p_ref_z         REAL,
+    p_radius        REAL        DEFAULT 200,
+    p_min_score     SMALLINT    DEFAULT 0,
+    p_limit         INTEGER     DEFAULT 100,
+    p_offset        INTEGER     DEFAULT 0,
+    p_region_id     SMALLINT    DEFAULT NULL
+)
+RETURNS TABLE (
+    id64            BIGINT,
+    name            TEXT,
+    x               REAL,
+    y               REAL,
+    z               REAL,
+    distance        REAL,
+    primary_economy economy_type,
+    population      BIGINT,
+    score           SMALLINT,
+    economy_score   SMALLINT,
+    galaxy_region_id SMALLINT,
+    elw_count       SMALLINT,
+    ammonia_count   SMALLINT,
+    gas_giant_count SMALLINT,
+    bio_signal_total SMALLINT,
+    score_breakdown JSONB
+)
+LANGUAGE plpgsql STABLE PARALLEL SAFE AS $$
+DECLARE
+    v_score_col TEXT;
+    v_region_clause TEXT;
+BEGIN
+    v_score_col := CASE lower(p_economy)
+        WHEN 'agriculture' THEN 'score_agriculture'
+        WHEN 'refinery'    THEN 'score_refinery'
+        WHEN 'industrial'  THEN 'score_industrial'
+        WHEN 'hightech'    THEN 'score_hightech'
+        WHEN 'high tech'   THEN 'score_hightech'
+        WHEN 'military'    THEN 'score_military'
+        WHEN 'tourism'     THEN 'score_tourism'
+        ELSE 'score'
+    END;
+
+    v_region_clause := CASE
+        WHEN p_region_id IS NOT NULL
+        THEN format('AND s.galaxy_region_id = %s', p_region_id)
+        ELSE ''
+    END;
+
     RETURN QUERY EXECUTE format('
         SELECT
             s.id64, s.name, s.x, s.y, s.z,
@@ -170,6 +182,7 @@ BEGIN
             s.primary_economy, s.population,
             r.score,
             r.%I AS economy_score,
+            s.galaxy_region_id,
             r.elw_count, r.ammonia_count, r.gas_giant_count,
             r.bio_signal_total, r.score_breakdown
         FROM systems s
@@ -179,34 +192,37 @@ BEGIN
           AND distance_ly(s.x, s.y, s.z, $1, $2, $3) <= $4
           AND r.%I IS NOT NULL
           AND r.%I >= $5
+          %s
         ORDER BY r.%I DESC NULLS LAST
         LIMIT $6 OFFSET $7
-    ', v_score_col, v_score_col, v_score_col, v_score_col)
+    ', v_score_col, v_score_col, v_score_col, v_region_clause, v_score_col)
     USING p_ref_x, p_ref_y, p_ref_z, p_radius, p_min_score, p_limit, p_offset;
 END;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 5. MULTI-ECONOMY CLUSTER SEARCH
---    Find the best anchor points where a 500ly bubble covers all
+-- 5. MULTI-ECONOMY CLUSTER SEARCH  (v4.0 — uses new cluster_summary schema)
+--    Find the best anchor points where a 500 LY bubble covers all
 --    requested economy types with sufficient viable systems.
 --
---    p_requirements: JSONB array of {economy, min_count, min_score}
---    Example:
+--    v4.0: Updated to use per-economy count/best columns instead of the
+--    old per-row economy_type schema. Added galaxy_region_id filter.
+--
+--    Usage:
 --      SELECT * FROM search_cluster(
 --          '[
---            {"economy": "HighTech",    "min_count": 1, "min_score": 40},
---            {"economy": "Agriculture", "min_count": 2, "min_score": 30},
---            {"economy": "Refinery",    "min_count": 2, "min_score": 30}
+--            {"economy": "Refinery",    "min_count": 2},
+--            {"economy": "Agriculture", "min_count": 1},
+--            {"economy": "HighTech",    "min_count": 1}
 --          ]'::jsonb,
---          100,  -- max results
---          0     -- offset
+--          50, 0
 --      );
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION search_cluster(
     p_requirements  JSONB,
     p_limit         INTEGER     DEFAULT 50,
-    p_offset        INTEGER     DEFAULT 0
+    p_offset        INTEGER     DEFAULT 0,
+    p_region_id     SMALLINT    DEFAULT NULL
 )
 RETURNS TABLE (
     anchor_id64         BIGINT,
@@ -215,6 +231,7 @@ RETURNS TABLE (
     anchor_y            REAL,
     anchor_z            REAL,
     anchor_population   BIGINT,
+    galaxy_region_id    SMALLINT,
     coverage_score      REAL,
     economy_diversity   SMALLINT,
     total_viable        SMALLINT,
@@ -236,6 +253,7 @@ DECLARE
     v_req           JSONB;
     v_where_parts   TEXT[]  := ARRAY[]::TEXT[];
     v_where_clause  TEXT;
+    v_region_clause TEXT;
 BEGIN
     -- Build WHERE clause from requirements
     FOR v_req IN SELECT * FROM jsonb_array_elements(p_requirements)
@@ -267,9 +285,16 @@ BEGIN
         ELSE 'TRUE'
     END;
 
+    v_region_clause := CASE
+        WHEN p_region_id IS NOT NULL
+        THEN format('AND s.galaxy_region_id = %s', p_region_id)
+        ELSE ''
+    END;
+
     RETURN QUERY EXECUTE format('
         SELECT
             s.id64, s.name, s.x, s.y, s.z, s.population,
+            s.galaxy_region_id,
             cs.coverage_score, cs.economy_diversity, cs.total_viable,
             cs.agriculture_count, cs.agriculture_best,
             cs.refinery_count,   cs.refinery_best,
@@ -281,9 +306,10 @@ BEGIN
         JOIN systems s ON s.id64 = cs.system_id64
         WHERE %s
           AND cs.coverage_score IS NOT NULL
+          %s
         ORDER BY cs.coverage_score DESC NULLS LAST
         LIMIT $1 OFFSET $2
-    ', v_where_clause)
+    ', v_where_clause, v_region_clause)
     USING p_limit, p_offset;
 END;
 $$;
@@ -292,7 +318,7 @@ $$;
 -- 6. COMPUTE CLUSTER COVERAGE SCORE
 --    Weighted score 0-100 reflecting how self-sufficient an empire
 --    centred on this anchor could be.
---    Called by build_clusters.py and incremental EDDN update.
+--    v2.0: Updated weights to match build_clusters.py v4.0.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION compute_coverage_score(
     p_agriculture_count SMALLINT,
@@ -310,69 +336,58 @@ CREATE OR REPLACE FUNCTION compute_coverage_score(
 ) RETURNS REAL
 LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE AS $$
 DECLARE
-    -- Economy weights (Agriculture + HighTech most valuable for colonisation)
-    w_agriculture   CONSTANT REAL := 0.25;
-    w_refinery      CONSTANT REAL := 0.20;
+    -- Updated weights matching build_clusters.py v4.0
+    w_agriculture   CONSTANT REAL := 0.22;
+    w_refinery      CONSTANT REAL := 0.22;
     w_industrial    CONSTANT REAL := 0.20;
-    w_hightech      CONSTANT REAL := 0.20;
-    w_military      CONSTANT REAL := 0.10;
-    w_tourism       CONSTANT REAL := 0.05;
+    w_hightech      CONSTANT REAL := 0.18;
+    w_military      CONSTANT REAL := 0.12;
+    w_tourism       CONSTANT REAL := 0.06;
 
     v_score         REAL := 0;
     v_count_bonus   REAL;
 BEGIN
-    -- For each economy: (best_score/100 * weight) + count_bonus
-    -- Count bonus: diminishing returns after 3 viable systems
     IF p_agriculture_best IS NOT NULL THEN
-        v_count_bonus := LEAST(p_agriculture_count::REAL / 3.0, 1.0) * 0.1;
+        v_count_bonus := LEAST(p_agriculture_count::REAL / 5.0, 1.0) * 0.15;
         v_score := v_score + (p_agriculture_best::REAL / 100.0 + v_count_bonus) * w_agriculture;
     END IF;
 
     IF p_refinery_best IS NOT NULL THEN
-        v_count_bonus := LEAST(p_refinery_count::REAL / 3.0, 1.0) * 0.1;
+        v_count_bonus := LEAST(p_refinery_count::REAL / 5.0, 1.0) * 0.15;
         v_score := v_score + (p_refinery_best::REAL / 100.0 + v_count_bonus) * w_refinery;
     END IF;
 
     IF p_industrial_best IS NOT NULL THEN
-        v_count_bonus := LEAST(p_industrial_count::REAL / 3.0, 1.0) * 0.1;
+        v_count_bonus := LEAST(p_industrial_count::REAL / 5.0, 1.0) * 0.15;
         v_score := v_score + (p_industrial_best::REAL / 100.0 + v_count_bonus) * w_industrial;
     END IF;
 
     IF p_hightech_best IS NOT NULL THEN
-        v_count_bonus := LEAST(p_hightech_count::REAL / 3.0, 1.0) * 0.1;
+        v_count_bonus := LEAST(p_hightech_count::REAL / 5.0, 1.0) * 0.15;
         v_score := v_score + (p_hightech_best::REAL / 100.0 + v_count_bonus) * w_hightech;
     END IF;
 
     IF p_military_best IS NOT NULL THEN
-        v_count_bonus := LEAST(p_military_count::REAL / 3.0, 1.0) * 0.1;
+        v_count_bonus := LEAST(p_military_count::REAL / 5.0, 1.0) * 0.15;
         v_score := v_score + (p_military_best::REAL / 100.0 + v_count_bonus) * w_military;
     END IF;
 
     IF p_tourism_best IS NOT NULL THEN
-        v_count_bonus := LEAST(p_tourism_count::REAL / 3.0, 1.0) * 0.1;
+        v_count_bonus := LEAST(p_tourism_count::REAL / 5.0, 1.0) * 0.15;
         v_score := v_score + (p_tourism_best::REAL / 100.0 + v_count_bonus) * w_tourism;
     END IF;
 
-    -- Normalise to 0-100
     RETURN LEAST(ROUND((v_score * 100)::NUMERIC, 1)::REAL, 100.0);
 END;
 $$;
 
 -- ---------------------------------------------------------------------------
 -- 7. TRIGGER: Mark dirty flags when system or body is updated
---    Ensures incremental rebuild jobs pick up all EDDN changes.
---
---    Design note: we use BEFORE triggers that modify NEW directly instead of
---    issuing a separate UPDATE on the same row.  This avoids the recursive
---    "trigger fires UPDATE, UPDATE fires trigger" loop that the original
---    AFTER trigger caused (wasting one extra UPDATE per event even though
---    PostgreSQL caps recursion at 1 level by default).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION fn_mark_system_dirty()
 RETURNS TRIGGER
 LANGUAGE plpgsql AS $$
 BEGIN
-    -- Set dirty flags directly on the row being updated — no extra UPDATE needed.
     NEW.rating_dirty  := TRUE;
     NEW.cluster_dirty := TRUE;
     NEW.updated_at    := NOW();
@@ -384,8 +399,6 @@ CREATE OR REPLACE FUNCTION fn_mark_body_system_dirty()
 RETURNS TRIGGER
 LANGUAGE plpgsql AS $$
 BEGIN
-    -- Body inserted/updated: mark the parent system dirty.
-    -- This still needs an UPDATE on systems (different table), but only once.
     UPDATE systems
     SET rating_dirty  = TRUE,
         cluster_dirty = TRUE,
@@ -396,7 +409,6 @@ BEGIN
 END;
 $$;
 
--- Apply triggers (DROP first to allow re-running this file safely)
 DROP TRIGGER IF EXISTS trg_system_dirty ON systems;
 CREATE TRIGGER trg_system_dirty
     BEFORE UPDATE OF primary_economy, secondary_economy, population,
@@ -415,27 +427,34 @@ CREATE TRIGGER trg_body_dirty
 -- 8. USEFUL VIEWS
 -- ---------------------------------------------------------------------------
 
--- High-value uncolonised systems (top candidates for colonisation)
+-- High-value uncolonised systems
 CREATE OR REPLACE VIEW top_uncolonised AS
 SELECT
     s.id64, s.name, s.x, s.y, s.z,
     s.primary_economy, s.secondary_economy,
     s.main_star_type,
+    s.galaxy_region_id,
+    gr.name AS galaxy_region,
     r.score, r.economy_suggestion,
     r.elw_count, r.ww_count, r.ammonia_count,
     r.gas_giant_count, r.bio_signal_total, r.geo_signal_total,
-    r.terraformable_count, r.neutron_count, r.black_hole_count
+    r.terraformable_count, r.neutron_count, r.black_hole_count,
+    r.score_agriculture, r.score_refinery, r.score_industrial,
+    r.score_hightech, r.score_military, r.score_tourism
 FROM systems s
 JOIN ratings r ON r.system_id64 = s.id64
+LEFT JOIN galaxy_regions gr ON gr.id = s.galaxy_region_id
 WHERE s.population = 0
   AND r.score IS NOT NULL
   AND r.score >= 40
 ORDER BY r.score DESC;
 
--- Best colonisation clusters (top empire-building locations)
+-- Best colonisation clusters
 CREATE OR REPLACE VIEW top_clusters AS
 SELECT
     s.id64, s.name, s.x, s.y, s.z, s.population,
+    s.galaxy_region_id,
+    gr.name AS galaxy_region,
     cs.coverage_score, cs.economy_diversity, cs.total_viable,
     cs.agriculture_count, cs.agriculture_best,
     cs.refinery_count,   cs.refinery_best,
@@ -445,6 +464,7 @@ SELECT
     cs.tourism_count,    cs.tourism_best
 FROM cluster_summary cs
 JOIN systems s ON s.id64 = cs.system_id64
+LEFT JOIN galaxy_regions gr ON gr.id = s.galaxy_region_id
 WHERE cs.coverage_score IS NOT NULL
   AND cs.economy_diversity >= 3
 ORDER BY cs.coverage_score DESC;
@@ -456,6 +476,7 @@ SELECT
     status,
     rows_processed,
     rows_total,
+    errors_encountered,
     CASE WHEN rows_total > 0
         THEN round((rows_processed::NUMERIC / rows_total * 100), 1)
         ELSE 0
@@ -473,10 +494,11 @@ SELECT
 FROM import_meta
 ORDER BY id;
 
--- System full detail (systems + ratings + body counts joined)
+-- System full detail
 CREATE OR REPLACE VIEW system_detail AS
 SELECT
     s.*,
+    gr.name AS galaxy_region,
     r.score,
     r.score_agriculture, r.score_refinery, r.score_industrial,
     r.score_hightech, r.score_military, r.score_tourism,
@@ -487,9 +509,12 @@ SELECT
     r.landable_count, r.terraformable_count,
     r.bio_signal_total, r.geo_signal_total,
     r.neutron_count, r.black_hole_count, r.white_dwarf_count,
+    r.slots, r.body_quality, r.compactness,
+    r.signal_quality, r.orbital_safety, r.star_bonus,
     r.score_breakdown,
     r.computed_at AS score_computed_at
 FROM systems s
+LEFT JOIN galaxy_regions gr ON gr.id = s.galaxy_region_id
 LEFT JOIN ratings r ON r.system_id64 = s.id64;
 
-DO $$ BEGIN RAISE NOTICE 'Functions and views created successfully.'; END $$;
+DO $$ BEGIN RAISE NOTICE 'Functions and views v2.0 created successfully.'; END $$;
