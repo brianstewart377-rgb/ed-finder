@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY import_spansh.py build_ratings.py build_grid.py build_clusters.py progress.py ./
+COPY import_spansh.py build_ratings.py build_grid.py build_clusters.py progress.py RegionMapData.py ./
 
 ENTRYPOINT ["python3"]
 CMD ["import_spansh.py", "--status"]

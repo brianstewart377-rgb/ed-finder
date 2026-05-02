@@ -186,6 +186,7 @@ services:
     environment:
       # Explicitly pass the password to bypass any URL caching/conflicts
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL:  postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
       DUMP_DIR:     /data/dumps
       BATCH_SIZE:   50000
       LOG_LEVEL:    INFO
@@ -199,6 +200,7 @@ services:
       - ./backend/build_grid.py:/app/build_grid.py:ro
       - ./backend/build_ratings.py:/app/build_ratings.py:ro
       - ./backend/build_clusters.py:/app/build_clusters.py:ro
+      - ./backend/RegionMapData.py:/app/RegionMapData.py:ro
     depends_on:
       postgres:
         condition: service_healthy
