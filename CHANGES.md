@@ -1,7 +1,7 @@
 # ED Finder — Dev Change Log
 
-A running record of changes made in the Replit dev environment, with reasoning.
-Production app lives at ed-finder.app (Hetzner/Docker); this log tracks sandbox work.
+A running record of development changes, with reasoning. Production app
+lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 

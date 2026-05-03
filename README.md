@@ -26,11 +26,50 @@
 
 | Script | Version | Key fix |
 |---|---|---|
-| `import_spansh.py` | 2.0 | COPY-via-temp-table (10–50× faster than INSERT) |
-| `build_grid.py` | 2.3 | Disable RI triggers + ctid-range batching |
-| `build_ratings.py` | 2.2 | Disable RI triggers on dirty-flag UPDATE |
-| `build_clusters.py` | 2.2 | Stabilized spatial clustering (v2.2) |
+| `import_spansh.py` | 3.0 (v2.6 auto-finalize) | COPY-via-temp-table + galaxy region + structured error logging |
+| `build_grid.py` | 2.4 | Disable RI triggers + ctid-range batching + auto index repair |
+| `build_ratings.py` | 2.5 | CPU-protection + index-only-scan friendly dirty-system query |
+| `build_clusters.py` | 2.3 | Stabilized hybrid clustering + API-trigger support |
 | `nightly_update.sh` | 1.2 | Added Sunday full cluster rebuild |
+
+## API / frontend versions
+
+| Component | Version | Notes |
+|---|---|---|
+| `backend/main.py` | 3.0.1-hetzner | Admin-token auth, CORS lockdown, path-traversal fix, Redis-backed rate limiter, Redis pub/sub SSE bridge, asyncpg `statement_cache_size=0` for pgBouncer |
+| `eddn_listener.py` | 1.2 | Publishes events to Redis `eddn_events` channel |
+| `frontend/app.js` | 2.1 | All DB-sourced strings escaped (stored-XSS fix) |
+
+---
+
+## Security checklist (before going live)
+
+Required `.env` entries in addition to `POSTGRES_PASSWORD`:
+
+```ini
+# Required — generate with `openssl rand -hex 32`. Admin endpoints
+# (/api/admin/*, /api/cache/clear) are DISABLED unless this is set.
+ADMIN_TOKEN=...
+
+# Required unless you want the browser to block your frontend's API calls.
+# Comma-separated list of origins allowed to call the API.
+CORS_ORIGINS=https://ed-finder.app,https://www.ed-finder.app
+
+# Optional — set to "true" only when debugging locally; leaks SQL/internal
+# error text in HTTP responses.
+EXPOSE_ERROR_DETAIL=false
+```
+
+Trigger a manual cluster rebuild from the Hetzner host:
+
+```bash
+curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" \
+     http://127.0.0.1/api/admin/rebuild-clusters
+```
+
+Admin endpoints are additionally firewalled in `config/nginx.conf` (allow
+`127.0.0.1` only), so they cannot be reached from the public internet even
+if `ADMIN_TOKEN` leaks.
 
 ---
 

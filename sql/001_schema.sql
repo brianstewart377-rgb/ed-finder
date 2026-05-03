@@ -26,42 +26,61 @@ CREATE EXTENSION IF NOT EXISTS btree_gin; -- GIN indexes on scalar types
 
 -- ---------------------------------------------------------------------------
 -- Enums
+--
+-- PostgreSQL does not support "CREATE TYPE ... IF NOT EXISTS", so re-running
+-- this script against an existing database (e.g. after a schema edit) would
+-- crash with "type already exists". Wrapping each CREATE TYPE in a DO block
+-- lets the script be idempotent.
 -- ---------------------------------------------------------------------------
-CREATE TYPE economy_type AS ENUM (
-    'Agriculture', 'Refinery', 'Industrial', 'HighTech',
-    'Military', 'Tourism', 'Extraction', 'Colony',
-    'Terraforming', 'Prison', 'Damaged', 'Rescue',
-    'Repair', 'Carrier', 'None', 'Unknown'
-);
+DO $$ BEGIN
+    CREATE TYPE economy_type AS ENUM (
+        'Agriculture', 'Refinery', 'Industrial', 'HighTech',
+        'Military', 'Tourism', 'Extraction', 'Colony',
+        'Terraforming', 'Prison', 'Damaged', 'Rescue',
+        'Repair', 'Carrier', 'None', 'Unknown'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE security_type AS ENUM (
-    'High', 'Medium', 'Low', 'Anarchy', 'Lawless', 'Unknown'
-);
+DO $$ BEGIN
+    CREATE TYPE security_type AS ENUM (
+        'High', 'Medium', 'Low', 'Anarchy', 'Lawless', 'Unknown'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE allegiance_type AS ENUM (
-    'Federation', 'Empire', 'Alliance', 'Independent',
-    'Thargoid', 'Guardian', 'PilotsFederation', 'None', 'Unknown'
-);
+DO $$ BEGIN
+    CREATE TYPE allegiance_type AS ENUM (
+        'Federation', 'Empire', 'Alliance', 'Independent',
+        'Thargoid', 'Guardian', 'PilotsFederation', 'None', 'Unknown'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE government_type AS ENUM (
-    'Democracy', 'Dictatorship', 'Feudal', 'Patronage',
-    'Corporate', 'Cooperative', 'Theocracy', 'Anarchy',
-    'Communism', 'Confederacy', 'None', 'Unknown'
-);
+DO $$ BEGIN
+    CREATE TYPE government_type AS ENUM (
+        'Democracy', 'Dictatorship', 'Feudal', 'Patronage',
+        'Corporate', 'Cooperative', 'Theocracy', 'Anarchy',
+        'Communism', 'Confederacy', 'None', 'Unknown'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE body_type AS ENUM (
-    'Star', 'Planet', 'Moon', 'Barycentre', 'Unknown'
-);
+DO $$ BEGIN
+    CREATE TYPE body_type AS ENUM (
+        'Star', 'Planet', 'Moon', 'Barycentre', 'Unknown'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE station_type AS ENUM (
-    'Coriolis', 'Orbis', 'Ocellus', 'Outpost',
-    'PlanetaryPort', 'PlanetaryOutpost', 'MegaShip',
-    'AsteroidBase', 'FleetCarrier', 'Unknown'
-);
+DO $$ BEGIN
+    CREATE TYPE station_type AS ENUM (
+        'Coriolis', 'Orbis', 'Ocellus', 'Outpost',
+        'PlanetaryPort', 'PlanetaryOutpost', 'MegaShip',
+        'AsteroidBase', 'FleetCarrier', 'Unknown'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE import_status AS ENUM (
-    'pending', 'running', 'complete', 'failed', 'partial'
-);
+DO $$ BEGIN
+    CREATE TYPE import_status AS ENUM (
+        'pending', 'running', 'complete', 'failed', 'partial'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ---------------------------------------------------------------------------
 -- 0. GALAXY_REGIONS  (42 named Elite Dangerous codex regions)

@@ -1,8 +1,0 @@
-uploads = []
-generated = []
-
-[[outputs]]
-id = "QHQnRi86CRCfIrlPe64OY"
-uri = "file://CHANGES.md"
-type = "text"
-title = "ED Finder — Dev Change Log"
