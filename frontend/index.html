@@ -2137,9 +2137,36 @@ body {
   color: #ffb070;
 }
 
-/* ── Main content area: transparent so nebula shows ── */
-#content { background: transparent; }
-#main    { background: transparent; }
+/* ── Main content area: soft glass veil so it blends with the sidebar ── */
+/* Lighter tint than the sidebar (which is 0.78) so the nebula still reads,
+   but the whole page feels like one unified glass system.                  */
+#content {
+  background: rgba(4,6,15,0.58);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+#main { background: transparent; }
+
+/* Full-width tab pages (Pinned, Compare, Watchlist, Route, etc.)
+   also get a glass veil so they match the finder layout                   */
+.tab-content.full-width {
+  background: rgba(4,6,15,0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Prevent browser autofill from blasting a white box on the ref-input */
+#sidebar input:-webkit-autofill,
+#sidebar input:-webkit-autofill:hover,
+#sidebar input:-webkit-autofill:focus,
+.panel-body input:-webkit-autofill,
+.panel-body input:-webkit-autofill:hover,
+.panel-body input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 100px #15171f inset !important;
+  -webkit-text-fill-color: #e8f0ff !important;
+  caret-color: #ffffff;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+}
 
 /* ── Panels: glass blue ── */
 .panel {
