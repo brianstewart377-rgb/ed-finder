@@ -2143,6 +2143,25 @@ body {
 .panel-body { color: #e8eaf0; }
 .panel-body table td,
 .panel-body table th { color: #e8eaf0; }
+.panel-body .field label,
+.panel-body label,
+#sidebar .field label,
+#sidebar label {
+  color: #e8d8c0;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  font-weight: 700;
+}
+.panel-body .field input[type="text"],
+.panel-body .field input[type="number"],
+.panel-body .field select,
+#sidebar input[type="text"],
+#sidebar input[type="number"],
+#sidebar select {
+  background: rgba(0,0,0,0.55);
+  color: #ffffff;
+}
+.panel-body .field input::placeholder,
+#sidebar input::placeholder { color: rgba(220,220,220,0.55); }
 .guide-table td { color: #e8eaf0; }
 .guide-table th { color: #ffb070; background: rgba(255,255,255,0.04); }
 .guide-table tr:hover td { background: rgba(255,255,255,0.05); }
