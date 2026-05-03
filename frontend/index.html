@@ -2147,12 +2147,11 @@ body {
 }
 #main { background: transparent; }
 
-/* Full-width tab pages (Pinned, Compare, Watchlist, Route, etc.)
-   also get a glass veil so they match the finder layout                   */
+/* Full-width tab pages: just a very subtle tint — no backdrop-filter here
+   because backdrop-filter creates a stacking context that breaks any
+   position:fixed modals/dropdowns/tooltips rendered inside those tabs.    */
 .tab-content.full-width {
-  background: rgba(4,6,15,0.55);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(4,6,15,0.40);
 }
 
 /* Prevent browser autofill from blasting a white box on the ref-input */
