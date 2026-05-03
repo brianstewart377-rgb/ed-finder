@@ -1070,7 +1070,7 @@ body.dim-colonised  .result-card.is-colonised { opacity: 0.35; filter: grayscale
 }
 .status-dot.online { background: var(--green); box-shadow: 0 0 6px rgba(61,220,132,0.5); }
 .status-dot.offline { background: var(--red); }
-.status-dot.checking { background: #fbbf24; animation: pulse 1s infinite; }
+.status-dot.checking { background: #fbbf24; }
 
 /* ── Pinned / Compare / Watchlist / History / Route ── */
 .pin-btn { background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.7;transition:opacity .2s;line-height:1; min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center; } /* T1: 44px touch target */
@@ -3226,8 +3226,12 @@ function updateFilterBadge() {
 async function checkApiConnection() {
   const dot = document.getElementById('api-dot');
   const statusEl = document.getElementById('api-status');
-  dot.className = 'status-dot checking';
-  statusEl.textContent = 'Connecting to local backend…';
+  // Only show the yellow "checking" flash if we're not already online —
+  // prevents a periodic burst on every 30s health-check poll.
+  if (!dot.classList.contains('online')) {
+    dot.className = 'status-dot checking';
+    statusEl.textContent = 'Connecting to local backend…';
+  }
 
   try {
     const r = await fetch(`${API_BASE}/status`, { signal: AbortSignal.timeout(6000) });
