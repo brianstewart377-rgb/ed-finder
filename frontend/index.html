@@ -2005,11 +2005,19 @@ body {
 }
 
 /* ── Elevate all UI above nebula layers ── */
-#header, #tabs, #main, #briefing-modal, #kbd-overlay,
+#header, #tabs, #status-bar, #main, #briefing-modal, #kbd-overlay,
 .autocomplete-list, .body-detail-popover, #colony-modal,
 .skip-nav {
   position: relative;
   z-index: 2;
+}
+
+/* ── Status bar: glass treatment matching the rest of the UI ── */
+#status-bar {
+  background: rgba(255,255,255,0.025);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
 /* ── Header: frosted glass ── */
