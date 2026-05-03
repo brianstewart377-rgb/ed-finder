@@ -2005,31 +2005,31 @@ body {
   background-attachment: fixed;
 }
 
-/* ── Header: solid dark glass, no backdrop-filter ── */
+/* ── Header: fully opaque so drift can't tint it ── */
 #header {
-  background: rgba(6,7,14,0.88);
+  background: #06070e;
   border-bottom: 1px solid rgba(255,106,0,0.30);
   box-shadow: 0 4px 40px rgba(0,0,0,0.50), 0 1px 0 rgba(255,255,255,0.06) inset;
 }
 
-/* ── Status bar ── */
+/* ── Status bar: fully opaque ── */
 #status-bar {
-  background: rgba(5,6,12,0.80);
+  background: #05060c;
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
-/* ── Tab bar ── */
+/* ── Tab bar: fully opaque ── */
 #tabs {
-  background: rgba(5,6,12,0.80);
+  background: #05060c;
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 .tab-btn { color: rgba(155,170,187,0.55); }
 .tab-btn:hover { color: #d0d8e8; border-bottom-color: rgba(255,255,255,0.15); }
 .tab-btn.active { color: var(--orange-lt); border-bottom-color: var(--orange); }
 
-/* ── Sidebar: dark panel, star field visible in empty areas via body bg ── */
+/* ── Sidebar: fully opaque so drift can't tint it ── */
 #sidebar {
-  background: rgba(5,6,11,0.86);
+  background: #05060b;
   border-right: 1px solid rgba(255,255,255,0.07);
 }
 
