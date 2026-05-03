@@ -71,14 +71,8 @@ logs/
 log/
 
 # Environment variables (never commit real .env files with secrets)
-.env
-.env.local
-.env.*.local
-.env.development
-.env.test
-.env.production
-# Template file is named `env.example` (no leading dot) so it never matches
-# the .env.* / *.env patterns used by credential-scanning tools.
+# See the consolidated block at the bottom of this file.
+
 
 # Build outputs
 /out
@@ -133,23 +127,16 @@ memory/
 # Platform bot identity — must never land in the repo
 .gitconfig
 
-# Extra credential files (never commit secrets)
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
+# ─── Environment and credential files (DO NOT EDIT THIS SECTION) ────────────
+# The Emergent platform's pre-commit hook appends to this .gitignore on
+# every commit. If it re-adds a duplicate of this block, just keep the top
+# copy and delete the dupe; the hook won't fight us.
 .env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
 .env.*
 *.env
 credentials.json
