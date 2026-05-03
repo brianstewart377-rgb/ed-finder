@@ -1,0 +1,379 @@
+export function NebulaGlass() {
+  const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600&display=swap');
+
+    .nb-root {
+      font-family: 'Rajdhani', sans-serif;
+      background:
+        radial-gradient(ellipse at 80% 10%, rgba(180,40,220,0.22) 0%, transparent 50%),
+        radial-gradient(ellipse at 10% 70%, rgba(0,200,180,0.18) 0%, transparent 45%),
+        radial-gradient(ellipse at 50% 50%, rgba(80,0,160,0.15) 0%, transparent 60%),
+        linear-gradient(160deg, #060410 0%, #090616 40%, #060b10 100%);
+      color: #dde8f8;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* nebula dust */
+    .nb-root::before {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        radial-gradient(1.2px 1.2px at  8% 14%, rgba(255,255,255,0.22) 0%, transparent 100%),
+        radial-gradient(0.8px 0.8px at 22% 38%, rgba(255,255,255,0.14) 0%, transparent 100%),
+        radial-gradient(1.0px 1.0px at 45% 72%, rgba(255,255,255,0.18) 0%, transparent 100%),
+        radial-gradient(0.7px 0.7px at 67% 19%, rgba(255,255,255,0.12) 0%, transparent 100%),
+        radial-gradient(1.3px 1.3px at 83% 55%, rgba(255,255,255,0.16) 0%, transparent 100%),
+        radial-gradient(0.9px 0.9px at 91% 88%, rgba(255,255,255,0.10) 0%, transparent 100%),
+        radial-gradient(0.6px 0.6px at 34% 91%, rgba(255,255,255,0.13) 0%, transparent 100%);
+    }
+
+    /* ── Header ── */
+    .nb-header {
+      background: rgba(100, 20, 160, 0.12);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-bottom: 1px solid rgba(180, 80, 255, 0.28);
+      padding: 14px 24px;
+      display: flex; align-items: center; gap: 16px;
+      position: relative; z-index: 10;
+      box-shadow: 0 4px 32px rgba(140, 0, 220, 0.14), 0 1px 0 rgba(255,255,255,0.04) inset;
+    }
+    .nb-logo {
+      width: 42px; height: 42px;
+      border: 1.5px solid rgba(180, 100, 255, 0.7);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; color: #c87eff;
+      box-shadow: 0 0 22px rgba(160, 60, 255, 0.5), inset 0 0 14px rgba(140, 40, 255, 0.1);
+    }
+    .nb-title {
+      font-family: 'Orbitron', monospace; font-size: 20px; font-weight: 700;
+      background: linear-gradient(90deg, #c87eff 0%, #44eedd 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; letter-spacing: 2px;
+    }
+    .nb-sub { font-size: 10px; color: rgba(180, 150, 220, 0.48); letter-spacing: 3px; text-transform: uppercase; }
+    .nb-spacer { flex: 1; }
+    .nb-badge {
+      font-family: 'Orbitron', monospace; font-size: 10px;
+      color: #c87eff; border: 1px solid rgba(180,80,255,0.4);
+      border-radius: 6px; padding: 4px 10px;
+      background: rgba(140,40,255,0.1); backdrop-filter: blur(8px);
+    }
+    .nb-syncbtn {
+      background: linear-gradient(135deg, rgba(140,40,255,0.8), rgba(0,180,160,0.7));
+      color: #fff; border: 1px solid rgba(160,80,255,0.5);
+      border-radius: 10px; padding: 8px 18px;
+      font-family: 'Orbitron', monospace; font-size: 10px; font-weight: 600;
+      letter-spacing: 1px; cursor: pointer; backdrop-filter: blur(8px);
+      box-shadow: 0 2px 18px rgba(140,0,255,0.35);
+    }
+
+    /* ── Tabs ── */
+    .nb-tabs {
+      background: rgba(80, 10, 130, 0.07);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(160, 60, 255, 0.15);
+      padding: 0 20px; display: flex; gap: 2px;
+      overflow-x: auto; position: relative; z-index: 10;
+    }
+    .nb-tab {
+      font-family: 'Orbitron', monospace; font-size: 10px;
+      letter-spacing: 1px; text-transform: uppercase;
+      padding: 13px 16px; background: none; border: none;
+      border-bottom: 2px solid transparent;
+      color: rgba(180, 140, 220, 0.38); cursor: pointer;
+      white-space: nowrap; transition: all 0.2s;
+    }
+    .nb-tab.active {
+      color: #c87eff; border-bottom-color: #a855f7;
+      background: linear-gradient(180deg, rgba(140,40,255,0.08) 0%, transparent 100%);
+      text-shadow: 0 0 12px rgba(180,80,255,0.6);
+    }
+    .nb-tab:hover:not(.active) { color: rgba(210,180,255,0.7); }
+
+    /* ── Layout ── */
+    .nb-body { display: flex; flex: 1; min-height: 0; position: relative; z-index: 1; }
+
+    /* ── Sidebar ── */
+    .nb-sidebar {
+      width: 300px;
+      background: rgba(80, 10, 130, 0.06);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      border-right: 1px solid rgba(160, 60, 255, 0.12);
+      padding: 18px 14px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+
+    /* ── Panel ── */
+    .nb-panel {
+      background: rgba(120, 20, 200, 0.07);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(160, 70, 255, 0.18);
+      border-radius: 16px; overflow: hidden;
+    }
+    .nb-panel-hdr {
+      background: rgba(120, 20, 200, 0.09);
+      border-bottom: 1px solid rgba(160, 70, 255, 0.13);
+      padding: 10px 14px; display: flex; align-items: center; gap: 8px;
+    }
+    .nb-panel-icon { color: #c87eff; font-size: 14px; filter: drop-shadow(0 0 6px rgba(180,80,255,0.7)); }
+    .nb-panel-title {
+      font-family: 'Orbitron', monospace; font-size: 10px; font-weight: 600;
+      letter-spacing: 1.5px; text-transform: uppercase;
+      color: rgba(220, 200, 255, 0.88); flex: 1;
+    }
+    .nb-panel-body { padding: 14px; }
+
+    /* ── Controls ── */
+    .nb-label {
+      font-size: 11px; font-weight: 600; color: rgba(180, 140, 220, 0.52);
+      letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; display: block;
+    }
+    .nb-input {
+      width: 100%;
+      background: rgba(100, 20, 180, 0.1);
+      border: 1px solid rgba(160, 70, 255, 0.22);
+      border-radius: 10px; color: #e0d0ff;
+      font-family: 'Rajdhani', sans-serif; font-size: 14px;
+      padding: 9px 12px; outline: none; backdrop-filter: blur(8px);
+    }
+    .nb-input:focus { border-color: rgba(180,80,255,0.5); box-shadow: 0 0 14px rgba(140,40,255,0.2); }
+    .nb-slider-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+    .nb-slider { flex: 1; accent-color: #a855f7; }
+    .nb-slider-val {
+      font-family: 'Orbitron', monospace; font-size: 12px;
+      color: #c87eff; min-width: 32px; text-align: right;
+      text-shadow: 0 0 8px rgba(180,80,255,0.5);
+    }
+    .nb-searchbtn {
+      width: 100%;
+      background: linear-gradient(135deg, rgba(140,40,255,0.8), rgba(0,180,160,0.65));
+      color: #fff; border: 1px solid rgba(160,80,255,0.45);
+      border-radius: 12px; padding: 12px;
+      font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700;
+      letter-spacing: 1.5px; cursor: pointer; backdrop-filter: blur(8px);
+      box-shadow: 0 4px 24px rgba(120,0,255,0.32); margin-top: 4px;
+    }
+
+    /* ── Content ── */
+    .nb-content { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+    .nb-summary {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px;
+      background: rgba(100, 20, 160, 0.07);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(160, 70, 255, 0.14);
+      border-radius: 12px; font-size: 13px; color: rgba(180,140,220,0.62);
+    }
+    .nb-summary strong {
+      color: #c87eff; font-family: 'Orbitron', monospace; font-size: 12px;
+      text-shadow: 0 0 8px rgba(180,80,255,0.5);
+    }
+
+    /* ── Card ── */
+    .nb-card {
+      background: rgba(100, 15, 170, 0.07);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(160, 70, 255, 0.14);
+      border-radius: 18px; overflow: hidden; transition: all 0.22s ease;
+    }
+    .nb-card:hover {
+      transform: translateY(-4px);
+      background: rgba(120, 20, 200, 0.11);
+      border-color: rgba(180, 80, 255, 0.38);
+      box-shadow:
+        0 14px 42px rgba(120, 0, 255, 0.16),
+        0 0 60px rgba(0, 200, 180, 0.05),
+        0 2px 8px rgba(0,0,0,0.5);
+    }
+    .nb-card-hdr {
+      padding: 13px 16px; display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid rgba(160, 70, 255, 0.1);
+    }
+    .nb-rating {
+      color: #fff; font-family: 'Orbitron', monospace;
+      font-size: 14px; font-weight: 700;
+      border-radius: 10px; padding: 5px 11px;
+      min-width: 46px; text-align: center;
+    }
+    .nb-sys-name { font-family: 'Orbitron', monospace; font-size: 13px; color: rgba(225, 210, 255, 0.96); font-weight: 600; flex: 1; }
+    .nb-dist { font-size: 12px; color: rgba(180,140,220,0.5); }
+    .nb-card-body { padding: 12px 16px; }
+
+    /* ── Tags ── */
+    .nb-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .nb-tag  { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: rgba(140,40,255,0.12); border: 1px solid rgba(160,80,255,0.3); color: #c87eff; }
+    .nb-tag.teal  { background: rgba(0,200,180,0.1);  border-color: rgba(0,200,180,0.3);  color: #22d3c8; }
+    .nb-tag.pink  { background: rgba(240,80,180,0.1); border-color: rgba(240,80,180,0.28); color: #f472b6; }
+    .nb-tag.amber { background: rgba(250,170,0,0.09); border-color: rgba(250,170,0,0.25); color: #fbbf24; }
+
+    /* ── Stats ── */
+    .nb-stat-row { display: flex; gap: 20px; margin-top: 8px; }
+    .nb-stat { display: flex; flex-direction: column; gap: 2px; }
+    .nb-stat-lbl { font-size: 10px; color: rgba(160,120,220,0.48); text-transform: uppercase; letter-spacing: 1px; }
+    .nb-stat-val { font-size: 13px; color: rgba(220,205,255,0.88); font-weight: 600; }
+
+    /* ── Footer ── */
+    .nb-card-footer {
+      padding: 10px 16px; border-top: 1px solid rgba(160,70,255,0.09);
+      display: flex; gap: 8px; justify-content: flex-end;
+    }
+    .nb-btn {
+      font-size: 11px; padding: 6px 14px; border-radius: 10px;
+      border: 1px solid rgba(160,70,255,0.18);
+      background: rgba(120,20,200,0.08);
+      color: rgba(200,170,255,0.65);
+      cursor: pointer; font-family: 'Rajdhani', sans-serif; font-weight: 600;
+      backdrop-filter: blur(6px); transition: all 0.15s;
+    }
+    .nb-btn:hover { background: rgba(140,40,255,0.15); color: rgba(220,195,255,0.9); }
+    .nb-btn.primary { background: rgba(140,40,255,0.18); border-color: rgba(180,80,255,0.42); color: #c87eff; }
+    .nb-btn.primary:hover { background: rgba(140,40,255,0.28); }
+  `;
+
+  const systems = [
+    {
+      name: 'Colonia Gateway', rating: 94,
+      ratingBg: 'linear-gradient(135deg,#8b22f0,#44eedd)', glow: 'rgba(140,0,255,0.55)',
+      dist: '22,000.4 ly', tags: ['High Tech','Industrial'],
+      tagCls: ['','teal'], pop: '2.1B', slots: 7, bodies: 23,
+    },
+    {
+      name: 'Eravate', rating: 88,
+      ratingBg: 'linear-gradient(135deg,#a020c0,#e040b0)', glow: 'rgba(200,40,200,0.5)',
+      dist: '34.2 ly', tags: ['Agriculture','Refinery'],
+      tagCls: ['pink',''], pop: '450M', slots: 5, bodies: 14,
+    },
+    {
+      name: 'Lave', rating: 81,
+      ratingBg: 'linear-gradient(135deg,#0e8faa,#0b6680)', glow: 'rgba(0,180,220,0.45)',
+      dist: '108.5 ly', tags: ['Agriculture'],
+      tagCls: ['teal'], pop: '1.2B', slots: 6, bodies: 18,
+    },
+  ];
+
+  return (
+    <div className="nb-root">
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+
+      <div className="nb-header">
+        <div className="nb-logo">🎯</div>
+        <div>
+          <div className="nb-title">ED:FINDER</div>
+          <div className="nb-sub">Advanced System Finder &amp; Optimizer</div>
+        </div>
+        <div className="nb-spacer" />
+        <span style={{ fontSize: 12, color: 'rgba(180,140,220,0.42)', marginRight: 8 }}>· Never synced yet</span>
+        <button className="nb-syncbtn">⟳ SYNC NOW</button>
+        <span className="nb-badge">v3.90</span>
+      </div>
+
+      <div className="nb-tabs">
+        {['🎯 SYSTEM FINDER','⚙️ OPTIMIZER','📊 ECONOMY','📌 PINNED','⚖️ COMPARE','👁 WATCHLIST','🗺️ ROUTE','🛸 FC PLANNER','🌐 MAP','✨ 3D MAP','🏗️ COLONIES'].map((t, i) => (
+          <button key={i} className={`nb-tab${i === 0 ? ' active' : ''}`}>{t}</button>
+        ))}
+      </div>
+
+      <div className="nb-body">
+        <div className="nb-sidebar">
+          <div className="nb-panel">
+            <div className="nb-panel-hdr">
+              <span className="nb-panel-icon">📍</span>
+              <span className="nb-panel-title">Reference System</span>
+              <span style={{ fontSize: 10, color: 'rgba(180,130,220,0.36)' }}>▼</span>
+            </div>
+            <div className="nb-panel-body">
+              <label className="nb-label">System Name</label>
+              <input className="nb-input" defaultValue="Sol" />
+              <div style={{ marginTop: 8, padding: '7px 11px', background: 'rgba(140,40,255,0.09)', borderRadius: 10, border: '1px solid rgba(160,80,255,0.24)', fontSize: 13, color: '#c87eff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>📍</span><span>Sol — 0, 0, 0</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="nb-panel">
+            <div className="nb-panel-hdr">
+              <span className="nb-panel-icon">📡</span>
+              <span className="nb-panel-title">Search Radius</span>
+              <span style={{ fontSize: 10, color: 'rgba(180,130,220,0.36)' }}>▼</span>
+            </div>
+            <div className="nb-panel-body">
+              {([['Max Distance (ly)', 50], ['Min Distance (ly)', 0], ['Results Per Page', 50]] as [string,number][]).map(([lbl, val], i) => (
+                <div key={i} style={{ marginBottom: i < 2 ? 12 : 0 }}>
+                  <label className="nb-label">{lbl}</label>
+                  <div className="nb-slider-row">
+                    <input type="range" className="nb-slider" defaultValue={val} />
+                    <span className="nb-slider-val">{val}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="nb-panel">
+            <div className="nb-panel-hdr">
+              <span className="nb-panel-icon">⭐</span>
+              <span className="nb-panel-title">Rating Filter</span>
+              <span style={{ fontSize: 10, color: 'rgba(180,130,220,0.36)' }}>▼</span>
+            </div>
+            <div className="nb-panel-body">
+              <label className="nb-label">Minimum Rating</label>
+              <div className="nb-slider-row">
+                <input type="range" className="nb-slider" defaultValue={60} />
+                <span className="nb-slider-val">60</span>
+              </div>
+            </div>
+          </div>
+
+          <button className="nb-searchbtn">🔍 SEARCH SYSTEMS</button>
+        </div>
+
+        <div className="nb-content">
+          <div className="nb-summary">
+            <span>Found <strong>247 SYSTEMS</strong></span>
+            <span>·</span><span>⏱ 843ms</span>
+            <div style={{ flex: 1 }} />
+            <button className="nb-btn">👁 Watch All</button>
+            <button className="nb-btn">📋 Copy Names</button>
+          </div>
+
+          {systems.map((sys, i) => (
+            <div className="nb-card" key={i}>
+              <div className="nb-card-hdr">
+                <span className="nb-rating" style={{ background: sys.ratingBg, boxShadow: `0 2px 16px ${sys.glow}` }}>
+                  {sys.rating}
+                </span>
+                <span className="nb-sys-name">{sys.name}</span>
+                <span className="nb-dist">📡 {sys.dist}</span>
+                <button style={{ background: 'none', border: 'none', color: 'rgba(180,130,220,0.4)', cursor: 'pointer', fontSize: 16 }}>📌</button>
+              </div>
+              <div className="nb-card-body">
+                <div className="nb-tags">
+                  {sys.tags.map((t, j) => (
+                    <span key={j} className={`nb-tag ${sys.tagCls[j] ?? ''}`}>{t}</span>
+                  ))}
+                  <span className="nb-tag teal">⭐ Landable</span>
+                  <span className="nb-tag amber">💰 {sys.pop}</span>
+                </div>
+                <div className="nb-stat-row">
+                  <div className="nb-stat"><span className="nb-stat-lbl">Slots</span><span className="nb-stat-val">{sys.slots}</span></div>
+                  <div className="nb-stat"><span className="nb-stat-lbl">Bodies</span><span className="nb-stat-val">{sys.bodies}</span></div>
+                  <div className="nb-stat"><span className="nb-stat-lbl">Stars</span><span className="nb-stat-val">F-class</span></div>
+                  <div className="nb-stat"><span className="nb-stat-lbl">Security</span><span className="nb-stat-val">High</span></div>
+                </div>
+              </div>
+              <div className="nb-card-footer">
+                <button className="nb-btn">👁 Watch</button>
+                <button className="nb-btn">⚖️ Compare</button>
+                <button className="nb-btn primary">📋 Briefing</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
