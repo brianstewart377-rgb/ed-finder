@@ -39,6 +39,7 @@ The database ships empty — star system data is imported separately via the imp
 - **No /api/refresh endpoint**: `triggerRefresh()` polls `/api/status` instead and calls `checkApiConnection()` to update the status bar.
 - **backdrop-filter critical rule**: NEVER add `backdrop-filter` to `.tab-content.full-width` — it creates a CSS stacking context that traps `position:fixed` modals/dropdowns inside those tabs. Only safe on `#header`, `#status-bar`, `#tabs`, `#sidebar`, `#content` (which is inside the System Finder tab only).
 - **Glassmorphism theme** (v3.31): All major surfaces use `rgba(6,8,18,0.70–0.80)` for a unified dark-glass appearance. Header is darkest (0.80), full-width tab pages lightest (0.70).
+- **30 Improvements (v3.32)**: U1 eco left border, U2 body count chip, U3 score fill bar, U4 finder tab badge, U6 focus glow, U7 smooth collapse, U8 card hover lift, X1 copy route names, X2 page jump, X3 dblclick briefing, X4 WL inline note, X5 eco quick-picks, X6 auto-search toggle, X7 find-on-map btn, X9 unified copy toast, M1 route overlay, M2 scale bar, M4 grid toggle, M5 shift+click ref, M6 WL-only mode, M8 map search, M9 3D labels, M10 distance ruler.
 
 ## Deployment
 Configured as `autoscale` target. Run command: `python3 backend/main.py`

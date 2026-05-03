@@ -2298,6 +2298,73 @@ body {
   border: 1px solid rgba(255,106,0,0.28);
   border-radius: 0 0 10px 10px;
 }
+
+/* ══════════ 30 IMPROVEMENTS v3.32 ════════════ */
+
+/* U1: Economy left-border colour coding on result cards */
+.result-card.eco-lb { border-left-width: 3px; border-left-style: solid; border-left-color: rgba(255,255,255,0.12); }
+.result-card.eco-lb.eco-refinery    { border-left-color: rgba(255,106,0,0.75); }
+.result-card.eco-lb.eco-agriculture { border-left-color: rgba(61,220,132,0.75); }
+.result-card.eco-lb.eco-industrial  { border-left-color: rgba(77,166,255,0.75); }
+.result-card.eco-lb.eco-hightech    { border-left-color: rgba(192,132,252,0.75); }
+.result-card.eco-lb.eco-military    { border-left-color: rgba(239,68,68,0.75); }
+
+/* U2: Body count chip in card header */
+.body-count-chip { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: rgba(255,255,255,0.06); color: var(--text-dim); border: 1px solid rgba(255,255,255,0.09); white-space: nowrap; margin-left: 2px; flex-shrink: 0; }
+
+/* U3: Compact score fill bar next to rating badge */
+.score-fill-wrap { display: inline-block; width: 34px; height: 4px; background: rgba(255,255,255,0.10); border-radius: 2px; vertical-align: middle; margin-left: 3px; flex-shrink: 0; }
+.score-fill-bar  { height: 4px; border-radius: 2px; }
+body.density-compact .score-fill-wrap { display: inline-block !important; }
+
+/* U6: Glass focus glow on sidebar/content inputs */
+#sidebar input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):focus,
+.panel-body input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):focus,
+.panel-body select:focus, #sidebar select:focus,
+#content input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):focus {
+  outline: none;
+  border-color: rgba(255,106,0,0.60) !important;
+  box-shadow: 0 0 0 2px rgba(255,106,0,0.14), 0 0 8px rgba(255,106,0,0.08) !important;
+}
+
+/* U7: Smooth sidebar panel collapse animation */
+.panel-body { overflow: hidden; transition: max-height 0.24s ease-out, opacity 0.18s; max-height: 1400px; }
+.panel-body.hidden { max-height: 0 !important; opacity: 0; display: block !important; pointer-events: none; }
+
+/* U8: Stronger card hover elevation */
+.result-card { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+.result-card:hover { transform: translateY(-1px); box-shadow: 0 8px 28px rgba(0,0,20,0.55), 0 0 0 1px rgba(255,106,0,0.22); }
+
+/* X5: Economy quick-pick buttons */
+.eco-quick-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.eco-quick-btn { border-radius: 12px; font-size: 10px; padding: 2px 8px; cursor: pointer; transition: all 0.14s; background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+.eco-quick-btn:hover { border-color: rgba(255,255,255,0.35); color: var(--text); }
+.eco-quick-btn.active { color: #fff; font-weight: 700; }
+.eco-quick-btn[data-eco="any"].active       { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.4); color: var(--text); }
+.eco-quick-btn[data-eco="Refinery"].active  { background: rgba(255,106,0,0.22); border-color: #ff6a00; }
+.eco-quick-btn[data-eco="Agriculture"].active { background: rgba(61,220,132,0.22); border-color: #3ddc84; }
+.eco-quick-btn[data-eco="Industrial"].active { background: rgba(77,166,255,0.22); border-color: #4da6ff; }
+.eco-quick-btn[data-eco="High Tech"].active { background: rgba(192,132,252,0.22); border-color: #c084fc; }
+.eco-quick-btn[data-eco="Military"].active  { background: rgba(239,68,68,0.22); border-color: #ef4444; }
+.eco-quick-btn[data-eco="Tourism"].active   { background: rgba(250,204,21,0.22); border-color: #facc15; }
+
+/* X6: Auto-search toggle pill */
+.auto-search-toggle { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-dim); margin-top: 6px; cursor: pointer; user-select: none; }
+
+/* X9: Unified copy toast */
+#copy-toast { position: fixed; bottom: 28px; right: 22px; background: rgba(4,8,18,0.95); border: 1px solid rgba(61,220,132,0.55); border-radius: 6px; padding: 6px 14px; font-size: 12px; color: #3ddc84; z-index: 9999; opacity: 0; pointer-events: none; transition: opacity 0.2s; white-space: nowrap; font-family: monospace; }
+#copy-toast.visible { opacity: 1; }
+
+/* M8: Map search input */
+#map-search-input { background: var(--bg4); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 3px 8px; font-size: 11px; width: 128px; }
+#map-search-input:focus { border-color: rgba(255,106,0,0.60); outline: none; }
+#map-search-input::placeholder { color: var(--text-dim); }
+
+/* M10: Distance ruler */
+#map-ruler-display { font-size: 11px; color: var(--cyan); font-family: monospace; min-width: 72px; display: none; }
+#map-ruler-display.active { display: inline; }
+#galactic-map.map-ruler-mode { cursor: crosshair !important; }
+#map-ruler-btn.active { border-color: var(--cyan); color: var(--cyan); }
 </style>
 </head>
 <body>
@@ -2338,7 +2405,7 @@ body {
   <button onclick="triggerRefresh(event)" class="btn btn-secondary btn-sm" title="Force re-sync from Spansh now">
     ↺ Sync Now
   </button>
-  <div class="version">v3.30</div>
+  <div class="version">v3.32</div>
   <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark/light theme" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:13px;padding:2px 7px;margin-left:6px;color:var(--text-dim)">☀️</button>
 </div>
 
@@ -2561,7 +2628,16 @@ body {
         <!-- #2 Economy filter -->
         <div class="field" style="margin-top:10px">
           <label style="font-size:11px;color:var(--text-dim)">Target Economy</label>
-          <select id="filter-economy" onchange="updateFilterBadge()"
+          <div class="eco-quick-row">
+            <button class="eco-quick-btn active" data-eco="any" onclick="_ecoQuickPick('any')">Any</button>
+            <button class="eco-quick-btn" data-eco="Refinery" onclick="_ecoQuickPick('Refinery')">⚙️ Ref</button>
+            <button class="eco-quick-btn" data-eco="Agriculture" onclick="_ecoQuickPick('Agriculture')">🌾 Agr</button>
+            <button class="eco-quick-btn" data-eco="Industrial" onclick="_ecoQuickPick('Industrial')">🏭 Ind</button>
+            <button class="eco-quick-btn" data-eco="High Tech" onclick="_ecoQuickPick('High Tech')">💡 Hi-T</button>
+            <button class="eco-quick-btn" data-eco="Military" onclick="_ecoQuickPick('Military')">⚔️ Mil</button>
+            <button class="eco-quick-btn" data-eco="Tourism" onclick="_ecoQuickPick('Tourism')">🏖️ Tour</button>
+          </div>
+          <select id="filter-economy" onchange="_ecoSelectSync(this.value);updateFilterBadge()"
             style="width:100%;margin-top:4px;background:var(--bg4);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:12px">
             <option value="any">Any Economy</option>
             <option value="Refinery">Refinery</option>
@@ -2571,6 +2647,10 @@ body {
             <option value="Military">Military</option>
             <option value="Tourism">Tourism</option>
           </select>
+          <label class="auto-search-toggle">
+            <input type="checkbox" id="tog-auto-search" style="cursor:pointer">
+            Auto-search on autocomplete select
+          </label>
         </div>
         <!-- #3 Rating Score range filter -->
         <div class="field" style="margin-top:10px">
@@ -4516,10 +4596,12 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
         pag.innerHTML = `
           <button class="page-btn" ${page === 0 ? 'disabled' : ''} onclick="runSearch(${page-1})">◀ Prev</button>
           <span style="color:var(--text-dim);font-size:13px">Page ${page+1} of ${pages} &nbsp;·&nbsp; ${total.toLocaleString()} found</span>
+          <input type="number" min="1" max="${pages}" value="${page+1}" title="Jump to page" style="width:46px;text-align:center;background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 4px;font-size:11px" onchange="const p=Math.max(1,Math.min(${pages},parseInt(this.value)||1));runSearch(p-1)">
           <button class="page-btn" ${page >= pages-1 ? 'disabled' : ''} onclick="runSearch(${page+1})">Next ▶</button>
           ${hasMore ? `<button class="page-btn" style="background:var(--orange-dk);border-color:var(--orange);color:#0a0c0f" /* C3-FIX */
             onclick="appendSearch(${page+1})">⬇ Load More</button>` : ''}
         `;
+        _updateFinderTabLabel(total);
         content.appendChild(pag);
       }
     }, idx * 40);
@@ -4587,11 +4669,13 @@ function renderResults(systems, page, total) {
     pag.className = 'pagination';
     pag.innerHTML = `
       <button class="page-btn" ${page === 0 ? 'disabled' : ''} onclick="runSearch(${page-1})">◀ Prev</button>
-      <span style="color:var(--text-dim);font-size:13px">Page ${page+1} of ${pages}</span>
+      <span style="color:var(--text-dim);font-size:13px">Page ${page+1} of ${pages} &nbsp;·&nbsp; ${total.toLocaleString()} found</span>
+      <input type="number" min="1" max="${pages}" value="${page+1}" title="Jump to page" style="width:46px;text-align:center;background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 4px;font-size:11px" onchange="const p=Math.max(1,Math.min(${pages},parseInt(this.value)||1));runSearch(p-1)">
       <button class="page-btn" ${page >= pages-1 ? 'disabled' : ''} onclick="runSearch(${page+1})">Next ▶</button>
     `;
     content.appendChild(pag);
   }
+  _updateFinderTabLabel(total);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4611,12 +4695,12 @@ function buildSystemCard(sys, idx) {
   const sysIsInhabited = !!(sys.is_colonised || sys.is_being_colonised ||
     (sys.controlling_minor_faction != null && sys.controlling_minor_faction !== '') ||
     (Array.isArray(sys.minor_faction_presences) && sys.minor_faction_presences.length > 0));
-  card.className = 'result-card' + (sysIsInhabited ? ' is-colonised' : '') + (isWatched ? ' is-watched' : '');
+  const ecoClass = getEcoClass(economy.primary); // U1: needed before className
+  card.className = 'result-card eco-lb ' + ecoClass + (sysIsInhabited ? ' is-colonised' : '') + (isWatched ? ' is-watched' : '');
   card.setAttribute('tabindex', '0'); // UX-23: keyboard nav
 
   const ratingClass = getRatingClass(rating.total);
   const ratingLabel = getRatingLabel(rating.total);
-  const ecoClass = getEcoClass(economy.primary);
   const dist = sys.distance !== undefined ? sys.distance.toFixed(2) : '?';
 
   // FIX-B: rich header — show eco icon, pop tier, colonised status at a glance
@@ -4632,7 +4716,7 @@ function buildSystemCard(sys, idx) {
   card.id = 'card-' + sys.id64;  // FIX-BONUS: set card ID so togglePin can update the icon
 
   card.innerHTML = `
-    <div class="result-card-hdr" onclick="toggleCard(this)">
+    <div class="result-card-hdr" onclick="toggleCard(this)" ondblclick="event.stopPropagation();openBriefing(${sys.id64})" title="Double-click to open briefing">
       <button class="pin-btn ${isPinned?'pinned':''}" onclick="event.stopPropagation();togglePin(${sys.id64})" title="${isPinned?'Unpin':'Pin'} system">${isPinned?'📌':'📍'}</button>
       <label onclick="event.stopPropagation()" title="Add to Compare" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:11px;color:var(--text-dim);margin-right:2px">
         <input type="checkbox" class="compare-cb" ${isCompared?'checked':''} onchange="toggleCompare(${sys.id64},this.checked,this)"> ⚖️
@@ -4641,6 +4725,7 @@ function buildSystemCard(sys, idx) {
       <div class="sys-name">${sys.name || 'Unknown System'}</div>
       <button onclick="event.stopPropagation();_copySystemName('${(sys.name||'').replace(/'/g,"\\'")}',this)" title="Copy system name to clipboard" style="background:none;border:none;cursor:pointer;font-size:12px;padding:0 3px;color:var(--text-dim);line-height:1" aria-label="Copy name">📋</button>
       <span class="sys-dist">${dist} LY</span>
+      <span class="body-count-chip" title="${bodies.length} bodies scanned">✦${bodies.length}</span>
       ${ecoHdrPill}
       ${ecoSpecBars}
       ${colonisedPill}
@@ -4648,6 +4733,7 @@ function buildSystemCard(sys, idx) {
       <span class="rating-badge ${ratingClass}" style="margin-left:4px;cursor:help"
         onmouseenter="showScoreExplainer(event,${JSON.stringify(rating).replace(/"/g,'&quot;')},${JSON.stringify(sys).replace(/"/g,'&quot;')})"
         onmouseleave="hideScoreExplainer()">${ratingLabel} ${rating.total}</span>
+      <span class="score-fill-wrap" title="Score: ${rating.total}/100"><span class="score-fill-bar" style="width:${rating.total}%;background:${rating.total>=80?'#3ddc84':rating.total>=60?'#facc15':rating.total>=40?'#ff6a00':'#ef4444'}"></span></span>
       ${buildScoreMiniBar(rating)}
       <span class="chevron" style="color:var(--text-dim);margin-left:8px;font-size:12px">▼</span>
     </div>
@@ -4665,6 +4751,8 @@ function buildSystemCard(sys, idx) {
           onclick="claimAndGo(${sys.id64},'${(sys.name||'').replace(/'/g,'')}',${ sys.x||0},${ sys.y||0},${ sys.z||0})" title="Pin + Watch + Colony + Copy + Route in one click">⚡ Claim &amp; Go</button>
         <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px"
           onclick="openBriefing(${sys.id64})" title="Open full briefing card">📄 Briefing</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;margin-left:2px"
+          onclick="_findOnMap(${sys.id64})" title="Highlight this system on the Galactic Map">🗺️ Map</button>
         <button class="note-btn" id="notebtn-${sys.id64}" style="margin-left:4px"
           onclick="_toggleNotePanel(${sys.id64},'${(sys.name||'').replace(/['"]/g,'')}')" title="Add/edit personal note">📝</button>
       </div>
@@ -6127,6 +6215,7 @@ document.addEventListener('click', (e) => {
     <button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_saveRoute()" title="Save current waypoints to browser storage">💾 Save Route</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_loadRoute()" title="Restore previously saved route">📂 Load Route</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_exportRouteCSV()" title="Export route waypoints as CSV">⬇ Export CSV</button>
+    <button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_copyRoute()" title="Copy all waypoint names to clipboard">📋 Copy Names</button>
     <span id="route-save-status" style="font-size:10px;color:var(--text-dim);line-height:24px"></span>
   </div>
   <div id="route-hops" style="margin-bottom:14px"></div>
@@ -6184,6 +6273,16 @@ document.addEventListener('click', (e) => {
     <label style="font-size:11px;color:var(--text-dim)" title="Show named nebulae and regions as background overlay">
       <input type="checkbox" id="map-nebula-overlay" onchange="drawGalacticMap()" style="vertical-align:middle"> 🌫️ Nebulae
     </label>
+    <label style="font-size:11px;color:var(--text-dim)" title="Show/hide background grid lines">
+      <input type="checkbox" id="map-grid" onchange="drawGalacticMap()" checked style="vertical-align:middle"> Grid
+    </label>
+    <label style="font-size:11px;color:var(--text-dim)" title="Show only watchlisted systems on the map">
+      <input type="checkbox" id="map-wl-only" onchange="drawGalacticMap()" style="vertical-align:middle"> 👁 WL Only
+    </label>
+    <input id="map-search-input" placeholder="Find system…" title="Type a name and press Enter to pan to it" onkeydown="if(event.key==='Enter')_mapSearchSystem()">
+    <button class="btn btn-secondary" style="font-size:10px;padding:4px 6px" onclick="_mapSearchSystem()" title="Pan map to named system">🔍</button>
+    <button id="map-ruler-btn" class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="_toggleRuler()" title="Click two dots to measure distance">📏 Ruler</button>
+    <span id="map-ruler-display"></span>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="saveMapPNG()" title="Save map as PNG image">💾 PNG</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="resetMapView()" title="Reset zoom & pan">⊙ Reset</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="drawGalacticMap()">↺ Redraw</button>
@@ -6201,6 +6300,7 @@ document.addEventListener('click', (e) => {
 <div id="map-tooltip"></div>
 <div id="threed-tooltip"></div>
 <div id="toast-container"></div>
+<div id="copy-toast"></div>
 
 <!-- Keyboard Shortcuts Overlay (Feature 13) -->
 <div id="kbd-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
@@ -6318,8 +6418,11 @@ document.addEventListener('click', (e) => {
         <option value="population">By Pop</option>
       </select>
     </label>
+    <label style="font-size:11px;color:var(--text-dim)" title="Show system name labels on each dot">
+      <input type="checkbox" id="threed-labels" onchange="draw3DMap()" style="vertical-align:middle"> Labels
+    </label>
     <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="reset3DCamera()" title="Reset camera">⊙ Reset</button>
-    <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="save3DPNG()" title="Save as PNG">💾 PNG</button>
+    <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px" onclick="save3DPNG()" title="Save 3D view as PNG">💾 PNG</button>
   </div>
   <div id="threed-wrap">
     <canvas id="threed-canvas" style="display:none"></canvas>
@@ -6434,6 +6537,33 @@ document.addEventListener('click', (e) => {
 <div id="tab-changelog" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
   <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);letter-spacing:2px;margin:0 0 16px">📋 CHANGELOG</h2>
   <div style="max-width:720px">
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.32 <span class="cl-date">2026-05-03</span></div>
+      <div class="cl-item">U1: Economy-tinted left border on result cards (colour coded by suggested economy) <span class="cl-tag cl-tag-new">UI</span></div>
+      <div class="cl-item">U2: Body count chip ✦N in card header — visible in all density modes <span class="cl-tag cl-tag-new">UI</span></div>
+      <div class="cl-item">U3: Score fill bar next to rating badge — compact visual of score/100 <span class="cl-tag cl-tag-new">UI</span></div>
+      <div class="cl-item">U4: System Finder tab badge shows result count after each search <span class="cl-tag cl-tag-new">UI</span></div>
+      <div class="cl-item">U6: Glass focus glow on sidebar inputs — orange halo on focus <span class="cl-tag cl-tag-new">UI</span></div>
+      <div class="cl-item">U7: Smooth max-height animation for sidebar panel collapse/expand <span class="cl-tag cl-tag-new">UI</span></div>
+      <div class="cl-item">U8: Card hover elevation — subtle lift + stronger shadow on hover <span class="cl-tag cl-tag-new">UI</span></div>
+      <div class="cl-item">X1: Route Planner — Copy Names button copies all waypoint system names <span class="cl-tag cl-tag-new">UX</span></div>
+      <div class="cl-item">X2: Pagination — page-jump number input in both pagination bars <span class="cl-tag cl-tag-new">UX</span></div>
+      <div class="cl-item">X3: Double-click any card header to instantly open the Briefing modal <span class="cl-tag cl-tag-new">UX</span></div>
+      <div class="cl-item">X4: Watchlist — inline 📝 note field on every watch row <span class="cl-tag cl-tag-new">UX</span></div>
+      <div class="cl-item">X5: Economy quick-pick pill buttons above the economy dropdown <span class="cl-tag cl-tag-new">UX</span></div>
+      <div class="cl-item">X6: Auto-search on autocomplete select toggle in the filter sidebar <span class="cl-tag cl-tag-new">UX</span></div>
+      <div class="cl-item">X7: Find on Map button on every result card — jumps to Map tab and highlights dot <span class="cl-tag cl-tag-new">UX</span></div>
+      <div class="cl-item">X9: Unified copy toast — green bottom-right toast for all copy/action feedback <span class="cl-tag cl-tag-new">UX</span></div>
+      <div class="cl-item">M1: Route overlay on 2D map — dashed gold lines between waypoints with W1…N labels <span class="cl-tag cl-tag-new">MAP</span></div>
+      <div class="cl-item">M2: Scale bar on 2D map — bottom-right ruler showing LY distance <span class="cl-tag cl-tag-new">MAP</span></div>
+      <div class="cl-item">M4: Grid toggle — checkbox to show/hide background grid lines on 2D map <span class="cl-tag cl-tag-new">MAP</span></div>
+      <div class="cl-item">M5: Shift+click on 2D map dot sets it as reference system <span class="cl-tag cl-tag-new">MAP</span></div>
+      <div class="cl-item">M6: Watchlist-only mode — filter 2D map to show only watchlisted systems <span class="cl-tag cl-tag-new">MAP</span></div>
+      <div class="cl-item">M8: Map search box — type a system name and pan to it on the 2D map <span class="cl-tag cl-tag-new">MAP</span></div>
+      <div class="cl-item">M9: 3D map labels toggle — checkbox to show system names on 3D dots <span class="cl-tag cl-tag-new">MAP</span></div>
+      <div class="cl-item">M10: Distance ruler on 2D map — click two dots to measure exact 3D distance <span class="cl-tag cl-tag-new">MAP</span></div>
+    </div>
 
     <div class="cl-entry">
       <div class="cl-ver">v3.31 <span class="cl-date">2026-05-03</span></div>
@@ -7906,8 +8036,11 @@ async function loadWatchlist() {
         <a href="https://spansh.co.uk/system/${s.id64}" target="_blank" style="font-size:11px;color:var(--orange)">Spansh↗</a>
         <a href="https://inara.cz/starsystem/?search=${encodeURIComponent(s.name)}" target="_blank" style="font-size:11px;color:var(--blue)">Inara↗</a>
         <button id="wl-alert-btn-${s.id64}" class="wl-alert-btn" onclick="_toggleWlAlertPanel(${s.id64})" title="Alert settings: colonised=${cfg.notifyColonised!==false}, pop threshold=${cfg.popThreshold||0}">⚙️</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:2px 6px" onclick="this.nextElementSibling.classList.toggle('open')" title="Add/edit note">📝</button>
         <button class="btn btn-secondary wl-btn" onclick="removeFromWatchlist(${s.id64})">✕</button>
       </div>
+      <textarea class="wl-inline-note" placeholder="Notes about ${s.name.replace(/'/g,"'")}…" rows="2"
+        onchange="_saveWlNote(${s.id64},this.value)">${(_lsGetJSON('ed_wl_note_'+s.id64,null)||{text:''}).text}</textarea>
       <div id="wl-alert-panel-${s.id64}" class="wl-alert-panel">
         <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;font-family:Orbitron,monospace;letter-spacing:1px">ALERT CONFIG — ${s.name}</div>
         <div class="wl-alert-row">
@@ -8611,7 +8744,12 @@ function drawGalacticMap() {
   const emptyEl = document.getElementById('map-empty');
   const wrap = document.getElementById('map-canvas-wrap');
   if (!canvas) return;
-  const systems = (window._lastResults?.systems) || [];
+  let systems = (window._lastResults?.systems) || [];
+  // M6: Watchlist-only mode — filter to watchlisted systems
+  if (document.getElementById('map-wl-only')?.checked) {
+    const wlIds = new Set((window._watchlistCache || []).map(w => String(w.id64)));
+    systems = systems.filter(s => wlIds.has(String(s.id64)));
+  }
   if (!systems.length) {
     if (emptyEl) { emptyEl.style.display = 'block'; }
     if (wrap) wrap.style.display = 'none';
@@ -8738,13 +8876,15 @@ function drawGalacticMap() {
     ];
   }
 
-  // Grid
-  ctx.strokeStyle = '#151e2a'; ctx.lineWidth = 1;
-  for (let i = 0; i <= 6; i++) {
-    const gy = pad + (i/6)*chartH;
-    ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(W-pad, gy); ctx.stroke();
-    const gx = pad + (i/6)*chartW;
-    ctx.beginPath(); ctx.moveTo(gx, pad); ctx.lineTo(gx, pad+chartH); ctx.stroke();
+  // M4: Grid (toggleable)
+  if (document.getElementById('map-grid')?.checked !== false) {
+    ctx.strokeStyle = '#151e2a'; ctx.lineWidth = 1;
+    for (let i = 0; i <= 6; i++) {
+      const gy = pad + (i/6)*chartH;
+      ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(W-pad, gy); ctx.stroke();
+      const gx = pad + (i/6)*chartW;
+      ctx.beginPath(); ctx.moveTo(gx, pad); ctx.lineTo(gx, pad+chartH); ctx.stroke();
+    }
   }
 
   // Axis labels
@@ -9038,6 +9178,24 @@ function drawGalacticMap() {
     const rect = canvas.getBoundingClientRect();
     const mx = (ev.clientX - rect.left) * (W / rect.width);
     const my = (ev.clientY - rect.top)  * (H / rect.height);
+    // M10: Ruler mode — capture two clicks to measure distance
+    if (_rulerState && _rulerState.active) {
+      _handleRulerClick(mx, my); return;
+    }
+    // M5: Shift+click to set reference system
+    if (ev.shiftKey) {
+      for (const d of (window._mapDots || [])) {
+        if (Math.hypot(mx - d.cx, my - d.cy) <= d.radius + 6) {
+          const s = d.sys;
+          const inp = document.getElementById('ref-input');
+          if (inp) inp.value = s.name;
+          if (typeof selectRefSystem === 'function') selectRefSystem({name:s.name,x:s.x||0,y:s.y||0,z:s.z||0,id64:s.id64});
+          _showCopyToast(`📍 Ref: ${s.name}`);
+          return;
+        }
+      }
+      return;
+    }
     for (const d of (window._mapDots || [])) {
       if (Math.hypot(mx - d.cx, my - d.cy) <= d.radius + 6) {
         _showMapDetail(d);
@@ -9054,6 +9212,50 @@ function drawGalacticMap() {
   if (document.getElementById('map-bio-hotspot')?.checked) _drawBioHotspots();
   // Feature 16b: nebula/region overlay
   _drawNebulaOverlayOnMap();
+
+  // M1: Route overlay — draw lines between route waypoints
+  if (typeof routeWaypoints !== 'undefined' && routeWaypoints.length > 1) {
+    ctx.save();
+    ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = 'rgba(255,220,60,0.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    routeWaypoints.forEach((wp, i) => {
+      const [wa, wb] = plane === 'xy' ? [wp.x||0, wp.y||0] : plane === 'yz' ? [wp.y||0, wp.z||0] : [wp.x||0, wp.z||0];
+      const [px, py] = toCanvas(wa, wb);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    routeWaypoints.forEach((wp, i) => {
+      const [wa, wb] = plane === 'xy' ? [wp.x||0, wp.y||0] : plane === 'yz' ? [wp.y||0, wp.z||0] : [wp.x||0, wp.z||0];
+      const [px, py] = toCanvas(wa, wb);
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI*2);
+      ctx.fillStyle = '#facc15'; ctx.fill();
+      ctx.fillStyle = '#0a0c0f'; ctx.font = 'bold 9px monospace';
+      ctx.fillText(`W${i+1}`, px + 7, py + 3);
+    });
+    ctx.restore();
+  }
+
+  // M2: Scale bar — bottom-right corner
+  (function _drawScaleBar() {
+    const spanLY = Math.abs(maxA - minA) || 1;
+    const barPxTarget = Math.round(chartW * 0.15); // aim ~15% of chart width
+    const lyPerPx = spanLY / chartW;
+    const barLY_raw = lyPerPx * barPxTarget;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(barLY_raw)));
+    const niceMultiples = [1, 2, 5, 10];
+    const niceLY = niceMultiples.map(m => m * magnitude).find(v => v >= barLY_raw * 0.5) || magnitude;
+    const barPx = Math.round(niceLY / lyPerPx);
+    const bx2 = W - pad - 4, bx1 = bx2 - barPx, by = H - 14;
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(bx1, by); ctx.lineTo(bx2, by); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx1, by - 4); ctx.lineTo(bx1, by + 4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx2, by - 4); ctx.lineTo(bx2, by + 4); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`${Math.round(niceLY)} ly`, (bx1 + bx2) / 2, by - 6);
+    ctx.textAlign = 'left';
+  })();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -9314,9 +9516,19 @@ function _render3D(ctx, W, H, systems) {
     }
   }
 
+  // M9: Optional system name labels in 3D view
+  if (document.getElementById('threed-labels')?.checked) {
+    ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    _3dProjected.forEach(pt => {
+      if (pt.dotR < 2) return; // skip tiny dots
+      ctx.fillStyle = 'rgba(200,210,230,0.65)';
+      ctx.fillText(pt.s.name || '?', pt.px + pt.dotR + 2, pt.py + 3);
+    });
+  }
+
   // Axes hint
   ctx.font = '10px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.textAlign = 'left';
-  ctx.fillText('Drag: rotate  |  Scroll: zoom  |  Dbl-click: reset', 8, H - 8);
+  ctx.fillText('Drag: rotate  |  Scroll: zoom  |  Dbl-click: reset  |  Shift+click: details', 8, H - 8);
 }
 
 function _3dHover(mx, my, cx, cy) {
@@ -11319,6 +11531,180 @@ const _origClearRoute = window.clearRoute;
 if (typeof _origClearRoute === 'function') {
   window.clearRoute = function() { _origClearRoute(); _updateRouteTabLabel(); };
 }
+
+// ══════════════════════════════════════════════════════════════════
+//  30 IMPROVEMENTS — utility functions (v3.32)
+// ══════════════════════════════════════════════════════════════════
+
+// X9: Unified copy toast
+function _showCopyToast(msg) {
+  msg = msg || '✓ Copied';
+  let t = document.getElementById('copy-toast');
+  if (!t) { t = document.createElement('div'); t.id = 'copy-toast'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.classList.add('visible');
+  clearTimeout(window._copyToastTimer);
+  window._copyToastTimer = setTimeout(() => t.classList.remove('visible'), 2200);
+}
+
+// U4: Update Finder tab label with result count
+function _updateFinderTabLabel(count) {
+  try {
+    const btn = document.querySelector('.tab-btn[aria-controls="tab-finder"]');
+    if (!btn) return;
+    const badge = btn.querySelector('.finder-count-badge');
+    if (count > 0) {
+      if (badge) { badge.textContent = count; }
+      else {
+        const b = document.createElement('span');
+        b.className = 'finder-count-badge';
+        b.style.cssText = 'background:var(--orange);color:#0a0c0f;border-radius:9px;padding:0 6px;font-size:10px;margin-left:5px;font-weight:700';
+        b.textContent = count;
+        btn.appendChild(b);
+      }
+    } else {
+      if (badge) badge.remove();
+    }
+  } catch(e) {}
+}
+
+// X7: Find system on Galactic Map tab
+function _findOnMap(id64) {
+  const mapBtn = document.querySelector('.tab-btn[aria-controls="tab-map"]');
+  if (mapBtn) showTab('map', mapBtn);
+  setTimeout(() => {
+    const dot = (window._mapDots || []).find(d => String(d.sys.id64) === String(id64));
+    if (dot) _showMapDetail(dot);
+    else _showCopyToast('⚠️ Run a search first or switch to Map tab');
+  }, 320);
+}
+
+// M7: Save 3D map as PNG (if not already defined)
+if (typeof save3DPNG !== 'function') {
+  window.save3DPNG = function() {
+    const canvas = document.getElementById('threed-canvas');
+    if (!canvas) return;
+    const a = document.createElement('a');
+    a.download = `ed-finder-3d-${Date.now()}.png`;
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+    _showCopyToast('💾 3D map saved');
+  };
+}
+
+// M8: Pan 2D galactic map to a named system
+function _mapSearchSystem() {
+  const input = document.getElementById('map-search-input');
+  if (!input) return;
+  const query = input.value.trim().toLowerCase();
+  if (!query) return;
+  const dot = (window._mapDots || []).find(d => (d.sys.name || '').toLowerCase().includes(query));
+  if (!dot) {
+    input.style.borderColor = 'var(--red)';
+    setTimeout(() => { input.style.borderColor = ''; }, 1600);
+    _showCopyToast('❌ Not found on map');
+    return;
+  }
+  // Pan so the dot is centred
+  const canvas = document.getElementById('galactic-map');
+  if (!canvas || !window._mapView) return;
+  const v = window._mapView;
+  const W = canvas.width, H = canvas.height;
+  v.ox = W / 2 - dot.cx * v.scale;
+  v.oy = H / 2 - dot.cy * v.scale;
+  drawGalacticMap();
+  _showMapDetail(dot);
+  input.value = '';
+}
+
+// M10: Distance ruler — two-click measurement on 2D map
+window._rulerState = window._rulerState || { active: false, p1: null, d1: null };
+
+function _toggleRuler() {
+  _rulerState.active = !_rulerState.active;
+  _rulerState.p1 = null;
+  _rulerState.d1 = null;
+  const btn  = document.getElementById('map-ruler-btn');
+  const disp = document.getElementById('map-ruler-display');
+  const can  = document.getElementById('galactic-map');
+  if (btn)  btn.classList.toggle('active', _rulerState.active);
+  if (can)  can.classList.toggle('map-ruler-mode', _rulerState.active);
+  if (disp) {
+    disp.classList.toggle('active', _rulerState.active);
+    disp.textContent = _rulerState.active ? '📏 Click two dots' : '';
+  }
+}
+
+function _handleRulerClick(mx, my) {
+  const dots = window._mapDots || [];
+  let found = null;
+  for (const d of dots) {
+    if (Math.hypot(mx - d.cx, my - d.cy) <= d.radius + 8) { found = d; break; }
+  }
+  if (!found) return;
+  if (!_rulerState.p1) {
+    _rulerState.p1 = { x: found.sys.x||0, y: found.sys.y||0, z: found.sys.z||0 };
+    _rulerState.d1 = found;
+    const disp = document.getElementById('map-ruler-display');
+    if (disp) disp.textContent = `📏 P1: ${found.sys.name} — click P2`;
+  } else {
+    const p1 = _rulerState.p1;
+    const p2 = { x: found.sys.x||0, y: found.sys.y||0, z: found.sys.z||0 };
+    const dist = Math.sqrt((p1.x-p2.x)**2 + (p1.y-p2.y)**2 + (p1.z-p2.z)**2);
+    const disp = document.getElementById('map-ruler-display');
+    if (disp) disp.textContent = `📏 ${dist.toFixed(1)} ly`;
+    _showCopyToast(`📏 ${(_rulerState.d1?.sys?.name||'P1')} → ${found.sys.name}: ${dist.toFixed(1)} ly`);
+    _rulerState.p1 = null; _rulerState.d1 = null;
+  }
+}
+
+// X5: Economy quick-pick sync helpers
+function _ecoQuickPick(eco) {
+  const sel = document.getElementById('filter-economy');
+  if (sel) sel.value = eco;
+  document.querySelectorAll('.eco-quick-btn').forEach(b => b.classList.toggle('active', b.dataset.eco === eco));
+  updateFilterBadge();
+}
+function _ecoSelectSync(eco) {
+  document.querySelectorAll('.eco-quick-btn').forEach(b => b.classList.toggle('active', b.dataset.eco === eco));
+}
+
+// X1: Copy route waypoint names to clipboard
+function _copyRoute() {
+  if (!routeWaypoints || !routeWaypoints.length) { _showCopyToast('⚠️ No waypoints'); return; }
+  const text = routeWaypoints.map(w => w.name).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    _showCopyToast(`✓ Copied ${routeWaypoints.length} system name${routeWaypoints.length > 1 ? 's' : ''}`);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    _showCopyToast(`✓ Copied ${routeWaypoints.length} names`);
+  });
+}
+
+// X4: Save watchlist inline note to localStorage
+function _saveWlNote(id64, text) {
+  try { localStorage.setItem('ed_wl_note_' + id64, JSON.stringify({ text, saved: Date.now() })); } catch(e) {}
+}
+
+// X6: Auto-search when autocomplete item is selected (hook into existing selectRefSystem)
+// We check the toggle inside the existing onRefSelect / onSelect flow
+const _origSelectRefSystem = window.selectRefSystem;
+if (typeof _origSelectRefSystem === 'function') {
+  window.selectRefSystem = function(rec) {
+    _origSelectRefSystem(rec);
+    if (document.getElementById('tog-auto-search')?.checked) {
+      setTimeout(runSearch, 120);
+    }
+  };
+}
+
+// Sync eco quick-pick buttons with the dropdown on page load
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('filter-economy');
+  if (sel) _ecoSelectSync(sel.value || 'any');
+});
 </script>
 
 </body>
