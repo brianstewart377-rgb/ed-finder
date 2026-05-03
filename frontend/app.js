@@ -9,6 +9,17 @@
 function qs(sel, root = document) { return root.querySelector(sel); }
 function qsa(sel, root = document) { return [...root.querySelectorAll(sel)]; }
 
+// XSS hardening — always run DB-sourced strings (system names, body names,
+// faction names, note text, changelog values, etc.) through esc() before
+// interpolating into innerHTML. EDDN is a public relay, so any attacker
+// can publish a message containing HTML in a StarSystem/BodyName field;
+// without escaping this propagates to all viewers as stored XSS.
+const _ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function esc(v) {
+  if (v == null) return '';
+  return String(v).replace(/[&<>"']/g, c => _ESC_MAP[c]);
+}
+
 // Improvement #4: AbortController-aware fetch — callers can cancel in-flight requests
 async function apiFetch(path, opts = {}) {
   const res = await fetch(path, {
@@ -239,7 +250,7 @@ function makeAutocomplete(inputEl, listEl, onSelect) {
       if (!items.length) { listEl.hidden = true; return; }
       items.forEach((sys, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `${sys.name} <span class="sys-coords">${fmtCoord(sys.x)}, ${fmtCoord(sys.y)}, ${fmtCoord(sys.z)}</span>`;
+        li.innerHTML = `${esc(sys.name)} <span class="sys-coords">${fmtCoord(sys.x)}, ${fmtCoord(sys.y)}, ${fmtCoord(sys.z)}</span>`;
         li.addEventListener('mouseenter', () => { highlighted = i; move(0); });
         li.addEventListener('click', () => pick(sys));
         listEl.appendChild(li);
@@ -325,7 +336,7 @@ async function openSystemModal(sys) {
     attachModalEvents(full);
   } catch (err) {
     console.error('Modal render error:', err);
-    content.innerHTML = `<div class="error-state">⚠ Failed to render system detail: ${err.message}</div>`;
+    content.innerHTML = `<div class="error-state">⚠ Failed to render system detail: ${esc(err.message)}</div>`;
   }
 }
 
@@ -377,9 +388,9 @@ function buildModalHTML(sys) {
       if (b.spectral_class)   flags.push(b.spectral_class + (b.is_scoopable ? ' ⛽' : ''));
       const distStr = b.distance_from_star != null ? Number(b.distance_from_star).toFixed(0) + ' ls' : '';
       return '<div class="body-row">'
-        + '<span class="body-row-name">' + (b.name || '—') + '</span>'
-        + '<span class="body-row-type">' + (b.subtype || b.body_type || '—') + '</span>'
-        + (flags.length ? '<span style="font-size:0.7rem;color:var(--text-dim)">' + flags.join(' · ') + '</span>' : '')
+        + '<span class="body-row-name">' + esc(b.name || '—') + '</span>'
+        + '<span class="body-row-type">' + esc(b.subtype || b.body_type || '—') + '</span>'
+        + (flags.length ? '<span style="font-size:0.7rem;color:var(--text-dim)">' + esc(flags.join(' · ')) + '</span>' : '')
         + (distStr ? '<span class="body-row-dist">' + distStr + '</span>' : '')
         + '</div>';
     });
@@ -391,13 +402,13 @@ function buildModalHTML(sys) {
   let stationsHTML = '';
   if (stations.length) {
     const rows = stations.map(s => {
-      const svcTags = '<span class="svc-tag ' + (s.landing_pad_size === 'L' ? 'active' : '') + '">' + (s.landing_pad_size || '?') + ' pad</span>'
+      const svcTags = '<span class="svc-tag ' + (s.landing_pad_size === 'L' ? 'active' : '') + '">' + esc(s.landing_pad_size || '?') + ' pad</span>'
         + (s.has_market     ? '<span class="svc-tag active">Market</span>' : '')
         + (s.has_shipyard   ? '<span class="svc-tag active">Shipyard</span>' : '')
         + (s.has_outfitting ? '<span class="svc-tag active">Outfitting</span>' : '');
       const distStr = s.distance_from_star != null ? Number(s.distance_from_star).toFixed(0) + ' ls' : '';
       return '<div class="station-row">'
-        + '<span class="station-row-name">' + (s.name || '—') + '</span>'
+        + '<span class="station-row-name">' + esc(s.name || '—') + '</span>'
         + '<div class="station-services">' + svcTags + '</div>'
         + (distStr ? '<span class="body-row-dist">' + distStr + '</span>' : '')
         + '</div>';
@@ -407,8 +418,8 @@ function buildModalHTML(sys) {
 
   return `
     <div class="modal-system-name">
-      ${sys.name || 'Unknown System'}
-      <button class="copy-btn" data-copy="${sys.name}" title="Copy name">⎘</button>
+      ${esc(sys.name || 'Unknown System')}
+      <button class="copy-btn" data-copy="${esc(sys.name || '')}" title="Copy name">⎘</button>
     </div>
     <div class="modal-system-id">
       ID64: ${sys.id64 || '—'}
@@ -432,12 +443,12 @@ function buildModalHTML(sys) {
         </div>` : ''}
         <div class="modal-field">
           <span class="modal-field-label">Primary Economy</span>
-          <span class="modal-field-value gold">${eco}</span>
+          <span class="modal-field-value gold">${esc(eco)}</span>
         </div>
         ${eco2 ? `
         <div class="modal-field">
           <span class="modal-field-label">Secondary Economy</span>
-          <span class="modal-field-value">${eco2}</span>
+          <span class="modal-field-value">${esc(eco2)}</span>
         </div>` : ''}
         <div class="modal-field">
           <span class="modal-field-label">Population</span>
@@ -445,14 +456,14 @@ function buildModalHTML(sys) {
             ${Number(sys.population) === 0 ? 'Uncolonised' : fmtNum(sys.population)}
           </span>
         </div>
-        ${security ? `<div class="modal-field"><span class="modal-field-label">Security</span><span class="modal-field-value">${security}</span></div>` : ''}
-        ${allegiance ? `<div class="modal-field"><span class="modal-field-label">Allegiance</span><span class="modal-field-value">${allegiance}</span></div>` : ''}
-        ${government ? `<div class="modal-field"><span class="modal-field-label">Government</span><span class="modal-field-value">${government}</span></div>` : ''}
-        ${mainStar ? `<div class="modal-field"><span class="modal-field-label">Main Star</span><span class="modal-field-value" style="color:var(--purple)">${starLabel(mainStar, sys.main_star_subtype)}</span></div>` : ''}
+        ${security ? `<div class="modal-field"><span class="modal-field-label">Security</span><span class="modal-field-value">${esc(security)}</span></div>` : ''}
+        ${allegiance ? `<div class="modal-field"><span class="modal-field-label">Allegiance</span><span class="modal-field-value">${esc(allegiance)}</span></div>` : ''}
+        ${government ? `<div class="modal-field"><span class="modal-field-label">Government</span><span class="modal-field-value">${esc(government)}</span></div>` : ''}
+        ${mainStar ? `<div class="modal-field"><span class="modal-field-label">Main Star</span><span class="modal-field-value" style="color:var(--purple)">${esc(starLabel(mainStar, sys.main_star_subtype))}</span></div>` : ''}
         ${(r.economySuggestion || r.economy_suggestion) ? `
         <div class="modal-field">
           <span class="modal-field-label">Suggested Economy</span>
-          <span class="modal-field-value accent">${r.economySuggestion || r.economy_suggestion}</span>
+          <span class="modal-field-value accent">${esc(r.economySuggestion || r.economy_suggestion)}</span>
         </div>` : ''}
       </div>
     </div>
@@ -734,18 +745,18 @@ function buildSystemCard(sys, rank) {
   card.innerHTML = `
     <div class="card-header">
       <span class="card-rank">#${rank}</span>
-      <span class="card-name">${sys.name || 'Unknown'}</span>
+      <span class="card-name">${esc(sys.name || 'Unknown')}</span>
       ${score != null ? `<span class="card-score">★ ${score}</span>` : ''}
       ${isSaved ? `<span title="Saved" style="color:var(--gold);font-size:0.8rem;margin-left:0.25rem">★</span>` : ''}
       <button class="card-show-on-map" title="Show on Map" aria-label="Show on Map">🌌</button>
     </div>
     <div class="card-meta">
       ${dist ? `<span class="meta-tag distance">⊕ ${dist}</span>` : ''}
-      ${eco && eco !== 'None' ? `<span class="meta-tag economy">${eco}</span>` : ''}
+      ${eco && eco !== 'None' ? `<span class="meta-tag economy">${esc(eco)}</span>` : ''}
       ${pop === 0 ? `<span class="meta-tag pop-zero">Uncolonised</span>` : (isCol ? `<span class="meta-tag pop-col">Colonised</span>` : (pop > 0 ? `<span class="meta-tag">${popLabel(pop)}</span>` : ''))}
-      ${star ? `<span class="meta-tag star">${star}</span>` : ''}
+      ${star ? `<span class="meta-tag star">${esc(star)}</span>` : ''}
     </div>
-    ${bodies.length ? `<div class="card-bodies">${bodies.map(b => `<span class="body-tag">${b}</span>`).join(' · ')}</div>` : ''}
+    ${bodies.length ? `<div class="card-bodies">${bodies.map(b => `<span class="body-tag">${esc(b)}</span>`).join(' · ')}</div>` : ''}
     ${ecoScores.length ? `
     <div class="score-bars">
       ${ecoScores.map(([label, val]) => `
@@ -871,7 +882,7 @@ function buildSystemCard(sys, rank) {
     if (on) { resultsEl.innerHTML = `<div class="loading-state"><div class="spinner"></div>Searching…</div>`; headerEl.hidden = true; }
   }
 
-  function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${msg}</div>`; }
+  function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${esc(msg)}</div>`; }
 
   function renderResults(results, total) {
     resultsEl.innerHTML = '';
@@ -931,7 +942,7 @@ function buildSystemCard(sys, rank) {
     if (on) { resultsEl.innerHTML = `<div class="loading-state"><div class="spinner"></div>Searching galaxy…</div>`; headerEl.hidden = true; }
   }
 
-  function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${msg}</div>`; }
+  function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${esc(msg)}</div>`; }
 
   function renderResults(results, total) {
     resultsEl.innerHTML = '';
@@ -1030,7 +1041,7 @@ function buildSystemCard(sys, rank) {
     if (on) { resultsEl.innerHTML = `<div class="loading-state"><div class="spinner"></div>Scanning 73M cluster anchors…</div>`; headerEl.hidden = true; }
   }
 
-  function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${msg}</div>`; }
+  function showError(msg) { resultsEl.innerHTML = `<div class="error-state">⚠ Search failed: ${esc(msg)}</div>`; }
 
   function renderResults(results, total) {
     resultsEl.innerHTML = '';
@@ -1078,7 +1089,7 @@ function buildSystemCard(sys, rank) {
     card.innerHTML = `
       <div class="cluster-header">
         <span class="card-rank">#${rank}</span>
-        <span class="cluster-name">${anchorName}</span>
+        <span class="cluster-name">${esc(anchorName)}</span>
         ${coverageScore != null ? `<span class="cluster-score">⧡ ${coverageScore}</span>` : ''}
         <button class="card-show-on-map" title="Show on Map" aria-label="Show on Map">🌌</button>
       </div>
@@ -1129,7 +1140,7 @@ function buildSystemCard(sys, rank) {
             const score = s.score != null ? Math.round(s.score) : '—';
             const row = document.createElement('div');
             row.className = 'cluster-top-system';
-            row.innerHTML = `<span class="cts-eco">${eco.charAt(0).toUpperCase() + eco.slice(1, 4)}</span><span class="cts-name">${s.name || 'Unknown'}</span><span class="cts-score" style="color:${scoreColor(score)}">★${score}</span>`;
+            row.innerHTML = `<span class="cts-eco">${eco.charAt(0).toUpperCase() + eco.slice(1, 4)}</span><span class="cts-name">${esc(s.name || 'Unknown')}</span><span class="cts-score" style="color:${scoreColor(score)}">★${score}</span>`;
             row.addEventListener('click', (ev) => { ev.stopPropagation(); openSystemModal(s); });
             expandPanel.appendChild(row);
           });
@@ -1187,8 +1198,8 @@ function buildSystemCard(sys, rank) {
     const item = document.createElement('li');
     item.className = 'feed-item';
     item.innerHTML = `
-      <span class="feed-type feed-type-${(ev.type || 'update').toLowerCase()}">${ev.type || 'update'}</span>
-      <span class="feed-name" title="${ev.system_name || ''}">${ev.system_name || 'Unknown'}</span>
+      <span class="feed-type feed-type-${esc((ev.type || 'update').toLowerCase())}">${esc(ev.type || 'update')}</span>
+      <span class="feed-name" title="${esc(ev.system_name || '')}">${esc(ev.system_name || 'Unknown')}</span>
       <span class="feed-time">${fmtRelTime(ev.timestamp)}</span>
     `;
     item.addEventListener('click', () => {
@@ -1419,7 +1430,7 @@ const SearchHistory = {
       const li = document.createElement('li');
       const eco = h.params?.economy && h.params.economy !== 'any' ? ` · ${h.params.economy}` : '';
       const dist = h.params?.max_dist ? ` · ${h.params.max_dist} ly` : '';
-      li.innerHTML = `<span class="history-icon">⊕</span> <span class="history-name" title="Click to restore all settings">${h.refName}<span class="history-meta">${eco}${dist}</span></span> <button class="history-remove" title="Remove">✕</button>`;
+      li.innerHTML = `<span class="history-icon">⊕</span> <span class="history-name" title="Click to restore all settings">${esc(h.refName)}<span class="history-meta">${esc(eco)}${esc(dist)}</span></span> <button class="history-remove" title="Remove">✕</button>`;
       li.querySelector('.history-name').addEventListener('click', () => SearchHistory._restore(h));
       li.querySelector('.history-remove').addEventListener('click', (e) => { e.stopPropagation(); SearchHistory.remove(h.refName); });
       list.appendChild(li);
@@ -1455,7 +1466,7 @@ const RecentlyViewed = {
     this._data.forEach(s => {
       const li = document.createElement('li');
       li.className = 'recently-viewed-item';
-      li.innerHTML = `<span class="rv-icon">◎</span><span class="rv-name">${s.name}</span>`;
+      li.innerHTML = `<span class="rv-icon">◎</span><span class="rv-name">${esc(s.name)}</span>`;
       li.addEventListener('click', () => openSystemModal({ id64: s.id64, name: s.name }));
       list.appendChild(li);
     });
@@ -1575,7 +1586,7 @@ openSystemModal = async function(sys) {
           const ts = c.detected_at ? new Date(c.detected_at).toLocaleDateString() : '';
           const sysName = c.system_name || c.name || 'Unknown';
           const fieldName = c.change_type || c.field_changed || '';
-          li.innerHTML = `<span class="cl-name">${sysName}</span><span class="cl-field">${fieldName}</span><span class="cl-old">${c.old_value ?? '—'}</span><span class="cl-arrow">→</span><span class="cl-new">${c.new_value ?? '—'}</span><span class="cl-ts">${ts}</span>`;
+          li.innerHTML = `<span class="cl-name">${esc(sysName)}</span><span class="cl-field">${esc(fieldName)}</span><span class="cl-old">${esc(c.old_value ?? '—')}</span><span class="cl-arrow">→</span><span class="cl-new">${esc(c.new_value ?? '—')}</span><span class="cl-ts">${esc(ts)}</span>`;
           li.addEventListener('click', () => openSystemModal({ id64: c.system_id64, name: sysName }));
           list.appendChild(li);
         });
@@ -1625,7 +1636,7 @@ const Compare = {
       this._items.forEach(sys => {
         const slot = document.createElement('div');
         slot.className = 'compare-slot';
-        slot.innerHTML = `<span>${sys.name}</span><button class="slot-remove" data-id64="${sys.id64}" aria-label="Remove ${sys.name}">✕</button>`;
+        slot.innerHTML = `<span>${esc(sys.name)}</span><button class="slot-remove" data-id64="${sys.id64}" aria-label="Remove ${esc(sys.name)}">✕</button>`;
         slot.querySelector('.slot-remove').addEventListener('click', (e) => {
           e.stopPropagation();
           this.remove(Number(e.target.dataset.id64));
@@ -1689,12 +1700,12 @@ const Compare = {
         <h2 style="color:var(--accent);font-size:1rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1.25rem">System Comparison</h2>
         <div style="overflow-x:auto">
           <table class="compare-table">
-            <thead><tr>${headers.map((h, i) => `<th${i === 0 ? '' : ' style="text-align:center"'}>${h}</th>`).join('')}</tr></thead>
+            <thead><tr>${headers.map((h, i) => `<th${i === 0 ? '' : ' style="text-align:center"'}>${esc(h)}</th>`).join('')}</tr></thead>
             <tbody>
               ${rows.map(([label, ...cells]) => `
                 <tr>
-                  <td style="color:var(--text-dim);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">${label}</td>
-                  ${cells.map(c => `<td style="text-align:center" class="${c.isWinner ? 'compare-winner' : ''}">${c.value}</td>`).join('')}
+                  <td style="color:var(--text-dim);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">${esc(label)}</td>
+                  ${cells.map(c => `<td style="text-align:center" class="${c.isWinner ? 'compare-winner' : ''}">${esc(c.value)}</td>`).join('')}
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -2274,9 +2285,9 @@ const EDMap = (function () {
     const score = sys._rating?.score ?? sys.score;
     const eco   = sys.primaryEconomy || sys.primary_economy || '';
     tooltipEl.innerHTML = `
-      <strong>${sys.name || 'Unknown'}</strong>
+      <strong>${esc(sys.name || 'Unknown')}</strong>
       ${score != null ? `<br>★ ${Math.round(score)}` : ''}
-      ${eco ? `<br>${eco}` : ''}
+      ${eco ? `<br>${esc(eco)}` : ''}
     `;
     tooltipEl.hidden = false;
     tooltipEl.style.left = (event.clientX - rect.left + 12) + 'px';
@@ -2432,7 +2443,7 @@ const EDMap = (function () {
       const detailEl = document.getElementById('map-detail-panel');
       if (detailEl && _selectedSystem) {
         detailEl.hidden = false;
-        detailEl.innerHTML = `<strong>${_selectedSystem.name || 'Selected'}</strong><br>
+        detailEl.innerHTML = `<strong>${esc(_selectedSystem.name || 'Selected')}</strong><br>
           ${Math.round(dist)} ly from ref · ~${jumps} jumps @ ${jumpRange} ly`;
       }
     }
