@@ -2024,9 +2024,9 @@ body {
   z-index: 2;
 }
 
-/* ── Status bar: solid semi-transparent (no backdrop-filter on full-width bars) ── */
+/* ── Status bar: fully opaque dark ── */
 #status-bar {
-  background: rgba(6,8,14,0.82);
+  background: #060810;
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
@@ -2039,18 +2039,18 @@ body {
   box-shadow: 0 4px 40px rgba(0,0,0,0.50), 0 1px 0 rgba(255,255,255,0.06) inset;
 }
 
-/* ── Tab bar: solid semi-transparent (no backdrop-filter on wide bars) ── */
+/* ── Tab bar: fully opaque dark ── */
 #tabs {
-  background: rgba(6,8,14,0.82);
+  background: #060810;
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 .tab-btn { color: rgba(155,170,187,0.55); }
 .tab-btn:hover { color: #d0d8e8; border-bottom-color: rgba(255,255,255,0.15); }
 .tab-btn.active { color: var(--orange-lt); border-bottom-color: var(--orange); }
 
-/* ── Sidebar: solid semi-transparent (no backdrop-filter on scroll containers) ── */
+/* ── Sidebar: fully opaque dark so scroll-area shows correct colour ── */
 #sidebar {
-  background: rgba(6,8,14,0.75);
+  background: #060810;
   border-right: 1px solid rgba(255,255,255,0.07);
 }
 
@@ -2135,12 +2135,12 @@ body {
   border-radius: 0 0 10px 10px;
 }
 
-/* ── Content area: darker backdrop so nebula glows around edges ── */
+/* ── Content and main: fully opaque dark void ── */
 #content {
-  background: rgba(2,3,8,0.55);
+  background: #04050a;
 }
 #main {
-  background: transparent;
+  background: #04050a;
 }
 </style>
 </head>
