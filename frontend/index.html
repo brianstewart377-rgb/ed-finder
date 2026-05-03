@@ -5992,19 +5992,24 @@ function getBpClass(key, sub) {
 
 // ── Trigger manual refresh ───────────────────────────────────────────────────
 async function triggerRefresh(e) {
-  // FIX-REFRESH: use passed event param instead of implicit global `event`
   const btn = (e && e.target) ? e.target : document.querySelector('[onclick*="triggerRefresh"]');
+  if (!btn || btn.disabled) return;
   btn.disabled = true;
+  const orig = btn.textContent.trim();
   btn.textContent = '⏳ Syncing…';
   try {
-    const r = { ok: false, status: 404 }; // /api/refresh not available in this backend version
-    const d = await r.json();
-    btn.textContent = '✅ Sync started';
-    setTimeout(() => { btn.disabled = false; btn.textContent = '↺ Sync Now'; checkApiConnection(); }, 3000);
-  } catch(err) {  // B-1-FIX: renamed from 'e' to avoid shadowing the outer event param
-    btn.textContent = '❌ Failed';
-    setTimeout(() => { btn.disabled = false; btn.textContent = '↺ Sync Now'; }, 2000);
+    // /api/refresh is not exposed — ping /api/status to get a live update instead
+    const r = await fetch(`${API_BASE}/status`, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) {
+      await checkApiConnection(); // refreshes status bar, last-sync text, Spansh latency
+      btn.textContent = '✅ Refreshed';
+    } else {
+      btn.textContent = '⚠️ Degraded';
+    }
+  } catch(err) {
+    btn.textContent = '❌ Offline';
   }
+  setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2500);
 }
 
 // Close autocomplete when clicking elsewhere
@@ -6429,6 +6434,15 @@ document.addEventListener('click', (e) => {
 <div id="tab-changelog" class="tab-content full-width" style="display:none;padding:16px;flex-direction:column">
   <h2 style="font-family:Orbitron,monospace;font-size:14px;color:var(--orange);letter-spacing:2px;margin:0 0 16px">📋 CHANGELOG</h2>
   <div style="max-width:720px">
+
+    <div class="cl-entry">
+      <div class="cl-ver">v3.31 <span class="cl-date">2026-05-03</span></div>
+      <div class="cl-item">Glassmorphism theme — sidebar, tab bar, and main content unified to one continuous glass surface <span class="cl-tag cl-tag-new">VISUAL</span></div>
+      <div class="cl-item">Removed sidebar dividing border — seamless transition between panels <span class="cl-tag cl-tag-new">VISUAL</span></div>
+      <div class="cl-item">Fixed autofill white-flash on reference system and search inputs <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Fixed Sync Now button — was always showing ❌ Failed due to broken stub; now polls /api/status and updates status bar correctly <span class="cl-tag cl-tag-fix">FIX</span></div>
+      <div class="cl-item">Full-width tab pages (Pinned, Watchlist, Route, etc.) no longer break fixed-position modals and dropdowns <span class="cl-tag cl-tag-fix">FIX</span></div>
+    </div>
 
     <div class="cl-entry">
       <div class="cl-ver">v3.30 <span class="cl-date">2026-05-01</span></div>

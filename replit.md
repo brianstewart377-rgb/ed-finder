@@ -36,6 +36,9 @@ The database ships empty — star system data is imported separately via the imp
 - **Two search paths**: `local_search.py` (primary, runs against local DB) + inline fallback in `main.py` (used if local_search fails or is unavailable). Fallback lacks some filters local_search supports.
 - **Redis optional**: Redis unavailable in Replit — app degrades gracefully to no-cache mode.
 - **DB empty in Replit**: Star system data not present; structural/API testing only.
+- **No /api/refresh endpoint**: `triggerRefresh()` polls `/api/status` instead and calls `checkApiConnection()` to update the status bar.
+- **backdrop-filter critical rule**: NEVER add `backdrop-filter` to `.tab-content.full-width` — it creates a CSS stacking context that traps `position:fixed` modals/dropdowns inside those tabs. Only safe on `#header`, `#status-bar`, `#tabs`, `#sidebar`, `#content` (which is inside the System Finder tab only).
+- **Glassmorphism theme** (v3.31): All major surfaces use `rgba(6,8,18,0.70–0.80)` for a unified dark-glass appearance. Header is darkest (0.80), full-width tab pages lightest (0.70).
 
 ## Deployment
 Configured as `autoscale` target. Run command: `python3 backend/main.py`
