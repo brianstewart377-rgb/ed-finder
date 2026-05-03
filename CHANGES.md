@@ -41,6 +41,21 @@ Production app lives at ed-finder.app (Hetzner/Docker); this log tracks sandbox 
 - *Fix*: `body.get('ids', body.get('id64s', []))` — reads `ids` first, falls back to `id64s` for any external callers that use the old key.
 - *Reason*: Core cluster feature was completely non-functional.
 
+---
+
+## 2026-05-03 — SSE dot tooltip
+
+**`index.html` — SSE indicator mouseover explanation**
+- *Was*: The green dot in the status bar had only a terse native browser `title` tooltip ("SSE: live" / "SSE: offline") — no explanation of what SSE or EDDN is.
+- *Fix*: Wrapped the dot in a `.sse-wrap` container; added a styled CSS tooltip via `::after` + `data-tip` attribute. `_setSseDot()` now writes a full sentence depending on state:
+  - Live: "EDDN live feed connected — real-time system updates from other commanders are streaming in."
+  - Offline: "EDDN feed offline — live game event updates unavailable. Will retry automatically."
+- *Reason*: The indicator was opaque to anyone who hadn't read the code. The tooltip makes the state self-explanatory on hover.
+
+---
+
+## 2026-05-03 — Bug fix pass (full codebase audit)
+
 **7. Galaxy search — `offset` not forwarded to `local_search.py` (line 869)**
 - *Was*: When `local_search.py` was available (the normal path), the `body_dict` passed to `local_db_galaxy_search` omitted `offset`. Pagination requests always started from page 1 regardless of which page the user requested. The inline fallback path *did* include offset correctly.
 - *Fix*: Added `'offset': req.offset` to the `body_dict`.

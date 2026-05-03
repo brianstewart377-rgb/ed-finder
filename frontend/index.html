@@ -1827,6 +1827,18 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 #sse-dot { width:8px; height:8px; border-radius:50%; background:var(--text-dim); display:inline-block; margin-right:4px; vertical-align:middle; transition:background 0.5s; }
 #sse-dot.live { background:var(--green); animation:ssePulse 2s infinite; }
 @keyframes ssePulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.sse-wrap { position:relative; cursor:default; display:inline-flex; align-items:center; }
+.sse-wrap::after {
+  content: attr(data-tip);
+  position:absolute; bottom:calc(100% + 8px); right:0;
+  background:var(--bg2); border:1px solid var(--border);
+  color:var(--text); font-size:11px; line-height:1.5;
+  padding:6px 10px; border-radius:5px;
+  width:220px; white-space:normal; text-align:left;
+  pointer-events:none; opacity:0; transition:opacity 0.15s;
+  z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.4);
+}
+.sse-wrap:hover::after { opacity:1; }
 
 /* Phase 2 toast */
 .phase2-toast { position:fixed; bottom:60px; right:20px; background:var(--bg2); border:2px solid var(--green); border-radius:8px; padding:14px 18px; max-width:320px; z-index:9500; box-shadow:0 4px 20px rgba(0,0,0,0.5); animation:slideUpFade 0.4s ease; }
@@ -1875,7 +1887,9 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <!-- Feature 13: Keyboard help -->
   <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;margin-right:6px" onclick="openKbdHelp()" title="Keyboard shortcuts (?)">⌨️</button>
   <!-- Feature 22: SSE dot -->
-  <span id="sse-dot" title="EDDN SSE: offline"></span>
+  <span class="sse-wrap" id="sse-wrap" data-tip="EDDN feed offline — live game event updates unavailable. Will retry automatically.">
+    <span id="sse-dot"></span>
+  </span>
   <span id="result-count" style="color:var(--text-dim)"></span>
 </div>
 <!-- PERSIST: storage health warning banner (hidden by default) -->
@@ -10247,10 +10261,15 @@ function _handleSSEUpdate(msg) {
 }
 
 function _setSseDot(state) {
-  const dot = document.getElementById('sse-dot');
+  const dot  = document.getElementById('sse-dot');
+  const wrap = document.getElementById('sse-wrap');
   if (!dot) return;
   dot.className = state === 'live' ? 'live' : '';
-  dot.title = state === 'live' ? 'SSE: live' : 'SSE: offline';
+  if (wrap) {
+    wrap.dataset.tip = state === 'live'
+      ? 'EDDN live feed connected — real-time system updates from other commanders are streaming in.'
+      : 'EDDN feed offline — live game event updates unavailable. Will retry automatically.';
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────
