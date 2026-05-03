@@ -44,7 +44,8 @@
 
 ## Security checklist (before going live)
 
-Required `.env` entries in addition to `POSTGRES_PASSWORD`:
+Copy `env.example` to `.env` on the Hetzner host and set these entries
+(in addition to the existing `POSTGRES_PASSWORD`):
 
 ```ini
 # Required — generate with `openssl rand -hex 32`. Admin endpoints

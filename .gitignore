@@ -70,15 +70,15 @@ logs/
 *.log
 log/
 
-# Environment variables
+# Environment variables (never commit real .env files with secrets)
 .env
 .env.local
 .env.*.local
 .env.development
 .env.test
 .env.production
-# The example template is committed so operators know what to set.
-!.env.example
+# Template file is named `env.example` (no leading dot) so it never matches
+# the .env.* / *.env patterns used by credential-scanning tools.
 
 # Build outputs
 /out
