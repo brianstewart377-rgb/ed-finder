@@ -64,6 +64,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -85,7 +86,7 @@ except ImportError:
 # Code #14: pydantic-settings — validates all env vars at startup
 # ---------------------------------------------------------------------------
 class Settings(BaseSettings):
-    database_url: str = 'postgresql://edfinder:edfinder@postgres:5432/edfinder'
+    database_url: str = 'postgresql://postgres:password@localhost:5432/postgres'
     redis_url: str = 'redis://redis:6379/0'
     log_level: str = 'INFO'
     redis_max_connections: int = 20
@@ -250,6 +251,14 @@ app.add_middleware(
 )
 # Code #3: GZip compress all responses >= 1 KB
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+# ---------------------------------------------------------------------------
+# Static file serving — frontend (must be mounted AFTER all API routes)
+# We defer mount to a startup event so the path resolves correctly.
+# ---------------------------------------------------------------------------
+import pathlib as _pl
+
+_FRONTEND_DIR = _pl.Path(__file__).parent.parent / 'frontend'
 
 # ---------------------------------------------------------------------------
 # Code #13: Global RFC 7807 Problem Details error handler
@@ -1405,6 +1414,27 @@ async def trigger_rebuild_clusters(request: Request, background_tasks: Backgroun
     return {"message": "Cluster rebuild triggered in background.", "job_id": job_id}
 
 
+# ---------------------------------------------------------------------------
+# Catch-all: serve index.html for any unmatched path (SPA fallback)
+# ---------------------------------------------------------------------------
+from fastapi.responses import FileResponse as _FileResponse
+
+@app.get('/{full_path:path}', include_in_schema=False)
+async def spa_fallback(full_path: str):
+    # Try exact file first
+    candidate = _FRONTEND_DIR / full_path
+    if candidate.is_file():
+        return _FileResponse(str(candidate))
+    # Fall back to index.html for SPA routing
+    return _FileResponse(str(_FRONTEND_DIR / 'index.html'))
+
+
+# Mount static assets directory (JS, CSS, images, etc.)
+if _FRONTEND_DIR.is_dir():
+    app.mount('/static', StaticFiles(directory=str(_FRONTEND_DIR)), name='static')
+
+
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=8000, log_level=settings.log_level.lower())
+    port = int(os.environ.get('PORT', 5000))
+    uvicorn.run(app, host='0.0.0.0', port=port, log_level=settings.log_level.lower())
