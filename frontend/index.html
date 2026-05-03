@@ -2130,15 +2130,22 @@ body {
 
 /* ── Panels ── */
 .panel {
-  background: rgba(8,10,20,0.78);
+  background: rgba(6,8,16,0.94);
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 12px;
+  color: #e8eaf0;
 }
 .panel-hdr {
   background: rgba(255,255,255,0.05);
   border-bottom: 1px solid rgba(255,255,255,0.08);
   border-radius: 12px 12px 0 0;
 }
+.panel-body { color: #e8eaf0; }
+.panel-body table td,
+.panel-body table th { color: #e8eaf0; }
+.guide-table td { color: #e8eaf0; }
+.guide-table th { color: #ffb070; background: rgba(255,255,255,0.04); }
+.guide-table tr:hover td { background: rgba(255,255,255,0.05); }
 
 /* ── Form inputs ── */
 .field input[type="text"],
@@ -2157,10 +2164,11 @@ body {
 
 /* ── Result cards ── */
 .result-card {
-  background: rgba(8,10,20,0.76);
+  background: rgba(6,8,16,0.92);
   border: 1px solid rgba(255,255,255,0.09);
   border-radius: 14px;
   transition: all 0.22s ease;
+  color: #e8eaf0;
 }
 .result-card:hover {
   transform: translateY(-4px);
