@@ -94,10 +94,19 @@ class Settings(BaseSettings):
     ttl_system: int = 86400
     ttl_status: int = 60
     ttl_autocomplete: int = 86400   # 24h for autocomplete (Code #11)
-    ttl_cluster: int = 3600
+    ttl_cluster: int = 86400        # cluster data only refreshes on Sunday rebuild
     rate_limit_search: str = '30/minute'
     rate_limit_default: str = '120/minute'
-    app_version: str = '3.0.0-hetzner'
+    app_version: str = '3.0.1-hetzner'
+    # Admin token required for /api/admin/* and /api/cache/clear.
+    # Leave empty to block those endpoints entirely (default for safety).
+    admin_token: str = ''
+    # Comma-separated list of allowed CORS origins. '*' still works but is
+    # discouraged — see README security notes.
+    cors_origins: str = 'https://ed-finder.app,https://www.ed-finder.app'
+    # Expose internal error detail in the HTTP response body. Should be False
+    # in production; flip to True for local debugging only.
+    expose_error_detail: bool = False
 
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
@@ -115,14 +124,41 @@ log = logging.getLogger('ed_finder')
 
 # ---------------------------------------------------------------------------
 # Code #12: Rate limiter (token bucket via slowapi + Redis)
+# Backed by Redis so limits are shared across workers / containers.
 # ---------------------------------------------------------------------------
-limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit_default])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[settings.rate_limit_default],
+    storage_uri=settings.redis_url,
+    strategy='moving-window',
+)
+
+
+# ---------------------------------------------------------------------------
+# Admin auth — header-based bearer token. Admin endpoints are disabled
+# unless ADMIN_TOKEN env var is set to a non-empty value.
+# ---------------------------------------------------------------------------
+async def require_admin(request: Request) -> None:
+    token = settings.admin_token
+    if not token:
+        # Endpoint explicitly disabled when no token configured.
+        raise HTTPException(403, 'Admin endpoints disabled (ADMIN_TOKEN not set)')
+    supplied = request.headers.get('X-Admin-Token') or ''
+    # Strip 'Bearer ' prefix if present.
+    auth = request.headers.get('Authorization', '')
+    if auth.lower().startswith('bearer '):
+        supplied = supplied or auth[7:].strip()
+    # Constant-time comparison
+    import hmac
+    if not hmac.compare_digest(supplied, token):
+        raise HTTPException(401, 'Invalid admin token')
 
 # ---------------------------------------------------------------------------
 # App state
 # ---------------------------------------------------------------------------
 _pool:  Optional[asyncpg.Pool] = None
 _redis: Optional[aioredis.Redis] = None
+_sse_pubsub_task: Optional[asyncio.Task] = None
 _metrics: dict[str, Any] = {
     'requests_total':  0,
     'cache_hits':      0,
@@ -136,21 +172,15 @@ _metrics: dict[str, Any] = {
 # Background workers for long-running tasks
 # ---------------------------------------------------------------------------
 _active_jobs: dict[str, Any] = {}
+_active_jobs_lock = asyncio.Lock()
 
 def run_cluster_rebuild():
-    """Run build_clusters.py as a subprocess and track status."""
-    job_id = "cluster_rebuild"
-    if _active_jobs.get(job_id, {}).get("status") == "running":
-        log.warning("Cluster rebuild already in progress, skipping trigger.")
-        return
+    """Run build_clusters.py as a subprocess and track status.
 
-    _active_jobs[job_id] = {
-        "status": "running",
-        "start_time": datetime.now(timezone.utc).isoformat(),
-        "end_time": None,
-        "exit_code": None,
-        "error": None
-    }
+    NOTE: The 'running' slot must already be claimed by the caller inside
+    _active_jobs_lock; this function only updates the terminal state.
+    """
+    job_id = "cluster_rebuild"
 
     try:
         # Resolve the compose project directory from env var (set in docker-compose.yml
@@ -164,17 +194,17 @@ def run_cluster_rebuild():
             "python3", "build_clusters.py", "--dirty-only", "--workers", "6"
         ]
         log.info("Triggering background cluster rebuild: %s", " ".join(cmd))
-        
+
         # We use check=True to raise an error if the script fails
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        
+
         _active_jobs[job_id].update({
             "status": "completed",
             "end_time": datetime.now(timezone.utc).isoformat(),
             "exit_code": 0
         })
         log.info("Background cluster rebuild completed successfully.")
-        
+
     except subprocess.CalledProcessError as e:
         _active_jobs[job_id].update({
             "status": "failed",
@@ -196,13 +226,18 @@ def run_cluster_rebuild():
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _pool, _redis
+    global _pool, _redis, _sse_pubsub_task
     log.info(f"ED Finder Hetzner backend v{settings.app_version} starting ...")
     _pool = await asyncpg.create_pool(
         dsn=settings.database_url,
         min_size=5,
         max_size=20,
         command_timeout=30,
+        # Required for pgBouncer transaction-pool mode: asyncpg caches
+        # server-side prepared statements per-connection by default, which
+        # fails intermittently when pgBouncer rotates backend connections
+        # between transactions. Disabling the cache is the canonical fix.
+        statement_cache_size=0,
         server_settings={'application_name': 'ed_finder_api'},
     )
     try:
@@ -220,9 +255,22 @@ async def lifespan(app: FastAPI):
         log.warning(f"Redis unavailable ({e}) — running without cache")
         _redis = None
 
+    # Bridge EDDN events from Redis pub/sub → local SSE clients.
+    # The EDDN container publishes events on the 'eddn_events' channel;
+    # each API container subscribes and fans out to its own SSE clients.
+    if _redis is not None:
+        _sse_pubsub_task = asyncio.create_task(_eddn_pubsub_bridge())
+        log.info("EDDN→SSE pub/sub bridge started ✓")
+
     log.info("PostgreSQL pool ready ✓")
     yield
 
+    if _sse_pubsub_task:
+        _sse_pubsub_task.cancel()
+        try:
+            await _sse_pubsub_task
+        except (asyncio.CancelledError, Exception):
+            pass
     if _pool:   await _pool.close()
     if _redis:  await _redis.aclose()
     log.info("Shutdown complete")
@@ -245,9 +293,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_origins=[o.strip() for o in settings.cors_origins.split(',') if o.strip()],
+    allow_methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allow_headers=['Content-Type', 'X-Admin-Token', 'Authorization'],
 )
 # Code #3: GZip compress all responses >= 1 KB
 app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -281,13 +329,17 @@ async def problem_details_handler(request: Request, exc: HTTPException):
 async def generic_error_handler(request: Request, exc: Exception):
     _metrics['errors_total'] += 1
     log.exception('Unhandled error on %s %s', request.method, request.url)
+    # Internal error messages from asyncpg/psycopg often include SQL text,
+    # table names, and occasionally row values. Only surface them if the
+    # operator explicitly opts in via EXPOSE_ERROR_DETAIL=true.
+    detail = str(exc) if settings.expose_error_detail else 'Internal server error'
     return JSONResponse(
         status_code=500,
         content={
             'type':   'https://httpstatuses.com/500',
             'title':  'Internal Server Error',
             'status': 500,
-            'detail': str(exc),
+            'detail': detail,
         },
     )
 
@@ -1309,11 +1361,15 @@ async def cache_stats(
     return stats
 
 
-@app.post('/api/cache/clear')
+@app.post('/api/cache/clear', dependencies=[Depends(require_admin)])
 async def cache_clear(
     pool: asyncpg.Pool = Depends(get_pool),
     redis: Optional[aioredis.Redis] = Depends(get_redis),
 ):
+    """Flush the Redis cache and expired api_cache rows.
+
+    Requires X-Admin-Token header matching ADMIN_TOKEN env var.
+    """
     if redis:
         try: await redis.flushdb()
         except Exception: pass
@@ -1324,8 +1380,43 @@ async def cache_clear(
 
 # ---------------------------------------------------------------------------
 # Live EDDN events SSE endpoint
+#
+# The EDDN listener (separate container) publishes events to the Redis
+# 'eddn_events' channel. Each API process subscribes once at startup via
+# _eddn_pubsub_bridge() and fans out to its own local SSE clients.
 # ---------------------------------------------------------------------------
+EDDN_PUBSUB_CHANNEL = 'eddn_events'
 _sse_clients: list[asyncio.Queue] = []
+
+
+async def _eddn_pubsub_bridge() -> None:
+    """Subscribe to Redis pub/sub and broadcast events to local SSE clients."""
+    if _redis is None:
+        return
+    try:
+        pubsub = _redis.pubsub()
+        await pubsub.subscribe(EDDN_PUBSUB_CHANNEL)
+        async for message in pubsub.listen():
+            if message.get('type') != 'message':
+                continue
+            data = message.get('data')
+            if not data:
+                continue
+            try:
+                event = json.loads(data) if isinstance(data, str) else data
+            except (ValueError, TypeError):
+                continue
+            await _broadcast_eddn_event(event)
+    except asyncio.CancelledError:
+        try:
+            await pubsub.unsubscribe(EDDN_PUBSUB_CHANNEL)
+            await pubsub.aclose()
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        log.error("EDDN pub/sub bridge error: %s", e)
+
 
 @app.get('/api/events/live')
 async def live_events(request: Request):
@@ -1360,8 +1451,10 @@ async def live_events(request: Request):
 
 
 async def _broadcast_eddn_event(event: dict) -> None:
+    """Fan event out to all connected SSE clients on this worker."""
     dead = []
-    for q in _sse_clients:
+    # Snapshot list before iteration — clients list can mutate under us.
+    for q in list(_sse_clients):
         try:
             q.put_nowait(event)
         except asyncio.QueueFull:
@@ -1400,39 +1493,77 @@ async def recent_events(
     }
 
 
-@app.post('/api/admin/rebuild-clusters')
+@app.post('/api/admin/rebuild-clusters', dependencies=[Depends(require_admin)])
 @limiter.limit('1/minute')
 async def trigger_rebuild_clusters(request: Request, background_tasks: BackgroundTasks):
-    """Trigger a background cluster rebuild (dirty anchors only)."""
+    """Trigger a background cluster rebuild (dirty anchors only).
+
+    Requires X-Admin-Token header matching ADMIN_TOKEN env var. Disabled
+    entirely when ADMIN_TOKEN is empty (default).
+    """
     job_id = "cluster_rebuild"
-    if _active_jobs.get(job_id, {}).get("status") == "running":
-        return JSONResponse(
-            status_code=409,
-            content={"message": "A cluster rebuild is already in progress.", "job": _active_jobs[job_id]}
-        )
-    
+    async with _active_jobs_lock:
+        current = _active_jobs.get(job_id, {})
+        if current.get("status") == "running":
+            return JSONResponse(
+                status_code=409,
+                content={"message": "A cluster rebuild is already in progress.", "job": current}
+            )
+        # Claim the slot before the task runs so concurrent requests 409 cleanly.
+        _active_jobs[job_id] = {
+            "status": "running",
+            "start_time": datetime.now(timezone.utc).isoformat(),
+            "end_time": None,
+            "exit_code": None,
+            "error": None,
+        }
+
     background_tasks.add_task(run_cluster_rebuild)
     return {"message": "Cluster rebuild triggered in background.", "job_id": job_id}
 
 
 # ---------------------------------------------------------------------------
-# Catch-all: serve index.html for any unmatched path (SPA fallback)
+# SPA fallback + static files
 # ---------------------------------------------------------------------------
 from fastapi.responses import FileResponse as _FileResponse
 
+# Mount static assets directory before registering the catch-all so that
+# /static/<file> is served by StaticFiles (which includes its own safe path
+# resolution).
+if _FRONTEND_DIR.is_dir():
+    app.mount('/static', StaticFiles(directory=str(_FRONTEND_DIR)), name='static')
+
+
+_FRONTEND_REAL = _FRONTEND_DIR.resolve()
+
+
+def _safe_frontend_path(raw: str) -> Optional[_pl.Path]:
+    """Resolve a user-supplied path relative to the frontend dir, rejecting
+    anything that escapes via '..' or symlinks."""
+    if not raw:
+        return None
+    try:
+        candidate = (_FRONTEND_DIR / raw).resolve()
+    except (OSError, RuntimeError):
+        return None
+    # Must be inside the frontend directory (or equal to it).
+    if candidate != _FRONTEND_REAL and _FRONTEND_REAL not in candidate.parents:
+        return None
+    return candidate
+
+
 @app.get('/{full_path:path}', include_in_schema=False)
 async def spa_fallback(full_path: str):
-    # Try exact file first
-    candidate = _FRONTEND_DIR / full_path
-    if candidate.is_file():
+    # API paths should have been matched already; if someone requests
+    # /api/<unknown> return 404 JSON instead of serving index.html.
+    if full_path.startswith('api/'):
+        raise HTTPException(404, f'API endpoint {full_path} not found')
+
+    candidate = _safe_frontend_path(full_path)
+    if candidate and candidate.is_file():
         return _FileResponse(str(candidate))
     # Fall back to index.html for SPA routing
     return _FileResponse(str(_FRONTEND_DIR / 'index.html'))
-
-
-# Mount static assets directory (JS, CSS, images, etc.)
-if _FRONTEND_DIR.is_dir():
-    app.mount('/static', StaticFiles(directory=str(_FRONTEND_DIR)), name='static')
 
 
 if __name__ == '__main__':
