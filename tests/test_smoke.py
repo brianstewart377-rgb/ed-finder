@@ -31,6 +31,11 @@ from build_ratings import (
     classify_bodies,
     rate_system,
     SCOOPABLE_STARS,
+    _distance_weight,
+    compute_terraforming_potential,
+    compute_body_diversity,
+    compute_confidence,
+    generate_rationale,
 )
 
 from import_spansh import (
@@ -264,6 +269,172 @@ class TestScoopableStars(unittest.TestCase):
     def test_excludes_non_scoopable(self):
         for cls in ('L', 'T', 'Y', 'D', 'N', 'W'):
             self.assertNotIn(cls, SCOOPABLE_STARS)
+
+
+# ---------------------------------------------------------------------------
+# 8. v3.1 — distance-from-arrival-star weighting
+# ---------------------------------------------------------------------------
+class TestDistanceWeight(unittest.TestCase):
+
+    def test_none_returns_one(self):
+        self.assertEqual(_distance_weight(None), 1.0)
+
+    def test_unknown_returns_one(self):
+        self.assertEqual(_distance_weight("garbage"), 1.0)
+
+    def test_close_is_full_weight(self):
+        self.assertEqual(_distance_weight(500), 1.0)
+        self.assertEqual(_distance_weight(1000), 1.0)
+
+    def test_medium_is_reduced(self):
+        self.assertLess(_distance_weight(5_000), 1.0)
+        self.assertGreater(_distance_weight(5_000), 0.5)
+
+    def test_far_is_low(self):
+        self.assertLess(_distance_weight(50_000), 0.80)
+
+    def test_very_far_is_floored(self):
+        self.assertAlmostEqual(_distance_weight(250_000), 0.30)
+        self.assertAlmostEqual(_distance_weight(1_000_000), 0.30)
+
+
+# ---------------------------------------------------------------------------
+# 9. v3.1 — terraforming potential quality score
+# ---------------------------------------------------------------------------
+class TestTerraformingPotential(unittest.TestCase):
+
+    def test_empty_system_is_zero(self):
+        c = classify_bodies([])
+        self.assertEqual(compute_terraforming_potential(c, None), 0)
+
+    def test_hmc_near_g_star_scores_high(self):
+        bodies = [
+            {'subtype': 'High metal content world', 'is_terraformable': True,
+             'distance_from_star': 200},
+            {'subtype': 'High metal content world', 'is_terraformable': True,
+             'distance_from_star': 500},
+        ]
+        c = classify_bodies(bodies)
+        score = compute_terraforming_potential(c, 'G')
+        self.assertGreater(score, 40)
+
+    def test_far_terraformable_scores_lower_than_close(self):
+        close = classify_bodies([
+            {'subtype': 'Rocky body', 'is_terraformable': True,
+             'distance_from_star': 200},
+        ])
+        far = classify_bodies([
+            {'subtype': 'Rocky body', 'is_terraformable': True,
+             'distance_from_star': 250_000},
+        ])
+        self.assertGreater(
+            compute_terraforming_potential(close, 'G'),
+            compute_terraforming_potential(far, 'G'),
+        )
+
+
+# ---------------------------------------------------------------------------
+# 10. v3.1 — body diversity bonus
+# ---------------------------------------------------------------------------
+class TestBodyDiversity(unittest.TestCase):
+
+    def test_single_type_is_zero(self):
+        c = classify_bodies([{'subtype': 'High metal content world'}] * 12)
+        self.assertEqual(compute_body_diversity(c), 0)
+
+    def test_varied_system_gets_bonus(self):
+        c = classify_bodies([
+            {'subtype': 'Earth-like world',          'is_earth_like': True},
+            {'subtype': 'Water world',               'is_water_world': True},
+            {'subtype': 'Rocky body',                'is_landable': True},
+            {'subtype': 'High metal content world'},
+            {'subtype': 'Icy body'},
+            {'subtype': 'Gas giant with ammonia-based life'},
+        ])
+        self.assertGreater(compute_body_diversity(c), 15)
+
+    def test_empty_is_zero(self):
+        c = classify_bodies([])
+        self.assertEqual(compute_body_diversity(c), 0)
+
+
+# ---------------------------------------------------------------------------
+# 11. v3.1 — data-freshness confidence
+# ---------------------------------------------------------------------------
+class TestConfidence(unittest.TestCase):
+
+    def test_none_is_mid(self):
+        self.assertEqual(compute_confidence(None), 0.85)
+
+    def test_recent_is_high(self):
+        from datetime import datetime, timezone
+        recent = datetime.now(timezone.utc)
+        self.assertGreaterEqual(compute_confidence(recent), 0.95)
+
+    def test_old_is_floored(self):
+        from datetime import datetime, timezone, timedelta
+        ten_years_ago = datetime.now(timezone.utc) - timedelta(days=10 * 365)
+        conf = compute_confidence(ten_years_ago)
+        self.assertGreaterEqual(conf, 0.70)
+        self.assertLessEqual(conf, 0.80)
+
+    def test_iso_string_accepted(self):
+        self.assertIsInstance(compute_confidence("2024-06-15T12:00:00Z"), float)
+
+    def test_multi_report_boost(self):
+        from datetime import datetime, timezone, timedelta
+        ts = datetime.now(timezone.utc) - timedelta(days=500)
+        single = compute_confidence(ts, report_count=1)
+        triple = compute_confidence(ts, report_count=3)
+        self.assertGreaterEqual(triple, single)
+
+
+# ---------------------------------------------------------------------------
+# 12. v3.1 — rationale string is always populated, under 160 chars
+# ---------------------------------------------------------------------------
+class TestRationale(unittest.TestCase):
+
+    def test_empty_system_gets_some_text(self):
+        result = rate_system(1, [], None)
+        self.assertTrue(result['rationale'])
+        self.assertLessEqual(len(result['rationale']), 160)
+
+    def test_rich_system_mentions_signatures(self):
+        bodies = [
+            {'subtype': 'Earth-like world', 'is_earth_like': True},
+            {'subtype': 'Water world',      'is_water_world': True},
+            {'subtype': 'Rocky body',       'is_landable': True, 'is_terraformable': True},
+        ]
+        result = rate_system(2, bodies, 'G')
+        text = result['rationale'].lower()
+        self.assertTrue('elw' in text or 'earth' in text
+                        or 'ww' in text or 'water' in text)
+        self.assertLessEqual(len(result['rationale']), 160)
+
+
+# ---------------------------------------------------------------------------
+# 13. v3.1 — new fields are present in rate_system output
+# ---------------------------------------------------------------------------
+class TestV31ResultFields(unittest.TestCase):
+
+    def test_all_v31_keys_present(self):
+        result = rate_system(1, [], None)
+        for key in ('score_extraction', 'terraforming_potential',
+                    'body_diversity', 'confidence', 'rationale'):
+            self.assertIn(key, result, f"Missing v3.1 field: {key}")
+
+    def test_extraction_in_breakdown(self):
+        """v3.0 segregated Extraction from the economies dict; v3.1 includes it."""
+        bodies = [{'subtype': 'Metal-rich body'}] * 5
+        result = rate_system(3, bodies, 'G')
+        economies = result['score_breakdown']['economies']
+        self.assertIn('Extraction', economies)
+
+    def test_confidence_always_float_in_range(self):
+        result = rate_system(1, [], None)
+        self.assertIsInstance(result['confidence'], float)
+        self.assertGreaterEqual(result['confidence'], 0.70)
+        self.assertLessEqual(result['confidence'], 1.00)
 
 
 # ---------------------------------------------------------------------------

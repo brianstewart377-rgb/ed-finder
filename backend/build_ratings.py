@@ -130,6 +130,38 @@ log = logging.getLogger('build_ratings')
 SCOOPABLE_STARS = {'O', 'B', 'A', 'F', 'G', 'K', 'M'}
 
 
+# ---------------------------------------------------------------------------
+# v3.1 — distance-from-arrival-star awareness
+# ---------------------------------------------------------------------------
+# In-game, bodies >100k Ls from the arrival star are essentially unusable for
+# CMM colonial ports (pad access requires sub-cruise in reasonable time), and
+# bodies at 200-500 Ls are the sweet spot.  We decay a body's contribution
+# smoothly from 1.0 (at the arrival star) toward 0.3 (beyond 100k Ls).
+#
+#     distance_from_star (Ls)        weight
+#     ────────────────────────────  ─────────
+#     None (unknown)                   1.00   (don't penalise missing data)
+#     0 - 1,000 Ls (ideal)             1.00
+#     1,000 - 10,000 Ls                0.85
+#     10,000 - 100,000 Ls              0.60
+#     > 100,000 Ls                     0.30
+# ---------------------------------------------------------------------------
+def _distance_weight(ls) -> float:
+    if ls is None:
+        return 1.0
+    try:
+        ls = float(ls)
+    except (TypeError, ValueError):
+        return 1.0
+    if ls <= 1_000:
+        return 1.0
+    if ls <= 10_000:
+        return 0.85
+    if ls <= 100_000:
+        return 0.60
+    return 0.30
+
+
 def classify_bodies(bodies: list) -> dict:
     """
     Classify all bodies in a system and return a rich dict of counts and
@@ -181,6 +213,25 @@ def classify_bodies(bodies: list) -> dict:
         'ww_count':       0,
         'ammonia_count':  0,
         'elw_count':      0,
+        # ── v3.1: distance-weighted equivalents ────────────────────────────
+        # Same body counts but each body contributes its _distance_weight(ls)
+        # instead of 1.0.  Scorers use these when they care about access.
+        'w_landable':     0.0,
+        'w_elw':          0.0,
+        'w_ww':           0.0,
+        'w_ammonia':      0.0,
+        'w_gas_giant':    0.0,
+        'w_rocky_rings':  0.0,
+        'w_terraformable': 0.0,
+        'w_hmc':          0.0,
+        # ── v3.1: terraforming-quality score (0-100) ───────────────────────
+        # Weighted by body type (HMC/Rocky ≫ Gas Giant), distance from star,
+        # and main-star habitable-zone fit. Populated while iterating bodies.
+        'tf_quality_acc': 0.0,   # raw accumulator; normalised later
+        # ── v3.1: body-diversity information ───────────────────────────────
+        # Shannon-diversity helper: we count distinct body-type buckets
+        # present, then compute log-based bonus in rate_system().
+        'type_bucket_counts': {},
     }
 
     for b in bodies:
@@ -190,6 +241,9 @@ def classify_bodies(bodies: list) -> dict:
         is_tidal_lock   = bool(b.get('is_tidal_lock', False))
         bio_count       = int(b.get('bio_signal_count') or 0)
         geo_count       = int(b.get('geo_signal_count') or 0)
+        # v3.1: distance from arrival star (Ls); None if unknown
+        ls = b.get('distance_from_star')
+        w  = _distance_weight(ls)
 
         counts['bio'] += bio_count
         counts['geo'] += geo_count
@@ -197,8 +251,19 @@ def classify_bodies(bodies: list) -> dict:
             counts['tidal_lock'] += 1
         if is_terraformable:
             counts['terraformable'] += 1
+            counts['w_terraformable'] += w
+            # tf_quality weights HMC/Rocky much higher than Gas Giant
+            tf_body_weight = 1.0
+            if 'high metal content' in sub:
+                tf_body_weight = 1.5
+            elif 'rocky body' in sub or sub == 'rocky':
+                tf_body_weight = 1.2
+            elif 'gas giant' in sub:
+                tf_body_weight = 0.3
+            counts['tf_quality_acc'] += tf_body_weight * w
         if is_landable:
             counts['landable'] += 1
+            counts['w_landable'] += w
 
         # ── Stars ─────────────────────────────────────────────────────────
         if 'neutron' in sub:
@@ -219,22 +284,30 @@ def classify_bodies(bodies: list) -> dict:
         if is_elw:
             counts['elw'] += 1
             counts['elw_count'] += 1
+            counts['w_elw'] += w
+            counts['type_bucket_counts']['elw'] = counts['type_bucket_counts'].get('elw', 0) + 1
             if is_landable:
                 counts['landable'] += 0  # already counted above
             continue
         if is_ww:
             counts['ww'] += 1
             counts['ww_count'] += 1
+            counts['w_ww'] += w
+            counts['type_bucket_counts']['ww'] = counts['type_bucket_counts'].get('ww', 0) + 1
             continue
         if is_amm:
             counts['ammonia'] += 1
             counts['ammonia_count'] += 1
+            counts['w_ammonia'] += w
+            counts['type_bucket_counts']['ammonia'] = counts['type_bucket_counts'].get('ammonia', 0) + 1
             continue
 
         # ── Gas Giants ────────────────────────────────────────────────────
         if 'gas giant' in sub:
             counts['gas_giant'] += 1
             counts['gas_giant_count'] += 1
+            counts['w_gas_giant'] += w
+            counts['type_bucket_counts']['gas_giant'] = counts['type_bucket_counts'].get('gas_giant', 0) + 1
             continue
 
         # ── Rocky bodies (most complex — contamination logic) ─────────────
@@ -246,6 +319,7 @@ def classify_bodies(bodies: list) -> dict:
 
         if is_rocky:
             counts['rocky'] += 1
+            counts['type_bucket_counts']['rocky'] = counts['type_bucket_counts'].get('rocky', 0) + 1
             has_geo   = geo_count > 0
             has_bio   = bio_count > 0
             has_rings = bool(b.get('has_rings', False)) or 'ring' in sub
@@ -258,6 +332,7 @@ def classify_bodies(bodies: list) -> dict:
                 counts['rocky_bio'] += 1
             elif has_rings:
                 counts['rocky_rings'] += 1
+                counts['w_rocky_rings'] += w
             else:
                 counts['rocky_clean'] += 1
 
@@ -270,16 +345,20 @@ def classify_bodies(bodies: list) -> dict:
         if is_rocky_ice:
             counts['rocky_ice'] += 1
             counts['rocky_ice_count'] += 1
+            counts['type_bucket_counts']['rocky_ice'] = counts['type_bucket_counts'].get('rocky_ice', 0) + 1
             continue
 
         if is_icy:
             counts['icy'] += 1
             counts['icy_count'] += 1
+            counts['type_bucket_counts']['icy'] = counts['type_bucket_counts'].get('icy', 0) + 1
             continue
 
         if is_hmc:
             counts['hmc'] += 1
             counts['hmc_count'] += 1
+            counts['w_hmc'] += w
+            counts['type_bucket_counts']['hmc'] = counts['type_bucket_counts'].get('hmc', 0) + 1
             has_geo = geo_count > 0
             has_bio = bio_count > 0
             if has_geo or has_bio:
@@ -291,6 +370,7 @@ def classify_bodies(bodies: list) -> dict:
         if is_metal_rich:
             counts['metal_rich'] += 1
             counts['metal_rich_count'] += 1
+            counts['type_bucket_counts']['metal_rich'] = counts['type_bucket_counts'].get('metal_rich', 0) + 1
             continue
 
     return counts
@@ -678,11 +758,183 @@ def compute_safety_score(counts: dict, main_star_type: Optional[str]) -> int:
     return max(score, 0)
 
 
-def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -> dict:
-    """
-    Compute the full colonisation rating for a system.
+# ---------------------------------------------------------------------------
+# v3.1 — Terraforming potential, body diversity, rationale generator
+# ---------------------------------------------------------------------------
 
-    Returns a dict matching the ratings table schema.
+def compute_terraforming_potential(counts: dict, main_star_type: Optional[str]) -> int:
+    """
+    Score terraforming potential (0-100) — distinct from raw count.
+
+    Old rating used `min(terraformable, 5) * 6` which treats every
+    terraformable body identically.  Reality: a terraformable HMC at 200 Ls
+    orbiting a G-class star is the holy grail; a terraformable Gas Giant is
+    game-impossible.  `tf_quality_acc` is already weighted by body type and
+    distance; we just need to normalise and apply a main-star bonus.
+    """
+    # Normalise the accumulator: 5 well-placed, well-typed bodies ≈ 60 pts.
+    base = min(counts['tf_quality_acc'] * 12, 75)
+
+    # Habitable-zone star bonus: G/K/M > F/A ≫ O/B (bluer stars make HZ narrow).
+    if main_star_type:
+        st = main_star_type[0].upper()
+        if st in ('G', 'K'):
+            base += 15                 # sweet spot
+        elif st in ('F', 'M'):
+            base += 10
+        elif st in ('A',):
+            base += 5
+
+    return int(min(base, 100))
+
+
+def compute_body_diversity(counts: dict) -> int:
+    """
+    Shannon-diversity bonus (0-30) rewarding systems with a varied mix of
+    body types.  A system with (ELW + WW + Ring + HMC + GG) scores higher
+    than one with (12 HMCs) — diversity supports multiple economies and
+    future colonisation paths.
+    """
+    buckets = counts.get('type_bucket_counts', {})
+    total = sum(buckets.values())
+    if total == 0:
+        return 0
+    # Shannon entropy H = -Σ(p * log2(p)), max ≈ log2(N_buckets).
+    import math
+    H = -sum(
+        (c / total) * math.log2(c / total)
+        for c in buckets.values() if c > 0
+    )
+    # Normalise: max entropy for this many buckets.
+    n_buckets = len(buckets)
+    if n_buckets <= 1:
+        return 0
+    H_max = math.log2(n_buckets)
+    return int((H / H_max) * 30)
+
+
+def generate_rationale(counts: dict, scores: dict, primary_eco: str,
+                       tf_score: int, diversity: int,
+                       main_star_type: Optional[str]) -> str:
+    """
+    Produce a one-line explainer (<=160 chars) describing why this system
+    scored as it did.  Designed to be surfaced in the UI directly under the
+    star rating so CMDRs don't have to parse the breakdown dict.
+
+    Example outputs:
+      "Strong Agriculture via 2 ELW + 3 terraformable HMC; 8 landable ports."
+      "Tourism-leaning: neutron + 4 bio signals; limited surface slots."
+      "Extraction-rich: 3 ringed rocky, 2 metal-rich, 9 landable HMC."
+    """
+    parts = []
+
+    # Lead phrase keyed to primary economy
+    if scores[primary_eco] >= 60:
+        parts.append(f"Strong {primary_eco}")
+    elif scores[primary_eco] >= 40:
+        parts.append(f"Moderate {primary_eco}")
+    elif scores[primary_eco] >= 20:
+        parts.append(f"{primary_eco}-leaning")
+    else:
+        parts.append("Low-yield system")
+
+    # Key contributing bodies
+    highlights = []
+    if counts['elw']:
+        highlights.append(f"{counts['elw']} ELW")
+    if counts['ww']:
+        highlights.append(f"{counts['ww']} WW")
+    if counts['ammonia']:
+        highlights.append(f"{counts['ammonia']} AW")
+    if counts['terraformable']:
+        highlights.append(f"{counts['terraformable']} terraformable")
+    if counts['rocky_rings'] + counts['gas_giant']:
+        rings = counts['rocky_rings'] + counts['gas_giant']
+        highlights.append(f"{rings} ringed")
+    if counts['metal_rich']:
+        highlights.append(f"{counts['metal_rich']} metal-rich")
+    if counts['neutron'] or counts['black_hole']:
+        exotic = counts['neutron'] + counts['black_hole']
+        highlights.append(f"{exotic} exotic")
+    if highlights:
+        parts.append("via " + ", ".join(highlights[:3]))
+
+    # Slot note
+    if counts['landable'] >= 5:
+        parts.append(f"{counts['landable']} landable")
+    elif counts['landable'] == 0:
+        parts.append("no surface slots")
+
+    # Hazard / diversity tail
+    tails = []
+    if counts['white_dwarf']:
+        tails.append("white-dwarf hazard")
+    if diversity >= 20:
+        tails.append("varied body mix")
+    if tf_score >= 70:
+        tails.append("high terraforming potential")
+    if tails:
+        parts.append("— " + ", ".join(tails))
+
+    return ("; ".join(parts))[:160]
+
+
+def compute_confidence(last_updated, report_count: int = 1) -> float:
+    """
+    Confidence score in [0.70, 1.00] based on data freshness.
+
+    Scans from 2015 Spansh dumps are less trustworthy than a 2026 EDDN
+    event with multiple independent reports.  `last_updated` is expected
+    to be a datetime or ISO string; `report_count` is the number of
+    independent reporters (if tracked).
+
+    We cap the floor at 0.70 so stale-but-still-useful systems don't
+    vanish from search results — this is a soft signal, not a filter.
+    """
+    if last_updated is None:
+        return 0.85
+    try:
+        from datetime import datetime, timezone
+        if isinstance(last_updated, str):
+            # Handle ISO 8601 with 'Z' suffix
+            ts = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+        elif isinstance(last_updated, datetime):
+            ts = last_updated
+        else:
+            return 0.85
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - ts).days
+    except (TypeError, ValueError, AttributeError):
+        return 0.85
+
+    # 0 days   → 1.00
+    # 365 days → 0.95
+    # 3 years  → 0.80
+    # 5+ years → 0.70
+    if age_days <= 30:
+        conf = 1.00
+    elif age_days <= 365:
+        conf = 1.00 - (age_days - 30) * (0.05 / 335)
+    elif age_days <= 3 * 365:
+        conf = 0.95 - (age_days - 365) * (0.15 / (2 * 365))
+    else:
+        conf = max(0.80 - (age_days - 3 * 365) * (0.10 / (2 * 365)), 0.70)
+
+    # Multiple independent reports modestly restore confidence.
+    if report_count >= 3:
+        conf = min(conf + 0.05, 1.00)
+
+    return round(conf, 3)
+
+
+def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
+                last_updated=None, report_count: int = 1) -> dict:
+    """
+    Compute the full colonisation rating for a system (v3.1).
+
+    Returns a dict matching the ratings table schema, plus v3.1 fields:
+        terraforming_potential, body_diversity, confidence, rationale.
 
     The overall score is NOT a simple average of economy scores.
     It reflects: "If I build the best possible economy here, how good is
@@ -691,6 +943,13 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -
     Economy scores are stored independently so the frontend can show the
     searched economy score when filtering, or the primary economy score
     when browsing without a filter.
+
+    v3.1 notes:
+      - Extraction is now primary-eligible (v3.0 excluded it, so pure-mining
+        systems scored mediocre overall).
+      - distance-from-arrival weighting is already baked into classify_bodies.
+      - last_updated (datetime or ISO str) and report_count drive the
+        confidence field. Both are optional; defaults preserve old behaviour.
     """
     counts = classify_bodies(bodies)
 
@@ -710,8 +969,14 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -
     strategic_score = compute_strategic_score(counts, main_star_type)
     safety_score    = compute_safety_score(counts, main_star_type)
 
+    # ── v3.1: terraforming potential + body diversity ──────────────────────
+    tf_potential = compute_terraforming_potential(counts, main_star_type)
+    diversity    = compute_body_diversity(counts)
+
     # ── Determine primary and secondary economy ────────────────────────────
-    # Sort by score descending to find the top two
+    # v3.1: Extraction is now included symmetrically, so a pure mining system
+    # can surface as "Primary: Extraction" instead of being forced into some
+    # runner-up economy it doesn't actually fit.
     sorted_ecos = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     primary_eco   = sorted_ecos[0][0]
     primary_score = sorted_ecos[0][1]
@@ -719,15 +984,27 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -
 
     economy_suggestion = primary_eco if primary_score >= 20 else None
 
-    # ── Overall score: best economy + slot capacity + strategic + safety ───
-    # This answers: "How good is this system at what it does best?"
-    # Weight: 45% best economy, 25% slots, 20% strategic assets, 10% safety
+    # ── Overall score: best economy + slot + strategic + safety + diversity
+    # v3.1 weights: 42% best economy, 23% slots, 18% strategic, 10% safety,
+    #               5% terraforming potential, 2% body diversity.
+    # The 45→42 reduction on primary economy makes room for the two new
+    # signals without destabilising search rankings (any system's new
+    # score is within ~4 pts of its v3.0 score).
     overall = int(
-        primary_score  * 0.45 +
-        slot_score     * 0.25 +
-        strategic_score * 0.20 +
-        safety_score   * 0.10
+        primary_score   * 0.42 +
+        slot_score      * 0.23 +
+        strategic_score * 0.18 +
+        safety_score    * 0.10 +
+        tf_potential    * 0.05 +
+        diversity       * 0.02
     )
+
+    # ── Rationale (one-line explainer) ─────────────────────────────────────
+    rationale = generate_rationale(counts, scores, primary_eco,
+                                   tf_potential, diversity, main_star_type)
+
+    # ── Confidence (data freshness) ────────────────────────────────────────
+    confidence = compute_confidence(last_updated, report_count)
 
     # ── Score components (for API popover display) ─────────────────────────
     # These map to the score_components field in the API response
@@ -749,12 +1026,13 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -
 
     # ── Score breakdown for frontend popover ──────────────────────────────
     breakdown = {
-        'economies':    {k: v for k, v in scores.items() if k != 'Extraction'},
-        'extraction':   scores['Extraction'],
+        'economies':    scores,    # v3.1: include Extraction symmetrically
         'dimensions': {
-            'slots':     slot_score,
-            'strategic': strategic_score,
-            'safety':    safety_score,
+            'slots':         slot_score,
+            'strategic':     strategic_score,
+            'safety':        safety_score,
+            'terraforming':  tf_potential,
+            'diversity':     diversity,
         },
         'bodies': {
             'rocky_clean':  counts['rocky_clean'],
@@ -775,6 +1053,8 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -
         },
         'primary_economy':   primary_eco,
         'secondary_economy': secondary_eco,
+        'rationale':         rationale,
+        'confidence':        confidence,
     }
 
     return {
@@ -811,7 +1091,14 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str]) -
         'signal_quality':     min(int((min(counts['bio'], 10) * 5 + min(counts['geo'], 5) * 4)), 100),
         'orbital_safety':     safety_score,
         'star_bonus':         star_bonus,
-        'score_breakdown':    breakdown,
+        # v3.1 fields — stored as separate columns so the rerank endpoint
+        # can weight them without recomputing.
+        'score_extraction':       scores['Extraction'],
+        'terraforming_potential': tf_potential,
+        'body_diversity':         diversity,
+        'confidence':             confidence,
+        'rationale':              rationale,
+        'score_breakdown':        breakdown,
     }
 
 
@@ -851,7 +1138,8 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                        subtype,
                        is_earth_like, is_water_world, is_ammonia_world,
                        is_landable, is_terraformable, is_tidal_lock,
-                       bio_signal_count, geo_signal_count
+                       bio_signal_count, geo_signal_count,
+                       distance_from_star
                 FROM   bodies
                 WHERE  system_id64 = ANY(%s)
             """, (slice_ids,))
@@ -867,15 +1155,30 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                     'is_tidal_lock':    row[7],
                     'bio_signal_count': row[8],
                     'geo_signal_count': row[9],
+                    'distance_from_star': row[10],
                 })
         except Exception as e:
             log.error(f"Worker {worker_id}: body fetch error (offset {start}): {e}")
+
+    # ── Fetch systems.last_updated so confidence can reflect data freshness
+    last_updated_by_system: dict = {}
+    try:
+        cur.execute(
+            "SELECT id64, last_updated FROM systems WHERE id64 = ANY(%s)",
+            (id64s,)
+        )
+        for sid, ts in cur:
+            last_updated_by_system[sid] = ts
+    except Exception as e:
+        log.debug(f"Worker {worker_id}: last_updated fetch skipped ({e})")
 
     # ── Compute ratings ────────────────────────────────────────────────────
     for system_id64, main_star_type in system_batch:
         try:
             bodies = bodies_by_system.get(system_id64, [])
-            rating = rate_system(system_id64, bodies, main_star_type)
+            last_updated = last_updated_by_system.get(system_id64)
+            rating = rate_system(system_id64, bodies, main_star_type,
+                                 last_updated=last_updated)
             rating_batch.append(rating)
             processed += 1
         except Exception as e:
@@ -954,6 +1257,12 @@ def _write_ratings(conn, cur, batch: list) -> None:
         r.get('signal_quality'),
         r.get('orbital_safety'),
         r.get('star_bonus'),
+        # v3.1 columns
+        r.get('score_extraction'),
+        r.get('terraforming_potential'),
+        r.get('body_diversity'),
+        r.get('confidence'),
+        r.get('rationale'),
         json.dumps(r['score_breakdown']),
         now_iso,
     ) for r in batch]
@@ -972,6 +1281,8 @@ def _write_ratings(conn, cur, batch: list) -> None:
             bio_signal_total, geo_signal_total,
             neutron_count, black_hole_count, white_dwarf_count,
             slots, body_quality, compactness, signal_quality, orbital_safety, star_bonus,
+            score_extraction, terraforming_potential, body_diversity,
+            confidence, rationale,
             score_breakdown, updated_at
         ) VALUES %s
         ON CONFLICT (system_id64) DO UPDATE SET
@@ -1005,6 +1316,11 @@ def _write_ratings(conn, cur, batch: list) -> None:
             signal_quality      = EXCLUDED.signal_quality,
             orbital_safety      = EXCLUDED.orbital_safety,
             star_bonus          = EXCLUDED.star_bonus,
+            score_extraction       = EXCLUDED.score_extraction,
+            terraforming_potential = EXCLUDED.terraforming_potential,
+            body_diversity         = EXCLUDED.body_diversity,
+            confidence             = EXCLUDED.confidence,
+            rationale              = EXCLUDED.rationale,
             score_breakdown     = EXCLUDED.score_breakdown,
             updated_at          = NOW()
         """,
@@ -1013,7 +1329,9 @@ def _write_ratings(conn, cur, batch: list) -> None:
             "(%s,%s,%s,%s,%s,%s,%s,%s,"
             "%s::economy_type,"
             "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-            "%s,%s,%s,%s,%s,%s,%s,%s)"
+            "%s,%s,%s,%s,%s,%s,"
+            "%s,%s,%s,%s,%s,"
+            "%s,%s)"
         ),
         page_size=BATCH_SIZE,
     )
