@@ -112,8 +112,14 @@ services:
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
       TTL_SEARCH:           3600
       TTL_SYSTEM:           86400
-      TTL_CLUSTER:          3600
+      TTL_CLUSTER:          86400
       COMPOSE_PROJECT_DIR:  /opt/ed-finder   # used by admin/rebuild-clusters endpoint
+      # Security — admin endpoints disabled unless a token is set in .env.
+      ADMIN_TOKEN:          ${ADMIN_TOKEN:-}
+      # Comma-separated CORS origins. Override in .env for staging/dev.
+      CORS_ORIGINS:         ${CORS_ORIGINS:-https://ed-finder.app,https://www.ed-finder.app}
+      # Keep internal error details out of HTTP responses by default.
+      EXPOSE_ERROR_DETAIL:  ${EXPOSE_ERROR_DETAIL:-false}
     volumes:
       - /data/logs:/data/logs
     ports:
@@ -141,6 +147,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@pgbouncer:5432/edfinder
+      REDIS_URL:            redis://redis:6379/0
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
       DIRTY_FLUSH_INTERVAL: 300
     volumes:
@@ -150,6 +157,8 @@ services:
         condition: service_healthy
       pgbouncer:
         condition: service_started
+      redis:
+        condition: service_healthy
 
   # ── Nginx (SSL + static files) ────────────────────────────────────────────
   nginx:

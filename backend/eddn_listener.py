@@ -50,14 +50,18 @@ from typing import Optional
 import zmq
 import zmq.asyncio
 import asyncpg
+import redis.asyncio as aioredis
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 DB_DSN      = os.getenv('DATABASE_URL',  'postgresql://edfinder:edfinder@postgres:5432/edfinder')
+REDIS_URL   = os.getenv('REDIS_URL',     'redis://redis:6379/0')
 EDDN_RELAY  = os.getenv('EDDN_RELAY',   'tcp://eddn.edcd.io:9500')
 LOG_LEVEL   = os.getenv('LOG_LEVEL',    'INFO')
 LOG_FILE    = os.getenv('LOG_FILE',     '/data/logs/eddn.log')
+
+EDDN_PUBSUB_CHANNEL = 'eddn_events'
 
 # How often to flush dirty system recalculations (seconds)
 DIRTY_FLUSH_INTERVAL = int(os.getenv('DIRTY_FLUSH_INTERVAL', '300'))  # 5 minutes
@@ -102,11 +106,11 @@ def utcnow() -> str:
 
 def safe_float(v) -> Optional[float]:
     try: return float(v) if v is not None else None
-    except: return None
+    except (TypeError, ValueError): return None
 
 def safe_int(v) -> Optional[int]:
     try: return int(v) if v is not None else None
-    except: return None
+    except (TypeError, ValueError): return None
 
 ECONOMY_MAP = {
     '$economy_agriculture;':  'Agriculture',
@@ -491,7 +495,7 @@ JOURNAL_HANDLERS = {
 }
 
 
-async def run_eddn_listener(pool: asyncpg.Pool):
+async def run_eddn_listener(pool: asyncpg.Pool, redis: Optional[aioredis.Redis] = None):
     """Main EDDN subscriber loop."""
     context = zmq.asyncio.Context()
     subscriber = context.socket(zmq.SUB)
@@ -525,6 +529,20 @@ async def run_eddn_listener(pool: asyncpg.Pool):
             if handler:
                 await handler(pool, header, message)
                 _stats['events_processed'] += 1
+                # Publish a compact event summary to Redis so the API
+                # container's SSE endpoint can fan it out to connected
+                # clients in real time.
+                if redis is not None:
+                    try:
+                        summary = {
+                            'system_name': message.get('StarSystem') or message.get('BodyName'),
+                            'id64':        safe_int(message.get('SystemAddress')),
+                            'type':        message.get('event') or schema.rsplit('/', 1)[-1],
+                            'timestamp':   utcnow(),
+                        }
+                        await redis.publish(EDDN_PUBSUB_CHANNEL, json.dumps(summary, default=str))
+                    except Exception as e:
+                        log.debug(f"Pub/sub publish failed (non-fatal): {e}")
             else:
                 _stats['events_skipped'] += 1
 
@@ -548,9 +566,27 @@ async def run_eddn_listener(pool: asyncpg.Pool):
 
 async def main():
     pool = await asyncpg.create_pool(
-        dsn=DB_DSN, min_size=3, max_size=10, command_timeout=30
+        dsn=DB_DSN, min_size=3, max_size=10, command_timeout=30,
+        # Required for pgBouncer transaction-pool mode.
+        statement_cache_size=0,
     )
     log.info("PostgreSQL pool ready")
+
+    # Optional Redis client for publishing live events to the API's SSE bridge.
+    redis: Optional[aioredis.Redis] = None
+    try:
+        redis = aioredis.from_url(
+            REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+            retry_on_timeout=True,
+        )
+        await redis.ping()
+        log.info(f"Redis connected ✓ ({REDIS_URL}) — EDDN events will be published on channel {EDDN_PUBSUB_CHANNEL}")
+    except Exception as e:
+        log.warning(f"Redis unavailable ({e}) — live SSE feed will be disabled")
+        redis = None
 
     loop = asyncio.get_running_loop()
 
@@ -565,6 +601,11 @@ async def main():
         except Exception as e:
             log.error(f"Final flush failed: {e}")
         finally:
+            if redis is not None:
+                try:
+                    await redis.aclose()
+                except Exception:
+                    pass
             for task in asyncio.all_tasks(loop):
                 task.cancel()
 
@@ -574,7 +615,7 @@ async def main():
         )
 
     await asyncio.gather(
-        run_eddn_listener(pool),
+        run_eddn_listener(pool, redis),
         dirty_recalc_job(pool),
         stats_reporter(),
     )
