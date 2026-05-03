@@ -226,8 +226,9 @@ export function OrangeGlass() {
       margin-top: 4px;
     }
 
-    /* ── Content ── */
-    .og-content { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+    /* ── Content: darker backdrop so nebula glows at edges ── */
+    .og-content { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; background: rgba(2,3,8,0.55); }
+    .og-sidebar { background: rgba(255,255,255,0.018) !important; }
 
     .og-summary {
       display: flex; align-items: center; gap: 12px; padding: 10px 16px;

@@ -2120,6 +2120,19 @@ body {
   border: 1px solid rgba(255,106,0,0.30);
   border-radius: 0 0 10px 10px;
 }
+
+/* ── Content area: darker backdrop so nebula glows around edges ── */
+#content {
+  background: rgba(2,3,8,0.55);
+}
+#sidebar {
+  background: rgba(255,255,255,0.018);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+#main {
+  background: transparent;
+}
 </style>
 </head>
 <body>
