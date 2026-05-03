@@ -2024,11 +2024,9 @@ body {
   z-index: 2;
 }
 
-/* ── Status bar: glass treatment matching the rest of the UI ── */
+/* ── Status bar: solid semi-transparent (no backdrop-filter on full-width bars) ── */
 #status-bar {
-  background: rgba(255,255,255,0.025);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(6,8,14,0.82);
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
@@ -2041,22 +2039,18 @@ body {
   box-shadow: 0 4px 40px rgba(0,0,0,0.50), 0 1px 0 rgba(255,255,255,0.06) inset;
 }
 
-/* ── Tab bar: frosted glass ── */
+/* ── Tab bar: solid semi-transparent (no backdrop-filter on wide bars) ── */
 #tabs {
-  background: rgba(255,255,255,0.025);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(6,8,14,0.82);
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 .tab-btn { color: rgba(155,170,187,0.55); }
 .tab-btn:hover { color: #d0d8e8; border-bottom-color: rgba(255,255,255,0.15); }
 .tab-btn.active { color: var(--orange-lt); border-bottom-color: var(--orange); }
 
-/* ── Sidebar: frosted glass ── */
+/* ── Sidebar: solid semi-transparent (no backdrop-filter on scroll containers) ── */
 #sidebar {
-  background: rgba(255,255,255,0.025);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: rgba(6,8,14,0.75);
   border-right: 1px solid rgba(255,255,255,0.07);
 }
 
@@ -2144,11 +2138,6 @@ body {
 /* ── Content area: darker backdrop so nebula glows around edges ── */
 #content {
   background: rgba(2,3,8,0.55);
-}
-#sidebar {
-  background: rgba(255,255,255,0.018);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
 }
 #main {
   background: transparent;
