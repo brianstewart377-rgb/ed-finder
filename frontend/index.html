@@ -3406,9 +3406,12 @@ function resetFilters() {
   _showUndoToast('Filters reset');
   BODY_SLIDERS.forEach(s => {
     sliderState[s.key] = { min: 0, max: s.max };
-    document.getElementById(`smin-${s.key}`).value = 0;
-    document.getElementById(`smax-${s.key}`).value = s.max;
-    document.getElementById(`sv-${s.key}`).textContent = `0 – ${s.max}`;
+    const sminEl = document.getElementById(`smin-${s.key}`);
+    const smaxEl = document.getElementById(`smax-${s.key}`);
+    const svEl   = document.getElementById(`sv-${s.key}`);
+    if (sminEl) sminEl.value = 0;
+    if (smaxEl) smaxEl.value = s.max;
+    if (svEl)   svEl.textContent = `0 – ${s.max}`;
     updateDualFill(s.key, 0, s.max, s.max);
   });
   document.getElementById('dist-slider').value = 50;

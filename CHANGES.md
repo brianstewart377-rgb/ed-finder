@@ -5,6 +5,23 @@ Production app lives at ed-finder.app (Hetzner/Docker); this log tracks sandbox 
 
 ---
 
+## 2026-05-03 — Forensic audit pass (full code review + null-crash fix)
+
+### frontend/index.html
+
+**Forensic audit scope** — Ran complete cross-layer audit: Python AST on all 12 .py files, `new Function()` JS syntax check on all 3 inline `<script>` blocks (391 KB of JS), HTML tag structure parser (227 IDs, 274 function definitions), cross-file function conflict check, API endpoint live-test (all 7 routes → 200), duplicate function detection, async/await coverage review, XSS pattern scan, and a full `getElementById` vs DOM cross-reference.
+
+**resetFilters null-crash (FIXED)** — `resetFilters()` accessed `document.getElementById(\`smin-${s.key}\`).value`, `smax-`, and `sv-` directly without null guards. These IDs are created dynamically by `buildBodySliders()` during page init. If `resetFilters()` were ever called before the filter panel fully renders (e.g. rapid interaction on slow load), it would throw `TypeError: Cannot set properties of null`. Fixed by assigning to local variables with `if (el)` guards before writing `.value` / `.textContent`.
+
+**False positives confirmed (no action needed)**:
+- 28 "missing functions" from naive regex — all JS built-in methods (forEach, splice, etc.)
+- 33 "missing IDs" — split into: dynamic template IDs (`card-${s.id64}`, `smin-${key}` — runtime-correct); dynamically created IDs (`body-pill-popover`, `cache-stats-panel` — intentionally absent from static HTML); fallback-guarded ID (`opt-ref-input` uses `||` querySelector); and `app.js` dead-code references to old map UI (`map3d-*`, `map-*`) that are irrelevant since `app.js` is never loaded by `index.html`.
+- `toCanvas` defined twice — both definitions are local-scoped inside separate functions (`_drawNebulaOverlayOnMap` and a second map-draw function); no global conflict.
+- `renderResults` / `buildSystemCard` in `app.js` conflict with `index.html` definitions — moot, `app.js` has no `<script src>` reference and is never executed.
+- `spanshPost` / `runRouteSearch` flagged as async-without-try/catch — both are adequately protected: `spanshPost` is a throwing utility, callers handle errors; `runRouteSearch` has per-hop try/catch and a separate enrichment catch block.
+
+---
+
 ## 2026-05-03 — UX wiring pass (3 targeted fixes on top of existing stubs)
 
 ### frontend/index.html
