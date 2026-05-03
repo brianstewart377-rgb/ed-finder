@@ -5,6 +5,62 @@ Production app lives at ed-finder.app (Hetzner/Docker); this log tracks sandbox 
 
 ---
 
+## 2026-05-03 — UX polish batch #2 (25 improvements, index.html)
+
+### frontend/index.html
+
+**#1 Filter persist** — `_saveFilters()` called at start of `runSearch()`. Filter state written to localStorage on every search; `_loadFilters()` restores it on page load. *(was already implemented)*
+
+**#2 Zero-results guidance** — `renderResultsProgressive()` detects empty results and renders a smart empty state with contextual tips (increase distance, widen rating range, remove toggles) and quick-fix buttons. *(was already implemented)*
+
+**#3 Search duration** — `window._searchT0 = Date.now()` captured at search start; elapsed time shown in the results summary bar as `⏱ Nms`. *(was already implemented)*
+
+**#4 Score tooltip** — Rating badge has `onmouseenter="showScoreExplainer()"` that shows a breakdown popup (star bonus, slots, body quality, compactness, signals, orbital safety). *(was already implemented)*
+
+**#5 Watchlist indicator on card** — Cards already in the watchlist get class `is-watched` which renders a blue left-border highlight via CSS. *(was already implemented)*
+
+**#6 Bulk watchlist add** — "👁 Watch All" button in results summary bar calls `_watchAllResults()`, adding every displayed system to watchlist in one click. *(was already implemented)*
+
+**#7 Copy all names** — "📋 All Names" button in results bar calls `_copyAllNames()`, copying a newline-separated list of all visible system names to clipboard. *(was already implemented)*
+
+**#8 Scroll-to-top on page change** — `renderResultsProgressive()` resets `content.scrollTop = 0` and calls `scrollIntoView({ block:'start', behavior:'smooth' })` on every render. *(was already implemented)*
+
+**#9 Quick-pin hover reveal** — CSS: `.result-card .pin-btn:not(.pinned) { opacity:0.3 }` / `.result-card:hover .pin-btn:not(.pinned) { opacity:1 }`. Pin button is subtle at rest and pops to full opacity on card hover, reducing clutter without hiding the action. *(NEW)*
+
+**#10 Economy colours in briefing modal** — `_ecoChipKey(eco)` helper maps economy names to CSS class keys. The briefing modal's economy section now renders `<span class="eco-chip eco-chip-{key}">` chips with the existing colour palette (green=Agriculture, amber=Industrial, brown=Refinery, blue=High Tech, red=Military, etc.). *(NEW)*
+
+**#11 Body sort in briefing modal** — Added a BODIES section to the briefing modal with three sort buttons (Type / Name / Landable first). `_sortBriefingBodies(key)` re-renders the body pills in sorted order using `buildBodyPills()`. The active sort button is highlighted. *(NEW)*
+
+**#12 Add-to-route in briefing modal** — "🗺️ Add to Route" button added to the briefing modal links row. Calls `_addSysToRoute()` which pushes `_briefingSys` into `routeWaypoints`, calls `renderRouteHops()` and `_updateRouteTabLabel()`, then shows a confirmation toast. Duplicate guard prevents adding the same system twice. *(NEW)*
+
+**#13 Compare tab badge** — Added `<span id="compare-count-badge">` to the Compare tab button (matching style of existing Watchlist/Pinned/Colony badges). `_updateCompareTabLabel()` now updates this badge instead of replacing the button's text content. *(NEW)*
+
+**#14 Route tab badge** — Added `<span id="route-count-badge">` to the Route tab button. `_updateRouteTabLabel()` now updates the badge count instead of replacing button text. *(NEW)*
+
+**#15 Tab overflow** — `#tabs { overflow-x:auto; scrollbar-width:none }` lets the tab bar scroll horizontally on narrow screens without wrapping. *(was already implemented)*
+
+**#16 Changelog tab** — Removed `opacity:0.55` dim and restored full-width label from `📋` (icon only) to `📋 Changes`, making it as accessible as other tab buttons. *(NEW)*
+
+**#17 Watchlist sort** — `loadWatchlist()` reads the `#watchlist-sort` select value and sorts the list by Name / Distance / Population / Colonised status before rendering. *(was already implemented)*
+
+**#18 Session restore prompt** — `#session-restore-banner` HTML + CSS in place; `_restoreSession()` function defined. Banner appears when `localStorage` contains cached results from a prior session. *(was already implemented)*
+
+**#19 Sync progress** — `_updateLocalDbBadge()` now checks `d.systems_import_done`. When the import is still running it renders a mini CSS progress bar (`<span class="local-db-sync-bar">`) alongside the system count to show import completion %. Badge colour shifts from green (done) to dim (in progress). *(NEW)*
+
+**#20 Autocomplete loader** — `fetchAutoComplete()` immediately renders `⏳ Searching…` into the dropdown before the API call resolves, giving instant visual feedback. *(was already implemented)*
+
+**#21 3D map colour legend** — `update3DLegend()` populates `#threed-legend` with colour-keyed dot/ring items whenever the colour or size mode changes. *(was already implemented)*
+
+**#22 Map recenter** — `⊙ Reset` button in the 2D Galactic Map toolbar calls `resetMapView()` to snap back to the reference system. *(was already implemented)*
+
+**#23 Keyboard nav** — Result cards have `tabindex="0"` + `:focus` ring CSS. `ArrowDown` / `ArrowUp` keys move focus between cards when the Finder tab is active. *(was already implemented)*
+
+**#24 Undo toast** — `#undo-toast` HTML + CSS + `_showUndoToast(msg, fn)` in place. Used by destructive actions (watchlist remove etc.) to offer a timed undo option. *(was already implemented)*
+
+**#25 Active filter summary** — `updateFilterBadge()` counts active non-default filters and shows the count on `#filter-live-badge` and the Reset Filters button badge. *(was already implemented)*
+
+---
+
 ## 2026-05-03 — Bug fix pass (full codebase audit)
 
 ### frontend/app.js

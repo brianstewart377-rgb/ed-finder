@@ -1888,6 +1888,18 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 
 /* ── UX-23: Keyboard nav focus ring on result cards ── */
 .result-card:focus { outline:2px solid var(--orange); outline-offset:2px; }
+
+/* ── UX-9: Quick-pin hover reveal ── */
+.result-card .pin-btn:not(.pinned) { opacity:0.3; transition:opacity 0.15s ease; }
+.result-card:hover .pin-btn:not(.pinned) { opacity:1; }
+
+/* ── UX-19: Local DB sync progress indicator ── */
+.local-db-sync-bar { display:inline-block; width:60px; height:4px; background:var(--border); border-radius:2px; vertical-align:middle; margin-left:6px; overflow:hidden; }
+.local-db-sync-fill { height:100%; background:var(--green); border-radius:2px; transition:width 0.6s ease; }
+
+/* ── UX-11: Briefing modal body sort buttons ── */
+.briefing-sort-btn { background:var(--bg3); border:1px solid var(--border); color:var(--text-dim); border-radius:4px; font-size:9px; padding:1px 7px; cursor:pointer; transition:border-color 0.15s,color 0.15s; }
+.briefing-sort-btn:hover, .briefing-sort-btn.active { border-color:var(--orange); color:var(--orange); }
 </style>
 </head>
 <body>
@@ -1958,15 +1970,15 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-optimizer" onclick="showTab('optimizer',this)">🔧 System Optimizer</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-guide" onclick="showTab('guide',this)">📚 Economy Guide</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-pinned" onclick="showTab('pinned',this)" id="tab-btn-pinned">📌 Pinned <span id="pin-count-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
-  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-compare" onclick="showTab('compare',this)">⚖️ Compare</button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-compare" onclick="showTab('compare',this)">⚖️ Compare <span id="compare-count-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-watchlist" onclick="showTab('watchlist',this)" id="tab-btn-watchlist">👁️ Watchlist <span id="watch-count-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span><span id="watch-change-badge" style="display:none;background:var(--red);color:#fff;border-radius:9px;padding:0 6px;font-size:10px;margin-left:2px" title="Unreviewed changes">0</span></button>
-  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-route" onclick="showTab('route',this)">🗺️ Route</button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-route" onclick="showTab('route',this)">🗺️ Route <span id="route-count-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-fc" onclick="showTab('fc',this)">🚀 FC Planner</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-map" onclick="showTab('map',this)">🌌 Map</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-3d" onclick="showTab('3d',this)">🔮 3D Map</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-colony" onclick="showTab('colony',this)">🏗️ Colony Tracker <span id="colony-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-admin" onclick="showTab('admin',this)">📊 Admin</button>
-  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-changelog" onclick="showTab('changelog',this)" title="App changelog" style="opacity:0.55;letter-spacing:0;padding:6px 8px">📋</button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-changelog" onclick="showTab('changelog',this)" title="View app changelog">📋 Changes</button>
 </div>
 
 <!-- ══════════════════════════════════════
@@ -2524,7 +2536,13 @@ function _updateLocalDbBadge(d) {
   if (!badge) return;
   if (d && d.available && d.systems_count > 0) {
     const m = (d.systems_count / 1e6).toFixed(1);
-    badge.textContent = `🗄️ Local DB: ${m}M systems`;
+    const importDone = d.systems_import_done && d.systems_import_done !== 'in progress';
+    // UX-19: show sync progress bar when import is still running
+    const pct = importDone ? 100 : Math.min(99, Math.round((d.systems_count / 1860000) * 100));
+    const progressHtml = !importDone
+      ? ` <span class="local-db-sync-bar" title="Import in progress: ${pct}%"><span class="local-db-sync-fill" style="width:${pct}%"></span></span>`
+      : '';
+    badge.innerHTML = `🗄️ Local DB: ${m}M systems${progressHtml}`;
     badge.title = [
       `Systems:  ${d.systems_count.toLocaleString()}`,
       `Bodies:   ${(d.body_count||0).toLocaleString()}`,
@@ -2535,7 +2553,7 @@ function _updateLocalDbBadge(d) {
       'Searches use local DB — no Spansh limit!',
     ].join('\n');
     badge.style.display = 'inline-flex';
-    badge.style.color = '#4ade80';
+    badge.style.color = importDone ? '#4ade80' : '#94a3b8';
   } else {
     badge.textContent = '📡 Using Spansh';
     badge.title = d?.reason || 'Local DB not yet imported. Run import_systems.py to enable.';
@@ -6830,16 +6848,21 @@ function reconcilePendingCompare() {
 }
 
 function _updateCompareTabLabel() {
-  const tab = document.querySelector('[onclick*="showTab(\'compare\'"]') || document.getElementById('tab-btn-compare');
-  if (tab) tab.textContent = compareList.length ? `⚖️ Compare (${compareList.length})` : '⚖️ Compare';
+  const badge = document.getElementById('compare-count-badge');
+  if (badge) {
+    badge.textContent = compareList.length;
+    badge.style.display = compareList.length ? 'inline' : 'none';
+  }
 }
 
 // UX-14: Route tab badge — shows waypoint count
 function _updateRouteTabLabel() {
-  const tab = document.querySelector('[aria-controls="tab-route"]');
-  if (!tab) return;
   const n = (typeof routeWaypoints !== 'undefined') ? routeWaypoints.length : 0;
-  tab.textContent = n ? `🗺️ Route (${n})` : '🗺️ Route';
+  const badge = document.getElementById('route-count-badge');
+  if (badge) {
+    badge.textContent = n;
+    badge.style.display = n ? 'inline' : 'none';
+  }
 }
 
 function toggleCompare(id64, checked, checkboxEl) {
@@ -9719,6 +9742,56 @@ function _histCollapseToggle() {
 // ────────────────────────────────────────────────────────────────────
 // FEATURE 6: SYSTEM REPORT CARD (PDF-printable briefing)
 // ────────────────────────────────────────────────────────────────────
+let _briefingSys = null; // UX-11/12: currently open briefing system
+
+// UX-10: map economy name to eco-chip CSS key
+function _ecoChipKey(eco) {
+  if (!eco) return 'none';
+  const e = eco.toLowerCase();
+  if (e.includes('agri'))    return 'agriculture';
+  if (e.includes('industri')) return 'industrial';
+  if (e.includes('refin'))   return 'refinery';
+  if (e.includes('extract')) return 'extraction';
+  if (e.includes('high') || e.includes('tech')) return 'hightech';
+  if (e.includes('milit'))   return 'military';
+  if (e.includes('tour'))    return 'tourism';
+  if (e.includes('colon'))   return 'colony';
+  if (e.includes('terra'))   return 'terraforming';
+  return 'none';
+}
+
+// UX-11: sort body pills in briefing modal
+function _sortBriefingBodies(key) {
+  if (!_briefingSys) return;
+  const bodies = [...(_briefingSys.bodies || [])];
+  if (key === 'type')     bodies.sort((a, b) => (a.subtype || a.type || '').localeCompare(b.subtype || b.type || ''));
+  if (key === 'name')     bodies.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  if (key === 'landable') bodies.sort((a, b) => (b.is_landable ? 1 : 0) - (a.is_landable ? 1 : 0));
+  const el = document.getElementById('briefing-body-pills');
+  if (el) el.innerHTML = buildBodyPills(bodies);
+  document.querySelectorAll('.briefing-sort-btn').forEach(b => b.classList.remove('active'));
+  const active = document.getElementById('bsb-' + (key === 'landable' ? 'land' : key));
+  if (active) active.classList.add('active');
+}
+
+// UX-12: add currently open briefing system to route planner
+function _addSysToRoute() {
+  if (!_briefingSys) return;
+  const sys = _briefingSys;
+  if (typeof routeWaypoints !== 'undefined') {
+    if (routeWaypoints.some(w => String(w.id64) === String(sys.id64))) {
+      showToast(`${sys.name} is already in your route.`, 'info');
+      return;
+    }
+    routeWaypoints.push({ name: sys.name, x: sys.x || 0, y: sys.y || 0, z: sys.z || 0, id64: sys.id64 });
+    if (typeof renderRouteHops === 'function') renderRouteHops();
+    if (typeof _updateRouteTabLabel === 'function') _updateRouteTabLabel();
+    showToast(`${sys.name} added to Route Planner.`, 'success');
+  } else {
+    showToast('Route Planner not available.', 'warn');
+  }
+}
+
 function openBriefing(id64) {
   const sys = (window._lastResults?.systems || []).find(s => String(s.id64) === String(id64))
            || (typeof getPinned === 'function' ? getPinned() : []).find(s => String(s.id64) === String(id64))
@@ -9736,6 +9809,7 @@ function _renderBriefingModal(sys) {
   const modal = document.getElementById('briefing-modal');
   const inner = document.getElementById('briefing-content');
   if (!modal || !inner) return;
+  _briefingSys = sys; // UX-11/12: track for sort/route actions
 
   const rating  = sys._rating || rateSystem(sys);
   const economy = (typeof suggestEconomy === 'function') ? suggestEconomy(sys) : {};
@@ -9789,10 +9863,20 @@ function _renderBriefingModal(sys) {
         ['Geo Signals', geoCount],
       ].map(([l,v]) => `<span style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:4px 8px"><strong>${v}</strong> <span style="color:var(--text-dim)">${l}</span></span>`).join('')}
     </div>
-    <!-- Economy -->
+    <!-- Body list with sort — UX-11 -->
+    ${bodies.length ? `<div style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <span style="font-size:10px;font-family:Orbitron,monospace;color:var(--orange);letter-spacing:1px">BODIES</span>
+        <button class="briefing-sort-btn active" id="bsb-type" onclick="_sortBriefingBodies('type')">Type</button>
+        <button class="briefing-sort-btn" id="bsb-name" onclick="_sortBriefingBodies('name')">Name</button>
+        <button class="briefing-sort-btn" id="bsb-land" onclick="_sortBriefingBodies('landable')">Landable first</button>
+      </div>
+      <div id="briefing-body-pills" style="display:flex;flex-wrap:wrap;gap:3px">${buildBodyPills(bodies)}</div>
+    </div>` : ''}
+    <!-- Economy — UX-10 eco-chips -->
     ${economy.primary ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">
-      Best Economy: <strong style="color:var(--text)">${economy.primary}</strong>
-      ${economy.secondary ? ` · Secondary: <strong>${economy.secondary}</strong>` : ''}
+      Best Economy: <span class="eco-chip eco-chip-${_ecoChipKey(economy.primary)}">${economy.primary}</span>
+      ${economy.secondary ? ` &nbsp;·&nbsp; Secondary: <span class="eco-chip eco-chip-${_ecoChipKey(economy.secondary)}">${economy.secondary}</span>` : ''}
     </div>` : ''}
     <!-- TTC strip -->
     <div class="ttc-strip">
@@ -9808,8 +9892,9 @@ function _renderBriefingModal(sys) {
            <button onclick="_releaseReservation('${sys.id64}')" style="margin-left:8px;font-size:10px;padding:2px 6px;background:none;border:1px solid var(--border);color:var(--red);border-radius:3px;cursor:pointer">Release</button>`
         : `<button onclick="_makeReservation('${sys.id64}','${(sys.name||'').replace(/'/g,'')}')" style="font-size:11px;padding:4px 10px" class="btn btn-secondary">📌 Reserve for My CMDR</button>`}
     </div>
-    <!-- Links -->
+    <!-- Links — UX-12 Add-to-Route button -->
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+      <button onclick="_addSysToRoute()" class="btn btn-secondary" style="font-size:10px;background:rgba(249,115,22,0.12);border-color:rgba(249,115,22,0.4)">🗺️ Add to Route</button>
       <a href="https://www.edsm.net/en/system/id/0/name/${encodeURIComponent(sys.name||'')}" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:10px;text-decoration:none">🔗 EDSM</a>
       <a href="https://inara.cz/elite/starsystem/?search=${encodeURIComponent(sys.name||'')}" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:10px;text-decoration:none">🔗 Inara</a>
       <button onclick="window.print()" class="btn btn-secondary" style="font-size:10px">🖨️ Print</button>
