@@ -8,5 +8,8 @@ export const modules: ModuleMap = {
   "./components/mockups/ed-themes/NebulaGlass.tsx": () => import("../components/mockups/ed-themes/NebulaGlass.tsx"),
   "./components/mockups/ed-themes/OrangeGlass.tsx": () => import("../components/mockups/ed-themes/OrangeGlass.tsx"),
   "./components/mockups/ed-themes/Polished.tsx": () => import("../components/mockups/ed-themes/Polished.tsx"),
-  "./components/mockups/ed-themes/Synthwave.tsx": () => import("../components/mockups/ed-themes/Synthwave.tsx")
+  "./components/mockups/ed-themes/SolidFlat.tsx": () => import("../components/mockups/ed-themes/SolidFlat.tsx"),
+  "./components/mockups/ed-themes/Synthwave.tsx": () => import("../components/mockups/ed-themes/Synthwave.tsx"),
+  "./components/mockups/ed-themes/TacticalHUD.tsx": () => import("../components/mockups/ed-themes/TacticalHUD.tsx"),
+  "./components/mockups/ed-themes/TerminalGreen.tsx": () => import("../components/mockups/ed-themes/TerminalGreen.tsx")
 };
