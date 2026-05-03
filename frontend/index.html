@@ -2145,23 +2145,38 @@ body {
 .panel-body table th { color: #e8eaf0; }
 .panel-body .field label,
 .panel-body label,
+.panel-body .toggle-row label,
 #sidebar .field label,
-#sidebar label {
-  color: #e8d8c0;
+#sidebar label,
+#sidebar .toggle-row label {
+  color: #e8d8c0 !important;
   text-shadow: 0 1px 2px rgba(0,0,0,0.6);
   font-weight: 700;
 }
+/* Toggle inputs themselves (the actual <input>) shouldn't be coloured as text */
+.panel-body label.toggle,
+#sidebar label.toggle { text-shadow: none; }
 .panel-body .field input[type="text"],
 .panel-body .field input[type="number"],
 .panel-body .field select,
+.panel-body select,
+.panel-body input[type="text"],
+.panel-body input[type="number"],
 #sidebar input[type="text"],
 #sidebar input[type="number"],
 #sidebar select {
-  background: rgba(0,0,0,0.55);
-  color: #ffffff;
+  background: #15171f !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
 }
 .panel-body .field input::placeholder,
 #sidebar input::placeholder { color: rgba(220,220,220,0.55); }
+/* Inline-styled small labels (e.g. "Quick Filters", "Max dist from route") */
+#sidebar [style*="color:var(--text-dim)"],
+.panel-body [style*="color:var(--text-dim)"] {
+  color: #c8d0dc !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
 /* Slider labels in body type meters etc. */
 .panel-body .dual-slider-label span,
 #sidebar .dual-slider-label span {
