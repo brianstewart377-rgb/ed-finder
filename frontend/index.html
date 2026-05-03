@@ -49,7 +49,7 @@
   --border:    #2a3040;
   --border-o:  #ff6a0044;
   --text:      #d0d8e8;
-  --text-dim:  #9baabb; /* C1: lifted for WCAG AA on bg4 (was #7a8599 → 4.09:1) */
+  --text-dim:  #c0cedd; /* C1: brightened for nebula theme legibility */
   --text-hdr:  #ffffff;
   --gold:      #ffd700;
   --green:     #3ddc84;
@@ -264,6 +264,20 @@ body {
   border-color: var(--orange);
   box-shadow: 0 0 0 2px rgba(255,106,0,0.15);
 }
+
+/* ── Global input/select/textarea baseline ──────────────────────────────────
+   Ensures every form control has a dark background + light text regardless
+   of whether an inline style specifies one. Prevents browser-default white. */
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'Rajdhani', sans-serif;
+}
+/* Allow inline !important overrides to still win where needed */
 
 /* FIX-A2: Global focus-visible ring — keyboard users need visible focus
    on ALL interactive elements (buttons, tabs, sliders, checkboxes, links) */
