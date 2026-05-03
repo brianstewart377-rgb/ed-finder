@@ -863,6 +863,7 @@ async def galaxy_search(
                 'economy':           economy,
                 'min_score':         min_score,
                 'limit':             limit,
+                'offset':            req.offset,
                 'include_colonised': False,
             }
             return await _ls.local_db_galaxy_search(body_dict, pool)
@@ -1112,9 +1113,9 @@ async def batch_systems(
     redis: Optional[aioredis.Redis] = Depends(get_redis),
 ):
     body = await request.json()
-    id64s = body.get('id64s', [])
+    id64s = body.get('ids', body.get('id64s', []))  # frontend sends 'ids'; 'id64s' kept for back-compat
     if not id64s or len(id64s) > 500:
-        raise HTTPException(400, 'Provide 1-500 id64s')
+        raise HTTPException(400, 'Provide 1-500 ids')
 
     result: dict[str, Any] = {}
     missing: list[int] = []

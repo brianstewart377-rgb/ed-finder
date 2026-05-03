@@ -36,7 +36,13 @@ function toast(msg, dur = 3000) {
 }
 
 function copyText(text) {
-  navigator.clipboard.writeText(text).then(() => toast('Copied!')).catch(() => {});
+  if (!navigator.clipboard) {
+    toast('Copy not available (needs HTTPS)', 'warn');
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => toast('Copied!')).catch(() => {
+    toast('Copy failed — check browser permissions', 'warn');
+  });
 }
 
 function fmtCoord(v) { return v == null ? '—' : Number(v).toFixed(2); }
@@ -353,7 +359,6 @@ function buildModalHTML(sys) {
 
   // Bodies list — built via DOM to avoid nested template literal issues
   const bodies = sys.bodies || [];
-  console.log('[ED Finder] bodies array:', bodies.length, 'entries', bodies[0]);
   let bodiesHTML = '';
   if (bodies.length) {
     const rows = bodies.map(b => {
@@ -374,7 +379,6 @@ function buildModalHTML(sys) {
         + (distStr ? '<span class="body-row-dist">' + distStr + '</span>' : '')
         + '</div>';
     });
-    console.log('[ED Finder] body rows generated:', rows.length, 'first row preview:', rows[0]?.substring(0, 80));
     bodiesHTML = '<div class="modal-section"><div class="modal-section-title">Bodies (' + bodies.length + ')</div><div class="body-list">' + rows.join('') + '</div></div>';
   }
 
@@ -554,25 +558,30 @@ function attachModalEvents(sys) {
     if (noteDelete) {
       noteDelete.addEventListener('click', async () => {
         if (!confirm('Delete this note?')) return;
-        await apiFetch(`/api/systems/${sys.id64}/note`, { method: 'DELETE' });
-        noteArea.value = '';
-        noteDelete.hidden = true;
-        if (noteStatus) { noteStatus.textContent = 'Deleted'; noteStatus.className = 'note-status deleted'; setTimeout(() => { noteStatus.textContent = ''; }, 2000); }
+        try {
+          await apiFetch(`/api/systems/${sys.id64}/note`, { method: 'DELETE' });
+          noteArea.value = '';
+          noteDelete.hidden = true;
+          if (noteStatus) { noteStatus.textContent = 'Deleted'; noteStatus.className = 'note-status deleted'; setTimeout(() => { noteStatus.textContent = ''; }, 2000); }
+        } catch {
+          if (noteStatus) { noteStatus.textContent = 'Delete failed'; noteStatus.className = 'note-status error'; }
+        }
       });
     }
   }
 }
+function closeModal() {
+  const modal = qs('#system-modal');
+  if (modal) modal.hidden = true;
+  document.body.style.overflow = '';
+  _modalSys = null;
+}
+
 (function initModal() {
   const modal = qs('#system-modal');
   qs('#modal-close-btn').addEventListener('click', closeModal);
   modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) closeModal(); });
-
-  function closeModal() {
-    modal.hidden = true;
-    document.body.style.overflow = '';
-    _modalSys = null;
-  }
 })();
 
 // ═══════════════════════════════════════════════════════════════ WATCHLIST TAB
@@ -1548,8 +1557,10 @@ openSystemModal = async function(sys) {
           const li = document.createElement('li');
           li.className = 'changelog-item';
           const ts = c.detected_at ? new Date(c.detected_at).toLocaleDateString() : '';
-          li.innerHTML = `<span class="cl-name">${c.name || 'Unknown'}</span><span class="cl-field">${c.field_changed || ''}</span><span class="cl-old">${c.old_value ?? '—'}</span><span class="cl-arrow">→</span><span class="cl-new">${c.new_value ?? '—'}</span><span class="cl-ts">${ts}</span>`;
-          li.addEventListener('click', () => openSystemModal({ id64: c.system_id64, name: c.name }));
+          const sysName = c.system_name || c.name || 'Unknown';
+          const fieldName = c.change_type || c.field_changed || '';
+          li.innerHTML = `<span class="cl-name">${sysName}</span><span class="cl-field">${fieldName}</span><span class="cl-old">${c.old_value ?? '—'}</span><span class="cl-arrow">→</span><span class="cl-new">${c.new_value ?? '—'}</span><span class="cl-ts">${ts}</span>`;
+          li.addEventListener('click', () => openSystemModal({ id64: c.system_id64, name: sysName }));
           list.appendChild(li);
         });
       })

@@ -31,5 +31,11 @@ The database ships empty — star system data is imported separately via the imp
 - `frontend/app.js` — Frontend application logic
 - `sql/` — Database schema and functions
 
+## Known Architecture Notes
+- **Two CSS variable systems**: `index.html` uses `--orange`, `--bg`, `--text-dim`; `style.css` uses `--accent`, `--bg-panel`, `--bg-card`. Intentional split — do not merge without a full audit.
+- **Two search paths**: `local_search.py` (primary, runs against local DB) + inline fallback in `main.py` (used if local_search fails or is unavailable). Fallback lacks some filters local_search supports.
+- **Redis optional**: Redis unavailable in Replit — app degrades gracefully to no-cache mode.
+- **DB empty in Replit**: Star system data not present; structural/API testing only.
+
 ## Deployment
 Configured as `autoscale` target. Run command: `python3 backend/main.py`
