@@ -2130,7 +2130,7 @@ body {
 
 /* ── Panels ── */
 .panel {
-  background: rgba(6,8,16,0.94);
+  background: #0a0c14;
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 12px;
   color: #e8eaf0;
@@ -2162,6 +2162,18 @@ body {
 }
 .panel-body .field input::placeholder,
 #sidebar input::placeholder { color: rgba(220,220,220,0.55); }
+/* Slider labels in body type meters etc. */
+.panel-body .dual-slider-label span,
+#sidebar .dual-slider-label span {
+  color: #f0e6d8;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+  font-weight: 700;
+}
+.panel-body .dual-slider-label .range-val,
+#sidebar .dual-slider-label .range-val {
+  color: #ffc080;
+  text-shadow: 0 0 6px rgba(255,140,40,0.4);
+}
 .guide-table td { color: #e8eaf0; }
 .guide-table th { color: #ffb070; background: rgba(255,255,255,0.04); }
 .guide-table tr:hover td { background: rgba(255,255,255,0.05); }
