@@ -1159,6 +1159,9 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                 })
         except Exception as e:
             log.error(f"Worker {worker_id}: body fetch error (offset {start}): {e}")
+            # Reset aborted transaction so subsequent queries on this conn can proceed.
+            try: conn.rollback()
+            except Exception: pass
 
     # ── Fetch systems.updated_at so confidence can reflect data freshness
     last_updated_by_system: dict = {}
@@ -1171,6 +1174,9 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
             last_updated_by_system[sid] = ts
     except Exception as e:
         log.debug(f"Worker {worker_id}: updated_at fetch skipped ({e})")
+        # Reset aborted transaction so the ratings INSERT below isn't poisoned.
+        try: conn.rollback()
+        except Exception: pass
 
     # ── Compute ratings ────────────────────────────────────────────────────
     for system_id64, main_star_type in system_batch:
