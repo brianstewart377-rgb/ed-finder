@@ -2022,9 +2022,9 @@ body {
   z-index: 2;
 }
 
-/* ── Status bar: fully opaque dark ── */
+/* ── Status bar: semi-dark ── */
 #status-bar {
-  background: #060810;
+  background: rgba(4,5,10,0.72);
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
@@ -2037,24 +2037,24 @@ body {
   box-shadow: 0 4px 40px rgba(0,0,0,0.50), 0 1px 0 rgba(255,255,255,0.06) inset;
 }
 
-/* ── Tab bar: fully opaque dark ── */
+/* ── Tab bar: semi-dark so nebula tints it slightly ── */
 #tabs {
-  background: #060810;
+  background: rgba(4,5,10,0.72);
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 .tab-btn { color: rgba(155,170,187,0.55); }
 .tab-btn:hover { color: #d0d8e8; border-bottom-color: rgba(255,255,255,0.15); }
 .tab-btn.active { color: var(--orange-lt); border-bottom-color: var(--orange); }
 
-/* ── Sidebar: fully opaque dark so scroll-area shows correct colour ── */
+/* ── Sidebar: transparent so nebula shows through ── */
 #sidebar {
-  background: #060810;
+  background: transparent;
   border-right: 1px solid rgba(255,255,255,0.07);
 }
 
-/* ── Panels: glass look without backdrop-filter (prevents nebula bleed) ── */
+/* ── Panels: solid dark glass so nebula shows around but not through ── */
 .panel {
-  background: rgba(255,255,255,0.06);
+  background: rgba(6,8,16,0.82);
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 12px;
 }
@@ -2079,9 +2079,9 @@ body {
   box-shadow: 0 0 14px rgba(255,106,0,0.14);
 }
 
-/* ── Result cards: glass look without backdrop-filter ── */
+/* ── Result cards: solid dark glass ── */
 .result-card {
-  background: rgba(255,255,255,0.055);
+  background: rgba(6,8,16,0.80);
   border: 1px solid rgba(255,255,255,0.09);
   border-radius: 14px;
   transition: all 0.22s ease;
@@ -2125,12 +2125,12 @@ body {
   border-radius: 0 0 10px 10px;
 }
 
-/* ── Content and main: fully opaque dark void ── */
+/* ── Layout containers: transparent so nebula wrapper shows through ── */
 #content {
-  background: #04050a;
+  background: transparent;
 }
 #main {
-  background: #04050a;
+  background: transparent;
 }
 </style>
 </head>
