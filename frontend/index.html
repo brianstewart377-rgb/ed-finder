@@ -2225,17 +2225,19 @@ body {
 
 /* ── Result cards ── */
 .result-card {
-  background: rgba(6,8,16,0.92);
-  border: 1px solid rgba(255,255,255,0.09);
+  background: rgba(255,255,255,0.055);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.10);
   border-radius: 14px;
   transition: all 0.22s ease;
-  color: #e8eaf0;
+  color: #d8e4f8;
 }
 .result-card:hover {
-  transform: translateY(-4px);
-  background: rgba(12,14,28,0.88);
+  transform: translateY(-3px);
+  background: rgba(255,255,255,0.08);
   border-color: rgba(255,106,0,0.38);
-  box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,106,0,0.12), 0 4px 28px rgba(255,90,0,0.12);
+  box-shadow: 0 16px 40px rgba(0,0,20,0.50), 0 0 0 1px rgba(255,106,0,0.12), 0 4px 24px rgba(20,40,120,0.20);
 }
 .result-card-hdr {
   background: rgba(255,255,255,0.04);
@@ -2244,14 +2246,16 @@ body {
 
 /* ── Info cells ── */
 .info-cell {
-  background: rgba(255,255,255,0.045);
-  border: 1px solid rgba(255,255,255,0.09);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
   border-radius: 10px;
 }
 
 /* ── Briefing modal panel ── */
 .briefing-panel {
-  background: rgba(8,10,18,0.95);
+  background: rgba(6,8,20,0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255,106,0,0.25);
   border-radius: 14px;
 }
@@ -2265,8 +2269,10 @@ body {
 
 /* ── Autocomplete ── */
 .autocomplete-list {
-  background: rgba(8,10,18,0.97);
-  border: 1px solid rgba(255,106,0,0.30);
+  background: rgba(6,8,22,0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,106,0,0.28);
   border-radius: 0 0 10px 10px;
 }
 </style>
