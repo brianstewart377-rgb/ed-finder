@@ -1160,17 +1160,17 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
         except Exception as e:
             log.error(f"Worker {worker_id}: body fetch error (offset {start}): {e}")
 
-    # ── Fetch systems.last_updated so confidence can reflect data freshness
+    # ── Fetch systems.updated_at so confidence can reflect data freshness
     last_updated_by_system: dict = {}
     try:
         cur.execute(
-            "SELECT id64, last_updated FROM systems WHERE id64 = ANY(%s)",
+            "SELECT id64, updated_at FROM systems WHERE id64 = ANY(%s)",
             (id64s,)
         )
         for sid, ts in cur:
             last_updated_by_system[sid] = ts
     except Exception as e:
-        log.debug(f"Worker {worker_id}: last_updated fetch skipped ({e})")
+        log.debug(f"Worker {worker_id}: updated_at fetch skipped ({e})")
 
     # ── Compute ratings ────────────────────────────────────────────────────
     for system_id64, main_star_type in system_batch:
