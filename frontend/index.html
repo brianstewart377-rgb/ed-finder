@@ -3660,6 +3660,9 @@ function selectSystem(name, x, y, z, mode) {
     document.getElementById('ref-name').textContent = name;
     document.getElementById('ref-coords').textContent = `${Math.round(x*10)/10}, ${Math.round(y*10)/10}, ${Math.round(z*10)/10}`;
     document.getElementById('ref-autocomplete').style.display = 'none';
+    if (document.getElementById('tog-auto-search')?.checked && typeof runSearch === 'function') {
+      setTimeout(runSearch, 150);
+    }
   } else if (mode === 'route') {
     // FIX-ROUTE2: Route tab autocomplete now uses selectSystem with mode='route'
     // Add as waypoint instead of loading into optimizer
@@ -7525,7 +7528,7 @@ function renderComparePanel() {
   const rows = [
     rowPlain('Name',    cols.map(c => `<strong>${c.sys.name}</strong>`)),
     rowHL('Rating',     ratings,   bestIdx(ratings),         (v,i)=>`<span class="${getRatingClass(cols[i].r.total)}" style="font-weight:700">${v}/100</span>`),
-    rowPlain('Economy', cols.map(c => `${getEcoIcon(c.e.primary)} ${c.e.primary}`)),
+    rowPlain('Economy', cols.map(c => `<span class="eco-chip eco-chip-${typeof _ecoChipKey==='function'?_ecoChipKey(c.e.primary):'none'}">${getEcoIcon(c.e.primary)} ${c.e.primary||'—'}</span>`)),
     rowPlain('Eco Confidence', cols.map(c => { const clr = c.e.confidence==='High'?'var(--green)':c.e.confidence==='Medium'?'var(--gold)':'var(--red)'; return `<span style="color:${clr}">${c.e.confidence}</span>`; })),
     rowPlain('Star Type', starTypes),
     rowPlain('Exotic Stars', exoticFlags),
@@ -9334,7 +9337,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (id === 'watchlist') loadWatchlist();
       if (id === 'guide')     loadCacheStats();
       if (id === 'map')       { loadWatchlist().then(() => drawGalacticMap()); } // P2-2: refresh watchlist cache before drawing
-      if (id === '3d')        { setTimeout(draw3DMap, 100); }
+      if (id === '3d')        { setTimeout(() => { draw3DMap(); if (typeof _update3DLegend === 'function') _update3DLegend(); }, 100); }
       if (id === 'colony')    { renderColonyTracker(); }
       if (id === 'admin')     { loadAdminDashboard(); _renderStarClassChart(); }
       if (id === 'changelog') { /* static content */ }

@@ -5,6 +5,18 @@ Production app lives at ed-finder.app (Hetzner/Docker); this log tracks sandbox 
 
 ---
 
+## 2026-05-03 — UX wiring pass (3 targeted fixes on top of existing stubs)
+
+### frontend/index.html
+
+**#21 3D legend trigger** — `_update3DLegend()` was never called when switching to the 3D Map tab for the first time. Fixed `showTab()` handler: `if (id === '3d') { setTimeout(() => { draw3DMap(); _update3DLegend(); }, 100); }`. Legend now populates immediately on first open, not just when colour/size selects change.
+
+**#10 Economy chips in compare table** — `renderComparePanel()` Economy row was rendering plain text (`${getEcoIcon()} ${name}`). Wrapped in `<span class="eco-chip eco-chip-{key}">` using the existing `_ecoChipKey()` helper so economy cells in the comparison table now show the same coloured pill as the briefing modal.
+
+**#6 (X6) Auto-search on autocomplete select** — The auto-search hook at the end of the file tried to wrap `window.selectRefSystem` which is never assigned to `window`, so the guard silently skipped it and the feature did nothing. Fixed by adding the toggle check directly inside `selectSystem()` for `mode === 'ref'`: when the "Auto-search on autocomplete select" checkbox is ticked, `runSearch()` fires 150 ms after a reference system is chosen from the dropdown.
+
+---
+
 ## 2026-05-03 — UX polish batch #2 (25 improvements, index.html)
 
 ### frontend/index.html
