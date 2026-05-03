@@ -2074,6 +2074,52 @@ body {
   border-right: 1px solid rgba(255,255,255,0.07);
 }
 
+/* ── Footer: darker, calmer, in keeping with nebula chrome ── */
+#site-footer {
+  background: #05060c;
+  border-top: 1px solid rgba(255,106,0,0.18);
+  color: #9ba6b8;
+  position: relative;
+}
+#site-footer .footer-title {
+  color: #ffb070;
+  text-shadow: 0 0 8px rgba(255,140,40,0.35);
+}
+#site-footer a { color: #ffc290; }
+#site-footer .footer-tag {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.10);
+  color: #b0bac8;
+}
+#site-footer .footer-legal-toggle {
+  background: rgba(255,255,255,0.02);
+  border-top-color: rgba(255,255,255,0.06);
+  color: #8a94a4;
+}
+#site-footer .footer-legal-toggle:hover {
+  background: rgba(255,255,255,0.05);
+  color: #ffffff;
+}
+#footer-close {
+  position: absolute;
+  top: 8px; right: 10px;
+  width: 26px; height: 26px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 4px;
+  color: #9ba6b8;
+  font-size: 14px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+  transition: all 0.15s;
+}
+#footer-close:hover {
+  background: rgba(255,106,0,0.15);
+  border-color: rgba(255,106,0,0.40);
+  color: #ffb070;
+}
+
 /* ── Main content area: fully transparent so nebula shows uniformly ── */
 #content {
   background: transparent;
@@ -10773,6 +10819,13 @@ function _acQuerySpansh(query, listId, onSelect) {
 // ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   _startColonyPoll();
+  // Restore hidden footer preference
+  try {
+    if (localStorage.getItem('edf_footer_hidden') === '1') {
+      const f = document.getElementById('site-footer');
+      if (f) f.style.display = 'none';
+    }
+  } catch(e) {}
 });
 
 // ════════════════════════════════════════════════════════════════════
@@ -10783,6 +10836,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 <!-- ═══════ CREDITS FOOTER ═══════ -->
 <footer id="site-footer">
+  <button id="footer-close" type="button"
+    aria-label="Hide footer"
+    title="Hide footer (you can restore it from the moon icon menu)"
+    onclick="document.getElementById('site-footer').style.display='none';try{localStorage.setItem('edf_footer_hidden','1');}catch(e){}">×</button>
 
   <!-- ── Main credits row ── -->
   <div class="footer-main">
