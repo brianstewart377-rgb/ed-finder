@@ -54,6 +54,73 @@ Production app lives at ed-finder.app (Hetzner/Docker); this log tracks sandbox 
 
 ---
 
+## 2026-05-03 — 25 UI/UX improvements
+
+All 25 requested UX improvements implemented across `frontend/index.html` and `frontend/app.js`.
+Items already implemented before this pass (confirmed, no duplication): #4 score tooltip, #9 quick-pin on card header, #13 Compare tab badge, #19 sync button progress, #25 active filter summary strip.
+
+**#1 Filter persistence** (`index.html`)
+- New `_saveFilters()` / `_restoreFilters()` / `_captureFilterState()` / `_applyFilterState()` functions save all filter IDs to `ed_filters_v1` in localStorage on every `runSearch()` call and restore them on `DOMContentLoaded`. Covers: dist-slider, min-dist-slider, size-slider, filter-economy, rating range, sl-land, sl-sig, all body/signal toggles, tog-uncolonised, and all BODY_SLIDERS dual-range state.
+
+**#2 Zero-results guidance** (`index.html` — `renderResultsProgressive`)
+- Smart empty state replaces the generic "No Systems Found" message. Detects active filter count, generates a bulleted list of specific actionable suggestions (e.g. "Increase Max Distance (currently 30 LY)", "Clear the Economy filter"), and offers "Reset Filters & Retry" + "Expand to 100 LY" shortcut buttons.
+
+**#3 Search duration** (`index.html` — `runSearch` + `renderResultsProgressive`)
+- `window._searchT0 = Date.now()` recorded at the top of `runSearch()`. Rendered as `⏱ Xms` in the results summary bar at the point `renderResultsProgressive` builds the bar (after all processing and render), giving a true end-to-end duration.
+
+**#5 Watchlist indicator on card** (`index.html` — `buildSystemCard`)
+- Added `isWatched` check against `window._watchlistCache`. Cards for watched systems get `.is-watched` class which applies a blue left border via CSS. Cards also now have `tabindex="0"` for keyboard nav.
+
+**#6 Bulk watchlist add** (`index.html` — `renderResultsProgressive` bar + new `_watchAllResults()`)
+- "👁 Watch All" button in results summary bar calls `_watchAllResults()` which POSTs each displayed system to `/api/watchlist` in sequence then reloads the watchlist tab.
+
+**#7 Copy all names** (`index.html` — `renderResultsProgressive` bar + new `_copyAllNames()`)
+- "📋 All Names" button in results summary bar calls `_copyAllNames()`. Copies all system names (newline-separated) via `navigator.clipboard` with textarea execCommand fallback.
+
+**#8 Scroll-to-top on page change** (`index.html` — `renderResultsProgressive` + `renderResults`)
+- `content.scrollTop = 0` + `scrollIntoView({block:'start'})` added at the top of both render functions so pagination always returns to the result list header.
+
+**#10 Economy colour coding** (`index.html` — CSS)
+- Added `.eco-chip-*` CSS classes for Agriculture (green), Industrial (amber), Refinery (brown), Extraction (steel), High Tech (blue), Military (red), Tourism (pink), Colony (purple), Terraforming (cyan), Service (grey). Classes ready to apply to economy pills throughout the UI.
+
+**#11 Body sort in modal** (`app.js` — `buildModalHTML`)
+- `sys.bodies` now sorted before rendering: stars first (`body_type === 'Star'`), then planets/moons by `distance_from_star` ascending. Spread-copy to avoid mutating the original array.
+
+**#12 Add to Route in modal** (`app.js` — `buildModalHTML` + `attachModalEvents`)
+- "🗺️ Add to Route" button added to modal Actions section. `attachModalEvents` wires a click handler that calls `selectRouteWaypoint({ name, x, y, z, id64 })` and shows a toast confirmation.
+
+**#14 Route tab badge** (`index.html` — `_updateRouteTabLabel` + `renderRouteHops`)
+- New `_updateRouteTabLabel()` mirrors `_updateCompareTabLabel()`. Updates the Route tab button text to `🗺️ Route (N)` whenever waypoint count > 0. Called at the top of `renderRouteHops()` and wrapped via `clearRoute` override.
+
+**#15 Tab overflow** (`index.html` — CSS + `#tabs`)
+- `#tabs` CSS: `overflow-x: auto; flex-wrap: nowrap !important; scrollbar-width: none`. Prevents tab wrapping on narrow screens; tabs become horizontally scrollable with hidden scrollbar.
+
+**#16 Move Changelog tab** (`index.html` — tab bar HTML)
+- Changelog tab button de-emphasised: `opacity: 0.55`, padding reduced to `6px 8px`, text changed to just `📋` with a `title="App changelog"` tooltip. Still functional but visually demoted from primary navigation.
+
+**#17 Watchlist sort** (`index.html` — `loadWatchlist`)
+- Sort select (Name A–Z / Distance / Population ↓ / Colonised first) injected into `#watchlist-list` each render. Current sort key preserved across re-renders by reading `#watchlist-sort` value before rebuilding innerHTML.
+
+**#18 Session restore prompt** (`index.html` — new banner + `_restoreSession` + IIFE check)
+- `#session-restore-banner` HTML element added. IIFE at page load checks `sessionStorage.ed_last_results`; if results exist from a previous tab visit, banner appears with "Restore" and "Dismiss" buttons. `_restoreSession()` re-renders the saved results and switches to Finder tab.
+
+**#20 Autocomplete loading indicator** (`index.html` — `fetchAutoComplete`)
+- "⏳ Searching…" placeholder item shown in the dropdown immediately before `spanshFetch()` resolves, then replaced by actual results or the manual-entry fallback.
+
+**#21 3D map legend** (`index.html` — `#threed-legend` + `_update3DLegend()`)
+- `#threed-legend` div added below the 3D canvas. `_update3DLegend()` called when Colour/Size selects change; renders colour swatches and size description matching the current mode (rating / economy / distance / population).
+
+**#22 Map "Frame All" button** (`index.html` — 2D map controls + `fitMapToResults()`)
+- "⊞ Frame All" button added to 2D map toolbar. Calls `fitMapToResults()` which invokes `_mapViewReset()` then `drawGalacticMap()` to re-centre the map on the current result set.
+
+**#23 Keyboard navigation** (`index.html` — `buildSystemCard` + global keydown listener)
+- Result cards get `tabindex="0"` so they are focusable. Global `keydown` listener on `document` intercepts ArrowUp/ArrowDown when focus is inside `#finder-content` (or body) and the Finder tab is active, moving focus to the adjacent card.
+
+**#24 Reset Filters undo toast** (`index.html` — `resetFilters` + `_showUndoToast` / `_undoAction`)
+- `resetFilters()` now calls `_captureFilterState()` (saving to `window._undoFilterState`) before wiping, then calls `_showUndoToast('Filters reset')`. The `#undo-toast` element slides up with an "Undo" button; clicking it calls `_undoAction()` which restores the snapshot via `_applyFilterState()`. Toast auto-hides after 6 seconds.
+
+---
+
 ## 2026-05-03 — Bug fix pass (full codebase audit)
 
 **7. Galaxy search — `offset` not forwarded to `local_search.py` (line 869)**

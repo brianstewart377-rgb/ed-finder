@@ -1845,6 +1845,49 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 @keyframes slideUpFade { from{transform:translateY(20px);opacity:0} to{transform:none;opacity:1} }
 
 /* Density compact already handled by body.density-compact selectors above */
+
+/* ── UX-15: Tab bar horizontal scroll on narrow screens ── */
+#tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; flex-wrap: nowrap !important; }
+#tabs::-webkit-scrollbar { display: none; }
+
+/* ── UX-24: Undo toast ── */
+#undo-toast { position:fixed; bottom:70px; left:50%; transform:translateX(-50%); background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:8px 18px; font-size:12px; z-index:9800; display:flex; align-items:center; gap:14px; box-shadow:0 4px 16px rgba(0,0,0,0.5); opacity:0; pointer-events:none; transition:opacity 0.2s; white-space:nowrap; }
+#undo-toast.visible { opacity:1; pointer-events:all; }
+#undo-toast .undo-btn { background:var(--orange); color:#000; border:none; border-radius:4px; padding:3px 12px; font-size:11px; cursor:pointer; font-weight:700; }
+
+/* ── UX-18: Session restore banner ── */
+#session-restore-banner { display:none; background:rgba(77,166,255,0.08); border-bottom:1px solid rgba(77,166,255,0.25); padding:7px 16px; font-size:12px; color:var(--text); text-align:center; }
+#session-restore-banner button { margin-left:8px; font-size:11px; padding:2px 10px; }
+
+/* ── UX-21: 3D map colour legend ── */
+#threed-legend { display:none; gap:8px; flex-wrap:wrap; padding:6px 12px; background:var(--bg3); border:1px solid var(--border); border-top:none; font-size:11px; color:var(--text-dim); align-items:center; border-radius: 0 0 4px 4px; margin-bottom:6px; }
+#threed-legend .tl-item { display:flex; align-items:center; gap:5px; }
+#threed-legend .tl-dot { width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0; }
+#threed-legend .tl-ring { width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0; border:2px solid currentColor; background:transparent; }
+
+/* ── UX-5: Watchlist indicator on result cards ── */
+.result-card.is-watched .result-card-hdr { border-left:3px solid rgba(77,166,255,0.6); padding-left:9px; }
+
+/* ── UX-10: Economy colour chips ── */
+.eco-chip { display:inline-block; padding:1px 6px; border-radius:9px; font-size:10px; font-weight:600; }
+.eco-chip-agriculture  { background:rgba(76,175,80,0.18);    color:#66bb6a; }
+.eco-chip-industrial   { background:rgba(255,167,38,0.18);   color:#ffa726; }
+.eco-chip-refinery     { background:rgba(161,136,127,0.18);  color:#a1887f; }
+.eco-chip-extraction   { background:rgba(120,144,156,0.18);  color:#90a4ae; }
+.eco-chip-hightech     { background:rgba(66,165,245,0.18);   color:#42a5f5; }
+.eco-chip-military     { background:rgba(239,83,80,0.18);    color:#ef5350; }
+.eco-chip-tourism      { background:rgba(236,64,122,0.18);   color:#ec407a; }
+.eco-chip-colony       { background:rgba(171,71,188,0.18);   color:#ab47bc; }
+.eco-chip-terraforming { background:rgba(38,198,218,0.18);   color:#26c6da; }
+.eco-chip-service      { background:rgba(189,189,189,0.18);  color:#bdbdbd; }
+.eco-chip-none         { background:rgba(100,100,100,0.12);  color:var(--text-dim); }
+
+/* ── UX-17: Watchlist sort row ── */
+#watchlist-sort-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; font-size:12px; color:var(--text-dim); }
+#watchlist-sort-row select { background:var(--bg4); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:3px 6px; font-size:11px; cursor:pointer; }
+
+/* ── UX-23: Keyboard nav focus ring on result cards ── */
+.result-card:focus { outline:2px solid var(--orange); outline-offset:2px; }
 </style>
 </head>
 <body>
@@ -1853,6 +1896,19 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 <div id="sr-live" role="status" aria-live="polite" aria-atomic="true"
      style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
 <a href="#main-content" class="skip-nav">Skip to main content</a>
+
+<!-- ── UX-18: Session restore banner ── -->
+<div id="session-restore-banner">
+  🕒 You have results from your last session.
+  <button class="btn btn-secondary" onclick="_restoreSession()">Restore</button>
+  <button class="btn btn-secondary" onclick="document.getElementById('session-restore-banner').style.display='none'">Dismiss</button>
+</div>
+
+<!-- ── UX-24: Undo toast (for destructive actions like Reset Filters) ── -->
+<div id="undo-toast">
+  <span id="undo-toast-msg">Filters reset</span>
+  <button class="undo-btn" onclick="_undoAction()">Undo</button>
+</div>
 
 <!-- ═══════ HEADER ═══════ -->
 <div id="header">
@@ -1910,7 +1966,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-3d" onclick="showTab('3d',this)">🔮 3D Map</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-colony" onclick="showTab('colony',this)">🏗️ Colony Tracker <span id="colony-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-admin" onclick="showTab('admin',this)">📊 Admin</button>
-  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-changelog" onclick="showTab('changelog',this)">📋 Changelog</button>
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-changelog" onclick="showTab('changelog',this)" title="App changelog" style="opacity:0.55;letter-spacing:0;padding:6px 8px">📋</button>
 </div>
 
 <!-- ══════════════════════════════════════
@@ -2843,6 +2899,9 @@ function onRatingSlider() {
 // BUG-FIX-A: resetFilters was previously orphaned code (ran once at parse time, not on click).
 // Wrapped in a proper function declaration so the Reset Filters button actually works.
 function resetFilters() {
+  // UX-24: save snapshot for undo before wiping
+  window._undoFilterState = _captureFilterState();
+  _showUndoToast('Filters reset');
   BODY_SLIDERS.forEach(s => {
     sliderState[s.key] = { min: 0, max: s.max };
     document.getElementById(`smin-${s.key}`).value = 0;
@@ -3050,6 +3109,10 @@ async function fetchAutoComplete(q, mode) {
   const listId = mode === 'ref' ? 'ref-autocomplete' : 'opt-autocomplete';
   const list = document.getElementById(listId);
 
+  // UX-20: show loading indicator while fetching
+  list.innerHTML = `<div class="autocomplete-item" style="color:var(--text-dim);cursor:default;font-style:italic">⏳ Searching…</div>`;
+  list.style.display = 'block';
+
   try {
     const data = await spanshFetch(`https://spansh.co.uk/api/search?q=${encodeURIComponent(q)}`);
     if (!data || !data.results) {
@@ -3205,6 +3268,8 @@ async function appendSearch(page) {
 }
 
 async function runSearch(page = 0) {
+  _saveFilters(); // UX-1: persist filter state across sessions
+  window._searchT0 = Date.now(); // UX-3: search duration timer
   // FIX #3 — abort any in-flight search before starting a new one
   if (searchAbortController) { try { searchAbortController.abort(); } catch(e) {} }
   searchAbortController = new AbortController();
@@ -3881,12 +3946,30 @@ function hasSignal(body, type) {
 function renderResultsProgressive(systems, page, total, cacheAge) {
   const content = document.getElementById('finder-content');
   content.innerHTML = '';
+  // UX-8: scroll results back to top on every render (pagination & new searches)
+  content.scrollTop = 0;
+  try { content.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch(e) {}
 
   if (!systems.length) {
+    // UX-2: smart empty state with actionable suggestions
+    const nf = (typeof countActiveFilters === 'function') ? countActiveFilters() : 0;
+    const tips = [];
+    const maxDistVal = parseInt(document.getElementById('dist-slider')?.value || 50);
+    if (maxDistVal < 100) tips.push(`<li>Increase <b>Max Distance</b> (currently ${maxDistVal} LY)</li>`);
+    if (parseInt(document.getElementById('min-dist-slider')?.value||0) > 0) tips.push('<li>Lower or remove the <b>Min Distance</b> filter</li>');
+    if ((document.getElementById('filter-economy')?.value||'any') !== 'any') tips.push('<li>Clear the <b>Economy</b> filter</li>');
+    if (parseInt(document.getElementById('min-rating-slider')?.value||0) > 0 || parseInt(document.getElementById('max-rating-slider')?.value||100) < 100) tips.push('<li>Widen the <b>Rating Range</b></li>');
+    if (['tog-bio','tog-geo','tog-ring','tog-terra','tog-volc','tog-notidal','tog-pop-zero'].some(id => document.getElementById(id)?.checked)) tips.push('<li>Remove a body/signal <b>toggle filter</b></li>');
+    const tipsHtml = tips.length ? `<ul style="text-align:left;display:inline-block;margin:8px 0;font-size:12px;color:var(--text-dim)">${tips.join('')}</ul>` : '';
     content.innerHTML = `<div class="empty-state">
       <div class="es-icon">🔭</div>
       <h3>No Systems Found</h3>
-      <p>Try relaxing your filters or increasing the search radius.</p>
+      <p>${nf > 0 ? `Your ${nf} active filter${nf!==1?'s are':' is'} restricting results.` : 'No systems match the current search parameters.'}</p>
+      ${tipsHtml}
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px">
+        ${nf > 0 ? `<button class="btn btn-primary" style="font-size:12px;padding:6px 16px" onclick="resetFilters();runSearch()">✕ Reset Filters &amp; Retry</button>` : ''}
+        <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px" onclick="document.getElementById('dist-slider').value=100;document.getElementById('dist-val').textContent=100;runSearch()">Expand to 100 LY</button>
+      </div>
     </div>`;
     return;
   }
@@ -3928,6 +4011,9 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
     <button onclick="exportResults('csv')" class="btn btn-secondary icon-btn" title="Export current results as CSV" aria-label="Export as CSV">⬇️ CSV</button> <!-- T3-FIX -->
     <button onclick="exportResults('json')" class="btn btn-secondary icon-btn" title="Export current results as JSON" aria-label="Export as JSON">⬇️ JSON</button>
     <button class="btn btn-secondary refilter-btn" onclick="_refilterInPlace()" title="Re-apply current filters to already-loaded results without a new API call">🔄 Re-filter</button>
+    <button class="btn btn-secondary icon-btn" onclick="_watchAllResults()" title="Add all displayed systems to Watchlist">👁 Watch All</button>
+    <button class="btn btn-secondary icon-btn" onclick="_copyAllNames()" title="Copy all system names to clipboard">📋 All Names</button>
+    ${window._searchT0 ? `<span style="font-size:10px;color:var(--text-dim)" title="Search + render duration">⏱ ${Date.now()-window._searchT0}ms</span>` : ''}
   `;
   content.appendChild(bar);
 
@@ -4020,12 +4106,14 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
 function renderResults(systems, page, total) {
   const content = document.getElementById('finder-content');
   content.innerHTML = '';
+  content.scrollTop = 0; // UX-8
 
   if (!systems.length) {
     content.innerHTML = `<div class="empty-state">
       <div class="es-icon">🔭</div>
       <h3>No Systems Found</h3>
       <p>Try relaxing your filters or increasing the search radius.</p>
+      <div style="margin-top:12px"><button class="btn btn-secondary" style="font-size:12px;padding:6px 14px" onclick="document.getElementById('dist-slider').value=100;document.getElementById('dist-val').textContent=100;runSearch()">Expand to 100 LY</button></div>
     </div>`;
     return;
   }
@@ -4090,13 +4178,15 @@ function buildSystemCard(sys, idx) {
   const build   = sys._build   || suggestBuild(economy, sys);
   const isPinned = getPinned().some(p => p.id64 === sys.id64);
   const isCompared = typeof compareList !== 'undefined' && compareList.some(c => c.id64 === sys.id64);
+  const isWatched = (window._watchlistCache || []).some(w => String(w.id64) === String(sys.id64)); // UX-5
 
   const card = document.createElement('div');
   // Use multi-signal heuristic - Spansh's is_colonised is broken for old systems
   const sysIsInhabited = !!(sys.is_colonised || sys.is_being_colonised ||
     (sys.controlling_minor_faction != null && sys.controlling_minor_faction !== '') ||
     (Array.isArray(sys.minor_faction_presences) && sys.minor_faction_presences.length > 0));
-  card.className = 'result-card' + (sysIsInhabited ? ' is-colonised' : '');
+  card.className = 'result-card' + (sysIsInhabited ? ' is-colonised' : '') + (isWatched ? ' is-watched' : '');
+  card.setAttribute('tabindex', '0'); // UX-23: keyboard nav
 
   const ratingClass = getRatingClass(rating.total);
   const ratingLabel = getRatingLabel(rating.total);
@@ -5666,6 +5756,7 @@ document.addEventListener('click', (e) => {
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="saveMapPNG()" title="Save map as PNG image">💾 PNG</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="resetMapView()" title="Reset zoom & pan">⊙ Reset</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="drawGalacticMap()">↺ Redraw</button>
+    <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="fitMapToResults()" title="Auto-zoom to frame all current search results">⊞ Frame All</button>
   </div>
   <div id="map-canvas-wrap" style="display:none;flex-direction:column;flex:1">
     <canvas id="galactic-map" width="900" height="520" style="max-width:100%"></canvas>
@@ -5782,7 +5873,7 @@ document.addEventListener('click', (e) => {
     <span style="font-size:11px;color:var(--text-dim)">Drag to rotate · Scroll to zoom · Click dot for details</span>
     <div style="flex:1"></div>
     <label style="font-size:11px;color:var(--text-dim)">Colour:
-      <select id="threed-colour" onchange="draw3DMap()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:11px;margin-left:4px">
+      <select id="threed-colour" onchange="draw3DMap();_update3DLegend()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:11px;margin-left:4px">
         <option value="rating">Rating</option>
         <option value="economy">Economy</option>
         <option value="distance">Distance</option>
@@ -5790,7 +5881,7 @@ document.addEventListener('click', (e) => {
       </select>
     </label>
     <label style="font-size:11px;color:var(--text-dim)">Size:
-      <select id="threed-size" onchange="draw3DMap()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:11px;margin-left:4px">
+      <select id="threed-size" onchange="draw3DMap();_update3DLegend()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:11px;margin-left:4px">
         <option value="uniform">Uniform</option>
         <option value="rating">By Rating</option>
         <option value="population">By Pop</option>
@@ -5803,6 +5894,7 @@ document.addEventListener('click', (e) => {
     <canvas id="threed-canvas" style="display:none"></canvas>
     <div id="threed-empty">Run a search in System Finder first, then switch here for a 3D view of results.<br><br>Uses WebGL canvas rendering — no external libraries required.</div>
   </div>
+  <div id="threed-legend"></div>
   <div id="threed-detail" style="display:none;background:var(--bg3);border:1px solid var(--border-o);border-radius:6px;padding:12px 14px;margin-top:10px;font-size:12px"></div>
 </div>
 
@@ -6742,6 +6834,14 @@ function _updateCompareTabLabel() {
   if (tab) tab.textContent = compareList.length ? `⚖️ Compare (${compareList.length})` : '⚖️ Compare';
 }
 
+// UX-14: Route tab badge — shows waypoint count
+function _updateRouteTabLabel() {
+  const tab = document.querySelector('[aria-controls="tab-route"]');
+  if (!tab) return;
+  const n = (typeof routeWaypoints !== 'undefined') ? routeWaypoints.length : 0;
+  tab.textContent = n ? `🗺️ Route (${n})` : '🗺️ Route';
+}
+
 function toggleCompare(id64, checked, checkboxEl) {
   if (checked) {
     // FIX-5a: raised cap 3 → 6
@@ -7333,7 +7433,25 @@ async function loadWatchlist() {
       el.innerHTML = '<div class="empty-state"><div class="es-icon">👁️</div><h3>Watchlist Empty</h3><p>Click 👁️ Watch on any system card.</p></div>';
       return;
     }
-    el.innerHTML = list.map(s => {
+    // UX-17: sort watchlist
+    const wlSortKey = document.getElementById('watchlist-sort')?.value || 'name';
+    const sortedList = [...list].sort((a, b) => {
+      if (wlSortKey === 'name')   return (a.name||'').localeCompare(b.name||'');
+      if (wlSortKey === 'dist')   return (a.distance||0) - (b.distance||0);
+      if (wlSortKey === 'pop')    return (b.population||0) - (a.population||0);
+      if (wlSortKey === 'status') return (b.is_colonised?1:0) - (a.is_colonised?1:0);
+      return 0;
+    });
+    const sortRow = `<div id="watchlist-sort-row">
+      <span>Sort:</span>
+      <select id="watchlist-sort" onchange="loadWatchlist()">
+        <option value="name"${wlSortKey==='name'?' selected':''}>Name A–Z</option>
+        <option value="dist"${wlSortKey==='dist'?' selected':''}>Distance</option>
+        <option value="pop"${wlSortKey==='pop'?' selected':''}>Population ↓</option>
+        <option value="status"${wlSortKey==='status'?' selected':''}>Colonised first</option>
+      </select>
+    </div>`;
+    el.innerHTML = sortRow + sortedList.map(s => {
       const cfg = _wlAlertConfig(s.id64);
       return `
       <div class="watch-row">
@@ -7591,6 +7709,7 @@ function hopDist(a, b) {
 
 function renderRouteHops() {
   const el = document.getElementById('route-hops'); if (!el) return;
+  _updateRouteTabLabel(); // UX-14: keep route tab badge in sync
   if (!routeWaypoints.length) { el.innerHTML = ''; return; }
 
   // F6: Calculate inter-hop distances, total span and jump estimate
@@ -10434,5 +10553,255 @@ document.addEventListener('DOMContentLoaded', () => {
   </div><!-- /.footer-legal-panel -->
 
 </footer>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     UX IMPROVEMENTS — utility functions (all 25 items)
+══════════════════════════════════════════════════════════════════════ -->
+<script>
+// ── UX-1: Filter persistence ────────────────────────────────────────
+function _captureFilterState() {
+  return {
+    dist:     document.getElementById('dist-slider')?.value,
+    minDist:  document.getElementById('min-dist-slider')?.value,
+    size:     document.getElementById('size-slider')?.value,
+    economy:  document.getElementById('filter-economy')?.value,
+    minRating:document.getElementById('min-rating-slider')?.value,
+    maxRating:document.getElementById('max-rating-slider')?.value,
+    slLand:   document.getElementById('sl-land')?.value,
+    slSig:    document.getElementById('sl-sig')?.value,
+    togBio:       document.getElementById('tog-bio')?.checked,
+    togGeo:       document.getElementById('tog-geo')?.checked,
+    togRing:      document.getElementById('tog-ring')?.checked,
+    togTerra:     document.getElementById('tog-terra')?.checked,
+    togVolc:      document.getElementById('tog-volc')?.checked,
+    togNotidal:   document.getElementById('tog-notidal')?.checked,
+    togPopZero:   document.getElementById('tog-pop-zero')?.checked,
+    togUncolonised: document.getElementById('tog-uncolonised')?.checked,
+    sliderState: (typeof sliderState !== 'undefined') ? JSON.parse(JSON.stringify(sliderState)) : null,
+  };
+}
+
+function _applyFilterState(state) {
+  if (!state) return;
+  const set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined && val !== null) el.value = val; };
+  const chk = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined && val !== null) el.checked = val; };
+  set('dist-slider', state.dist);
+  if (state.dist !== undefined) { const v = document.getElementById('dist-val'); if (v) v.textContent = state.dist; }
+  set('min-dist-slider', state.minDist);
+  if (state.minDist !== undefined) { const v = document.getElementById('min-dist-val'); if (v) v.textContent = state.minDist; }
+  set('size-slider', state.size);
+  if (state.size !== undefined) { const v = document.getElementById('size-val'); if (v) v.textContent = state.size; }
+  set('filter-economy', state.economy);
+  set('min-rating-slider', state.minRating);
+  set('max-rating-slider', state.maxRating);
+  if (state.minRating !== undefined && state.maxRating !== undefined) {
+    const v = document.getElementById('rating-range-val'); if (v) v.textContent = `${state.minRating} – ${state.maxRating}`;
+  }
+  set('sl-land', state.slLand);
+  if (state.slLand !== undefined) { const v = document.getElementById('sl-land-v'); if (v) v.textContent = state.slLand; }
+  set('sl-sig', state.slSig);
+  if (state.slSig !== undefined) { const v = document.getElementById('sl-sig-v'); if (v) v.textContent = state.slSig; }
+  chk('tog-bio',        state.togBio);
+  chk('tog-geo',        state.togGeo);
+  chk('tog-ring',       state.togRing);
+  chk('tog-terra',      state.togTerra);
+  chk('tog-volc',       state.togVolc);
+  chk('tog-notidal',    state.togNotidal);
+  chk('tog-pop-zero',   state.togPopZero);
+  chk('tog-uncolonised',state.togUncolonised);
+  if (state.sliderState && typeof sliderState !== 'undefined' && typeof BODY_SLIDERS !== 'undefined') {
+    Object.assign(sliderState, state.sliderState);
+    BODY_SLIDERS.forEach(s => {
+      const st = sliderState[s.key];
+      if (!st) return;
+      const minEl = document.getElementById(`smin-${s.key}`);
+      const maxEl = document.getElementById(`smax-${s.key}`);
+      const valEl = document.getElementById(`sv-${s.key}`);
+      if (minEl) minEl.value = st.min;
+      if (maxEl) maxEl.value = st.max;
+      if (valEl) valEl.textContent = `${st.min} – ${st.max}`;
+      if (typeof updateDualFill === 'function') updateDualFill(s.key, st.min, st.max, s.max);
+    });
+  }
+  if (typeof updateFilterBadge === 'function') updateFilterBadge();
+}
+
+function _saveFilters() {
+  try { localStorage.setItem('ed_filters_v1', JSON.stringify(_captureFilterState())); } catch(e) {}
+}
+
+function _restoreFilters() {
+  try {
+    const saved = localStorage.getItem('ed_filters_v1');
+    if (saved) _applyFilterState(JSON.parse(saved));
+  } catch(e) {}
+}
+
+// ── UX-24: Undo toast ───────────────────────────────────────────────
+let _undoTimer = null;
+function _showUndoToast(msg) {
+  const toast = document.getElementById('undo-toast');
+  const msgEl = document.getElementById('undo-toast-msg');
+  if (!toast) return;
+  if (msgEl) msgEl.textContent = msg;
+  toast.classList.add('visible');
+  clearTimeout(_undoTimer);
+  _undoTimer = setTimeout(_hideUndoToast, 6000);
+}
+function _hideUndoToast() {
+  document.getElementById('undo-toast')?.classList.remove('visible');
+}
+function _undoAction() {
+  if (window._undoFilterState) {
+    _applyFilterState(window._undoFilterState);
+    window._undoFilterState = null;
+    if (typeof updateFilterBadge === 'function') updateFilterBadge();
+  }
+  _hideUndoToast();
+}
+
+// ── UX-18: Session restore ──────────────────────────────────────────
+function _restoreSession() {
+  try {
+    const saved = sessionStorage.getItem('ed_last_results');
+    if (!saved) return;
+    const data = JSON.parse(saved);
+    if (!data?.systems?.length) return;
+    const refSnap = sessionStorage.getItem('ed_last_ref_snap');
+    if (refSnap) {
+      try { const rs = JSON.parse(refSnap); if (rs && typeof refSystem !== 'undefined') Object.assign(refSystem, rs); } catch(e) {}
+    }
+    if (typeof renderResults === 'function') {
+      renderResults(data.systems, data.page || 0, data.total || data.systems.length);
+    }
+    document.getElementById('session-restore-banner').style.display = 'none';
+    const finderBtn = document.querySelector('[aria-controls="tab-finder"]');
+    if (finderBtn && typeof showTab === 'function') showTab('finder', finderBtn);
+  } catch(e) { console.warn('session restore failed', e); }
+}
+
+// Check on page load whether to show restore banner
+(function _checkSessionRestore() {
+  try {
+    const saved = sessionStorage.getItem('ed_last_results');
+    if (!saved) return;
+    const data = JSON.parse(saved);
+    if (data?.systems?.length) {
+      const banner = document.getElementById('session-restore-banner');
+      if (banner) banner.style.display = 'block';
+    }
+  } catch(e) {}
+})();
+
+// Restore filters on page load (UX-1)
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(_restoreFilters, 100); // slight delay so sliderState / BODY_SLIDERS are initialised
+});
+
+// ── UX-6: Watch All Results ─────────────────────────────────────────
+async function _watchAllResults() {
+  const systems = window._lastResults?.systems;
+  if (!systems?.length) { if (typeof toast === 'function') toast('No results to watch'); return; }
+  let added = 0;
+  for (const sys of systems) {
+    try {
+      const r = await fetch(`${typeof API_BASE !== 'undefined' ? API_BASE : '/api'}/watchlist/${sys.id64}`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name: sys.name, id64: sys.id64 })
+      });
+      if (r.ok) added++;
+    } catch(e) {}
+  }
+  if (typeof loadWatchlist === 'function') loadWatchlist();
+  if (typeof toast === 'function') toast(`Added ${added} system${added !== 1 ? 's' : ''} to Watchlist`);
+}
+
+// ── UX-7: Copy All Names ────────────────────────────────────────────
+function _copyAllNames() {
+  const systems = window._lastResults?.systems;
+  if (!systems?.length) { if (typeof toast === 'function') toast('No results to copy'); return; }
+  const names = systems.map(s => s.name).join('\n');
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(names).then(() => {
+      if (typeof toast === 'function') toast(`Copied ${systems.length} system name${systems.length !== 1 ? 's' : ''}`);
+    });
+  } else {
+    const el = document.createElement('textarea');
+    el.value = names;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    el.remove();
+    if (typeof toast === 'function') toast(`Copied ${systems.length} names`);
+  }
+}
+
+// ── UX-22: Map "Frame All" — fit 2D map to all result points ────────
+function fitMapToResults() {
+  if (typeof _mapViewReset === 'function') _mapViewReset();
+  if (typeof drawGalacticMap === 'function') drawGalacticMap();
+}
+
+// ── UX-21: 3D map legend ────────────────────────────────────────────
+function _update3DLegend() {
+  const legend = document.getElementById('threed-legend');
+  if (!legend) return;
+  const colourMode = document.getElementById('threed-colour')?.value || 'rating';
+  const sizeMode   = document.getElementById('threed-size')?.value   || 'uniform';
+
+  const colourGuides = {
+    rating:     [['#ef5350','Low'],['#ff9800','Average'],['#8bc34a','Good'],['#4caf50','Excellent']],
+    economy:    [['#66bb6a','Agriculture'],['#ffa726','Industrial'],['#42a5f5','High Tech'],['#ef5350','Military'],['#a1887f','Refinery']],
+    distance:   [['#4caf50','Near'],['#ff9800','Mid'],['#ef5350','Far']],
+    population: [['#bdbdbd','Uncolonised'],['#42a5f5','Low'],['#ff9800','High'],['#ef5350','Mega']],
+  };
+  const sizeGuides = {
+    uniform:    'All dots equal size',
+    rating:     'Larger = higher rating',
+    population: 'Larger = higher population',
+  };
+
+  const dots = (colourGuides[colourMode] || []).map(([col, lbl]) =>
+    `<span class="tl-item"><span class="tl-dot" style="background:${col}"></span>${lbl}</span>`
+  ).join('');
+  legend.style.display = 'flex';
+  legend.innerHTML = `
+    <strong style="font-size:10px;letter-spacing:1px;color:var(--text-dim)">COLOUR (${colourMode}):</strong>
+    ${dots}
+    &nbsp;·&nbsp;
+    <strong style="font-size:10px;letter-spacing:1px;color:var(--text-dim)">SIZE:</strong>
+    <span style="color:var(--text-dim)">${sizeGuides[sizeMode] || sizeMode}</span>
+    <span class="tl-item" style="margin-left:8px"><span class="tl-dot" style="background:#ff6a00"></span>Reference star</span>
+  `;
+}
+
+// ── UX-23: Keyboard arrow navigation between result cards ───────────
+document.addEventListener('keydown', (e) => {
+  if (!['ArrowDown', 'ArrowUp'].includes(e.key)) return;
+  const fc = document.getElementById('finder-content');
+  if (!fc) return;
+  const finderTab = document.getElementById('tab-finder');
+  if (finderTab && finderTab.style.display === 'none') return;
+  const focused = document.activeElement;
+  if (!fc.contains(focused) && focused !== document.body && !focused.classList.contains('result-card')) return;
+  const cards = Array.from(fc.querySelectorAll('.result-card[tabindex="0"]'));
+  if (!cards.length) return;
+  let idx = cards.indexOf(focused);
+  if (idx === -1) idx = e.key === 'ArrowDown' ? -1 : cards.length;
+  const nextIdx = e.key === 'ArrowDown'
+    ? Math.min(idx + 1, cards.length - 1)
+    : Math.max(idx - 1, 0);
+  cards[nextIdx]?.focus({ preventScroll: false });
+  e.preventDefault();
+});
+
+// Also update route tab badge when waypoints are cleared via clearRoute
+const _origClearRoute = window.clearRoute;
+if (typeof _origClearRoute === 'function') {
+  window.clearRoute = function() { _origClearRoute(); _updateRouteTabLabel(); };
+}
+</script>
+
 </body>
 </html>

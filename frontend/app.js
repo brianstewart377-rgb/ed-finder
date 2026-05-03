@@ -357,8 +357,12 @@ function buildModalHTML(sys) {
     ['Tourism',     r.scoreTourism     ?? r.score_tourism],
   ].filter(([, v]) => v != null);
 
-  // Bodies list — built via DOM to avoid nested template literal issues
-  const bodies = sys.bodies || [];
+  // Bodies list — sort: stars first, then planets/moons by distance from star (#11)
+  const bodies = [...(sys.bodies || [])].sort((a, b) => {
+    const rank = v => v.body_type === 'Star' ? 0 : v.body_type === 'Planet' ? 1 : 2;
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    return (a.distance_from_star ?? Infinity) - (b.distance_from_star ?? Infinity);
+  });
   let bodiesHTML = '';
   if (bodies.length) {
     const rows = bodies.map(b => {
@@ -486,6 +490,7 @@ function buildModalHTML(sys) {
           ${isSaved ? '★ Saved — click to remove' : '☆ Save to Watchlist'}
         </button>
         <button class="modal-map-btn" id="modal-show-on-map-btn" title="Show on Map">🌌 Show on Map</button>
+        <button class="modal-map-btn" id="modal-add-route-btn" title="Add to Route Planner" style="background:rgba(66,165,245,0.12);border-color:rgba(66,165,245,0.35);color:#42a5f5">🗺️ Add to Route</button>
         <a href="${edsm}" target="_blank" rel="noopener" class="modal-edsm-link">↗ EDSM</a>
         <a href="${inara}" target="_blank" rel="noopener" class="modal-edsm-link">↗ Inara</a>
       </div>
@@ -525,6 +530,17 @@ function attachModalEvents(sys) {
     mapBtn.addEventListener('click', () => {
       closeModal();
       window.EDMap?.focusSystem(sys);
+    });
+  }
+  // Add to Route (#12)
+  const routeBtn = qs('#modal-add-route-btn');
+  if (routeBtn) {
+    routeBtn.addEventListener('click', () => {
+      const coords = sys.coords || {};
+      if (typeof selectRouteWaypoint === 'function') {
+        selectRouteWaypoint({ name: sys.name, x: sys.x ?? coords.x ?? 0, y: sys.y ?? coords.y ?? 0, z: sys.z ?? coords.z ?? 0, id64: sys.id64 });
+        toast('Added to Route');
+      }
     });
   }
   // Commander Notes
