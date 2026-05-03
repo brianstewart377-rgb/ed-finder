@@ -2030,9 +2030,9 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   inset: -18%;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 50%,
-    rgba(255,106,0,0.16) 0%,
-    rgba(255,106,0,0.08) 30%,
-    rgba(196,77,0,0.04)  55%,
+    rgba(255,106,0,0.24) 0%,
+    rgba(255,106,0,0.13) 30%,
+    rgba(196,77,0,0.06)  55%,
     transparent          72%);
   filter: blur(28px);
   animation: bh-halo-pulse 8s ease-in-out infinite;
@@ -2047,13 +2047,13 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   border-radius: 50%;
   background: conic-gradient(from 0deg,
     transparent               0deg,
-    rgba(196,77,0,0.28)      35deg,
-    rgba(255,106,0,0.62)     75deg,
-    rgba(255,145,51,0.78)   110deg,
-    rgba(255,106,0,0.55)    150deg,
+    rgba(196,77,0,0.40)      35deg,
+    rgba(255,106,0,0.80)     75deg,
+    rgba(255,145,51,0.92)   110deg,
+    rgba(255,106,0,0.70)    150deg,
     transparent             200deg,
-    rgba(196,77,0,0.18)     250deg,
-    rgba(255,106,0,0.42)    305deg,
+    rgba(196,77,0,0.28)     250deg,
+    rgba(255,106,0,0.56)    305deg,
     transparent             360deg);
   filter: blur(22px);
   animation: bh-spin-reverse 60s linear infinite;
@@ -2069,19 +2069,47 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   border-radius: 50%;
   background: conic-gradient(from 90deg,
     transparent               0deg,
-    rgba(255,145,51,0.55)    30deg,
-    rgba(255,215,0,0.35)     60deg,   /* hint of --gold for a hot core */
-    rgba(255,145,51,0.72)    90deg,
-    rgba(255,106,0,0.58)    130deg,
+    rgba(255,145,51,0.70)    30deg,
+    rgba(255,215,0,0.48)     60deg,   /* hint of --gold for a hot core */
+    rgba(255,145,51,0.88)    90deg,
+    rgba(255,106,0,0.72)    130deg,
     transparent             180deg,
-    rgba(255,106,0,0.30)    240deg,
-    rgba(255,145,51,0.50)   300deg,
+    rgba(255,106,0,0.42)    240deg,
+    rgba(255,145,51,0.65)   300deg,
     transparent             360deg);
   filter: blur(10px);
   animation: bh-spin 26s linear infinite;
   will-change: transform;
   mask: radial-gradient(circle, transparent 38%, #000 48%, #000 82%, transparent 95%);
   -webkit-mask: radial-gradient(circle, transparent 38%, #000 48%, #000 82%, transparent 95%);
+}
+
+/* Gravitational-lensing ring — uses backdrop-filter to bend whatever is
+   rendered behind the black hole (nebula, stars). The annular mask keeps
+   the effect confined to the Einstein-ring region just outside the photon
+   sphere, which is where light would actually be deflected most.
+   Browsers without backdrop-filter support simply ignore this layer. */
+.bh-lens {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  pointer-events: none;
+  backdrop-filter: blur(3px) brightness(1.25) contrast(1.15);
+  -webkit-backdrop-filter: blur(3px) brightness(1.25) contrast(1.15);
+  /* Ring-shaped mask: transparent in the very centre (we want the event
+     horizon to be black, not a blurred blob) and transparent outside. */
+  mask: radial-gradient(circle,
+    transparent 0%,
+    transparent 30%,
+    #000        38%,
+    #000        55%,
+    transparent 70%);
+  -webkit-mask: radial-gradient(circle,
+    transparent 0%,
+    transparent 30%,
+    #000        38%,
+    #000        55%,
+    transparent 70%);
 }
 
 /* Photon ring — bright sliver at the innermost stable orbit, slight pulse. */
@@ -2092,16 +2120,16 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   background:
     radial-gradient(circle,
       transparent            42%,
-      rgba(255,145,51,0.35)  47%,
-      rgba(255,106,0,0.85)   50%,
-      rgba(255,145,51,0.55)  53%,
+      rgba(255,145,51,0.55)  47%,
+      rgba(255,106,0,1.00)   50%,
+      rgba(255,145,51,0.75)  53%,
       transparent            58%);
   filter: blur(2px);
   animation: bh-photon-pulse 6s ease-in-out infinite;
   will-change: opacity, transform;
   box-shadow:
-    0 0 60px rgba(255,106,0,0.35),
-    0 0 120px rgba(255,106,0,0.18);
+    0 0 80px rgba(255,106,0,0.55),
+    0 0 160px rgba(255,106,0,0.28);
 }
 
 /* Event horizon — absolute black, swallows everything. Thin inner lip gives
@@ -2122,13 +2150,15 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 }
 
 /* Reduced-motion: freeze rotations and pulses; the scene still reads as a
-   black hole, it just doesn't move. Meets WCAG 2.3.3. */
+   black hole, it just doesn't move. Meets WCAG 2.3.3. Also drops the
+   backdrop-filter (it can be GPU-heavy on older devices). */
 @media (prefers-reduced-motion: reduce) {
   .bh-stage,
   .bh-halo,
   .bh-disk-outer,
   .bh-disk-inner,
   .bh-photon-ring { animation: none !important; }
+  .bh-lens        { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 }
 
 /* Tiny viewports (<480px): hide the scene entirely — on phones the orange
@@ -2552,6 +2582,7 @@ body.density-compact .score-fill-wrap { display: inline-block !important; }
     <div class="bh-halo"></div>
     <div class="bh-disk-outer"></div>
     <div class="bh-disk-inner"></div>
+    <div class="bh-lens"></div>
     <div class="bh-photon-ring"></div>
     <div class="bh-horizon"></div>
   </div>
