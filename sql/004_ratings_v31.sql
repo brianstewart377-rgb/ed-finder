@@ -16,7 +16,7 @@
 --   body_diversity          smallint   — 0-30 Shannon-diversity bonus.
 --
 --   confidence              real       — 0.70-1.00 data-freshness factor,
---                                         derived from systems.last_updated.
+--                                         derived from systems.updated_at.
 --
 --   rationale               text       — one-line natural-language explainer
 --                                         for surfacing in the UI popover.

@@ -20,8 +20,8 @@
 -- statements (each runs in its own implicit transaction).
 
 CREATE INDEX IF NOT EXISTS idx_systems_first_discovered_at
-    ON systems (COALESCE(first_discovered_at, last_updated))
-    WHERE COALESCE(first_discovered_at, last_updated) IS NOT NULL;
+    ON systems (COALESCE(first_discovered_at, updated_at))
+    WHERE COALESCE(first_discovered_at, updated_at) IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_systems_galaxy_region_populated
     ON systems (galaxy_region_id)

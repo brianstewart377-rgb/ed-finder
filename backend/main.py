@@ -1584,10 +1584,10 @@ async def map_timeline(
     async with pool.acquire() as conn:
         rows = await conn.fetch(f"""
             SELECT
-                DATE_TRUNC('{trunc}', COALESCE(first_discovered_at, last_updated))::date AS bucket,
+                DATE_TRUNC('{trunc}', COALESCE(first_discovered_at, updated_at))::date AS bucket,
                 COUNT(*) AS systems_discovered
             FROM   systems
-            WHERE  COALESCE(first_discovered_at, last_updated) IS NOT NULL
+            WHERE  COALESCE(first_discovered_at, updated_at) IS NOT NULL
             GROUP BY bucket
             ORDER BY bucket
         """)
