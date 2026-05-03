@@ -2659,7 +2659,10 @@ body.density-compact .score-fill-wrap { display: inline-block !important; }
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-route" onclick="showTab('route',this)">🗺️ Route <span id="route-count-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-fc" onclick="showTab('fc',this)">🚀 FC Planner</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-map" onclick="showTab('map',this)">🌌 Map</button>
-  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-3d" onclick="showTab('3d',this)">🔮 3D Map</button>
+  <!-- 3D Map tab hidden in v3.1: merged into the Map tab via the View-mode
+       selector. We keep the #tab-3d content so any deep link still resolves,
+       but the tab button is gone. -->
+  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-3d" onclick="showTab('map',this)" style="display:none">🔮 3D Map</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-colony" onclick="showTab('colony',this)">🏗️ Colony Tracker <span id="colony-badge" style="display:none;background:var(--orange);color:#000;border-radius:9px;padding:0 6px;font-size:10px;margin-left:4px">0</span></button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-admin" onclick="showTab('admin',this)">📊 Admin</button>
   <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-changelog" onclick="showTab('changelog',this)" title="View app changelog">📋 Changes</button>
@@ -6506,6 +6509,36 @@ document.addEventListener('click', (e) => {
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="resetMapView()" title="Reset zoom & pan">⊙ Reset</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="drawGalacticMap()">↺ Redraw</button>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="fitMapToResults()" title="Auto-zoom to frame all current search results">⊞ Frame All</button>
+
+    <!-- ── v3.1: View mode / overlays / share ─────────────────────────── -->
+    <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+    <label style="font-size:11px;color:var(--text-dim)" title="Camera projection / view">View:</label>
+    <select id="map-view-mode" onchange="_mapSetViewMode(this.value)"
+      style="background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:3px 6px;font-size:11px">
+      <option value="top">Top-down</option>
+      <option value="3d-free">3D Free Orbit</option>
+      <option value="3d-ref">3D Around Reference</option>
+      <option value="side">Side View</option>
+    </select>
+    <details style="position:relative;font-size:11px;color:var(--text-dim)">
+      <summary style="cursor:pointer;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg4);list-style:none">Overlays ▾</summary>
+      <div style="position:absolute;top:100%;right:0;background:var(--bg3);border:1px solid var(--border-o);border-radius:6px;padding:10px;min-width:190px;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,0.5)">
+        <label style="display:block;margin-bottom:5px">
+          <input type="checkbox" id="map-overlay-clusters" onchange="_mapReloadOverlays()"> 🔘 Cluster hulls
+        </label>
+        <label style="display:block;margin-bottom:5px">
+          <input type="checkbox" id="map-overlay-regions" onchange="_mapReloadOverlays()"> 🏷️ Region labels
+        </label>
+        <label style="display:block;margin-bottom:5px">
+          <input type="checkbox" id="map-overlay-plane" onchange="_mapReloadOverlays()"> 🟰 Galactic plane grid
+        </label>
+        <label style="display:block">
+          <input type="checkbox" id="map-overlay-heatmap" onchange="_mapReloadOverlays()"> 🌡️ Density heatmap
+        </label>
+      </div>
+    </details>
+    <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="_mapShareView()" title="Copy shareable URL of current view">🔗 Share</button>
+    <!-- ────────────────────────────────────────────────────────────────── -->
   </div>
   <div id="map-canvas-wrap" style="display:none;flex-direction:column;flex:1">
     <canvas id="galactic-map" width="900" height="520" style="max-width:100%"></canvas>
@@ -6645,7 +6678,14 @@ document.addEventListener('click', (e) => {
   </div>
   <div id="threed-wrap">
     <canvas id="threed-canvas" style="display:none"></canvas>
-    <div id="threed-empty">Run a search in System Finder first, then switch here for a 3D view of results.<br><br>Uses WebGL canvas rendering — no external libraries required.</div>
+    <div id="threed-empty">
+      <strong style="color:var(--orange)">Merged into the Map tab</strong><br><br>
+      The 3D view has been merged into the unified <b>🌌 Map</b> tab.<br>
+      Switch there and choose <b>3D Free Orbit</b> or <b>3D Around Reference</b>
+      from the <b>View</b> dropdown in the top-right of the toolbar.
+      <br><br>
+      <button class="btn btn-primary" onclick="showTab('map')" style="padding:6px 14px">🌌 Open the Map tab</button>
+    </div>
   </div>
   <div id="threed-legend"></div>
   <div id="threed-detail" style="display:none;background:var(--bg3);border:1px solid var(--border-o);border-radius:6px;padding:12px 14px;margin-top:10px;font-size:12px"></div>
@@ -11924,6 +11964,245 @@ document.addEventListener('DOMContentLoaded', () => {
   const sel = document.getElementById('filter-economy');
   if (sel) _ecoSelectSync(sel.value || 'any');
 });
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     v3.1 — MAP OVERLAYS, VIEW MODES, SHAREABLE URL, SHOW-ON-MAP ACTION
+     ══════════════════════════════════════════════════════════════════════
+     Hooks into the existing 2D Three.js map via window._scene2d. The 3D
+     tab is hidden; the new View dropdown in the Map toolbar drives camera
+     selection. Overlay groups stored on scene.userData.edOverlay*.
+     ══════════════════════════════════════════════════════════════════════ -->
+<script>
+(function initMapOverlays() {
+  const MAP_API = (window.__API_BASE__ || '') + '/api/map';
+
+  async function _mapFetchOverlay(endpoint) {
+    try {
+      const r = await fetch(MAP_API + endpoint, { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    } catch (err) {
+      console.warn('[map] overlay fetch failed:', endpoint, err);
+      return null;
+    }
+  }
+
+  function _mapGetScene() { return window._scene2d || null; }
+
+  function _mapRemoveOverlay(key) {
+    const scene = _mapGetScene();
+    if (!scene || !scene.userData[key]) return;
+    scene.remove(scene.userData[key]);
+    scene.userData[key].traverse(n => {
+      if (n.geometry) n.geometry.dispose();
+      if (n.material) (Array.isArray(n.material) ? n.material : [n.material])
+        .forEach(m => m.dispose && m.dispose());
+    });
+    delete scene.userData[key];
+  }
+
+  async function _mapLoadClusters() {
+    const scene = _mapGetScene();
+    if (!scene || !window.THREE) return;
+    _mapRemoveOverlay('edOverlayClusters');
+    const data = await _mapFetchOverlay('/clusters/hulls?min_count=5&max_hulls=300');
+    if (!data || !data.clusters) return;
+    const group = new THREE.Group();
+    group.name = 'ed.overlayClusters';
+    const S = window.SCALE || 0.05;
+    for (const c of data.clusters) {
+      const geom = new THREE.SphereGeometry((c.radius_ly || 500) * S, 16, 12);
+      const mat  = new THREE.MeshBasicMaterial({
+        color: 0xff6a00, transparent: true, opacity: 0.08, depthWrite: false
+      });
+      const m = new THREE.Mesh(geom, mat);
+      m.position.set((c.x || 0) * S, (c.y || 0) * S, (c.z || 0) * S);
+      group.add(m);
+    }
+    scene.add(group);
+    scene.userData.edOverlayClusters = group;
+    if (window._requestRender2D) window._requestRender2D();
+  }
+
+  async function _mapLoadRegions() {
+    const scene = _mapGetScene();
+    if (!scene || !window.THREE) return;
+    _mapRemoveOverlay('edOverlayRegions');
+    const data = await _mapFetchOverlay('/regions');
+    if (!data || !data.regions) return;
+    const group = new THREE.Group();
+    group.name = 'ed.overlayRegions';
+    const S = window.SCALE || 0.05;
+    for (const r of data.regions) {
+      if (r.system_count < 10) continue;
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'rgba(255,145,51,0.85)';
+      ctx.font = 'bold 22px Orbitron, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(r.name, 128, 32);
+      const tex  = new THREE.CanvasTexture(canvas);
+      const mat  = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.6, depthWrite: false });
+      const spr  = new THREE.Sprite(mat);
+      spr.position.set((r.x || 0) * S, (r.y || 0) * S, (r.z || 0) * S);
+      spr.scale.set(60, 15, 1);
+      group.add(spr);
+    }
+    scene.add(group);
+    scene.userData.edOverlayRegions = group;
+    if (window._requestRender2D) window._requestRender2D();
+  }
+
+  function _mapLoadPlane() {
+    const scene = _mapGetScene();
+    if (!scene || !window.THREE) return;
+    _mapRemoveOverlay('edOverlayPlane');
+    const S = window.SCALE || 0.05;
+    const grid = new THREE.GridHelper(40000 * S, 40, 0xff6a00, 0x1a2842);
+    grid.material.opacity = 0.18;
+    grid.material.transparent = true;
+    grid.material.depthWrite = false;
+    scene.add(grid);
+    scene.userData.edOverlayPlane = grid;
+    if (window._requestRender2D) window._requestRender2D();
+  }
+
+  async function _mapLoadHeatmap() {
+    const scene = _mapGetScene();
+    if (!scene || !window.THREE) return;
+    _mapRemoveOverlay('edOverlayHeatmap');
+    const data = await _mapFetchOverlay('/heatmap?voxel_size=300&min_systems=3');
+    if (!data || !data.cells || !data.cells.length) return;
+    const group = new THREE.Group();
+    group.name = 'ed.overlayHeatmap';
+    const S = window.SCALE || 0.05;
+    const geom = new THREE.BufferGeometry();
+    const positions = new Float32Array(data.cells.length * 3);
+    const colors    = new Float32Array(data.cells.length * 3);
+    data.cells.forEach((c, i) => {
+      positions[i * 3]     = (c.cx || 0) * S;
+      positions[i * 3 + 1] = (c.cy || 0) * S;
+      positions[i * 3 + 2] = (c.cz || 0) * S;
+      const t = Math.max(0, Math.min(1, (c.avg_score || 0) / 100));
+      colors[i * 3]     = t;
+      colors[i * 3 + 1] = 0.4 * t;
+      colors[i * 3 + 2] = 1.0 - t * 0.9;
+    });
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setAttribute('color',    new THREE.BufferAttribute(colors,    3));
+    const mat = new THREE.PointsMaterial({
+      size: 4.0, vertexColors: true, transparent: true, opacity: 0.45, depthWrite: false
+    });
+    group.add(new THREE.Points(geom, mat));
+    scene.add(group);
+    scene.userData.edOverlayHeatmap = group;
+    if (window._requestRender2D) window._requestRender2D();
+  }
+
+  window._mapReloadOverlays = function() {
+    const q = sel => document.getElementById(sel);
+    const checks = {
+      clusters: q('map-overlay-clusters')?.checked,
+      regions:  q('map-overlay-regions')?.checked,
+      plane:    q('map-overlay-plane')?.checked,
+      heatmap:  q('map-overlay-heatmap')?.checked,
+    };
+    if (checks.clusters) _mapLoadClusters(); else _mapRemoveOverlay('edOverlayClusters');
+    if (checks.regions)  _mapLoadRegions();  else _mapRemoveOverlay('edOverlayRegions');
+    if (checks.plane)    _mapLoadPlane();    else _mapRemoveOverlay('edOverlayPlane');
+    if (checks.heatmap)  _mapLoadHeatmap();  else _mapRemoveOverlay('edOverlayHeatmap');
+    _mapUpdateUrlState();
+  };
+
+  window._mapSetViewMode = function(mode) {
+    document.dispatchEvent(new CustomEvent('ed:view-mode', { detail: { mode } }));
+    const planeCb = document.getElementById('map-overlay-plane');
+    if (mode.startsWith('3d') && planeCb && !planeCb.checked) {
+      planeCb.checked = true;
+      _mapLoadPlane();
+    }
+    _mapUpdateUrlState();
+  };
+
+  window.showSystemOnMap = function(id64, name) {
+    if (!id64) return;
+    if (typeof showTab === 'function') showTab('map');
+    document.dispatchEvent(new CustomEvent('ed:show-on-map', {
+      detail: { id64: Number(id64), name: name || null }
+    }));
+  };
+
+  function _mapEncodeState() {
+    const q = sel => document.getElementById(sel);
+    const state = {
+      v:  q('map-view-mode')?.value || 'top',
+      oc: q('map-overlay-clusters')?.checked ? 1 : 0,
+      or: q('map-overlay-regions')?.checked  ? 1 : 0,
+      op: q('map-overlay-plane')?.checked    ? 1 : 0,
+      oh: q('map-overlay-heatmap')?.checked  ? 1 : 0,
+      cm: q('map-colour-mode')?.value  || '',
+      pl: q('map-plane')?.value        || '',
+    };
+    return Object.entries(state)
+      .filter(([_, v]) => v !== '' && v !== 0)
+      .map(([k, v]) => k + '=' + encodeURIComponent(v))
+      .join('&');
+  }
+
+  function _mapDecodeState(hash) {
+    const out = {};
+    hash.replace(/^#?map:?/, '').split('&').forEach(pair => {
+      const [k, v] = pair.split('=');
+      if (k) out[k] = decodeURIComponent(v || '');
+    });
+    return out;
+  }
+
+  function _mapUpdateUrlState() {
+    const s = _mapEncodeState();
+    if (!s) return;
+    history.replaceState(null, '', '#map:' + s);
+  }
+
+  window._mapShareView = async function() {
+    const s = _mapEncodeState();
+    const url = location.origin + location.pathname + '#map:' + s;
+    try {
+      await navigator.clipboard.writeText(url);
+      if (window.toast) toast('Shareable URL copied to clipboard', 'success');
+      else alert('Copied: ' + url);
+    } catch {
+      prompt('Shareable URL:', url);
+    }
+  };
+
+  function _mapApplyUrlState() {
+    if (!location.hash.startsWith('#map:')) return;
+    const s = _mapDecodeState(location.hash);
+    const q = (sel, val) => {
+      const el = document.getElementById(sel);
+      if (el) {
+        if (el.type === 'checkbox') el.checked = val === '1';
+        else el.value = val;
+      }
+    };
+    if (s.v)  q('map-view-mode',         s.v);
+    if (s.oc) q('map-overlay-clusters',  s.oc);
+    if (s.or) q('map-overlay-regions',   s.or);
+    if (s.op) q('map-overlay-plane',     s.op);
+    if (s.oh) q('map-overlay-heatmap',   s.oh);
+    if (s.cm) q('map-colour-mode',       s.cm);
+    if (s.pl) q('map-plane',             s.pl);
+    if (s.v && window._mapSetViewMode) window._mapSetViewMode(s.v);
+    if (window._mapReloadOverlays)     window._mapReloadOverlays();
+  }
+
+  window.addEventListener('DOMContentLoaded', _mapApplyUrlState);
+  window.addEventListener('hashchange',       _mapApplyUrlState);
+})();
 </script>
 
 </body>
