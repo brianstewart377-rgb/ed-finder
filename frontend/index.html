@@ -1972,6 +1972,178 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   transform-origin: 55% 45%;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   BLACK HOLE SCENE (pure CSS, GPU-accelerated, uses the Elite orange palette)
+   ──────────────────────────────────────────────────────────────────────────
+   Layers, back to front:
+     1. bh-scene       — fixed full-viewport stage, clipped, pointer-events:none
+     2. bh-halo        — soft outer accent glow (matches --orange-dk)
+     3. bh-disk-outer  — slow counter-rotating accretion disk (orange #ff6a00)
+     4. bh-disk-inner  — faster accretion disk core (brighter orange-lt)
+     5. bh-photon-ring — thin bright ring at the photon sphere (subtle pulse)
+     6. bh-horizon     — pure-black event horizon with a thin bright lip
+     7. bh-drift       — transforms the whole BH container gently for parallax
+   Everything is aria-hidden via the wrapper div; respects reduced-motion.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes bh-spin           { to { transform: rotate(360deg); } }
+@keyframes bh-spin-reverse   { to { transform: rotate(-360deg); } }
+@keyframes bh-photon-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.025); }
+}
+@keyframes bh-drift {
+  0%, 100% { transform: translate3d(0, 0, 0)     scale(1); }
+  50%      { transform: translate3d(-1.5%, 1%, 0) scale(1.015); }
+}
+@keyframes bh-halo-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.65; }
+}
+
+.bh-scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;              /* same stacking context as .nebula-wrapper */
+  pointer-events: none;
+  overflow: hidden;
+  /* A subtle vignette toward the black hole side reinforces the pull. */
+  background:
+    radial-gradient(ellipse 60% 80% at 78% 50%, rgba(0,0,0,0.55) 0%, transparent 55%);
+}
+
+.bh-stage {
+  position: absolute;
+  /* Offset to the right, vertically centred — sits behind the right rail
+     rather than the centre content so it never fights with tables/forms. */
+  top: 50%;
+  left: 78%;
+  width:  min(62vmin, 700px);
+  height: min(62vmin, 700px);
+  transform: translate(-50%, -50%);
+  animation: bh-drift 32s ease-in-out infinite;
+  will-change: transform;
+}
+
+.bh-halo {
+  position: absolute;
+  inset: -18%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    rgba(255,106,0,0.16) 0%,
+    rgba(255,106,0,0.08) 30%,
+    rgba(196,77,0,0.04)  55%,
+    transparent          72%);
+  filter: blur(28px);
+  animation: bh-halo-pulse 8s ease-in-out infinite;
+  will-change: opacity;
+}
+
+/* Outer accretion disk — slow counter-rotation. Conic gradient with uneven
+   hot-spots sells the illusion of matter spiralling in. */
+.bh-disk-outer {
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    transparent               0deg,
+    rgba(196,77,0,0.28)      35deg,
+    rgba(255,106,0,0.62)     75deg,
+    rgba(255,145,51,0.78)   110deg,
+    rgba(255,106,0,0.55)    150deg,
+    transparent             200deg,
+    rgba(196,77,0,0.18)     250deg,
+    rgba(255,106,0,0.42)    305deg,
+    transparent             360deg);
+  filter: blur(22px);
+  animation: bh-spin-reverse 60s linear infinite;
+  will-change: transform;
+  mask: radial-gradient(circle, transparent 32%, #000 42%, #000 85%, transparent 96%);
+  -webkit-mask: radial-gradient(circle, transparent 32%, #000 42%, #000 85%, transparent 96%);
+}
+
+/* Inner disk — faster spin, tighter and brighter (photon-sphere heat). */
+.bh-disk-inner {
+  position: absolute;
+  inset: 16%;
+  border-radius: 50%;
+  background: conic-gradient(from 90deg,
+    transparent               0deg,
+    rgba(255,145,51,0.55)    30deg,
+    rgba(255,215,0,0.35)     60deg,   /* hint of --gold for a hot core */
+    rgba(255,145,51,0.72)    90deg,
+    rgba(255,106,0,0.58)    130deg,
+    transparent             180deg,
+    rgba(255,106,0,0.30)    240deg,
+    rgba(255,145,51,0.50)   300deg,
+    transparent             360deg);
+  filter: blur(10px);
+  animation: bh-spin 26s linear infinite;
+  will-change: transform;
+  mask: radial-gradient(circle, transparent 38%, #000 48%, #000 82%, transparent 95%);
+  -webkit-mask: radial-gradient(circle, transparent 38%, #000 48%, #000 82%, transparent 95%);
+}
+
+/* Photon ring — bright sliver at the innermost stable orbit, slight pulse. */
+.bh-photon-ring {
+  position: absolute;
+  inset: 28%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle,
+      transparent            42%,
+      rgba(255,145,51,0.35)  47%,
+      rgba(255,106,0,0.85)   50%,
+      rgba(255,145,51,0.55)  53%,
+      transparent            58%);
+  filter: blur(2px);
+  animation: bh-photon-pulse 6s ease-in-out infinite;
+  will-change: opacity, transform;
+  box-shadow:
+    0 0 60px rgba(255,106,0,0.35),
+    0 0 120px rgba(255,106,0,0.18);
+}
+
+/* Event horizon — absolute black, swallows everything. Thin inner lip gives
+   it dimension without contradicting the "singularity" read. */
+.bh-horizon {
+  position: absolute;
+  inset: 33%;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    #000 0%,
+    #000 68%,
+    rgba(0,0,0,0.95) 80%,
+    transparent 100%);
+  box-shadow:
+    inset 0 0 40px rgba(0,0,0,1),
+    inset 0 0 2px  rgba(255,145,51,0.25),
+    0 0 60px rgba(0,0,0,0.8);
+}
+
+/* Reduced-motion: freeze rotations and pulses; the scene still reads as a
+   black hole, it just doesn't move. Meets WCAG 2.3.3. */
+@media (prefers-reduced-motion: reduce) {
+  .bh-stage,
+  .bh-halo,
+  .bh-disk-outer,
+  .bh-disk-inner,
+  .bh-photon-ring { animation: none !important; }
+}
+
+/* Tiny viewports (<480px): hide the scene entirely — on phones the orange
+   glow competes with the UI and the cards already fill the viewport. */
+@media (max-width: 480px) {
+  .bh-scene { display: none; }
+}
+
+/* Light-mode override — if/when the app is flipped to the light theme
+   (see the later @media block around line 1545), dial the scene way down
+   so the orange disk doesn't glow off a white page. */
+@media (prefers-color-scheme: light) {
+  body.light-mode .bh-scene { opacity: 0.18; }
+}
+
 /* ── Body: deep blue-purple void + star field ── */
 body {
   background-color: #060812;
@@ -2373,6 +2545,16 @@ body.density-compact .score-fill-wrap { display: inline-block !important; }
   <div class="nebula-drift-a"></div>
   <div class="nebula-drift-b"></div>
   <div class="nebula-drift-c"></div>
+</div>
+<!-- Black hole scene — fixed, behind all UI; see the BLACK HOLE SCENE CSS block -->
+<div class="bh-scene" aria-hidden="true">
+  <div class="bh-stage">
+    <div class="bh-halo"></div>
+    <div class="bh-disk-outer"></div>
+    <div class="bh-disk-inner"></div>
+    <div class="bh-photon-ring"></div>
+    <div class="bh-horizon"></div>
+  </div>
 </div>
 <!-- FIX-A5: Skip navigation — keyboard users skip to main content with one Tab press -->
 <!-- L1: Screen-reader live region for dynamic status announcements -->
