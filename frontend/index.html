@@ -1927,8 +1927,9 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   100% { transform: translate(0%,   0%)    scale(1.00); }
 }
 @keyframes nebula-twinkle {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
+  0%   { opacity: 0.75; }
+  50%  { opacity: 1.00; }
+  100% { opacity: 0.75; }
 }
 
 /* ── Body: near-black void base ── */
@@ -1991,23 +1992,23 @@ body {
 .nebula-stars {
   position: absolute; inset: 0; pointer-events: none; z-index: 0;
   background-image:
-    radial-gradient(1.2px 1.2px at  6% 12%, rgba(255,255,255,0.90) 0%, transparent 100%),
-    radial-gradient(0.8px 0.8px at 19% 34%, rgba(255,255,255,0.60) 0%, transparent 100%),
-    radial-gradient(1.0px 1.0px at 43% 68%, rgba(255,255,255,0.75) 0%, transparent 100%),
-    radial-gradient(0.7px 0.7px at 67% 22%, rgba(255,255,255,0.50) 0%, transparent 100%),
-    radial-gradient(1.3px 1.3px at 82% 57%, rgba(255,255,255,0.80) 0%, transparent 100%),
-    radial-gradient(0.9px 0.9px at 91% 85%, rgba(255,255,255,0.55) 0%, transparent 100%),
-    radial-gradient(0.6px 0.6px at 33% 91%, rgba(255,255,255,0.45) 0%, transparent 100%),
-    radial-gradient(1.1px 1.1px at 55% 44%, rgba(255,255,255,0.65) 0%, transparent 100%),
-    radial-gradient(0.8px 0.8px at 74%  8%, rgba(255,255,255,0.50) 0%, transparent 100%),
-    radial-gradient(0.7px 0.7px at 12% 76%, rgba(255,255,255,0.55) 0%, transparent 100%),
-    radial-gradient(1.0px 1.0px at 28% 58%, rgba(255,220,180,0.50) 0%, transparent 100%),
-    radial-gradient(0.9px 0.9px at 78% 38%, rgba(180,200,255,0.55) 0%, transparent 100%),
-    radial-gradient(1.2px 1.2px at 48% 82%, rgba(255,180,150,0.45) 0%, transparent 100%),
-    radial-gradient(0.6px 0.6px at 92% 25%, rgba(200,220,255,0.40) 0%, transparent 100%),
-    radial-gradient(0.8px 0.8px at 37% 15%, rgba(255,255,255,0.60) 0%, transparent 100%),
-    radial-gradient(1.1px 1.1px at 60% 94%, rgba(255,255,255,0.45) 0%, transparent 100%);
-  animation: nebula-twinkle 7s ease-in-out infinite alternate;
+    radial-gradient(1.0px 1.0px at  6% 12%, rgba(255,255,255,0.55) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 19% 34%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 43% 68%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(0.6px 0.6px at 67% 22%, rgba(255,255,255,0.30) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 82% 57%, rgba(255,255,255,0.50) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 91% 85%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(0.5px 0.5px at 33% 91%, rgba(255,255,255,0.28) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 55% 44%, rgba(255,255,255,0.40) 0%, transparent 100%),
+    radial-gradient(0.6px 0.6px at 74%  8%, rgba(255,255,255,0.32) 0%, transparent 100%),
+    radial-gradient(0.6px 0.6px at 12% 76%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 28% 58%, rgba(255,220,180,0.32) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 78% 38%, rgba(180,200,255,0.35) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 48% 82%, rgba(255,180,150,0.28) 0%, transparent 100%),
+    radial-gradient(0.5px 0.5px at 92% 25%, rgba(200,220,255,0.25) 0%, transparent 100%),
+    radial-gradient(0.6px 0.6px at 37% 15%, rgba(255,255,255,0.38) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 60% 94%, rgba(255,255,255,0.28) 0%, transparent 100%);
+  animation: nebula-twinkle 30s ease-in-out infinite;
 }
 
 /* ── Nebula overlay: keeps UI readable ── */
