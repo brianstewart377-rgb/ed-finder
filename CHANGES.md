@@ -5,6 +5,14 @@ Production app lives at ed-finder.app (Hetzner/Docker); this log tracks sandbox 
 
 ---
 
+## 2026-05-03 — Backend fix: auto-rebuild indexes transaction error
+
+### backend/import_spansh.py
+
+**`set_session cannot be used inside a transaction` (FIXED)** — The `auto-rebuild indexes` block at the end of `main()` opened a read transaction via `SELECT count(*) FROM pg_indexes`, then immediately tried to set `conn.autocommit = True` on line 1649 while that transaction was still open. psycopg2 prohibits any `set_session` / `autocommit` change inside an active transaction. Fixed by restructuring into two explicit phases: Phase 1 runs the `SELECT` and calls `conn.commit()` to fully close the read transaction; Phase 2 only then flips `conn.autocommit = True` (safe because no transaction is open), runs the index SQL in a fresh cursor, and restores `autocommit` in a `finally` block so it's always reset even if the index run fails.
+
+---
+
 ## 2026-05-03 — Forensic audit pass (full code review + null-crash fix)
 
 ### frontend/index.html

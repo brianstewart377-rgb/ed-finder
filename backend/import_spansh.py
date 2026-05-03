@@ -1638,26 +1638,36 @@ def main():
     # Auto-rebuild indexes if they were dropped for the import
     if args.all or args.file:
         try:
+            # Phase 1: check index count in its own committed read-transaction.
+            # We must commit before changing conn.autocommit — psycopg2 raises
+            # "set_session cannot be used inside a transaction" if we don't.
             with conn.cursor() as _cur:
                 _cur.execute("SELECT count(*) FROM pg_indexes WHERE tablename = 'systems' AND indexname NOT LIKE '%pkey%'")
                 idx_count = _cur.fetchone()[0]
-                if idx_count < 5:
-                    log.info("--- AUTOMATIC INDEX REBUILD ---")
-                    log.info("Indexes are missing (likely dropped for import). Starting rebuild from 002_indexes.sql ...")
-                    log.info("This will take 1-3 hours. Do not interrupt.")
+            conn.commit()  # close the read transaction before touching autocommit
+
+            if idx_count < 5:
+                log.info("--- AUTOMATIC INDEX REBUILD ---")
+                log.info("Indexes are missing (likely dropped for import). Starting rebuild from 002_indexes.sql ...")
+                log.info("This will take 1-3 hours. Do not interrupt.")
+                sql_path = Path(__file__).parent.parent / 'sql' / '002_indexes.sql'
+                if sql_path.exists():
+                    # Phase 2: run CREATE INDEX statements — requires autocommit mode.
+                    # Only flip autocommit after the read transaction is fully closed.
                     old_autocommit = conn.autocommit
                     conn.autocommit = True
-                    sql_path = Path(__file__).parent.parent / 'sql' / '002_indexes.sql'
-                    if sql_path.exists():
-                        with open(sql_path, 'r') as sql_f:
-                            sql_commands = sql_f.read()
-                            _cur.execute(sql_commands)
+                    try:
+                        with conn.cursor() as _idx_cur:
+                            with open(sql_path, 'r') as sql_f:
+                                sql_commands = sql_f.read()
+                            _idx_cur.execute(sql_commands)
                         log.info("✅ Indexes rebuilt successfully.")
-                    else:
-                        log.warning(f"Could not find {sql_path} — please run manually.")
-                    conn.autocommit = old_autocommit
+                    finally:
+                        conn.autocommit = old_autocommit
                 else:
-                    log.info(f"Indexes already exist ({idx_count} found) — skipping auto-rebuild.")
+                    log.warning(f"Could not find {sql_path} — please run manually.")
+            else:
+                log.info(f"Indexes already exist ({idx_count} found) — skipping auto-rebuild.")
         except Exception as e:
             log.error(f"Failed to auto-rebuild indexes: {e}")
 
