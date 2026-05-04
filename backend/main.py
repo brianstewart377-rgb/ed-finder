@@ -195,8 +195,9 @@ def run_cluster_rebuild():
         ]
         log.info("Triggering background cluster rebuild: %s", " ".join(cmd))
 
-        # We use check=True to raise an error if the script fails
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # check=True raises CalledProcessError on non-zero exit; we don't
+        # currently inspect stdout/stderr so the return value is discarded.
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         _active_jobs[job_id].update({
             "status": "completed",
