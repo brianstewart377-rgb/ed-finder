@@ -2005,42 +2005,39 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════════════
-   BLACK HOLE v4 — TILTED ACCRETION DISK (Hubble-image inspired)
-   Replaces the prior face-on disk + ring layout. The new look is a single
-   wide elliptical disk seen from ~30° above the disk plane, with a hot
-   bright nucleus offset toward the upper-left of its centre, swirling
-   spiral arms of orange/yellow gas, and the BH sitting in the bottom-right
-   corner of the viewport.
+   BLACK HOLE v5 — INTERSTELLAR / GARGANTUA STYLE
+   v4's tilted-disk attempt produced a "coffee stain" — pure CSS conic
+   gradients can't fake spiral arms convincingly. v5 goes simpler: an
+   edge-on accretion ring with a bright Doppler-beamed crescent on the
+   approaching side and a solid black event horizon. Easy to read,
+   physically defensible, and CSS-native.
 
    Layer stack (bottom-up):
-     bh-stage         — the perspective container (rotateX so disk tilts)
-     bh-glow          — diffuse outer halo
-     bh-disk-spiral-a — wide outer spiral arms (slow rotate)
-     bh-disk-spiral-b — inner spiral arms (faster, opposite rotation)
-     bh-nucleus       — the bright hot core (offset upper-left)
-     bh-streams       — inward-pulling matter wisps (kept from v3)
-     bh-horizon       — the dark singularity dot
+     bh-glow       — soft outer atmosphere
+     bh-ring       — thin elliptical accretion ring (slow rotate)
+     bh-crescent   — bright Doppler crescent (approaching side)
+     bh-horizon    — solid black event-horizon sphere
+     bh-streamers  — faint inward wisps
    ══════════════════════════════════════════════════════════════════════ */
 
-@keyframes bh-spiral-a   { to { transform: rotate(360deg); } }
-@keyframes bh-spiral-b   { to { transform: rotate(-360deg); } }
-@keyframes bh-nucleus-pulse {
-  0%, 100% { opacity: 0.92; transform: scale(1)     translate(-32%, -28%); }
-  50%      { opacity: 1.00; transform: scale(1.08)  translate(-32%, -28%); }
-}
+@keyframes bh-spin       { to { transform: rotate(360deg) scaleY(0.34); } }
 @keyframes bh-glow-pulse {
   0%, 100% { opacity: 0.55; }
-  50%      { opacity: 0.75; }
+  50%      { opacity: 0.78; }
+}
+@keyframes bh-cresc-pulse {
+  0%, 100% { opacity: 0.95; filter: blur(6px) brightness(1.0);  }
+  50%      { opacity: 1.00; filter: blur(5px) brightness(1.15); }
 }
 @keyframes bh-suck {
-  0%   { transform: rotate(0deg)  scale(1.25); opacity: 0;    }
-  12%  {                                       opacity: 0.55; }
-  85%  {                                       opacity: 0.20; }
-  100% { transform: rotate(55deg) scale(0.65); opacity: 0;    }
+  0%   { transform: rotate(0deg)  scale(1.20) scaleY(0.34); opacity: 0;    }
+  18%  {                                                    opacity: 0.55; }
+  85%  {                                                    opacity: 0.20; }
+  100% { transform: rotate(48deg) scale(0.65) scaleY(0.34); opacity: 0;    }
 }
 @keyframes bh-drift {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50%      { transform: translate3d(-1%, 0.6%, 0); }
+  0%, 100% { transform: translate3d(0, -50%, 0); }
+  50%      { transform: translate3d(-1%, -49.4%, 0); }
 }
 
 .bh-scene {
@@ -2049,176 +2046,150 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  /* Subtle vignette pulling toward the lower-right where the disk sits. */
   background:
-    radial-gradient(ellipse 70% 60% at 88% 88%, rgba(0,0,0,0.55) 0%, transparent 60%);
+    radial-gradient(ellipse 50% 60% at 88% 50%, rgba(0,0,0,0.55) 0%, transparent 60%);
 }
 
 .bh-stage {
   position: absolute;
-  /* Anchor in the bottom-right corner. The disk extends ~70vmin diagonally
-     up-and-out, so most of the right and bottom rails of the viewport are
-     filled with gas — same composition as the user's reference image. */
-  right: -8vmin;
-  bottom: -8vmin;
-  width:  min(88vmin, 920px);
-  height: min(88vmin, 920px);
-  /* Tilt the entire disk about ~62° around X so we see it edge-on from
-     above. Y rotation skews it to a nice oblique angle. */
-  transform: perspective(1400px) rotateX(58deg) rotateZ(-22deg);
-  transform-origin: center center;
+  top: 50%;
+  right: -6vmin;
+  width:  min(50vmin, 600px);
+  height: min(50vmin, 600px);
+  /* translateY(-50%) is baked into the bh-drift keyframes so they don't
+     fight each other when the animation runs. */
+  transform: translateY(-50%);
   animation: bh-drift 32s ease-in-out infinite;
   will-change: transform;
 }
 
-/* Outer halo / "atmosphere" of the disk — diffuse orange wash that gives
-   the whole composition a warm-from-the-corner feel. */
 .bh-glow {
   position: absolute;
-  inset: -20%;
+  inset: -4%;
   border-radius: 50%;
-  background: radial-gradient(circle at 38% 38%,
-    rgba(255,170,70,0.42) 0%,
-    rgba(255,120,30,0.30) 18%,
-    rgba(196,77,0,0.22)   38%,
-    rgba(80,30,0,0.10)    58%,
-    transparent           80%);
-  filter: blur(48px);
+  background: radial-gradient(circle,
+    rgba(255,140,40,0.32)  0%,
+    rgba(255,100,20,0.18) 22%,
+    rgba(160,55,0,0.10)   46%,
+    transparent           70%);
+  filter: blur(28px);
   animation: bh-glow-pulse 9s ease-in-out infinite;
   will-change: opacity;
 }
 
-/* OUTER SPIRAL ARMS — slow, wide, lots of fluffy detail. Built from a
-   conic-gradient with many short bright/dim sweeps, masked to a soft
-   annulus so the hub is dark and the outer edge fades. */
-.bh-disk-spiral-a {
+/* Edge-on accretion ring. The radial-gradient gives the ring profile
+   (transparent core, bright at the edge, fade outside). scaleY(0.34)
+   bakes in the perspective squash so the ring reads as edge-on. The
+   single combined keyframe (bh-spin) rotates AND keeps the squash. */
+.bh-ring {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    transparent           0%,
+    transparent          37%,
+    rgba(255,180,70,0.40) 41%,
+    rgba(255,210,110,0.85)45%,
+    rgba(255,170,55,1.00) 49%,
+    rgba(255,210,110,0.85)53%,
+    rgba(255,180,70,0.40) 57%,
+    transparent          62%,
+    transparent         100%);
+  filter: blur(1.2px);
+  transform: scaleY(0.34);
+  transform-origin: center center;
+  animation: bh-spin 60s linear infinite;
+  will-change: transform;
+}
+
+/* The bright Doppler crescent — fixed below the horizon, doesn't rotate
+   (the ring rotates THROUGH it, giving the impression that whichever
+   matter is currently on the approaching side is glowing brightest). */
+.bh-crescent {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse 92% 24% at 50% 80%,
+      rgba(255,240,180,1.00) 0%,
+      rgba(255,210,110,0.95) 22%,
+      rgba(255,160,55,0.70)  42%,
+      rgba(255,120,30,0.30)  62%,
+      transparent            85%);
+  filter: blur(5px);
+  animation: bh-cresc-pulse 5s ease-in-out infinite;
+  will-change: opacity, filter;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+/* Top-half "lensed" sliver — Interstellar's hallmark over-the-horizon
+   ring caused by photons orbiting the BH. */
+.bh-crescent::before {
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: conic-gradient(from 0deg,
-    rgba(255,180,80,0.95)   0deg,
-    rgba(255,140,40,0.60)  18deg,
-    rgba(255,200,100,0.85) 38deg,
-    rgba(255,120,20,0.50)  62deg,
-    rgba(255,180,70,0.90)  88deg,
-    rgba(196,77,0,0.45)   118deg,
-    rgba(255,160,55,0.75) 145deg,
-    rgba(120,40,0,0.35)   178deg,
-    rgba(255,140,40,0.60) 210deg,
-    rgba(80,28,0,0.25)    240deg,
-    rgba(255,160,55,0.75) 275deg,
-    rgba(196,77,0,0.40)   300deg,
-    rgba(255,180,80,0.92) 330deg,
-    rgba(255,180,80,0.95) 360deg);
-  filter: blur(11px);
-  animation: bh-spiral-a 70s linear infinite;
-  will-change: transform;
-  /* The mask creates the spiral feel — donut shape with a soft outer fade. */
-  mask: radial-gradient(circle, transparent 18%, #000 32%, #000 76%, transparent 96%);
-  -webkit-mask: radial-gradient(circle, transparent 18%, #000 32%, #000 76%, transparent 96%);
+  background:
+    radial-gradient(ellipse 92% 20% at 50% 18%,
+      rgba(255,200,100,0.85) 0%,
+      rgba(255,160,55,0.55) 30%,
+      rgba(255,120,30,0.20) 55%,
+      transparent           80%);
+  filter: blur(4px);
+  pointer-events: none;
 }
 
-/* INNER SPIRAL ARMS — faster, brighter, opposite rotation for a sense of
-   shear. Donut sits inside the outer disk's annulus. */
-.bh-disk-spiral-b {
+.bh-streamers {
   position: absolute;
-  inset: 14%;
-  border-radius: 50%;
-  background: conic-gradient(from 90deg,
-    rgba(255,220,140,0.80)   0deg,
-    rgba(255,170,60,0.55)   25deg,
-    rgba(255,235,160,1.00)  60deg,
-    rgba(255,180,70,0.50)   95deg,
-    rgba(255,210,120,0.85) 130deg,
-    rgba(255,140,40,0.45)  170deg,
-    rgba(255,200,100,0.80) 210deg,
-    rgba(196,77,0,0.40)    250deg,
-    rgba(255,180,70,0.75)  290deg,
-    rgba(255,220,140,0.80) 360deg);
-  filter: blur(7px);
-  animation: bh-spiral-b 32s linear infinite;
-  will-change: transform;
-  mask: radial-gradient(circle, transparent 22%, #000 38%, #000 78%, transparent 96%);
-  -webkit-mask: radial-gradient(circle, transparent 22%, #000 38%, #000 78%, transparent 96%);
-}
-
-/* HOT NUCLEUS — bright crescent offset to the upper-left of the disk
-   centre, like the reference image. This is where matter is heated to
-   X-ray temperatures right before it crosses the horizon. */
-.bh-nucleus {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 32%;
-  height: 32%;
-  border-radius: 50%;
-  background: radial-gradient(ellipse 60% 80% at 40% 40%,
-    rgba(255,255,210,1.00) 0%,
-    rgba(255,235,150,0.95) 18%,
-    rgba(255,200,90,0.85)  35%,
-    rgba(255,160,55,0.55)  55%,
-    rgba(255,120,30,0.20)  78%,
-    transparent            100%);
-  filter: blur(6px);
-  /* Offset upper-left of disk centre, then subtle pulse via the keyframe. */
-  transform: scale(1) translate(-32%, -28%);
-  animation: bh-nucleus-pulse 6s ease-in-out infinite;
-  will-change: transform, opacity;
-  box-shadow:
-    0 0 60px  rgba(255,200,90,0.50),
-    0 0 140px rgba(255,150,40,0.30);
-}
-
-/* INWARD MATTER STREAMS — kept from v3 but tightened to fit the new disk.
-   Repeating-conic spokes that scale inward on a 9 s loop. */
-.bh-streams {
-  position: absolute;
-  inset: 18%;
+  inset: 22%;
   border-radius: 50%;
   background: repeating-conic-gradient(from 0deg,
     transparent 0deg,
-    rgba(255,200,90,0.50) 0.4deg,
-    rgba(255,140,30,0.25) 1.0deg,
+    rgba(255,210,120,0.50) 0.4deg,
+    rgba(255,150,40,0.22)  1.0deg,
     transparent 1.8deg,
-    transparent 8deg);
-  filter: blur(2px);
-  mask: radial-gradient(circle, transparent 22%, #000 36%, #000 70%, transparent 92%);
-  -webkit-mask: radial-gradient(circle, transparent 22%, #000 36%, #000 70%, transparent 92%);
+    transparent 9deg);
+  filter: blur(1.5px);
+  mask: radial-gradient(circle, transparent 30%, #000 42%, #000 64%, transparent 88%);
+  -webkit-mask: radial-gradient(circle, transparent 30%, #000 42%, #000 64%, transparent 88%);
   animation: bh-suck 9s cubic-bezier(.55,.05,.25,1) infinite;
   will-change: transform, opacity;
   mix-blend-mode: screen;
+  transform: scaleY(0.34);
+  transform-origin: center center;
 }
 
-/* SINGULARITY — a small dark spot in the middle of the nucleus. Kept
-   intentionally tiny (the disk is the star of this composition). */
 .bh-horizon {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 7%;
-  height: 7%;
+  width:  34%;
+  height: 34%;
+  margin: -17% 0 0 -17%;
   border-radius: 50%;
-  background: radial-gradient(circle, #000 60%, rgba(0,0,0,0.6) 78%, transparent 100%);
-  transform: translate(-32%, -28%) scale(1);
+  background: radial-gradient(circle,
+    #000 0%,
+    #000 78%,
+    rgba(0,0,0,0.92) 92%,
+    transparent 100%);
   box-shadow:
-    inset 0 0 18px rgba(0,0,0,1),
-    0 0 28px rgba(0,0,0,0.9);
+    inset 0 0 38px rgba(0,0,0,1),
+    inset 2px 0 18px rgba(255,160,55,0.18),
+    0 0 50px rgba(0,0,0,0.85);
 }
 
-/* Hide elements from the v3 layout that no longer exist — keeps backwards
-   compatibility with any cached HTML still referencing them. */
-.bh-halo, .bh-disk-outer, .bh-disk-inner, .bh-lens, .bh-photon-ring, .bh-debris {
-  display: none;
+/* Hide every legacy class so cached HTML doesn't render orphan layers. */
+.bh-halo, .bh-disk-outer, .bh-disk-inner, .bh-lens,
+.bh-photon-ring, .bh-debris, .bh-streams,
+.bh-disk-spiral-a, .bh-disk-spiral-b, .bh-nucleus {
+  display: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bh-stage,
-  .bh-glow,
-  .bh-disk-spiral-a,
-  .bh-disk-spiral-b,
-  .bh-nucleus,
-  .bh-streams { animation: none !important; }
-  .bh-streams { opacity: 0.20; }
+  .bh-stage, .bh-glow, .bh-ring, .bh-crescent, .bh-streamers
+    { animation: none !important; }
+  .bh-streamers { opacity: 0.20; }
 }
 
 @media (max-width: 480px) {
@@ -2636,12 +2607,11 @@ body.density-compact .score-fill-wrap { display: inline-block !important; }
 <!-- Black hole scene — fixed, behind all UI; see the BLACK HOLE SCENE CSS block -->
 <div class="bh-scene" aria-hidden="true">
   <div class="bh-stage">
-    <!-- v4 tilted accretion-disk layer stack — see CSS comment above .bh-scene -->
+    <!-- v5 Interstellar/Gargantua-style edge-on disk. See CSS comment header. -->
     <div class="bh-glow"></div>
-    <div class="bh-disk-spiral-a"></div>
-    <div class="bh-disk-spiral-b"></div>
-    <div class="bh-streams"></div>
-    <div class="bh-nucleus"></div>
+    <div class="bh-ring"></div>
+    <div class="bh-crescent"></div>
+    <div class="bh-streamers"></div>
     <div class="bh-horizon"></div>
   </div>
 </div>
