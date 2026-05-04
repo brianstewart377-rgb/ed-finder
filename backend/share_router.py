@@ -92,7 +92,13 @@ async def share_stop_page(id64: int, request: Request):
     ua = (request.headers.get("user-agent") or "").lower()
     is_bot = any(b in ua for b in BOT_UAS)
 
-    base = str(request.base_url).rstrip("/")
+    # Build the public URL from X-Forwarded-* headers (set by nginx) instead
+    # of request.base_url, which would otherwise return the proxy-internal
+    # http://127.0.0.1 — useless to bots like Discord/Slack/Twitter that
+    # fetch og:image from their own infra. nginx is the source of truth here.
+    fwd_host  = request.headers.get("x-forwarded-host")  or request.url.hostname or "ed-finder.app"
+    fwd_proto = request.headers.get("x-forwarded-proto") or "https"
+    base = f"{fwd_proto}://{fwd_host}"
     sys_url = f"{base}/#s={id64}"
     img_url = f"{base}/api/share/og/{id64}"
 
