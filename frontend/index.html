@@ -12719,17 +12719,32 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('mouseleave', () => { zoomTgt = 0; });
 
   // Resize handler — DPR-aware but capped at 1.5 to keep fragment cost down.
+  // IMPORTANT: we read window.innerWidth / innerHeight directly rather than
+  // canvas.clientWidth / clientHeight. The canvas is `position:fixed; inset:0`
+  // so it is pinned to the viewport, but clientWidth/Height occasionally
+  // returns a stale or mid-layout value (iOS URL-bar animations, DevTools
+  // docking, print stylesheets, the moment-before-first-paint) and the
+  // drawbuffer then ends up at a different aspect than the CSS box —
+  // WebGL stretches to fit, producing a squashed/tall ellipse horizon.
+  // We also explicitly set canvas.style.{width,height} in CSS pixels so the
+  // display aspect is guaranteed identical to the drawbuffer aspect.
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    const w = Math.floor(canvas.clientWidth  * dpr);
-    const h = Math.floor(canvas.clientHeight * dpr);
+    const cssW = Math.max(1, window.innerWidth  | 0);
+    const cssH = Math.max(1, window.innerHeight | 0);
+    const w = Math.floor(cssW * dpr);
+    const h = Math.floor(cssH * dpr);
     if (canvas.width !== w || canvas.height !== h) {
-      canvas.width  = w; canvas.height = h;
+      canvas.width  = w;
+      canvas.height = h;
+      canvas.style.width  = cssW + 'px';
+      canvas.style.height = cssH + 'px';
       gl.viewport(0, 0, w, h);
     }
   }
   resize();
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize',            resize);
+  window.addEventListener('orientationchange', resize);
 
   // RAF loop with visibility-pause for battery.
   let raf = 0;
