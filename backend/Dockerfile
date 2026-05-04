@@ -2,8 +2,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# v3.1: also install the runtime libs Pillow needs at import time when
+# rendering OG share-preview PNGs (fonts + freetype). libpq + gcc remain
+# for asyncpg/psycopg2 wheel fallbacks. Slim image keeps fontconfig out
+# by default; we add dejavu-fonts for the share renderer's fallback path.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl libpq-dev gcc && \
+    curl libpq-dev gcc \
+    libjpeg62-turbo zlib1g libfreetype6 fonts-dejavu-core && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -13,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # which caused `import local_search` to fail silently and forced the API
 # into the inline fallback path (missing galaxy_region_id, star_types,
 # secondary_economy, display_score, etc.).
-COPY main.py local_search.py exploration_value.py inara_api.py ./
+COPY main.py local_search.py exploration_value.py inara_api.py share_router.py ./
 
 EXPOSE 8000
 # workers=1 — backend keeps per-process state (SSE clients, active jobs,
