@@ -6148,7 +6148,10 @@ window._copyShareText = function(id64, btn) {
   const conf    = (sys.confidence != null) ? Math.round(sys.confidence * 100) + '%' : null;
   const rat     = sys.rationale ? sys.rationale.replace(/\s+/g, ' ').trim() : null;
   const name    = sys.name || `System ${id64}`;
-  const url     = `${location.origin}${location.pathname}#s=${id64}`;
+  // v3.1: use the /s/{id64} share path. Bots see OG-tagged HTML with a
+  // PNG preview; humans get a 302 to the SPA's `#s=…` deep-link, so the
+  // existing client-side router still picks it up.
+  const url     = `${location.origin}/s/${id64}`;
   // Compose: "<NAME> — score X — <rationale> (<conf>) — <url>"
   // Conservative on length so it fits in one Discord/Reddit message.
   const parts = [name];

@@ -16,3 +16,7 @@ tqdm==4.66.5
 
 # EDDN listener
 pyzmq==26.2.0
+
+# OpenGraph preview-card rendering (v3.1+: /api/share/og/{id64} returns
+# a PNG that Discord/Reddit/Twitter unfurl as a rich-media preview).
+Pillow==12.2.0

@@ -264,6 +264,10 @@ async def lifespan(app: FastAPI):
         log.info("EDDN→SSE pub/sub bridge started ✓")
 
     log.info("PostgreSQL pool ready ✓")
+    # Expose pool + redis on app.state so routers (e.g. share_router) can
+    # reach them via request.app.state without importing module-level globals.
+    app.state.pool  = _pool
+    app.state.redis = _redis
     yield
 
     if _sse_pubsub_task:
@@ -300,6 +304,15 @@ app.add_middleware(
 )
 # Code #3: GZip compress all responses >= 1 KB
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+# ---------------------------------------------------------------------------
+# v3.1: Share / OpenGraph router.
+#   GET /s/{id64}            — bot-friendly HTML stop-page with OG tags.
+#   GET /api/share/og/{id64} — 1200×630 PNG preview card (Pillow, redis-cached).
+# Mounted before the static-file SPA mount so /s/* doesn't get swallowed.
+# ---------------------------------------------------------------------------
+from share_router import router as share_router  # noqa: E402
+app.include_router(share_router)
 
 # ---------------------------------------------------------------------------
 # Static file serving — frontend (must be mounted AFTER all API routes)
