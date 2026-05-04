@@ -309,6 +309,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
             {display_score_col}   AS display_score,
             r.score_agriculture, r.score_refinery, r.score_industrial,
             r.score_hightech, r.score_military, r.score_tourism,
+            r.score_extraction,
             r.economy_suggestion,
             r.slots               AS r_slots,
             r.body_quality        AS r_body_quality,
@@ -320,6 +321,8 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
             r.gas_giant_count, r.neutron_count, r.black_hole_count,
             r.white_dwarf_count, r.landable_count, r.terraformable_count,
             r.bio_signal_total, r.geo_signal_total,
+            r.terraforming_potential, r.body_diversity,
+            r.confidence, r.rationale,
             {dist_expr} AS dist
         FROM systems s
         LEFT JOIN ratings r ON r.system_id64 = s.id64
@@ -576,6 +579,7 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
                 r.score               AS display_score,
                 r.score_agriculture, r.score_refinery, r.score_industrial,
                 r.score_hightech, r.score_military, r.score_tourism,
+                r.score_extraction,
                 r.economy_suggestion,
                 r.slots               AS r_slots,
                 r.body_quality        AS r_body_quality,
@@ -588,6 +592,8 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
                 r.white_dwarf_count, r.landable_count, r.terraformable_count,
                 r.bio_signal_total, r.geo_signal_total,
                 r.score_breakdown,
+                r.terraforming_potential, r.body_diversity,
+                r.confidence, r.rationale,
                 0.0                   AS dist
             FROM systems s
             LEFT JOIN ratings r ON r.system_id64 = s.id64

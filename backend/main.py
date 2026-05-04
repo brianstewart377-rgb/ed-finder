@@ -548,8 +548,14 @@ def sys_row_to_dict(r: Any) -> dict:
         'scoreHightech':    d.get('score_hightech'),
         'scoreMilitary':    d.get('score_military'),
         'scoreTourism':     d.get('score_tourism'),
+        'scoreExtraction':  d.get('score_extraction'),
         'economySuggestion': d.get('economy_suggestion'),
         'breakdown':        d.get('score_breakdown'),
+        # v3.1 fields — mirrored in camelCase so existing shape is preserved.
+        'terraformingPotential': d.get('terraforming_potential'),
+        'bodyDiversity':         d.get('body_diversity'),
+        'confidence':            d.get('confidence'),
+        'rationale':             d.get('rationale'),
     }
     d['bodies'] = d.get('bodies', [])
     return d
@@ -841,12 +847,15 @@ async def local_search_endpoint(
             r.score, r.score_agriculture, r.score_refinery,
             r.score_industrial, r.score_hightech,
             r.score_military, r.score_tourism,
+            r.score_extraction,
             r.economy_suggestion,
             r.elw_count, r.ww_count, r.ammonia_count,
             r.gas_giant_count, r.landable_count, r.terraformable_count,
             r.bio_signal_total, r.geo_signal_total,
             r.neutron_count, r.black_hole_count, r.white_dwarf_count,
-            r.score_breakdown
+            r.score_breakdown,
+            r.terraforming_potential, r.body_diversity,
+            r.confidence, r.rationale
         FROM systems s
         JOIN ratings r ON r.system_id64 = s.id64
         WHERE {where_clause}
@@ -1073,11 +1082,14 @@ async def get_system(
                 r.score, r.score_agriculture, r.score_refinery,
                 r.score_industrial, r.score_hightech,
                 r.score_military, r.score_tourism,
+                r.score_extraction,
                 r.economy_suggestion, r.elw_count, r.ww_count,
                 r.ammonia_count, r.gas_giant_count, r.landable_count,
                 r.terraformable_count, r.bio_signal_total, r.geo_signal_total,
                 r.neutron_count, r.black_hole_count, r.white_dwarf_count,
-                r.score_breakdown
+                r.score_breakdown,
+                r.terraforming_potential, r.body_diversity,
+                r.confidence, r.rationale
             FROM systems s
             LEFT JOIN ratings r ON r.system_id64 = s.id64
             WHERE s.id64 = $1

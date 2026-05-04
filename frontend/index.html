@@ -4841,6 +4841,10 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
     <button onclick="exportResults('csv')" class="btn btn-secondary icon-btn" title="Export current results as CSV" aria-label="Export as CSV">⬇️ CSV</button> <!-- T3-FIX -->
     <button onclick="exportResults('json')" class="btn btn-secondary icon-btn" title="Export current results as JSON" aria-label="Export as JSON">⬇️ JSON</button>
     <button class="btn btn-secondary refilter-btn" onclick="_refilterInPlace()" title="Re-apply current filters to already-loaded results without a new API call">🔄 Re-filter</button>
+    <!-- v3.1: Tune Weights opens the rerank panel wired to /api/ratings/rerank -->
+    <button class="btn btn-secondary icon-btn" data-testid="open-weights-panel-btn"
+            onclick="_openWeightsPanel()"
+            title="Re-rank current results with your own weights (economy / terraforming / diversity / …)">⚖️ Tune Weights</button>
     <button class="btn btn-secondary icon-btn" onclick="_watchAllResults()" title="Add all displayed systems to Watchlist">👁 Watch All</button>
     <button class="btn btn-secondary icon-btn" onclick="_copyAllNames()" title="Copy all system names to clipboard">📋 All Names</button>
     ${window._searchT0 ? `<span style="font-size:10px;color:var(--text-dim)" title="Search + render duration">⏱ ${Date.now()-window._searchT0}ms</span>` : ''}
@@ -4889,6 +4893,7 @@ function renderResultsProgressive(systems, page, total, cacheAge) {
 
   window._lastResults = { systems: [...systems], page, total };
   currentResults = window._lastResults.systems;  // FIX #12
+  window.currentResults = currentResults;  // v3.1: expose for weights panel / rerank
 
   // Sort before rendering — use saved pref, default to rating desc
   let _initSortMode = 'rating';
@@ -4974,6 +4979,7 @@ function renderResults(systems, page, total) {
   content.appendChild(bar);
   window._lastResults = { systems: [...systems], page, total };
   currentResults = window._lastResults.systems;  // FIX #12
+  window.currentResults = currentResults;  // v3.1: expose for weights panel / rerank
   // QOL-5: persist last results to sessionStorage so tab switches don't lose your place
   try {
     sessionStorage.setItem('ed_last_results', JSON.stringify({ systems, page, total }));
@@ -5057,6 +5063,7 @@ function buildSystemCard(sys, idx) {
       <span class="rating-badge ${ratingClass}" style="margin-left:4px;cursor:help"
         onmouseenter="showScoreExplainer(event,${JSON.stringify(rating).replace(/"/g,'&quot;')},${JSON.stringify(sys).replace(/"/g,'&quot;')})"
         onmouseleave="hideScoreExplainer()">${ratingLabel} ${rating.total}</span>
+      ${_buildConfidencePill(sys)}
       <span class="score-fill-wrap" title="Score: ${rating.total}/100"><span class="score-fill-bar" style="width:${rating.total}%;background:${rating.total>=80?'#3ddc84':rating.total>=60?'#facc15':rating.total>=40?'#ff6a00':'#ef4444'}"></span></span>
       ${buildScoreMiniBar(rating)}
       <span class="chevron" style="color:var(--text-dim);margin-left:8px;font-size:12px">▼</span>
@@ -5138,7 +5145,31 @@ function buildCardBody(sys, rating, economy, build, sysIsInhabited) {
   const bodyPills = buildBodyPills(bodies);
   const warningTags = buildWarningTags(sys, economy);
 
+  // v3.1: rationale banner — single-line human explainer from build_ratings.py
+  // Only shown when we actually have a rationale (older ratings may not).
+  const rationaleBanner = sys.rationale ? `
+    <div data-testid="rationale-banner" style="
+        margin: 0 0 10px;
+        padding: 7px 10px;
+        background: rgba(255,106,0,0.08);
+        border-left: 3px solid var(--orange);
+        border-radius: 3px;
+        font-size: 12px;
+        color: var(--text);
+        line-height: 1.4;
+      ">
+      <span style="color:var(--orange);font-weight:600;margin-right:6px">▸</span>${_esc(sys.rationale)}${
+        sys.terraforming_potential || sys.body_diversity ? `
+          <span style="display:inline-flex;gap:8px;margin-left:10px;font-size:10px;color:var(--text-dim)">
+            ${sys.terraforming_potential ? `<span title="Terraforming potential (0-100)">🌱 ${sys.terraforming_potential}</span>` : ''}
+            ${sys.body_diversity ? `<span title="Body-mix diversity bonus (0-30)">🧬 ${sys.body_diversity}</span>` : ''}
+          </span>` : ''
+      }
+    </div>
+  ` : '';
+
   return `
+    ${rationaleBanner}
     <!-- Info Grid -->
     <div class="info-grid">
       <div class="info-cell">
@@ -6360,12 +6391,50 @@ function getRatingLabel(score) {
   return '❌ AVOID';
 }
 
+// v3.1: tiny HTML-escape helper for user-ish strings (rationale, etc.)
+// Safer than template-literal interpolation with unchecked text.
+function _esc(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function getRatingColor(score) {
   if (score >= 80) return 'var(--gold)';
   if (score >= 60) return 'var(--green)';
   if (score >= 40) return 'var(--blue)';
   if (score >= 20) return 'var(--orange)';
   return 'var(--red)';
+}
+
+// v3.1: confidence pill + rationale tooltip. Pulls the new ratings-engine
+// fields (sys.confidence, sys.rationale) straight off the system object.
+// - confidence is a 0-1 float (data freshness × multi-reporter bonus).
+// - rationale is a <=160 char human explainer written by build_ratings.py.
+// Silent no-op if the row predates v3.1 (old rebuilds).
+function _buildConfidencePill(sys) {
+  if (!sys) return '';
+  const c = sys.confidence;
+  const r = sys.rationale;
+  if (c == null && !r) return '';
+  const pct = c != null ? Math.round(c * 100) : null;
+  let label, bg, fg;
+  if (pct == null)      { label = '?';           bg = 'rgba(120,120,120,0.18)'; fg = 'var(--text-dim)'; }
+  else if (pct >= 90)   { label = pct + '%';     bg = 'rgba(61,220,132,0.18)';  fg = 'var(--green)'; }
+  else if (pct >= 70)   { label = pct + '%';     bg = 'rgba(250,204,21,0.18)';  fg = 'var(--gold)'; }
+  else                  { label = pct + '%';     bg = 'rgba(255,106,0,0.18)';   fg = 'var(--orange)'; }
+  const tip = r
+    ? `${r}${pct != null ? ` (confidence ${pct}%)` : ''}`
+    : `Data confidence ${pct != null ? pct + '%' : 'unknown'} — derived from data freshness + reporter count`;
+  // Escape double quotes to survive the outer template literal.
+  const tipEsc = String(tip).replace(/"/g,'&quot;');
+  return `<span class="conf-pill" data-testid="system-confidence-pill"
+    style="font-size:10px;padding:1px 5px;border-radius:3px;background:${bg};color:${fg};border:1px solid ${fg}55;margin-left:4px;cursor:help"
+    title="${tipEsc}">◆ ${label}</span>`;
 }
 
 function getEcoClass(eco) {
@@ -12071,6 +12140,167 @@ document.addEventListener('DOMContentLoaded', () => {
 <!-- ══════════════════════════════════════════════════════════════════════
      v3.1 — MAP OVERLAYS, VIEW MODES, SHAREABLE URL, SHOW-ON-MAP ACTION
      ══════════════════════════════════════════════════════════════════════
+<script>
+// ══════════════════════════════════════════════════════════════════════════
+// v3.1 — Ratings rerank panel ("Tune Weights").
+// Hooks the frontend to POST /api/ratings/rerank so users can slide the 6
+// weight dimensions and see their current result list re-sorted live.
+// Totals always normalise server-side — users don't have to sum to 1.0.
+// ══════════════════════════════════════════════════════════════════════════
+(function initWeightsPanel() {
+  const DIMS = [
+    { k: 'economy',      label: 'Economy',      emoji: '💰', hint: 'Agriculture / Refinery / etc. — the primary economic score' },
+    { k: 'slots',        label: 'Slots',        emoji: '🏗️', hint: 'Station + outpost build slots available at this system' },
+    { k: 'strategic',    label: 'Strategic',    emoji: '⚔️', hint: 'Neutrons, black holes, jumponium — deep-space strategic value' },
+    { k: 'safety',       label: 'Safety',       emoji: '🛡️', hint: 'Orbital safety: fewer contaminating bodies, stable arrival' },
+    { k: 'terraforming', label: 'Terraforming', emoji: '🌱', hint: 'Terraformable HMC / Rocky body potential (v3.1)' },
+    { k: 'diversity',    label: 'Diversity',    emoji: '🧬', hint: 'Shannon-entropy bonus for varied body mixes (v3.1)' },
+  ];
+  const DEFAULTS = {
+    economy: 42, slots: 23, strategic: 18,
+    safety: 10,  terraforming: 5, diversity: 2,
+  };
+
+  function _buildPanel() {
+    if (document.getElementById('weights-panel')) return;
+    const p = document.createElement('div');
+    p.id = 'weights-panel';
+    p.setAttribute('data-testid', 'weights-panel');
+    p.style.cssText = `
+      position: fixed; top: 80px; right: 16px; z-index: 9999;
+      width: 320px; max-width: calc(100vw - 32px);
+      background: var(--bg2);
+      border: 1px solid var(--orange-dk);
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 24px rgba(255,106,0,0.2);
+      padding: 14px 14px 12px;
+      font-family: inherit;
+      color: var(--text);
+      display: none;
+    `;
+    const sliders = DIMS.map(d => `
+      <div style="margin:8px 0" title="${d.hint}">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-bottom:2px">
+          <label for="wp-${d.k}" style="color:var(--text);cursor:pointer">${d.emoji} ${d.label}</label>
+          <span id="wp-${d.k}-val" style="color:var(--orange);font-family:Orbitron,monospace">${DEFAULTS[d.k]}</span>
+        </div>
+        <input type="range" id="wp-${d.k}" min="0" max="100" value="${DEFAULTS[d.k]}" step="1"
+               data-testid="weight-slider-${d.k}"
+               style="width:100%;accent-color:var(--orange);cursor:pointer"
+               oninput="document.getElementById('wp-${d.k}-val').textContent=this.value">
+      </div>
+    `).join('');
+    p.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <strong style="color:var(--orange);font-family:Orbitron,monospace;letter-spacing:1px">⚖️ Tune Weights</strong>
+        <button data-testid="weights-panel-close"
+                style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;line-height:1"
+                onclick="_closeWeightsPanel()" title="Close panel">×</button>
+      </div>
+      <p style="font-size:10px;color:var(--text-dim);margin:0 0 8px;line-height:1.4">
+        Sliders don't need to sum to anything — weights are auto-normalised server-side.
+        Applies to the top ${500} currently-displayed systems.
+      </p>
+      ${sliders}
+      <div style="display:flex;gap:6px;margin-top:12px">
+        <button class="btn btn-primary" data-testid="weights-apply-btn" onclick="_applyWeights()"
+                style="flex:1;font-size:12px;padding:6px 10px">Re-rank</button>
+        <button class="btn btn-secondary" data-testid="weights-reset-btn" onclick="_resetWeights()"
+                style="font-size:11px;padding:6px 10px">Reset</button>
+      </div>
+      <div id="weights-status" style="margin-top:8px;font-size:10px;color:var(--text-dim);min-height:14px"></div>
+    `;
+    document.body.appendChild(p);
+  }
+
+  window._openWeightsPanel = function() {
+    _buildPanel();
+    const p = document.getElementById('weights-panel');
+    if (p) p.style.display = 'block';
+  };
+
+  window._closeWeightsPanel = function() {
+    const p = document.getElementById('weights-panel');
+    if (p) p.style.display = 'none';
+  };
+
+  window._resetWeights = function() {
+    DIMS.forEach(d => {
+      const el  = document.getElementById('wp-' + d.k);
+      const val = document.getElementById('wp-' + d.k + '-val');
+      if (el)  el.value = DEFAULTS[d.k];
+      if (val) val.textContent = DEFAULTS[d.k];
+    });
+    const st = document.getElementById('weights-status');
+    if (st) st.textContent = 'Defaults restored. Click Re-rank to apply.';
+  };
+
+  window._applyWeights = async function() {
+    const st = document.getElementById('weights-status');
+    if (st) st.textContent = 'Fetching rerank…';
+    // Collect slider values → dict for API
+    const weights = {};
+    DIMS.forEach(d => {
+      const el = document.getElementById('wp-' + d.k);
+      if (el) weights[d.k] = Number(el.value) || 0;
+    });
+    // Grab the current results array (set by renderResults). Cap at 500.
+    const sys = Array.isArray(window.currentResults) ? window.currentResults : [];
+    const id64s = sys.slice(0, 500).map(s => Number(s.id64)).filter(Boolean);
+    if (!id64s.length) {
+      if (st) st.textContent = '⚠️ No systems currently loaded. Run a search first.';
+      return;
+    }
+    try {
+      const API = (window.__API_BASE__ || '') + '/api/ratings/rerank';
+      const r = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ id64s, weights }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (!data || !Array.isArray(data.results)) throw new Error('bad response');
+      // Index reranked scores by id64 for an O(1) lookup.
+      const byId = new Map(data.results.map(x => [String(x.id64), x]));
+      // Mutate each system to surface the reranked score + rationale.
+      sys.forEach(s => {
+        const hit = byId.get(String(s.id64));
+        if (!hit) return;
+        s._reranked_score = hit.reranked_score;
+        s._original_score = hit.original_score;
+        if (hit.rationale) s.rationale = hit.rationale;
+        if (hit.confidence != null) s.confidence = hit.confidence;
+        // Patch the displayed score so the rating badge updates on re-sort.
+        if (s._rating && typeof s._rating === 'object') {
+          s._rating._reranked = hit.reranked_score;
+        }
+      });
+      // Resort by reranked score and re-render in place.
+      sys.sort((a, b) => (b._reranked_score ?? -1) - (a._reranked_score ?? -1));
+      if (typeof renderResults === 'function') {
+        renderResults(sys, 1, sys.length);
+      } else if (typeof applySortAndRender === 'function') {
+        applySortAndRender();
+      }
+      if (st) {
+        const w = data.weights_applied || {};
+        const norm = Object.entries(w).map(([k, v]) => `${k}:${(v*100).toFixed(0)}`).join(' ');
+        st.textContent = `✓ Reranked ${data.results.length} systems — ${norm}`;
+      }
+    } catch (err) {
+      console.warn('[weights] rerank failed:', err);
+      if (st) st.textContent = '⚠️ Rerank failed: ' + (err.message || err);
+    }
+  };
+})();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     MAP OVERLAYS — consumed by the Map tab. Four toggleable layers:
+     Regions, Cluster Hulls, Heatmap, Galactic Plane. Script runs once
+     on DOM ready; overlay toggles read checkboxes in the Map toolbar.
      Hooks into the existing 2D Three.js map via window._scene2d. The 3D
      tab is hidden; the new View dropdown in the Map toolbar drives camera
      selection. Overlay groups stored on scene.userData.edOverlay*.
