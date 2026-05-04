@@ -1040,7 +1040,12 @@ Strategies:
             log.info("  │  Reverts automatically on session disconnect            │")
             log.info("  └───────────────────────────────────────────────────────┘")
             try:
-                # Must be outside a transaction block
+                # Must be outside a transaction block.
+                # The monitoring conn may have an in-flight transaction from
+                # earlier SELECTs — commit/rollback first or psycopg2 raises
+                # "set_session cannot be used inside a transaction".
+                try: conn.commit()
+                except Exception: pass
                 conn.autocommit = True
                 with conn.cursor() as ac:
                     ac.execute("SET session_replication_role = replica")
@@ -1050,6 +1055,8 @@ Strategies:
                 log.warning(f"  Could not disable triggers: {e}")
                 log.warning(f"  Trying ALTER TABLE DISABLE TRIGGER ALL ...")
                 try:
+                    try: conn.rollback()
+                    except Exception: pass
                     conn.autocommit = True
                     with conn.cursor() as ac:
                         ac.execute("ALTER TABLE systems DISABLE TRIGGER ALL")
