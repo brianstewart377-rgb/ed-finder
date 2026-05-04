@@ -2144,32 +2144,33 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   -webkit-mask: radial-gradient(circle, transparent 38%, #000 48%, #000 82%, transparent 95%);
 }
 
-/* Gravitational-lensing ring — uses backdrop-filter to bend whatever is
-   rendered behind the black hole (nebula, stars). The annular mask keeps
-   the effect confined to the Einstein-ring region just outside the photon
-   sphere, which is where light would actually be deflected most.
-   Browsers without backdrop-filter support simply ignore this layer. */
+/* Gravitational-lensing ring — v3.1: replaced the prior backdrop-filter
+   approach. backdrop-filter creates a stacking-context that fights with
+   any other backdrop-blurred UI on the page (top nav, modals, frosted
+   cards) and produced a visible horizontal slice through the BH wherever
+   another blurred element overlapped it.
+
+   New approach: pure radial-gradient with two thin bright rings around
+   the photon sphere. Reads as Einstein-ring lensing (light bent into a
+   bright halo just outside the horizon) without any compositing tricks. */
 .bh-lens {
   position: absolute;
   inset: 12%;
   border-radius: 50%;
   pointer-events: none;
-  backdrop-filter: blur(3px) brightness(1.25) contrast(1.15);
-  -webkit-backdrop-filter: blur(3px) brightness(1.25) contrast(1.15);
-  /* Ring-shaped mask: transparent in the very centre (we want the event
-     horizon to be black, not a blurred blob) and transparent outside. */
-  mask: radial-gradient(circle,
-    transparent 0%,
-    transparent 30%,
-    #000        38%,
-    #000        55%,
-    transparent 70%);
-  -webkit-mask: radial-gradient(circle,
-    transparent 0%,
-    transparent 30%,
-    #000        38%,
-    #000        55%,
-    transparent 70%);
+  background: radial-gradient(circle,
+    transparent           0%,
+    transparent          36%,
+    rgba(255,165,60,0.06) 38%,
+    rgba(255,200,90,0.18) 41%,    /* primary Einstein ring */
+    rgba(255,180,80,0.10) 44%,
+    transparent          48%,
+    rgba(255,150,55,0.05) 54%,    /* faint secondary */
+    rgba(255,170,70,0.08) 56%,
+    transparent          60%,
+    transparent         100%);
+  filter: blur(2px);
+  mix-blend-mode: screen;
 }
 
 /* Photon ring — bright sliver at the innermost stable orbit, slight pulse. */
@@ -2312,7 +2313,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   .bh-horizon::before,
   .bh-horizon::after { animation: none !important; }
   .bh-streams     { opacity: 0.20; }
-  .bh-lens        { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  /* .bh-lens no longer uses backdrop-filter — nothing to disable. */
 }
 
 /* Tiny viewports (<480px): hide the scene entirely — on phones the orange
