@@ -12550,6 +12550,8 @@ document.addEventListener('DOMContentLoaded', () => {
     precision highp float;
     uniform float u_time;
     uniform vec2  u_res;
+    uniform vec2  u_mouse;   // 0..1 normalised, (0,0) bottom-left, (1,1) top-right
+    uniform float u_zoom;    // 0..1 — eased-in proximity factor for hover effect
 
     // Cheap 2D hash for star sprinkles.
     float hash21(vec2 p) {
@@ -12583,8 +12585,10 @@ document.addEventListener('DOMContentLoaded', () => {
       vec2 uv = (gl_FragCoord.xy - 0.5 * u_res.xy) / u_res.y;
 
       // BH parameters in screen-LY units (height = 1.0).
-      float Rs       = 0.16;          // event horizon radius
-      float Rphoton  = Rs * 1.55;     // photon sphere radius
+      // u_zoom (0..1) eases the BH "growing" toward the camera when the
+      // user hovers near it — Rs and Doppler intensity both scale up.
+      float Rs       = 0.16 + 0.040 * u_zoom;
+      float Rphoton  = Rs * 1.55;
 
       // Anchor the BH right of centre. Drift very gently with time.
       vec2 c = vec2(0.55 + 0.005 * sin(u_time * 0.12),
@@ -12596,17 +12600,16 @@ document.addEventListener('DOMContentLoaded', () => {
       // Inside event horizon → pure black, done.
       if (r < Rs) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
-      // Gravitational lensing. We deflect the apparent background ray
-      // OUTWARD from the BH centre by an amount that grows as 1/r — the
-      // canonical Einstein-ring effect. 0.55 is a tuned strength factor.
-      float bend = Rs * 0.55 / r;
+      // Gravitational lensing. Bend strength also scales with hover so the
+      // background stars get more dramatically warped as the user leans in.
+      float bend = (Rs * 0.55 + 0.10 * u_zoom) / r;
       vec2  lensedUv = uv + dir * bend;
       vec3  col = starfield(lensedUv);
 
       // Sharp photon ring just outside the horizon. Gaussian falloff.
       float ringD     = (r - Rphoton) / Rphoton;
       float ringInten = exp(-ringD * ringD * 250.0);
-      col += vec3(1.30, 0.78, 0.32) * ringInten * 0.85;
+      col += vec3(1.30, 0.78, 0.32) * ringInten * (0.85 + 0.45 * u_zoom);
 
       // Accretion disc — viewed near edge-on. We squash the y axis so the
       // ring looks like a thin ellipse rather than a face-on torus.
@@ -12618,7 +12621,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (dr > diskInner && dr < diskOuter) {
         float t       = (dr - diskInner) / (diskOuter - diskInner);   // 0..1
         float profile = exp(-pow((t - 0.30) * 3.0, 2.0));             // peak at t=0.3
-        float angle   = atan(dp.y, dp.x) - u_time * 0.40;             // disc rotates
+        // Disc spins faster on hover — sells the "you're getting pulled in".
+        float spinRate = 0.40 + 0.55 * u_zoom;
+        float angle   = atan(dp.y, dp.x) - u_time * spinRate;
 
         // Hot spots — two perlin-ish sinusoids interfere along the angle
         // for a chunky orbiting-knots feel without needing 2D noise.
@@ -12627,10 +12632,9 @@ document.addEventListener('DOMContentLoaded', () => {
         spots      *= 0.85 + 0.15 * sin(angle *  3.0 - u_time * 0.4);
 
         // Doppler beaming. The side moving toward the camera is brighter.
-        // We say 'toward-camera' = -x direction → angle ≈ π. The cos peaks
-        // there; raise to a power to make the asymmetry punchy.
+        // Punch up asymmetry on hover for extra drama.
         float doppler = 0.5 + 0.5 * cos(angle - 3.14159);
-        doppler       = pow(doppler, 3.5);
+        doppler       = pow(doppler, 3.5 - 1.0 * u_zoom);
 
         // Inner-disc photons are blue-shifted hotter; outer rim is dimmer
         // and redder. Mix from white-hot (inner) to deep orange (outer).
@@ -12638,7 +12642,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             vec3(1.00, 0.95, 0.78),
                             1.0 - t);
         float disk    = profile * spots * (0.32 + 1.55 * doppler);
-        col += hot * disk * 1.65;
+        col += hot * disk * (1.65 + 0.55 * u_zoom);
       }
 
       // Soft edge into the horizon (sub-pixel anti-alias).
@@ -12683,8 +12687,33 @@ document.addEventListener('DOMContentLoaded', () => {
   const aPos = gl.getAttribLocation(prog, 'a_pos');
   gl.enableVertexAttribArray(aPos);
   gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-  const uTime = gl.getUniformLocation(prog, 'u_time');
-  const uRes  = gl.getUniformLocation(prog, 'u_res');
+  const uTime  = gl.getUniformLocation(prog, 'u_time');
+  const uRes   = gl.getUniformLocation(prog, 'u_res');
+  const uMouse = gl.getUniformLocation(prog, 'u_mouse');
+  const uZoom  = gl.getUniformLocation(prog, 'u_zoom');
+
+  // Hover-zoom state. We track raw mouse, then ease u_zoom toward a target
+  // that's HIGH when the cursor is close to the BH centre and LOW otherwise.
+  // The eased value gives a nice springy "lean-in / pull-back" feel.
+  let mouseUv = [0.55, 0.5];      // mirrors shader's BH centre default
+  let zoomCur = 0.0, zoomTgt = 0.0;
+  window.addEventListener('mousemove', (e) => {
+    // Normalise mouse to 0..1 in the canvas's coord space, then convert to
+    // shader's height-normalised centred space (matches `uv` in the shader).
+    const rect = canvas.getBoundingClientRect();
+    const nx = (e.clientX - rect.left) / rect.width;
+    const ny = 1.0 - (e.clientY - rect.top) / rect.height;
+    mouseUv = [nx, ny];
+    // BH lives roughly at uv (0.55, 0) in shader space, which corresponds
+    // to canvas-relative (~0.79, 0.5) once you account for the
+    // height-normalised centred mapping. Compute distance there.
+    const dx = nx - 0.79;
+    const dy = ny - 0.50;
+    const d  = Math.sqrt(dx * dx + dy * dy);
+    // Within ~18% of viewport-half from BH = full hover; falls off to 35%.
+    zoomTgt = Math.max(0, Math.min(1, (0.35 - d) / 0.17));
+  }, { passive: true });
+  window.addEventListener('mouseleave', () => { zoomTgt = 0; });
 
   // Resize handler — DPR-aware but capped at 1.5 to keep fragment cost down.
   function resize() {
@@ -12705,8 +12734,12 @@ document.addEventListener('DOMContentLoaded', () => {
   function frame() {
     if (document.hidden) { raf = 0; return; }
     resize();
-    gl.uniform1f(uTime, (performance.now() - t0) * 0.001);
-    gl.uniform2f(uRes,  canvas.width, canvas.height);
+    // Spring-ease zoom toward target (responsive but never twitchy).
+    zoomCur += (zoomTgt - zoomCur) * 0.10;
+    gl.uniform1f(uTime,  (performance.now() - t0) * 0.001);
+    gl.uniform2f(uRes,   canvas.width, canvas.height);
+    gl.uniform2f(uMouse, mouseUv[0], mouseUv[1]);
+    gl.uniform1f(uZoom,  zoomCur);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     raf = requestAnimationFrame(frame);
   }

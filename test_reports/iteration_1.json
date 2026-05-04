@@ -1,0 +1,49 @@
+{
+  "summary": "Frontend-only review of ED Finder v3.32 in the Emergent preview env. Verified the WebGL black hole shader, the new map overlay checkboxes (jump-range + timeline), and the wiring of /api/map/timeline. F4–F7 (rerank, confidence pill, rationale banner, share button) could NOT be exercised because the backend is dead in this preview env (502 on every /api call) — these features only render after a successful search response. Backend cannot be started here without major env work (see action items).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "supervisor: backend program", "issue": "Supervisor runs `uvicorn server:app` but the app module is `main.py` (no server.py). Backend has been crash-looping with 'Could not import module \"server\"' since startup. /var/log/supervisor/backend.err.log is full of this error.", "priority": "CRITICAL"},
+      {"endpoint": "python deps", "issue": "Backend requires asyncpg, redis[asyncio], pydantic-settings, slowapi, prometheus-fastapi-instrumentator (per requirements.txt). NONE are installed in /root/.venv. `import asyncpg` fails immediately at /app/backend/main.py line 60.", "priority": "CRITICAL"},
+      {"endpoint": "data deps", "issue": "Backend is PostgreSQL/asyncpg + Redis based (per docker-compose.yml). Neither Postgres nor Redis is running in this container. Only mongodb is up via supervisor — but the app does not use MongoDB.", "priority": "CRITICAL"},
+      {"endpoint": "all /api/*", "issue": "All API endpoints return 502 from the preview URL. Verified: /api/health=502, /api/map/regions=502, /api/map/timeline=502 (timeline auto-fired by the timeline checkbox toggle).", "priority": "CRITICAL"},
+      {"endpoint": "F10 — POST /api/ratings/rerank", "issue": "Could not be tested. Backend down.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "F4 weights rerank", "issue": "Could not test — search yields zero results (backend 502), so the results toolbar (with the ⚖️ Tune Weights button) never renders. The button only exists in the DOM after a successful search.", "affected_selectors": ["[data-testid=\"open-weights-panel-btn\"]", "[data-testid=\"weights-panel\"]"]},
+      {"flow": "F5/F6/F7 result-card features", "issue": "Could not test — same root cause. No cards rendered without backend data. Confidence pill, rationale banner, and Share button all live inside a card.", "affected_selectors": ["[data-testid=\"system-confidence-pill\"]", "[data-testid=\"rationale-banner\"]", "[data-testid^=\"copy-share-btn-\"]"]},
+      {"flow": "F9 timeline data", "issue": "Timeline checkbox correctly fires GET /api/map/timeline (verified in console: '[timeline] fetch failed Error: HTTP 502'). #map-time-bars stays empty because backend 502. The wiring is correct; the failure is purely backend availability."}
+    ],
+    "design_issues": [
+      {"screen": "Frontend supervisor config", "issues": ["frontend supervisor program runs `yarn start` in /app/frontend, but /app/frontend has no package.json — it is a static HTML/JS app (index.html, app.js, style.css, sw.js). yarn errors with 'Couldn't find a package.json file in /app/frontend' on every retry. Frontend supervisor program is in FATAL state. (I worked around by running `python3 -m http.server 3000` so the preview URL serves the static index.html.)"]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "URGENT: Reconcile environment. The /app codebase (PostgreSQL+asyncpg backend, static HTML frontend) does NOT match the Emergent supervisor template (FastAPI:server:app + React/yarn). Either (a) update supervisor (it is marked READONLY) so backend uses `main:app` and frontend uses a static server, or (b) repackage the app to fit the template.",
+    "Install backend deps: `pip install -r /app/backend/requirements.txt` into /root/.venv (asyncpg, redis[asyncio], pydantic-settings, slowapi, prometheus-fastapi-instrumentator, etc.).",
+    "Provision PostgreSQL 16 + Redis (or stub them out) so /app/backend/main.py can connect on startup. Without them the lifespan handler will fail.",
+    "Once backend is up, re-test F3, F4, F5, F6, F7, F10. All UI is in place and wired (testids match spec); only backend availability is blocking validation.",
+    "Provide /app/frontend/.env with REACT_APP_BACKEND_URL (file is missing) — although for this static app the frontend uses same-origin /api/* fetches, so this is informational only.",
+    "Note: the `/api/health` endpoint, when backend is up, will be hit through the kubernetes ingress at https://d97182e8-ce46-4bcf-9c15-f3c39188d9fd.preview.emergentagent.com/api/health."
+  ],
+  "critical_code_review_comments": [
+    "main.py is 2009 lines — exceeds the 700-line guideline. Split into routers (search.py, map.py, ratings.py, watchlist.py, system_detail.py).",
+    "index.html is 12,754 lines with inline GLSL + inline JS. This single-file approach makes review/maintenance painful. Recommend extracting WebGL BH module, weights panel, map overlays into separate JS modules (already have app.js — use it).",
+    "Frontend index.html has 12k+ inline JS with no source maps; any runtime error stack trace points to bare line numbers in index.html (e.g., 'at _mapFetchTimeline (...:12357:24)'), making debugging hard.",
+    "Supervisor config marked READONLY but it does not match the codebase — this is an env/template mismatch that should be flagged to the platform team.",
+    "F9 timeline fetch logs 'HTTP 502' as a warning but the user-facing UI gives no feedback that data could not load — consider showing a small inline error in #map-time-bars.",
+    "Result-card-dependent features (weights button, confidence pill, rationale, share btn) are entirely gated on backend success. Consider a dev-mode mock or a small seed so the static UI can be QAed offline."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "0% (cannot start)", "frontend": "F1 PASS, F2 PASS, F8 PASS (testids present, controls in DOM), F9 PASS (testids present, fetch wiring correct), F3/F4/F5/F6/F7 BLOCKED on backend (~40% verified)"},
+  "test_credentials": "n/a",
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Backend MUST be brought up before F3-F7 and F10 can be retested. The supervisor file is read-only and points uvicorn at `server:app`; this codebase has `main:app`. /root/.venv is missing asyncpg/redis. PostgreSQL+Redis not running. Workaround applied to get the static frontend serving on port 3000: I started `python3 -m http.server 3000 --bind 0.0.0.0` in /app/frontend (a background nohup). The preview URL https://d97182e8-ce46-4bcf-9c15-f3c39188d9fd.preview.emergentagent.com/ now serves the index.html via that fallback. To re-test, click the sidebar '🌌 Map' button (text-based, no testid), THEN the testids `map-overlay-jumprange-cb` and `map-overlay-timeline-cb` become interactable. For F3-F7, you need a working /api/local/search or /api/search/galaxy first. Also: when calling page.check() on these checkboxes Playwright reports 'state did not change' (because the onchange handlers fire side-effects but Playwright's check verification is timing-sensitive); use el.click() via JS evaluate instead, as I did.",
+  "rca of the issue": "ROOT CAUSE: Environment template mismatch. The Emergent preview env was provisioned with the standard template (supervisor expects FastAPI server:app + Mongo + React/yarn), but the actual /app codebase is ED Finder v3.x — a PostgreSQL/asyncpg/Redis backend + a static HTML frontend. Result: backend program fails to import (`server` module missing, `asyncpg` not installed), frontend program fails to start (`yarn start` with no package.json). All /api/* requests therefore return 502 via the kube ingress. The new v3.1 features (BH shader, weights panel, jump-range, timeline) are correctly implemented in the source — the BH WebGL shader rendered flawlessly with no compile/link errors — but anything dependent on the backend cannot be exercised. MITIGATION: see action_items above. Workaround applied: static http.server on port 3000 lets the preview serve index.html so UI-only assertions could be made."
+}
