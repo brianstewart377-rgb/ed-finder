@@ -6,6 +6,10 @@ services:
     image: postgres:16-alpine
     container_name: ed-postgres
     restart: unless-stopped
+    # Postgres uses /dev/shm for parallel hash aggregates (per-worker memory).
+    # Default Docker shm is 64 MB — too small for 73M-row GROUP BY aggregates
+    # in /api/map/heatmap and similar. 8 GB is safe on the 128 GB host.
+    shm_size: '8gb'
     environment:
       POSTGRES_USER:     edfinder
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
