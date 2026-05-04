@@ -232,7 +232,7 @@ async def lifespan(app: FastAPI):
         dsn=settings.database_url,
         min_size=5,
         max_size=20,
-        command_timeout=30,
+        command_timeout=300,
         # Required for pgBouncer transaction-pool mode: asyncpg caches
         # server-side prepared statements per-connection by default, which
         # fails intermittently when pgBouncer rotates backend connections
