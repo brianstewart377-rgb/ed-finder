@@ -2000,6 +2000,20 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   0%, 100% { opacity: 0.45; }
   50%      { opacity: 0.65; }
 }
+/* v3: matter being pulled in. Spokes shrink + rotate toward the horizon
+   on a 9s loop. The fade-in + fade-out at each end of the cycle sells
+   the idea of new gas clouds being drawn in, then crossing the event
+   horizon and disappearing. */
+@keyframes bh-suck {
+  0%   { transform: rotate(0deg)  scale(1.25); opacity: 0;    }
+  12%  {                                       opacity: 0.55; }
+  85%  {                                       opacity: 0.20; }
+  100% { transform: rotate(55deg) scale(0.68); opacity: 0;    }
+}
+/* v3: debris orbit — pure rotation, no scaling. Used by ::before and ::after
+   at different speeds/directions so the two rings don't look parallel. */
+@keyframes bh-orbit         { to { transform: rotate(360deg); } }
+@keyframes bh-orbit-reverse { to { transform: rotate(-360deg); } }
 
 .bh-scene {
   position: fixed;
@@ -2015,11 +2029,12 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 .bh-stage {
   position: absolute;
   /* Offset to the right, vertically centred — sits behind the right rail
-     rather than the centre content so it never fights with tables/forms. */
+     rather than the centre content so it never fights with tables/forms.
+     v3: slimmed from 62vmin → 52vmin so the silhouette reads tighter. */
   top: 50%;
   left: 78%;
-  width:  min(62vmin, 700px);
-  height: min(62vmin, 700px);
+  width:  min(52vmin, 600px);
+  height: min(52vmin, 600px);
   transform: translate(-50%, -50%);
   animation: bh-drift 32s ease-in-out infinite;
   will-change: transform;
@@ -2027,57 +2042,92 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 
 .bh-halo {
   position: absolute;
-  inset: -18%;
+  inset: -8%;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 50%,
-    rgba(255,106,0,0.24) 0%,
-    rgba(255,106,0,0.13) 30%,
-    rgba(196,77,0,0.06)  55%,
-    transparent          72%);
-  filter: blur(28px);
+    rgba(255,106,0,0.22) 0%,
+    rgba(255,106,0,0.11) 32%,
+    rgba(196,77,0,0.05)  55%,
+    transparent          70%);
+  filter: blur(20px);
   animation: bh-halo-pulse 8s ease-in-out infinite;
   will-change: opacity;
 }
 
-/* Outer accretion disk — slow counter-rotation. Conic gradient with uneven
-   hot-spots sells the illusion of matter spiralling in. */
-.bh-disk-outer {
+/* v3: inward-streaming matter. Thin hot spokes around the photon sphere,
+   masked to an annulus, scaling inward on a 9 s loop. This is the
+   "something is being pulled in" cue the user wanted. */
+.bh-streams {
   position: absolute;
-  inset: 4%;
+  inset: 6%;
   border-radius: 50%;
-  background: conic-gradient(from 0deg,
-    transparent               0deg,
-    rgba(196,77,0,0.40)      35deg,
-    rgba(255,106,0,0.80)     75deg,
-    rgba(255,145,51,0.92)   110deg,
-    rgba(255,106,0,0.70)    150deg,
-    transparent             200deg,
-    rgba(196,77,0,0.28)     250deg,
-    rgba(255,106,0,0.56)    305deg,
-    transparent             360deg);
-  filter: blur(22px);
-  animation: bh-spin-reverse 60s linear infinite;
-  will-change: transform;
-  mask: radial-gradient(circle, transparent 32%, #000 42%, #000 85%, transparent 96%);
-  -webkit-mask: radial-gradient(circle, transparent 32%, #000 42%, #000 85%, transparent 96%);
+  background: repeating-conic-gradient(from 0deg,
+    transparent 0deg,
+    rgba(255,180,80,0.55) 0.35deg,
+    rgba(255,120,20,0.30) 0.9deg,
+    transparent 1.6deg,
+    transparent 7deg);
+  filter: blur(1.5px);
+  mask: radial-gradient(circle,
+    transparent 26%,
+    #000        40%,
+    #000        70%,
+    transparent 92%);
+  -webkit-mask: radial-gradient(circle,
+    transparent 26%,
+    #000        40%,
+    #000        70%,
+    transparent 92%);
+  animation: bh-suck 9s cubic-bezier(.55,.05,.25,1) infinite;
+  will-change: transform, opacity;
+  mix-blend-mode: screen;
 }
 
-/* Inner disk — faster spin, tighter and brighter (photon-sphere heat). */
+/* Outer accretion disk — v3: DOPPLER-BEAMED.
+   Real BH images (M87, Sgr A*) show ONE dominant bright crescent where
+   matter moves toward the viewer and Doppler-boosts its synchrotron
+   emission. We replace the old symmetric two-hotspot gradient with one
+   long bright arc + a dim counter-arc. Reads far more like a real BH. */
+.bh-disk-outer {
+  position: absolute;
+  inset: 5%;
+  border-radius: 50%;
+  background: conic-gradient(from 300deg,
+    transparent                0deg,
+    rgba(196,77,0,0.18)       25deg,
+    rgba(255,106,0,0.65)      65deg,
+    rgba(255,160,55,0.95)    105deg,   /* peak of bright crescent */
+    rgba(255,200,90,1.00)    130deg,
+    rgba(255,160,55,0.92)    155deg,
+    rgba(255,106,0,0.55)     190deg,
+    rgba(196,77,0,0.20)      230deg,
+    transparent              270deg,
+    rgba(120,40,0,0.10)      320deg,   /* dim receding side */
+    transparent              360deg);
+  filter: blur(16px);
+  animation: bh-spin-reverse 60s linear infinite;
+  will-change: transform;
+  mask: radial-gradient(circle, transparent 30%, #000 40%, #000 84%, transparent 96%);
+  -webkit-mask: radial-gradient(circle, transparent 30%, #000 40%, #000 84%, transparent 96%);
+}
+
+/* Inner disk — faster spin, tighter and brighter (photon-sphere heat).
+   v3: also Doppler-beamed so the two disks agree on which side glows. */
 .bh-disk-inner {
   position: absolute;
   inset: 16%;
   border-radius: 50%;
-  background: conic-gradient(from 90deg,
-    transparent               0deg,
-    rgba(255,145,51,0.70)    30deg,
-    rgba(255,215,0,0.48)     60deg,   /* hint of --gold for a hot core */
-    rgba(255,145,51,0.88)    90deg,
-    rgba(255,106,0,0.72)    130deg,
-    transparent             180deg,
-    rgba(255,106,0,0.42)    240deg,
-    rgba(255,145,51,0.65)   300deg,
-    transparent             360deg);
-  filter: blur(10px);
+  background: conic-gradient(from 280deg,
+    transparent                0deg,
+    rgba(255,145,51,0.35)     25deg,
+    rgba(255,200,90,0.85)     65deg,
+    rgba(255,230,140,1.00)   105deg,   /* hot crescent */
+    rgba(255,200,90,0.90)    135deg,
+    rgba(255,145,51,0.55)    170deg,
+    transparent              220deg,
+    rgba(255,106,0,0.25)     300deg,
+    transparent              360deg);
+  filter: blur(8px);
   animation: bh-spin 26s linear infinite;
   will-change: transform;
   mask: radial-gradient(circle, transparent 38%, #000 48%, #000 82%, transparent 95%);
@@ -2133,20 +2183,67 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 }
 
 /* Event horizon — absolute black, swallows everything. Thin inner lip gives
-   it dimension without contradicting the "singularity" read. */
+   it dimension without contradicting the "singularity" read.
+   v3: tightened inner void (68% → 72%) + slightly smaller outer inset
+   (33% → 35%) so the disk dominates the silhouette. */
 .bh-horizon {
   position: absolute;
-  inset: 33%;
+  inset: 35%;
   border-radius: 50%;
   background: radial-gradient(circle,
     #000 0%,
-    #000 68%,
-    rgba(0,0,0,0.95) 80%,
+    #000 72%,
+    rgba(0,0,0,0.95) 85%,
     transparent 100%);
   box-shadow:
-    inset 0 0 40px rgba(0,0,0,1),
-    inset 0 0 2px  rgba(255,145,51,0.25),
-    0 0 60px rgba(0,0,0,0.8);
+    inset 0 0 42px rgba(0,0,0,1),
+    inset 0 0 2px  rgba(255,145,51,0.30),
+    0 0 70px rgba(0,0,0,0.9);
+}
+
+/* v3: orbiting debris. Two counter-rotating rings of tiny bright points
+   rendered via box-shadow on ::before and ::after — no extra DOM nodes.
+   Gives the brain "something is moving around the hole" that the pure
+   disk rotation never quite sells at this size. */
+.bh-debris {
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: bh-orbit 42s linear infinite;
+  will-change: transform;
+}
+.bh-debris::before,
+.bh-debris::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 2px;
+  margin: -1px 0 0 -1px;
+  background: rgba(255,210,130,0.95);
+  border-radius: 50%;
+  /* each pair in the shadow list = one debris dot on an elliptical orbit */
+  box-shadow:
+      -235px   10px 6px 1px rgba(255,200,120,0.90),
+       190px  -45px 5px 1px rgba(255,180,90,0.80),
+       120px  210px 5px 1px rgba(255,220,140,0.85),
+      -170px -150px 6px 1px rgba(255,180,90,0.75),
+       250px   70px 4px 1px rgba(255,220,140,0.80),
+      -110px  220px 5px 1px rgba(255,200,120,0.70);
+  filter: blur(0.4px);
+  opacity: 0.85;
+}
+.bh-debris::after {
+  /* Inner ring — counter-rotating, slightly faster, dimmer. */
+  animation: bh-orbit-reverse 28s linear infinite;
+  box-shadow:
+       160px  -40px 4px 1px rgba(255,150,60,0.75),
+      -175px   55px 5px 1px rgba(255,190,100,0.85),
+        50px -180px 4px 1px rgba(255,220,140,0.75),
+       -70px  190px 4px 1px rgba(255,170,80,0.65);
+  opacity: 0.65;
 }
 
 /* Reduced-motion: freeze rotations and pulses; the scene still reads as a
@@ -2157,7 +2254,10 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
   .bh-halo,
   .bh-disk-outer,
   .bh-disk-inner,
+  .bh-streams,
+  .bh-debris,
   .bh-photon-ring { animation: none !important; }
+  .bh-streams     { opacity: 0.20; }
   .bh-lens        { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 }
 
@@ -2580,11 +2680,13 @@ body.density-compact .score-fill-wrap { display: inline-block !important; }
 <div class="bh-scene" aria-hidden="true">
   <div class="bh-stage">
     <div class="bh-halo"></div>
+    <div class="bh-streams"></div>    <!-- NEW: inward-pulling matter spokes -->
     <div class="bh-disk-outer"></div>
     <div class="bh-disk-inner"></div>
     <div class="bh-lens"></div>
     <div class="bh-photon-ring"></div>
     <div class="bh-horizon"></div>
+    <div class="bh-debris"></div>      <!-- NEW: orbiting debris dots -->
   </div>
 </div>
 <!-- FIX-A5: Skip navigation — keyboard users skip to main content with one Tab press -->
