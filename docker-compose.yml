@@ -167,6 +167,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/security-headers.conf:/etc/nginx/snippets/security-headers.conf:ro
       - ./frontend:/var/www/html:ro   # serve frontend static files (relative to docker-compose.yml)
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
