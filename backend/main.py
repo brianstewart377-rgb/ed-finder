@@ -1376,7 +1376,7 @@ async def map_regions(
             LEFT JOIN systems s ON s.galaxy_region_id = r.id
             GROUP BY r.id, r.name
             ORDER BY r.id
-        """)
+        """, timeout=180)
 
     result = {
         'regions': [
@@ -1532,7 +1532,7 @@ async def map_heatmap(
             WHERE  r.{score_col} IS NOT NULL
             GROUP BY cx, cy, cz
             HAVING COUNT(*) >= $2
-        """, voxel_size, min_systems)
+        """, voxel_size, min_systems, timeout=300)
 
     result = {
         'voxel_size': voxel_size,
@@ -1590,7 +1590,7 @@ async def map_timeline(
             WHERE  COALESCE(first_discovered_at, updated_at) IS NOT NULL
             GROUP BY bucket
             ORDER BY bucket
-        """)
+        """, timeout=180)
 
     result = {
         'bucket': bucket,
