@@ -78,7 +78,14 @@ body {
 
 /* ── Header ── */
 #header {
-  background: linear-gradient(135deg, #0b0e14 0%, #0f0b03 50%, #0b0e14 100%);
+  /* v3.1: switched from a fully-opaque gradient to a translucent dark wash
+     + backdrop-blur. This lets the black hole (z-index:0, behind) show
+     through continuously — no more horizontal "stripe" where the header
+     was cutting across it. The blur preserves the frosted-glass feel and
+     keeps header text legible against busy backgrounds. */
+  background: linear-gradient(135deg, rgba(11,14,20,0.78) 0%, rgba(15,11,3,0.78) 50%, rgba(11,14,20,0.78) 100%);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
   border-bottom: 1px solid rgba(180,70,0,0.35);
   padding: 14px 24px;
   display: flex;
@@ -2028,7 +2035,7 @@ body.light-theme .result-card { box-shadow: 0 1px 4px rgba(0,0,0,0.10); }
 .bh-scene {
   position: fixed;
   inset: 0;
-  z-index: 0;              /* same stacking context as .nebula-wrapper */
+  z-index: 0;              /* behind everything as before */
   pointer-events: none;
   overflow: hidden;
   /* A subtle vignette toward the black hole side reinforces the pull. */
