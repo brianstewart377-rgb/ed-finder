@@ -6706,6 +6706,28 @@ document.addEventListener('click', (e) => {
         <label style="display:block">
           <input type="checkbox" id="map-overlay-heatmap" onchange="_mapReloadOverlays()"> 🌡️ Density heatmap
         </label>
+        <hr style="border:0;border-top:1px solid var(--border);margin:6px 0">
+        <label style="display:block;margin-bottom:4px;font-size:11px;color:var(--text)" title="Highlight everything reachable from the reference system in N jumps at the given range">
+          <input type="checkbox" id="map-overlay-jumprange" data-testid="map-overlay-jumprange-cb" onchange="_mapReloadOverlays()"> 🚀 Jump-range reachability
+        </label>
+        <div id="map-jumprange-controls" style="display:none;padding:4px 0 0;font-size:11px;color:var(--text-dim)">
+          <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
+            <span>Range</span>
+            <input type="number" id="map-jumprange-ly" data-testid="map-jumprange-ly" value="50" min="10" max="500" step="5"
+              style="width:48px;background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 3px;font-size:11px"
+              onchange="_mapReloadOverlays()"> LY
+          </div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <span>Jumps</span>
+            <input type="number" id="map-jumprange-jumps" data-testid="map-jumprange-jumps" value="3" min="1" max="10" step="1"
+              style="width:38px;background:var(--bg4);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 3px;font-size:11px"
+              onchange="_mapReloadOverlays()">
+          </div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:3px;line-height:1.3">
+            Reach radius = range × jumps.
+            Click a system to set as reference.
+          </div>
+        </div>
       </div>
     </details>
     <button class="btn btn-secondary" style="font-size:10px;padding:4px 8px" onclick="_mapShareView()" title="Copy shareable URL of current view">🔗 Share</button>
@@ -9107,6 +9129,11 @@ function _showMapDetail(d) {
   const panel = document.getElementById('map-detail-panel');
   if (!panel) return;
   const s = d.sys;
+  // v3.1: tell the jump-range overlay this is the new reference system.
+  // No-op if the overlay isn't currently enabled.
+  if (typeof window.setJumpRangeReference === 'function') {
+    window.setJumpRangeReference(s);
+  }
   const bodies = s.bodies || [];
   const landable = bodies.filter(b => b.type === 'Planet' && b.is_landable).length;
   const walkable = bodies.filter(b => b.type === 'Planet' && b.is_landable && !b.is_rotational_period_tidally_locked).length;
@@ -12434,18 +12461,99 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window._requestRender2D) window._requestRender2D();
   }
 
+  // ── Jump-range reachability ──────────────────────────────────────────
+  // Renders a translucent sphere centred on the user's reference system
+  // showing the volume reachable in N jumps at the given LY range.
+  // Reference system = whichever system the user last clicked on the map
+  // (window._mapRefSystem), falls back to Sol (0,0,0) if none set.
+  // Pure client-side, zero backend calls.
+  function _mapLoadJumpRange() {
+    const scene = _mapGetScene();
+    if (!scene || !window.THREE) return;
+    _mapRemoveOverlay('edOverlayJumpRange');
+    const lyEl    = document.getElementById('map-jumprange-ly');
+    const jumpsEl = document.getElementById('map-jumprange-jumps');
+    const range   = Math.max(10,  Math.min(500, Number(lyEl?.value)    || 50));
+    const jumps   = Math.max(1,   Math.min(10,  Number(jumpsEl?.value) || 3));
+    const radiusLY = range * jumps;
+    // Reference system: priority (a) explicit window._mapRefSystem, (b) Sol.
+    const ref = window._mapRefSystem || { x: 0, y: 0, z: 0, name: 'Sol' };
+    const S = window.SCALE || 0.05;
+    const group = new THREE.Group();
+    group.name = 'ed.overlayJumpRange';
+    // Outer "max reachable" sphere — translucent green wireframe.
+    const outerGeom = new THREE.SphereGeometry(radiusLY * S, 32, 24);
+    const outerMat  = new THREE.MeshBasicMaterial({
+      color: 0x3ddc84, transparent: true, opacity: 0.10,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+    const outer = new THREE.Mesh(outerGeom, outerMat);
+    outer.position.set(ref.x * S, ref.y * S, ref.z * S);
+    group.add(outer);
+    // Single-jump ring (thin emissive line) — sells the per-jump scale.
+    const ringGeom = new THREE.SphereGeometry(range * S, 24, 18);
+    const ringMat  = new THREE.MeshBasicMaterial({
+      color: 0xff6a00, transparent: true, opacity: 0.18, wireframe: true,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(ringGeom, ringMat);
+    ring.position.set(ref.x * S, ref.y * S, ref.z * S);
+    group.add(ring);
+    // Reference marker — bright dot at the centre.
+    const markerGeom = new THREE.SphereGeometry(20 * S, 12, 8);
+    const markerMat  = new THREE.MeshBasicMaterial({ color: 0xffd24c, depthWrite: false });
+    const marker = new THREE.Mesh(markerGeom, markerMat);
+    marker.position.set(ref.x * S, ref.y * S, ref.z * S);
+    group.add(marker);
+    scene.add(group);
+    scene.userData.edOverlayJumpRange = group;
+    // Status line in the controls panel.
+    const ctrl = document.getElementById('map-jumprange-controls');
+    if (ctrl) {
+      let st = ctrl.querySelector('.jr-status');
+      if (!st) {
+        st = document.createElement('div');
+        st.className = 'jr-status';
+        st.style.cssText = 'font-size:10px;color:var(--green);margin-top:5px';
+        ctrl.appendChild(st);
+      }
+      st.textContent = `◉ ${ref.name || '(' + ref.x + ',' + ref.y + ',' + ref.z + ')'} — ${radiusLY} LY reach`;
+    }
+    if (window._requestRender2D) window._requestRender2D();
+  }
+
+  // Public hook: external code can set the jump-range reference system.
+  // Called by _showMapDetail when a user clicks a star on the map.
+  window.setJumpRangeReference = function(sys) {
+    if (!sys) return;
+    window._mapRefSystem = {
+      x: Number(sys.x) || 0,
+      y: Number(sys.y) || 0,
+      z: Number(sys.z) || 0,
+      name: sys.name || null,
+    };
+    if (document.getElementById('map-overlay-jumprange')?.checked) {
+      _mapLoadJumpRange();
+    }
+  };
+
   window._mapReloadOverlays = function() {
     const q = sel => document.getElementById(sel);
     const checks = {
-      clusters: q('map-overlay-clusters')?.checked,
-      regions:  q('map-overlay-regions')?.checked,
-      plane:    q('map-overlay-plane')?.checked,
-      heatmap:  q('map-overlay-heatmap')?.checked,
+      clusters:  q('map-overlay-clusters')?.checked,
+      regions:   q('map-overlay-regions')?.checked,
+      plane:     q('map-overlay-plane')?.checked,
+      heatmap:   q('map-overlay-heatmap')?.checked,
+      jumprange: q('map-overlay-jumprange')?.checked,
     };
     if (checks.clusters) _mapLoadClusters(); else _mapRemoveOverlay('edOverlayClusters');
     if (checks.regions)  _mapLoadRegions();  else _mapRemoveOverlay('edOverlayRegions');
     if (checks.plane)    _mapLoadPlane();    else _mapRemoveOverlay('edOverlayPlane');
     if (checks.heatmap)  _mapLoadHeatmap();  else _mapRemoveOverlay('edOverlayHeatmap');
+    if (checks.jumprange) _mapLoadJumpRange(); else _mapRemoveOverlay('edOverlayJumpRange');
+    // Toggle the jump-range nested controls visibility.
+    const jrCtl = document.getElementById('map-jumprange-controls');
+    if (jrCtl) jrCtl.style.display = checks.jumprange ? 'block' : 'none';
     _mapUpdateUrlState();
   };
 
