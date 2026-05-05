@@ -22,12 +22,14 @@ import {
 export interface ResultCardProps {
   system: SystemResult;
   index:  number;
+  /** Live "is this pinned right now?" — flips the icon between 📍 and 📌. */
+  isPinned?: boolean;
   onPin?:    (id64: number) => void;
   onWatch?:  (id64: number) => void;
   onShowOnMap?: (id64: number) => void;
 }
 
-export function ResultCard({ system, index, onPin, onWatch, onShowOnMap }: ResultCardProps) {
+export function ResultCard({ system, index, isPinned = false, onPin, onWatch, onShowOnMap }: ResultCardProps) {
   const [open, setOpen] = useState(false);
 
   const rating     = system._rating;
@@ -58,11 +60,16 @@ export function ResultCard({ system, index, onPin, onWatch, onShowOnMap }: Resul
       >
         <button
           type="button"
-          aria-label="Pin system"
+          aria-label={isPinned ? 'Unpin system' : 'Pin system'}
+          data-testid={`result-card-pin-${system.id64}`}
+          aria-pressed={isPinned}
           onClick={(e) => { e.stopPropagation(); onPin?.(system.id64); }}
-          className="text-base hover:scale-110 transition-transform"
+          className={[
+            'text-base transition-transform hover:scale-110',
+            isPinned ? 'opacity-100' : 'opacity-60 hover:opacity-100',
+          ].join(' ')}
         >
-          📍
+          {isPinned ? '📌' : '📍'}
         </button>
         <span className="font-mono text-text-dim text-[11px] min-w-[28px]">
           #{index + 1}

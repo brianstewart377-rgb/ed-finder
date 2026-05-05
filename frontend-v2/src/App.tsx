@@ -6,19 +6,22 @@ import { SearchForm } from '@/features/search/SearchForm';
 import { useSearch } from '@/features/search/useSearch';
 import { useWatchlist } from '@/features/watchlist/useWatchlist';
 import { WatchlistTab } from '@/features/watchlist/WatchlistTab';
+import { usePinned } from '@/features/pinned/usePinned';
+import { PinnedTab, toPinnedEntry } from '@/features/pinned/PinnedTab';
 import { MapTab } from '@/features/map/MapTab';
 import { useHashRoute } from '@/hooks/useHashRoute';
 import './index.css';
 
 /**
- * v2 root: NavBar + tab content. State (search filters, watchlist) lives at
- * this level so tabs can share data — switching from Finder → Map should NOT
- * lose the current results.
+ * v2 root: NavBar + tab content. State (search filters, watchlist, pins)
+ * lives at this level so tabs can share data — switching from Finder → Map
+ * should NOT lose the current results.
  */
 export default function App() {
   const [route, navigate] = useHashRoute();
   const search    = useSearch();
   const watchlist = useWatchlist();
+  const pinned    = usePinned();
   const [health, setHealth] = useState<string>('checking…');
 
   // First-paint: health + default search.
@@ -36,6 +39,7 @@ export default function App() {
         current={route}
         onNavigate={navigate}
         watchlistCount={watchlist.entries.length}
+        pinnedCount={pinned.entries.length}
         health={health}
       />
 
@@ -43,6 +47,7 @@ export default function App() {
         <FinderView
           search={search}
           watchlist={watchlist}
+          pinned={pinned}
           onShowOnMap={() => navigate('map')}
         />
       )}
@@ -54,6 +59,13 @@ export default function App() {
           error={watchlist.error}
           onRefresh={watchlist.refresh}
           onRemove={watchlist.remove}
+          onShowOnMap={() => navigate('map')}
+        />
+      )}
+
+      {route === 'pinned' && (
+        <PinnedTab
+          pinned={pinned}
           onShowOnMap={() => navigate('map')}
         />
       )}
@@ -81,10 +93,11 @@ export default function App() {
 // ─────────────────────────────────────────────────────────────────────────
 
 function FinderView({
-  search, watchlist, onShowOnMap,
+  search, watchlist, pinned, onShowOnMap,
 }: {
   search:    ReturnType<typeof useSearch>;
   watchlist: ReturnType<typeof useWatchlist>;
+  pinned:    ReturnType<typeof usePinned>;
   onShowOnMap: () => void;
 }) {
   const { filters, setFilters, reset, run, state, results } = search;
@@ -143,6 +156,7 @@ function FinderView({
                     <ResultCard
                       system={sys}
                       index={i}
+                      isPinned={pinned.has(sys.id64)}
                       onWatch={(id) => void watchlist.add(id, {
                         name:       sys.name,
                         x:          sys.coords?.x ?? 0,
@@ -153,7 +167,7 @@ function FinderView({
                         score:      sys._rating?.score ?? null,
                       })}
                       onShowOnMap={onShowOnMap}
-                      onPin={(id) => console.log('pin', id)}
+                      onPin={() => pinned.toggle(toPinnedEntry(sys))}
                     />
                   </li>
                 ))}

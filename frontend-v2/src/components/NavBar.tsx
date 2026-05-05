@@ -7,10 +7,12 @@ export interface NavBarProps {
   onNavigate: (r: Route) => void;
   /** Watchlist count badge — null = not loaded yet, undefined = hide. */
   watchlistCount?: number | null;
+  /** Pinned count badge — local-storage backed so null isn't meaningful. */
+  pinnedCount?:   number;
   health?:    string;
 }
 
-export function NavBar({ current, onNavigate, watchlistCount, health }: NavBarProps) {
+export function NavBar({ current, onNavigate, watchlistCount, pinnedCount, health }: NavBarProps) {
   return (
     <nav className="sticky top-0 z-20 -mx-4 sm:-mx-8 mb-6 px-4 sm:px-8 py-3 bg-bg1/85 backdrop-blur border-b border-border">
       <div className="max-w-7xl mx-auto flex items-center gap-3 sm:gap-6">
@@ -21,6 +23,8 @@ export function NavBar({ current, onNavigate, watchlistCount, health }: NavBarPr
           <Tab active={current === 'finder'}    onClick={() => onNavigate('finder')}    label="🔍 Finder"    testid="nav-finder" />
           <Tab active={current === 'watchlist'} onClick={() => onNavigate('watchlist')} label="👁️ Watchlist" testid="nav-watchlist"
                badge={watchlistCount ?? undefined} />
+          <Tab active={current === 'pinned'}    onClick={() => onNavigate('pinned')}    label="📌 Pinned"    testid="nav-pinned"
+               badge={pinnedCount} />
           <Tab active={current === 'map'}       onClick={() => onNavigate('map')}       label="🗺️ Map"       testid="nav-map" />
         </div>
         <span className="hidden sm:inline font-mono text-[10px] text-text-dim">

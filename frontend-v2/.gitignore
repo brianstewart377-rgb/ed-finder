@@ -9,6 +9,9 @@ dist
 vite.config.d.ts
 vite.config.js
 
+# OpenAPI codegen output — regenerate via `yarn types:gen` per env, don't commit.
+src/types/api.gen.ts
+
 # Editor / OS noise
 .vscode
 .idea

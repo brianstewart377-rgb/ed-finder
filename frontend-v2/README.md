@@ -16,26 +16,32 @@ the porting cost.
 ## What's in v2 today
 
 - ✅ **Finder tab** — search form with autocomplete + sliders + body-type filter pills + result cards (~280 LoC across 4 typed files; the vanilla equivalent was scattered across ~1500 lines of `index.html`).
-- ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback.
+- ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback. Now uses the shared `<SystemTable>`.
+- ✅ **Pinned tab** — localStorage-backed shortlist (schema-compatible with the vanilla `ed_pinned` key so existing user data survives the cutover). Export-as-JSON, clear-all, cross-tab sync via the `storage` event. No backend round-trip.
 - ✅ **Map tab** — pure-React 2-D galactic canvas (drag-pan, scroll-zoom, click-to-select, auto-fit). Plots whatever the Finder tab last returned.
-- ✅ **Hash routing** — `#finder` / `#watchlist` / `#map`. Deep-links work.
-- ⏳ Optimizer / FC Planner / Compare / Pinned / Colony Tracker / Admin: still vanilla.
+- ✅ **Hash routing** — `#finder` / `#watchlist` / `#pinned` / `#map`. Deep-links work.
+- ✅ **Shared `<SystemTable>`** — common rendering layer for every "list of systems" feature (Watchlist + Pinned today; Compare + Cluster anchors tomorrow). Finite column set keeps the visual identity consistent.
+- ⏳ Optimizer / FC Planner / Compare / Colony Tracker / Admin: still vanilla.
 
 ```
 src/
   App.tsx                           composition root + finder layout
   main.tsx                          bootstrap
   components/
-    NavBar.tsx                      top tabs + watchlist badge
-    ResultCard.tsx                  search result row
+    NavBar.tsx                      top tabs + watchlist / pinned badges
+    ResultCard.tsx                  search result row (live isPinned state)
+    SystemTable.tsx                 shared table used by every list feature
   features/
     search/                         finder
       SearchForm.tsx
       useSearch.ts                  filters→request→results state machine
       useAutocomplete.ts            debounced /api/local/autocomplete
-    watchlist/                      watchlist
+    watchlist/                      watchlist (server-backed)
       WatchlistTab.tsx
       useWatchlist.ts               optimistic add/remove
+    pinned/                         pinned (client-only, localStorage)
+      PinnedTab.tsx
+      usePinned.ts                  localStorage + storage-event sync
     map/                            galactic map
       GalacticMap.tsx               pure-React canvas (~250 LoC)
       MapTab.tsx                    map + selection panel
@@ -47,6 +53,7 @@ src/
     format.ts                       pure formatters
   types/
     api.ts                          hand-maintained API types
+    api.gen.ts                      (generated — run `yarn types:gen`)
 ```
 
 ## Local dev
@@ -110,16 +117,18 @@ multi-stage build once the v2 surface is more than one component.)
 
 ## Type generation
 
-When v2 grows past a handful of endpoints, run:
+`src/types/api.ts` is hand-maintained for the endpoints in active use. A
+generator is wired up for when we want full coverage:
 
 ```bash
-yarn add -D openapi-typescript
-npx openapi-typescript https://ed-finder.app/openapi.json -o src/types/api.gen.ts
+yarn types:gen
+# writes src/types/api.gen.ts from https://ed-finder.app/openapi.json
+# override with VITE_OPENAPI_URL=http://127.0.0.1:8000/openapi.json yarn types:gen
 ```
 
-The backend already publishes a clean OpenAPI schema (31 paths,
-30 documented). Generated types replace `src/types/api.ts` and stay in sync
-with backend changes for free.
+`openapi-typescript` is already a devDep. The generated file is git-ignored
+on purpose — regenerate when backend routes change rather than committing a
+snapshot.
 
 ## Bundle size budget
 
@@ -133,13 +142,14 @@ it's not worth the complexity.
 
 ## Migration plan (if/when we go full)
 
-1. ✅ Scaffold + result-card POC. (this PR)
-2. Search form + filters (left rail) — biggest UI surface, port second.
-3. Top tab bar + routing (`/v2/finder`, `/v2/optimizer`, etc.).
-4. Watchlist / Pinned / Compare — share `<SystemTable>` component.
-5. Map (canvas wrapped in one component, ~no rewrite needed).
+1. ✅ Scaffold + result-card POC.
+2. ✅ Search form + filters (left rail).
+3. ✅ Top tab bar + routing (`#finder`, `#watchlist`, `#pinned`, `#map`).
+4. 🟡 Watchlist / Pinned / Compare — **Watchlist + Pinned done, Compare remaining** (will reuse `<SystemTable>`).
+5. ✅ Map (canvas wrapped in one component).
 6. Once parity hit: nginx flips root → v2; v1 lives at `/v1/` for one week
    as rollback insurance; then deleted.
 
-Estimated effort end-to-end: 4–6 weeks part-time. Don't start until the
-backend pipeline (grid/clusters) is rock-solid.
+Estimated effort remaining: 2–4 weeks part-time. Hardest surfaces left:
+Optimizer (numeric controls + rerank API), FC Planner (jump-range solver),
+and the system detail modal (deep-linkable from every list).
