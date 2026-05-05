@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { UseAdmin } from './useAdmin';
+import { useProfileSync, type UseProfileSync } from '@/features/profile-sync/useProfileSync';
 
 export interface AdminTabProps { admin: UseAdmin }
 
@@ -16,6 +17,7 @@ export interface AdminTabProps { admin: UseAdmin }
  */
 export function AdminTab({ admin }: AdminTabProps) {
   const [tokenDraft, setTokenDraft] = useState(admin.token);
+  const sync = useProfileSync();
 
   return (
     <section data-testid="admin-tab" className="space-y-6">
@@ -172,7 +174,139 @@ export function AdminTab({ admin }: AdminTabProps) {
           </p>
         )}
       </section>
+
+      {/* ── Profile Sync ─────────────────────────────────────────────── */}
+      <ProfileSyncSection sync={sync} />
     </section>
+  );
+}
+
+// ─── Profile sync section ─────────────────────────────────────────────────
+
+function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
+  const [draft, setDraft] = useState(sync.syncKey);
+
+  return (
+    <section className="rounded border border-border p-4 space-y-3">
+      <h3 className="font-mono text-orange text-xs uppercase tracking-wider">
+        4. Profile sync
+      </h3>
+      <p className="text-text-dim text-[11px] leading-snug">
+        Cross-device sync for your <strong className="text-orange">Pinned</strong>,
+        <strong className="text-orange"> Compare</strong>,
+        <strong className="text-orange"> FC route</strong>, and
+        <strong className="text-orange"> Colony tracker</strong>.
+        The sync key IS the credential — pick a hard-to-guess string and
+        share it across your devices. Last-write-wins; no auto-merge.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="16+ chars, [A-Za-z0-9_-]"
+          data-testid="sync-key-input"
+          className="flex-1 min-w-[260px] bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          onClick={() => sync.setSyncKey(draft.trim())}
+          disabled={draft.trim().length < 16 || draft.trim() === sync.syncKey}
+          data-testid="sync-key-save"
+          className="px-3 py-1 rounded bg-orange/20 border border-orange/50 text-orange font-mono text-[11px] hover:bg-orange/30 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Save key
+        </button>
+        <button
+          type="button"
+          onClick={() => setDraft(sync.generateKey())}
+          data-testid="sync-key-generate"
+          className="px-3 py-1 rounded bg-bg4 border border-border text-text-dim font-mono text-[11px] hover:text-orange hover:border-orange-dk"
+          title="Generate a 24-char random key"
+        >
+          🎲 Generate
+        </button>
+      </div>
+
+      <SyncStateToast state={sync.state} onDismiss={sync.resetState} />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void sync.pull()}
+          disabled={!sync.hasKey || sync.state.kind === 'busy'}
+          data-testid="sync-pull"
+          className="px-3 py-1.5 rounded bg-cyan/20 border border-cyan/50 text-cyan font-mono text-xs hover:bg-cyan/30 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          ⬇ Pull from cloud
+        </button>
+        <button
+          type="button"
+          onClick={() => void sync.push()}
+          disabled={!sync.hasKey || sync.state.kind === 'busy'}
+          data-testid="sync-push"
+          className="px-3 py-1.5 rounded bg-orange/20 border border-orange/50 text-orange font-mono text-xs hover:bg-orange/30 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          ⬆ Push to cloud
+        </button>
+        <span className="flex-1" />
+        {sync.lastPushAt && (
+          <span className="font-mono text-[10px] text-text-dim">
+            last push: {new Date(sync.lastPushAt).toLocaleString()}
+          </span>
+        )}
+        <span
+          data-testid="sync-key-status"
+          className={[
+            'font-mono text-[10px] uppercase tracking-wider',
+            sync.hasKey ? 'text-green' : 'text-text-dim',
+          ].join(' ')}
+        >
+          {sync.hasKey ? '● Key set' : '○ No key'}
+        </span>
+      </div>
+
+      {!sync.hasKey && (
+        <p className="text-[10px] text-text-dim font-mono">
+          A key is needed before push/pull. Click Generate then Save.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function SyncStateToast({
+  state, onDismiss,
+}: { state: UseProfileSync['state']; onDismiss: () => void }) {
+  if (state.kind === 'idle' || state.kind === 'busy') return null;
+  const ok = state.kind === 'ok';
+  return (
+    <div
+      data-testid="sync-toast"
+      className={[
+        'rounded border p-2 font-mono text-xs flex items-center gap-2',
+        ok ? 'border-green/50 bg-green/10 text-green'
+           : 'border-red/50   bg-red/10   text-red',
+      ].join(' ')}
+    >
+      <span>{ok ? '✓' : '✕'}</span>
+      <span className="font-bold">{state.what}:</span>
+      <span>
+        {ok
+          ? `${state.bytes != null ? `${state.bytes.toLocaleString()} bytes · ` : ''}saved at ${new Date(state.updated_at).toLocaleString()}`
+          : state.message}
+      </span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="ml-auto opacity-70 hover:opacity-100"
+        aria-label="Dismiss"
+      >
+        ✕
+      </button>
+    </div>
   );
 }
 

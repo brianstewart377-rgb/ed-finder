@@ -16,7 +16,12 @@ the porting cost.
 ## What's in v2 today
 
 **Status: feature parity with the legacy vanilla app.** Ready for nginx
-root flip to `/v2/`.
+root flip to `/v2/`. Now also:
+
+- **Installable PWA** — `manifest.webmanifest` + `sw.js` shipped at build time. Service worker scope locked to `/v2/` so it can't claim root or `/v1/`. NetworkFirst-with-5s-timeout cache for `/api/*`, StaleWhileRevalidate for static assets. Auto-update on next reload.
+- **Vitest unit tests** — `yarn test` runs 14 tests covering FC route maths, Compare cap behaviour, Colony state transitions. Pure-function tests, no DOM/network, ~3s.
+- **OpenAPI codegen** — `yarn types:gen` writes `src/types/api.gen.ts` from the live backend (requires nginx forward — see `scripts/nginx_snippet.md`). Hand-maintained `api.ts` stays primary; generated file lives alongside as a drift reference.
+- **Profile sync** — single backend endpoint (`PUT/GET/DELETE /api/profile/sync/{key}`) backed by a JSONB slot table. Frontend hook in Admin tab pushes/pulls Pinned + Compare + FC route + Colony tracker as one blob. Sync key = credential; 1 MiB per slot; manual push/pull (no auto-merge).
 
 - ✅ **Finder tab** — search form with autocomplete + sliders + body-type filter pills + result cards.
 - ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback. Renders via the shared `<SystemTable>`. Row-click opens the detail modal.
@@ -234,23 +239,14 @@ it's not worth the complexity.
 1. ✅ Scaffold + result-card POC.
 2. ✅ Search form + filters (left rail).
 3. ✅ Top tab bar + routing (9 tabs + sub-route `system/{id64}`).
-4. ✅ Watchlist / Pinned / Compare — three share `<SystemTable>` (Compare uses its own matrix layout but shares `lib/format`).
+4. ✅ Watchlist / Pinned / Compare.
 5. ✅ Map.
-6. ✅ System Detail Modal — deep-linkable from any tab; reuses the shared Watchlist/Pin/Compare hooks.
+6. ✅ System Detail Modal — deep-linkable.
 7. ✅ Optimizer + Admin.
 8. ✅ FC Planner + Colony Tracker.
-9. **Parity flip → ready.** Recommended order:
-   ```
-   # 1. Build + ship the bundle
-   cd /opt/ed-finder/frontend-v2 && yarn install --frozen-lockfile && yarn build
-   sudo rsync -a --delete dist/ /var/www/html-v2/
-
-   # 2. nginx — flip root to v2, keep legacy reachable at /v1/
-   #    (edit /etc/nginx/conf.d/ed-finder.conf:
-   #     - location = / { return 302 /v2/; }
-   #     - location /v1/ { alias /var/www/html/; try_files $uri $uri/ /v1/index.html; }
-   #     - location /v2/ { alias /var/www/html-v2/; try_files $uri $uri/ /v2/index.html; })
-   sudo nginx -t && sudo systemctl reload nginx
-
-   # 3. After 1 week of uneventful traffic, delete /var/www/html and the /v1/ alias.
-   ```
+9. ✅ Polish — Vitest tests + PWA + OpenAPI codegen wired + Profile sync (backend + frontend).
+10. **Parity flip → ready.** One-liner deploy:
+    ```bash
+    sudo bash /opt/ed-finder/scripts/deploy_v2.sh
+    ```
+    See `scripts/deploy_v2.sh` for what it does and `scripts/nginx_snippet.md` for the (one-time) nginx tweak that exposes `/openapi.json` for codegen + the (eventual) parity-flip block.

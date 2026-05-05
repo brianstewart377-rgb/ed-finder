@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- ED:Finder PWA icon. Single-glyph "ED" monogram in orange on the
+       app's bg1 colour, with a soft inner glow to suggest a HUD reticle.
+       Designed as `purpose: any maskable` so the safe zone is the inner
+       80% — anything that absolutely must be visible lives in there. -->
+  <rect width="512" height="512" fill="#0d0d0d"/>
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#ff6a00" stroke-width="3" opacity="0.4"/>
+  <circle cx="256" cy="256" r="220" fill="none" stroke="#ff6a00" stroke-width="2" opacity="0.2"/>
+  <text x="50%" y="50%"
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="'Courier New', Consolas, monospace"
+        font-size="160"
+        font-weight="700"
+        letter-spacing="-8"
+        fill="#ff6a00">ED</text>
+  <!-- Crosshair ticks at the cardinal points to feel like a Cobra HUD -->
+  <line x1="256" y1="56"  x2="256" y2="86"  stroke="#ff6a00" stroke-width="3"/>
+  <line x1="256" y1="426" x2="256" y2="456" stroke="#ff6a00" stroke-width="3"/>
+  <line x1="56"  y1="256" x2="86"  y2="256" stroke="#ff6a00" stroke-width="3"/>
+  <line x1="426" y1="256" x2="456" y2="256" stroke="#ff6a00" stroke-width="3"/>
+</svg>

@@ -47,6 +47,7 @@ from routers.events    import router as events_router, eddn_pubsub_bridge
 from routers.map       import router as map_router
 from routers.meta      import router as meta_router
 from routers.notes     import router as notes_router
+from routers.profile   import router as profile_router
 from routers.ratings   import router as ratings_router
 from routers.search    import router as search_router
 from routers.systems   import router as systems_router
@@ -192,6 +193,7 @@ app.include_router(share_router)
 app.include_router(meta_router)
 app.include_router(watchlist_router)
 app.include_router(notes_router)
+app.include_router(profile_router)
 app.include_router(admin_router)
 app.include_router(events_router)
 app.include_router(search_router)
