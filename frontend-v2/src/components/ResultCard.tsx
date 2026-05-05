@@ -24,12 +24,18 @@ export interface ResultCardProps {
   index:  number;
   /** Live "is this pinned right now?" — flips the icon between 📍 and 📌. */
   isPinned?: boolean;
-  onPin?:    (id64: number) => void;
-  onWatch?:  (id64: number) => void;
+  /** Live "is this in the compare set right now?" — highlights the ⚖️ button. */
+  isCompared?: boolean;
+  onPin?:     (id64: number) => void;
+  onCompare?: (id64: number) => void;
+  onWatch?:   (id64: number) => void;
   onShowOnMap?: (id64: number) => void;
 }
 
-export function ResultCard({ system, index, isPinned = false, onPin, onWatch, onShowOnMap }: ResultCardProps) {
+export function ResultCard({
+  system, index, isPinned = false, isCompared = false,
+  onPin, onCompare, onWatch, onShowOnMap,
+}: ResultCardProps) {
   const [open, setOpen] = useState(false);
 
   const rating     = system._rating;
@@ -70,6 +76,20 @@ export function ResultCard({ system, index, isPinned = false, onPin, onWatch, on
           ].join(' ')}
         >
           {isPinned ? '📌' : '📍'}
+        </button>
+        <button
+          type="button"
+          aria-label={isCompared ? 'Remove from comparison' : 'Add to comparison'}
+          data-testid={`result-card-compare-${system.id64}`}
+          aria-pressed={isCompared}
+          onClick={(e) => { e.stopPropagation(); onCompare?.(system.id64); }}
+          className={[
+            'text-base transition-transform hover:scale-110',
+            isCompared ? 'opacity-100 drop-shadow-[0_0_6px_#ff6a00]' : 'opacity-60 hover:opacity-100',
+          ].join(' ')}
+          title={isCompared ? 'In comparison' : 'Add to comparison'}
+        >
+          ⚖️
         </button>
         <span className="font-mono text-text-dim text-[11px] min-w-[28px]">
           #{index + 1}

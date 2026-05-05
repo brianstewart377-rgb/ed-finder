@@ -16,20 +16,21 @@ the porting cost.
 ## What's in v2 today
 
 - ✅ **Finder tab** — search form with autocomplete + sliders + body-type filter pills + result cards (~280 LoC across 4 typed files; the vanilla equivalent was scattered across ~1500 lines of `index.html`).
-- ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback. Now uses the shared `<SystemTable>`.
+- ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback. Renders via the shared `<SystemTable>`.
 - ✅ **Pinned tab** — localStorage-backed shortlist (schema-compatible with the vanilla `ed_pinned` key so existing user data survives the cutover). Export-as-JSON, clear-all, cross-tab sync via the `storage` event. No backend round-trip.
+- ✅ **Compare tab** — up to 6 systems, matrix view (metrics × systems) with per-row winner highlighting, CSV export, clear-all. Snapshot-based localStorage (`ed_compare_v2`) so the comparison survives reload-into-different-search.
 - ✅ **Map tab** — pure-React 2-D galactic canvas (drag-pan, scroll-zoom, click-to-select, auto-fit). Plots whatever the Finder tab last returned.
-- ✅ **Hash routing** — `#finder` / `#watchlist` / `#pinned` / `#map`. Deep-links work.
-- ✅ **Shared `<SystemTable>`** — common rendering layer for every "list of systems" feature (Watchlist + Pinned today; Compare + Cluster anchors tomorrow). Finite column set keeps the visual identity consistent.
-- ⏳ Optimizer / FC Planner / Compare / Colony Tracker / Admin: still vanilla.
+- ✅ **Hash routing** — `#finder` / `#watchlist` / `#pinned` / `#compare` / `#map`. Deep-links work.
+- ✅ **Shared `<SystemTable>`** — common rendering layer for every "list of systems" feature (Watchlist + Pinned today; future Cluster Anchors, Route Stops, etc.). Finite column set keeps the visual identity consistent.
+- ⏳ Optimizer / FC Planner / Colony Tracker / Admin / System Detail Modal: still vanilla.
 
 ```
 src/
   App.tsx                           composition root + finder layout
   main.tsx                          bootstrap
   components/
-    NavBar.tsx                      top tabs + watchlist / pinned badges
-    ResultCard.tsx                  search result row (live isPinned state)
+    NavBar.tsx                      top tabs + watchlist / pinned / compare badges
+    ResultCard.tsx                  search result row (live isPinned + isCompared)
     SystemTable.tsx                 shared table used by every list feature
   features/
     search/                         finder
@@ -42,12 +43,15 @@ src/
     pinned/                         pinned (client-only, localStorage)
       PinnedTab.tsx
       usePinned.ts                  localStorage + storage-event sync
+    compare/                        compare (client-only, localStorage)
+      CompareTab.tsx                metric matrix with winner highlighting
+      useCompare.ts                 snapshot-based + CSV export
     map/                            galactic map
       GalacticMap.tsx               pure-React canvas (~250 LoC)
       MapTab.tsx                    map + selection panel
   hooks/
     useDebounced.ts
-    useHashRoute.ts                 30 LoC, no react-router
+    useHashRoute.ts                 ~30 LoC, no react-router
   lib/
     api.ts                          typed fetch wrapper
     format.ts                       pure formatters
@@ -144,12 +148,12 @@ it's not worth the complexity.
 
 1. ✅ Scaffold + result-card POC.
 2. ✅ Search form + filters (left rail).
-3. ✅ Top tab bar + routing (`#finder`, `#watchlist`, `#pinned`, `#map`).
-4. 🟡 Watchlist / Pinned / Compare — **Watchlist + Pinned done, Compare remaining** (will reuse `<SystemTable>`).
-5. ✅ Map (canvas wrapped in one component).
+3. ✅ Top tab bar + routing (`#finder`, `#watchlist`, `#pinned`, `#compare`, `#map`).
+4. ✅ Watchlist / Pinned / Compare — all three now share `<SystemTable>` (Compare uses its own matrix layout but shares `lib/format`).
+5. ✅ Map.
 6. Once parity hit: nginx flips root → v2; v1 lives at `/v1/` for one week
    as rollback insurance; then deleted.
 
-Estimated effort remaining: 2–4 weeks part-time. Hardest surfaces left:
+Estimated effort remaining: 2–3 weeks part-time. Hardest surfaces left:
 Optimizer (numeric controls + rerank API), FC Planner (jump-range solver),
-and the system detail modal (deep-linkable from every list).
+the system detail modal (deep-linkable from every list), and Colony Tracker.

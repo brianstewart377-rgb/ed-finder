@@ -8,8 +8,8 @@ import { useEffect, useState } from 'react';
  * For 4 tabs this is all we need; if v2 ever grows path params or nested
  * routes we'll switch to `react-router`. Premature DI = needless deps.
  */
-export type Route = 'finder' | 'watchlist' | 'pinned' | 'map';
-const VALID: Route[] = ['finder', 'watchlist', 'pinned', 'map'];
+export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map';
+const VALID: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map'];
 
 function parseHash(): Route {
   const raw = window.location.hash.replace(/^#\/?/, '').toLowerCase();

@@ -8,6 +8,8 @@ import { useWatchlist } from '@/features/watchlist/useWatchlist';
 import { WatchlistTab } from '@/features/watchlist/WatchlistTab';
 import { usePinned } from '@/features/pinned/usePinned';
 import { PinnedTab, toPinnedEntry } from '@/features/pinned/PinnedTab';
+import { useCompare } from '@/features/compare/useCompare';
+import { CompareTab } from '@/features/compare/CompareTab';
 import { MapTab } from '@/features/map/MapTab';
 import { useHashRoute } from '@/hooks/useHashRoute';
 import './index.css';
@@ -22,6 +24,7 @@ export default function App() {
   const search    = useSearch();
   const watchlist = useWatchlist();
   const pinned    = usePinned();
+  const compare   = useCompare();
   const [health, setHealth] = useState<string>('checking…');
 
   // First-paint: health + default search.
@@ -40,6 +43,7 @@ export default function App() {
         onNavigate={navigate}
         watchlistCount={watchlist.entries.length}
         pinnedCount={pinned.entries.length}
+        compareCount={compare.entries.length}
         health={health}
       />
 
@@ -48,6 +52,7 @@ export default function App() {
           search={search}
           watchlist={watchlist}
           pinned={pinned}
+          compare={compare}
           onShowOnMap={() => navigate('map')}
         />
       )}
@@ -68,6 +73,10 @@ export default function App() {
           pinned={pinned}
           onShowOnMap={() => navigate('map')}
         />
+      )}
+
+      {route === 'compare' && (
+        <CompareTab compare={compare} />
       )}
 
       {route === 'map' && (
@@ -93,11 +102,12 @@ export default function App() {
 // ─────────────────────────────────────────────────────────────────────────
 
 function FinderView({
-  search, watchlist, pinned, onShowOnMap,
+  search, watchlist, pinned, compare, onShowOnMap,
 }: {
   search:    ReturnType<typeof useSearch>;
   watchlist: ReturnType<typeof useWatchlist>;
   pinned:    ReturnType<typeof usePinned>;
+  compare:   ReturnType<typeof useCompare>;
   onShowOnMap: () => void;
 }) {
   const { filters, setFilters, reset, run, state, results } = search;
@@ -157,6 +167,7 @@ function FinderView({
                       system={sys}
                       index={i}
                       isPinned={pinned.has(sys.id64)}
+                      isCompared={compare.has(sys.id64)}
                       onWatch={(id) => void watchlist.add(id, {
                         name:       sys.name,
                         x:          sys.coords?.x ?? 0,
@@ -168,6 +179,7 @@ function FinderView({
                       })}
                       onShowOnMap={onShowOnMap}
                       onPin={() => pinned.toggle(toPinnedEntry(sys))}
+                      onCompare={() => compare.toggle(sys)}
                     />
                   </li>
                 ))}
