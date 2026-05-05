@@ -13,22 +13,40 @@ seed of a future replacement. We are **not** committing to a full migration;
 this is a vertical-slice POC to evaluate whether the dev experience justifies
 the porting cost.
 
-## What's in the POC
+## What's in v2 today
+
+- ✅ **Finder tab** — search form with autocomplete + sliders + body-type filter pills + result cards (~280 LoC across 4 typed files; the vanilla equivalent was scattered across ~1500 lines of `index.html`).
+- ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback.
+- ✅ **Map tab** — pure-React 2-D galactic canvas (drag-pan, scroll-zoom, click-to-select, auto-fit). Plots whatever the Finder tab last returned.
+- ✅ **Hash routing** — `#finder` / `#watchlist` / `#map`. Deep-links work.
+- ⏳ Optimizer / FC Planner / Compare / Pinned / Colony Tracker / Admin: still vanilla.
 
 ```
 src/
-  main.tsx                     bootstrap
-  App.tsx                      demo page (Sol+50LY, populated only)
+  App.tsx                           composition root + finder layout
+  main.tsx                          bootstrap
   components/
-    ResultCard.tsx             the ported component (≈220 LoC, 1 file,
-                               typed end-to-end vs ~120 LoC of HTML strings
-                               sprinkled across 3 functions in vanilla)
+    NavBar.tsx                      top tabs + watchlist badge
+    ResultCard.tsx                  search result row
+  features/
+    search/                         finder
+      SearchForm.tsx
+      useSearch.ts                  filters→request→results state machine
+      useAutocomplete.ts            debounced /api/local/autocomplete
+    watchlist/                      watchlist
+      WatchlistTab.tsx
+      useWatchlist.ts               optimistic add/remove
+    map/                            galactic map
+      GalacticMap.tsx               pure-React canvas (~250 LoC)
+      MapTab.tsx                    map + selection panel
+  hooks/
+    useDebounced.ts
+    useHashRoute.ts                 30 LoC, no react-router
   lib/
-    api.ts                     typed fetch wrapper, no axios, no react-query
-    format.ts                  pure helpers (rating tier, population etc.)
+    api.ts                          typed fetch wrapper
+    format.ts                       pure formatters
   types/
-    api.ts                     hand-maintained API types
-  vite-env.d.ts                ImportMeta.env types
+    api.ts                          hand-maintained API types
 ```
 
 ## Local dev

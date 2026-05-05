@@ -1,111 +1,73 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { ResultCard } from '@/components/ResultCard';
+import { NavBar } from '@/components/NavBar';
 import { SearchForm } from '@/features/search/SearchForm';
 import { useSearch } from '@/features/search/useSearch';
+import { useWatchlist } from '@/features/watchlist/useWatchlist';
+import { WatchlistTab } from '@/features/watchlist/WatchlistTab';
+import { MapTab } from '@/features/map/MapTab';
+import { useHashRoute } from '@/hooks/useHashRoute';
 import './index.css';
 
 /**
- * v2 root view — sidebar form + results panel.
- *
- * Auto-runs the default search on first paint so first-time visitors don't
- * see an empty screen, then the form drives every subsequent search.
+ * v2 root: NavBar + tab content. State (search filters, watchlist) lives at
+ * this level so tabs can share data — switching from Finder → Map should NOT
+ * lose the current results.
  */
 export default function App() {
-  const { filters, setFilters, reset, run, state, results } = useSearch();
+  const [route, navigate] = useHashRoute();
+  const search    = useSearch();
+  const watchlist = useWatchlist();
   const [health, setHealth] = useState<string>('checking…');
 
-  // First-paint: kick a health probe + the default Sol-radius search.
+  // First-paint: health + default search.
   useEffect(() => {
     api.health()
-      .then((h) => setHealth(`${h.status} · ${h.database} · v${h.version}`))
+      .then((h) => setHealth(`${h.status} · v${h.version}`))
       .catch((e: Error) => setHealth(`unreachable: ${e.message}`));
-    void run();
+    void search.run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <main className="min-h-screen px-4 py-6 sm:px-8 sm:py-10 max-w-7xl mx-auto">
-      <header className="mb-8 space-y-2">
-        <h1 className="font-mono text-3xl sm:text-4xl text-orange tracking-wider">
-          ED:FINDER <span className="text-text-dim text-base">v2</span>
-        </h1>
-        <p className="text-text-dim text-sm leading-relaxed max-w-2xl">
-          Vite + React + TypeScript. Vanilla v1 lives at{' '}
-          <a href="/" className="text-cyan underline">/</a> and is unchanged.
-        </p>
-        <p className="font-mono text-[11px] text-text-dim">
-          API: <span className="text-green">{health}</span>
-        </p>
-      </header>
+      <NavBar
+        current={route}
+        onNavigate={navigate}
+        watchlistCount={watchlist.entries.length}
+        health={health}
+      />
 
-      <div className="grid lg:grid-cols-[320px_1fr] gap-6">
-        {/* ── Left rail: search form ─────────────────────────────────── */}
-        <aside className="lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-auto">
-          <SearchForm
-            filters={filters}
-            onChange={setFilters}
-            onSubmit={() => void run()}
-            onReset={reset}
-            loading={state.kind === 'loading'}
-          />
-        </aside>
+      {route === 'finder' && (
+        <FinderView
+          search={search}
+          watchlist={watchlist}
+          onShowOnMap={() => navigate('map')}
+        />
+      )}
 
-        {/* ── Right rail: results ────────────────────────────────────── */}
-        <section data-testid="results-panel">
-          {state.kind === 'idle' && (
-            <EmptyState
-              icon="🔭"
-              title="Ready to search"
-              hint="Adjust the filters on the left and hit SEARCH."
-            />
-          )}
+      {route === 'watchlist' && (
+        <WatchlistTab
+          entries={watchlist.entries}
+          loading={watchlist.loading}
+          error={watchlist.error}
+          onRefresh={watchlist.refresh}
+          onRemove={watchlist.remove}
+          onShowOnMap={() => navigate('map')}
+        />
+      )}
 
-          {state.kind === 'loading' && (
-            <div className="text-text-dim font-mono text-sm py-12 text-center">
-              Scanning systems…
-            </div>
-          )}
-
-          {state.kind === 'err' && (
-            <div className="rounded border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
-              <div className="font-bold mb-1">Search failed</div>
-              <div className="text-xs">{state.message}</div>
-            </div>
-          )}
-
-          {state.kind === 'ok' && (
-            <>
-              <SummaryBar
-                count={state.data.count}
-                total={state.data.total}
-                queriedAt={state.queriedAt}
-              />
-              {results.length === 0 ? (
-                <EmptyState
-                  icon="🔍"
-                  title="No systems found"
-                  hint="Try expanding the radius or relaxing filters."
-                />
-              ) : (
-                <ul className="space-y-2">
-                  {results.map((sys, i) => (
-                    <li key={sys.id64}>
-                      <ResultCard
-                        system={sys}
-                        index={i}
-                        onPin={(id) => console.log('pin', id)}
-                        onWatch={(id) => console.log('watch', id)}
-                        onShowOnMap={(id) => console.log('map', id)}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-        </section>
-      </div>
+      {route === 'map' && (
+        <MapTab
+          systems={search.results}
+          reference={{
+            name: search.filters.refName,
+            x:    search.filters.refCoords.x,
+            z:    search.filters.refCoords.z,
+          }}
+        />
+      )}
 
       <footer className="mt-16 text-center text-[11px] font-mono text-text-dim">
         Vite {import.meta.env.MODE} build · proof of concept · not yet production
@@ -115,8 +77,94 @@ export default function App() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Local subcomponents
+// Finder tab — left rail form + right rail results
 // ─────────────────────────────────────────────────────────────────────────
+
+function FinderView({
+  search, watchlist, onShowOnMap,
+}: {
+  search:    ReturnType<typeof useSearch>;
+  watchlist: ReturnType<typeof useWatchlist>;
+  onShowOnMap: () => void;
+}) {
+  const { filters, setFilters, reset, run, state, results } = search;
+
+  return (
+    <div className="grid lg:grid-cols-[320px_1fr] gap-6">
+      <aside className="lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-auto">
+        <SearchForm
+          filters={filters}
+          onChange={setFilters}
+          onSubmit={() => void run()}
+          onReset={reset}
+          loading={state.kind === 'loading'}
+        />
+      </aside>
+
+      <section data-testid="results-panel">
+        {state.kind === 'idle' && (
+          <EmptyState
+            icon="🔭"
+            title="Ready to search"
+            hint="Adjust the filters on the left and hit SEARCH."
+          />
+        )}
+
+        {state.kind === 'loading' && (
+          <div className="text-text-dim font-mono text-sm py-12 text-center">
+            Scanning systems…
+          </div>
+        )}
+
+        {state.kind === 'err' && (
+          <div className="rounded border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
+            <div className="font-bold mb-1">Search failed</div>
+            <div className="text-xs">{state.message}</div>
+          </div>
+        )}
+
+        {state.kind === 'ok' && (
+          <>
+            <SummaryBar
+              count={state.data.count}
+              total={state.data.total}
+              queriedAt={state.queriedAt}
+            />
+            {results.length === 0 ? (
+              <EmptyState
+                icon="🔍"
+                title="No systems found"
+                hint="Try expanding the radius or relaxing filters."
+              />
+            ) : (
+              <ul className="space-y-2">
+                {results.map((sys, i) => (
+                  <li key={sys.id64}>
+                    <ResultCard
+                      system={sys}
+                      index={i}
+                      onWatch={(id) => void watchlist.add(id, {
+                        name:       sys.name,
+                        x:          sys.coords?.x ?? 0,
+                        y:          sys.coords?.y ?? 0,
+                        z:          sys.coords?.z ?? 0,
+                        population: sys.population,
+                        is_colonised: !!sys.is_colonised,
+                        score:      sys._rating?.score ?? null,
+                      })}
+                      onShowOnMap={onShowOnMap}
+                      onPin={(id) => console.log('pin', id)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
 
 function SummaryBar({ count, total, queriedAt }: {
   count: number; total: number; queriedAt: number;

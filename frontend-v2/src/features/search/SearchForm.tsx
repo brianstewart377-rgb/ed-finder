@@ -1,5 +1,8 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react';
-import type { SearchFilters } from './useSearch';
+import {
+  BODY_FILTER_KEYS, BODY_FILTER_LABELS,
+  type FilterTri, type SearchFilters,
+} from './useSearch';
 import { useAutocomplete } from './useAutocomplete';
 import type { AutocompleteHit } from '@/types/api';
 
@@ -92,6 +95,25 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           value={filters.minRating}
           onChange={(v) => onChange({ minRating: v })}
         />
+      </Section>
+
+      <Section title="Body types">
+        <p className="font-mono text-[10px] text-text-dim leading-relaxed">
+          Click once to require, twice to exclude, again to clear.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {BODY_FILTER_KEYS.map((k) => (
+            <BodyFilterPill
+              key={k}
+              label={BODY_FILTER_LABELS[k]}
+              state={filters.bodyFilters[k]}
+              onCycle={() => onChange({
+                bodyFilters: { ...filters.bodyFilters, [k]: cycleTri(filters.bodyFilters[k]) },
+              })}
+              testid={`body-filter-${k}`}
+            />
+          ))}
+        </div>
       </Section>
 
       <Section title="Sort">
@@ -306,3 +328,49 @@ const ECONOMY_OPTIONS: { value: string; label: string }[] = [
   { value: 'Tourism',     label: 'Tourism' },
   { value: 'Extraction',  label: 'Extraction' },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────
+// Body-type filter pill — tri-state button.
+// ─────────────────────────────────────────────────────────────────────────
+
+function cycleTri(s: FilterTri): FilterTri {
+  if (s === 'off')      return 'required';
+  if (s === 'required') return 'excluded';
+  return 'off';
+}
+
+function BodyFilterPill({
+  label, state, onCycle, testid,
+}: {
+  label:   string;
+  state:   FilterTri;
+  onCycle: () => void;
+  testid:  string;
+}) {
+  const cls =
+    state === 'required'
+      ? 'bg-green/20 text-green border-green/50'
+      : state === 'excluded'
+      ? 'bg-red/20 text-red border-red/50 line-through'
+      : 'bg-bg4 text-text-dim border-border hover:text-text';
+
+  const symbol =
+    state === 'required' ? '✓ ' :
+    state === 'excluded' ? '✕ ' : '';
+
+  return (
+    <button
+      type="button"
+      onClick={onCycle}
+      data-testid={testid}
+      data-state={state}
+      title={`${label}: ${state}`}
+      className={[
+        'px-2 py-1 rounded-full border font-mono text-[11px] transition-colors',
+        cls,
+      ].join(' ')}
+    >
+      {symbol}{label}
+    </button>
+  );
+}
