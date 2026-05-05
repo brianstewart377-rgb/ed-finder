@@ -1,0 +1,308 @@
+import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react';
+import type { SearchFilters } from './useSearch';
+import { useAutocomplete } from './useAutocomplete';
+import type { AutocompleteHit } from '@/types/api';
+
+/**
+ * Search form. Stateless w.r.t. results — emits filter changes through
+ * `onChange` and triggers searches via `onSubmit` / `onReset`. The parent
+ * owns the results list (see useSearch hook).
+ *
+ * UX choices vs the vanilla app:
+ *   • Sliders + numeric input side-by-side so power users can type a value.
+ *   • Reference system picker lives at the top — that's what users adjust
+ *     most often.
+ *   • Single inline form rather than the vanilla's collapsible panels —
+ *     for the POC we prioritise discoverability over screen real-estate.
+ */
+export interface SearchFormProps {
+  filters:   SearchFilters;
+  onChange:  (patch: Partial<SearchFilters>) => void;
+  onSubmit:  () => void;
+  onReset:   () => void;
+  loading?:  boolean;
+}
+
+export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: SearchFormProps) {
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
+      className="space-y-5 p-4 rounded-lg border border-border bg-bg2/60"
+      data-testid="search-form"
+    >
+      <Section title="Reference System">
+        <RefSystemPicker
+          value={filters.refName}
+          onPick={(hit) => onChange({
+            refName:   hit.name,
+            refCoords: { x: hit.x, y: hit.y, z: hit.z },
+          })}
+        />
+        <p className="font-mono text-[10px] text-text-dim">
+          {filters.refCoords.x.toFixed(2)}, {filters.refCoords.y.toFixed(2)}, {filters.refCoords.z.toFixed(2)}
+        </p>
+      </Section>
+
+      <Section title="Search Radius">
+        <RangeRow
+          label="Min distance (LY)"
+          min={0} max={500}
+          value={filters.minDistance}
+          onChange={(v) => onChange({ minDistance: Math.min(v, filters.maxDistance) })}
+        />
+        <RangeRow
+          label="Max distance (LY)"
+          min={0} max={500}
+          value={filters.maxDistance}
+          onChange={(v) => onChange({ maxDistance: Math.max(v, filters.minDistance) })}
+        />
+        <RangeRow
+          label="Results per page"
+          min={5} max={500} step={5}
+          value={filters.size}
+          onChange={(v) => onChange({ size: v })}
+        />
+        <CheckboxRow
+          label="Galaxy-wide (ignore distance)"
+          checked={filters.galaxyWide}
+          onChange={(c) => onChange({ galaxyWide: c })}
+        />
+      </Section>
+
+      <Section title="Filters">
+        <SelectRow
+          label="Population"
+          value={filters.populated}
+          onChange={(v) => onChange({ populated: v as SearchFilters['populated'] })}
+          options={[
+            { value: 'any',         label: 'Any' },
+            { value: 'populated',   label: 'Populated only' },
+            { value: 'uninhabited', label: 'Uninhabited only' },
+          ]}
+        />
+        <SelectRow
+          label="Primary economy"
+          value={filters.economy}
+          onChange={(v) => onChange({ economy: v })}
+          options={ECONOMY_OPTIONS}
+        />
+        <RangeRow
+          label="Min rating"
+          min={0} max={100}
+          value={filters.minRating}
+          onChange={(v) => onChange({ minRating: v })}
+        />
+      </Section>
+
+      <Section title="Sort">
+        <SelectRow
+          label="Order by"
+          value={filters.sortBy}
+          onChange={(v) => onChange({ sortBy: v as SearchFilters['sortBy'] })}
+          options={[
+            { value: 'rating',   label: 'Rating ↓' },
+            { value: 'distance', label: 'Distance ↑' },
+          ]}
+        />
+      </Section>
+
+      <div className="flex gap-2 pt-1">
+        <button
+          type="submit"
+          disabled={loading}
+          data-testid="search-submit"
+          className="flex-1 px-4 py-2 rounded font-mono text-sm font-bold bg-orange text-bg1 hover:bg-orange-dk disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? 'SCANNING…' : '🔍 SEARCH'}
+        </button>
+        <button
+          type="button"
+          onClick={onReset}
+          data-testid="search-reset"
+          className="px-3 py-2 rounded font-mono text-xs bg-bg4 border border-border text-text-dim hover:text-orange hover:border-orange-dk transition-colors"
+        >
+          ✕ Reset
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Internal building blocks. Inline because they're trivial and only used
+// here. Promote to `components/` when a second feature reuses one.
+// ─────────────────────────────────────────────────────────────────────────
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="font-mono text-[11px] tracking-wider text-orange uppercase">
+        {title}
+      </legend>
+      <div className="space-y-2">{children}</div>
+    </fieldset>
+  );
+}
+
+function RangeRow({
+  label, min, max, step = 1, value, onChange,
+}: {
+  label: string; min: number; max: number; step?: number;
+  value: number; onChange: (v: number) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
+      <label htmlFor={id} className="font-mono text-[11px] text-text-dim col-span-2">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="range"
+        min={min} max={max} step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="accent-orange"
+      />
+      <input
+        type="number"
+        min={min} max={max} step={step}
+        value={value}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (!Number.isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
+        }}
+        className="w-16 px-2 py-0.5 rounded bg-bg4 border border-border font-mono text-xs text-orange text-right"
+      />
+    </div>
+  );
+}
+
+function SelectRow<T extends string>({
+  label, value, onChange, options,
+}: {
+  label: string; value: T; onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+}) {
+  const id = useId();
+  return (
+    <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
+      <label htmlFor={id} className="font-mono text-[11px] text-text-dim col-span-2">
+        {label}
+      </label>
+      <span />
+      <select
+        id={id}
+        value={value}
+        onChange={(e: ChangeEvent<HTMLSelectElement>) => onChange(e.target.value as T)}
+        className="w-44 px-2 py-1 rounded bg-bg4 border border-border font-mono text-xs text-text"
+      >
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function CheckboxRow({
+  label, checked, onChange,
+}: { label: string; checked: boolean; onChange: (c: boolean) => void }) {
+  const id = useId();
+  return (
+    <label htmlFor={id} className="flex items-center gap-2 font-mono text-[11px] text-text-dim cursor-pointer">
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-orange"
+      />
+      {label}
+    </label>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Reference-system picker — text input + autocomplete dropdown.
+// ─────────────────────────────────────────────────────────────────────────
+
+function RefSystemPicker({
+  value, onPick,
+}: { value: string; onPick: (hit: AutocompleteHit) => void }) {
+  const [text, setText]   = useState(value);
+  const [open, setOpen]   = useState(false);
+  const blurT              = useRef<number | null>(null);
+  const { hits, loading }  = useAutocomplete(text);
+
+  // Sync local text → parent value when parent resets/changes externally
+  // (e.g. Reset button, or a future "Show on map" deep-link landing here).
+  // Without this, the input keeps showing the user's last query after reset.
+  useEffect(() => {
+    setText(value);
+  }, [value]);
+
+  // The form's `value` (parent state) only updates when a hit is picked.
+  // Local `text` is the in-progress query. If the user wipes the input
+  // we keep showing the parent's resolved name in the placeholder.
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={text}
+        placeholder={value || 'Type a system name…'}
+        onChange={(e) => { setText(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          // Defer hiding so onClick on a list item fires first.
+          blurT.current = window.setTimeout(() => setOpen(false), 120);
+        }}
+        data-testid="ref-system-input"
+        className="w-full px-3 py-2 rounded bg-bg4 border border-border font-mono text-sm text-text placeholder:text-text-dim/50 focus:border-orange-dk focus:outline-none"
+      />
+      {open && text.trim().length >= 2 && (
+        <ul
+          role="listbox"
+          className="absolute z-10 mt-1 w-full max-h-60 overflow-auto rounded border border-border bg-bg3 shadow-lg font-mono text-xs"
+        >
+          {loading && (
+            <li className="px-3 py-2 text-text-dim italic">Searching…</li>
+          )}
+          {!loading && hits.length === 0 && (
+            <li className="px-3 py-2 text-text-dim italic">No matches</li>
+          )}
+          {hits.map((h) => (
+            <li
+              key={h.id64}
+              role="option"
+              aria-selected={false}
+              data-testid={`ref-system-option-${h.id64}`}
+              onMouseDown={(e) => e.preventDefault()}   // keep input focused
+              onClick={() => {
+                if (blurT.current) window.clearTimeout(blurT.current);
+                setText(h.name);
+                setOpen(false);
+                onPick(h);
+              }}
+              className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-bg4"
+            >
+              <span className="text-orange flex-1 truncate">{h.name}</span>
+              <span className="text-text-dim text-[10px] tabular-nums">
+                {h.x.toFixed(0)},{h.y.toFixed(0)},{h.z.toFixed(0)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const ECONOMY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'any',         label: 'Any' },
+  { value: 'Agriculture', label: 'Agriculture' },
+  { value: 'Refinery',    label: 'Refinery' },
+  { value: 'Industrial',  label: 'Industrial' },
+  { value: 'High Tech',   label: 'High Tech' },
+  { value: 'Military',    label: 'Military' },
+  { value: 'Tourism',     label: 'Tourism' },
+  { value: 'Extraction',  label: 'Extraction' },
+];

@@ -1,128 +1,150 @@
-import { useEffect, useMemo, useState } from 'react';
-import { api, type LocalSearchBody } from '@/lib/api';
-import type { SearchResponse, SystemResult } from '@/types/api';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 import { ResultCard } from '@/components/ResultCard';
+import { SearchForm } from '@/features/search/SearchForm';
+import { useSearch } from '@/features/search/useSearch';
+import './index.css';
 
-/** Demo / proof-of-concept page.
+/**
+ * v2 root view — sidebar form + results panel.
  *
- * Hard-codes a Sol-centric search so the entire vertical slice (API client →
- * types → component → render) can be validated end-to-end without any
- * filtering UI. Once the search-form is ported this page becomes the real
- * /v2/ home; until then it's the only screen.
+ * Auto-runs the default search on first paint so first-time visitors don't
+ * see an empty screen, then the form drives every subsequent search.
  */
-const DEMO_QUERY: LocalSearchBody = {
-  reference_coords: { x: 0, y: 0, z: 0 },
-  filters: {
-    distance:   { min: 0, max: 50 },
-    population: { comparison: '>', value: 0 },
-  },
-  sort_by:     'rating',
-  size:        20,
-  from:        0,
-  galaxy_wide: false,
-};
-
-type LoadState =
-  | { kind: 'idle' }
-  | { kind: 'loading' }
-  | { kind: 'ok'; data: SearchResponse }
-  | { kind: 'err'; message: string };
-
 export default function App() {
-  const [state, setState] = useState<LoadState>({ kind: 'idle' });
+  const { filters, setFilters, reset, run, state, results } = useSearch();
   const [health, setHealth] = useState<string>('checking…');
 
+  // First-paint: kick a health probe + the default Sol-radius search.
   useEffect(() => {
-    let cancelled = false;
-    setState({ kind: 'loading' });
-
-    void Promise.allSettled([
-      api.health(),
-      api.localSearch(DEMO_QUERY),
-    ]).then(([h, s]) => {
-      if (cancelled) return;
-      setHealth(
-        h.status === 'fulfilled'
-          ? `${h.value.status} · ${h.value.database} · v${h.value.version}`
-          : `unreachable: ${(h.reason as Error).message}`,
-      );
-      if (s.status === 'fulfilled') {
-        setState({ kind: 'ok', data: s.value });
-      } else {
-        setState({ kind: 'err', message: (s.reason as Error).message });
-      }
-    });
-
-    return () => { cancelled = true; };
+    api.health()
+      .then((h) => setHealth(`${h.status} · ${h.database} · v${h.version}`))
+      .catch((e: Error) => setHealth(`unreachable: ${e.message}`));
+    void run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep the result list stable across renders (avoids React key churn).
-  const results: SystemResult[] = useMemo(() => {
-    return state.kind === 'ok' ? state.data.results : [];
-  }, [state]);
-
   return (
-    <main className="min-h-screen px-4 py-6 sm:px-8 sm:py-10 max-w-5xl mx-auto">
+    <main className="min-h-screen px-4 py-6 sm:px-8 sm:py-10 max-w-7xl mx-auto">
       <header className="mb-8 space-y-2">
         <h1 className="font-mono text-3xl sm:text-4xl text-orange tracking-wider">
           ED:FINDER <span className="text-text-dim text-base">v2</span>
         </h1>
         <p className="text-text-dim text-sm leading-relaxed max-w-2xl">
-          Vite + React + TypeScript proof-of-concept. Renders the result-card
-          vertical slice using live data from <code className="font-mono text-orange">/api/local/search</code>.
-          The vanilla app at <a href="/" className="text-cyan underline">/</a> is unchanged.
+          Vite + React + TypeScript. Vanilla v1 lives at{' '}
+          <a href="/" className="text-cyan underline">/</a> and is unchanged.
         </p>
         <p className="font-mono text-[11px] text-text-dim">
           API: <span className="text-green">{health}</span>
         </p>
       </header>
 
-      {state.kind === 'loading' && (
-        <div className="text-text-dim font-mono text-sm py-12 text-center">
-          Loading systems within 50 LY of Sol…
-        </div>
-      )}
+      <div className="grid lg:grid-cols-[320px_1fr] gap-6">
+        {/* ── Left rail: search form ─────────────────────────────────── */}
+        <aside className="lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-auto">
+          <SearchForm
+            filters={filters}
+            onChange={setFilters}
+            onSubmit={() => void run()}
+            onReset={reset}
+            loading={state.kind === 'loading'}
+          />
+        </aside>
 
-      {state.kind === 'err' && (
-        <div className="rounded border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
-          <div className="font-bold mb-1">API error</div>
-          <div className="text-xs">{state.message}</div>
-          <p className="mt-3 text-text-dim text-xs leading-relaxed">
-            If you're running this locally, set <code className="text-orange">VITE_DEV_API_TARGET</code>
-            {' '}to your dev API URL, e.g. <code className="text-orange">VITE_DEV_API_TARGET=http://localhost:8000 yarn dev</code>.
-          </p>
-        </div>
-      )}
+        {/* ── Right rail: results ────────────────────────────────────── */}
+        <section data-testid="results-panel">
+          {state.kind === 'idle' && (
+            <EmptyState
+              icon="🔭"
+              title="Ready to search"
+              hint="Adjust the filters on the left and hit SEARCH."
+            />
+          )}
 
-      {state.kind === 'ok' && (
-        <>
-          <div className="mb-4 flex flex-wrap items-center gap-3 px-3 py-2 rounded border border-border bg-bg3/40 text-xs font-mono">
-            <span className="text-orange font-bold">{state.data.count}</span>
-            <span className="text-text-dim">shown</span>
-            <span className="text-text-dim">·</span>
-            <span className="text-text-dim">{state.data.total.toLocaleString()} total found</span>
-            <span className="flex-1" />
-            <span className="text-text-dim">demo: 50 LY around Sol, populated only</span>
-          </div>
-          <ul className="space-y-2">
-            {results.map((sys, i) => (
-              <li key={sys.id64}>
-                <ResultCard
-                  system={sys}
-                  index={i}
-                  onPin={(id) => console.log('pin', id)}
-                  onWatch={(id) => console.log('watch', id)}
-                  onShowOnMap={(id) => console.log('map', id)}
+          {state.kind === 'loading' && (
+            <div className="text-text-dim font-mono text-sm py-12 text-center">
+              Scanning systems…
+            </div>
+          )}
+
+          {state.kind === 'err' && (
+            <div className="rounded border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
+              <div className="font-bold mb-1">Search failed</div>
+              <div className="text-xs">{state.message}</div>
+            </div>
+          )}
+
+          {state.kind === 'ok' && (
+            <>
+              <SummaryBar
+                count={state.data.count}
+                total={state.data.total}
+                queriedAt={state.queriedAt}
+              />
+              {results.length === 0 ? (
+                <EmptyState
+                  icon="🔍"
+                  title="No systems found"
+                  hint="Try expanding the radius or relaxing filters."
                 />
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+              ) : (
+                <ul className="space-y-2">
+                  {results.map((sys, i) => (
+                    <li key={sys.id64}>
+                      <ResultCard
+                        system={sys}
+                        index={i}
+                        onPin={(id) => console.log('pin', id)}
+                        onWatch={(id) => console.log('watch', id)}
+                        onShowOnMap={(id) => console.log('map', id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </section>
+      </div>
 
       <footer className="mt-16 text-center text-[11px] font-mono text-text-dim">
         Vite {import.meta.env.MODE} build · proof of concept · not yet production
       </footer>
     </main>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Local subcomponents
+// ─────────────────────────────────────────────────────────────────────────
+
+function SummaryBar({ count, total, queriedAt }: {
+  count: number; total: number; queriedAt: number;
+}) {
+  const elapsed = ((Date.now() - queriedAt) / 1000).toFixed(1);
+  return (
+    <div
+      data-testid="search-summary"
+      className="mb-4 flex flex-wrap items-center gap-3 px-3 py-2 rounded border border-border bg-bg3/40 text-xs font-mono"
+    >
+      <span className="text-orange font-bold">{count}</span>
+      <span className="text-text-dim">shown</span>
+      <span className="text-text-dim">·</span>
+      <span className="text-text-dim">{total.toLocaleString()} total</span>
+      <span className="flex-1" />
+      <span className="text-text-dim">queried {elapsed}s ago</span>
+    </div>
+  );
+}
+
+function EmptyState({ icon, title, hint }: {
+  icon: string; title: string; hint: string;
+}) {
+  return (
+    <div className="text-center py-16 px-4 rounded border border-dashed border-border">
+      <div className="text-3xl mb-2" aria-hidden>{icon}</div>
+      <h3 className="font-mono text-orange text-sm mb-1">{title}</h3>
+      <p className="text-text-dim text-xs max-w-sm mx-auto">{hint}</p>
+    </div>
   );
 }
