@@ -11,7 +11,11 @@
  * Premature abstraction has bitten this codebase before; let's not.
  */
 import type {
+  AppStatus,
   AutocompleteResponse,
+  CacheStats,
+  RerankRequest,
+  RerankResponse,
   SearchResponse,
   SystemDetail,
   SystemDetailResponse,
@@ -84,26 +88,6 @@ export const api = {
     });
   },
 
-  /** Re-rank a list of system ids with custom dimensional weights. */
-  rerank(
-    id64s: number[],
-    weights?: Record<string, number>,
-    economy?: string,
-  ): Promise<{
-    results: Array<{
-      id64: number;
-      reranked_score: number;
-      original_score: number;
-      rationale: string;
-    }>;
-    weights_applied: Record<string, number>;
-  }> {
-    return jsonFetch('/ratings/rerank', {
-      method: 'POST',
-      body:   JSON.stringify({ id64s, weights, economy }),
-    });
-  },
-
   // ── Watchlist ─────────────────────────────────────────────────────────
   watchlist(): Promise<{ watchlist: WatchlistEntry[] }> {
     return jsonFetch('/watchlist');
@@ -122,6 +106,34 @@ export const api = {
     const res = await jsonFetch<SystemDetailResponse>(`/system/${id64}`);
     // Endpoint returns {record, system} — same data twice for legacy compat.
     return res.record ?? res.system;
+  },
+
+  // ── Optimizer / rerank ────────────────────────────────────────────────
+  rerank(body: RerankRequest): Promise<RerankResponse> {
+    return jsonFetch('/ratings/rerank', {
+      method: 'POST',
+      body:   JSON.stringify(body),
+    });
+  },
+
+  // ── Admin / ops ──────────────────────────────────────────────────────
+  status(): Promise<AppStatus> {
+    return jsonFetch('/status');
+  },
+  cacheStats(): Promise<CacheStats> {
+    return jsonFetch('/cache/stats');
+  },
+  cacheClear(token: string): Promise<{ ok: boolean; message: string }> {
+    return jsonFetch('/cache/clear', {
+      method:  'POST',
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  rebuildClusters(token: string): Promise<{ message: string; job_id: string }> {
+    return jsonFetch('/admin/rebuild-clusters', {
+      method:  'POST',
+      headers: { 'X-Admin-Token': token },
+    });
   },
 };
 

@@ -29,7 +29,9 @@ export function NavBar({ current, onNavigate, watchlistCount, pinnedCount, compa
                badge={pinnedCount} />
           <Tab active={current === 'compare'}   onClick={() => onNavigate('compare')}   label="⚖️ Compare"   testid="nav-compare"
                badge={compareCount} />
+          <Tab active={current === 'optimizer'} onClick={() => onNavigate('optimizer')} label="🎚️ Optimizer" testid="nav-optimizer" />
           <Tab active={current === 'map'}       onClick={() => onNavigate('map')}       label="🗺️ Map"       testid="nav-map" />
+          <Tab active={current === 'admin'}     onClick={() => onNavigate('admin')}     label="⚙️ Admin"      testid="nav-admin" />
         </div>
         <span className="hidden sm:inline font-mono text-[10px] text-text-dim">
           {health ?? '…'}

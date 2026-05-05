@@ -18,8 +18,8 @@ import { useEffect, useState } from 'react';
  * beats pulling in react-router. Re-evaluate that trade-off when v2 sprouts
  * its 6th sub-route.
  */
-export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map';
-const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map'];
+export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'optimizer' | 'admin';
+const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'optimizer', 'admin'];
 
 export interface ParsedHash {
   route:            Route;

@@ -181,3 +181,80 @@ export interface SystemDetailResponse {
   record: SystemDetail;
   system: SystemDetail;
 }
+
+// ─── /api/status — system meta + counts ───────────────────────────────────
+
+export interface AppStatus {
+  available:           boolean;
+  systems_count:       number;
+  body_count:          number;
+  rated_count:         number;
+  clustered_count:     number;
+  import_complete:     boolean;
+  ratings_built:       boolean;
+  grid_built:          boolean;
+  clusters_built:      boolean;
+  eddn_enabled:        boolean;
+  last_nightly_update: string;
+  schema_version:      string;
+  max_search_radius_ly: number;
+  has_body_data:       boolean;
+  version:             string;
+}
+
+// ─── /api/cache/stats ─────────────────────────────────────────────────────
+
+export interface CacheStats {
+  cache_hits:       number;
+  cache_misses:     number;
+  redis_hits?:      number;
+  redis_misses?:    number;
+  redis_memory_mb?: number;
+  db_cache_rows:    number;
+}
+
+// ─── /api/ratings/rerank ──────────────────────────────────────────────────
+
+export interface RerankWeights {
+  economy:      number;
+  slots:        number;
+  strategic:    number;
+  safety:       number;
+  terraforming: number;
+  diversity:    number;
+}
+
+export const DEFAULT_WEIGHTS: RerankWeights = {
+  economy:      0.42,
+  slots:        0.23,
+  strategic:    0.18,
+  safety:       0.10,
+  terraforming: 0.05,
+  diversity:    0.02,
+};
+
+export type Economy =
+  | 'Agriculture' | 'Refinery' | 'Industrial'
+  | 'HighTech'    | 'Military' | 'Tourism' | 'Extraction';
+
+export interface RerankRequest {
+  id64s:    number[];
+  weights?: Partial<RerankWeights>;
+  /** null/undefined = use each row's stored economy_suggestion. */
+  economy?: Economy | null;
+}
+
+export interface RerankRow {
+  id64:           number;
+  reranked_score: number;
+  original_score: number | null;
+  confidence:     number | null;
+  rationale:      string | null;
+  economy_used:   string | null;
+}
+
+export interface RerankResponse {
+  weights_applied: RerankWeights;
+  economy_used:    Economy | null;
+  results:         RerankRow[];
+}

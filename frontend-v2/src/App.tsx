@@ -10,6 +10,10 @@ import { usePinned } from '@/features/pinned/usePinned';
 import { PinnedTab, toPinnedEntry } from '@/features/pinned/PinnedTab';
 import { useCompare } from '@/features/compare/useCompare';
 import { CompareTab } from '@/features/compare/CompareTab';
+import { useOptimizer } from '@/features/optimizer/useOptimizer';
+import { OptimizerTab } from '@/features/optimizer/OptimizerTab';
+import { useAdmin } from '@/features/admin/useAdmin';
+import { AdminTab } from '@/features/admin/AdminTab';
 import { MapTab } from '@/features/map/MapTab';
 import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
 import { useHashRoute } from '@/hooks/useHashRoute';
@@ -29,6 +33,8 @@ export default function App() {
   const watchlist = useWatchlist();
   const pinned    = usePinned();
   const compare   = useCompare();
+  const optimizer = useOptimizer();
+  const admin     = useAdmin();
   const [health, setHealth] = useState<string>('checking…');
 
   // First-paint: health + default search.
@@ -87,6 +93,18 @@ export default function App() {
           compare={compare}
           onOpenDetail={openSystem}
         />
+      )}
+
+      {route === 'optimizer' && (
+        <OptimizerTab
+          optimizer={optimizer}
+          search={search}
+          onOpenDetail={openSystem}
+        />
+      )}
+
+      {route === 'admin' && (
+        <AdminTab admin={admin} />
       )}
 
       {route === 'map' && (
