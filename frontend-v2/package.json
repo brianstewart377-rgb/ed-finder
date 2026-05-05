@@ -6,7 +6,9 @@
   "description": "ED Finder v2 — Vite + React + TypeScript (proof of concept). Mounts at /v2/ alongside the existing vanilla JS app at /.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
+    "build:typecheck": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.tsx"
   },

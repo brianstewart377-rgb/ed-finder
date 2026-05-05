@@ -33,6 +33,13 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 htmlcov/
+
+# ── Carve-outs: the Python-style `lib/` ignore above unfortunately
+#    matches `frontend-v2/src/lib/{api,format}.ts` (used heavily by the
+#    React app). Without these re-includes, fresh checkouts fail to
+#    build the v2 app with "Cannot find module '@/lib/api'".
+!frontend-v2/src/lib/
+!frontend-v2/src/lib/**
 .tox/
 .coverage
 .coverage.*
