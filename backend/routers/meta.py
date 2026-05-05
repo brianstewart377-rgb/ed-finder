@@ -1,0 +1,123 @@
+"""Meta endpoints — health, status, metrics.
+
+Anything diagnostic / non-business-logic lives here. Every environment
+should be able to hit these without auth.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from typing import Optional
+
+import asyncpg
+import redis.asyncio as aioredis
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import PlainTextResponse
+
+from config import settings
+from deps   import get_pool, get_redis, cache_get, cache_set
+from models import HealthResponse
+from state  import metrics
+
+log = logging.getLogger('ed_finder')
+
+router = APIRouter(tags=['meta'])
+
+# Local_search may be unavailable in minimal deployments (CI, local dev).
+try:
+    import local_search as _ls
+    _LS_AVAILABLE = True
+except ImportError:
+    _ls = None  # type: ignore
+    _LS_AVAILABLE = False
+
+
+@router.get('/api/health', response_model=HealthResponse)
+async def health(pool: asyncpg.Pool = Depends(get_pool)):
+    try:
+        async with pool.acquire() as conn:
+            await conn.fetchval('SELECT 1')
+        return HealthResponse(
+            status='ok',
+            database='connected',
+            version=settings.app_version,
+        )
+    except Exception as e:
+        raise HTTPException(503, detail=str(e))
+
+
+@router.get('/api/status')
+async def status(
+    pool:  asyncpg.Pool              = Depends(get_pool),
+    redis: Optional[aioredis.Redis]  = Depends(get_redis),
+):
+    cache_key = 'status:main'
+    cached = await cache_get(cache_key, redis)
+    if cached:
+        return cached
+
+    async with pool.acquire() as conn:
+        sys_count  = await conn.fetchval('SELECT COUNT(*) FROM systems')
+        body_count = await conn.fetchval('SELECT COUNT(*) FROM bodies')
+        rated      = await conn.fetchval('SELECT COUNT(*) FROM ratings WHERE score IS NOT NULL')
+        clustered  = await conn.fetchval(
+            'SELECT COUNT(*) FROM cluster_summary WHERE coverage_score IS NOT NULL'
+        )
+        meta_rows  = await conn.fetch('SELECT key, value FROM app_meta')
+        meta = {r['key']: r['value'] for r in meta_rows}
+
+    result = {
+        'available':            True,
+        'systems_count':        sys_count,
+        'body_count':           body_count,
+        'rated_count':          rated,
+        'clustered_count':      clustered,
+        'import_complete':      meta.get('import_complete') == 'true',
+        'ratings_built':        meta.get('ratings_built')   == 'true',
+        'grid_built':           meta.get('grid_built')      == 'true',
+        'clusters_built':       meta.get('clusters_built')  == 'true',
+        'eddn_enabled':         meta.get('eddn_enabled')    == 'true',
+        'last_nightly_update':  meta.get('last_nightly_update', 'never'),
+        'schema_version':       meta.get('schema_version', '1.0'),
+        'max_search_radius_ly': 500,
+        'has_body_data':        body_count > 0,
+        'version':              settings.app_version,
+    }
+    await cache_set(cache_key, result, settings.ttl_status, redis)
+    return result
+
+
+@router.get('/api/local/status')
+async def local_status(pool: asyncpg.Pool = Depends(get_pool)):
+    if _LS_AVAILABLE:
+        try:
+            return await _ls.local_db_status(pool)
+        except Exception as exc:
+            log.warning('local_db_status error: %s', exc)
+    return await status(pool)
+
+
+@router.get('/api/metrics', response_class=PlainTextResponse, include_in_schema=False)
+async def metrics_endpoint():
+    uptime = time.time() - metrics['startup_time']
+    lines = [
+        '# HELP ed_finder_requests_total Total HTTP requests',
+        '# TYPE ed_finder_requests_total counter',
+        f'ed_finder_requests_total {metrics["requests_total"]}',
+        '# HELP ed_finder_cache_hits_total Redis cache hits',
+        '# TYPE ed_finder_cache_hits_total counter',
+        f'ed_finder_cache_hits_total {metrics["cache_hits"]}',
+        '# HELP ed_finder_cache_misses_total Redis cache misses',
+        '# TYPE ed_finder_cache_misses_total counter',
+        f'ed_finder_cache_misses_total {metrics["cache_misses"]}',
+        '# HELP ed_finder_errors_total Total unhandled errors',
+        '# TYPE ed_finder_errors_total counter',
+        f'ed_finder_errors_total {metrics["errors_total"]}',
+        '# HELP ed_finder_db_queries_total Total DB queries dispatched',
+        '# TYPE ed_finder_db_queries_total counter',
+        f'ed_finder_db_queries_total {metrics["db_queries"]}',
+        '# HELP ed_finder_uptime_seconds Seconds since startup',
+        '# TYPE ed_finder_uptime_seconds gauge',
+        f'ed_finder_uptime_seconds {uptime:.0f}',
+    ]
+    return '\n'.join(lines)

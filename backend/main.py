@@ -1,58 +1,29 @@
 #!/usr/bin/env python3
 """
 ED Finder — Hetzner Backend
-Version: 3.0 (PostgreSQL 16 / asyncpg)
+Version: 3.1 (PostgreSQL 16 / asyncpg)
 
-Server: Hetzner AX41-SSD — i7-8700, 128 GB RAM, 3×1 TB NVMe RAID-5
-DB:     PostgreSQL 16 via asyncpg connection pool → pgBouncer
+This file is the **composition root**. It wires config, state, middleware,
+lifespan, exception handlers, and router mounts. Business logic lives in
+routers/ and helpers/.
 
-Improvements in v3.0:
-  - Code #8:  Pydantic response models for all endpoints (auto-generates OpenAPI docs)
-  - Code #9:  Dependency injection for DB pool and Redis via FastAPI Depends()
-  - Code #10: Background tasks for analytics/metric increments (off critical path)
-  - Code #11: Redis caching for autocomplete with 24h TTL
-  - Code #12: Token-bucket rate limiting via slowapi + Redis
-  - Code #13: Global RFC 7807 Problem Details error handler
-  - Code #14: pydantic-settings for startup validation of all env vars
-  - Code #15: Strict type hints throughout
-  - Code #25: Gunicorn/Uvicorn worker support via gunicorn.conf.py
-  - Code #16: Prometheus-compatible /metrics endpoint (prometheus_fastapi_instrumentator)
+Endpoint surface (see individual router docstrings for detail):
 
-Endpoints:
-  GET  /api/local/search           — distance search
-  GET  /api/local/status           — DB health + stats
-  GET  /api/local/autocomplete     — system name autocomplete
-  POST /api/search/galaxy          — galaxy-wide economy search
-  POST /api/search/cluster         — multi-economy cluster search
-  GET  /api/system/{id64}          — full system detail
-  GET  /api/body/{body_id}         — body detail
-  POST /api/systems/batch          — batch system lookup
-  GET  /api/watchlist              — watchlist CRUD
-  POST /api/watchlist/{id64}
-  DELETE /api/watchlist/{id64}
-  PATCH /api/watchlist/{id64}/alert
-  GET  /api/systems/{id64}/note    — notes CRUD
-  POST /api/systems/{id64}/note
-  DELETE /api/systems/{id64}/note
-  GET  /api/systems/notes
-  GET  /api/cache/stats
-  POST /api/cache/clear
-  GET  /api/health
-  GET  /api/status
-  GET  /api/metrics                — Prometheus-style metrics
-  GET  /api/events/live            — SSE live EDDN feed
-  GET  /api/events/recent          — recent EDDN events
-  POST /api/admin/rebuild-clusters — trigger cluster rebuild
-  GET  /docs                       — Swagger UI (auto-generated from response models)
+  routers/meta.py       health, status, local/status, metrics
+  routers/watchlist.py  watchlist CRUD + changelog
+  routers/notes.py      per-system user notes
+  routers/events.py     EDDN SSE live feed + recent
+  routers/admin.py      cache stats/clear + cluster-rebuild trigger
+  (remaining in this file) autocomplete, local/search, galaxy, cluster,
+                            system/body/batch detail, map/*, ratings/rerank
 """
-
 import os
 import sys
 import time
 import json
 import logging
 import asyncio
-import subprocess
+import pathlib as _pl
 from datetime import datetime, timezone
 from typing import Optional, Any, AsyncGenerator, List
 from contextlib import asynccontextmanager
@@ -62,19 +33,38 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse, FileResponse as _FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from starlette.status import HTTP_429_TOO_MANY_REQUESTS
 
-# ---------------------------------------------------------------------------
-# Local search module
-# ---------------------------------------------------------------------------
+# Shared config, state, deps, models, helpers
+from config   import settings, log, limiter
+from state    import (
+    set_pool, set_redis, get_pool_singleton, get_redis_singleton,
+    metrics as _metrics,
+)
+from deps     import get_pool, get_redis, require_admin, cache_get, cache_set
+# Compatibility aliases — the routes still inlined below (search / systems /
+# map / ratings) use the older `_inc_metric` / `_log_query` names.
+from deps     import inc_metric as _inc_metric, log_slow as _log_query  # noqa: F401
+from models   import (
+    CoordsModel, RatingModel, BodyModel, StationModel, SystemModel,
+    SearchResponse, SystemDetailResponse, HealthResponse, WatchlistAlert,
+    NoteBody, SearchFilters, LocalSearchRequest, GalaxySearchRequest,
+    ClusterRequirement, ClusterSearchRequest,
+)
+from helpers  import sys_row_to_dict
+
+# Routers
+from routers.meta      import router as meta_router
+from routers.watchlist import router as watchlist_router
+from routers.notes     import router as notes_router
+from routers.admin     import router as admin_router
+from routers.events    import router as events_router, eddn_pubsub_bridge
+
+# Local search module (optional — absent in minimal deployments).
 try:
     import local_search as _ls
     _LS_AVAILABLE = True
@@ -83,166 +73,28 @@ except ImportError:
     _LS_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
-# Code #14: pydantic-settings — validates all env vars at startup
-# ---------------------------------------------------------------------------
-class Settings(BaseSettings):
-    database_url: str = 'postgresql://postgres:password@localhost:5432/postgres'
-    redis_url: str = 'redis://redis:6379/0'
-    log_level: str = 'INFO'
-    redis_max_connections: int = 20
-    ttl_search: int = 3600
-    ttl_system: int = 86400
-    ttl_status: int = 60
-    ttl_autocomplete: int = 86400   # 24h for autocomplete (Code #11)
-    ttl_cluster: int = 86400        # cluster data only refreshes on Sunday rebuild
-    rate_limit_search: str = '30/minute'
-    rate_limit_default: str = '120/minute'
-    app_version: str = '3.0.1-hetzner'
-    # Admin token required for /api/admin/* and /api/cache/clear.
-    # Leave empty to block those endpoints entirely (default for safety).
-    admin_token: str = ''
-    # Comma-separated list of allowed CORS origins. '*' still works but is
-    # discouraged — see README security notes.
-    cors_origins: str = 'https://ed-finder.app,https://www.ed-finder.app'
-    # Expose internal error detail in the HTTP response body. Should be False
-    # in production; flip to True for local debugging only.
-    expose_error_detail: bool = False
-
-    model_config = SettingsConfigDict(env_file='.env', extra='ignore')
-
-settings = Settings()
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
-log = logging.getLogger('ed_finder')
-
-# ---------------------------------------------------------------------------
-# Code #12: Rate limiter (token bucket via slowapi + Redis)
-# Backed by Redis so limits are shared across workers / containers.
-# ---------------------------------------------------------------------------
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[settings.rate_limit_default],
-    storage_uri=settings.redis_url,
-    strategy='moving-window',
-)
-
-
-# ---------------------------------------------------------------------------
-# Admin auth — header-based bearer token. Admin endpoints are disabled
-# unless ADMIN_TOKEN env var is set to a non-empty value.
-# ---------------------------------------------------------------------------
-async def require_admin(request: Request) -> None:
-    token = settings.admin_token
-    if not token:
-        # Endpoint explicitly disabled when no token configured.
-        raise HTTPException(403, 'Admin endpoints disabled (ADMIN_TOKEN not set)')
-    supplied = request.headers.get('X-Admin-Token') or ''
-    # Strip 'Bearer ' prefix if present.
-    auth = request.headers.get('Authorization', '')
-    if auth.lower().startswith('bearer '):
-        supplied = supplied or auth[7:].strip()
-    # Constant-time comparison
-    import hmac
-    if not hmac.compare_digest(supplied, token):
-        raise HTTPException(401, 'Invalid admin token')
-
-# ---------------------------------------------------------------------------
-# App state
-# ---------------------------------------------------------------------------
-_pool:  Optional[asyncpg.Pool] = None
-_redis: Optional[aioredis.Redis] = None
-_sse_pubsub_task: Optional[asyncio.Task] = None
-_metrics: dict[str, Any] = {
-    'requests_total':  0,
-    'cache_hits':      0,
-    'cache_misses':    0,
-    'db_queries':      0,
-    'errors_total':    0,
-    'startup_time':    time.time(),
-}
-
-# ---------------------------------------------------------------------------
-# Background workers for long-running tasks
-# ---------------------------------------------------------------------------
-_active_jobs: dict[str, Any] = {}
-_active_jobs_lock = asyncio.Lock()
-
-def run_cluster_rebuild():
-    """Run build_clusters.py as a subprocess and track status.
-
-    NOTE: The 'running' slot must already be claimed by the caller inside
-    _active_jobs_lock; this function only updates the terminal state.
-    """
-    job_id = "cluster_rebuild"
-
-    try:
-        # Resolve the compose project directory from env var (set in docker-compose.yml
-        # via COMPOSE_PROJECT_DIR) or fall back to the standard install path.
-        compose_dir = os.environ.get("COMPOSE_PROJECT_DIR", "/opt/ed-finder")
-        cmd = [
-            "docker", "compose",
-            "--project-directory", compose_dir,
-            "--profile", "import",
-            "run", "--rm", "importer",
-            "python3", "build_clusters.py", "--dirty-only", "--workers", "6"
-        ]
-        log.info("Triggering background cluster rebuild: %s", " ".join(cmd))
-
-        # check=True raises CalledProcessError on non-zero exit; we don't
-        # currently inspect stdout/stderr so the return value is discarded.
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-        _active_jobs[job_id].update({
-            "status": "completed",
-            "end_time": datetime.now(timezone.utc).isoformat(),
-            "exit_code": 0
-        })
-        log.info("Background cluster rebuild completed successfully.")
-
-    except subprocess.CalledProcessError as e:
-        _active_jobs[job_id].update({
-            "status": "failed",
-            "end_time": datetime.now(timezone.utc).isoformat(),
-            "exit_code": e.returncode,
-            "error": e.stderr or str(e)
-        })
-        log.error("Background cluster rebuild failed (exit %d): %s", e.returncode, e.stderr)
-    except Exception as e:
-        _active_jobs[job_id].update({
-            "status": "failed",
-            "end_time": datetime.now(timezone.utc).isoformat(),
-            "error": str(e)
-        })
-        log.exception("Unexpected error during background cluster rebuild")
-
-# ---------------------------------------------------------------------------
 # Startup / shutdown
 # ---------------------------------------------------------------------------
+_sse_pubsub_task: Optional[asyncio.Task] = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _pool, _redis, _sse_pubsub_task
+    global _sse_pubsub_task
     log.info(f"ED Finder Hetzner backend v{settings.app_version} starting ...")
-    _pool = await asyncpg.create_pool(
+    pool = await asyncpg.create_pool(
         dsn=settings.database_url,
-        min_size=5,
-        max_size=20,
+        min_size=5, max_size=20,
         command_timeout=300,
-        # Required for pgBouncer transaction-pool mode: asyncpg caches
-        # server-side prepared statements per-connection by default, which
-        # fails intermittently when pgBouncer rotates backend connections
-        # between transactions. Disabling the cache is the canonical fix.
+        # pgBouncer transaction-pool mode requires prepared-statement cache off.
         statement_cache_size=0,
         server_settings={'application_name': 'ed_finder_api'},
     )
+    set_pool(pool)
+
+    redis = None
     try:
-        _redis = aioredis.from_url(
+        redis = aioredis.from_url(
             settings.redis_url,
             decode_responses=True,
             max_connections=settings.redis_max_connections,
@@ -250,24 +102,21 @@ async def lifespan(app: FastAPI):
             socket_timeout=3,
             retry_on_timeout=True,
         )
-        await _redis.ping()
+        await redis.ping()
+        set_redis(redis)
         log.info("Redis connected ✓ (pool max=%d)", settings.redis_max_connections)
     except Exception as e:
         log.warning(f"Redis unavailable ({e}) — running without cache")
-        _redis = None
+        set_redis(None)
+        redis = None
 
-    # Bridge EDDN events from Redis pub/sub → local SSE clients.
-    # The EDDN container publishes events on the 'eddn_events' channel;
-    # each API container subscribes and fans out to its own SSE clients.
-    if _redis is not None:
-        _sse_pubsub_task = asyncio.create_task(_eddn_pubsub_bridge())
+    if redis is not None:
+        _sse_pubsub_task = asyncio.create_task(eddn_pubsub_bridge())
         log.info("EDDN→SSE pub/sub bridge started ✓")
 
     log.info("PostgreSQL pool ready ✓")
-    # Expose pool + redis on app.state so routers (e.g. share_router) can
-    # reach them via request.app.state without importing module-level globals.
-    app.state.pool  = _pool
-    app.state.redis = _redis
+    app.state.pool  = pool
+    app.state.redis = redis
     yield
 
     if _sse_pubsub_task:
@@ -276,9 +125,10 @@ async def lifespan(app: FastAPI):
             await _sse_pubsub_task
         except (asyncio.CancelledError, Exception):
             pass
-    if _pool:   await _pool.close()
-    if _redis:  await _redis.aclose()
+    if pool:   await pool.close()
+    if redis:  await redis.aclose()
     log.info("Shutdown complete")
+
 
 # ---------------------------------------------------------------------------
 # App
@@ -292,7 +142,7 @@ app = FastAPI(
     redoc_url='/redoc',
 )
 
-# Code #12: attach rate limiter
+# Rate limiter — attach to app state (slowapi middleware auto-discovers it).
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -302,28 +152,22 @@ app.add_middleware(
     allow_methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allow_headers=['Content-Type', 'X-Admin-Token', 'Authorization'],
 )
-# Code #3: GZip compress all responses >= 1 KB
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-# ---------------------------------------------------------------------------
-# v3.1: Share / OpenGraph router.
-#   GET /s/{id64}            — bot-friendly HTML stop-page with OG tags.
-#   GET /api/share/og/{id64} — 1200×630 PNG preview card (Pillow, redis-cached).
-# Mounted before the static-file SPA mount so /s/* doesn't get swallowed.
-# ---------------------------------------------------------------------------
-from share_router import router as share_router  # noqa: E402
-app.include_router(share_router)
+
+@app.middleware('http')
+async def metrics_middleware(request: Request, call_next: Any) -> Response:
+    _metrics['requests_total'] += 1
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start) * 1000
+    if duration_ms > 2000:
+        log.warning('Slow request %s %s: %.0fms', request.method, request.url.path, duration_ms)
+    return response
+
 
 # ---------------------------------------------------------------------------
-# Static file serving — frontend (must be mounted AFTER all API routes)
-# We defer mount to a startup event so the path resolves correctly.
-# ---------------------------------------------------------------------------
-import pathlib as _pl
-
-_FRONTEND_DIR = _pl.Path(__file__).parent.parent / 'frontend'
-
-# ---------------------------------------------------------------------------
-# Code #13: Global RFC 7807 Problem Details error handler
+# Exception handlers (RFC 7807 Problem Details)
 # ---------------------------------------------------------------------------
 @app.exception_handler(HTTPException)
 async def problem_details_handler(request: Request, exc: HTTPException):
@@ -339,13 +183,11 @@ async def problem_details_handler(request: Request, exc: HTTPException):
         headers=getattr(exc, 'headers', None),
     )
 
+
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception):
     _metrics['errors_total'] += 1
     log.exception('Unhandled error on %s %s', request.method, request.url)
-    # Internal error messages from asyncpg/psycopg often include SQL text,
-    # table names, and occasionally row values. Only surface them if the
-    # operator explicitly opts in via EXPOSE_ERROR_DETAIL=true.
     detail = str(exc) if settings.expose_error_detail else 'Internal server error'
     return JSONResponse(
         status_code=500,
@@ -357,332 +199,24 @@ async def generic_error_handler(request: Request, exc: Exception):
         },
     )
 
-# ---------------------------------------------------------------------------
-# Code #9: Dependency injection for DB pool and Redis
-# ---------------------------------------------------------------------------
-async def get_pool() -> asyncpg.Pool:
-    if _pool is None:
-        raise HTTPException(503, 'Database pool not initialised')
-    return _pool
-
-async def get_redis() -> Optional[aioredis.Redis]:
-    return _redis
 
 # ---------------------------------------------------------------------------
-# Cache helpers
+# Router mounts — keep the /s/<id64> share router before static fallback.
 # ---------------------------------------------------------------------------
-async def cache_get(key: str, redis: Optional[aioredis.Redis] = None) -> Optional[Any]:
-    r = redis or _redis
-    if not r: return None
-    try:
-        v = await r.get(key)
-        if v:
-            _metrics['cache_hits'] += 1
-            return json.loads(v)
-    except Exception:
-        pass
-    _metrics['cache_misses'] += 1
-    return None
-
-async def cache_set(key: str, value: Any, ttl: int, redis: Optional[aioredis.Redis] = None):
-    r = redis or _redis
-    if not r: return
-    try:
-        await r.setex(key, ttl, json.dumps(value, default=str))
-    except Exception:
-        pass
+from share_router import router as share_router  # noqa: E402
+app.include_router(share_router)
+app.include_router(meta_router)
+app.include_router(watchlist_router)
+app.include_router(notes_router)
+app.include_router(admin_router)
+app.include_router(events_router)
 
 # ---------------------------------------------------------------------------
-# Code #10: Background task helpers (analytics off the critical path)
+# Frontend directory (used by the remaining routes below and SPA fallback).
 # ---------------------------------------------------------------------------
-def _inc_metric(key: str) -> None:
-    _metrics[key] = _metrics.get(key, 0) + 1
-
-def _log_query(endpoint: str, duration_ms: float) -> None:
-    if duration_ms > 2000:
-        log.warning('Slow query on %s: %.0fms', endpoint, duration_ms)
-
-# ---------------------------------------------------------------------------
-# Pydantic response models (Code #8)
-# ---------------------------------------------------------------------------
-class CoordsModel(BaseModel):
-    x: float
-    y: float
-    z: float
-
-class RatingModel(BaseModel):
-    score: Optional[float] = None
-    scoreAgriculture: Optional[float] = None
-    scoreRefinery: Optional[float] = None
-    scoreIndustrial: Optional[float] = None
-    scoreHightech: Optional[float] = None
-    scoreMilitary: Optional[float] = None
-    scoreTourism: Optional[float] = None
-    economySuggestion: Optional[str] = None
-    breakdown: Optional[dict] = None
-
-class BodyModel(BaseModel):
-    id: Optional[int] = None
-    name: Optional[str] = None
-    subtype: Optional[str] = None
-    body_type: Optional[str] = None
-    distance_from_star: Optional[float] = None
-    is_landable: Optional[bool] = None
-    is_terraformable: Optional[bool] = None
-    is_earth_like: Optional[bool] = None
-    is_water_world: Optional[bool] = None
-    is_ammonia_world: Optional[bool] = None
-    bio_signal_count: Optional[int] = None
-    geo_signal_count: Optional[int] = None
-    surface_temp: Optional[float] = None
-    radius: Optional[float] = None
-    mass: Optional[float] = None
-    gravity: Optional[float] = None
-    estimated_mapping_value: Optional[int] = None
-    estimated_scan_value: Optional[int] = None
-    is_main_star: Optional[bool] = None
-    spectral_class: Optional[str] = None
-    is_scoopable: Optional[bool] = None
-
-class StationModel(BaseModel):
-    id: Optional[int] = None
-    name: Optional[str] = None
-    station_type: Optional[str] = None
-    distance_from_star: Optional[float] = None
-    landing_pad_size: Optional[str] = None
-    has_market: Optional[bool] = None
-    has_shipyard: Optional[bool] = None
-    has_outfitting: Optional[bool] = None
-
-class SystemModel(BaseModel):
-    id64: Optional[int] = None
-    name: str = 'Unknown'
-    coords: Optional[CoordsModel] = None
-    distance: Optional[float] = None
-    population: int = 0
-    primaryEconomy: Optional[str] = None
-    secondaryEconomy: Optional[str] = None
-    security: Optional[str] = None
-    allegiance: Optional[str] = None
-    government: Optional[str] = None
-    is_colonised: bool = False
-    is_being_colonised: bool = False
-    main_star_type: Optional[str] = None
-    main_star_subtype: Optional[str] = None
-    _rating: Optional[RatingModel] = None
-    bodies: list[BodyModel] = []
-    stations: list[StationModel] = []
-
-class SearchResponse(BaseModel):
-    results: list[dict]
-    total: int
-    count: int
-
-class SystemDetailResponse(BaseModel):
-    record: dict
-    system: dict
-
-class HealthResponse(BaseModel):
-    status: str
-    database: str
-    version: str
-
-class WatchlistAlert(BaseModel):
-    min_score: Optional[int] = None
-    economy: Optional[str] = None
-
-class NoteBody(BaseModel):
-    note: str
-
-# ---------------------------------------------------------------------------
-# Request models
-# ---------------------------------------------------------------------------
-class SearchFilters(BaseModel):
-    distance:   Optional[dict] = None
-    population: Optional[dict] = None
-    economy:    Optional[str]  = None
-
-class LocalSearchRequest(BaseModel):
-    filters:            Optional[SearchFilters] = None
-    reference_coords:   Optional[dict]          = None
-    sort_by:            Optional[str]            = 'rating'
-    size:               int                      = Field(default=50, le=500)
-    from_:              int                      = Field(default=0, alias='from')
-    body_filters:       Optional[dict]           = None
-    require_bio:        Optional[bool]           = None
-    require_geo:        Optional[bool]           = None
-    require_terra:      Optional[bool]           = None
-    star_types:         Optional[list[str]]      = None
-    min_rating:         Optional[int]            = None
-    galaxy_wide:        bool                     = False
-
-    model_config = {'populate_by_name': True}
-
-class GalaxySearchRequest(BaseModel):
-    economy:    str  = 'any'
-    min_score:  int  = Field(default=0, ge=0, le=100)
-    limit:      int  = Field(default=100, le=500)
-    offset:     int  = 0
-
-class ClusterRequirement(BaseModel):
-    economy:    str
-    min_count:  int = Field(default=1, ge=1)
-    min_score:  int = Field(default=40, ge=0, le=100)
-
-class ClusterSearchRequest(BaseModel):
-    requirements:      list[ClusterRequirement]
-    limit:             int = Field(default=50, le=200)
-    offset:            int = 0
-    reference_coords:  Optional[dict] = None
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-def sys_row_to_dict(r: Any) -> dict:
-    """Convert asyncpg Record to a dict the frontend understands."""
-    if r is None: return {}
-    d = dict(r)
-    d['id64']      = d.get('id64')
-    d['name']      = d.get('name', 'Unknown')
-    d['coords']    = {'x': d.get('x', 0), 'y': d.get('y', 0), 'z': d.get('z', 0)}
-    d['distance']  = d.get('distance')
-    d['population'] = d.get('population', 0)
-    d['primaryEconomy']   = d.get('primary_economy', 'Unknown')
-    d['secondaryEconomy'] = d.get('secondary_economy', 'None')
-    d['security']    = d.get('security', 'Unknown')
-    d['allegiance']  = d.get('allegiance', 'Unknown')
-    d['government']  = d.get('government', 'Unknown')
-    d['is_colonised'] = d.get('is_colonised', False)
-    d['is_being_colonised'] = d.get('is_being_colonised', False)
-    d['_rating'] = {
-        'score':            d.get('score'),
-        'scoreAgriculture': d.get('score_agriculture'),
-        'scoreRefinery':    d.get('score_refinery'),
-        'scoreIndustrial':  d.get('score_industrial'),
-        'scoreHightech':    d.get('score_hightech'),
-        'scoreMilitary':    d.get('score_military'),
-        'scoreTourism':     d.get('score_tourism'),
-        'scoreExtraction':  d.get('score_extraction'),
-        'economySuggestion': d.get('economy_suggestion'),
-        'breakdown':        d.get('score_breakdown'),
-        # v3.1 fields — mirrored in camelCase so existing shape is preserved.
-        'terraformingPotential': d.get('terraforming_potential'),
-        'bodyDiversity':         d.get('body_diversity'),
-        'confidence':            d.get('confidence'),
-        'rationale':             d.get('rationale'),
-    }
-    d['bodies'] = d.get('bodies', [])
-    return d
-
-# ---------------------------------------------------------------------------
-# Middleware
-# ---------------------------------------------------------------------------
-@app.middleware('http')
-async def metrics_middleware(request: Request, call_next: Any) -> Response:
-    _metrics['requests_total'] += 1
-    start = time.time()
-    response = await call_next(request)
-    duration_ms = (time.time() - start) * 1000
-    if duration_ms > 2000:
-        log.warning('Slow request %s %s: %.0fms', request.method, request.url.path, duration_ms)
-    return response
-
-# ---------------------------------------------------------------------------
-# Health & Status
-# ---------------------------------------------------------------------------
-@app.get('/api/health', response_model=HealthResponse)
-async def health(pool: asyncpg.Pool = Depends(get_pool)):
-    try:
-        async with pool.acquire() as conn:
-            await conn.fetchval('SELECT 1')
-        return HealthResponse(
-            status='ok',
-            database='connected',
-            version=settings.app_version,
-        )
-    except Exception as e:
-        raise HTTPException(503, detail=str(e))
+_FRONTEND_DIR = _pl.Path(__file__).parent.parent / 'frontend'
 
 
-@app.get('/api/status')
-async def status(
-    pool: asyncpg.Pool = Depends(get_pool),
-    redis: Optional[aioredis.Redis] = Depends(get_redis),
-):
-    cache_key = 'status:main'
-    cached = await cache_get(cache_key, redis)
-    if cached: return cached
-
-    async with pool.acquire() as conn:
-        sys_count  = await conn.fetchval('SELECT COUNT(*) FROM systems')
-        body_count = await conn.fetchval('SELECT COUNT(*) FROM bodies')
-        rated      = await conn.fetchval('SELECT COUNT(*) FROM ratings WHERE score IS NOT NULL')
-        clustered  = await conn.fetchval('SELECT COUNT(*) FROM cluster_summary WHERE coverage_score IS NOT NULL')
-        meta_rows  = await conn.fetch("SELECT key, value FROM app_meta")
-        meta = {r['key']: r['value'] for r in meta_rows}
-
-    result = {
-        'available':            True,
-        'systems_count':        sys_count,
-        'body_count':           body_count,
-        'rated_count':          rated,
-        'clustered_count':      clustered,
-        'import_complete':      meta.get('import_complete') == 'true',
-        'ratings_built':        meta.get('ratings_built')   == 'true',
-        'grid_built':           meta.get('grid_built')      == 'true',
-        'clusters_built':       meta.get('clusters_built')  == 'true',
-        'eddn_enabled':         meta.get('eddn_enabled')    == 'true',
-        'last_nightly_update':  meta.get('last_nightly_update', 'never'),
-        'schema_version':       meta.get('schema_version', '1.0'),
-        'max_search_radius_ly': 500,
-        'has_body_data':        body_count > 0,
-        'version':              settings.app_version,
-    }
-    await cache_set(cache_key, result, settings.ttl_status, redis)
-    return result
-
-
-@app.get('/api/local/status')
-async def local_status(
-    pool: asyncpg.Pool = Depends(get_pool),
-):
-    if _LS_AVAILABLE:
-        try:
-            return await _ls.local_db_status(pool)
-        except Exception as exc:
-            log.warning('local_db_status error: %s', exc)
-    return await status(pool)
-
-
-@app.get('/api/metrics', response_class=PlainTextResponse, include_in_schema=False)
-async def metrics():
-    uptime = time.time() - _metrics['startup_time']
-    lines = [
-        '# HELP ed_finder_requests_total Total HTTP requests',
-        '# TYPE ed_finder_requests_total counter',
-        f'ed_finder_requests_total {_metrics["requests_total"]}',
-        '# HELP ed_finder_cache_hits_total Redis cache hits',
-        '# TYPE ed_finder_cache_hits_total counter',
-        f'ed_finder_cache_hits_total {_metrics["cache_hits"]}',
-        '# HELP ed_finder_cache_misses_total Redis cache misses',
-        '# TYPE ed_finder_cache_misses_total counter',
-        f'ed_finder_cache_misses_total {_metrics["cache_misses"]}',
-        '# HELP ed_finder_errors_total Total unhandled errors',
-        '# TYPE ed_finder_errors_total counter',
-        f'ed_finder_errors_total {_metrics["errors_total"]}',
-        '# HELP ed_finder_db_queries_total Total DB queries dispatched',
-        '# TYPE ed_finder_db_queries_total counter',
-        f'ed_finder_db_queries_total {_metrics["db_queries"]}',
-        '# HELP ed_finder_uptime_seconds Seconds since startup',
-        '# TYPE ed_finder_uptime_seconds gauge',
-        f'ed_finder_uptime_seconds {uptime:.0f}',
-    ]
-    return '\n'.join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Autocomplete — Code #11: Redis cache with 24h TTL
-# ---------------------------------------------------------------------------
 @app.get('/api/local/autocomplete')
 @limiter.limit('60/minute')
 async def autocomplete(
@@ -1077,6 +611,7 @@ async def cluster_search(
     return response
 
 
+
 # ---------------------------------------------------------------------------
 # System detail
 # ---------------------------------------------------------------------------
@@ -1242,122 +777,6 @@ async def batch_systems(
 
     return {'systems': result}
 
-
-# ---------------------------------------------------------------------------
-# Watchlist
-# ---------------------------------------------------------------------------
-@app.get('/api/watchlist')
-async def get_watchlist(pool: asyncpg.Pool = Depends(get_pool)):
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT w.*,
-                r.score, r.economy_suggestion
-            FROM watchlist w
-            LEFT JOIN ratings r ON r.system_id64 = w.system_id64
-            ORDER BY w.added_at DESC
-        """)
-    return {'watchlist': [dict(r) for r in rows]}
-
-
-@app.post('/api/watchlist/{id64}')
-async def add_watchlist(
-    id64: int,
-    request: Request,
-    pool: asyncpg.Pool = Depends(get_pool),
-):
-    async with pool.acquire() as conn:
-        sys_row = await conn.fetchrow(
-            'SELECT name, x, y, z, population, is_colonised FROM systems WHERE id64 = $1',
-            id64
-        )
-        if not sys_row:
-            raise HTTPException(404, f'System {id64} not found')
-        await conn.execute("""
-            INSERT INTO watchlist (system_id64, name, x, y, z, population, is_colonised)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (system_id64) DO NOTHING
-        """, id64, sys_row['name'], sys_row['x'], sys_row['y'], sys_row['z'],
-            sys_row['population'], sys_row['is_colonised'])
-    return {'ok': True}
-
-
-@app.delete('/api/watchlist/{id64}')
-async def remove_watchlist(id64: int, pool: asyncpg.Pool = Depends(get_pool)):
-    async with pool.acquire() as conn:
-        await conn.execute('DELETE FROM watchlist WHERE system_id64 = $1', id64)
-    return {'ok': True}
-
-
-@app.patch('/api/watchlist/{id64}/alert')
-async def update_alert(
-    id64: int,
-    alert: WatchlistAlert,
-    pool: asyncpg.Pool = Depends(get_pool),
-):
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE watchlist
-            SET alert_min_score = $1, alert_economy = $2
-            WHERE system_id64 = $3
-        """, alert.min_score, alert.economy, id64)
-    return {'ok': True}
-
-
-@app.get('/api/watchlist/changes')
-async def watchlist_changes(pool: asyncpg.Pool = Depends(get_pool)):
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT * FROM watchlist_changelog
-            ORDER BY detected_at DESC LIMIT 100
-        """)
-    return {'changes': [dict(r) for r in rows]}
-
-
-@app.get('/api/watchlist/changelog')
-async def watchlist_changelog(pool: asyncpg.Pool = Depends(get_pool)):
-    return await watchlist_changes(pool)
-
-
-# ---------------------------------------------------------------------------
-# Notes
-# ---------------------------------------------------------------------------
-@app.get('/api/systems/{id64}/note')
-async def get_note(id64: int, pool: asyncpg.Pool = Depends(get_pool)):
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            'SELECT note, updated_at FROM system_notes WHERE system_id64 = $1', id64
-        )
-    return {'note': row['note'] if row else '', 'updated_at': str(row['updated_at']) if row else None}
-
-
-@app.post('/api/systems/{id64}/note')
-async def save_note(id64: int, body: NoteBody, pool: asyncpg.Pool = Depends(get_pool)):
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO system_notes (system_id64, note, updated_at)
-            VALUES ($1, $2, NOW())
-            ON CONFLICT (system_id64) DO UPDATE SET note = $2, updated_at = NOW()
-        """, id64, body.note)
-    return {'ok': True}
-
-
-@app.delete('/api/systems/{id64}/note')
-async def delete_note(id64: int, pool: asyncpg.Pool = Depends(get_pool)):
-    async with pool.acquire() as conn:
-        await conn.execute('DELETE FROM system_notes WHERE system_id64 = $1', id64)
-    return {'ok': True}
-
-
-@app.get('/api/systems/notes')
-async def all_notes(pool: asyncpg.Pool = Depends(get_pool)):
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT n.system_id64, s.name, n.note, n.updated_at
-            FROM system_notes n
-            JOIN systems s ON s.id64 = n.system_id64
-            ORDER BY n.updated_at DESC
-        """)
-    return {'notes': [dict(r) for r in rows]}
 
 
 # ---------------------------------------------------------------------------
@@ -1783,199 +1202,8 @@ async def ratings_rerank(
         'results':         result,
     }
 
-
-# ---------------------------------------------------------------------------
-# Cache management
-# ---------------------------------------------------------------------------
-@app.get('/api/cache/stats')
-async def cache_stats(
-    pool: asyncpg.Pool = Depends(get_pool),
-    redis: Optional[aioredis.Redis] = Depends(get_redis),
-):
-    stats: dict[str, Any] = {
-        'cache_hits':   _metrics['cache_hits'],
-        'cache_misses': _metrics['cache_misses'],
-    }
-    if redis:
-        try:
-            info = await redis.info('stats')
-            stats['redis_hits']      = info.get('keyspace_hits', 0)
-            stats['redis_misses']    = info.get('keyspace_misses', 0)
-            stats['redis_memory_mb'] = round(int((await redis.info('memory')).get('used_memory', 0)) / 1e6, 1)
-        except Exception:
-            pass
-    async with pool.acquire() as conn:
-        stats['db_cache_rows'] = await conn.fetchval(
-            "SELECT COUNT(*) FROM api_cache WHERE expires_at > NOW()"
-        )
-    return stats
-
-
-@app.post('/api/cache/clear', dependencies=[Depends(require_admin)])
-async def cache_clear(
-    pool: asyncpg.Pool = Depends(get_pool),
-    redis: Optional[aioredis.Redis] = Depends(get_redis),
-):
-    """Flush the Redis cache and expired api_cache rows.
-
-    Requires X-Admin-Token header matching ADMIN_TOKEN env var.
-    """
-    if redis:
-        try: await redis.flushdb()
-        except Exception: pass
-    async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM api_cache WHERE expires_at <= NOW()")
-    return {'ok': True, 'message': 'Cache cleared'}
-
-
-# ---------------------------------------------------------------------------
-# Live EDDN events SSE endpoint
-#
-# The EDDN listener (separate container) publishes events to the Redis
-# 'eddn_events' channel. Each API process subscribes once at startup via
-# _eddn_pubsub_bridge() and fans out to its own local SSE clients.
-# ---------------------------------------------------------------------------
-EDDN_PUBSUB_CHANNEL = 'eddn_events'
-_sse_clients: list[asyncio.Queue] = []
-
-
-async def _eddn_pubsub_bridge() -> None:
-    """Subscribe to Redis pub/sub and broadcast events to local SSE clients."""
-    if _redis is None:
-        return
-    try:
-        pubsub = _redis.pubsub()
-        await pubsub.subscribe(EDDN_PUBSUB_CHANNEL)
-        async for message in pubsub.listen():
-            if message.get('type') != 'message':
-                continue
-            data = message.get('data')
-            if not data:
-                continue
-            try:
-                event = json.loads(data) if isinstance(data, str) else data
-            except (ValueError, TypeError):
-                continue
-            await _broadcast_eddn_event(event)
-    except asyncio.CancelledError:
-        try:
-            await pubsub.unsubscribe(EDDN_PUBSUB_CHANNEL)
-            await pubsub.aclose()
-        except Exception:
-            pass
-        raise
-    except Exception as e:
-        log.error("EDDN pub/sub bridge error: %s", e)
-
-
-@app.get('/api/events/live')
-async def live_events(request: Request):
-    queue: asyncio.Queue = asyncio.Queue(maxsize=50)
-    _sse_clients.append(queue)
-
-    async def event_generator() -> AsyncGenerator[str, None]:
-        try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    event = queue.get_nowait()
-                    yield f"data: {json.dumps(event, default=str)}\n\n"
-                except asyncio.QueueEmpty:
-                    yield ": heartbeat\n\n"
-                    await asyncio.sleep(25)
-        finally:
-            try:
-                _sse_clients.remove(queue)
-            except ValueError:
-                pass
-
-    return StreamingResponse(
-        event_generator(),
-        media_type='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',
-        },
-    )
-
-
-async def _broadcast_eddn_event(event: dict) -> None:
-    """Fan event out to all connected SSE clients on this worker."""
-    dead = []
-    # Snapshot list before iteration — clients list can mutate under us.
-    for q in list(_sse_clients):
-        try:
-            q.put_nowait(event)
-        except asyncio.QueueFull:
-            dead.append(q)
-    for q in dead:
-        try:
-            _sse_clients.remove(q)
-        except ValueError:
-            pass
-
-
-@app.get('/api/events/recent')
-async def recent_events(
-    limit: int = 50,
-    pool: asyncpg.Pool = Depends(get_pool),
-):
-    limit = min(limit, 200)
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT system_name, system_id64, event_type, received_at
-            FROM eddn_log
-            ORDER BY received_at DESC
-            LIMIT $1
-        """, limit)
-    return {
-        'events': [
-            {
-                'system_name': r['system_name'],
-                'id64':        r['system_id64'],
-                'type':        r['event_type'],
-                'timestamp':   r['received_at'].isoformat() if r['received_at'] else None,
-            }
-            for r in rows
-        ],
-        'jobs': _active_jobs
-    }
-
-
-@app.post('/api/admin/rebuild-clusters', dependencies=[Depends(require_admin)])
-@limiter.limit('1/minute')
-async def trigger_rebuild_clusters(request: Request, background_tasks: BackgroundTasks):
-    """Trigger a background cluster rebuild (dirty anchors only).
-
-    Requires X-Admin-Token header matching ADMIN_TOKEN env var. Disabled
-    entirely when ADMIN_TOKEN is empty (default).
-    """
-    job_id = "cluster_rebuild"
-    async with _active_jobs_lock:
-        current = _active_jobs.get(job_id, {})
-        if current.get("status") == "running":
-            return JSONResponse(
-                status_code=409,
-                content={"message": "A cluster rebuild is already in progress.", "job": current}
-            )
-        # Claim the slot before the task runs so concurrent requests 409 cleanly.
-        _active_jobs[job_id] = {
-            "status": "running",
-            "start_time": datetime.now(timezone.utc).isoformat(),
-            "end_time": None,
-            "exit_code": None,
-            "error": None,
-        }
-
-    background_tasks.add_task(run_cluster_rebuild)
-    return {"message": "Cluster rebuild triggered in background.", "job_id": job_id}
-
-
-# ---------------------------------------------------------------------------
 # SPA fallback + static files
 # ---------------------------------------------------------------------------
-from fastapi.responses import FileResponse as _FileResponse
 
 # Mount static assets directory before registering the catch-all so that
 # /static/<file> is served by StaticFiles (which includes its own safe path
@@ -2020,3 +1248,4 @@ if __name__ == '__main__':
     import uvicorn
     port = int(os.environ.get('PORT', 5000))
     uvicorn.run(app, host='0.0.0.0', port=port, log_level=settings.log_level.lower())
+
