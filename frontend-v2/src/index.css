@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App-wide tokens. Mirrors --bg1 etc. from the vanilla app's :root block.
+ * Tailwind utility classes (bg-bg1 / text-text / etc.) are wired up to
+ * these via tailwind.config.js so component styling stays declarative. */
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* The vanilla app uses Orbitron for headings; we'll lazy-load it from a
+ * local copy later. For the POC just fall back to the system mono stack. */
+.font-mono {
+  font-family: 'Orbitron', 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}

@@ -1,0 +1,15 @@
+node_modules
+dist
+
+# TypeScript incremental-build artefacts (regenerate every build).
+*.tsbuildinfo
+
+# Vite emits .d.ts/.js sidecars for vite.config.ts on Node 20 because of
+# the composite tsconfig — we don't ship those.
+vite.config.d.ts
+vite.config.js
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
