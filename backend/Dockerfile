@@ -18,7 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # which caused `import local_search` to fail silently and forced the API
 # into the inline fallback path (missing galaxy_region_id, star_types,
 # secondary_economy, display_score, etc.).
-COPY main.py local_search.py exploration_value.py inara_api.py share_router.py ./
+COPY *.py ./
+COPY routers/ ./routers/
 
 EXPOSE 8000
 # workers=1 — backend keeps per-process state (SSE clients, active jobs,
