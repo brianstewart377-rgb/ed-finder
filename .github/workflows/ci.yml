@@ -1,13 +1,22 @@
 name: CI
 
+# Triggers: push & PR to main, plus manual "Run workflow" via Actions UI.
+# Free on public repos. Cancels in-flight runs of the same branch when a
+# new push arrives so we never queue redundant builds.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group:               ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress:  true
 
 jobs:
-  smoke:
-    name: Smoke tests + syntax checks
+  # ─── Backend ────────────────────────────────────────────────────────
+  backend:
+    name: Backend smoke tests + compose validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,17 +37,126 @@ jobs:
         run: python -m compileall -q backend
 
       - name: Run unit tests (no DB required)
-        run: |
-          python -m unittest tests.test_smoke -v
+        run: python -m unittest discover -s tests -v
+
+      - name: Set up Docker buildx (for compose validate)
+        uses: docker/setup-buildx-action@v3
 
       - name: Validate docker-compose.yml
-        uses: docker/setup-buildx-action@v3
-      - run: docker compose --project-directory . config --quiet
+        run: docker compose --project-directory . config --quiet
 
-      - name: Node 20 for JS syntax check
+      - name: Set up Node 20 for vanilla-frontend syntax check
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: JS syntax check (node --check)
+      - name: Vanilla frontend syntax check
         run: node --check frontend/app.js
+
+  # ─── Frontend v2 ────────────────────────────────────────────────────
+  # Catches the exact class of "file got swallowed by .gitignore" bug we
+  # hit on Hetzner. If `frontend-v2/src/lib/api.ts` ever gets ignored
+  # again, this job fails on PR before it ever reaches production.
+  v2:
+    name: Frontend v2 build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-v2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify required source files are present
+        # Sanity check that catches the .gitignore-eating-lib regression
+        # in <1 s, without waiting for a full Vite build.
+        run: |
+          set -e
+          for f in \
+            src/lib/api.ts \
+            src/lib/format.ts \
+            src/types/api.ts \
+            src/components/NavBar.tsx \
+            src/components/ResultCard.tsx \
+            src/features/search/SearchForm.tsx \
+            src/features/search/useSearch.ts \
+            src/features/search/useAutocomplete.ts \
+            src/features/watchlist/WatchlistTab.tsx \
+            src/features/watchlist/useWatchlist.ts \
+            src/features/map/GalacticMap.tsx \
+            src/features/map/MapTab.tsx \
+            src/hooks/useDebounced.ts \
+            src/hooks/useHashRoute.ts; do
+            test -f "$f" || { echo "::error file=frontend-v2/$f::missing — likely globbed out by a parent .gitignore"; exit 1; }
+          done
+          echo "✓ all required v2 source files present"
+
+      - name: Install (no frozen lockfile — yarn.lock is intentionally not in repo)
+        # Emergent's auto-commit strips lockfiles; install fresh each time.
+        run: yarn install --no-progress --non-interactive
+
+      - name: Type-check
+        run: yarn typecheck
+
+      - name: Build
+        run: yarn build
+
+      - name: Upload dist artefact
+        # Lets us grab a build out of CI if we ever need to bypass the
+        # Hetzner build step (e.g. node/yarn unavailable on the dedi).
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-v2-dist
+          path: frontend-v2/dist
+          retention-days: 7
+
+  # ─── Nginx config ───────────────────────────────────────────────────
+  # `nginx -t` against our composed config catches the *other* class of
+  # bug we hit (CSP/security-headers misconfiguration, /v2/ alias typos,
+  # etc.) without needing a Hetzner round-trip.
+  nginx:
+    name: Nginx config syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nginx
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nginx
+
+      - name: Test nginx config
+        run: |
+          set -e
+          # Build a temporary tree that mimics the docker mount layout.
+          mkdir -p /tmp/ngx/snippets /tmp/ngx/www /tmp/ngx/v2
+          cp config/nginx.conf            /tmp/ngx/nginx.conf
+          cp config/security-headers.conf /tmp/ngx/snippets/security-headers.conf
+          # Patch paths that wouldn't exist in the runner sandbox.
+          sed -i 's|/etc/nginx/snippets/security-headers.conf|/tmp/ngx/snippets/security-headers.conf|g' /tmp/ngx/nginx.conf
+          # Replace upstream + comment out HTTPS server block (no certs in CI).
+          sed -i 's|server api:8000;|server 127.0.0.1:8000;|' /tmp/ngx/nginx.conf
+          python3 - <<'PY'
+          path = '/tmp/ngx/nginx.conf'
+          lines = open(path).read().split('\n')
+          out, inside, depth, started = [], False, 0, False
+          for line in lines:
+              if 'listen 443 ssl' in line:
+                  inside = True
+              if inside:
+                  out.append('# ' + line)
+                  depth += line.count('{')
+                  depth -= line.count('}')
+                  if started and depth == 0:
+                      inside = False
+                  if '{' in line:
+                      started = True
+              else:
+                  out.append(line)
+          open(path, 'w').write('\n'.join(out))
+          PY
+          sudo nginx -t -c /tmp/ngx/nginx.conf -p /tmp/ngx
