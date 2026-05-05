@@ -9,12 +9,13 @@ export interface WatchlistTabProps {
   onRefresh:  () => Promise<void> | void;
   onRemove:   (id64: number) => Promise<void> | void;
   onShowOnMap?: (id64: number) => void;
+  onOpenDetail?: (id64: number) => void;
 }
 
 type Sort = 'added' | 'name' | 'score' | 'distance';
 
 export function WatchlistTab({
-  entries, loading, error, onRefresh, onRemove, onShowOnMap,
+  entries, loading, error, onRefresh, onRemove, onShowOnMap, onOpenDetail,
 }: WatchlistTabProps) {
   const [sort, setSort] = useState<Sort>('added');
 
@@ -107,6 +108,7 @@ export function WatchlistTab({
           columns={['system', 'coords', 'population', 'score', 'economy', 'timestamp']}
           timestampLabel="Added"
           rowTestIdPrefix="watchlist-row-"
+          onRowClick={onOpenDetail}
           renderActions={(row) => (
             <>
               {onShowOnMap && (

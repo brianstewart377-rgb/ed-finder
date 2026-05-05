@@ -11,16 +11,20 @@ import { PinnedTab, toPinnedEntry } from '@/features/pinned/PinnedTab';
 import { useCompare } from '@/features/compare/useCompare';
 import { CompareTab } from '@/features/compare/CompareTab';
 import { MapTab } from '@/features/map/MapTab';
+import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
 import { useHashRoute } from '@/hooks/useHashRoute';
 import './index.css';
 
 /**
- * v2 root: NavBar + tab content. State (search filters, watchlist, pins)
- * lives at this level so tabs can share data — switching from Finder → Map
- * should NOT lose the current results.
+ * v2 root: NavBar + tab content + system-detail modal overlay.
+ *
+ * State (search filters, watchlist, pins, compare) lives at this level so
+ * tabs can share data and the modal — which can open from any tab — can
+ * call into the same hooks for "Save to Watchlist" / "Pin" / "Add to
+ * Compare" without re-implementing them.
  */
 export default function App() {
-  const [route, navigate] = useHashRoute();
+  const { route, selectedSystemId, navigate, openSystem, closeSystem } = useHashRoute();
   const search    = useSearch();
   const watchlist = useWatchlist();
   const pinned    = usePinned();
@@ -54,6 +58,7 @@ export default function App() {
           pinned={pinned}
           compare={compare}
           onShowOnMap={() => navigate('map')}
+          onOpenDetail={openSystem}
         />
       )}
 
@@ -65,6 +70,7 @@ export default function App() {
           onRefresh={watchlist.refresh}
           onRemove={watchlist.remove}
           onShowOnMap={() => navigate('map')}
+          onOpenDetail={openSystem}
         />
       )}
 
@@ -72,11 +78,15 @@ export default function App() {
         <PinnedTab
           pinned={pinned}
           onShowOnMap={() => navigate('map')}
+          onOpenDetail={openSystem}
         />
       )}
 
       {route === 'compare' && (
-        <CompareTab compare={compare} />
+        <CompareTab
+          compare={compare}
+          onOpenDetail={openSystem}
+        />
       )}
 
       {route === 'map' && (
@@ -93,8 +103,143 @@ export default function App() {
       <footer className="mt-16 text-center text-[11px] font-mono text-text-dim">
         Vite {import.meta.env.MODE} build · proof of concept · not yet production
       </footer>
+
+      {selectedSystemId !== null && (
+        <SystemDetailModal
+          id64={selectedSystemId}
+          onClose={closeSystem}
+          renderActions={(sys) => (
+            <>
+              <button
+                type="button"
+                disabled={!sys}
+                onClick={() => {
+                  if (!sys) return;
+                  if (watchlist.has(sys.id64)) {
+                    void watchlist.remove(sys.id64);
+                  } else {
+                    void watchlist.add(sys.id64, {
+                      name:         sys.name,
+                      x:            sys.x,
+                      y:            sys.y,
+                      z:            sys.z,
+                      population:   sys.population,
+                      is_colonised: !!sys.is_colonised,
+                      score:        sys.score ?? null,
+                    });
+                  }
+                }}
+                data-testid="modal-watchlist-toggle"
+                className={[
+                  'px-2 py-1 rounded font-mono text-[11px] border transition-colors',
+                  sys && watchlist.has(sys.id64)
+                    ? 'bg-orange/20 border-orange text-orange'
+                    : 'bg-bg4 border-border text-text-dim hover:text-orange hover:border-orange-dk',
+                  !sys && 'opacity-40 cursor-not-allowed',
+                ].filter(Boolean).join(' ')}
+              >
+                {sys && watchlist.has(sys.id64) ? '★ Saved — remove' : '☆ Save to Watchlist'}
+              </button>
+
+              <button
+                type="button"
+                disabled={!sys}
+                onClick={() => sys && pinned.toggle({
+                  id64:         sys.id64,
+                  name:         sys.name,
+                  x:            sys.x,
+                  y:            sys.y,
+                  z:            sys.z,
+                  population:   sys.population,
+                  is_colonised: !!sys.is_colonised,
+                  rating:       sys.score ?? null,
+                  economy:      sys.economy_suggestion ?? sys.primary_economy ?? null,
+                  pinned_at:    new Date().toISOString(),
+                  distance:     null,
+                })}
+                data-testid="modal-pin-toggle"
+                className={[
+                  'px-2 py-1 rounded font-mono text-[11px] border transition-colors',
+                  sys && pinned.has(sys.id64)
+                    ? 'bg-orange/20 border-orange text-orange'
+                    : 'bg-bg4 border-border text-text-dim hover:text-orange hover:border-orange-dk',
+                  !sys && 'opacity-40 cursor-not-allowed',
+                ].filter(Boolean).join(' ')}
+              >
+                {sys && pinned.has(sys.id64) ? '📌 Pinned — unpin' : '📍 Pin'}
+              </button>
+
+              <button
+                type="button"
+                disabled={!sys}
+                onClick={() => sys && compare.toggle(toCompareSnapshot(sys))}
+                data-testid="modal-compare-toggle"
+                className={[
+                  'px-2 py-1 rounded font-mono text-[11px] border transition-colors',
+                  sys && compare.has(sys.id64)
+                    ? 'bg-orange/20 border-orange text-orange'
+                    : 'bg-bg4 border-border text-text-dim hover:text-orange hover:border-orange-dk',
+                  !sys && 'opacity-40 cursor-not-allowed',
+                ].filter(Boolean).join(' ')}
+              >
+                {sys && compare.has(sys.id64) ? '⚖️ In comparison — remove' : '⚖️ Add to Compare'}
+              </button>
+            </>
+          )}
+        />
+      )}
     </main>
   );
+}
+
+// ─── Detail → SystemResult adapter ─────────────────────────────────────────
+//
+// Compare stores SystemResult (camelCase rating fields). The detail endpoint
+// returns snake_case. Bridge here so adding-to-compare from the modal lands
+// the same shape Compare's matrix expects.
+
+function toCompareSnapshot(sys: import('@/types/api').SystemDetail): import('@/types/api').SystemResult {
+  return {
+    id64:               sys.id64,
+    name:               sys.name,
+    coords:             { x: sys.x, y: sys.y, z: sys.z },
+    distance:           null,
+    population:         sys.population,
+    primaryEconomy:     sys.primary_economy ?? null,
+    secondaryEconomy:   sys.secondary_economy ?? null,
+    security:           sys.security ?? null,
+    allegiance:         sys.allegiance ?? null,
+    government:         sys.government ?? null,
+    is_colonised:       !!sys.is_colonised,
+    main_star_type:     sys.main_star_type ?? null,
+    main_star_subtype:  sys.main_star_subtype ?? null,
+    _rating: {
+      score:                  sys.score ?? null,
+      scoreAgriculture:       sys.score_agriculture ?? null,
+      scoreRefinery:          sys.score_refinery ?? null,
+      scoreIndustrial:        sys.score_industrial ?? null,
+      scoreHightech:          sys.score_hightech ?? null,
+      scoreMilitary:          sys.score_military ?? null,
+      scoreTourism:           sys.score_tourism ?? null,
+      scoreExtraction:        sys.score_extraction ?? null,
+      economySuggestion:      sys.economy_suggestion ?? null,
+      terraformingPotential:  sys.terraforming_potential ?? null,
+      bodyDiversity:          sys.body_diversity ?? null,
+      confidence:             sys.confidence ?? null,
+      rationale:              sys.rationale ?? null,
+    },
+    elw_count:           sys.elw_count ?? null,
+    ww_count:            sys.ww_count ?? null,
+    ammonia_count:       sys.ammonia_count ?? null,
+    gas_giant_count:     sys.gas_giant_count ?? null,
+    landable_count:      sys.landable_count ?? null,
+    terraformable_count: sys.terraformable_count ?? null,
+    bio_signal_total:    sys.bio_signal_total ?? null,
+    geo_signal_total:    sys.geo_signal_total ?? null,
+    neutron_count:       sys.neutron_count ?? null,
+    black_hole_count:    sys.black_hole_count ?? null,
+    white_dwarf_count:   sys.white_dwarf_count ?? null,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -102,13 +247,14 @@ export default function App() {
 // ─────────────────────────────────────────────────────────────────────────
 
 function FinderView({
-  search, watchlist, pinned, compare, onShowOnMap,
+  search, watchlist, pinned, compare, onShowOnMap, onOpenDetail,
 }: {
   search:    ReturnType<typeof useSearch>;
   watchlist: ReturnType<typeof useWatchlist>;
   pinned:    ReturnType<typeof usePinned>;
   compare:   ReturnType<typeof useCompare>;
-  onShowOnMap: () => void;
+  onShowOnMap:  () => void;
+  onOpenDetail: (id64: number) => void;
 }) {
   const { filters, setFilters, reset, run, state, results } = search;
 
@@ -180,6 +326,7 @@ function FinderView({
                       onShowOnMap={onShowOnMap}
                       onPin={() => pinned.toggle(toPinnedEntry(sys))}
                       onCompare={() => compare.toggle(sys)}
+                      onOpenDetail={onOpenDetail}
                     />
                   </li>
                 ))}

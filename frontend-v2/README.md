@@ -16,47 +16,51 @@ the porting cost.
 ## What's in v2 today
 
 - ✅ **Finder tab** — search form with autocomplete + sliders + body-type filter pills + result cards (~280 LoC across 4 typed files; the vanilla equivalent was scattered across ~1500 lines of `index.html`).
-- ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback. Renders via the shared `<SystemTable>`.
+- ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback. Renders via the shared `<SystemTable>`. Row-click opens the detail modal.
 - ✅ **Pinned tab** — localStorage-backed shortlist (schema-compatible with the vanilla `ed_pinned` key so existing user data survives the cutover). Export-as-JSON, clear-all, cross-tab sync via the `storage` event. No backend round-trip.
-- ✅ **Compare tab** — up to 6 systems, matrix view (metrics × systems) with per-row winner highlighting, CSV export, clear-all. Snapshot-based localStorage (`ed_compare_v2`) so the comparison survives reload-into-different-search.
+- ✅ **Compare tab** — up to 6 systems, matrix view (metrics × systems) with per-row winner highlighting, CSV export, clear-all. Snapshot-based localStorage (`ed_compare_v2`). Column header names link into the detail modal.
+- ✅ **System Detail Modal** — full-detail overlay (system info grid + 8 score bars + bodies table + stations table + exploration value + external links). Shares Watchlist / Pin / Compare hooks with the rest of the app, so the modal's own action buttons stay in sync with the tab badges. **Deep-linkable**: `#finder/system/12345678` opens the modal on top of the Finder tab; closing pops back to `#finder`. Esc / backdrop-click / X all close.
 - ✅ **Map tab** — pure-React 2-D galactic canvas (drag-pan, scroll-zoom, click-to-select, auto-fit). Plots whatever the Finder tab last returned.
-- ✅ **Hash routing** — `#finder` / `#watchlist` / `#pinned` / `#compare` / `#map`. Deep-links work.
-- ✅ **Shared `<SystemTable>`** — common rendering layer for every "list of systems" feature (Watchlist + Pinned today; future Cluster Anchors, Route Stops, etc.). Finite column set keeps the visual identity consistent.
-- ⏳ Optimizer / FC Planner / Colony Tracker / Admin / System Detail Modal: still vanilla.
+- ✅ **Hash routing** — `#{tab}` and `#{tab}/system/{id64}`. Sub-route is optional and works for every tab.
+- ✅ **Shared `<SystemTable>`** — common rendering layer for every "list of systems" feature with optional `onRowClick` for opening the detail modal.
+- ⏳ Optimizer / FC Planner / Colony Tracker / Admin: still vanilla.
 
 ```
 src/
-  App.tsx                           composition root + finder layout
+  App.tsx                           composition root + finder layout + modal overlay
   main.tsx                          bootstrap
   components/
     NavBar.tsx                      top tabs + watchlist / pinned / compare badges
     ResultCard.tsx                  search result row (live isPinned + isCompared)
-    SystemTable.tsx                 shared table used by every list feature
+    SystemTable.tsx                 shared table + optional row-click → modal
   features/
     search/                         finder
       SearchForm.tsx
-      useSearch.ts                  filters→request→results state machine
-      useAutocomplete.ts            debounced /api/local/autocomplete
+      useSearch.ts
+      useAutocomplete.ts
     watchlist/                      watchlist (server-backed)
       WatchlistTab.tsx
-      useWatchlist.ts               optimistic add/remove
+      useWatchlist.ts
     pinned/                         pinned (client-only, localStorage)
       PinnedTab.tsx
-      usePinned.ts                  localStorage + storage-event sync
+      usePinned.ts
     compare/                        compare (client-only, localStorage)
-      CompareTab.tsx                metric matrix with winner highlighting
-      useCompare.ts                 snapshot-based + CSV export
+      CompareTab.tsx
+      useCompare.ts
+    system-detail/                  detail modal (deep-linkable)
+      SystemDetailModal.tsx
+      useSystemDetail.ts            /api/system/{id64} fetch + cancellation
     map/                            galactic map
-      GalacticMap.tsx               pure-React canvas (~250 LoC)
-      MapTab.tsx                    map + selection panel
+      GalacticMap.tsx
+      MapTab.tsx
   hooks/
     useDebounced.ts
-    useHashRoute.ts                 ~30 LoC, no react-router
+    useHashRoute.ts                 ~90 LoC, supports `#tab/system/N` sub-route
   lib/
-    api.ts                          typed fetch wrapper
+    api.ts                          typed fetch wrapper (now incl. system())
     format.ts                       pure formatters
   types/
-    api.ts                          hand-maintained API types
+    api.ts                          hand-maintained API types (system + bodies + stations)
     api.gen.ts                      (generated — run `yarn types:gen`)
 ```
 
@@ -148,12 +152,13 @@ it's not worth the complexity.
 
 1. ✅ Scaffold + result-card POC.
 2. ✅ Search form + filters (left rail).
-3. ✅ Top tab bar + routing (`#finder`, `#watchlist`, `#pinned`, `#compare`, `#map`).
-4. ✅ Watchlist / Pinned / Compare — all three now share `<SystemTable>` (Compare uses its own matrix layout but shares `lib/format`).
+3. ✅ Top tab bar + routing (`#finder`, `#watchlist`, `#pinned`, `#compare`, `#map` + sub-route `system/{id64}`).
+4. ✅ Watchlist / Pinned / Compare — all three share `<SystemTable>` (Compare uses its own matrix layout but shares `lib/format`).
 5. ✅ Map.
-6. Once parity hit: nginx flips root → v2; v1 lives at `/v1/` for one week
+6. ✅ System Detail Modal — deep-linkable from any tab; reuses the shared Watchlist/Pin/Compare hooks for its own action buttons.
+7. Once parity hit: nginx flips root → v2; v1 lives at `/v1/` for one week
    as rollback insurance; then deleted.
 
-Estimated effort remaining: 2–3 weeks part-time. Hardest surfaces left:
+Estimated effort remaining: 2 weeks part-time. Hardest surfaces left:
 Optimizer (numeric controls + rerank API), FC Planner (jump-range solver),
-the system detail modal (deep-linkable from every list), and Colony Tracker.
+and Colony Tracker (state machine).

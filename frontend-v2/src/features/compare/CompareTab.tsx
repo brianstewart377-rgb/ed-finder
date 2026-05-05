@@ -6,6 +6,7 @@ import { ratingTier, formatPopulation, formatConfidence } from '@/lib/format';
 
 export interface CompareTabProps {
   compare: UseCompare;
+  onOpenDetail?: (id64: number) => void;
 }
 
 /**
@@ -18,7 +19,7 @@ export interface CompareTabProps {
  *
  * Non-numeric rows (name, rationale, economy, external links) render plain.
  */
-export function CompareTab({ compare }: CompareTabProps) {
+export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
   const { entries } = compare;
 
   if (entries.length === 0) {
@@ -67,9 +68,23 @@ export function CompareTab({ compare }: CompareTabProps) {
               {entries.map((sys) => (
                 <th key={sys.id64} className="px-3 py-2 text-left min-w-[160px]">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-orange normal-case font-bold tracking-normal truncate" title={sys.name}>
-                      {sys.name}
-                    </span>
+                    {onOpenDetail
+                      ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenDetail(sys.id64)}
+                          className="text-orange normal-case font-bold tracking-normal truncate hover:underline text-left"
+                          title="Open detail"
+                        >
+                          {sys.name}
+                        </button>
+                      )
+                      : (
+                        <span className="text-orange normal-case font-bold tracking-normal truncate" title={sys.name}>
+                          {sys.name}
+                        </span>
+                      )
+                    }
                     <button
                       type="button"
                       onClick={() => compare.remove(sys.id64)}

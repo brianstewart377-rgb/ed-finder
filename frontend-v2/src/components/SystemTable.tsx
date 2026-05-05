@@ -42,6 +42,9 @@ export interface SystemTableProps {
   renderActions?:  (row: SystemRow) => ReactNode;
   /** Test-id prefix so rows can be targeted per feature (e.g. "pinned-row-"). */
   rowTestIdPrefix?: string;
+  /** If supplied, clicking anywhere outside the actions cell triggers this.
+   *  Used to open the system-detail modal from any table-based tab. */
+  onRowClick?: (id64: number) => void;
 }
 
 /**
@@ -55,7 +58,7 @@ export interface SystemTableProps {
  * more than column flexibility.
  */
 export function SystemTable({
-  rows, columns, timestampLabel = 'Added', renderActions, rowTestIdPrefix,
+  rows, columns, timestampLabel = 'Added', renderActions, rowTestIdPrefix, onRowClick,
 }: SystemTableProps) {
   return (
     <div className="overflow-x-auto rounded-md border border-border">
@@ -87,7 +90,11 @@ export function SystemTable({
             <tr
               key={row.id64}
               data-testid={rowTestIdPrefix ? `${rowTestIdPrefix}${row.id64}` : undefined}
-              className="border-t border-border hover:bg-bg3/40"
+              onClick={onRowClick ? () => onRowClick(row.id64) : undefined}
+              className={[
+                'border-t border-border hover:bg-bg3/40',
+                onRowClick ? 'cursor-pointer' : '',
+              ].join(' ')}
             >
               {columns.map((col) => (
                 <td
@@ -105,7 +112,10 @@ export function SystemTable({
                 </td>
               ))}
               {renderActions && (
-                <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
+                <td
+                  className="px-3 py-2 text-right space-x-1 whitespace-nowrap"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {renderActions(row)}
                 </td>
               )}

@@ -13,6 +13,8 @@
 import type {
   AutocompleteResponse,
   SearchResponse,
+  SystemDetail,
+  SystemDetailResponse,
   SystemResult,
 } from '@/types/api';
 
@@ -111,6 +113,15 @@ export const api = {
   },
   watchRemove(id64: number): Promise<{ ok: boolean }> {
     return jsonFetch(`/watchlist/${id64}`, { method: 'DELETE' });
+  },
+
+  /** Full system detail (joins ratings + bodies + stations). Cached
+   *  server-side via Redis under the `sys:{id64}` key, so calling this
+   *  multiple times in a row is cheap. */
+  async system(id64: number): Promise<SystemDetail> {
+    const res = await jsonFetch<SystemDetailResponse>(`/system/${id64}`);
+    // Endpoint returns {record, system} — same data twice for legacy compat.
+    return res.record ?? res.system;
   },
 };
 

@@ -5,11 +5,12 @@ import { SystemTable, type SystemRow } from '@/components/SystemTable';
 export interface PinnedTabProps {
   pinned:       UsePinned;
   onShowOnMap?: (id64: number) => void;
+  onOpenDetail?: (id64: number) => void;
 }
 
 type Sort = 'pinned_at' | 'name' | 'rating' | 'distance';
 
-export function PinnedTab({ pinned, onShowOnMap }: PinnedTabProps) {
+export function PinnedTab({ pinned, onShowOnMap, onOpenDetail }: PinnedTabProps) {
   const [sort, setSort] = useState<Sort>('pinned_at');
 
   const sorted = [...pinned.entries].sort((a, b) => {
@@ -110,6 +111,7 @@ export function PinnedTab({ pinned, onShowOnMap }: PinnedTabProps) {
           columns={['system', 'coords', 'score', 'economy', 'distanceRef', 'timestamp', 'externalLinks']}
           timestampLabel="Pinned"
           rowTestIdPrefix="pinned-row-"
+          onRowClick={onOpenDetail}
           renderActions={(row) => (
             <>
               {onShowOnMap && (
