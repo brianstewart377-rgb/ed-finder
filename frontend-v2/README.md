@@ -15,17 +15,51 @@ the porting cost.
 
 ## What's in v2 today
 
-- ✅ **Finder tab** — search form with autocomplete + sliders + body-type filter pills + result cards (~280 LoC across 4 typed files; the vanilla equivalent was scattered across ~1500 lines of `index.html`).
+**Status: feature parity with the legacy vanilla app.** Ready for nginx
+root flip to `/v2/`.
+
+- ✅ **Finder tab** — search form with autocomplete + sliders + body-type filter pills + result cards.
 - ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback. Renders via the shared `<SystemTable>`. Row-click opens the detail modal.
-- ✅ **Pinned tab** — localStorage-backed shortlist (schema-compatible with the vanilla `ed_pinned` key so existing user data survives the cutover). Export-as-JSON, clear-all, cross-tab sync via the `storage` event. No backend round-trip.
-- ✅ **Compare tab** — up to 6 systems, matrix view (metrics × systems) with per-row winner highlighting, CSV export, clear-all. Snapshot-based localStorage (`ed_compare_v2`). Column-header names link into the detail modal.
-- ✅ **Optimizer tab** — 6 weight sliders (economy / slots / strategic / safety / terraforming / diversity) + economy preference selector. Reranks the current Finder results in place via `/api/ratings/rerank`, shows reordered list with original→reranked deltas. Server normalises non-1.0 sums; UI flags the warning. Row-click opens the detail modal.
-- ✅ **System Detail Modal** — full-detail overlay (system info grid + 8 score bars + bodies table + stations table + exploration value + external links). Shares Watchlist / Pin / Compare hooks with the rest of the app, so the modal's own action buttons stay in sync with the tab badges. **Deep-linkable**: `#finder/system/12345678` opens the modal on top of the Finder tab; closing pops back to `#finder`. Esc / backdrop-click / X all close.
-- ✅ **Map tab** — pure-React 2-D galactic canvas (drag-pan, scroll-zoom, click-to-select, auto-fit). Plots whatever the Finder tab last returned.
-- ✅ **Admin tab** — token-gated ops console. Live status (counts + meta flags + cache stats, auto-refresh every 30s) + two actions (Clear cache / Rebuild clusters). Token stored in **sessionStorage** only (forgotten on tab close — admin tokens shouldn't outlive the browsing session).
-- ✅ **Hash routing** — `#{tab}` and `#{tab}/system/{id64}`. Sub-route is optional and works for every tab.
-- ✅ **Shared `<SystemTable>`** — common rendering layer for every "list of systems" feature with optional `onRowClick` for opening the detail modal.
-- ⏳ FC Planner / Colony Tracker: still vanilla.
+- ✅ **Pinned tab** — localStorage-backed shortlist, schema-compatible with the vanilla `ed_pinned` key. Export-as-JSON, clear-all, cross-tab sync.
+- ✅ **Compare tab** — up to 6 systems, matrix view with per-row winner highlighting, CSV export. Snapshot-based localStorage (`ed_compare_v2`).
+- ✅ **Optimizer tab** — 6 weight sliders + economy preference selector. Reranks current Finder results in place via `/api/ratings/rerank`, with original→reranked deltas.
+- ✅ **FC Planner tab** — Fleet Carrier route planner with autocomplete-driven waypoints, 4 config inputs (jump range, cargo, tritium/jump, tritium price), pure-client math (no backend call) for total LY / hops / tritium / cost / cargo trips. CSV export. localStorage persisted (`ed_fc_v2`).
+- ✅ **Colony Tracker tab** — localStorage-backed list of claimed systems (`ed_colony_v2`) with 4-state phase machine (planning / building / active / complete), per-row population progress bar, edit modal, CSV export, count badges per phase.
+- ✅ **System Detail Modal** — full-detail overlay (system info grid + 8 score bars + bodies table + stations table + exploration value + external links). Shares Watchlist / Pin / Compare hooks. **Deep-linkable**: `#tab/system/12345678`.
+- ✅ **Map tab** — pure-React 2-D galactic canvas (drag-pan, scroll-zoom, click-to-select, auto-fit).
+- ✅ **Admin tab** — token-gated ops console (sessionStorage). Live status auto-refresh + Clear cache + Rebuild clusters.
+- ✅ **Hash routing** — `#{tab}` and `#{tab}/system/{id64}`. Nine routes; sub-route works for every tab.
+- ✅ **Shared `<SystemTable>`** — Watchlist + Pinned. Row-click opens detail.
+
+```
+src/
+  App.tsx                           composition root + 9-tab layout + modal overlay
+  main.tsx                          bootstrap
+  components/
+    NavBar.tsx                      9 tabs + 5 count badges (watchlist/pinned/compare/fc/colony)
+    ResultCard.tsx                  search result row (live isPinned + isCompared)
+    SystemTable.tsx                 shared table + optional row-click → modal
+  features/
+    search/                         finder
+    watchlist/                      server-backed
+    pinned/                         localStorage (ed_pinned)
+    compare/                        localStorage (ed_compare_v2)
+    optimizer/                      POST /api/ratings/rerank
+    fc-planner/                     localStorage (ed_fc_v2), pure-client math
+    colony/                         localStorage (ed_colony_v2), phase state machine
+    admin/                          sessionStorage token + ops actions
+    system-detail/                  deep-linkable modal
+    map/                            galactic 2-D canvas
+  hooks/
+    useDebounced.ts
+    useHashRoute.ts                 ~90 LoC, supports `#tab/system/N` sub-route
+  lib/
+    api.ts                          typed fetch wrapper
+    format.ts                       pure formatters
+  types/
+    api.ts                          hand-maintained API types
+    api.gen.ts                      (generated — run `yarn types:gen`)
+```
 
 ```
 src/
@@ -195,18 +229,28 @@ snapshot.
 If we cross 200 KB gz total we should investigate code-splitting. Until then
 it's not worth the complexity.
 
-## Migration plan (if/when we go full)
+## Migration plan — DONE
 
 1. ✅ Scaffold + result-card POC.
 2. ✅ Search form + filters (left rail).
-3. ✅ Top tab bar + routing (`#finder`, `#watchlist`, `#pinned`, `#compare`, `#optimizer`, `#map`, `#admin` + sub-route `system/{id64}`).
-4. ✅ Watchlist / Pinned / Compare — all three share `<SystemTable>` (Compare uses its own matrix layout but shares `lib/format`).
+3. ✅ Top tab bar + routing (9 tabs + sub-route `system/{id64}`).
+4. ✅ Watchlist / Pinned / Compare — three share `<SystemTable>` (Compare uses its own matrix layout but shares `lib/format`).
 5. ✅ Map.
-6. ✅ System Detail Modal — deep-linkable from any tab; reuses the shared Watchlist/Pin/Compare hooks for its own action buttons.
+6. ✅ System Detail Modal — deep-linkable from any tab; reuses the shared Watchlist/Pin/Compare hooks.
 7. ✅ Optimizer + Admin.
-8. Once parity hit (FC Planner + Colony Tracker remain): nginx flips
-   root → v2; v1 lives at `/v1/` for one week as rollback insurance;
-   then deleted.
+8. ✅ FC Planner + Colony Tracker.
+9. **Parity flip → ready.** Recommended order:
+   ```
+   # 1. Build + ship the bundle
+   cd /opt/ed-finder/frontend-v2 && yarn install --frozen-lockfile && yarn build
+   sudo rsync -a --delete dist/ /var/www/html-v2/
 
-Estimated effort remaining: 1 week part-time. Two surfaces left:
-FC Planner (jump-range solver) and Colony Tracker (state machine).
+   # 2. nginx — flip root to v2, keep legacy reachable at /v1/
+   #    (edit /etc/nginx/conf.d/ed-finder.conf:
+   #     - location = / { return 302 /v2/; }
+   #     - location /v1/ { alias /var/www/html/; try_files $uri $uri/ /v1/index.html; }
+   #     - location /v2/ { alias /var/www/html-v2/; try_files $uri $uri/ /v2/index.html; })
+   sudo nginx -t && sudo systemctl reload nginx
+
+   # 3. After 1 week of uneventful traffic, delete /var/www/html and the /v1/ alias.
+   ```

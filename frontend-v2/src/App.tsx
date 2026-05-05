@@ -12,6 +12,10 @@ import { useCompare } from '@/features/compare/useCompare';
 import { CompareTab } from '@/features/compare/CompareTab';
 import { useOptimizer } from '@/features/optimizer/useOptimizer';
 import { OptimizerTab } from '@/features/optimizer/OptimizerTab';
+import { useColony } from '@/features/colony/useColony';
+import { ColonyTab } from '@/features/colony/ColonyTab';
+import { useFcPlanner } from '@/features/fc-planner/useFcPlanner';
+import { FcPlannerTab } from '@/features/fc-planner/FcPlannerTab';
 import { useAdmin } from '@/features/admin/useAdmin';
 import { AdminTab } from '@/features/admin/AdminTab';
 import { MapTab } from '@/features/map/MapTab';
@@ -34,6 +38,8 @@ export default function App() {
   const pinned    = usePinned();
   const compare   = useCompare();
   const optimizer = useOptimizer();
+  const colony    = useColony();
+  const fc        = useFcPlanner();
   const admin     = useAdmin();
   const [health, setHealth] = useState<string>('checking…');
 
@@ -54,6 +60,8 @@ export default function App() {
         watchlistCount={watchlist.entries.length}
         pinnedCount={pinned.entries.length}
         compareCount={compare.entries.length}
+        colonyCount={colony.counts.total}
+        fcCount={fc.waypoints.length}
         health={health}
       />
 
@@ -101,6 +109,14 @@ export default function App() {
           search={search}
           onOpenDetail={openSystem}
         />
+      )}
+
+      {route === 'fc' && (
+        <FcPlannerTab fc={fc} onOpenDetail={openSystem} />
+      )}
+
+      {route === 'colony' && (
+        <ColonyTab colony={colony} onOpenDetail={openSystem} />
       )}
 
       {route === 'admin' && (

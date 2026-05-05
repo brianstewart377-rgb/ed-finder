@@ -11,10 +11,14 @@ export interface NavBarProps {
   pinnedCount?:   number;
   /** Compare count badge — also local-storage backed. */
   compareCount?:  number;
+  /** Colony tracker count badge. */
+  colonyCount?:   number;
+  /** FC waypoint count badge. */
+  fcCount?:       number;
   health?:    string;
 }
 
-export function NavBar({ current, onNavigate, watchlistCount, pinnedCount, compareCount, health }: NavBarProps) {
+export function NavBar({ current, onNavigate, watchlistCount, pinnedCount, compareCount, colonyCount, fcCount, health }: NavBarProps) {
   return (
     <nav className="sticky top-0 z-20 -mx-4 sm:-mx-8 mb-6 px-4 sm:px-8 py-3 bg-bg1/85 backdrop-blur border-b border-border">
       <div className="max-w-7xl mx-auto flex items-center gap-3 sm:gap-6">
@@ -30,6 +34,10 @@ export function NavBar({ current, onNavigate, watchlistCount, pinnedCount, compa
           <Tab active={current === 'compare'}   onClick={() => onNavigate('compare')}   label="⚖️ Compare"   testid="nav-compare"
                badge={compareCount} />
           <Tab active={current === 'optimizer'} onClick={() => onNavigate('optimizer')} label="🎚️ Optimizer" testid="nav-optimizer" />
+          <Tab active={current === 'fc'}        onClick={() => onNavigate('fc')}        label="🚀 FC"        testid="nav-fc"
+               badge={fcCount} />
+          <Tab active={current === 'colony'}    onClick={() => onNavigate('colony')}    label="🏗️ Colony"    testid="nav-colony"
+               badge={colonyCount} />
           <Tab active={current === 'map'}       onClick={() => onNavigate('map')}       label="🗺️ Map"       testid="nav-map" />
           <Tab active={current === 'admin'}     onClick={() => onNavigate('admin')}     label="⚙️ Admin"      testid="nav-admin" />
         </div>
