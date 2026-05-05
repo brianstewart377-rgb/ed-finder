@@ -38,9 +38,12 @@ services:
         -c log_checkpoints=on
         -c log_connections=off
         -c log_disconnections=off
-        -c autovacuum_vacuum_scale_factor=0.05
+        -c autovacuum_vacuum_scale_factor=0.02
         -c autovacuum_analyze_scale_factor=0.02
-        -c autovacuum_max_workers=4
+        -c autovacuum_max_workers=6
+        -c autovacuum_naptime=15s
+        -c autovacuum_vacuum_cost_limit=5000
+        -c autovacuum_vacuum_cost_delay=2ms
         -c max_wal_size=32GB
         -c min_wal_size=4GB
         -c wal_compression=on

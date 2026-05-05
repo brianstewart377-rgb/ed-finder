@@ -26,10 +26,19 @@ CREATE TABLE IF NOT EXISTS profile_sync (
 -- Hard cap per slot: 1 MiB JSON. The realistic Pinned+Compare+FC+Colony
 -- payload is well under 100 KiB; 1 MiB is generous breathing room without
 -- letting accidents fill the disk.
-ALTER TABLE profile_sync
-  ADD CONSTRAINT profile_sync_blob_max_size
-  CHECK (blob_bytes <= 1048576) NOT VALID;
-ALTER TABLE profile_sync VALIDATE CONSTRAINT profile_sync_blob_max_size;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'profile_sync_blob_max_size'
+      AND conrelid = 'profile_sync'::regclass
+  ) THEN
+    ALTER TABLE profile_sync
+      ADD CONSTRAINT profile_sync_blob_max_size
+      CHECK (blob_bytes <= 1048576) NOT VALID;
+    ALTER TABLE profile_sync VALIDATE CONSTRAINT profile_sync_blob_max_size;
+  END IF;
+END $$;
 
 -- Updated-at index supports the future "list slots updated in the last N
 -- days" admin query.

@@ -1,7 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import { registerSW } from 'virtual:pwa-register';
 import './index.css';
 
 const rootEl = document.getElementById('root');
@@ -15,16 +14,27 @@ createRoot(rootEl).render(
   </StrictMode>,
 );
 
-// Service worker registration. autoUpdate mode means new builds replace
-// the cached bundle on next reload. We pass an `onNeedRefresh` handler so
-// users can opt to refresh immediately when an update is detected — but
-// keep it lightweight (a console hint) to avoid surprising prompts.
-registerSW({
-  immediate: true,
-  onNeedRefresh: () => {
-    console.info('[ED:Finder] Update available — reload to apply.');
-  },
-  onOfflineReady: () => {
-    console.info('[ED:Finder] Ready to work offline.');
-  },
-});
+// Service worker registration. vite-plugin-pwa emits /v2/sw.js at build time;
+// we register it manually here (avoids the virtual:pwa-register module which
+// has a known resolution issue in some yarn-classic + vite 6 setups).
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/v2/sw.js', { scope: '/v2/' })
+      .then(reg => {
+        // Auto-detect updates roughly every hour.
+        setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+        reg.addEventListener('updatefound', () => {
+          const sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener('statechange', () => {
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+              console.info('[ED:Finder] Update available — reload to apply.');
+            }
+          });
+        });
+        console.info('[ED:Finder] Service worker registered for /v2/.');
+      })
+      .catch(err => console.warn('[ED:Finder] SW registration failed:', err));
+  });
+}

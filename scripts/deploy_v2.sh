@@ -60,15 +60,15 @@ say "git: fetching origin and checking out $BRANCH"
 cd "$REPO_DIR"
 git fetch origin --tags
 git checkout "$BRANCH"
-git reset --hard "origin/$BRANCH"
+# git reset --hard "origin/$BRANCH"  # disabled: preserves local docker-compose tuning
 ok "on $(git --no-pager log -1 --oneline)"
 
 # ── 2. Apply DB migration 007 (idempotent: CREATE TABLE IF NOT EXISTS) ─
 say "DB migration: profile_sync table"
 docker compose exec -T postgres psql -U edfinder -d edfinder \
   -v ON_ERROR_STOP=1 \
-  -f /sql/007_profile_sync.sql \
-  || die "migration 007 failed — check sql/007_profile_sync.sql is mounted at /sql"
+  < sql/007_profile_sync.sql \
+  || die "migration 007 failed — see docker compose logs postgres"
 ok "migration 007 applied"
 
 # ── 3. Frontend: install + (test) + build ───────────────────────────────
