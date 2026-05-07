@@ -34,47 +34,47 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
   const sourceById = new Map(search.results.map((s) => [s.id64, s] as const));
 
   return (
-    <section data-testid="optimizer-tab" className="space-y-6">
-      <header className="flex flex-wrap items-center gap-3">
-        <h2 className="font-mono text-orange tracking-wider text-lg">🎚️ Optimizer</h2>
-        <span className="font-mono text-xs text-text-dim">
+    <section data-testid="optimizer-tab" className="space-y-5">
+      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
+        <h2 className="font-display text-orange tracking-[0.14em] text-lg">🎚️ Optimizer</h2>
+        <span className="font-mono text-xs text-silver-dk">
           re-weight rating dimensions and rerank current Finder results
         </span>
       </header>
 
       <div className="grid lg:grid-cols-[360px_1fr] gap-6">
         {/* ─── Controls ───────────────────────────────────────────────── */}
-        <aside className="space-y-4 rounded border border-border p-4 lg:sticky lg:top-20 lg:self-start">
+        <aside className="panel space-y-4 p-5 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
           <SourceBadge count={sourceCount} />
 
           <div>
-            <label className="block font-mono text-[11px] text-text-dim uppercase tracking-wider mb-1">
+            <label className="block font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em] mb-1">
               Economy preference
             </label>
             <select
               value={economy ?? ''}
               onChange={(e) => setEconomy((e.target.value || null) as never)}
               data-testid="optimizer-economy"
-              className="w-full bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+              className="w-full font-mono text-xs"
             >
               <option value="">Auto (per-row stored suggestion)</option>
               {ECONOMIES.map((eco) => (
                 <option key={eco} value={eco}>{eco}</option>
               ))}
             </select>
-            <p className="text-[10px] text-text-dim mt-1">
+            <p className="text-[10px] text-silver-dk mt-1">
               Drives the &ldquo;Economy&rdquo; weight column for every row.
             </p>
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between font-mono text-[11px] text-text-dim uppercase tracking-wider">
+            <div className="flex items-center justify-between font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em]">
               <span>Weights</span>
               <button
                 type="button"
                 onClick={resetWeights}
                 data-testid="optimizer-weights-reset"
-                className="normal-case tracking-normal text-text-dim hover:text-orange"
+                className="normal-case tracking-normal text-silver-dk hover:text-orange-lt"
               >
                 ↺ Reset to v3.1 defaults
               </button>
@@ -90,9 +90,9 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
               />
             ))}
             <div className={[
-              'rounded border p-2 font-mono text-[11px] flex items-center justify-between',
-              sumOk ? 'border-green/40 bg-green/5 text-green'
-                    : 'border-gold/40  bg-gold/5  text-gold',
+              'rounded-chunk-sm border p-2 font-mono text-[11px] flex items-center justify-between',
+              sumOk ? 'border-green/40 bg-green/10 text-green'
+                    : 'border-gold/40  bg-gold/10  text-gold',
             ].join(' ')}>
               <span>Sum: {weightSum.toFixed(2)}</span>
               <span className="text-[10px] opacity-80">
@@ -107,17 +107,17 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
             onClick={() => void run(search.results)}
             data-testid="optimizer-run"
             className={[
-              'w-full px-3 py-2 rounded font-mono text-sm border transition-colors',
+              'w-full',
               sourceCount === 0 || state.kind === 'busy'
-                ? 'bg-bg4 border-border text-text-dim opacity-60 cursor-not-allowed'
-                : 'bg-orange text-bg1 border-orange hover:bg-orange-dk',
+                ? 'btn-metal opacity-60 cursor-not-allowed'
+                : 'btn-primary',
             ].join(' ')}
           >
             {state.kind === 'busy' ? '⟳ Reranking…' : '▶ Rerank'}
           </button>
 
           {state.kind === 'err' && (
-            <div className="rounded border border-red/50 bg-red/10 p-2 font-mono text-xs text-red flex items-start gap-2">
+            <div className="panel-thin border-red/50 p-2 font-mono text-xs text-red flex items-start gap-2" style={{ background: 'rgba(248,113,113,0.10)' }}>
               <span>{state.message}</span>
               <button onClick={resetState} className="ml-auto text-red/70 hover:text-red" aria-label="Dismiss">✕</button>
             </div>
@@ -154,9 +154,9 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
 function SourceBadge({ count }: { count: number }) {
   return (
     <div className={[
-      'rounded p-2 border font-mono text-[11px]',
-      count > 0 ? 'border-cyan/40 bg-cyan/5 text-cyan'
-                : 'border-red/40  bg-red/5  text-red',
+      'rounded-chunk-sm p-2.5 border font-mono text-[11px]',
+      count > 0 ? 'border-cyan/40 bg-cyan/10 text-cyan'
+                : 'border-red/40  bg-red/10  text-red',
     ].join(' ')}>
       Source: {count} system{count === 1 ? '' : 's'} from current Finder results
     </div>
@@ -170,8 +170,8 @@ function WeightSlider({ label, hint, value, onChange, testid }: {
   return (
     <div className="space-y-0.5">
       <div className="flex items-center justify-between font-mono text-[11px]">
-        <span className="text-text" title={hint}>{label}</span>
-        <span className="text-orange tabular-nums">{value.toFixed(2)}</span>
+        <span className="text-silver" title={hint}>{label}</span>
+        <span className="text-orange-lt tabular-nums">{value.toFixed(2)}</span>
       </div>
       <input
         type="range"
@@ -179,7 +179,7 @@ function WeightSlider({ label, hint, value, onChange, testid }: {
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         data-testid={testid}
-        className="w-full accent-orange"
+        className="w-full"
       />
     </div>
   );
@@ -214,33 +214,38 @@ function ResultsList({
             data-testid={`optimizer-row-${r.id64}`}
             onClick={onOpenDetail ? () => onOpenDetail(r.id64) : undefined}
             className={[
-              'rounded border border-border p-3 grid grid-cols-[40px_1fr_120px_140px] gap-3 items-center text-sm font-mono',
-              onOpenDetail ? 'hover:bg-bg3/40 cursor-pointer transition-colors' : '',
+              'panel-thin p-3 grid grid-cols-[40px_1fr_120px_140px] gap-3 items-center text-sm font-mono',
+              onOpenDetail ? 'hover:border-orange/40 cursor-pointer transition-all' : '',
             ].join(' ')}
           >
-            <span className="text-text-dim text-xs tabular-nums text-right">#{idx + 1}</span>
+            <span className="text-silver-dk text-xs tabular-nums text-right">#{idx + 1}</span>
             <div className="min-w-0">
-              <div className="text-orange font-bold truncate">
+              <div className="text-orange-lt font-bold truncate">
                 {src?.name ?? `id ${r.id64}`}
               </div>
               {r.rationale && (
-                <div className="text-[11px] text-text-dim italic truncate">
+                <div className="text-[11px] text-silver-dk italic truncate">
                   {r.rationale}
                 </div>
               )}
             </div>
-            <div className="text-[11px] text-text-dim">
-              {r.economy_used ? <span className="text-orange">{r.economy_used}</span> : '—'}
+            <div className="text-[11px] text-silver-dk">
+              {r.economy_used ? <span className="text-orange-lt">{r.economy_used}</span> : '—'}
               {r.confidence != null && (
-                <span className="ml-2 text-text-dim">
+                <span className="ml-2 text-silver-dk">
                   conf {Math.round(r.confidence * 100)}%
                 </span>
               )}
             </div>
             <div className="flex items-center gap-2 justify-end">
               <span
-                className="px-2 py-0.5 rounded border text-[11px] font-bold tabular-nums"
-                style={{ borderColor: tier.fillColor, color: tier.fillColor, backgroundColor: `${tier.fillColor}22` }}
+                className="px-2.5 py-1 rounded-chunk-sm border text-[11px] font-bold tabular-nums"
+                style={{
+                  borderColor: tier.fillColor,
+                  color: tier.fillColor,
+                  background: `linear-gradient(180deg, ${tier.fillColor}33, ${tier.fillColor}11)`,
+                  boxShadow: `0 0 12px -4px ${tier.fillColor}66`,
+                }}
               >
                 {r.reranked_score}
               </span>
@@ -268,10 +273,10 @@ function EmptyState({ icon, title, hint }: {
   icon: string; title: string; hint: string;
 }) {
   return (
-    <div className="text-center py-16 px-4 rounded border border-dashed border-border">
+    <div className="panel-thin text-center py-16 px-4">
       <div className="text-3xl mb-2" aria-hidden>{icon}</div>
-      <h3 className="font-mono text-orange text-sm mb-1">{title}</h3>
-      <p className="text-text-dim text-xs max-w-sm mx-auto">{hint}</p>
+      <h3 className="font-display text-orange text-sm tracking-wider mb-1">{title}</h3>
+      <p className="text-silver-dk text-xs max-w-sm mx-auto">{hint}</p>
     </div>
   );
 }

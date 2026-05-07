@@ -20,6 +20,7 @@ import { useAdmin } from '@/features/admin/useAdmin';
 import { AdminTab } from '@/features/admin/AdminTab';
 import { MapTab } from '@/features/map/MapTab';
 import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
+import { EddnTicker } from '@/features/eddn/EddnTicker';
 import { useHashRoute } from '@/hooks/useHashRoute';
 import './index.css';
 
@@ -53,7 +54,7 @@ export default function App() {
   }, []);
 
   return (
-    <main className="min-h-screen px-4 py-6 sm:px-8 sm:py-10 max-w-7xl mx-auto">
+    <main className="min-h-screen px-4 py-6 sm:px-6 sm:py-10 pb-28 max-w-[1840px] mx-auto">
       <NavBar
         current={route}
         onNavigate={navigate}
@@ -222,6 +223,8 @@ export default function App() {
           )}
         />
       )}
+
+      <EddnTicker onOpenSystem={openSystem} />
     </main>
   );
 }
@@ -293,15 +296,17 @@ function FinderView({
   const { filters, setFilters, reset, run, state, results } = search;
 
   return (
-    <div className="grid lg:grid-cols-[320px_1fr] gap-6">
-      <aside className="lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-auto">
-        <SearchForm
-          filters={filters}
-          onChange={setFilters}
-          onSubmit={() => void run()}
-          onReset={reset}
-          loading={state.kind === 'loading'}
-        />
+    <div className="grid lg:grid-cols-[340px_1fr] gap-6">
+      <aside className="panel overflow-hidden lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-11rem)] flex flex-col">
+        <div className="overflow-y-auto flex-1 p-1">
+          <SearchForm
+            filters={filters}
+            onChange={setFilters}
+            onSubmit={() => void run()}
+            onReset={reset}
+            loading={state.kind === 'loading'}
+          />
+        </div>
       </aside>
 
       <section data-testid="results-panel">

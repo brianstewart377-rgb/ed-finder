@@ -61,15 +61,21 @@ export function SystemTable({
   rows, columns, timestampLabel = 'Added', renderActions, rowTestIdPrefix, onRowClick,
 }: SystemTableProps) {
   return (
-    <div className="overflow-x-auto rounded-md border border-border">
+    <div className="overflow-x-auto rounded-chunk-lg border border-border" style={{
+      background: 'linear-gradient(180deg, rgba(20,22,26,0.85), rgba(14,16,20,0.85))',
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -16px rgba(0,0,0,0.6)',
+    }}>
       <table className="w-full text-sm font-mono">
-        <thead className="bg-bg3/60 text-text-dim text-[11px] uppercase tracking-wider">
+        <thead className="text-silver-dk text-[10px] uppercase tracking-[0.16em]" style={{
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
+          borderBottom: '1px solid hsl(216 10% 24%)',
+        }}>
           <tr>
             {columns.map((col) => (
               <th
                 key={col}
                 className={[
-                  'px-3 py-2',
+                  'px-3 py-2.5',
                   col === 'coords' || col === 'population' || col === 'distanceRef' || col === 'timestamp'
                     ? 'text-right'
                     : col === 'score'
@@ -81,7 +87,7 @@ export function SystemTable({
               </th>
             ))}
             {renderActions && (
-              <th className="px-3 py-2 text-right">Actions</th>
+              <th className="px-3 py-2.5 text-right">Actions</th>
             )}
           </tr>
         </thead>
@@ -92,7 +98,7 @@ export function SystemTable({
               data-testid={rowTestIdPrefix ? `${rowTestIdPrefix}${row.id64}` : undefined}
               onClick={onRowClick ? () => onRowClick(row.id64) : undefined}
               className={[
-                'border-t border-border hover:bg-bg3/40',
+                'border-t border-border/50 hover:bg-orange/5 transition-colors',
                 onRowClick ? 'cursor-pointer' : '',
               ].join(' ')}
             >

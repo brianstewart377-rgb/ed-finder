@@ -48,21 +48,20 @@ export function WatchlistTab({
   }));
 
   return (
-    <section data-testid="watchlist-tab" className="space-y-4">
-      <header className="flex flex-wrap items-center gap-3">
-        <h2 className="font-mono text-orange tracking-wider text-lg">
+    <section data-testid="watchlist-tab" className="space-y-5">
+      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
+        <h2 className="font-display text-orange tracking-[0.14em] text-lg">
           👁️ Watchlist
         </h2>
-        <span className="font-mono text-xs text-text-dim">
+        <span className="font-mono text-xs text-silver-dk">
           {entries.length} system{entries.length === 1 ? '' : 's'}
         </span>
         <span className="flex-1" />
-        <label className="font-mono text-[11px] text-text-dim">
-          Sort:&nbsp;
+        <label className="font-mono text-[11px] text-silver-dk flex items-center gap-2">
+          Sort:
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as Sort)}
-            className="bg-bg4 border border-border rounded px-2 py-0.5 text-text"
           >
             <option value="added">Recently added</option>
             <option value="name">Name</option>
@@ -74,29 +73,29 @@ export function WatchlistTab({
           type="button"
           onClick={() => void onRefresh()}
           data-testid="watchlist-refresh"
-          className="px-2 py-1 rounded bg-bg4 border border-border font-mono text-[11px] text-text-dim hover:text-orange hover:border-orange-dk transition-colors"
+          className="btn-metal text-[11px] py-1.5 px-3"
         >
           ↺ Refresh
         </button>
       </header>
 
       {error && (
-        <div className="rounded border border-red/50 bg-red/10 p-3 font-mono text-xs text-red">
+        <div className="panel-thin border-red/50 p-3 font-mono text-xs text-red" style={{ background: 'rgba(248,113,113,0.10)' }}>
           {error}
         </div>
       )}
 
       {loading && entries.length === 0 && (
-        <div className="text-text-dim font-mono text-sm py-12 text-center">
+        <div className="text-silver-dk font-mono text-sm py-12 text-center">
           Loading watchlist…
         </div>
       )}
 
       {!loading && entries.length === 0 && (
-        <div className="text-center py-16 px-4 rounded border border-dashed border-border">
+        <div className="panel-thin text-center py-16 px-4">
           <div className="text-3xl mb-2" aria-hidden>👁️</div>
-          <h3 className="font-mono text-orange text-sm mb-1">No systems watched yet</h3>
-          <p className="text-text-dim text-xs max-w-sm mx-auto">
+          <h3 className="font-display text-orange text-sm tracking-wider mb-1">No systems watched yet</h3>
+          <p className="text-silver-dk text-xs max-w-sm mx-auto">
             Click 👁️ Watch on any system in the Finder tab to keep an eye on it here.
           </p>
         </div>
@@ -115,7 +114,7 @@ export function WatchlistTab({
                 <button
                   type="button"
                   onClick={() => onShowOnMap(row.id64)}
-                  className="px-2 py-0.5 rounded bg-bg4 border border-border text-[10px] text-text-dim hover:text-orange hover:border-orange-dk"
+                  className="btn-metal text-[10px] py-1 px-2"
                   title="Show on map"
                 >
                   🗺️
@@ -125,7 +124,7 @@ export function WatchlistTab({
                 type="button"
                 onClick={() => void onRemove(row.id64)}
                 data-testid={`watchlist-remove-${row.id64}`}
-                className="px-2 py-0.5 rounded bg-red/10 border border-red/40 text-[10px] text-red hover:bg-red/20"
+                className="text-[10px] py-1 px-2 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20"
               >
                 ✕ Remove
               </button>

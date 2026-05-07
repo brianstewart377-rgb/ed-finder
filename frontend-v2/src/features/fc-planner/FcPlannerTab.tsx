@@ -15,10 +15,10 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
   const showSummary = waypoints.length >= 2 && route.legs.some((l) => l.distance_ly !== null);
 
   return (
-    <section data-testid="fc-tab" className="space-y-4">
-      <header className="flex flex-wrap items-center gap-3">
-        <h2 className="font-mono text-orange tracking-wider text-lg">🚀 FC Route Planner</h2>
-        <span className="font-mono text-xs text-text-dim">
+    <section data-testid="fc-tab" className="space-y-5">
+      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
+        <h2 className="font-display text-orange tracking-[0.14em] text-lg">🚀 FC Route Planner</h2>
+        <span className="font-mono text-xs text-silver-dk">
           Tritium / hop / cost calculator for Fleet Carrier journeys
         </span>
         <span className="flex-1" />
@@ -27,7 +27,7 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
           onClick={exportCsv}
           disabled={waypoints.length === 0}
           data-testid="fc-export"
-          className="px-2 py-1 rounded bg-bg4 border border-border font-mono text-[11px] text-text-dim hover:text-orange hover:border-orange-dk disabled:opacity-40 disabled:cursor-not-allowed"
+          className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           ⬇ Export CSV
         </button>
@@ -39,14 +39,14 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
           }}
           disabled={waypoints.length === 0}
           data-testid="fc-clear"
-          className="px-2 py-1 rounded bg-red/10 border border-red/40 font-mono text-[11px] text-red hover:bg-red/20 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           ✕ Clear
         </button>
       </header>
 
       {/* Config row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded border border-border p-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 panel-thin p-4">
         <ConfigInput
           label="Jump range (LY)"
           value={config.jump_range_ly}
@@ -78,8 +78,8 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
       </div>
 
       {/* Waypoint entry */}
-      <div className="rounded border border-border p-3 space-y-2 relative">
-        <label className="font-mono text-[11px] text-text-dim uppercase tracking-wider block">
+      <div className="panel-thin p-4 space-y-2 relative">
+        <label className="font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em] block">
           Add waypoint
         </label>
         <div className="flex gap-2">
@@ -90,7 +90,7 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
             data-testid="fc-input"
             placeholder="System name…"
             autoComplete="off"
-            className="flex-1 bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+            className="flex-1 font-mono text-xs"
           />
           <button
             type="button"
@@ -101,14 +101,14 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
             }}
             disabled={!query.trim()}
             data-testid="fc-add-blind"
-            className="px-3 py-1 rounded bg-bg4 border border-border font-mono text-xs text-text-dim hover:text-orange hover:border-orange-dk disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
             title="Add by name (coords resolved later)"
           >
             ➕ Add as-is
           </button>
         </div>
         {hits.length > 0 && (
-          <ul className="absolute left-3 right-3 z-10 mt-1 max-h-60 overflow-y-auto rounded border border-border bg-bg2 shadow-2xl">
+          <ul className="absolute left-3 right-3 z-10 mt-1 max-h-60 overflow-y-auto panel">
             {hits.map((h) => (
               <li key={h.id64}>
                 <button
@@ -118,10 +118,10 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
                     setQuery('');
                   }}
                   data-testid={`fc-add-hit-${h.id64}`}
-                  className="w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-bg3"
+                  className="w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-orange/10 transition-colors"
                 >
-                  <span className="text-orange">{h.name}</span>
-                  <span className="text-text-dim text-[10px] ml-2">
+                  <span className="text-orange-lt">{h.name}</span>
+                  <span className="text-silver-dk text-[10px] ml-2">
                     {h.x.toFixed(0)}, {h.y.toFixed(0)}, {h.z.toFixed(0)}
                   </span>
                 </button>
@@ -129,7 +129,7 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
             ))}
           </ul>
         )}
-        <p className="text-[10px] text-text-dim">
+        <p className="text-[10px] text-silver-dk">
           Pick from autocomplete to grab coords automatically. Blind-adds get
           included in the route once you re-enter them with autocomplete.
         </p>
@@ -147,7 +147,7 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
       )}
 
       {route.missing_coord_names.length > 0 && (
-        <div className="rounded border border-gold/40 bg-gold/10 p-2 font-mono text-xs text-gold">
+        <div className="panel-thin border-gold/40 p-2.5 font-mono text-xs text-gold" style={{ background: 'rgba(251,191,36,0.10)' }}>
           ⚠ Coords missing for: {route.missing_coord_names.join(', ')}.
           Re-add them via autocomplete to include in the calculation.
         </div>
@@ -155,10 +155,10 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
 
       {/* Hop list */}
       {waypoints.length === 0 ? (
-        <div className="text-center py-12 px-4 rounded border border-dashed border-border">
+        <div className="panel-thin text-center py-12 px-4">
           <div className="text-3xl mb-2" aria-hidden>🚀</div>
-          <h3 className="font-mono text-orange text-sm mb-1">No waypoints yet</h3>
-          <p className="text-text-dim text-xs">
+          <h3 className="font-display text-orange text-sm tracking-wider mb-1">No waypoints yet</h3>
+          <p className="text-silver-dk text-xs">
             Type a system name above and pick from the autocomplete.
           </p>
         </div>
@@ -172,9 +172,9 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
               <li
                 key={wp.id}
                 data-testid={`fc-wp-${wp.id}`}
-                className="rounded border border-border p-2 grid grid-cols-[40px_1fr_auto_auto] items-center gap-2 bg-bg3/30"
+                className="panel-thin p-3 grid grid-cols-[44px_1fr_auto_auto] items-center gap-2.5 hover:border-orange/40 transition-colors"
               >
-                <span className="text-text-dim text-[11px] font-mono tabular-nums text-right">
+                <span className="text-silver-dk text-[11px] font-mono tabular-nums text-right">
                   {i + 1}.
                 </span>
                 <div className="min-w-0">
@@ -183,17 +183,17 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
                       <button
                         type="button"
                         onClick={() => onOpenDetail(wp.id64!)}
-                        className="font-mono text-orange font-bold hover:underline truncate"
+                        className="font-mono text-orange-lt font-bold hover:underline truncate"
                       >
                         {wp.name}
                       </button>
                     )
                     : (
-                      <span className="font-mono text-orange font-bold truncate">{wp.name}</span>
+                      <span className="font-mono text-orange-lt font-bold truncate">{wp.name}</span>
                     )
                   }
                   {leg && leg.distance_ly !== null && (
-                    <span className="ml-2 text-[10px] font-mono text-text-dim tabular-nums">
+                    <span className="ml-2 text-[10px] font-mono text-silver-dk tabular-nums">
                       ← {leg.distance_ly.toFixed(1)} LY · {leg.hops}h · {leg.tritium_t}t
                     </span>
                   )}
@@ -201,7 +201,7 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
                     <span className="ml-2 text-[10px] font-mono text-gold">⚠ no coords</span>
                   )}
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-1.5">
                   <IconBtn
                     label="▲"
                     disabled={isFirst}
@@ -219,7 +219,7 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
                   type="button"
                   onClick={() => remove(wp.id)}
                   data-testid={`fc-remove-${wp.id}`}
-                  className="px-2 py-0.5 rounded bg-red/10 border border-red/40 text-red text-[10px] font-mono hover:bg-red/20"
+                  className="px-2.5 py-1 rounded-chunk-sm bg-red/10 border border-red/40 text-red text-[10px] font-mono hover:bg-red/20 transition-colors"
                 >
                   ✕
                 </button>
@@ -244,7 +244,7 @@ function ConfigInput({
 }) {
   return (
     <label className="block">
-      <span className="block font-mono text-[11px] text-text-dim uppercase tracking-wider mb-1">
+      <span className="block font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em] mb-1.5">
         {label}
       </span>
       <input
@@ -257,7 +257,7 @@ function ConfigInput({
           if (Number.isFinite(n)) onChange(n);
         }}
         data-testid={testid}
-        className="w-full bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs tabular-nums"
+        className="w-full font-mono text-xs tabular-nums"
       />
     </label>
   );
@@ -267,18 +267,27 @@ function SummaryStat({ label, value, highlight }: {
   label: string; value: string; highlight?: boolean;
 }) {
   return (
-    <div className={[
-      'rounded p-2 border text-center',
-      highlight ? 'border-orange/50 bg-orange/10 text-orange'
-                : 'border-border bg-bg3/40',
-    ].join(' ')}>
+    <div
+      className={[
+        'rounded-chunk-sm p-3 text-center transition-colors',
+        highlight
+          ? 'border border-orange/55 text-orange'
+          : 'panel-thin',
+      ].join(' ')}
+      style={highlight
+        ? {
+            background: 'linear-gradient(180deg, rgba(255,122,20,0.18) 0%, rgba(255,122,20,0.06) 100%)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 0 18px -8px rgba(255,122,20,0.55)',
+          }
+        : undefined}
+    >
       <div className={[
-        'tabular-nums font-bold text-base',
-        highlight ? 'text-orange' : 'text-text',
+        'tabular-nums font-bold text-base font-display',
+        highlight ? 'text-orange-lt' : 'text-silver',
       ].join(' ')}>
         {value}
       </div>
-      <div className="text-text-dim uppercase tracking-wider text-[10px]">
+      <div className="text-silver-dk uppercase tracking-[0.16em] text-[10px] mt-0.5">
         {label}
       </div>
     </div>
@@ -294,7 +303,7 @@ function IconBtn({ label, disabled, onClick, testid }: {
       onClick={onClick}
       disabled={disabled}
       data-testid={testid}
-      className="w-6 h-6 rounded border border-border bg-bg4 text-text-dim text-[10px] font-mono hover:text-orange hover:border-orange-dk disabled:opacity-30 disabled:cursor-not-allowed"
+      className="w-7 h-7 rounded-chunk-sm border border-border bg-gradient-to-b from-bg4 to-bg3 text-silver-dk text-[11px] font-mono hover:text-orange-lt hover:border-orange-dk transition-colors disabled:opacity-30 disabled:cursor-not-allowed shadow-metal"
     >
       {label}
     </button>

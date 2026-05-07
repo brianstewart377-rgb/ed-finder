@@ -74,10 +74,18 @@ export function GalacticMap({
     const wx = (x: number) => (x - view.cx) * view.scale + w / 2;
     const wz = (z: number) => -(z - view.cz) * view.scale + h / 2;
 
+    // ── Backdrop — gunmetal radial fade ─────────────────────────────
+    const grd = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
+    grd.addColorStop(0,   'hsl(218 11% 14%)');
+    grd.addColorStop(0.6, 'hsl(220 12% 8%)');
+    grd.addColorStop(1,   'hsl(222 14% 5%)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, w, h);
+
     // Background grid every 10 LY at scales > 2 px/LY
     if (view.scale >= 2) {
       const step = 10;
-      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      ctx.strokeStyle = 'rgba(200,204,209,0.06)';   // silver-dim
       ctx.lineWidth = 1;
       const left = view.cx - w / 2 / view.scale;
       const right = view.cx + w / 2 / view.scale;
@@ -93,17 +101,37 @@ export function GalacticMap({
       ctx.stroke();
     }
 
-    // Reference cross-hair
-    ctx.strokeStyle = 'rgba(255,106,0,0.5)';
-    ctx.lineWidth = 1;
+    // ── Reference cross-hair (orange glow ring) ─────────────────────
     const rx = wx(reference.x);
     const rz = wz(reference.z);
+
+    // outer pulse ring
+    ctx.strokeStyle = 'rgba(255,122,20,0.20)';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(rx - 12, rz); ctx.lineTo(rx + 12, rz);
-    ctx.moveTo(rx, rz - 12); ctx.lineTo(rx, rz + 12);
+    ctx.arc(rx, rz, 22, 0, Math.PI * 2);
     ctx.stroke();
-    // Reference diamond
-    ctx.fillStyle = '#ff6a00';
+    ctx.strokeStyle = 'rgba(255,122,20,0.45)';
+    ctx.beginPath();
+    ctx.arc(rx, rz, 14, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // crosshair
+    ctx.strokeStyle = 'rgba(255,122,20,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(rx - 18, rz); ctx.lineTo(rx - 8, rz);
+    ctx.moveTo(rx + 8,  rz); ctx.lineTo(rx + 18, rz);
+    ctx.moveTo(rx, rz - 18); ctx.lineTo(rx, rz - 8);
+    ctx.moveTo(rx, rz + 8);  ctx.lineTo(rx, rz + 18);
+    ctx.stroke();
+
+    // brushed-chrome diamond core
+    const diamondGrad = ctx.createLinearGradient(rx - 6, rz - 6, rx + 6, rz + 6);
+    diamondGrad.addColorStop(0, '#ffb074');
+    diamondGrad.addColorStop(0.5, '#ff7a14');
+    diamondGrad.addColorStop(1, '#a13e00');
+    ctx.fillStyle = diamondGrad;
     ctx.beginPath();
     ctx.moveTo(rx, rz - 6);
     ctx.lineTo(rx + 6, rz);
@@ -111,41 +139,74 @@ export function GalacticMap({
     ctx.lineTo(rx - 6, rz);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = '#ff6a00';
-    ctx.font = '10px ui-monospace, monospace';
-    ctx.fillText(reference.name, rx + 8, rz - 8);
+    ctx.strokeStyle = '#ffb074';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
-    // Systems
+    ctx.fillStyle = '#ffb074';
+    ctx.font = '600 11px Orbitron, ui-monospace, monospace';
+    ctx.fillText(reference.name.toUpperCase(), rx + 14, rz - 10);
+
+    // ── Systems ─────────────────────────────────────────────────────
     for (const sys of systems) {
       if (!sys.coords) continue;
       const px = wx(sys.coords.x);
       const py = wz(sys.coords.z);
       if (px < -10 || py < -10 || px > w + 10 || py > h + 10) continue;
       const tier = ratingTier(sys._rating?.score ?? null);
-      const r = sys.id64 === selectedId64 ? 6 : 3;
+      const isSel = sys.id64 === selectedId64;
+      const r = isSel ? 6 : 3;
+
+      // soft halo behind every star
+      const haloGrad = ctx.createRadialGradient(px, py, 0, px, py, r * 4);
+      haloGrad.addColorStop(0, `${tier.fillColor}66`);
+      haloGrad.addColorStop(1, `${tier.fillColor}00`);
+      ctx.fillStyle = haloGrad;
+      ctx.beginPath();
+      ctx.arc(px, py, r * 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // star core
       ctx.fillStyle = tier.fillColor;
-      ctx.globalAlpha = 0.85;
+      ctx.globalAlpha = 0.95;
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fill();
-      if (sys.id64 === selectedId64) {
+
+      if (isSel) {
         ctx.globalAlpha = 1;
-        ctx.strokeStyle = '#ff6a00';
+        ctx.strokeStyle = '#ff7a14';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(px, py, r + 3, 0, Math.PI * 2);
+        ctx.arc(px, py, r + 4, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
     }
 
-    // HUD: scale indicator
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.font = '11px ui-monospace, monospace';
+    // ── HUD: scale indicator + scale bar ────────────────────────────
+    ctx.fillStyle = 'rgba(200,204,209,0.65)';   // silver-dk
+    ctx.font = '600 11px JetBrains Mono, ui-monospace, monospace';
     ctx.fillText(
-      `${systems.length} systems · ${view.scale.toFixed(1)} px/LY`,
-      8, h - 8,
+      `${systems.length} SYSTEMS · ${view.scale.toFixed(1)} PX/LY`,
+      10, h - 10,
     );
+    // 50-LY scale bar
+    const barLy = view.scale > 4 ? 10 : view.scale > 1 ? 50 : 200;
+    const barPx = barLy * view.scale;
+    if (barPx > 12 && barPx < w * 0.4) {
+      const bx = w - 16 - barPx;
+      const by = h - 16;
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);          ctx.lineTo(bx + barPx, by);
+      ctx.moveTo(bx, by - 4);      ctx.lineTo(bx, by + 4);
+      ctx.moveTo(bx + barPx, by - 4); ctx.lineTo(bx + barPx, by + 4);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(200,204,209,0.65)';
+      ctx.fillText(`${barLy} LY`, bx, by - 8);
+    }
   }, [systems, view, reference.x, reference.z, reference.name, selectedId64]);
 
   // ── Pointer handlers ───────────────────────────────────────────────
@@ -192,11 +253,17 @@ export function GalacticMap({
   };
 
   return (
-    <div className="relative h-[calc(100vh-12rem)] min-h-[400px] rounded-md border border-border overflow-hidden">
+    <div
+      className="relative h-[calc(100vh-14rem)] min-h-[400px] rounded-chunk-lg overflow-hidden"
+      style={{
+        border: '1px solid hsl(216 10% 24%)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 40px -16px rgba(0,0,0,0.85)',
+      }}
+    >
       <canvas
         ref={canvasRef}
         data-testid="galactic-map-canvas"
-        className="w-full h-full bg-bg2 cursor-grab active:cursor-grabbing"
+        className="w-full h-full cursor-grab active:cursor-grabbing"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -210,13 +277,22 @@ export function GalacticMap({
 
 function Legend() {
   return (
-    <div className="absolute top-2 right-2 px-2 py-1.5 rounded bg-bg3/80 backdrop-blur border border-border font-mono text-[10px] space-y-0.5">
-      <div className="text-text-dim mb-0.5">Score</div>
+    <div
+      className="absolute top-3 right-3 px-3 py-2 rounded-chunk-sm font-mono text-[10px] space-y-0.5"
+      style={{
+        background: 'linear-gradient(180deg, rgba(28, 31, 36, 0.85), rgba(18, 20, 24, 0.85))',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
+        border: '1px solid hsl(216 10% 24%)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px -16px rgba(0,0,0,0.6)',
+      }}
+    >
+      <div className="font-display text-orange uppercase tracking-[0.18em] text-[10px] mb-1">Score</div>
       <LegendRow label="80+ Excellent" color="#3ddc84" />
       <LegendRow label="60-79 Good"    color="#facc15" />
-      <LegendRow label="40-59 OK"      color="#ff6a00" />
+      <LegendRow label="40-59 OK"      color="#ff7a14" />
       <LegendRow label="< 40 Poor"     color="#ef4444" />
-      <LegendRow label="No rating"     color="#666666" />
+      <LegendRow label="No rating"     color="#8a8f96" />
     </div>
   );
 }
@@ -226,9 +302,9 @@ function LegendRow({ label, color }: { label: string; color: string }) {
     <div className="flex items-center gap-1.5">
       <span
         className="inline-block w-2.5 h-2.5 rounded-full"
-        style={{ backgroundColor: color }}
+        style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}aa` }}
       />
-      <span className="text-text-dim">{label}</span>
+      <span className="text-silver-dk">{label}</span>
     </div>
   );
 }
