@@ -234,20 +234,49 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         wheres.append(f"{display_score_col} >= {add(min_rating)}")
 
     # ── Body filters via ratings columns ─────────────────────────────────
+    # Keys here MUST match what the frontend sends in body_filters{}. The
+    # v2 frontend (frontend-v2/src/features/search/useSearch.ts) uses
+    # snake_case via BODY_BACKEND_KEY; older callers may still send the
+    # original camelCase. Both are accepted (camelCase aliased below).
     BODY_FILTER_COLS = {
-        "elw":       "r.elw_count",
-        "ww":        "r.ww_count",
-        "ammonia":   "r.ammonia_count",
-        "gasGiant":  "r.gas_giant_count",
-        "neutron":   "r.neutron_count",
-        "blackHole": "r.black_hole_count",
-        "whiteDwarf": "r.white_dwarf_count",
-        "landable":  "r.landable_count",
+        # — Body counts —
+        "landable":      "r.landable_count",
         "terraformable": "r.terraformable_count",
+        "elw":           "r.elw_count",
+        "ww":            "r.ww_count",
+        "ammonia":       "r.ammonia_count",
+        "gas_giant":     "r.gas_giant_count",
+        "hmc":           "r.hmc_count",
+        "metal_rich":    "r.metal_rich_count",
+        "rocky":         "r.rocky_count",
+        "rocky_ice":     "r.rocky_ice_count",
+        "icy":           "r.icy_count",
+        # — Star types stored on ratings —
+        "neutron":       "r.neutron_count",
+        "black_hole":    "r.black_hole_count",
+        "white_dwarf":   "r.white_dwarf_count",
+        # — Signal totals (bio/geo). Treated as range filters too;
+        #   require_bio / require_geo above is the legacy boolean path. —
+        "bio":           "r.bio_signal_total",
+        "geo":           "r.geo_signal_total",
     }
+    # Backwards-compat aliases for older camelCase callers.
+    BODY_FILTER_ALIASES = {
+        "gasGiant":   "gas_giant",
+        "blackHole":  "black_hole",
+        "whiteDwarf": "white_dwarf",
+        "metalRich":  "metal_rich",
+        "rockyIce":   "rocky_ice",
+    }
+    for alias, canonical in BODY_FILTER_ALIASES.items():
+        if alias in body_filters and canonical not in body_filters:
+            body_filters[canonical] = body_filters[alias]
+
     for filter_key, col in BODY_FILTER_COLS.items():
-        rng = body_filters.get(filter_key, {})
-        min_val = int(rng.get("min", 0))
+        rng = body_filters.get(filter_key) or {}
+        if not isinstance(rng, dict):
+            continue
+        min_val = int(rng.get("min", 0) or 0)
         max_val = rng.get("max")
         if min_val > 0:
             wheres.append(f"({col} IS NOT NULL AND {col} >= {add(min_val)})")

@@ -170,13 +170,48 @@ async def local_search_endpoint(
 
     if req.body_filters:
         bf = req.body_filters
-        for col, key in [('r.elw_count', 'elw'), ('r.ammonia_count', 'ammonia'),
-                         ('r.gas_giant_count', 'gasGiant'), ('r.ww_count', 'ww'),
-                         ('r.neutron_count', 'neutron')]:
-            val = bf.get(key, {}).get('min', 0)
-            if val > 0:
-                params.append(val)
+        # Backwards-compat: accept both snake_case (v2 frontend) and
+        # camelCase (legacy callers) for body filter keys.
+        _ALIASES = {
+            'gasGiant': 'gas_giant', 'blackHole': 'black_hole',
+            'whiteDwarf': 'white_dwarf', 'metalRich': 'metal_rich',
+            'rockyIce': 'rocky_ice',
+        }
+        for alias, canonical in _ALIASES.items():
+            if alias in bf and canonical not in bf:
+                bf[canonical] = bf[alias]
+        # All columns that the v2 sliders + presets can hit.
+        FILTER_PAIRS = [
+            ('r.landable_count',      'landable'),
+            ('r.terraformable_count', 'terraformable'),
+            ('r.elw_count',           'elw'),
+            ('r.ww_count',            'ww'),
+            ('r.ammonia_count',       'ammonia'),
+            ('r.gas_giant_count',     'gas_giant'),
+            ('r.hmc_count',           'hmc'),
+            ('r.metal_rich_count',    'metal_rich'),
+            ('r.rocky_count',         'rocky'),
+            ('r.rocky_ice_count',     'rocky_ice'),
+            ('r.icy_count',           'icy'),
+            ('r.neutron_count',       'neutron'),
+            ('r.black_hole_count',    'black_hole'),
+            ('r.white_dwarf_count',   'white_dwarf'),
+            ('r.bio_signal_total',    'bio'),
+            ('r.geo_signal_total',    'geo'),
+        ]
+        for col, key in FILTER_PAIRS:
+            rng = bf.get(key) or {}
+            if not isinstance(rng, dict):
+                continue
+            min_val = int(rng.get('min', 0) or 0)
+            max_val = rng.get('max')
+            if min_val > 0:
+                params.append(min_val)
                 where.append(f'{col} >= ${param_n}')
+                param_n += 1
+            if max_val is not None:
+                params.append(int(max_val))
+                where.append(f'({col} IS NULL OR {col} <= ${param_n})')
                 param_n += 1
 
     if req.require_bio:   where.append('r.bio_signal_total > 0')
