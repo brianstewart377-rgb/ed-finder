@@ -1,18 +1,62 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
-import './index.css';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) {
   throw new Error('#root not found in index.html');
 }
+const root = createRoot(rootEl);
 
-createRoot(rootEl).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// ────────────────────────────────────────────────────────────────────────────
+// Feature flag: ?ui=v3  or  localStorage.uiV3 = "1"  →  load the redesign.
+//
+// The redesign is a parallel shell living in src/_redesign/. It is dynamically
+// imported so its bundle (and its global CSS reset in redesign.css) never
+// reaches users who haven't opted in. Default users keep getting the existing
+// v2 experience exactly as before — zero behaviour change for them.
+//
+// To opt in:
+//   • visit any page with `?ui=v3` (one-shot URL preview), or
+//   • run `localStorage.setItem('uiV3', '1')` in devtools (sticky preview),
+//     reload to apply.
+//
+// To turn it off: `?ui=v2` (one-shot) or
+//   `localStorage.removeItem('uiV3')` and reload.
+// ────────────────────────────────────────────────────────────────────────────
+function shouldUseRedesign(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get('ui');
+  if (q === 'v3') {
+    localStorage.setItem('uiV3', '1');
+    return true;
+  }
+  if (q === 'v2') {
+    localStorage.removeItem('uiV3');
+    return false;
+  }
+  return localStorage.getItem('uiV3') === '1';
+}
+
+async function bootstrap() {
+  if (shouldUseRedesign()) {
+    const { default: RedesignApp } = await import('./_redesign/RedesignApp.jsx');
+    root.render(
+      <StrictMode>
+        <RedesignApp />
+      </StrictMode>,
+    );
+  } else {
+    await import('./index.css');
+    const { default: App } = await import('./App');
+    root.render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+  }
+}
+
+void bootstrap();
 
 // Service worker registration. vite-plugin-pwa emits /v2/sw.js at build time;
 // we register it manually here (avoids the virtual:pwa-register module which
