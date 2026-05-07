@@ -787,18 +787,33 @@ async def local_db_status(pool: asyncpg.Pool) -> dict:
     """Return info about the PostgreSQL database and import progress."""
     try:
         async with pool.acquire() as conn:
-            sys_count     = await conn.fetchval("SELECT COUNT(*) FROM systems")
-            rated_count   = await conn.fetchval(
-                "SELECT COUNT(*) FROM ratings WHERE score IS NOT NULL"
-            )
-            body_count    = await conn.fetchval("SELECT COUNT(*) FROM bodies")
-            station_count = await conn.fetchval("SELECT COUNT(*) FROM stations")
-            cluster_count = await conn.fetchval("SELECT COUNT(*) FROM cluster_summary")
-            grid_count    = await conn.fetchval("SELECT COUNT(*) FROM spatial_grid")
-            macro_count   = await conn.fetchval("SELECT COUNT(*) FROM macro_grid")
-            region_count  = await conn.fetchval(
-                "SELECT COUNT(DISTINCT galaxy_region_id) FROM systems WHERE galaxy_region_id IS NOT NULL"
-            )
+            # Use pg_class.reltuples (PG's ANALYZE-derived row estimate) instead of
+            # COUNT(*) — returns in ~1ms per table vs 30+ seconds for COUNT(*) FROM
+            # bodies on the 1B+ row table. Estimates are plenty accurate for a
+            # status display and refresh on every autovac/analyze cycle.
+            #
+            # Why: build_grid.py was being starved of disk I/O by repeated polls
+            # of /api/local/status from the V2 Admin tab (every 30s). Each poll
+            # triggered 8 sequential COUNT(*) full scans through pgbouncer.
+            counts = await conn.fetchrow("""
+                SELECT
+                  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='systems'),         0) AS sys_count,
+                  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='bodies'),          0) AS body_count,
+                  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='stations'),        0) AS station_count,
+                  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='cluster_summary'), 0) AS cluster_count,
+                  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='spatial_grid'),    0) AS grid_count,
+                  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='macro_grid'),      0) AS macro_count,
+                  COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='ratings'),         0) AS rated_count,
+                  COALESCE((SELECT count(*)         FROM galaxy_regions),                            0) AS region_count
+            """)
+            sys_count     = int(counts["sys_count"])
+            body_count    = int(counts["body_count"])
+            station_count = int(counts["station_count"])
+            cluster_count = int(counts["cluster_count"])
+            grid_count    = int(counts["grid_count"])
+            macro_count   = int(counts["macro_count"])
+            rated_count   = int(counts["rated_count"])
+            region_count  = int(counts["region_count"])
 
             import_rows = await conn.fetch("""
                 SELECT dump_file, status, rows_processed, errors_encountered,

@@ -98,6 +98,7 @@ import time
 import signal
 import logging
 import argparse
+from multiprocessing import Process
 
 import psycopg2
 import psycopg2.extras
@@ -587,6 +588,126 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     return total_updated, conn, cur
 
 
+
+# ---------------------------------------------------------------------------
+# Stage 3 Strategy P: Parallel worker queue (SKIP LOCKED)
+# ---------------------------------------------------------------------------
+
+def grid_worker(
+    worker_id,
+    dsn,
+    min_x,
+    min_y,
+    min_z,
+    cell_size,
+    batch_size,
+):
+    conn = _connect_with_retry(dsn, label=f"worker-{worker_id}")
+    cur = conn.cursor()
+
+    try:
+        conn.autocommit = True
+
+        cur.execute("SET session_replication_role = replica")
+        cur.execute("SET synchronous_commit = OFF")
+        cur.execute("SET work_mem = '256MB'")
+
+        conn.autocommit = False
+
+    except Exception as e:
+        log.warning(f"[worker-{worker_id}] session setup failed: {e}")
+
+    total_updated = 0
+
+    while not _shutdown:
+
+        cur.execute("""
+            WITH batch AS (
+                SELECT id64
+                FROM systems
+                WHERE grid_cell_id IS NULL
+                ORDER BY id64
+                FOR UPDATE SKIP LOCKED
+                LIMIT %s
+            )
+            UPDATE systems s
+            SET grid_cell_id = (
+                floor((x - %s) / %s)::bigint * 100000000 +
+                floor((y - %s) / %s)::bigint * 10000 +
+                floor((z - %s) / %s)::bigint
+            )
+            FROM batch
+            WHERE s.id64 = batch.id64
+        """, (
+            batch_size,
+            min_x, cell_size,
+            min_y, cell_size,
+            min_z, cell_size,
+        ))
+
+        updated = cur.rowcount
+
+        conn.commit()
+
+        if updated == 0:
+            log.info(
+                f"[worker-{worker_id}] complete "
+                f"({total_updated:,} rows updated)"
+            )
+            break
+
+        total_updated += updated
+
+        log.info(
+            f"[worker-{worker_id}] "
+            f"+{updated:,} rows "
+            f"(total {total_updated:,})"
+        )
+
+    cur.close()
+    conn.close()
+
+
+def stage3_parallel(
+    dsn,
+    min_x,
+    min_y,
+    min_z,
+    cell_size,
+    workers=6,
+    batch_size=250_000,
+):
+    log.info("")
+    log.info("  Parallel worker mode")
+    log.info(f"  Workers    : {workers}")
+    log.info(f"  Batch size : {batch_size:,}")
+    log.info("")
+
+    procs = []
+
+    for i in range(workers):
+        p = Process(
+            target=grid_worker,
+            args=(
+                i,
+                dsn,
+                min_x,
+                min_y,
+                min_z,
+                cell_size,
+                batch_size,
+            )
+        )
+
+        p.start()
+        procs.append(p)
+
+    for p in procs:
+        p.join()
+
+    log.info("  ✓ All workers complete")
+
+
 # ---------------------------------------------------------------------------
 # Stage 3 Strategy B: per-cell batches (fallback, uses bounding boxes)
 # ---------------------------------------------------------------------------
@@ -759,7 +880,7 @@ Strategies:
                         help='Heap pages per ctid batch (default: 10000 = ~80MB per commit)')
     parser.add_argument('--batch-size',       type=int,   default=2_000_000,
                         help='(legacy alias) Rows per formula-batch — now maps to pages-per-batch')
-    parser.add_argument('--strategy',   choices=['formula', 'batched'], default='formula',
+    parser.add_argument('--strategy',   choices=['formula', 'batched', 'parallel'], default='formula',
                         help='Stage 3 strategy (default: formula = ctid batching)')
     parser.add_argument('--direct-host', default='',
                         help='Override DB host (e.g. "postgres" or "localhost")')
@@ -1070,12 +1191,29 @@ Strategies:
         else:
             log.warning("  --no-disable-triggers set — RI triggers remain active (SLOW!)")
 
-        if strategy == 'formula':
+        if strategy == 'parallel':
+
+            stage3_parallel(
+                dsn=DB_DSN,
+                min_x=min_x,
+                min_y=min_y,
+                min_z=min_z,
+                cell_size=cell_size,
+                workers=6,
+                batch_size=250_000,
+            )
+
+            total_rows_updated = 0
+
+        elif strategy == 'formula':
+
             total_rows_updated, conn, cur = stage3_formula(
                 conn, cur, min_x, min_y, min_z,
                 cell_size, total_systems, already_assigned,
                 pages_per_batch=pages_per_batch)
+
         else:
+
             total_rows_updated = stage3_batched_cells(
                 conn, cur, cell_count, already_assigned, total_systems)
 
@@ -1174,65 +1312,92 @@ Strategies:
         else:
             log.info(f"  macro_grid already has {fmt_num(macro_cells_existing)} cells — skipping rebuild")
 
-        # Assign macro_grid_id to systems using ctid batching (same approach as 500 LY grid)
-        log.info(f"  Assigning macro_grid_id via ctid batching ...")
+        # Parallel macro_grid assignment using SKIP LOCKED workers
+        log.info(f"  Assigning macro_grid_id via parallel workers ...")
         t0 = time.time()
 
-        macro_write_conn = _connect_with_retry(dsn, label="macro-writer")
-        try:
-            macro_write_conn.autocommit = True
-            with macro_write_conn.cursor() as _wac:
-                _wac.execute("SET session_replication_role = replica")
-            macro_write_conn.autocommit = False
-        except Exception:
-            pass
-        macro_write_cur = macro_write_conn.cursor()
+        def macro_worker(worker_id):
 
-        total_pages = _get_total_pages(cur)
-        macro_updated = 0
-        current_page = 0
-        pages_per_batch = 10000
-        consecutive_empty = 0
+            conn = _connect_with_retry(dsn, label=f"macro-worker-{worker_id}")
+            cur = conn.cursor()
 
-        while current_page <= total_pages:
-            if _shutdown:
-                macro_write_conn.commit()
-                break
-            end_page = current_page + pages_per_batch
-            ctid_lo = f"({current_page},1)"
-            ctid_hi = f"({end_page},1)"
             try:
-                macro_write_cur.execute(f"""
-                    UPDATE systems
+                conn.autocommit = True
+
+                cur.execute("SET session_replication_role = replica")
+                cur.execute("SET synchronous_commit = OFF")
+                cur.execute("SET work_mem = '256MB'")
+
+                conn.autocommit = False
+
+            except Exception as e:
+                log.warning(f"[macro-worker-{worker_id}] setup failed: {e}")
+
+            total_updated = 0
+
+            while not _shutdown:
+
+                cur.execute(f"""
+                    WITH batch AS (
+                        SELECT id64
+                        FROM systems
+                        WHERE macro_grid_id IS NULL
+                        ORDER BY id64
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT 250000
+                    )
+                    UPDATE systems s
                     SET macro_grid_id = (
                         floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r})::bigint * 100000000 +
                         floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r})::bigint * 10000 +
                         floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})::bigint
                     )
-                    WHERE ctid >= %s::tid
-                      AND ctid <  %s::tid
-                      AND macro_grid_id IS NULL
-                """, (ctid_lo, ctid_hi))
-                rows = macro_write_cur.rowcount
-                macro_write_conn.commit()
-                macro_updated += rows
+                    FROM batch
+                    WHERE s.id64 = batch.id64
+                """)
+
+                rows = cur.rowcount
+
+                conn.commit()
+
                 if rows == 0:
-                    consecutive_empty += 1
-                    if consecutive_empty >= 20:
-                        break
-                else:
-                    consecutive_empty = 0
-            except Exception as e:
-                log.warning(f"  macro_grid batch error at page {current_page}: {e}")
-                try:
-                    macro_write_conn.rollback()
-                except Exception:
-                    pass
-            current_page = end_page
+                    log.info(
+                        f"[macro-worker-{worker_id}] complete "
+                        f"({total_updated:,} rows)"
+                    )
+                    break
 
-        macro_write_cur.close()
-        _safe_close(macro_write_conn)
+                total_updated += rows
 
+                log.info(
+                    f"[macro-worker-{worker_id}] "
+                    f"+{rows:,} rows "
+                    f"(total {total_updated:,})"
+                )
+
+            cur.close()
+            conn.close()
+
+        log.info("")
+        log.info("  Parallel macro worker mode")
+        log.info("")
+
+        procs = []
+
+        for i in range(6):
+
+            p = Process(
+                target=macro_worker,
+                args=(i,)
+            )
+
+            p.start()
+            procs.append(p)
+
+        for p in procs:
+            p.join()
+
+        macro_updated = 0
         # Update anchor_count in macro_grid
         cur.execute("""
             UPDATE macro_grid g

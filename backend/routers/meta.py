@@ -57,9 +57,20 @@ async def status(
         return cached
 
     async with pool.acquire() as conn:
-        sys_count  = await conn.fetchval('SELECT COUNT(*) FROM systems')
-        body_count = await conn.fetchval('SELECT COUNT(*) FROM bodies')
-        rated      = await conn.fetchval('SELECT COUNT(*) FROM ratings WHERE score IS NOT NULL')
+        # pg_class.reltuples is PG's ANALYZE-derived row estimate (~1ms)
+        # vs 30+ seconds for COUNT(*) FROM bodies on a 1B+ row table.
+        # Estimates auto-refresh on every autovac/analyze cycle - plenty
+        # accurate for a status display. cluster_summary stays as COUNT(*)
+        # because the table is small and has a WHERE filter.
+        counts = await conn.fetchrow("""
+            SELECT
+              COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='systems'), 0) AS sys_count,
+              COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='bodies'),  0) AS body_count,
+              COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='ratings'), 0) AS rated_count
+        """)
+        sys_count  = int(counts['sys_count'])
+        body_count = int(counts['body_count'])
+        rated      = int(counts['rated_count'])
         clustered  = await conn.fetchval(
             'SELECT COUNT(*) FROM cluster_summary WHERE coverage_score IS NOT NULL'
         )
@@ -88,13 +99,26 @@ async def status(
 
 
 @router.get('/api/local/status')
-async def local_status(pool: asyncpg.Pool = Depends(get_pool)):
+async def local_status(
+    pool:  asyncpg.Pool              = Depends(get_pool),
+    redis: Optional[aioredis.Redis]  = Depends(get_redis),
+):
+    # Cache mirrors /api/status — without it, V2 Admin polls this every 30s
+    # and triggered 8 sequential COUNT(*) queries (including COUNT(*) FROM
+    # bodies on a ~1B row table) on every poll, starving build_grid.py of
+    # disk I/O during the grid backfill.
+    cache_key = 'status:local'
+    cached = await cache_get(cache_key, redis)
+    if cached:
+        return cached
     if _LS_AVAILABLE:
         try:
-            return await _ls.local_db_status(pool)
+            result = await _ls.local_db_status(pool)
+            await cache_set(cache_key, result, settings.ttl_status, redis)
+            return result
         except Exception as exc:
             log.warning('local_db_status error: %s', exc)
-    return await status(pool)
+    return await status(pool, redis)
 
 
 @router.get('/api/metrics', response_class=PlainTextResponse, include_in_schema=False)
