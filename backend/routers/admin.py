@@ -94,3 +94,87 @@ async def trigger_rebuild_clusters(
 
     background_tasks.add_task(run_cluster_rebuild, active_jobs)
     return {'message': 'Cluster rebuild triggered in background.', 'job_id': job_id}
+    background_tasks.add_task(run_cluster_rebuild, active_jobs)
+    return {'message': 'Cluster rebuild triggered in background.', 'job_id': job_id}
+
+
+@router.post('/api/admin/rebuild-ratings', dependencies=[Depends(require_admin)])
+@limiter.limit('1/minute')
+async def trigger_rebuild_ratings(request: Request):
+    """Recompute ratings for systems flagged as `rating_dirty`.
+
+    For the preview pod this runs synchronously on a tiny dataset
+    (~40 systems). Production should swap in the real pipeline that
+    walks bodies/stations and recomputes the per-economy scores.
+    Rate-limited to 1/min and X-Admin-Token gated.
+    """
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        # Pick everything flagged dirty (or, if nothing's dirty, everything —
+        # makes the button useful even on a clean DB for forced refresh).
+        dirty = await conn.fetchval(
+            "SELECT COUNT(*) FROM systems WHERE rating_dirty = true"
+        )
+        target_clause = (
+            'WHERE r.system_id64 IN (SELECT id64 FROM systems WHERE rating_dirty = true)'
+            if dirty else ''
+        )
+        await conn.execute(
+            f"""
+            UPDATE ratings r SET
+              score_agriculture = LEAST(98, GREATEST(20,
+                  25 + CASE WHEN s.primary_economy = 'Agriculture' THEN 55 ELSE 0 END
+                     + CASE WHEN s.security = 'High' THEN 8 ELSE 0 END
+                     + LEAST(15, s.body_count * 2)
+                     - CASE WHEN s.primary_economy = 'Industrial' THEN 18 ELSE 0 END))::smallint,
+              score_refinery    = LEAST(98, GREATEST(20,
+                  30 + CASE WHEN s.primary_economy = 'Refinery' THEN 55 ELSE 0 END
+                     + LEAST(20, s.body_count * 2)
+                     + CASE WHEN s.allegiance = 'Federation' THEN 6 ELSE 0 END))::smallint,
+              score_industrial  = LEAST(98, GREATEST(15,
+                  28 + CASE WHEN s.primary_economy = 'Industrial' THEN 60 ELSE 0 END
+                     + CASE WHEN s.population > 1000000 THEN 12 ELSE 0 END
+                     - CASE WHEN s.primary_economy = 'Tourism' THEN 22 ELSE 0 END))::smallint,
+              score_hightech    = LEAST(98, GREATEST(15,
+                  22 + CASE WHEN s.primary_economy = 'HighTech' THEN 65 ELSE 0 END
+                     + CASE WHEN s.population > 100000000 THEN 14 ELSE 0 END
+                     + CASE WHEN s.allegiance = 'Empire' THEN 8 ELSE 0 END))::smallint,
+              score_military    = LEAST(95, GREATEST(15,
+                  20 + CASE WHEN s.primary_economy = 'Military'   THEN 55 ELSE 0 END
+                     + CASE WHEN s.allegiance = 'Empire' THEN 16 ELSE 0 END
+                     + CASE WHEN s.allegiance = 'Federation' THEN 12 ELSE 0 END
+                     + CASE WHEN s.security = 'High' THEN 8 ELSE 0 END))::smallint,
+              score_tourism     = LEAST(98, GREATEST(15,
+                  18 + CASE WHEN s.primary_economy = 'Tourism' THEN 60 ELSE 0 END
+                     + CASE WHEN s.galaxy_region_id = 1 THEN 22 ELSE 0 END
+                     - CASE WHEN s.primary_economy = 'Industrial' THEN 18 ELSE 0 END))::smallint
+            FROM systems s
+            WHERE r.system_id64 = s.id64
+              {('AND r.system_id64 IN (SELECT id64 FROM systems WHERE rating_dirty = true)') if dirty else ''}
+            """
+        )
+        # Recompute composite "score" = max of dimension scores.
+        await conn.execute(
+            f"""
+            UPDATE ratings r SET score = GREATEST(
+              COALESCE(r.score_agriculture,0), COALESCE(r.score_refinery,0),
+              COALESCE(r.score_industrial,0),  COALESCE(r.score_hightech,0),
+              COALESCE(r.score_military,0),    COALESCE(r.score_tourism,0)
+            )::smallint
+            {target_clause}
+            """
+        )
+        # Clear the dirty flag.
+        cleared = await conn.execute(
+            "UPDATE systems SET rating_dirty = false WHERE rating_dirty = true"
+        )
+        n_cleared = int(cleared.split()[-1]) if cleared else 0
+
+    return {
+        'ok':           True,
+        'message':      f'Rebuilt ratings for {dirty if dirty else "all"} systems'
+                        + (f', cleared {n_cleared} dirty flags' if n_cleared else ''),
+        'dirty_before': dirty,
+        'cleared':      n_cleared,
+    }
+

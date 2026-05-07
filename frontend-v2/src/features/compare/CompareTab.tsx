@@ -24,12 +24,12 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
 
   if (entries.length === 0) {
     return (
-      <section data-testid="compare-tab" className="space-y-4">
+      <section data-testid="compare-tab" className="space-y-5">
         <CompareHeader compare={compare} />
-        <div className="text-center py-16 px-4 rounded border border-dashed border-border">
+        <div className="panel-thin text-center py-16 px-4">
           <div className="text-3xl mb-2" aria-hidden>⚖️</div>
-          <h3 className="font-mono text-orange text-sm mb-1">No systems selected</h3>
-          <p className="text-text-dim text-xs max-w-sm mx-auto">
+          <h3 className="font-display text-orange text-sm tracking-wider mb-1">No systems selected</h3>
+          <p className="text-silver-dk text-xs max-w-sm mx-auto">
             Click ⚖️ on up to {COMPARE_MAX} system cards in the Finder tab to
             line them up side-by-side.
           </p>
@@ -43,11 +43,11 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
   const rows = buildMetricRows(entries);
 
   return (
-    <section data-testid="compare-tab" className="space-y-4">
+    <section data-testid="compare-tab" className="space-y-5">
       <CompareHeader compare={compare} />
 
       {compare.lastError && (
-        <div className="rounded border border-red/50 bg-red/10 p-2 font-mono text-xs text-red flex items-center gap-2">
+        <div className="panel-thin border-red/50 p-2 font-mono text-xs text-red flex items-center gap-2" style={{ background: 'rgba(248,113,113,0.10)' }}>
           <span>{compare.lastError}</span>
           <button
             type="button"
@@ -60,27 +60,33 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-md border border-border">
+      <div className="overflow-x-auto rounded-chunk-lg border border-border" style={{
+        background: 'linear-gradient(180deg, rgba(20,22,26,0.85), rgba(14,16,20,0.85))',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -16px rgba(0,0,0,0.6)',
+      }}>
         <table className="w-full text-sm font-mono">
-          <thead className="bg-bg3/60 text-text-dim text-[11px] uppercase tracking-wider">
+          <thead className="text-silver-dk text-[10px] uppercase tracking-[0.16em]" style={{
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
+            borderBottom: '1px solid hsl(216 10% 24%)',
+          }}>
             <tr>
-              <th className="px-3 py-2 text-left sticky left-0 bg-bg3/90 backdrop-blur">Metric</th>
+              <th className="px-3 py-2.5 text-left sticky left-0 bg-bg2/95 backdrop-blur z-10">Metric</th>
               {entries.map((sys) => (
-                <th key={sys.id64} className="px-3 py-2 text-left min-w-[160px]">
+                <th key={sys.id64} className="px-3 py-2.5 text-left min-w-[160px]">
                   <div className="flex items-center justify-between gap-2">
                     {onOpenDetail
                       ? (
                         <button
                           type="button"
                           onClick={() => onOpenDetail(sys.id64)}
-                          className="text-orange normal-case font-bold tracking-normal truncate hover:underline text-left"
+                          className="text-orange-lt normal-case font-bold tracking-normal truncate hover:underline text-left"
                           title="Open detail"
                         >
                           {sys.name}
                         </button>
                       )
                       : (
-                        <span className="text-orange normal-case font-bold tracking-normal truncate" title={sys.name}>
+                        <span className="text-orange-lt normal-case font-bold tracking-normal truncate" title={sys.name}>
                           {sys.name}
                         </span>
                       )
@@ -101,8 +107,8 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.label} className="border-t border-border hover:bg-bg3/30">
-                <td className="px-3 py-2 text-text-dim font-semibold sticky left-0 bg-bg1/80 backdrop-blur">
+              <tr key={row.label} className="border-t border-border/50 hover:bg-orange/5 transition-colors">
+                <td className="px-3 py-2 text-silver-dk font-semibold sticky left-0 bg-bg1/85 backdrop-blur">
                   {row.label}
                 </td>
                 {row.cells.map((cell, i) => (
@@ -112,8 +118,8 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
                     className={[
                       'px-3 py-2',
                       cell.winner
-                        ? 'bg-orange/10 border-l-2 border-orange font-bold text-text'
-                        : '',
+                        ? 'bg-orange/15 border-l-2 border-orange font-bold text-orange-lt'
+                        : 'text-silver',
                     ].join(' ')}
                   >
                     {cell.display}
@@ -125,7 +131,7 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
         </table>
       </div>
 
-      <p className="text-[10px] font-mono text-text-dim">
+      <p className="text-[10px] font-mono text-silver-dk px-2">
         Orange column = best value for that metric.
         Comparison is stored locally in your browser; no server round-trip.
       </p>
@@ -137,9 +143,9 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
 
 function CompareHeader({ compare }: { compare: UseCompare }) {
   return (
-    <header className="flex flex-wrap items-center gap-3">
-      <h2 className="font-mono text-orange tracking-wider text-lg">⚖️ Compare</h2>
-      <span className="font-mono text-xs text-text-dim">
+    <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
+      <h2 className="font-display text-orange tracking-[0.14em] text-lg">⚖️ Compare</h2>
+      <span className="font-mono text-xs text-silver-dk">
         {compare.entries.length} / {COMPARE_MAX} selected
       </span>
       <span className="flex-1" />
@@ -148,7 +154,7 @@ function CompareHeader({ compare }: { compare: UseCompare }) {
         onClick={compare.exportCsv}
         disabled={compare.entries.length === 0}
         data-testid="compare-export-csv"
-        className="px-2 py-1 rounded bg-bg4 border border-border font-mono text-[11px] text-text-dim hover:text-orange hover:border-orange-dk transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         ⬇ Export CSV
       </button>
@@ -162,7 +168,7 @@ function CompareHeader({ compare }: { compare: UseCompare }) {
         }}
         disabled={compare.entries.length === 0}
         data-testid="compare-clear"
-        className="px-2 py-1 rounded bg-red/10 border border-red/40 font-mono text-[11px] text-red hover:bg-red/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         ✕ Clear all
       </button>

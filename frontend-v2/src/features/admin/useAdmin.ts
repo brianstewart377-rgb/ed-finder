@@ -29,6 +29,7 @@ export interface UseAdmin {
               | { kind: 'err'; what: string; message: string };
   clearCache:      () => Promise<void>;
   rebuildClusters: () => Promise<void>;
+  rebuildRatings:  () => Promise<void>;
   resetActionState: () => void;
 }
 
@@ -98,6 +99,7 @@ export function useAdmin(): UseAdmin {
     actionState,
     clearCache:      () => runAction('clearCache',      () => api.cacheClear(token)),
     rebuildClusters: () => runAction('rebuildClusters', () => api.rebuildClusters(token)),
+    rebuildRatings:  () => runAction('rebuildRatings',  () => api.rebuildRatings(token)),
     resetActionState: () => setActionState({ kind: 'idle' }),
   };
 }

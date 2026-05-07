@@ -6,25 +6,21 @@ import {
   formatConfidence,
   isInhabited,
 } from '@/lib/format';
+import {
+  Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
+} from 'lucide-react';
 
 /**
- * One row in the search-results list.
+ * One row in the search-results list — chunky brushed-metal card with
+ * collapsible body.
  *
- * Composition root: `<ResultCard system={…} index={…} />`. All formatting
- * lives in `lib/format.ts`; this component only handles layout + the
- * collapsed/expanded toggle, which is the simplest piece of stateful
- * behaviour in the original vanilla version (~10 lines of JS).
- *
- * No global state, no context. The `onPin` / `onWatch` etc. action callbacks
- * are wired in by the parent so this card is trivial to unit-test in
- * isolation.
+ * Stateless: parents pass action callbacks (onPin / onWatch / onCompare /
+ * onOpenDetail / onShowOnMap). The card only owns the open/closed toggle.
  */
 export interface ResultCardProps {
   system: SystemResult;
   index:  number;
-  /** Live "is this pinned right now?" — flips the icon between 📍 and 📌. */
   isPinned?: boolean;
-  /** Live "is this in the compare set right now?" — highlights the ⚖️ button. */
   isCompared?: boolean;
   onPin?:     (id64: number) => void;
   onCompare?: (id64: number) => void;
@@ -47,98 +43,100 @@ export function ResultCard({
   const dist       = system.distance != null ? system.distance.toFixed(2) : '?';
   const popLabel   = formatPopulation(system.population);
 
-  // Background tint based on tier — subtle, doesn't fight the dark UI.
-  const tintClass = inhabited
-    ? 'border-red/40 bg-red/[0.04]'
-    : 'border-border hover:border-orange-dk';
-
   return (
     <article
       data-testid={`result-card-${system.id64}`}
-      className={[
-        'rounded-md border bg-bg3/60 transition-colors duration-150',
-        tintClass,
-      ].join(' ')}
+      className="panel-thin overflow-hidden transition-all duration-200 hover:border-orange/40"
+      style={{
+        borderColor: inhabited ? 'rgba(248,113,113,0.35)' : undefined,
+      }}
     >
       {/* ── Header (always visible, click toggles body) ────────────── */}
       <header
         onClick={() => setOpen((v) => !v)}
-        className="flex flex-wrap items-center gap-2 px-3 py-2 cursor-pointer select-none"
+        className="flex flex-wrap items-center gap-2.5 px-4 py-3 cursor-pointer select-none"
       >
-        <button
-          type="button"
-          aria-label={isPinned ? 'Unpin system' : 'Pin system'}
-          data-testid={`result-card-pin-${system.id64}`}
-          aria-pressed={isPinned}
-          onClick={(e) => { e.stopPropagation(); onPin?.(system.id64); }}
-          className={[
-            'text-base transition-transform hover:scale-110',
-            isPinned ? 'opacity-100' : 'opacity-60 hover:opacity-100',
-          ].join(' ')}
+        {/* Index plate */}
+        <span
+          className="font-mono text-[11px] font-bold tracking-wider min-w-[32px] text-center px-1.5 py-0.5 rounded-md"
+          style={{
+            background: 'linear-gradient(180deg, hsl(214 8% 22%), hsl(216 10% 14%))',
+            color: '#c8ccd1',
+            border: '1px solid hsl(216 10% 30%)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+          }}
         >
-          {isPinned ? '📌' : '📍'}
-        </button>
-        <button
-          type="button"
-          aria-label={isCompared ? 'Remove from comparison' : 'Add to comparison'}
-          data-testid={`result-card-compare-${system.id64}`}
-          aria-pressed={isCompared}
-          onClick={(e) => { e.stopPropagation(); onCompare?.(system.id64); }}
-          className={[
-            'text-base transition-transform hover:scale-110',
-            isCompared ? 'opacity-100 drop-shadow-[0_0_6px_#ff6a00]' : 'opacity-60 hover:opacity-100',
-          ].join(' ')}
-          title={isCompared ? 'In comparison' : 'Add to comparison'}
-        >
-          ⚖️
-        </button>
-        <span className="font-mono text-text-dim text-[11px] min-w-[28px]">
           #{index + 1}
         </span>
-        <h3 className="font-mono text-orange text-sm font-semibold flex-1 min-w-0 truncate">
+
+        {/* Pin & Compare quick-toggles */}
+        <IconToggle
+          active={isPinned}
+          onClick={(e) => { e.stopPropagation(); onPin?.(system.id64); }}
+          aria-label={isPinned ? 'Unpin system' : 'Pin system'}
+          testid={`result-card-pin-${system.id64}`}
+        >
+          <Pin size={14} className={isPinned ? 'text-orange-lt fill-orange/40' : ''} />
+        </IconToggle>
+        <IconToggle
+          active={isCompared}
+          onClick={(e) => { e.stopPropagation(); onCompare?.(system.id64); }}
+          aria-label={isCompared ? 'Remove from comparison' : 'Add to comparison'}
+          testid={`result-card-compare-${system.id64}`}
+        >
+          <Scale size={14} className={isCompared ? 'text-orange-lt' : ''} />
+        </IconToggle>
+
+        {/* Name */}
+        <h3 className="font-mono text-[15px] font-bold tracking-wider text-orange flex-1 min-w-0 truncate">
           {system.name || 'Unknown System'}
         </h3>
-        <span className="font-mono text-text-dim text-xs whitespace-nowrap">
-          {dist} LY
+
+        {/* Distance */}
+        <span className="font-mono text-xs tabular-nums text-silver px-2 py-0.5 rounded-md bg-bg3/60 border border-border">
+          {dist} <span className="text-silver-dk">LY</span>
         </span>
+
         {/* Colonised pill */}
         <span
           className={[
-            'text-[10px] px-1.5 py-0.5 rounded border font-mono',
-            inhabited
-              ? 'bg-red/20 text-red border-red/40'
-              : 'bg-green/20 text-green border-green/40',
+            'chip',
+            inhabited ? 'border-red/45 text-red bg-red/10' : 'border-green/45 text-green bg-green/10',
           ].join(' ')}
+          style={inhabited ? {
+            background: 'linear-gradient(180deg, rgba(248,113,113,0.18), rgba(248,113,113,0.08))',
+          } : {
+            background: 'linear-gradient(180deg, rgba(74,222,128,0.18), rgba(74,222,128,0.08))',
+          }}
         >
           {inhabited ? 'COL' : 'FREE'}
         </span>
-        {/* Population pill */}
-        <span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-text-dim font-mono">
-          {popLabel}
-        </span>
-        {/* Rating badge */}
+
+        {/* Population */}
+        <span className="chip chip-silver">{popLabel}</span>
+
+        {/* Rating badge — bigger, chunkier */}
         <span
-          className={[
-            'text-[11px] px-2 py-0.5 rounded border font-mono font-bold',
-            tier.label === 'EXCELLENT' && 'bg-green/20 text-green border-green/50',
-            tier.label === 'GOOD'      && 'bg-gold/20 text-gold border-gold/50',
-            tier.label === 'OK'        && 'bg-orange/20 text-orange border-orange/50',
-            tier.label === 'POOR'      && 'bg-red/20 text-red border-red/50',
-            tier.label === 'N/A'       && 'bg-bg4 text-text-dim border-border',
-          ].filter(Boolean).join(' ')}
+          className="font-mono text-[11px] font-bold tracking-wider px-2.5 py-1 rounded-chunk border"
+          style={{
+            background: `linear-gradient(180deg, ${tier.fillColor}33, ${tier.fillColor}11)`,
+            borderColor: `${tier.fillColor}88`,
+            color: tier.fillColor,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px -4px ${tier.fillColor}66`,
+          }}
           title={`Score: ${score ?? '—'}/100`}
         >
           {tier.label} {score ?? '—'}
         </span>
+
         {/* Confidence */}
         {conf && (
           <span
-            className="text-[10px] font-mono text-text-dim"
+            className="font-mono text-[10px] text-silver-dk hidden sm:inline-flex items-center gap-0.5"
             title={`Rating confidence: ${conf.tier} (${conf.pct}%)`}
           >
             <span
               className={[
-                'mr-0.5',
                 conf.tier === 'High'   && 'text-green',
                 conf.tier === 'Medium' && 'text-gold',
                 conf.tier === 'Low'    && 'text-red',
@@ -149,90 +147,81 @@ export function ResultCard({
             {conf.pct}%
           </span>
         )}
-        {/* Score fill bar — micro-viz, instantly tells you 50 vs 90. */}
-        <span className="block w-16 h-1.5 bg-bg4 rounded overflow-hidden">
+
+        {/* Score fill bar */}
+        <span
+          className="block w-20 h-2 rounded-full overflow-hidden"
+          style={{
+            background: 'linear-gradient(180deg, hsl(216 10% 12%), hsl(218 11% 8%))',
+            border: '1px solid hsl(216 10% 26%)',
+            boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.6)',
+          }}
+        >
           <span
-            className="block h-full"
+            className="block h-full transition-all duration-500"
             style={{
               width: `${Math.max(0, Math.min(100, score ?? 0))}%`,
-              backgroundColor: tier.fillColor,
+              background: `linear-gradient(90deg, ${tier.fillColor}, ${tier.fillColor}cc)`,
+              boxShadow: `0 0 8px ${tier.fillColor}88`,
             }}
           />
         </span>
-        <span
-          className={[
-            'text-text-dim text-[10px] transition-transform duration-150',
-            open && 'rotate-180',
-          ].filter(Boolean).join(' ')}
-        >
-          ▼
-        </span>
+
+        {/* Caret */}
+        <ChevronDown
+          size={16}
+          className={['text-silver-dk transition-transform duration-200', open && 'rotate-180'].filter(Boolean).join(' ')}
+        />
       </header>
 
       {/* ── Body (toggled) ────────────────────────────────────────── */}
       {open && (
-        <div className="border-t border-border px-3 py-3 text-sm space-y-3">
-          {/* Rationale, if present */}
+        <div className="border-t border-border/70 px-4 py-4 space-y-3 animate-fade-up"
+             style={{ background: 'linear-gradient(180deg, rgba(20,22,26,0.3), rgba(20,22,26,0.6))' }}>
           {rating?.rationale && (
-            <p className="text-text-dim italic leading-snug">
+            <p className="text-silver-dk italic leading-snug text-sm">
               {rating.rationale}
             </p>
           )}
-          {/* Key facts */}
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs font-mono">
-            {system.primaryEconomy && (
-              <>
-                <dt className="text-text-dim">Economy</dt>
-                <dd className="text-text">{system.primaryEconomy}</dd>
-              </>
-            )}
-            {system.allegiance && (
-              <>
-                <dt className="text-text-dim">Allegiance</dt>
-                <dd className="text-text">{system.allegiance}</dd>
-              </>
-            )}
-            {system.security && (
-              <>
-                <dt className="text-text-dim">Security</dt>
-                <dd className="text-text">{system.security}</dd>
-              </>
-            )}
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono">
+            {system.primaryEconomy && <Row label="Economy"    value={system.primaryEconomy} highlight />}
+            {system.allegiance     && <Row label="Allegiance" value={system.allegiance} />}
+            {system.security       && <Row label="Security"   value={system.security} />}
             {system.coords && (
-              <>
-                <dt className="text-text-dim">Coords</dt>
-                <dd className="text-text">
-                  {system.coords.x.toFixed(2)},
-                  {' '}{system.coords.y.toFixed(2)},
-                  {' '}{system.coords.z.toFixed(2)}
-                </dd>
-              </>
+              <Row
+                label="Coords"
+                value={`${system.coords.x.toFixed(2)}, ${system.coords.y.toFixed(2)}, ${system.coords.z.toFixed(2)}`}
+              />
             )}
           </dl>
-          {/* Body-count chips */}
+
           {(system.elw_count || system.ww_count || system.ammonia_count ||
-            system.terraformable_count || system.bio_signal_total) && (
-            <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
-              {bodyChip('ELW',  system.elw_count)}
-              {bodyChip('WW',   system.ww_count)}
-              {bodyChip('AW',   system.ammonia_count)}
+            system.terraformable_count || system.bio_signal_total) ? (
+            <div className="flex flex-wrap gap-1.5 text-[10px] font-mono pt-1">
+              {bodyChip('ELW',   system.elw_count)}
+              {bodyChip('WW',    system.ww_count)}
+              {bodyChip('AW',    system.ammonia_count)}
               {bodyChip('Terra', system.terraformable_count)}
               {bodyChip('Bio',   system.bio_signal_total)}
               {bodyChip('Geo',   system.geo_signal_total)}
             </div>
-          )}
-          {/* Actions */}
+          ) : null}
+
           <div className="flex flex-wrap gap-2 pt-1">
             {onOpenDetail && (
-              <ActionButton onClick={() => onOpenDetail(system.id64)} icon="🔎" label="Details" />
+              <ActionButton onClick={() => onOpenDetail(system.id64)} primary>
+                <Search size={13} className="mr-1.5" /> Details
+              </ActionButton>
             )}
-            <ActionButton onClick={() => onWatch?.(system.id64)}    icon="👁️" label="Watch" />
-            <ActionButton onClick={() => onShowOnMap?.(system.id64)} icon="🗺️" label="Map" />
-            <ActionButton
-              onClick={() => navigator.clipboard.writeText(system.name)}
-              icon="📋"
-              label="Copy name"
-            />
+            <ActionButton onClick={() => onWatch?.(system.id64)}>
+              <Eye size={13} className="mr-1.5" /> Watch
+            </ActionButton>
+            <ActionButton onClick={() => onShowOnMap?.(system.id64)}>
+              <Map size={13} className="mr-1.5" /> Map
+            </ActionButton>
+            <ActionButton onClick={() => navigator.clipboard.writeText(system.name)}>
+              <Copy size={13} className="mr-1.5" /> Copy name
+            </ActionButton>
           </div>
         </div>
       )}
@@ -240,31 +229,62 @@ export function ResultCard({
   );
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Tiny helper components — kept inline to keep the slice self-contained.
-// Promote to their own files only if a third site reuses them.
-// ───────────────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
+function Row({ label, value, highlight }: { label: string; value: React.ReactNode; highlight?: boolean }) {
+  return (
+    <>
+      <dt className="text-silver-dk uppercase tracking-wider text-[10px]">{label}</dt>
+      <dd className={highlight ? 'text-orange-lt' : 'text-silver'}>{value}</dd>
+    </>
+  );
+}
+
 function bodyChip(label: string, count: number | null | undefined) {
   if (!count || count <= 0) return null;
   return (
-    <span className="px-1.5 py-0.5 rounded bg-bg4 text-text border border-border">
-      {label} <span className="text-orange font-bold">{count}</span>
+    <span className="chip">
+      {label} <span className="text-orange font-bold tabular-nums">{count}</span>
     </span>
   );
 }
 
-function ActionButton({ onClick, icon, label }: {
+function IconToggle({
+  active, onClick, children, testid, ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { active: boolean; testid: string }) {
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      onClick={onClick}
+      aria-pressed={active}
+      className={[
+        'grid place-items-center w-7 h-7 rounded-md transition-all duration-150',
+        active
+          ? 'text-orange-lt bg-orange/10 border border-orange/45'
+          : 'text-silver-dk hover:text-silver border border-transparent hover:border-border',
+      ].join(' ')}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ActionButton({
+  onClick, children, primary,
+}: {
   onClick: () => void;
-  icon:    string;
-  label:   string;
+  children: React.ReactNode;
+  primary?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className="px-2 py-1 rounded bg-bg4 border border-border text-text-dim hover:text-orange hover:border-orange-dk transition-colors text-xs"
+      className={primary ? 'btn-primary inline-flex items-center text-[11px] py-1.5 px-3' : 'btn-metal inline-flex items-center text-[11px] py-1.5 px-3'}
     >
-      <span className="mr-1">{icon}</span>{label}
+      {children}
     </button>
   );
 }

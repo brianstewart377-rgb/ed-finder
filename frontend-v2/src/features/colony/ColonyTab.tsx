@@ -15,10 +15,10 @@ export function ColonyTab({ colony, onOpenDetail }: ColonyTabProps) {
     : null;
 
   return (
-    <section data-testid="colony-tab" className="space-y-4">
-      <header className="flex flex-wrap items-center gap-3">
-        <h2 className="font-mono text-orange tracking-wider text-lg">🏗️ Colony Tracker</h2>
-        <span className="font-mono text-xs text-text-dim">
+    <section data-testid="colony-tab" className="space-y-5">
+      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
+        <h2 className="font-display text-orange tracking-[0.14em] text-lg">🏗️ Colony Tracker</h2>
+        <span className="font-mono text-xs text-silver-dk">
           local-only — track your claimed systems
         </span>
         <span className="flex-1" />
@@ -26,7 +26,7 @@ export function ColonyTab({ colony, onOpenDetail }: ColonyTabProps) {
           type="button"
           onClick={() => setShowAdd(true)}
           data-testid="colony-add-open"
-          className="px-3 py-1 rounded bg-orange text-bg1 border border-orange font-mono text-[11px] hover:bg-orange-dk"
+          className="btn-primary text-[11px] py-1.5 px-3"
         >
           ➕ Track System
         </button>
@@ -35,7 +35,7 @@ export function ColonyTab({ colony, onOpenDetail }: ColonyTabProps) {
           onClick={colony.exportCsv}
           disabled={colony.entries.length === 0}
           data-testid="colony-export"
-          className="px-2 py-1 rounded bg-bg4 border border-border font-mono text-[11px] text-text-dim hover:text-orange hover:border-orange-dk disabled:opacity-40 disabled:cursor-not-allowed"
+          className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           ⬇ Export CSV
         </button>
@@ -56,11 +56,11 @@ export function ColonyTab({ colony, onOpenDetail }: ColonyTabProps) {
 
       {/* List or empty state */}
       {colony.entries.length === 0 ? (
-        <div className="text-center py-16 px-4 rounded border border-dashed border-border">
+        <div className="panel-thin text-center py-16 px-4">
           <div className="text-3xl mb-2" aria-hidden>🏗️</div>
-          <h3 className="font-mono text-orange text-sm mb-1">No systems tracked yet</h3>
-          <p className="text-text-dim text-xs max-w-sm mx-auto">
-            Click <span className="text-orange">➕ Track System</span> to add a colonisation project.
+          <h3 className="font-display text-orange text-sm tracking-wider mb-1">No systems tracked yet</h3>
+          <p className="text-silver-dk text-xs max-w-sm mx-auto">
+            Click <span className="text-orange-lt">➕ Track System</span> to add a colonisation project.
             Data lives in your browser — no server round-trip.
           </p>
         </div>
@@ -108,11 +108,11 @@ function StatCard({ label, value, colour }: {
   label: string; value: number; colour?: string;
 }) {
   return (
-    <div className="rounded p-2 border border-border bg-bg3/40">
-      <div className="text-text-dim uppercase tracking-wider text-[10px]">{label}</div>
+    <div className="panel-thin p-3">
+      <div className="text-silver-dk uppercase tracking-[0.16em] text-[10px]">{label}</div>
       <div
-        className="tabular-nums font-bold text-lg"
-        style={colour ? { color: colour } : undefined}
+        className="tabular-nums font-bold text-lg font-display mt-0.5"
+        style={colour ? { color: colour } : { color: '#c8ccd1' }}
       >
         {value}
       </div>
@@ -137,12 +137,12 @@ function ColonyRow({
   return (
     <li
       data-testid={`colony-row-${entry.id}`}
-      className="rounded border border-border p-3 bg-bg3/30 grid grid-cols-[1fr_auto] gap-3"
+      className="panel-thin p-3.5 grid grid-cols-[1fr_auto] gap-3 hover:border-orange/40 transition-colors"
     >
-      <div className="min-w-0 space-y-1">
+      <div className="min-w-0 space-y-1.5">
         <div className="flex items-center gap-2 flex-wrap">
           <span
-            className="px-2 py-0.5 rounded text-[11px] font-mono border"
+            className="px-2.5 py-0.5 rounded-chunk-sm text-[11px] font-mono border"
             style={{ borderColor: meta.colour, color: meta.colour, backgroundColor: `${meta.colour}22` }}
           >
             {meta.icon} {meta.label}
@@ -152,36 +152,43 @@ function ColonyRow({
               <button
                 type="button"
                 onClick={onOpenDetail}
-                className="font-mono text-orange font-bold hover:underline truncate"
+                className="font-mono text-orange-lt font-bold hover:underline truncate"
               >
                 {entry.name}
               </button>
             )
             : (
-              <span className="font-mono text-orange font-bold truncate">{entry.name}</span>
+              <span className="font-mono text-orange-lt font-bold truncate">{entry.name}</span>
             )
           }
-          <span className="text-[10px] font-mono text-text-dim">
+          <span className="text-[10px] font-mono text-silver-dk">
             claimed {new Date(entry.claimed_at).toLocaleDateString()}
           </span>
         </div>
 
         {progress !== null && entry.target_population && (
-          <div className="space-y-0.5">
-            <div className="flex items-center justify-between text-[10px] font-mono text-text-dim">
-              <span>Population</span>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[10px] font-mono text-silver-dk">
+              <span className="uppercase tracking-[0.14em]">Population</span>
               <span className="tabular-nums">
                 {(entry.current_population ?? 0).toLocaleString()} / {entry.target_population.toLocaleString()} ({progress}%)
               </span>
             </div>
-            <div className="h-1.5 bg-bg4 rounded overflow-hidden">
-              <div className="h-full" style={{ width: `${progress}%`, backgroundColor: meta.colour }} />
+            <div className="h-2 bg-bg4 rounded-chunk-sm overflow-hidden border border-border/60">
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: `${progress}%`,
+                  background: `linear-gradient(180deg, ${meta.colour}, ${meta.colour}cc)`,
+                  boxShadow: `0 0 10px ${meta.colour}66`,
+                }}
+              />
             </div>
           </div>
         )}
 
         {entry.notes && (
-          <p className="text-[11px] text-text-dim italic leading-snug">{entry.notes}</p>
+          <p className="text-[11px] text-silver-dk italic leading-snug">{entry.notes}</p>
         )}
       </div>
 
@@ -190,7 +197,7 @@ function ColonyRow({
           value={entry.phase}
           onChange={(e) => onPhaseChange(e.target.value as Phase)}
           data-testid={`colony-phase-${entry.id}`}
-          className="bg-bg4 border border-border rounded px-1 py-0.5 text-text"
+          className="text-[10px] py-1 px-2"
         >
           {PHASES.map((p) => (
             <option key={p} value={p}>{PHASE_META[p].icon} {PHASE_META[p].label}</option>
@@ -200,7 +207,7 @@ function ColonyRow({
           type="button"
           onClick={onEdit}
           data-testid={`colony-edit-${entry.id}`}
-          className="px-2 py-0.5 rounded bg-bg4 border border-border text-text-dim hover:text-orange hover:border-orange-dk"
+          className="px-2.5 py-1 rounded-chunk-sm bg-gradient-to-b from-bg4 to-bg3 border border-border text-silver-dk hover:text-orange-lt hover:border-orange-dk transition-colors"
         >
           ✎ Edit
         </button>
@@ -208,7 +215,7 @@ function ColonyRow({
           type="button"
           onClick={() => { if (confirm(`Remove "${entry.name}" from tracker?`)) onRemove(); }}
           data-testid={`colony-remove-${entry.id}`}
-          className="px-2 py-0.5 rounded bg-red/10 border border-red/40 text-red hover:bg-red/20"
+          className="px-2.5 py-1 rounded-chunk-sm bg-red/10 border border-red/40 text-red hover:bg-red/20 transition-colors"
         >
           ✕ Remove
         </button>
@@ -252,18 +259,26 @@ function ColonyFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-bg1/80 backdrop-blur-sm px-4"
+      className="fixed inset-0 z-30 flex items-center justify-center px-4"
+      style={{
+        background: 'rgba(8,10,14,0.72)',
+        backdropFilter: 'blur(6px)',
+        WebkitBackdropFilter: 'blur(6px)',
+      }}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="w-full max-w-md rounded border border-border bg-bg2 p-5 space-y-3"
+        className="panel w-full max-w-md p-6 space-y-4 animate-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="font-mono text-orange tracking-wider text-sm">
-          {mode === 'add' ? 'Track new system' : `Edit ${entry?.name}`}
-        </h3>
+        <div className="flex items-center gap-3 border-b border-border/60 pb-3">
+          <span className="text-xl" aria-hidden>{mode === 'add' ? '🏗️' : '✎'}</span>
+          <h3 className="font-display text-orange tracking-[0.14em] text-base">
+            {mode === 'add' ? 'Track new system' : `Edit ${entry?.name}`}
+          </h3>
+        </div>
 
         <Field label="System name *">
           <input
@@ -271,7 +286,7 @@ function ColonyFormModal({
             onChange={(e) => setName(e.target.value)}
             data-testid="colony-form-name"
             placeholder="Enter system name…"
-            className="w-full bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+            className="w-full font-mono text-xs"
             autoFocus
           />
         </Field>
@@ -281,7 +296,7 @@ function ColonyFormModal({
             value={phase}
             onChange={(e) => setPhase(e.target.value as Phase)}
             data-testid="colony-form-phase"
-            className="w-full bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+            className="w-full font-mono text-xs"
           >
             {PHASES.map((p) => (
               <option key={p} value={p}>{PHASE_META[p].icon} {PHASE_META[p].label}</option>
@@ -289,7 +304,7 @@ function ColonyFormModal({
           </select>
         </Field>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Target population">
             <input
               type="number"
@@ -298,7 +313,7 @@ function ColonyFormModal({
               onChange={(e) => setTarget(e.target.value)}
               data-testid="colony-form-target"
               placeholder="e.g. 1000000"
-              className="w-full bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+              className="w-full font-mono text-xs tabular-nums"
             />
           </Field>
           <Field label="Current population">
@@ -309,7 +324,7 @@ function ColonyFormModal({
               onChange={(e) => setCurrent(e.target.value)}
               data-testid="colony-form-current"
               placeholder="optional"
-              className="w-full bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+              className="w-full font-mono text-xs tabular-nums"
             />
           </Field>
         </div>
@@ -321,15 +336,15 @@ function ColonyFormModal({
             onChange={(e) => setNotes(e.target.value)}
             data-testid="colony-form-notes"
             placeholder="Anything worth remembering…"
-            className="w-full bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs resize-vertical"
+            className="w-full font-mono text-xs resize-vertical"
           />
         </Field>
 
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex justify-end gap-2 pt-1 border-t border-border/60">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1 rounded bg-bg4 border border-border font-mono text-xs text-text-dim hover:text-orange"
+            className="btn-metal text-[11px] py-1.5 px-3 mt-3"
           >
             Cancel
           </button>
@@ -338,7 +353,7 @@ function ColonyFormModal({
             onClick={submit}
             disabled={!name.trim()}
             data-testid="colony-form-save"
-            className="px-3 py-1 rounded bg-orange text-bg1 border border-orange font-mono text-xs hover:bg-orange-dk disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-primary text-[11px] py-1.5 px-3 mt-3 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {mode === 'add' ? '➕ Track' : '✓ Save'}
           </button>
@@ -351,7 +366,7 @@ function ColonyFormModal({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="block font-mono text-[11px] text-text-dim uppercase tracking-wider mb-1">
+      <span className="block font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em] mb-1.5">
         {label}
       </span>
       {children}

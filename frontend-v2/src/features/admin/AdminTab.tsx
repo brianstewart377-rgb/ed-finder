@@ -20,10 +20,10 @@ export function AdminTab({ admin }: AdminTabProps) {
   const sync = useProfileSync();
 
   return (
-    <section data-testid="admin-tab" className="space-y-6">
-      <header className="flex flex-wrap items-center gap-3">
-        <h2 className="font-mono text-orange tracking-wider text-lg">⚙️ Admin</h2>
-        <span className="font-mono text-xs text-text-dim">
+    <section data-testid="admin-tab" className="space-y-5">
+      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
+        <h2 className="font-display text-orange tracking-[0.14em] text-lg">⚙️ Admin</h2>
+        <span className="font-mono text-xs text-silver-dk">
           ops console — token-gated actions
         </span>
         <span className="flex-1" />
@@ -31,19 +31,19 @@ export function AdminTab({ admin }: AdminTabProps) {
           type="button"
           onClick={() => void admin.refresh()}
           data-testid="admin-refresh"
-          className="px-2 py-1 rounded bg-bg4 border border-border font-mono text-[11px] text-text-dim hover:text-orange hover:border-orange-dk transition-colors"
+          className="btn-metal text-[11px] py-1.5 px-3"
         >
           ↺ Refresh
         </button>
       </header>
 
       {/* ── Auth ─────────────────────────────────────────────────────── */}
-      <section className="rounded border border-border p-4 space-y-2">
-        <h3 className="font-mono text-orange text-xs uppercase tracking-wider">
+      <section className="panel p-5 space-y-2">
+        <h3 className="font-display text-orange text-xs uppercase tracking-[0.18em]">
           1. Admin token
         </h3>
-        <p className="text-text-dim text-[11px]">
-          Required for write actions only. Stored in <code className="text-orange">sessionStorage</code> —
+        <p className="text-silver-dk text-[11px]">
+          Required for write actions only. Stored in <code className="text-orange-lt">sessionStorage</code> —
           forgotten when this tab closes.
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -53,14 +53,14 @@ export function AdminTab({ admin }: AdminTabProps) {
             onChange={(e) => setTokenDraft(e.target.value)}
             placeholder="X-Admin-Token"
             data-testid="admin-token-input"
-            className="flex-1 min-w-[220px] bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+            className="flex-1 min-w-[220px]"
             autoComplete="off"
           />
           <button
             type="button"
             onClick={() => admin.setToken(tokenDraft.trim())}
             data-testid="admin-token-save"
-            className="px-3 py-1 rounded bg-orange/20 border border-orange/50 text-orange font-mono text-[11px] hover:bg-orange/30"
+            className="btn-primary text-[11px] py-1.5 px-3"
           >
             Save
           </button>
@@ -69,7 +69,7 @@ export function AdminTab({ admin }: AdminTabProps) {
               type="button"
               onClick={() => { admin.forgetToken(); setTokenDraft(''); }}
               data-testid="admin-token-forget"
-              className="px-3 py-1 rounded bg-red/10 border border-red/40 text-red font-mono text-[11px] hover:bg-red/20"
+              className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono"
             >
               Forget
             </button>
@@ -78,7 +78,7 @@ export function AdminTab({ admin }: AdminTabProps) {
             data-testid="admin-token-status"
             className={[
               'font-mono text-[10px] uppercase tracking-wider',
-              admin.hasToken ? 'text-green' : 'text-text-dim',
+              admin.hasToken ? 'text-green' : 'text-silver-dk',
             ].join(' ')}
           >
             {admin.hasToken ? '● Token set' : '○ No token'}
@@ -87,13 +87,13 @@ export function AdminTab({ admin }: AdminTabProps) {
       </section>
 
       {/* ── Status ───────────────────────────────────────────────────── */}
-      <section className="rounded border border-border p-4 space-y-3">
-        <h3 className="font-mono text-orange text-xs uppercase tracking-wider">
+      <section className="panel p-5 space-y-3">
+        <h3 className="font-display text-orange text-xs uppercase tracking-[0.18em]">
           2. Live status
         </h3>
 
         {admin.metaError && (
-          <div className="rounded border border-red/50 bg-red/10 p-2 font-mono text-xs text-red">
+          <div className="panel-thin border-red/50 p-2 font-mono text-xs text-red" style={{ background: 'rgba(248,113,113,0.10)' }}>
             {admin.metaError}
           </div>
         )}
@@ -133,29 +133,29 @@ export function AdminTab({ admin }: AdminTabProps) {
           )}
         </div>
 
-        <p className="text-[10px] text-text-dim font-mono">
+        <p className="text-[10px] text-silver-dk font-mono">
           Auto-refreshes every 30s.
-          {admin.metaLoading && <span className="text-orange ml-2">⟳ refreshing…</span>}
+          {admin.metaLoading && <span className="text-orange-lt ml-2">⟳ refreshing…</span>}
         </p>
       </section>
 
       {/* ── Actions ──────────────────────────────────────────────────── */}
-      <section className="rounded border border-border p-4 space-y-3">
-        <h3 className="font-mono text-orange text-xs uppercase tracking-wider">
+      <section className="panel p-5 space-y-3">
+        <h3 className="font-display text-orange text-xs uppercase tracking-[0.18em]">
           3. Actions
         </h3>
 
         <ActionToast state={admin.actionState} onDismiss={admin.resetActionState} />
 
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid sm:grid-cols-3 gap-3">
           <ActionCard
-            title="Clear cache"
-            blurb="Flush Redis + expired api_cache rows. Cheap; safe to retry."
-            confirmText="Flush all cached responses?"
+            title="Rebuild ratings"
+            blurb="Recompute every system's per-economy scores. Cheap on preview (~40 systems), background pipeline in prod."
+            confirmText="Rebuild ratings now?"
             disabled={!admin.hasToken || admin.actionState.kind === 'busy'}
-            busy={admin.actionState.kind === 'busy' && admin.actionState.what === 'clearCache'}
-            onClick={admin.clearCache}
-            testid="admin-clear-cache"
+            busy={admin.actionState.kind === 'busy' && admin.actionState.what === 'rebuildRatings'}
+            onClick={admin.rebuildRatings}
+            testid="admin-rebuild-ratings"
           />
           <ActionCard
             title="Rebuild clusters"
@@ -166,11 +166,20 @@ export function AdminTab({ admin }: AdminTabProps) {
             onClick={admin.rebuildClusters}
             testid="admin-rebuild-clusters"
           />
+          <ActionCard
+            title="Clear cache"
+            blurb="Flush Redis + expired api_cache rows. Cheap; safe to retry."
+            confirmText="Flush all cached responses?"
+            disabled={!admin.hasToken || admin.actionState.kind === 'busy'}
+            busy={admin.actionState.kind === 'busy' && admin.actionState.what === 'clearCache'}
+            onClick={admin.clearCache}
+            testid="admin-clear-cache"
+          />
         </div>
 
         {!admin.hasToken && (
-          <p className="text-[10px] text-text-dim font-mono">
-            Set a token in section 1 to enable actions.
+          <p className="text-[10px] text-silver-dk font-mono">
+            Set a token in section 1 to enable actions. Preview default token: <code className="text-orange-lt">local-dev-admin-token</code>
           </p>
         )}
       </section>
@@ -187,15 +196,15 @@ function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
   const [draft, setDraft] = useState(sync.syncKey);
 
   return (
-    <section className="rounded border border-border p-4 space-y-3">
-      <h3 className="font-mono text-orange text-xs uppercase tracking-wider">
+    <section className="panel p-5 space-y-3">
+      <h3 className="font-display text-orange text-xs uppercase tracking-[0.18em]">
         4. Profile sync
       </h3>
-      <p className="text-text-dim text-[11px] leading-snug">
-        Cross-device sync for your <strong className="text-orange">Pinned</strong>,
-        <strong className="text-orange"> Compare</strong>,
-        <strong className="text-orange"> FC route</strong>, and
-        <strong className="text-orange"> Colony tracker</strong>.
+      <p className="text-silver-dk text-[11px] leading-snug">
+        Cross-device sync for your <strong className="text-orange-lt">Pinned</strong>,
+        <strong className="text-orange-lt"> Compare</strong>,
+        <strong className="text-orange-lt"> FC route</strong>, and
+        <strong className="text-orange-lt"> Colony tracker</strong>.
         The sync key IS the credential — pick a hard-to-guess string and
         share it across your devices. Last-write-wins; no auto-merge.
       </p>
@@ -207,7 +216,7 @@ function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
           onChange={(e) => setDraft(e.target.value)}
           placeholder="16+ chars, [A-Za-z0-9_-]"
           data-testid="sync-key-input"
-          className="flex-1 min-w-[260px] bg-bg4 border border-border rounded px-2 py-1 text-text font-mono text-xs"
+          className="flex-1 min-w-[260px]"
           autoComplete="off"
         />
         <button
@@ -215,7 +224,7 @@ function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
           onClick={() => sync.setSyncKey(draft.trim())}
           disabled={draft.trim().length < 16 || draft.trim() === sync.syncKey}
           data-testid="sync-key-save"
-          className="px-3 py-1 rounded bg-orange/20 border border-orange/50 text-orange font-mono text-[11px] hover:bg-orange/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="btn-primary text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Save key
         </button>
@@ -223,7 +232,7 @@ function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
           type="button"
           onClick={() => setDraft(sync.generateKey())}
           data-testid="sync-key-generate"
-          className="px-3 py-1 rounded bg-bg4 border border-border text-text-dim font-mono text-[11px] hover:text-orange hover:border-orange-dk"
+          className="btn-metal text-[11px] py-1.5 px-3"
           title="Generate a 24-char random key"
         >
           🎲 Generate
@@ -238,7 +247,7 @@ function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
           onClick={() => void sync.pull()}
           disabled={!sync.hasKey || sync.state.kind === 'busy'}
           data-testid="sync-pull"
-          className="px-3 py-1.5 rounded bg-cyan/20 border border-cyan/50 text-cyan font-mono text-xs hover:bg-cyan/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-cyan/50 bg-cyan/15 text-cyan font-mono hover:bg-cyan/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           ⬇ Pull from cloud
         </button>
@@ -247,13 +256,13 @@ function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
           onClick={() => void sync.push()}
           disabled={!sync.hasKey || sync.state.kind === 'busy'}
           data-testid="sync-push"
-          className="px-3 py-1.5 rounded bg-orange/20 border border-orange/50 text-orange font-mono text-xs hover:bg-orange/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="btn-primary text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           ⬆ Push to cloud
         </button>
         <span className="flex-1" />
         {sync.lastPushAt && (
-          <span className="font-mono text-[10px] text-text-dim">
+          <span className="font-mono text-[10px] text-silver-dk">
             last push: {new Date(sync.lastPushAt).toLocaleString()}
           </span>
         )}
@@ -261,7 +270,7 @@ function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
           data-testid="sync-key-status"
           className={[
             'font-mono text-[10px] uppercase tracking-wider',
-            sync.hasKey ? 'text-green' : 'text-text-dim',
+            sync.hasKey ? 'text-green' : 'text-silver-dk',
           ].join(' ')}
         >
           {sync.hasKey ? '● Key set' : '○ No key'}
@@ -269,7 +278,7 @@ function ProfileSyncSection({ sync }: { sync: UseProfileSync }) {
       </div>
 
       {!sync.hasKey && (
-        <p className="text-[10px] text-text-dim font-mono">
+        <p className="text-[10px] text-silver-dk font-mono">
           A key is needed before push/pull. Click Generate then Save.
         </p>
       )}
@@ -286,10 +295,10 @@ function SyncStateToast({
     <div
       data-testid="sync-toast"
       className={[
-        'rounded border p-2 font-mono text-xs flex items-center gap-2',
-        ok ? 'border-green/50 bg-green/10 text-green'
-           : 'border-red/50   bg-red/10   text-red',
+        'rounded-chunk-sm border p-2.5 font-mono text-xs flex items-center gap-2',
+        ok ? 'border-green/50 text-green' : 'border-red/50 text-red',
       ].join(' ')}
+      style={{ background: ok ? 'rgba(74,222,128,0.10)' : 'rgba(248,113,113,0.10)' }}
     >
       <span>{ok ? '✓' : '✕'}</span>
       <span className="font-bold">{state.what}:</span>
@@ -315,11 +324,11 @@ function SyncStateToast({
 function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className={[
-      'rounded p-2 border bg-bg3/40',
-      highlight ? 'border-red/40 bg-red/10' : 'border-border',
+      'rounded-chunk-sm p-2.5 border',
+      highlight ? 'border-red/40 bg-red/10' : 'border-border bg-bg3/40',
     ].join(' ')}>
-      <div className="text-text-dim uppercase tracking-wider text-[10px]">{label}</div>
-      <div className={['tabular-nums font-bold', highlight ? 'text-red' : 'text-text'].join(' ')}>
+      <div className="text-silver-dk uppercase tracking-[0.16em] text-[10px]">{label}</div>
+      <div className={['tabular-nums font-bold mt-0.5', highlight ? 'text-red' : 'text-silver'].join(' ')}>
         {value}
       </div>
     </div>
@@ -328,8 +337,8 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
 
 function Flag({ label, value }: { label: string; value: boolean }) {
   return (
-    <div className="rounded p-2 border border-border bg-bg3/40 flex items-center justify-between">
-      <span className="text-text-dim uppercase tracking-wider text-[10px]">{label}</span>
+    <div className="rounded-chunk-sm p-2.5 border border-border bg-bg3/40 flex items-center justify-between">
+      <span className="text-silver-dk uppercase tracking-[0.16em] text-[10px]">{label}</span>
       <span className={value ? 'text-green' : 'text-red'}>
         {value ? '✓' : '✕'}
       </span>
@@ -345,20 +354,15 @@ function ActionCard({
   onClick: () => Promise<void>; testid: string;
 }) {
   return (
-    <div className="rounded border border-border p-3 space-y-2 bg-bg3/40">
-      <div className="font-mono text-orange text-xs">{title}</div>
-      <p className="text-[10px] text-text-dim leading-snug">{blurb}</p>
+    <div className="panel-thin p-4 space-y-2 flex flex-col">
+      <div className="font-display text-orange text-xs tracking-[0.14em]">{title}</div>
+      <p className="text-[11px] text-silver-dk leading-snug flex-1">{blurb}</p>
       <button
         type="button"
         disabled={disabled}
         onClick={() => { if (confirm(confirmText)) void onClick(); }}
         data-testid={testid}
-        className={[
-          'w-full px-2 py-1.5 rounded font-mono text-xs border transition-colors',
-          disabled
-            ? 'bg-bg4 border-border text-text-dim opacity-50 cursor-not-allowed'
-            : 'bg-orange/20 border-orange/50 text-orange hover:bg-orange/30',
-        ].join(' ')}
+        className={disabled ? 'btn-metal opacity-50 cursor-not-allowed text-[11px] py-1.5' : 'btn-primary text-[11px] py-1.5'}
       >
         {busy ? '⟳ Working…' : 'Run'}
       </button>
@@ -375,10 +379,10 @@ function ActionToast({
     <div
       data-testid="admin-action-toast"
       className={[
-        'rounded border p-2 font-mono text-xs flex items-center gap-2',
-        ok ? 'border-green/50 bg-green/10 text-green'
-           : 'border-red/50   bg-red/10   text-red',
+        'rounded-chunk-sm border p-2.5 font-mono text-xs flex items-center gap-2',
+        ok ? 'border-green/50 text-green' : 'border-red/50 text-red',
       ].join(' ')}
+      style={{ background: ok ? 'rgba(74,222,128,0.10)' : 'rgba(248,113,113,0.10)' }}
     >
       <span>{ok ? '✓' : '✕'}</span>
       <span className="font-bold">{state.what}:</span>

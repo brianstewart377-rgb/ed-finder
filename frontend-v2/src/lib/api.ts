@@ -135,6 +135,17 @@ export const api = {
       headers: { 'X-Admin-Token': token },
     });
   },
+  rebuildRatings(token: string): Promise<{
+    ok: boolean;
+    message: string;
+    dirty_before: number;
+    cleared: number;
+  }> {
+    return jsonFetch('/admin/rebuild-ratings', {
+      method:  'POST',
+      headers: { 'X-Admin-Token': token },
+    });
+  },
 };
 
 /** Shape of one row from /api/watchlist. */

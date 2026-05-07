@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
+import { X } from 'lucide-react';
 import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
-import { ratingTier, formatPopulation } from '@/lib/format';
+import { formatPopulation } from '@/lib/format';
 import { useSystemDetail } from './useSystemDetail';
+import { RatingRadar } from './RatingRadar';
 
 export interface SystemDetailModalProps {
   id64:    number;
@@ -42,14 +44,14 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
   return (
     <div
       data-testid="system-detail-modal"
-      className="fixed inset-0 z-30 flex items-start justify-center bg-bg1/80 backdrop-blur-sm overflow-y-auto px-4 py-8 sm:py-12"
+      className="fixed inset-0 z-40 flex items-start justify-center bg-bg1/85 backdrop-blur-md overflow-y-auto px-4 py-8 sm:py-12"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="system-detail-title"
     >
       <article
-        className="relative w-full max-w-4xl rounded-md border border-border bg-bg2 shadow-2xl"
+        className="panel relative w-full max-w-4xl animate-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
         <ModalHeader
@@ -82,8 +84,10 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
 
           {data && (
             <>
+              <Section title="Rating profile">
+                <RatingRadar sys={data} />
+              </Section>
               <SystemInfoGrid sys={data} />
-              <ScoreBars sys={data} />
               <BodiesSection bodies={data.bodies} />
               <StationsSection stations={data.stations} />
               <ExplorationValue value={data.exploration_value} />
@@ -106,16 +110,16 @@ function ModalHeader({
   name, id64, loading, onClose,
 }: { name?: string; id64: number; loading: boolean; onClose: () => void }) {
   return (
-    <header className="sticky top-0 z-10 flex items-start gap-3 px-5 sm:px-6 py-4 border-b border-border bg-bg2/95 backdrop-blur rounded-t-md">
+    <header className="sticky top-0 z-10 flex items-start gap-3 px-5 sm:px-7 py-4 border-b border-border bg-bg2/85 backdrop-blur-md rounded-t-chunk-lg">
       <div className="min-w-0 flex-1">
         <h2
           id="system-detail-title"
-          className="font-mono text-orange tracking-wider text-lg truncate"
+          className="font-mono text-orange tracking-[0.14em] text-xl font-bold truncate"
         >
           {loading ? 'Loading…' : name || 'Unknown system'}
         </h2>
-        <div className="font-mono text-[11px] text-text-dim mt-0.5">
-          ID64: <span className="tabular-nums">{id64}</span>
+        <div className="font-mono text-[10px] tracking-[0.2em] text-silver-dk mt-1 uppercase">
+          ID64 · <span className="tabular-nums text-silver">{id64}</span>
         </div>
       </div>
       <button
@@ -123,9 +127,9 @@ function ModalHeader({
         onClick={onClose}
         data-testid="system-detail-close"
         aria-label="Close"
-        className="shrink-0 px-2 py-1 rounded text-text-dim hover:text-orange hover:bg-bg3 text-lg"
+        className="shrink-0 grid place-items-center w-9 h-9 rounded-full text-silver-dk hover:text-orange-lt hover:bg-orange/10 border border-border hover:border-orange/45 transition-colors"
       >
-        ✕
+        <X size={16} />
       </button>
     </header>
   );
@@ -189,45 +193,6 @@ function SystemInfoGrid({ sys }: { sys: SystemDetail }) {
   );
 }
 
-function ScoreBars({ sys }: { sys: SystemDetail }) {
-  const items: Array<[string, number | null | undefined]> = [
-    ['Overall',     sys.score],
-    ['Agriculture', sys.score_agriculture],
-    ['Refinery',    sys.score_refinery],
-    ['Industrial',  sys.score_industrial],
-    ['High Tech',   sys.score_hightech],
-    ['Military',    sys.score_military],
-    ['Tourism',     sys.score_tourism],
-    ['Extraction',  sys.score_extraction],
-  ];
-  const visible = items.filter(([, v]) => v != null);
-
-  if (visible.length === 0) return null;
-
-  return (
-    <Section title="Suitability scores">
-      <div className="space-y-1.5">
-        {visible.map(([label, score]) => {
-          const pct  = Math.max(0, Math.min(100, score ?? 0));
-          const tier = ratingTier(score ?? null);
-          return (
-            <div key={label} className="grid grid-cols-[110px_1fr_40px] items-center gap-3 text-xs font-mono">
-              <span className="text-text-dim">{label}</span>
-              <span className="block h-2 bg-bg4 rounded overflow-hidden">
-                <span
-                  className="block h-full transition-[width]"
-                  style={{ width: `${pct}%`, backgroundColor: tier.fillColor }}
-                />
-              </span>
-              <span className="text-right tabular-nums" style={{ color: tier.fillColor }}>{pct}</span>
-            </div>
-          );
-        })}
-      </div>
-    </Section>
-  );
-}
-
 function BodiesSection({ bodies }: { bodies?: SystemBody[] }) {
   if (!bodies || bodies.length === 0) return null;
 
@@ -242,25 +207,31 @@ function BodiesSection({ bodies }: { bodies?: SystemBody[] }) {
 
   return (
     <Section title={`Bodies (${bodies.length})`}>
-      <div className="overflow-x-auto rounded border border-border">
+      <div className="overflow-x-auto rounded-chunk-lg border border-border" style={{
+        background: 'linear-gradient(180deg, rgba(20,22,26,0.85), rgba(14,16,20,0.85))',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -16px rgba(0,0,0,0.6)',
+      }}>
         <table className="w-full text-xs font-mono">
-          <thead className="bg-bg3/60 text-text-dim uppercase tracking-wider text-[10px]">
+          <thead className="text-silver-dk uppercase tracking-[0.16em] text-[10px]" style={{
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
+            borderBottom: '1px solid hsl(216 10% 24%)',
+          }}>
             <tr>
-              <th className="px-2 py-1 text-left">Name</th>
-              <th className="px-2 py-1 text-left">Type</th>
-              <th className="px-2 py-1 text-left">Tags</th>
-              <th className="px-2 py-1 text-right">Dist (ls)</th>
+              <th className="px-3 py-2.5 text-left">Name</th>
+              <th className="px-3 py-2.5 text-left">Type</th>
+              <th className="px-3 py-2.5 text-left">Tags</th>
+              <th className="px-3 py-2.5 text-right">Dist (ls)</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((b) => (
-              <tr key={b.id} className="border-t border-border/60 hover:bg-bg3/30">
-                <td className="px-2 py-1 text-orange">{b.name}</td>
-                <td className="px-2 py-1 text-text-dim">{b.subtype || b.body_type || '—'}</td>
-                <td className="px-2 py-1 text-text-dim text-[10px]">
+              <tr key={b.id} className="border-t border-border/50 hover:bg-orange/5 transition-colors">
+                <td className="px-3 py-2 text-orange-lt font-semibold">{b.name}</td>
+                <td className="px-3 py-2 text-silver">{b.subtype || b.body_type || '—'}</td>
+                <td className="px-3 py-2 text-silver-dk text-[10px]">
                   <BodyTags body={b} />
                 </td>
-                <td className="px-2 py-1 text-right tabular-nums text-text-dim">
+                <td className="px-3 py-2 text-right tabular-nums text-silver">
                   {b.distance_from_star != null ? b.distance_from_star.toFixed(0) : '—'}
                 </td>
               </tr>
@@ -290,39 +261,45 @@ function StationsSection({ stations }: { stations?: SystemStation[] }) {
   if (!stations || stations.length === 0) return null;
   return (
     <Section title={`Stations (${stations.length})`}>
-      <div className="overflow-x-auto rounded border border-border">
+      <div className="overflow-x-auto rounded-chunk-lg border border-border" style={{
+        background: 'linear-gradient(180deg, rgba(20,22,26,0.85), rgba(14,16,20,0.85))',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -16px rgba(0,0,0,0.6)',
+      }}>
         <table className="w-full text-xs font-mono">
-          <thead className="bg-bg3/60 text-text-dim uppercase tracking-wider text-[10px]">
+          <thead className="text-silver-dk uppercase tracking-[0.16em] text-[10px]" style={{
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
+            borderBottom: '1px solid hsl(216 10% 24%)',
+          }}>
             <tr>
-              <th className="px-2 py-1 text-left">Name</th>
-              <th className="px-2 py-1 text-left">Type</th>
-              <th className="px-2 py-1 text-left">Pad</th>
-              <th className="px-2 py-1 text-left">Services</th>
-              <th className="px-2 py-1 text-right">Dist (ls)</th>
+              <th className="px-3 py-2.5 text-left">Name</th>
+              <th className="px-3 py-2.5 text-left">Type</th>
+              <th className="px-3 py-2.5 text-left">Pad</th>
+              <th className="px-3 py-2.5 text-left">Services</th>
+              <th className="px-3 py-2.5 text-right">Dist (ls)</th>
             </tr>
           </thead>
           <tbody>
             {stations.map((s) => (
-              <tr key={s.id} className="border-t border-border/60 hover:bg-bg3/30">
-                <td className="px-2 py-1 text-orange">{s.name}</td>
-                <td className="px-2 py-1 text-text-dim">{s.station_type || '—'}</td>
-                <td className="px-2 py-1">
+              <tr key={s.id} className="border-t border-border/50 hover:bg-orange/5 transition-colors">
+                <td className="px-3 py-2 text-orange-lt font-semibold">{s.name}</td>
+                <td className="px-3 py-2 text-silver">{s.station_type || '—'}</td>
+                <td className="px-3 py-2">
                   <span className={[
-                    'px-1.5 py-0.5 rounded text-[10px] border',
-                    s.landing_pad_size === 'L' ? 'border-green/50 text-green'
-                      : s.landing_pad_size === 'M' ? 'border-gold/50 text-gold'
-                      : s.landing_pad_size === 'S' ? 'border-text-dim text-text-dim'
-                      : 'border-border text-text-dim',
+                    'inline-grid place-items-center min-w-[26px] h-6 rounded-md text-[10px] font-bold border',
+                    s.landing_pad_size === 'L' ? 'border-green/50 text-green bg-green/10'
+                      : s.landing_pad_size === 'M' ? 'border-gold/50 text-gold bg-gold/10'
+                      : s.landing_pad_size === 'S' ? 'border-silver-dk/50 text-silver bg-bg4'
+                      : 'border-border text-silver-dk',
                   ].join(' ')}>
                     {s.landing_pad_size || '?'}
                   </span>
                 </td>
-                <td className="px-2 py-1 text-text-dim text-[10px] space-x-1">
-                  {s.has_market     && <span className="px-1 rounded bg-bg4 border border-border">Market</span>}
-                  {s.has_shipyard   && <span className="px-1 rounded bg-bg4 border border-border">Shipyard</span>}
-                  {s.has_outfitting && <span className="px-1 rounded bg-bg4 border border-border">Outfitting</span>}
+                <td className="px-3 py-2 text-silver-dk text-[10px] space-x-1">
+                  {s.has_market     && <span className="chip">Market</span>}
+                  {s.has_shipyard   && <span className="chip">Shipyard</span>}
+                  {s.has_outfitting && <span className="chip">Outfitting</span>}
                 </td>
-                <td className="px-2 py-1 text-right tabular-nums text-text-dim">
+                <td className="px-3 py-2 text-right tabular-nums text-silver">
                   {s.distance_from_star != null ? s.distance_from_star.toFixed(0) : '—'}
                 </td>
               </tr>
@@ -390,9 +367,11 @@ function ExternalLinks({ sys }: { sys: SystemDetail }) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section>
-      <h3 className="font-mono text-orange uppercase tracking-wider text-[11px] mb-2 border-b border-border/50 pb-1">
-        {title}
+    <section className="space-y-3">
+      <h3 className="font-mono text-silver-dk uppercase tracking-[0.22em] text-[10px] flex items-center gap-3">
+        <span className="block h-px flex-1 bg-gradient-to-r from-transparent via-border-bright to-transparent" />
+        <span className="text-orange">{title}</span>
+        <span className="block h-px flex-1 bg-gradient-to-r from-border-bright via-border-bright to-transparent" />
       </h3>
       {children}
     </section>

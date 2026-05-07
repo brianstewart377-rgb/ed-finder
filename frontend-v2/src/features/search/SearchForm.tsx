@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react';
 import {
-  BODY_FILTER_KEYS, BODY_FILTER_LABELS,
-  type FilterTri, type SearchFilters,
+  BODY_FILTER_KEYS, BODY_FILTER_LABELS, BODY_SLIDERS, PRESETS, applyPreset,
+  type FilterTri, type SearchFilters, type BodySliderKey, type BodyRange, type PresetId,
 } from './useSearch';
 import { useAutocomplete } from './useAutocomplete';
 import type { AutocompleteHit } from '@/types/api';
+import { DualSlider } from '@/components/DualSlider';
+import { ChevronDown, Sparkles } from 'lucide-react';
 
 /**
  * Search form. Stateless w.r.t. results — emits filter changes through
@@ -30,7 +32,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
-      className="space-y-5 p-4 rounded-lg border border-border bg-bg2/60"
+      className="space-y-5 p-5"
       data-testid="search-form"
     >
       <Section title="Reference System">
@@ -45,6 +47,10 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           {filters.refCoords.x.toFixed(2)}, {filters.refCoords.y.toFixed(2)}, {filters.refCoords.z.toFixed(2)}
         </p>
       </Section>
+
+      <QuickPresets
+        onPick={(id) => onChange(applyPreset(filters, id) as Partial<SearchFilters>)}
+      />
 
       <Section title="Search Radius">
         <RangeRow
@@ -97,7 +103,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         />
       </Section>
 
-      <Section title="Body types">
+      <Section title="Body types — quick filter">
         <p className="font-mono text-[10px] text-text-dim leading-relaxed">
           Click once to require, twice to exclude, again to clear.
         </p>
@@ -116,14 +122,40 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         </div>
       </Section>
 
+      <Section title="Body type filters">
+        <p className="font-mono text-[10px] text-text-dim leading-relaxed mb-1">
+          Per-body min/max counts. Drag both thumbs to narrow the range.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3 pt-1">
+          {BODY_SLIDERS.map((b) => {
+            const r = filters.bodyRanges[b.key as BodySliderKey] ?? { min: 0, max: b.max };
+            return (
+              <DualSlider
+                key={b.key}
+                label={b.label}
+                color={b.color}
+                min={0}
+                max={b.max}
+                value={r}
+                onChange={(nv: BodyRange) => onChange({
+                  bodyRanges: { ...filters.bodyRanges, [b.key]: nv },
+                })}
+                testid={`body-slider-${b.key}`}
+              />
+            );
+          })}
+        </div>
+      </Section>
+
       <Section title="Sort">
         <SelectRow
           label="Order by"
           value={filters.sortBy}
           onChange={(v) => onChange({ sortBy: v as SearchFilters['sortBy'] })}
           options={[
-            { value: 'rating',   label: 'Rating ↓' },
-            { value: 'distance', label: 'Distance ↑' },
+            { value: 'rating',     label: 'Rating ↓' },
+            { value: 'distance',   label: 'Distance ↑' },
+            { value: 'population', label: 'Population ↓' },
           ]}
         />
       </Section>
@@ -133,7 +165,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           type="submit"
           disabled={loading}
           data-testid="search-submit"
-          className="flex-1 px-4 py-2 rounded font-mono text-sm font-bold bg-orange text-bg1 hover:bg-orange-dk disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="btn-primary flex-1"
         >
           {loading ? 'SCANNING…' : '🔍 SEARCH'}
         </button>
@@ -141,7 +173,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           type="button"
           onClick={onReset}
           data-testid="search-reset"
-          className="px-3 py-2 rounded font-mono text-xs bg-bg4 border border-border text-text-dim hover:text-orange hover:border-orange-dk transition-colors"
+          className="btn-metal"
         >
           ✕ Reset
         </button>
@@ -162,6 +194,66 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {title}
       </legend>
       <div className="space-y-2">{children}</div>
+    </fieldset>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Quick presets — collapsed by default. Pick one to overwrite filters with
+// an opinionated starting point (e.g. "Tourism Hub", "Mining / Refinery").
+// ─────────────────────────────────────────────────────────────────────────
+
+function QuickPresets({ onPick }: { onPick: (id: PresetId) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <fieldset className="space-y-2" data-testid="quick-presets">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        data-testid="quick-presets-toggle"
+        className={[
+          'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-chunk-sm',
+          'border transition-all duration-200 cursor-pointer',
+          open
+            ? 'border-orange/55 bg-orange/10 shadow-brand-glow'
+            : 'border-border bg-bg3/40 hover:border-orange/45 hover:bg-orange/5',
+        ].join(' ')}
+      >
+        <span className="flex items-center gap-2 font-mono text-[11px] tracking-[0.14em] uppercase">
+          <Sparkles size={13} className="text-orange-lt" />
+          <span className={open ? 'text-orange-lt' : 'text-orange'}>Quick Presets</span>
+          <span className="text-silver-dk text-[10px] font-normal normal-case tracking-normal">
+            {open ? '— pick a profile' : '— click to expand'}
+          </span>
+        </span>
+        <ChevronDown
+          size={14}
+          className={['text-silver-dk transition-transform duration-200', open && 'rotate-180 text-orange-lt'].filter(Boolean).join(' ')}
+        />
+      </button>
+
+      {open && (
+        <div className="grid grid-cols-2 gap-2 pt-1 animate-fade-up">
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              data-testid={`preset-${p.id}`}
+              onClick={() => onPick(p.id)}
+              className="text-left px-3 py-2.5 rounded-chunk-sm border border-border bg-bg3/40 hover:border-orange/55 hover:bg-orange/10 hover:shadow-brand-glow transition-all duration-200 group"
+            >
+              <div className="flex items-center gap-1.5 font-mono text-[11px] tracking-[0.08em] text-silver group-hover:text-orange-lt mb-0.5">
+                <span className="text-base leading-none">{p.icon}</span>
+                <span className="truncate">{p.label}</span>
+              </div>
+              <div className="font-mono text-[9px] text-silver-dk leading-snug line-clamp-2">
+                {p.hint}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </fieldset>
   );
 }
