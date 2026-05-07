@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  content: ['./index.html', './src/**/*.{ts,tsx,js,jsx}'],
   theme: {
     extend: {
       // Mirror the vanilla app's CSS variables so the v2 visual identity

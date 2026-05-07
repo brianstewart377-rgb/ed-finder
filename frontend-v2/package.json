@@ -16,8 +16,10 @@
     "types:gen": "openapi-typescript ${VITE_OPENAPI_URL:-https://ed-finder.app/openapi.json} -o src/types/api.gen.ts"
   },
   "dependencies": {
+    "lucide-react": "^0.469.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "recharts": "^2.15.0"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.0",
