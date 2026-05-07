@@ -40,6 +40,8 @@ htmlcov/
 #    build the v2 app with "Cannot find module '@/lib/api'".
 !frontend-v2/src/lib/
 !frontend-v2/src/lib/**
+!frontend-v2/src/_redesign/lib/
+!frontend-v2/src/_redesign/lib/**
 .tox/
 .coverage
 .coverage.*
