@@ -1,48 +1,38 @@
-import { useEffect, useState } from 'react';
+/**
+ * `useSystemDetail` — TanStack Query-backed system detail fetch.
+ *
+ * Audit fix (2026-05-08, AUDIT_REPORT.md §3 / Phase 7): replaces
+ * 49 lines of `useState/useEffect/abort-handling` boilerplate with
+ * 12 lines of `useQuery`. Get for free:
+ *   • Auto-dedupe of concurrent requests (open the same system in two
+ *     places → one HTTP call)
+ *   • Stale-while-revalidate (re-opening shows cached, then refreshes)
+ *   • In-memory cache survives modal close → next open is instant
+ *   • Configurable retry (we cap at 1 globally — see lib/queryClient.ts)
+ *
+ * Public signature unchanged for backward compat with `<SystemDetailModal>`.
+ */
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { SystemDetail } from '@/types/api';
 
-/**
- * Fetches /api/system/{id64} for a full join (system + rating + bodies +
- * stations). Backend caches the result in Redis under `sys:{id64}` for 24h
- * (settings.ttl_system) so re-opening the same system is instant.
- *
- * No abort-on-id-change handling — the modal is mounted briefly and the
- * happy path is "open one, look, close". If we ever pre-fetch on hover or
- * deep-link from a sibling tab, revisit with AbortController.
- */
 export interface UseSystemDetail {
   data:    SystemDetail | null;
   loading: boolean;
   error:   string | null;
-  /** Force a fresh fetch (bypasses local component state, not the Redis cache). */
   refetch: () => void;
 }
 
 export function useSystemDetail(id64: number | null): UseSystemDetail {
-  const [data,    setData]    = useState<SystemDetail | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
-  const [tick,    setTick]    = useState(0);
-
-  useEffect(() => {
-    if (id64 == null) { setData(null); setError(null); setLoading(false); return; }
-
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    api.system(id64)
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-        setData(null);
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
-    return () => { cancelled = true; };
-  }, [id64, tick]);
-
-  return { data, loading, error, refetch: () => setTick((t) => t + 1) };
+  const q = useQuery<SystemDetail, Error>({
+    queryKey: ['system', id64],
+    enabled:  id64 != null,
+    queryFn:  () => api.system(id64 as number),
+  });
+  return {
+    data:    q.data ?? null,
+    loading: q.isLoading || q.isFetching,
+    error:   q.error ? q.error.message : null,
+    refetch: () => { void q.refetch(); },
+  };
 }

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "ED Finder v2 \u2014 Vite + React + TypeScript (proof of concept). Mounts at /v2/ alongside the existing vanilla JS app at /.",
+  "description": "ED Finder v2 — Vite + React + TypeScript (proof of concept). Mounts at /v2/ alongside the existing vanilla JS app at /.",
   "scripts": {
     "start": "vite --host 0.0.0.0 --port 3000",
     "dev": "vite",
@@ -14,15 +14,22 @@
     "lint": "eslint src --ext .ts,.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:install": "playwright install --with-deps chromium",
     "types:gen": "openapi-typescript ${VITE_OPENAPI_URL:-https://ed-finder.app/openapi.json} -o src/types/api.gen.ts"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.100.9",
+    "@tanstack/react-query-devtools": "^5.100.9",
     "lucide-react": "^0.469.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "recharts": "^2.15.0"
+    "recharts": "^2.15.0",
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^22.10.0",

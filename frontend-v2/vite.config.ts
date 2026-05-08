@@ -38,6 +38,19 @@ export default defineConfig({
       },
     },
   },
+  // Preview server (used by Playwright E2E and `yarn preview`) proxies
+  // /api the same way the dev server does. Without this, the production
+  // bundle served by `vite preview` would 404 every API call.
+  preview: {
+    host: '0.0.0.0',
+    port: 4173,
+    proxy: {
+      '/api': {
+        target: process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:8001',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     outDir: 'dist',
     sourcemap: true,

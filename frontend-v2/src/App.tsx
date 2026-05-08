@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import { queryClient } from '@/lib/queryClient';
 import { api } from '@/lib/api';
 import { ResultCard } from '@/components/ResultCard';
 import { NavBar } from '@/components/NavBar';
@@ -31,8 +34,21 @@ import './index.css';
  * tabs can share data and the modal — which can open from any tab — can
  * call into the same hooks for "Save to Watchlist" / "Pin" / "Add to
  * Compare" without re-implementing them.
+ *
+ * Audit fix (2026-05-08, AUDIT_REPORT.md §3 / Phase 7): the whole tree is
+ * wrapped in QueryClientProvider so any descendant `useQuery`/`useMutation`
+ * shares one cache. Devtools mount in dev only.
  */
 export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppInner />
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
+    </QueryClientProvider>
+  );
+}
+
+function AppInner() {
   const { route, selectedSystemId, navigate, openSystem, closeSystem } = useHashRoute();
   const search    = useSearch();
   const watchlist = useWatchlist();

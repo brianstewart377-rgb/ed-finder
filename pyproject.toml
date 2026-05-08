@@ -3,16 +3,22 @@ name = "ed-finder"
 version = "3.0.1"
 description = "Elite Dangerous colonisation planner — searches 186M star systems by economy, body types, and distance."
 requires-python = ">=3.12"
-dependencies = [
-    "aiofiles==23.2.1",
-    "asyncpg==0.29.0",
-    "fastapi==0.115.0",
-    "httpx==0.27.2",
-    "prometheus-fastapi-instrumentator==7.0.0",
-    "pydantic==2.9.2",
-    "pydantic-settings==2.5.2",
-    "python-multipart==0.0.9",
-    "redis[asyncio]==5.0.8",
-    "slowapi==0.1.9",
-    "uvicorn[standard]==0.30.6",
-]
+
+# This file is intentionally a thin metadata-only manifest. Real runtime
+# deps live in per-app requirements.txt files so each Docker image only
+# pulls what it needs (audit fix §Refactor 4 + §M15):
+#
+#   apps/api/requirements.txt        — FastAPI service
+#   apps/eddn/requirements.txt       — EDDN listener
+#   apps/importer/requirements.txt   — Spansh importer + builders
+#
+# To install everything for local dev / CI:
+#
+#   pip install -r apps/api/requirements.txt \
+#               -r apps/eddn/requirements.txt \
+#               -r apps/importer/requirements.txt
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"

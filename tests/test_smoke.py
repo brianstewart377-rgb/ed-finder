@@ -19,9 +19,16 @@ import unittest
 # Redirect log files to /dev/null so imports don't fail in test environments
 # that don't have /data/logs/.  Must be set before the modules are imported.
 os.environ.setdefault('LOG_FILE', '/dev/null')
+# Importer needs DATABASE_URL to be set at module import time (the
+# fail-closed fix in §C2 removed the insecure default). Tests don't
+# actually connect — they just need the URL string present.
+os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
 
-# Make sure both backend dirs are importable regardless of cwd
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+# Make the importer modules importable regardless of cwd.
+# Audit fix (§Refactor 4): backend/ was split into apps/{api,eddn,importer}/.
+_HERE = os.path.dirname(__file__)
+sys.path.insert(0, os.path.join(_HERE, '..', 'apps', 'importer', 'src'))
+sys.path.insert(0, os.path.join(_HERE, '..', 'apps', 'api',      'src'))
 
 # build_ratings public API (v3.0+):
 #   classify_bodies(bodies) -> counts
