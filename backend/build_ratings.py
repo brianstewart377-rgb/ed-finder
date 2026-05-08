@@ -984,20 +984,48 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
 
     economy_suggestion = primary_eco if primary_score >= 20 else None
 
-    # ── Overall score: best economy + slot + strategic + safety + diversity
-    # v3.1 weights: 42% best economy, 23% slots, 18% strategic, 10% safety,
-    #               5% terraforming potential, 2% body diversity.
-    # The 45→42 reduction on primary economy makes room for the two new
-    # signals without destabilising search rankings (any system's new
-    # score is within ~4 pts of its v3.0 score).
-    overall = int(
-        primary_score   * 0.42 +
-        slot_score      * 0.23 +
-        strategic_score * 0.18 +
-        safety_score    * 0.10 +
-        tf_potential    * 0.05 +
-        diversity       * 0.02
+    # ── Overall score: v3.2 — even-handed, pair-aware, rarity-gated ─────
+    # v3.1 weighted only the BEST single economy at 42% and added a +10
+    # safety baseline. v3.2 uses complementary economy pairs (Trailblazers
+    # Update 3) + top-3 average + a rarity gate at 85+.
+    COMPLEMENTARY_PAIRS = [
+        ('Extraction',  'Refinery'),
+        ('Refinery',    'Industrial'),
+        ('Industrial',  'HighTech'),
+        ('HighTech',    'Tourism'),
+        ('Agriculture', 'Tourism'),
+        ('HighTech',    'Military'),
+        ('Industrial',  'Military'),
+        ('Agriculture', 'HighTech'),
+    ]
+    pair_scores = [(a, b, (scores[a] + scores[b]) / 2)
+                   for a, b in COMPLEMENTARY_PAIRS]
+    best_a, best_b, best_pair = max(pair_scores, key=lambda t: t[2])
+
+    top3_avg = sum(sorted([s for s in scores.values()], reverse=True)[:3]) / 3
+    strategic_bonus = (tf_potential / 100.0) * 4 + (diversity / 100.0) * 3
+    raw_overall = best_pair * 0.60 + top3_avg * 0.35 + strategic_bonus
+
+    has_standout = (
+        counts['elw']           >= 1 or
+        counts['ammonia']       >= 1 or
+        counts['black_hole']    >= 1 or
+        counts['neutron']       >= 1 or
+        counts['ww']            >= 2 or
+        counts['terraformable'] >= 5
     )
+    if not has_standout and raw_overall > 84:
+        raw_overall = 84.0
+
+    overall = int(min(raw_overall, 100))
+
+    top_pair_meta = {
+        'a':          best_a,
+        'b':          best_b,
+        'a_score':    int(scores[best_a]),
+        'b_score':    int(scores[best_b]),
+        'pair_score': int(round(best_pair)),
+    }
 
     # ── Rationale (one-line explainer) ─────────────────────────────────────
     rationale = generate_rationale(counts, scores, primary_eco,
@@ -1053,6 +1081,8 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         },
         'primary_economy':   primary_eco,
         'secondary_economy': secondary_eco,
+        'top_pair':          top_pair_meta,
+        'has_standout':      has_standout,
         'rationale':         rationale,
         'confidence':        confidence,
     }
