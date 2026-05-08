@@ -146,7 +146,19 @@ async def local_search_endpoint(
     economy     = (filters.economy or 'any').strip()
     min_rating  = req.min_rating or 0
 
-    cache_key = f'search:{ref_x:.1f},{ref_y:.1f},{ref_z:.1f}:{min_dist}-{max_dist}:{pop_zero}:{economy}:{sort_by}:{size}:{offset}:{galaxy_wide}:{min_rating}'
+    cache_key = (
+        f'search:{ref_x:.1f},{ref_y:.1f},{ref_z:.1f}:{min_dist}-{max_dist}:'
+        f'{pop_zero}:{economy}:{sort_by}:{size}:{offset}:{galaxy_wide}:{min_rating}:'
+        # Include body filters / requirement booleans / star types so the
+        # cache key changes whenever the user adjusts the body sliders or
+        # quick-pill filters. Without these, any subsequent request that
+        # only differs in body filters silently re-uses the stale (broader)
+        # response — making it look like the sliders are doing nothing.
+        f'bf={json.dumps(req.body_filters or {}, sort_keys=True)}:'
+        f'rb={int(bool(req.require_bio))}:rg={int(bool(req.require_geo))}:'
+        f'rt={int(bool(req.require_terra))}:'
+        f'st={",".join(sorted(req.star_types or []))}'
+    )
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached

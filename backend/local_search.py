@@ -296,6 +296,15 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
     where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
 
+    # Snapshot the param count for the WHERE clause — count_sql only uses
+    # WHERE-clause placeholders, so we must NOT pass the dist_expr or
+    # LIMIT/OFFSET params to it (asyncpg validates positional argument
+    # count and raises if extras are passed). This was the bug that made
+    # local_db_search fail on every request, falling back to the slower
+    # inline router which then served stale cached results because its
+    # cache key omitted body_filters.
+    where_param_count = len(params)
+
     # Distance expression
     if not galaxy_wide:
         dist_expr = (
@@ -367,7 +376,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
     async with pool.acquire() as conn:
         rows  = await conn.fetch(sql, *params)
-        total = await conn.fetchval(count_sql, *params[:-2])
+        total = await conn.fetchval(count_sql, *params[:where_param_count])
 
     results: list = []
     for row in rows:

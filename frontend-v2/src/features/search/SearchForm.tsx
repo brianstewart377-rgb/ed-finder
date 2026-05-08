@@ -55,13 +55,13 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
       <Section title="Search Radius">
         <RangeRow
           label="Min distance (LY)"
-          min={0} max={500}
+          min={0} max={2000}
           value={filters.minDistance}
           onChange={(v) => onChange({ minDistance: Math.min(v, filters.maxDistance) })}
         />
         <RangeRow
           label="Max distance (LY)"
-          min={0} max={500}
+          min={0} max={2000}
           value={filters.maxDistance}
           onChange={(v) => onChange({ maxDistance: Math.max(v, filters.minDistance) })}
         />

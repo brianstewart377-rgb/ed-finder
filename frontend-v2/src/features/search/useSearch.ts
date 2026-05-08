@@ -214,7 +214,7 @@ export const DEFAULT_FILTERS: SearchFilters = {
   refName:     'Sol',
   refCoords:   { x: 0, y: 0, z: 0 },
   minDistance: 0,
-  maxDistance: 50,
+  maxDistance: 200,
   size:        50,
   populated:   'any',
   economy:     'any',
