@@ -67,15 +67,18 @@ export function NavBar({
           data-testid="nav-density-toggle"
           title={`Density: ${densityLabel} (click to cycle)`}
           aria-label={`Density: ${densityLabel}, click to cycle`}
-          className="hidden md:flex items-center justify-center shrink-0 w-8 h-8 rounded-full bg-bg3/60 border border-border text-silver hover:text-orange-lt hover:border-orange-dk transition-colors font-mono text-[14px] leading-none"
+          className="flex items-center justify-center shrink-0 w-8 h-8 rounded-full bg-bg3/60 border border-border text-silver hover:text-orange-lt hover:border-orange-dk transition-colors font-mono text-[14px] leading-none"
         >
           <span aria-hidden>{densityIcon}</span>
         </button>
 
-        {/* ── Status pill ────────────────────────────── */}
+        {/* ── Status pill — always visible across breakpoints.
+         * Collapses to a dot-only chip on narrow screens, expands with
+         * the text label at md+. Used to be 'hidden md:flex' which led
+         * users on smaller viewports to think the backend was offline. */}
         <div
-          className="hidden md:flex items-center gap-2 shrink-0 px-3 py-1.5 rounded-full bg-bg3/60 border border-border"
-          title={health ?? 'Checking…'}
+          className="flex items-center gap-2 shrink-0 px-2 md:px-3 py-1.5 rounded-full bg-bg3/60 border border-border"
+          title={ok ? `Backend online — ${health}` : (health ?? 'Checking…')}
           data-testid="nav-status-pill"
         >
           <span className={[
@@ -83,7 +86,7 @@ export function NavBar({
             ok ? 'bg-green shadow-[0_0_8px_2px_rgba(74,222,128,0.55)]'
                : 'bg-red shadow-[0_0_8px_2px_rgba(248,113,113,0.55)]',
           ].join(' ')} />
-          <span className="font-mono text-[10px] tracking-wider text-silver-dk uppercase">
+          <span className="hidden md:inline font-mono text-[10px] tracking-wider text-silver-dk uppercase">
             {ok ? 'Online' : (health ?? '…')}
           </span>
         </div>
