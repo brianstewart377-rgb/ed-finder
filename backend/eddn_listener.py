@@ -113,6 +113,7 @@ def safe_int(v) -> Optional[int]:
     except (TypeError, ValueError): return None
 
 ECONOMY_MAP = {
+    # Full-name forms (what some emitters send)
     '$economy_agriculture;':  'Agriculture',
     '$economy_refinery;':     'Refinery',
     '$economy_industrial;':   'Industrial',
@@ -125,11 +126,55 @@ ECONOMY_MAP = {
     '$economy_prison;':       'Prison',
     '$economy_carrier;':      'Carrier',
     '$economy_none;':         'None',
+    # Abbreviated forms (what live Frontier journal events actually emit)
+    '$economy_agri;':         'Agriculture',
+    '$economy_hitech;':       'HighTech',
+    # Live forms that aren't represented in the economy_type enum yet —
+    # map them to 'None' so the row inserts cleanly. Add new enum values
+    # later if these become important to filter on.
+    '$economy_service;':      'None',
+    '$economy_repair;':       'Repair',
+    '$economy_rescue;':       'Rescue',
+    '$economy_damaged;':      'Damaged',
+}
+
+# Postgres economy_type enum — used by norm_economy's fallback to drop
+# anything we don't recognise rather than poison the transaction with an
+# 'invalid input value for enum economy_type' error. Mirror sql/001.
+_ECONOMY_ENUM_VALUES = {
+    'Agriculture', 'Refinery', 'Industrial', 'HighTech',
+    'Military', 'Tourism', 'Extraction', 'Colony',
+    'Terraforming', 'Prison', 'Damaged', 'Rescue',
+    'Repair', 'Carrier', 'None', 'Unknown',
 }
 
 def norm_economy(v: Optional[str]) -> str:
+    """Normalise an economy string to a value the economy_type enum accepts.
+
+    Handles three input shapes:
+      • Full Frontier journal form: '$Economy_Agri;'    → 'Agriculture'
+      • Already-clean enum value:   'HighTech'          → 'HighTech'
+      • Plain title-case word:      'Industrial'        → 'Industrial'
+
+    Anything we don't recognise falls back to 'Unknown' rather than the
+    raw string — that way one weird payload can't abort the whole batch
+    upsert with 'invalid input value for enum economy_type'.
+    """
     if not v: return 'Unknown'
-    return ECONOMY_MAP.get(str(v).lower(), str(v).title().replace(' ', ''))
+    s = str(v).strip().lower()
+    # Fast path: explicit map covers all known $economy_*; forms.
+    if s in ECONOMY_MAP:
+        return ECONOMY_MAP[s]
+    # Generic Frontier-form fallback: $economy_<word>; → <Word>
+    if s.startswith('$economy_'):
+        s = s[len('$economy_'):]
+    if s.endswith(';'):
+        s = s[:-1]
+    # Try title-cased match against the enum (handles 'Industrial', 'Tourism', etc.).
+    candidate = s.replace('_', '').title() if '_' in s else s.title()
+    if candidate in _ECONOMY_ENUM_VALUES:
+        return candidate
+    return 'Unknown'
 
 SCOOPABLE = {'O', 'B', 'A', 'F', 'G', 'K', 'M'}
 
