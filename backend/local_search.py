@@ -255,6 +255,10 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         "neutron":       "r.neutron_count",
         "black_hole":    "r.black_hole_count",
         "white_dwarf":   "r.white_dwarf_count",
+        "other_star":    "r.other_star_count",
+        # — Body-system aggregates (added in sql/008_body_filter_aggregates.sql) —
+        "rings":         "r.ring_count",
+        "walkable":      "r.walkable_count",
         # — Signal totals (bio/geo). Treated as range filters too;
         #   require_bio / require_geo above is the legacy boolean path. —
         "bio":           "r.bio_signal_total",

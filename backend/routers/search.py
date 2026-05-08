@@ -196,6 +196,9 @@ async def local_search_endpoint(
             ('r.neutron_count',       'neutron'),
             ('r.black_hole_count',    'black_hole'),
             ('r.white_dwarf_count',   'white_dwarf'),
+            ('r.other_star_count',    'other_star'),
+            ('r.ring_count',          'rings'),
+            ('r.walkable_count',      'walkable'),
             ('r.bio_signal_total',    'bio'),
             ('r.geo_signal_total',    'geo'),
         ]

@@ -32,16 +32,17 @@ export const BODY_FILTER_LABELS: Record<BodyFilterKey, string> = {
 /** ── Per-body-type dual-range filter (matches `_redesign/FilterRail`) ── */
 export interface BodyRange { min: number; max: number; }
 
-/** Body-type sliders backed by real columns on the `ratings` table.
- *  Three originally-defined keys (`walkable`, `otherStar`, `rings`) had
- *  no DB column behind them and were silently dropped server-side, so
- *  they're omitted here to keep the UI honest. Re-add when the
- *  corresponding columns land in the schema. */
+/** Body-type sliders backed by real columns on the `ratings` table. All
+ *  18 originally-defined slider keys are now wired through to a real
+ *  column — `walkable_count`, `ring_count`, `other_star_count` were
+ *  added in sql/008_body_filter_aggregates.sql. */
 export const BODY_SLIDERS = [
   { key: 'landable',   label: 'Landable',           color: '#94a3b8', max: 60 },
+  { key: 'walkable',   label: 'Walkable',           color: '#38bdf8', max: 60 },
   { key: 'blackHole',  label: 'Black Holes',        color: '#e2e8f0', max: 5  },
   { key: 'neutron',    label: 'Neutron Stars',      color: '#cbd5e1', max: 5  },
   { key: 'whiteDwarf', label: 'White Dwarves',      color: '#dbeafe', max: 3  },
+  { key: 'otherStar',  label: 'Other Stars',        color: '#bef264', max: 30 },
   { key: 'elw',        label: 'Earth-like',         color: '#4ade80', max: 10 },
   { key: 'ww',         label: 'Water Worlds',       color: '#60a5fa', max: 20 },
   { key: 'ammonia',    label: 'Ammonia Worlds',     color: '#fb923c', max: 10 },
@@ -51,6 +52,7 @@ export const BODY_SLIDERS = [
   { key: 'rockyIce',   label: 'Rocky Ice',          color: '#7dd3fc', max: 25 },
   { key: 'rocky',      label: 'Rocky',              color: '#94a3b8', max: 50 },
   { key: 'icy',        label: 'Icy',                color: '#e0e7ff', max: 60 },
+  { key: 'rings',      label: 'Rings',              color: '#bef264', max: 30 },
   { key: 'geoSignals', label: 'Geo Signals',        color: '#d97706', max: 30 },
   { key: 'bioSignals', label: 'Bio Signals',        color: '#22c55e', max: 25 },
 ] as const;
@@ -65,9 +67,11 @@ const DEFAULT_BODY_RANGES: Record<BodySliderKey, BodyRange> = Object.fromEntries
  *  backend's `local_search.py` accepts these directly. */
 const BODY_BACKEND_KEY: Record<BodySliderKey, string> = {
   landable:   'landable',
+  walkable:   'walkable',
   blackHole:  'black_hole',
   neutron:    'neutron',
   whiteDwarf: 'white_dwarf',
+  otherStar:  'other_star',
   elw:        'elw',
   ww:         'ww',
   ammonia:    'ammonia',
@@ -77,6 +81,7 @@ const BODY_BACKEND_KEY: Record<BodySliderKey, string> = {
   rockyIce:   'rocky_ice',
   rocky:      'rocky',
   icy:        'icy',
+  rings:      'rings',
   geoSignals: 'geo',
   bioSignals: 'bio',
 };
@@ -102,11 +107,11 @@ export const PRESETS = [
     id:    'refinery',
     icon:  '🏭',
     label: 'Refinery',
-    hint:  'High Metal Content + Metal Rich bodies',
+    hint:  'High Metal Content + Metal Rich + Rings',
     filters: {
       economy:   'Refinery',
       minRating: 55,
-      bodyRanges: { hmc: { min: 3, max: 30 }, metalRich: { min: 1, max: 10 } },
+      bodyRanges: { hmc: { min: 3, max: 30 }, metalRich: { min: 1, max: 10 }, rings: { min: 1, max: 30 } },
     },
   },
   {
