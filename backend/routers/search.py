@@ -122,7 +122,13 @@ async def local_search_endpoint(
             background_tasks.add_task(log_slow, 'local_search', (time.time() - t0) * 1000)
             return result
         except Exception as exc:
-            log.warning('local_search delegation error: %s — falling back to inline', exc)
+            # Include type + repr + asyncpg sqlstate so empty-string asyncpg
+            # errors (dropped/cancelled connections) become diagnosable
+            # instead of silently falling through.
+            log.warning(
+                'local_search delegation error: %s repr=%r sqlstate=%s — falling back to inline',
+                type(exc).__name__, exc, getattr(exc, 'sqlstate', None),
+            )
 
     # Fallback inline query
     filters     = req.filters or SearchFilters()
@@ -233,10 +239,27 @@ async def local_search_endpoint(
     if req.require_geo:   where.append('r.geo_signal_total > 0')
     if req.require_terra: where.append('r.terraformable_count > 0')
 
-    dist_expr = f'distance_ly(s.x, s.y, s.z, {ref_x}, {ref_y}, {ref_z})'
+    dist_expr = (
+        f"SQRT((s.x-{ref_x})*(s.x-{ref_x}) + "
+        f"(s.y-{ref_y})*(s.y-{ref_y}) + "
+        f"(s.z-{ref_z})*(s.z-{ref_z}))"
+    )
     if not galaxy_wide:
-        where.append(f'in_bounding_box(s.x, s.y, s.z, {ref_x}, {ref_y}, {ref_z}, {max_dist})')
-        where.append(f'{dist_expr} BETWEEN {min_dist} AND {max_dist}')
+        # Bounding-box prune (cheap, uses btree on s.x/y/z) followed by
+        # squared-distance BETWEEN — orders of magnitude faster than calling
+        # distance_ly() per row, which the planner does not always inline.
+        # This is the same pattern local_db_search uses; copying it into
+        # the fallback so a fallback never melts the DB the way it did
+        # at 50 LY around Sol (10-minute COUNT(*) seen in production logs).
+        where.append(f's.x BETWEEN {ref_x - max_dist} AND {ref_x + max_dist}')
+        where.append(f's.y BETWEEN {ref_y - max_dist} AND {ref_y + max_dist}')
+        where.append(f's.z BETWEEN {ref_z - max_dist} AND {ref_z + max_dist}')
+        where.append(
+            f'((s.x-{ref_x})*(s.x-{ref_x}) + '
+            f'(s.y-{ref_y})*(s.y-{ref_y}) + '
+            f'(s.z-{ref_z})*(s.z-{ref_z})) '
+            f'BETWEEN {min_dist*min_dist} AND {max_dist*max_dist}'
+        )
 
     where_clause = ' AND '.join(where)
     order = 'r.score DESC NULLS LAST' if sort_by == 'rating' else f'{dist_expr} ASC'
@@ -280,8 +303,18 @@ async def local_search_endpoint(
     """
 
     async with pool.acquire() as conn:
-        rows  = await conn.fetch(query, *params)
-        total = await conn.fetchval(count_query, *params[:-2])
+        # Cap the fallback at 15 s of server-side time. Without this, a slow
+        # COUNT(*) ran for 9.8 minutes in production while holding a pool
+        # slot, starving every subsequent request and snowballing into a
+        # cascade of "delegation error → fallback" warnings. SET LOCAL only
+        # applies inside a transaction and reverts at COMMIT, which is
+        # essential for pgBouncer transaction-pool mode (otherwise a
+        # session-level SET would leak to the next client to grab the
+        # connection from the pool).
+        async with conn.transaction():
+            await conn.execute("SET LOCAL statement_timeout = '15s'")
+            rows  = await conn.fetch(query, *params)
+            total = await conn.fetchval(count_query, *params[:-2])
 
     results = []
     for r in rows:
