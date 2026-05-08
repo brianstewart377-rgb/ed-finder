@@ -1,6 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { useMemo, useState } from 'react';
 import { useEddnFeed, type EddnEvent } from './useEddnFeed';
-import { Radio, Filter } from 'lucide-react';
+import { Radio, Filter, X } from 'lucide-react';
 
 const TYPE_COLORS: Record<string, { fg: string; bg: string }> = {
   FSDJump:           { fg: '#ffb074', bg: 'rgba(255,122,20,0.14)' },
@@ -33,6 +34,30 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
     () => Object.fromEntries(TICKER_TYPES.map((t) => [t, true])),
   );
   const [filterOpen, setFilterOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const toggleRef  = useRef<HTMLButtonElement | null>(null);
+
+  // Close on outside click + Escape — popover doesn't trap focus, so make
+  // dismissal easy. Without this, users only realise they have to click
+  // the same Filter chip again to close, and report "I can't close it".
+  useEffect(() => {
+    if (!filterOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (popoverRef.current?.contains(t)) return;
+      if (toggleRef.current?.contains(t))  return;
+      setFilterOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFilterOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [filterOpen]);
 
   const filtered = useMemo(
     () => events.filter((e) => enabled[e.type] !== false),
@@ -100,6 +125,7 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
           {/* Filter chip popover */}
           <div className="relative flex shrink-0 border-l border-border/70">
             <button
+              ref={toggleRef}
               type="button"
               data-testid="eddn-filter-toggle"
               onClick={() => setFilterOpen((v) => !v)}
@@ -119,6 +145,7 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
 
             {filterOpen && (
               <div
+                ref={popoverRef}
                 role="dialog"
                 className="absolute right-0 bottom-[calc(100%+8px)] z-30 panel p-3 w-72 animate-fade-up"
                 style={{ borderRadius: '20px' }}
@@ -127,7 +154,7 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
                   <span className="font-display text-[10px] tracking-[0.18em] text-orange uppercase font-bold">
                     Event types
                   </span>
-                  <div className="flex gap-1.5">
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => setEnabled(Object.fromEntries(TICKER_TYPES.map((t) => [t, true])))}
@@ -142,6 +169,15 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
                       className="font-mono text-[9px] uppercase tracking-wider text-silver-dk hover:text-orange-lt"
                     >
                       none
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="eddn-filter-close"
+                      onClick={() => setFilterOpen(false)}
+                      aria-label="Close filter"
+                      className="ml-1 p-1 rounded-chunk-sm text-silver-dk hover:text-orange-lt hover:bg-bg3/60 transition-colors"
+                    >
+                      <X size={12} strokeWidth={2.4} />
                     </button>
                   </div>
                 </div>

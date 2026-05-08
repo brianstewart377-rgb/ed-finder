@@ -434,3 +434,19 @@ input[type='checkbox']:checked::after {
 /* ─── Utility tweaks ─────────────────────────────────────────────────── */
 
 .tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ─── Density toggle (compact / comfortable / spacious) ──────────────────
+ * Scales root font-size (rem-sized things follow) plus a few targeted
+ * overrides on .panel padding for a noticeable but not jarring shift.
+ * Bound to the html element by the useDensity hook.
+ * ────────────────────────────────────────────────────────────────────── */
+html.density-compact      { font-size: 14px; }
+html.density-comfortable  { font-size: 16px; } /* default — same as :root */
+html.density-spacious     { font-size: 18px; }
+
+html.density-compact .panel  { padding: 0.5rem; }
+html.density-spacious .panel { padding: 1.25rem; }
+
+/* Tighten / loosen the main page gutter so density also affects whitespace. */
+html.density-compact main  { padding-left: 0.75rem; padding-right: 0.75rem; }
+html.density-spacious main { padding-left: 1.5rem;  padding-right: 1.5rem;  }

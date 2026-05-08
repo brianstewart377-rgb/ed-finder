@@ -1,8 +1,9 @@
 import type { Route } from '@/hooks/useHashRoute';
+import { useDensity } from '@/hooks/useDensity';
 
 /** Top-bar nav for the v2 app — sticky chrome panel with brushed-metal sheen
- *  and an ED-orange "active-tab" indicator. Emoji labels match the original
- *  v2 nav exactly so naming is unchanged. */
+ *  and an ED-orange "active-tab" indicator. Height tuned to match the EDDN
+ *  bottom ticker for visual symmetry. */
 export interface NavBarProps {
   current:    Route;
   onNavigate: (r: Route) => void;
@@ -20,12 +21,16 @@ export function NavBar({
   health,
 }: NavBarProps) {
   const ok = (health ?? '').startsWith('ok');
+  const { density, cycle } = useDensity();
+  const densityIcon  = density === 'compact' ? '▬' : density === 'spacious' ? '☰' : '≡';
+  const densityLabel = density.charAt(0).toUpperCase() + density.slice(1);
   return (
     <nav
       className="sticky top-3 z-30 mx-auto mb-8 max-w-[1840px] px-3"
       data-testid="navbar"
     >
-      <div className="panel flex items-center gap-3 sm:gap-5 px-4 sm:px-6 py-2.5">
+      {/* py-1.5 here matches the EDDN ticker bar height so top + bottom chrome align */}
+      <div className="panel flex items-center gap-3 sm:gap-5 px-4 sm:px-6 py-1.5">
         {/* ── Logo lockup ─────────────────────────────── */}
         <div className="flex items-center gap-3 shrink-0">
           <Logo />
@@ -45,8 +50,8 @@ export function NavBar({
         {/* ── Tab strip ─────────────────────────────── */}
         <div className="flex gap-1 flex-1 flex-wrap">
           <Tab label="🔍 Finder"     active={current === 'finder'}    onClick={() => onNavigate('finder')}    testid="nav-finder" />
-          <Tab label="👁️ Watchlist"  active={current === 'watchlist'} onClick={() => onNavigate('watchlist')} testid="nav-watchlist" badge={watchlistCount ?? undefined} />
-          <Tab label="📌 Pinned"     active={current === 'pinned'}    onClick={() => onNavigate('pinned')}    testid="nav-pinned"    badge={pinnedCount} />
+          <Tab label="☁️ Watchlist"  active={current === 'watchlist'} onClick={() => onNavigate('watchlist')} testid="nav-watchlist" badge={watchlistCount ?? undefined} title="Watchlist — synced to your account, alerts on changes" />
+          <Tab label="📌 Pins"       active={current === 'pinned'}    onClick={() => onNavigate('pinned')}    testid="nav-pinned"    badge={pinnedCount} title="Pins — quick local shortlist on this device only" />
           <Tab label="⚖️ Compare"    active={current === 'compare'}   onClick={() => onNavigate('compare')}   testid="nav-compare"   badge={compareCount} />
           <Tab label="🎚️ Optimizer"  active={current === 'optimizer'} onClick={() => onNavigate('optimizer')} testid="nav-optimizer" />
           <Tab label="🚀 FC"         active={current === 'fc'}        onClick={() => onNavigate('fc')}        testid="nav-fc"        badge={fcCount} />
@@ -55,10 +60,23 @@ export function NavBar({
           <Tab label="⚙️ Admin"      active={current === 'admin'}     onClick={() => onNavigate('admin')}     testid="nav-admin" />
         </div>
 
+        {/* ── Density toggle ─────────────────────────── */}
+        <button
+          type="button"
+          onClick={cycle}
+          data-testid="nav-density-toggle"
+          title={`Density: ${densityLabel} (click to cycle)`}
+          aria-label={`Density: ${densityLabel}, click to cycle`}
+          className="hidden md:flex items-center justify-center shrink-0 w-8 h-8 rounded-full bg-bg3/60 border border-border text-silver hover:text-orange-lt hover:border-orange-dk transition-colors font-mono text-[14px] leading-none"
+        >
+          <span aria-hidden>{densityIcon}</span>
+        </button>
+
         {/* ── Status pill ────────────────────────────── */}
         <div
           className="hidden md:flex items-center gap-2 shrink-0 px-3 py-1.5 rounded-full bg-bg3/60 border border-border"
           title={health ?? 'Checking…'}
+          data-testid="nav-status-pill"
         >
           <span className={[
             'h-2 w-2 rounded-full',
@@ -94,18 +112,20 @@ function Logo() {
   );
 }
 
-function Tab({ label, active, onClick, testid, badge }: {
+function Tab({ label, active, onClick, testid, badge, title }: {
   label:   string;
   active:  boolean;
   onClick: () => void;
   testid:  string;
   badge?:  number;
+  title?:  string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       data-testid={testid}
+      title={title}
       className={[
         'group relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-chunk-sm whitespace-nowrap',
         'font-display font-bold text-[12.5px] tracking-[0.1em] uppercase',
