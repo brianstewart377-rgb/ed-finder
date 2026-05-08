@@ -220,6 +220,19 @@ input[type='range'].dual-range::-moz-range-thumb {
   height: 18px;
 }
 
+/* Hide native number-input spinners on .no-spinner inputs. The slider
+   already covers increment/decrement, and the spinners ate horizontal
+   space inside RangeRow so 4-digit values like 2000 visually clipped
+   to '20'.                                                          */
+input[type='number'].no-spinner::-webkit-outer-spin-button,
+input[type='number'].no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'].no-spinner {
+  -moz-appearance: textfield;
+}
+
 /* ─── Custom checkbox ────────────────────────────────────────────────── */
 
 input[type='checkbox'] {

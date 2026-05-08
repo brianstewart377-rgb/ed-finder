@@ -286,7 +286,7 @@ function RangeRow({
           const v = Number(e.target.value);
           if (!Number.isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
         }}
-        className="w-16 px-2 py-0.5 rounded bg-bg4 border border-border font-mono text-xs text-orange text-right"
+        className="w-20 px-2 py-0.5 rounded bg-bg4 border border-border font-mono text-xs text-orange text-right tabular-nums no-spinner"
       />
     </div>
   );
