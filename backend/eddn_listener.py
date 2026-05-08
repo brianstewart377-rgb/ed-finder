@@ -574,15 +574,36 @@ async def run_eddn_listener(pool: asyncpg.Pool, redis: Optional[aioredis.Redis] 
             if handler:
                 await handler(pool, header, message)
                 _stats['events_processed'] += 1
+                # Build a compact summary used by both eddn_log (for the
+                # /api/events/recent feed) and Redis pub/sub (for SSE).
+                evt_type   = message.get('event') or schema.rsplit('/', 1)[-1]
+                evt_id64   = safe_int(message.get('SystemAddress'))
+                evt_sysnam = message.get('StarSystem') or message.get('BodyName')
+                # Persist to eddn_log so the /api/events/recent feed has
+                # data. Fire-and-forget against the pool — the listener
+                # mustn't block on this; failures are logged but don't
+                # break the pipeline. Old rows are trimmed by a separate
+                # rolling-window job (7 days, see the table comment).
+                try:
+                    await pool.execute(
+                        """
+                        INSERT INTO eddn_log
+                            (event_type, system_id64, system_name, processed)
+                        VALUES ($1, $2, $3, TRUE)
+                        """,
+                        evt_type, evt_id64, evt_sysnam,
+                    )
+                except Exception as e:
+                    log.debug(f"eddn_log insert failed (non-fatal): {e}")
                 # Publish a compact event summary to Redis so the API
                 # container's SSE endpoint can fan it out to connected
                 # clients in real time.
                 if redis is not None:
                     try:
                         summary = {
-                            'system_name': message.get('StarSystem') or message.get('BodyName'),
-                            'id64':        safe_int(message.get('SystemAddress')),
-                            'type':        message.get('event') or schema.rsplit('/', 1)[-1],
+                            'system_name': evt_sysnam,
+                            'id64':        evt_id64,
+                            'type':        evt_type,
                             'timestamp':   utcnow(),
                         }
                         await redis.publish(EDDN_PUBSUB_CHANNEL, json.dumps(summary, default=str))
