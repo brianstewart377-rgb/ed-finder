@@ -57,7 +57,7 @@ services:
 
   # ── pgBouncer (connection pooler) ─────────────────────────────────────────
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:1.21.0   # pinned for reproducibility
     container_name: ed-pgbouncer
     restart: unless-stopped
     environment:
@@ -105,7 +105,7 @@ services:
   # ── FastAPI backend ────────────────────────────────────────────────────────
   api:
     build:
-      context: ./backend
+      context: ./apps/api
       dockerfile: Dockerfile
     container_name: ed-api
     restart: unless-stopped
@@ -144,8 +144,8 @@ services:
   # ── EDDN Listener ─────────────────────────────────────────────────────────
   eddn:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.eddn
+      context: ./apps/eddn
+      dockerfile: Dockerfile
     container_name: ed-eddn
     restart: unless-stopped
     environment:
@@ -171,7 +171,6 @@ services:
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./config/security-headers.conf:/etc/nginx/snippets/security-headers.conf:ro
-      - ./frontend:/var/www/html:ro   # serve frontend static files (relative to docker-compose.yml)
       - ./frontend-v2/dist:/var/www/v2:ro   # v2 (Vite/React) build output, mounted at /v2/
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
@@ -191,8 +190,8 @@ services:
   # Always use docker compose --profile import run --rm importer <args>
   importer:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.import
+      context: ./apps/importer
+      dockerfile: Dockerfile
     container_name: ed-importer
     profiles: ["import"]
     env_file:
@@ -208,13 +207,15 @@ services:
     volumes:
       - /data/dumps:/data/dumps
       - /data/logs:/data/logs
-      # Mount latest scripts directly — no image rebuild needed after code changes
-      - ./backend/import_spansh.py:/app/import_spansh.py:ro
-      - ./backend/progress.py:/app/progress.py:ro
-      - ./backend/build_grid.py:/app/build_grid.py:ro
-      - ./backend/build_ratings.py:/app/build_ratings.py:ro
-      - ./backend/build_clusters.py:/app/build_clusters.py:ro
-      - ./backend/RegionMapData.py:/app/RegionMapData.py:ro
+      # Mount latest scripts directly — no image rebuild needed after code changes.
+      # Audit fix (§Refactor 4): paths updated for the apps/importer/src layout.
+      - ./apps/importer/src/import_spansh.py:/app/import_spansh.py:ro
+      - ./apps/importer/src/progress.py:/app/progress.py:ro
+      - ./apps/importer/src/build_grid.py:/app/build_grid.py:ro
+      - ./apps/importer/src/build_ratings.py:/app/build_ratings.py:ro
+      - ./apps/importer/src/build_clusters.py:/app/build_clusters.py:ro
+      - ./apps/importer/src/region_map.py:/app/region_map.py:ro
+      - ./apps/importer/src/data:/app/data:ro
     depends_on:
       postgres:
         condition: service_healthy

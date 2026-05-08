@@ -1,0 +1,5 @@
+# apps/eddn — runtime dependencies for the EDDN listener only.
+# pyzmq for the EDDN ZMQ relay; asyncpg+redis for storage and pub/sub.
+asyncpg==0.29.0
+redis[asyncio]==5.0.8
+pyzmq==26.2.0

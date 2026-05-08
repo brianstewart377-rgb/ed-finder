@@ -1,0 +1,167 @@
+"""
+ED Finder — Centralised search/SQL column mappings.
+====================================================
+
+Single source of truth for:
+
+  * Canonical economy → ratings-table column mapping
+  * Canonical economy → cluster_summary count column mapping
+  * Body-filter request keys → ratings columns
+  * Camel-case → snake-case alias map for body filters
+
+Audit fix (2026-05-08, AUDIT_REPORT.md §H8 / §C5):
+the previous repo had four separate copies of these dicts spread across
+``local_search.py``, ``routers/search.py``, ``routers/map.py`` and
+``routers/ratings.py``. They had already drifted in two ways:
+
+  1. ``local_search.ECONOMY_SCORE_COL`` was missing ``"extraction"`` —
+     so if a user filtered by ``economy=extraction``, the display-score
+     and ORDER BY silently fell back to the overall ``r.score``,
+     producing a different ordering than the same query in the inline
+     fallback (which DID know about extraction).
+  2. ``routers/ratings.py`` keyed by Title-case (``'Agriculture'``)
+     while every other site keyed by lower-case (``'agriculture'``).
+
+Centralising eliminates both bugs and gives us one place to add a new
+economy in the future. Functions return strings already prefixed where
+the call site uses them with an alias (``r.score_*``); call sites that
+need bare column names use the un-prefixed lookup.
+"""
+from __future__ import annotations
+
+from typing import Mapping, Optional
+
+# ── Canonical list of supported economies ──────────────────────────────────
+# Order matches the `economy_type` enum in sql/001_schema.sql.
+ECONOMIES: tuple[str, ...] = (
+    'agriculture',
+    'refinery',
+    'industrial',
+    'hightech',
+    'military',
+    'tourism',
+    'extraction',
+)
+
+# Common synonyms users / older callers may pass.
+ECONOMY_ALIASES: Mapping[str, str] = {
+    'high tech':  'hightech',
+    'high-tech':  'hightech',
+}
+
+
+def _canon(name: Optional[str]) -> Optional[str]:
+    """Lower-case + alias-resolve. Returns None for empty/unknown."""
+    if not name:
+        return None
+    n = name.strip().lower()
+    n = ECONOMY_ALIASES.get(n, n)
+    return n if n in ECONOMIES else None
+
+
+# ── ratings.score_<economy> lookups ────────────────────────────────────────
+def ratings_score_column(name: Optional[str], *, alias: str = '') -> str:
+    """Return the ``ratings`` table column for the per-economy score, or
+    ``r.score`` (overall) when ``name`` is missing/unknown.
+
+    >>> ratings_score_column('agriculture')
+    'score_agriculture'
+    >>> ratings_score_column('agriculture', alias='r')
+    'r.score_agriculture'
+    >>> ratings_score_column(None)
+    'score'
+    >>> ratings_score_column('Tourism', alias='r')
+    'r.score_tourism'
+    """
+    canon = _canon(name)
+    col = f'score_{canon}' if canon else 'score'
+    return f'{alias}.{col}' if alias else col
+
+
+# ── cluster_summary.<economy>_count lookups ────────────────────────────────
+def cluster_count_column(name: Optional[str], *, alias: str = 'cs') -> Optional[str]:
+    """Return the ``cluster_summary`` count column for an economy, or
+    ``None`` if the economy isn't recognised.
+
+    Note: cluster_summary only carries the six "core" economies
+    (no extraction column today).
+    """
+    canon = _canon(name)
+    if canon is None or canon == 'extraction':
+        return None
+    return f'{alias}.{canon}_count' if alias else f'{canon}_count'
+
+
+# ── Body filter columns ────────────────────────────────────────────────────
+# Frontend (frontend-v2/src/features/search/useSearch.ts) sends keys via
+# BODY_BACKEND_KEY in snake_case. Older callers may still send camelCase;
+# we accept both via BODY_FILTER_ALIASES.
+BODY_FILTER_COLS: Mapping[str, str] = {
+    # Body-type counts
+    'landable':      'landable_count',
+    'terraformable': 'terraformable_count',
+    'elw':           'elw_count',
+    'ww':            'ww_count',
+    'ammonia':       'ammonia_count',
+    'gas_giant':     'gas_giant_count',
+    'hmc':           'hmc_count',
+    'metal_rich':    'metal_rich_count',
+    'rocky':         'rocky_count',
+    'rocky_ice':     'rocky_ice_count',
+    'icy':           'icy_count',
+    # Star-type counts (stored on ratings)
+    'neutron':       'neutron_count',
+    'black_hole':    'black_hole_count',
+    'white_dwarf':   'white_dwarf_count',
+    'other_star':    'other_star_count',
+    # Body-system aggregates (sql/008_body_filter_aggregates.sql)
+    'rings':         'ring_count',
+    'walkable':      'walkable_count',
+    # Signal totals
+    'bio':           'bio_signal_total',
+    'geo':           'geo_signal_total',
+}
+
+# Backwards-compat aliases for older camelCase callers.
+BODY_FILTER_ALIASES: Mapping[str, str] = {
+    'gasGiant':   'gas_giant',
+    'blackHole':  'black_hole',
+    'whiteDwarf': 'white_dwarf',
+    'metalRich':  'metal_rich',
+    'rockyIce':   'rocky_ice',
+}
+
+
+def normalise_body_filters(body_filters: dict) -> dict:
+    """Return a copy of ``body_filters`` with camelCase aliases resolved
+    to their snake_case canonicals (without overwriting an existing
+    canonical key)."""
+    if not body_filters:
+        return {}
+    out = dict(body_filters)
+    for alias, canonical in BODY_FILTER_ALIASES.items():
+        if alias in out and canonical not in out:
+            out[canonical] = out[alias]
+    return out
+
+
+def body_filter_column(key: str, *, alias: str = '') -> Optional[str]:
+    """Resolve a body-filter request key to a ratings column. Returns
+    ``None`` if ``key`` isn't a known filter.
+    """
+    col = BODY_FILTER_COLS.get(key)
+    if col is None:
+        return None
+    return f'{alias}.{col}' if alias else col
+
+
+__all__ = [
+    'ECONOMIES',
+    'ECONOMY_ALIASES',
+    'ratings_score_column',
+    'cluster_count_column',
+    'BODY_FILTER_COLS',
+    'BODY_FILTER_ALIASES',
+    'normalise_body_filters',
+    'body_filter_column',
+]

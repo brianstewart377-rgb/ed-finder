@@ -16,3 +16,6 @@ src/types/api.gen.ts
 .vscode
 .idea
 .DS_Store
+test-results/
+playwright-report/
+/pw-browsers/

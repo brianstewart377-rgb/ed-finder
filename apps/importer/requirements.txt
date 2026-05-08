@@ -1,0 +1,7 @@
+# apps/importer — runtime dependencies for the Spansh dump pipeline.
+# Sync (psycopg2) for COPY + bulk inserts; ijson for streaming JSON;
+# tqdm for progress bars; asyncpg only if any builder ever needs async.
+psycopg2-binary==2.9.10
+ijson==3.3.0
+tqdm==4.66.5
+asyncpg==0.29.0

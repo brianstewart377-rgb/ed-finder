@@ -1,53 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
-
 /**
- * A pinned system is entirely client-side state. The legacy vanilla app
- * stores these in `localStorage` under `ed_pinned` with this exact schema;
- * we match the schema so users keep their pins when we flip root → v2.
+ * `usePinned` — thin compatibility wrapper around `usePinnedStore`.
  *
- * Do NOT rename fields. Migrating existing users off an old key is harder
- * than living with snake_case.
+ * Audit fix (2026-05-08, AUDIT_REPORT.md §3 / Phase 7):
+ * The previous implementation was 125 lines of useState/useEffect/
+ * cross-tab `storage`-event glue. We now delegate to the Zustand store
+ * (which gets cross-tab sync via the persist middleware for free) and
+ * keep this file as a stable public API surface for the existing
+ * call-sites (`<App />`, `<PinnedTab />`, `<ResultCard />`).
+ *
+ * The signature is identical to the old hook so no caller had to change.
  */
-export interface PinnedEntry {
-  id64:          number;
-  name:          string;
-  x:             number;
-  y:             number;
-  z:             number;
-  population:    number;
-  is_colonised:  boolean;
-  /** Distance (LY) from the reference at the moment it was pinned. */
-  distance?:     number | null;
-  /** Snapshot of the score at pin time. Not refreshed — the point of a pin
-   *  is to remember "this looked good when I saw it". */
-  rating:        number | null;
-  /** Snapshot of the suggested economy at pin time. */
-  economy:       string | null;
-  pinned_at:     string;
-}
+import { usePinnedStore, exportPinnedJson, type PinnedEntry } from '@/store/pinnedStore';
 
-const STORAGE_KEY = 'ed_pinned';
-
-function readStorage(): PinnedEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as PinnedEntry[]) : [];
-  } catch {
-    // Corrupt JSON, quota error, disabled storage — degrade to empty rather
-    // than crash the app. Legacy vanilla does the same (swallowed errors).
-    return [];
-  }
-}
-
-function writeStorage(entries: PinnedEntry[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {
-    /* ignore quota / private-mode errors */
-  }
-}
+export type { PinnedEntry };
 
 export interface UsePinned {
   entries: PinnedEntry[];
@@ -60,66 +25,19 @@ export interface UsePinned {
   exportJson: () => void;
 }
 
-/**
- * Local-storage-backed pinned-systems list, with cross-tab sync via the
- * `storage` event so opening the app in two windows doesn't desync.
- */
 export function usePinned(): UsePinned {
-  const [entries, setEntries] = useState<PinnedEntry[]>(readStorage);
+  const entries = usePinnedStore((s) => s.entries);
+  const has     = usePinnedStore((s) => s.has);
+  const toggle  = usePinnedStore((s) => s.toggle);
+  const remove  = usePinnedStore((s) => s.remove);
+  const clear   = usePinnedStore((s) => s.clear);
 
-  // Cross-tab sync: another window / tab modified the same key.
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) setEntries(readStorage());
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
-
-  const persist = useCallback((next: PinnedEntry[]) => {
-    writeStorage(next);
-    setEntries(next);
-  }, []);
-
-  const has = useCallback(
-    (id64: number) => entries.some((e) => e.id64 === id64),
-    [entries],
-  );
-
-  const toggle = useCallback((entry: PinnedEntry): boolean => {
-    const idx = entries.findIndex((e) => e.id64 === entry.id64);
-    if (idx >= 0) {
-      persist(entries.filter((e) => e.id64 !== entry.id64));
-      return false;
-    }
-    persist([{ ...entry, pinned_at: entry.pinned_at || new Date().toISOString() }, ...entries]);
-    return true;
-  }, [entries, persist]);
-
-  const remove = useCallback((id64: number) => {
-    persist(entries.filter((e) => e.id64 !== id64));
-  }, [entries, persist]);
-
-  const clear = useCallback(() => {
-    persist([]);
-  }, [persist]);
-
-  const exportJson = useCallback(() => {
-    // Re-read from storage to capture the most up-to-date snapshot, even if
-    // the user clicked Export during an optimistic state update.
-    const snapshot = readStorage();
-    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ed-pinned-systems-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, []);
-
-  return { entries, has, toggle, remove, clear, exportJson };
+  return {
+    entries,
+    has,
+    toggle,
+    remove,
+    clear,
+    exportJson: () => exportPinnedJson(entries),
+  };
 }

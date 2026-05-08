@@ -1,0 +1,13 @@
+# apps/api — runtime dependencies for the FastAPI service only.
+# Importer-only libraries (ijson, psycopg2, tqdm, pyzmq) live in
+# apps/importer/requirements.txt and are NOT installed into this image.
+asyncpg==0.29.0
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+redis[asyncio]==5.0.8
+pydantic==2.9.2
+pydantic-settings==2.5.2
+slowapi==0.1.9
+
+# OpenGraph share-card rendering (/api/share/og/{id64}).
+Pillow==12.2.0

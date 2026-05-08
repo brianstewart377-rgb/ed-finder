@@ -1,0 +1,179 @@
+"""Watchlist endpoints — scoped by user-chosen sync_key.
+
+Audit fix (2026-05-08, AUDIT_REPORT.md §H1 / Phase 3):
+    The old /api/watchlist surface was a single global namespace —
+    every visitor shared the same watchlist. This file now requires
+    a sync_key path parameter (16-128 chars, [A-Za-z0-9_-]). The old
+    un-scoped endpoints return HTTP 410 Gone with a migration hint.
+
+The sync_key IS the credential. Same trust model as /api/profile/sync.
+"""
+import re
+
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
+
+from config import limiter
+from deps   import get_pool
+from models import WatchlistAlert
+
+router = APIRouter(tags=['watchlist'])
+
+_SYNC_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{16,128}$')
+_LEGACY_KEY  = 'legacy'   # reserved for the migration row-tag, not for clients
+
+
+def _validate_sync_key(sync_key: str) -> None:
+    if sync_key == _LEGACY_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail='sync_key="legacy" is reserved for migration; choose a real key.',
+        )
+    if not _SYNC_KEY_RE.match(sync_key):
+        raise HTTPException(
+            status_code=400,
+            detail='sync_key must be 16-128 chars, alphanumeric + "_" or "-" only.',
+        )
+
+
+# ---------------------------------------------------------------------------
+# /api/v2/watchlist/{sync_key}  — sync_key-scoped surface
+# ---------------------------------------------------------------------------
+@router.get('/api/v2/watchlist/{sync_key}')
+@limiter.limit('60/minute')
+async def get_watchlist(
+    request: Request,
+    sync_key: str = Path(..., min_length=16, max_length=128),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    _validate_sync_key(sync_key)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT w.*,
+                   r.score, r.economy_suggestion
+              FROM watchlist w
+         LEFT JOIN ratings r ON r.system_id64 = w.system_id64
+             WHERE w.sync_key = $1
+          ORDER BY w.added_at DESC
+        """, sync_key)
+    return {'sync_key': sync_key, 'watchlist': [dict(r) for r in rows]}
+
+
+@router.post('/api/v2/watchlist/{sync_key}/{id64}')
+@limiter.limit('20/minute')
+async def add_watchlist(
+    request: Request,
+    id64: int,
+    sync_key: str = Path(..., min_length=16, max_length=128),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    _validate_sync_key(sync_key)
+    async with pool.acquire() as conn:
+        sys_row = await conn.fetchrow(
+            'SELECT name, x, y, z, population, is_colonised FROM systems WHERE id64 = $1',
+            id64,
+        )
+        if not sys_row:
+            raise HTTPException(404, f'System {id64} not found')
+        await conn.execute("""
+            INSERT INTO watchlist (sync_key, system_id64, name, x, y, z, population, is_colonised)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (sync_key, system_id64) DO NOTHING
+        """, sync_key, id64, sys_row['name'], sys_row['x'], sys_row['y'], sys_row['z'],
+             sys_row['population'], sys_row['is_colonised'])
+    return {'ok': True, 'sync_key': sync_key}
+
+
+@router.delete('/api/v2/watchlist/{sync_key}/{id64}')
+@limiter.limit('20/minute')
+async def remove_watchlist(
+    request: Request,
+    id64: int,
+    sync_key: str = Path(..., min_length=16, max_length=128),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    _validate_sync_key(sync_key)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'DELETE FROM watchlist WHERE sync_key = $1 AND system_id64 = $2',
+            sync_key, id64,
+        )
+    return {'ok': True}
+
+
+@router.patch('/api/v2/watchlist/{sync_key}/{id64}/alert')
+@limiter.limit('20/minute')
+async def update_alert(
+    request: Request,
+    id64: int,
+    alert: WatchlistAlert,
+    sync_key: str = Path(..., min_length=16, max_length=128),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    _validate_sync_key(sync_key)
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE watchlist
+               SET alert_min_score = $1, alert_economy = $2
+             WHERE sync_key = $3 AND system_id64 = $4
+        """, alert.min_score, alert.economy, sync_key, id64)
+    return {'ok': True}
+
+
+@router.get('/api/v2/watchlist/{sync_key}/changes')
+@limiter.limit('60/minute')
+async def watchlist_changes(
+    request: Request,
+    sync_key: str = Path(..., min_length=16, max_length=128),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Changes for systems currently in this sync_key's watchlist."""
+    _validate_sync_key(sync_key)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT c.*
+              FROM watchlist_changelog c
+              JOIN watchlist w
+                ON w.system_id64 = c.system_id64
+               AND w.sync_key    = $1
+          ORDER BY c.detected_at DESC
+             LIMIT 100
+        """, sync_key)
+    return {'changes': [dict(r) for r in rows]}
+
+
+# ---------------------------------------------------------------------------
+# Legacy un-scoped endpoints — HTTP 410 Gone
+# ---------------------------------------------------------------------------
+_GONE_BODY = {
+    'type':   'https://ed-finder.app/problem/sync-key-required',
+    'title':  'Endpoint moved — sync_key required',
+    'status': 410,
+    'detail':
+        'The unscoped watchlist surface was retired in v3.5 (audit §H1). '
+        'Use /api/v2/watchlist/{sync_key}[/...] instead. Pick a 16-128 char '
+        'string of [A-Za-z0-9_-]; share it across your devices to sync.',
+}
+
+
+def _gone() -> dict:
+    raise HTTPException(status_code=410, detail=_GONE_BODY)
+
+
+@router.get('/api/watchlist')
+async def legacy_get():     _gone()
+
+@router.post('/api/watchlist/{id64}')
+async def legacy_post(id64: int):  _gone()
+
+@router.delete('/api/watchlist/{id64}')
+async def legacy_delete(id64: int): _gone()
+
+@router.patch('/api/watchlist/{id64}/alert')
+async def legacy_patch(id64: int, alert: WatchlistAlert): _gone()
+
+@router.get('/api/watchlist/changes')
+async def legacy_changes():   _gone()
+
+@router.get('/api/watchlist/changelog')
+async def legacy_changelog(): _gone()

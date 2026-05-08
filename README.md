@@ -151,25 +151,46 @@ Higher scores lead to fewer, but much higher quality, suggested "Empire" locatio
 
 ```
 ed-finder/
-├── backend/                 # Docker build context for ALL Python services
-│   ├── Dockerfile           # FastAPI API server (main.py)
-│   ├── Dockerfile.eddn      # EDDN live listener (eddn_listener.py)
-│   ├── Dockerfile.import    # One-shot import runner (import_spansh.py etc.)
-│   ├── requirements.txt     # Shared Python dependencies
-│   ├── main.py              # FastAPI application
-│   ├── eddn_listener.py     # EDDN WebSocket listener
-│   ├── local_search.py      # Search logic (imported by main.py)
-│   ├── import_spansh.py     # Bulk Spansh dump importer
-│   ├── build_grid.py        # Spatial grid builder       (v2.3 — single source)
-│   ├── build_ratings.py     # Economy rating computer    (v2.2 — single source)
-│   ├── build_clusters.py    # Cluster summary builder    (v1.3 — single source)
-│   └── progress.py          # Shared progress-bar helper
+├── apps/                    # Per-service source — each builds its own image
+│   ├── api/                 # FastAPI HTTP service
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt # API-only deps (no importer libs in this image)
+│   │   └── src/
+│   │       ├── main.py             # FastAPI composition root
+│   │       ├── config.py
+│   │       ├── deps.py / state.py
+│   │       ├── helpers.py / models.py
+│   │       ├── search_economies.py # Single-source-of-truth column maps
+│   │       ├── local_search.py     # Search SQL builder
+│   │       ├── share_router.py     # OG image renderer
+│   │       └── routers/            # FastAPI routers (admin, events, map,
+│   │                               #   meta, notes, profile, ratings,
+│   │                               #   search, systems, watchlist)
+│   ├── eddn/                # EDDN ZMQ listener
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── src/
+│   │       ├── eddn_listener.py
+│   │       └── eddn_simulator.py
+│   └── importer/            # Spansh dump + post-import builders
+│       ├── Dockerfile
+│       ├── requirements.txt
+│       └── src/
+│           ├── import_spansh.py
+│           ├── build_grid.py / build_ratings.py / build_clusters.py
+│           ├── progress.py
+│           ├── region_map.py            # Loader for…
+│           └── data/region_map.json     # …42-region RLE galaxy map
 ├── config/
-│   └── nginx.conf           # Nginx SSL + proxy config
-├── frontend/
-│   ├── index.html           # Main SPA page
-│   ├── app.js               # Frontend JavaScript
-│   └── style.css            # Frontend styles
+│   ├── nginx.conf           # Nginx SSL + proxy config
+│   ├── security-headers.conf
+│   ├── prometheus.yml
+│   └── grafana/
+├── frontend-v2/             # Vite + React + TypeScript SPA (the only frontend)
+│   ├── src/                 # Feature-folders: search/, map/, system-detail/, …
+│   ├── index.html           # App shell
+│   ├── package.json         # Yarn deps (React 19, Tailwind 3, Vite 6)
+│   └── vite.config.ts       # Build config — emits dist/ for /var/www/v2/
 ├── scripts/
 │   ├── nightly_update.sh    # Nightly delta-import cron script
 │   ├── run_import.sh        # Import runner wrapper
@@ -185,13 +206,14 @@ ed-finder/
 ├── tests/
 │   └── test_smoke.py        # Basic smoke tests
 ├── docker-compose.yml       # Full service stack
+├── pyproject.toml           # Project metadata (real deps live in apps/*/requirements.txt)
 ├── setup.sh                 # First-time server setup script
 └── README.md                # This file
 ```
 
 > **Single directory deployment:** The repo is cloned directly to `/opt/ed-finder`.
 > All services run from that one directory — there is no separate `/opt/ed-finder-src`.
-> All import scripts live **only** in `backend/`. Always use `scripts/run_import.sh`
+> All import scripts live **only** in `apps/importer/src/`. Always use `scripts/run_import.sh`
 > to run them — never use raw `docker run`. The wrapper handles network, DNS,
 > password verification, and volume mounts correctly.
 
