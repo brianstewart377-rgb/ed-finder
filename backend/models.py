@@ -92,6 +92,14 @@ class SearchResponse(BaseModel):
     results: list[dict]
     total:   int
     count:   int
+    # Optional — only set by local_db_search, helpful for ops visibility
+    # so you can tell which code path served the response without
+    # spelunking through logs. (FastAPI silently drops fields not in
+    # the response model; without these, source/query_ms/display_economy
+    # were being stripped before reaching the client.)
+    source:           Optional[str]  = None
+    query_ms:         Optional[int]  = None
+    display_economy:  Optional[str]  = None
 
 
 class SystemDetailResponse(BaseModel):
