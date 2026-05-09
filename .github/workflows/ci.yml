@@ -248,3 +248,99 @@ jobs:
           open(path, 'w').write('\n'.join(out))
           PY
           sudo nginx -t -c /tmp/ngx/nginx.conf -p /tmp/ngx
+
+  # ─── OpenAPI type generation drift check ──────────────────────────
+  # Audit Phase 7: ensures frontend-v2/src/types/api.gen.ts stays in sync
+  # with the API's actual OpenAPI schema. Boots PG+Redis+API, regenerates
+  # types via openapi-typescript, fails on drift. To fix: run
+  # `cd frontend-v2 && yarn types:gen` locally (with API on :8000) and
+  # commit the updated src/types/api.gen.ts.
+  openapi-types:
+    name: OpenAPI types drift check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER:     edfinder
+          POSTGRES_PASSWORD: edfinder
+          POSTGRES_DB:       edfinder
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install API deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt
+
+      - name: Apply schema migrations
+        env:
+          PGPASSWORD: edfinder
+        run: |
+          for f in sql/001_schema.sql sql/002_indexes.sql sql/003_functions.sql \
+                   sql/004_ratings_v31.sql sql/005_map_indexes.sql \
+                   sql/007_profile_sync.sql sql/008_body_filter_aggregates.sql \
+                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql ; do
+            psql -h localhost -U edfinder -d edfinder -f "$f"
+          done
+
+      - name: Boot API in background
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          REDIS_URL:    redis://localhost:6379/0
+          CORS_ORIGINS: http://test
+          ADMIN_TOKEN:  test-admin-token
+          LOG_LEVEL:    WARNING
+        working-directory: apps/api/src
+        run: |
+          nohup python -m uvicorn main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+              echo "API ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::API failed to start within 30s"
+          tail -100 /tmp/uvicorn.log
+          exit 1
+
+      - name: Install frontend-v2 deps
+        working-directory: frontend-v2
+        run: yarn install --no-progress --non-interactive
+
+      - name: Regenerate types from running API
+        working-directory: frontend-v2
+        env:
+          VITE_OPENAPI_URL: http://127.0.0.1:8000/openapi.json
+        run: yarn types:gen
+
+      - name: Check for drift against checked-in api.gen.ts
+        working-directory: frontend-v2
+        run: |
+          if ! git diff --exit-code src/types/api.gen.ts; then
+            echo "::error::API types are out of date. Run 'cd frontend-v2 && yarn types:gen' locally and commit src/types/api.gen.ts."
+            exit 1
+          fi
+          echo "✓ types match checked-in baseline"
