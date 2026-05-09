@@ -57,7 +57,7 @@ services:
 
   # ── pgBouncer (connection pooler) ─────────────────────────────────────────
   pgbouncer:
-    image: edoburu/pgbouncer:latest    # FIXME: was pinned 1.21.0 in audit but tag does not exist on Docker Hub; revisit with v1.23.1-p3
+    image: edoburu/pgbouncer:v1.23.1-p3   # pinned for reproducibility (audit fix; v1.21.0 from original audit didn't exist on Docker Hub)
     container_name: ed-pgbouncer
     restart: unless-stopped
     environment:
