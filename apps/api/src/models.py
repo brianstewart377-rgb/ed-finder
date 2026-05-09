@@ -21,10 +21,20 @@ Why both?
 
 If you tighten extras here, audit `helpers.sys_row_to_dict` and the
 SQL projections in `routers/systems.py` + `local_search.py` first.
+
+Note on dict-typed request fields (2026-05-09 follow-up): every
+request-side `Optional[dict]` has been replaced with a proper sub-model
+(RangeFilter, BodyFilters, RerankWeightsInput, etc.) or `Optional[Any]`
+where the shape is genuinely opaque. Pydantic 2.10+ emits
+`additionalProperties: false` for `dict` fields, which openapi-typescript
+renders as the strict-empty `Record<string, never>` — strict-mode TS
+then refuses to pass real values through that type. Using sub-models
+keeps the schema portable across Pydantic versions and gives the
+frontend useful types out of the box.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,6 +46,55 @@ class CoordsModel(BaseModel):
     x: float
     y: float
     z: float
+
+
+class RangeFilter(BaseModel):
+    """Inclusive numeric range used by `SearchFilters.distance` /
+    `.population`. Either bound is optional — omit `min` for an upper-
+    only filter, omit `max` for a lower-only one. (Frontend always
+    sends both today; keep them optional so a future client can omit.)"""
+    model_config = ConfigDict(extra='allow')
+
+    min: Optional[float] = None
+    max: Optional[float] = None
+
+
+class BodyCountFilter(BaseModel):
+    """One body-count slider in `LocalSearchRequest.body_filters`. Each
+    body-type key (`elw_count`, `ww_count`, …) maps to a min/max range,
+    same shape as `RangeFilter` — duplicated here for naming clarity in
+    the generated TS."""
+    model_config = ConfigDict(extra='allow')
+
+    min: Optional[int] = None
+    max: Optional[int] = None
+
+
+class BodyFilters(BaseModel):
+    """`LocalSearchRequest.body_filters`. Keys mirror the
+    `helpers.sys_row_to_dict` body-count column names. All optional —
+    a missing key means "no filter on that body type"."""
+    model_config = ConfigDict(extra='allow')
+
+    elw_count:           Optional[BodyCountFilter] = None
+    ww_count:            Optional[BodyCountFilter] = None
+    ammonia_count:       Optional[BodyCountFilter] = None
+    gas_giant_count:     Optional[BodyCountFilter] = None
+    landable_count:      Optional[BodyCountFilter] = None
+    terraformable_count: Optional[BodyCountFilter] = None
+    bio_signal_total:    Optional[BodyCountFilter] = None
+    geo_signal_total:    Optional[BodyCountFilter] = None
+    neutron_count:       Optional[BodyCountFilter] = None
+    black_hole_count:    Optional[BodyCountFilter] = None
+    white_dwarf_count:   Optional[BodyCountFilter] = None
+    hmc_count:           Optional[BodyCountFilter] = None
+    metal_rich_count:    Optional[BodyCountFilter] = None
+    rocky_count:         Optional[BodyCountFilter] = None
+    rocky_ice_count:     Optional[BodyCountFilter] = None
+    icy_count:           Optional[BodyCountFilter] = None
+    other_star_count:    Optional[BodyCountFilter] = None
+    ring_count:          Optional[BodyCountFilter] = None
+    walkable_count:      Optional[BodyCountFilter] = None
 
 
 class RatingModel(BaseModel):
@@ -56,7 +115,7 @@ class RatingModel(BaseModel):
     scoreTourism:           Optional[float] = None
     scoreExtraction:        Optional[float] = None
     economySuggestion:      Optional[str]   = None
-    breakdown:              Optional[dict]  = None
+    breakdown:              Optional[Any]   = None  # opaque rationale payload
     # v3.1 fields — mirrored in camelCase for frontend parity.
     terraformingPotential:  Optional[float] = None
     bodyDiversity:          Optional[float] = None
@@ -351,18 +410,18 @@ class NoteBody(BaseModel):
 # Request models
 # ══════════════════════════════════════════════════════════════════════
 class SearchFilters(BaseModel):
-    distance:   Optional[dict] = None
-    population: Optional[dict] = None
-    economy:    Optional[str]  = None
+    distance:   Optional[RangeFilter] = None
+    population: Optional[RangeFilter] = None
+    economy:    Optional[str]         = None
 
 
 class LocalSearchRequest(BaseModel):
     filters:          Optional[SearchFilters] = None
-    reference_coords: Optional[dict]          = None
+    reference_coords: Optional[CoordsModel]   = None
     sort_by:          Optional[str]            = 'rating'
     size:             int                      = Field(default=50, le=500)
     from_:            int                      = Field(default=0, alias='from')
-    body_filters:     Optional[dict]           = None
+    body_filters:     Optional[BodyFilters]    = None
     require_bio:      Optional[bool]           = None
     require_geo:      Optional[bool]           = None
     require_terra:    Optional[bool]           = None
@@ -390,4 +449,4 @@ class ClusterSearchRequest(BaseModel):
     requirements:     list[ClusterRequirement]
     limit:            int = Field(default=50, le=200)
     offset:           int = 0
-    reference_coords: Optional[dict] = None
+    reference_coords: Optional[CoordsModel] = None

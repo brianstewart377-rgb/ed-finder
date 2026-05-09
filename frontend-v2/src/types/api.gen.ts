@@ -758,6 +758,50 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * BodyCountFilter
+         * @description One body-count slider in `LocalSearchRequest.body_filters`. Each
+         *     body-type key (`elw_count`, `ww_count`, …) maps to a min/max range,
+         *     same shape as `RangeFilter` — duplicated here for naming clarity in
+         *     the generated TS.
+         */
+        BodyCountFilter: {
+            /** Min */
+            min?: number | null;
+            /** Max */
+            max?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * BodyFilters
+         * @description `LocalSearchRequest.body_filters`. Keys mirror the
+         *     `helpers.sys_row_to_dict` body-count column names. All optional —
+         *     a missing key means "no filter on that body type".
+         */
+        BodyFilters: {
+            elw_count?: components["schemas"]["BodyCountFilter"] | null;
+            ww_count?: components["schemas"]["BodyCountFilter"] | null;
+            ammonia_count?: components["schemas"]["BodyCountFilter"] | null;
+            gas_giant_count?: components["schemas"]["BodyCountFilter"] | null;
+            landable_count?: components["schemas"]["BodyCountFilter"] | null;
+            terraformable_count?: components["schemas"]["BodyCountFilter"] | null;
+            bio_signal_total?: components["schemas"]["BodyCountFilter"] | null;
+            geo_signal_total?: components["schemas"]["BodyCountFilter"] | null;
+            neutron_count?: components["schemas"]["BodyCountFilter"] | null;
+            black_hole_count?: components["schemas"]["BodyCountFilter"] | null;
+            white_dwarf_count?: components["schemas"]["BodyCountFilter"] | null;
+            hmc_count?: components["schemas"]["BodyCountFilter"] | null;
+            metal_rich_count?: components["schemas"]["BodyCountFilter"] | null;
+            rocky_count?: components["schemas"]["BodyCountFilter"] | null;
+            rocky_ice_count?: components["schemas"]["BodyCountFilter"] | null;
+            icy_count?: components["schemas"]["BodyCountFilter"] | null;
+            other_star_count?: components["schemas"]["BodyCountFilter"] | null;
+            ring_count?: components["schemas"]["BodyCountFilter"] | null;
+            walkable_count?: components["schemas"]["BodyCountFilter"] | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** BodyModel */
         BodyModel: {
             /** Id */
@@ -860,10 +904,7 @@ export interface components {
              * @default 0
              */
             offset: number;
-            /** Reference Coords */
-            reference_coords?: {
-                [key: string]: unknown;
-            } | null;
+            reference_coords?: components["schemas"]["CoordsModel"] | null;
         };
         /** CoordsModel */
         CoordsModel: {
@@ -934,10 +975,7 @@ export interface components {
         /** LocalSearchRequest */
         LocalSearchRequest: {
             filters?: components["schemas"]["SearchFilters"] | null;
-            /** Reference Coords */
-            reference_coords?: {
-                [key: string]: unknown;
-            } | null;
+            reference_coords?: components["schemas"]["CoordsModel"] | null;
             /**
              * Sort By
              * @default rating
@@ -953,10 +991,7 @@ export interface components {
              * @default 0
              */
             from: number;
-            /** Body Filters */
-            body_filters?: {
-                [key: string]: unknown;
-            } | null;
+            body_filters?: components["schemas"]["BodyFilters"] | null;
             /** Require Bio */
             require_bio?: boolean | null;
             /** Require Geo */
@@ -991,9 +1026,22 @@ export interface components {
              * Blob
              * @description Arbitrary client-managed payload.
              */
-            blob: {
-                [key: string]: unknown;
-            };
+            blob: unknown;
+        };
+        /**
+         * RangeFilter
+         * @description Inclusive numeric range used by `SearchFilters.distance` /
+         *     `.population`. Either bound is optional — omit `min` for an upper-
+         *     only filter, omit `max` for a lower-only one. (Frontend always
+         *     sends both today; keep them optional so a future client can omit.)
+         */
+        RangeFilter: {
+            /** Min */
+            min?: number | null;
+            /** Max */
+            max?: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * RatingModel
@@ -1023,9 +1071,7 @@ export interface components {
             /** Economysuggestion */
             economySuggestion?: string | null;
             /** Breakdown */
-            breakdown?: {
-                [key: string]: unknown;
-            } | null;
+            breakdown?: unknown | null;
             /** Terraformingpotential */
             terraformingPotential?: number | null;
             /** Bodydiversity */
@@ -1041,10 +1087,7 @@ export interface components {
         RerankRequest: {
             /** Id64S */
             id64s: number[];
-            /** Weights */
-            weights?: {
-                [key: string]: unknown;
-            } | null;
+            weights?: components["schemas"]["RerankWeights"] | null;
             /** Economy */
             economy?: string | null;
         };
@@ -1110,14 +1153,8 @@ export interface components {
         };
         /** SearchFilters */
         SearchFilters: {
-            /** Distance */
-            distance?: {
-                [key: string]: unknown;
-            } | null;
-            /** Population */
-            population?: {
-                [key: string]: unknown;
-            } | null;
+            distance?: components["schemas"]["RangeFilter"] | null;
+            population?: components["schemas"]["RangeFilter"] | null;
             /** Economy */
             economy?: string | null;
         };

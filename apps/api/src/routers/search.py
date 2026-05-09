@@ -103,20 +103,29 @@ async def local_search_endpoint(
     background_tasks.add_task(inc_metric, 'db_queries')
     t0 = time.time()
 
+    # Convert Pydantic sub-models to plain dicts before handing off to
+    # local_search.py — that module reaches into the payload with
+    # `.get()` and `.items()`, so model instances would AttributeError.
+    # (Audit Phase 2 follow-up: the request models were tightened from
+    # `Optional[dict]` to real Pydantic types so the OpenAPI schema is
+    # portable across Pydantic versions; downstream still works on dicts.)
+    _filters = (req.filters or SearchFilters())
     body_dict = {
-        'reference_coords': req.reference_coords or {'x': 0, 'y': 0, 'z': 0},
+        'reference_coords': (req.reference_coords.model_dump()
+                             if req.reference_coords else {'x': 0, 'y': 0, 'z': 0}),
         'filters': {
-            'distance':   (req.filters or SearchFilters()).distance or {},
-            'population': (req.filters or SearchFilters()).population or {},
-            'economy':    (req.filters or SearchFilters()).economy or 'any',
+            'distance':   (_filters.distance.model_dump()   if _filters.distance   else {}),
+            'population': (_filters.population.model_dump() if _filters.population else {}),
+            'economy':    _filters.economy or 'any',
         },
-        'body_filters':   req.body_filters or {},
+        'body_filters':   (req.body_filters.model_dump(exclude_none=True)
+                           if req.body_filters else {}),
         'require_bio':    req.require_bio,
         'require_geo':    req.require_geo,
         'require_terra':  req.require_terra,
         'star_types':     req.star_types or [],
         'min_rating':     req.min_rating or 0,
-        'economy':        (req.filters or SearchFilters()).economy or 'any',
+        'economy':        _filters.economy or 'any',
         'size':           req.size,
         'from':           req.from_,
         'sort_by':        req.sort_by or 'rating',
@@ -221,7 +230,8 @@ async def cluster_search(
     body_dict = {
         'requirements':     [r.model_dump() for r in req.requirements],
         'limit':            req.limit,
-        'reference_coords': req.reference_coords,
+        'reference_coords': (req.reference_coords.model_dump()
+                             if req.reference_coords else None),
     }
     try:
         result = await _ls.local_db_cluster_search(body_dict, pool)
