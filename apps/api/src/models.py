@@ -22,6 +22,24 @@ Why both?
 If you tighten extras here, audit `helpers.sys_row_to_dict` and the
 SQL projections in `routers/systems.py` + `local_search.py` first.
 
+Strictness policy (2026-05-09 follow-up to the search-503 RCA):
+
+* **Row models** (`SystemRow`, `SystemDetailRow`, `BodyModel`,
+  `StationModel`, `RatingModel`, `RerankRow`, `AutocompleteHit`,
+  `RangeFilter`, `BodyCountFilter`, `BodyFilters`,
+  `ExplorationValueModel`) → `extra='allow'`. SQL projections
+  legitimately drift; silently dropping an existing field would be a
+  worse bug than passing through an unknown one.
+* **Response envelopes** (`SearchResponse`, `AutocompleteResponse`,
+  `StatusResponse`, `CacheStatsResponse`, `RerankResponse`,
+  `SystemDetailResponse`, `HealthResponse`) → `extra='forbid'`. The
+  top-level envelope shape changes rarely and intentionally;
+  forgetting to update the model when adding a key should be a loud
+  failure (Pydantic ValidationError → 500), not silently shipped
+  back to the client where typed consumers would 'unknown'-out the
+  field. The drift-check CI job already protects the wire contract,
+  so model_config drift can't go un-noticed.
+
 Note on dict-typed request fields (2026-05-09 follow-up): every
 request-side `Optional[dict]` has been replaced with a proper sub-model
 (RangeFilter, BodyFilters, RerankWeightsInput, etc.) or `Optional[Any]`
@@ -288,7 +306,12 @@ class SystemDetailRow(BaseModel):
 # ══════════════════════════════════════════════════════════════════════
 class SearchResponse(BaseModel):
     """`/api/local/search` response."""
-    model_config = ConfigDict(extra='allow')
+    # Envelope-level forbid: any unrecognised top-level key is a sign
+    # the model is out of date with what `local_search.py` returns —
+    # surface that loudly via Pydantic ValidationError (→ 500) so it
+    # gets fixed in the same PR. Row-level extras flow through under
+    # `results: list[SystemRow]` where SystemRow keeps `extra='allow'`.
+    model_config = ConfigDict(extra='forbid')
 
     results: list[SystemRow]
     total:   int = 0
@@ -314,7 +337,7 @@ class SearchResponse(BaseModel):
 class SystemDetailResponse(BaseModel):
     """`/api/system/{id64}` response. Backend returns the same row
     twice under `record` and `system` for legacy compat."""
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     record: SystemDetailRow
     system: SystemDetailRow
@@ -339,7 +362,7 @@ class AutocompleteHit(BaseModel):
 
 
 class AutocompleteResponse(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     results: list[AutocompleteHit]
     source:  Optional[str] = None
@@ -347,7 +370,7 @@ class AutocompleteResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     """`/api/status` and `/api/local/status`."""
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     available:            bool
     systems_count:        int = 0
@@ -364,10 +387,26 @@ class StatusResponse(BaseModel):
     max_search_radius_ly: int = 500
     has_body_data:        bool = False
     version:              str = ''
+    # Optional fields surfaced by /api/local/status (real DB-backed
+    # variant of /api/status). Listed here so the envelope can be
+    # `forbid` without breaking that endpoint.
+    backend:              Optional[str]   = None
+    pg_version:           Optional[str]   = None
+    station_count:        Optional[int]   = None
+    cluster_count:        Optional[int]   = None
+    grid_cells:           Optional[int]   = None
+    macro_grid_cells:     Optional[int]   = None
+    galaxy_regions:       Optional[int]   = None
+    db_size_mb:           Optional[float] = None
+    import_status:        Optional[Any]   = None
+    cluster_radius_ly:    Optional[int]   = None
+    has_cluster_summary:  Optional[bool]  = None
+    has_bodies:           Optional[bool]  = None
+    reason:               Optional[str]   = None  # populated when available=False
 
 
 class CacheStatsResponse(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     cache_hits:       int = 0
     cache_misses:     int = 0
@@ -398,7 +437,7 @@ class RerankRow(BaseModel):
 
 
 class RerankResponse(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     weights_applied: RerankWeights
     economy_used:    Optional[str] = None
