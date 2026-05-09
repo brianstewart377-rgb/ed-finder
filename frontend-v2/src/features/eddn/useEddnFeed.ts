@@ -27,15 +27,37 @@ const KEY = (e: EddnEvent) => `${e.id64}|${e.type}|${e.timestamp}`;
 export function useEddnFeed({
   intervalMs = 4000,
   keep       = 30,
-}: { intervalMs?: number; keep?: number } = {}) {
+  // Batch-flush window — at the production EDDN rate (~19 events/sec)
+  // calling setState on every SSE message makes React re-render the
+  // marquee 19 times per second, which restarts the CSS animation
+  // every frame and produces the "ticker is just a blur" effect the
+  // user reported. We accumulate incoming events in a ref and only
+  // commit to React state every `flushMs`, so the marquee animation
+  // can actually play through. 1500 ms = roughly 1 visual cycle of
+  // updates per visible system on screen.
+  flushMs    = 1500,
+}: { intervalMs?: number; keep?: number; flushMs?: number } = {}) {
   const [events, setEvents] = useState<EddnEvent[]>([]);
   const [error,  setError]  = useState<string | null>(null);
-  const seen = useRef<Set<string>>(new Set());
+  const seen    = useRef<Set<string>>(new Set());
+  const pending = useRef<EddnEvent[]>([]);
+  const flushT  = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let timer: number | null = null;
     let es: EventSource | null = null;
+
+    const scheduleFlush = () => {
+      if (flushT.current != null) return;       // already armed
+      flushT.current = window.setTimeout(() => {
+        flushT.current = null;
+        if (cancelled || pending.current.length === 0) return;
+        const batch = pending.current;
+        pending.current = [];
+        setEvents((prev) => [...batch, ...prev].slice(0, keep));
+      }, flushMs);
+    };
 
     const push = (incoming: EddnEvent[]) => {
       if (cancelled) return;
@@ -45,7 +67,9 @@ export function useEddnFeed({
         seen.current.add(k);
         return true;
       });
-      if (fresh.length) setEvents((prev) => [...fresh, ...prev].slice(0, keep));
+      if (!fresh.length) return;
+      pending.current = [...fresh, ...pending.current];
+      scheduleFlush();
     };
 
     // ── PROD / preview: SSE ──────────────────────────────────────────────
@@ -91,8 +115,12 @@ export function useEddnFeed({
     return () => {
       cancelled = true;
       if (timer != null) window.clearTimeout(timer);
+      if (flushT.current != null) {
+        window.clearTimeout(flushT.current);
+        flushT.current = null;
+      }
     };
-  }, [intervalMs, keep]);
+  }, [intervalMs, keep, flushMs]);
 
   return { events, error };
 }

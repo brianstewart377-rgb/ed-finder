@@ -84,20 +84,23 @@ async def eddn_pubsub_bridge() -> None:
 def _broadcast(event: dict) -> None:
     """Fan event out to every connected SSE client on this worker.
 
-    Drops queues that are full (slow consumer) rather than blocking, so
-    one unresponsive client can never stall the broadcast loop.
+    On QueueFull (slow consumer) we drop the *oldest* event and put the
+    new one — the connection stays subscribed. Previous behaviour was to
+    detach the whole queue from `sse_clients`, which combined with the
+    25 s heartbeat sleep below caused permanent silence after the first
+    burst at high event rates (>10/s). See git blame for the audit-era
+    incident write-up.
     """
-    dead = []
     for q in list(sse_clients):  # snapshot — list can mutate under us
         try:
             q.put_nowait(event)
         except asyncio.QueueFull:
-            dead.append(q)
-    for q in dead:
-        try:
-            sse_clients.remove(q)
-        except ValueError:
-            pass
+            # Drop oldest event, keep the queue subscribed.
+            try:
+                q.get_nowait()
+                q.put_nowait(event)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +108,11 @@ def _broadcast(event: dict) -> None:
 # ---------------------------------------------------------------------------
 @router.get('/api/events/live')
 async def live_events(request: Request):
-    queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+    # 200-event buffer (was 50). At ~19 events/sec a 50-deep buffer
+    # filled in <3s during a busy spell, which combined with the old
+    # 25 s heartbeat sleep stalled clients for 25-second stretches.
+    # 200 gives ~10s of headroom and is still tiny in memory terms.
+    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     sse_clients.append(queue)
 
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -114,11 +121,18 @@ async def live_events(request: Request):
                 if await request.is_disconnected():
                     break
                 try:
-                    event = queue.get_nowait()
+                    # Block until an event arrives OR the heartbeat
+                    # timeout fires. Crucially, this does NOT busy-poll
+                    # and does NOT sleep through bursts — events are
+                    # delivered the moment they're broadcast.
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
                     yield f"data: {json.dumps(event, default=str)}\n\n"
-                except asyncio.QueueEmpty:
+                except asyncio.TimeoutError:
+                    # No events for 15 s → send a heartbeat to keep
+                    # nginx / Cloudflare / browser-side EventSource
+                    # connections alive. Loops back immediately to
+                    # wait for the next event.
                     yield ": heartbeat\n\n"
-                    await asyncio.sleep(25)
         finally:
             try:
                 sse_clients.remove(queue)
