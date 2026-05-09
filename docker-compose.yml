@@ -55,10 +55,22 @@ services:
       retries: 5
     shm_size: 8gb
 
-  # ── pgBouncer (connection pooler) ─────────────────────────────────────────
+  # ── pgBouncer (connection pooler) — OPT-IN ────────────────────────────────
+  # 2026-05-09: pgbouncer was removed from the api + eddn paths after a
+  # production incident traced to its transaction-pool mode silently
+  # wiping session-level SETs. The api + eddn containers now connect
+  # directly to postgres:5432 (matching the importer + postgres_exporter
+  # which already did). pgbouncer is retained behind the `pooler` profile
+  # so it can be re-enabled if a future deployment grows enough
+  # short-lived clients to actually need multiplexing — but new services
+  # should default to direct PG connections unless they have a concrete
+  # reason to opt in.
+  #
+  # Enable explicitly with: `docker compose --profile pooler up -d pgbouncer`
   pgbouncer:
     image: edoburu/pgbouncer:v1.23.1-p3   # pinned for reproducibility (audit fix; v1.21.0 from original audit didn't exist on Docker Hub)
     container_name: ed-pgbouncer
+    profiles: ["pooler"]
     restart: unless-stopped
     environment:
       DB_USER:      edfinder
@@ -110,7 +122,24 @@ services:
     container_name: ed-api
     restart: unless-stopped
     environment:
-      DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@pgbouncer:5432/edfinder
+      # Direct connection to postgres, bypassing pgbouncer.
+      #
+      # Why direct (2026-05-09 follow-up to the production search-503
+      # incident): pgbouncer's transaction-pool mode wipes session-
+      # level SETs (including statement_timeout) between transactions,
+      # rejects unknown startup parameters (so `server_settings=` on
+      # asyncpg can't propagate them), and forces `statement_cache_size=0`
+      # which degrades asyncpg performance. The benefit pgbouncer
+      # buys — multiplexing thousands of short-lived clients onto a
+      # small server pool — does not apply to a single long-lived
+      # api container with its own asyncpg pool (5-20 connections).
+      # The `importer` and `postgres_exporter` services already
+      # connect direct; this brings api + eddn in line.
+      #
+      # PostgreSQL `max_connections` is 200 (see postgres command), so
+      # api(20) + eddn(5) + importer(short-lived) + monitoring leave
+      # ~150 connections of headroom.
+      DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
       REDIS_URL:            redis://redis:6379/0
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
       TTL_SEARCH:           3600
@@ -130,8 +159,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      pgbouncer:
-        condition: service_started
       redis:
         condition: service_healthy
     healthcheck:
@@ -149,7 +176,8 @@ services:
     container_name: ed-eddn
     restart: unless-stopped
     environment:
-      DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@pgbouncer:5432/edfinder
+      # Direct connection — see `api` service for full rationale.
+      DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
       REDIS_URL:            redis://redis:6379/0
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
       LOG_FORMAT:           ${EDDN_LOG_FORMAT:-text}    # set to `json` for Loki/CloudWatch
@@ -162,9 +190,40 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      pgbouncer:
-        condition: service_started
       redis:
+        condition: service_healthy
+
+  # ── Scheduled DB maintenance (ANALYZE / REINDEX / refresh MVs) ────────────
+  # 2026-05-09: added after a production autocomplete outage traced to
+  # stale planner statistics on the 186M-row systems table. Without this
+  # sidecar, autovacuum's analyze threshold (`autovacuum_analyze_scale_factor=0.02`)
+  # only triggers after 2% of rows change — so on a slow-growing table
+  # like systems, stats can drift for weeks. Manifests as: planner picks
+  # a sequential scan over the lower(name) prefix index, autocomplete
+  # 503s at the 15s statement_timeout.
+  #
+  # Schedule:
+  #   nightly @ 03:15 UTC : ANALYZE all hot tables + refresh map MVs
+  #   weekly  @ 04:00 Sun : REINDEX CONCURRENTLY hot indexes + VACUUM
+  #
+  # Run on demand (skip the wait):
+  #   docker compose run --rm maintenance run_maintenance.sh nightly
+  #   docker compose run --rm maintenance run_maintenance.sh weekly
+  #   docker compose run --rm maintenance run_maintenance.sh smoke
+  maintenance:
+    build:
+      context: ./apps/maintenance
+      dockerfile: Dockerfile
+    container_name: ed-maintenance
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:  postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
+      LOG_FILE:      /data/logs/maintenance.log
+      TZ:            UTC
+    volumes:
+      - /data/logs:/data/logs
+    depends_on:
+      postgres:
         condition: service_healthy
 
   # ── Nginx (SSL + static files) ────────────────────────────────────────────

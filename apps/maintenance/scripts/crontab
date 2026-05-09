@@ -1,0 +1,15 @@
+# Crontab for ed-finder maintenance sidecar.
+#
+# Format: m h dom mon dow command
+# Times are UTC.
+#
+# 03:15 daily — ANALYZE + map MV refresh. Runs after the (assumed
+#               post-midnight UTC) Spansh import window so stats are
+#               fresh by the time European morning traffic hits.
+# 04:00 Sunday — weekly REINDEX + VACUUM ANALYZE.
+#
+# Output is captured by `crond -f -L /dev/stdout` and tee'd to
+# /data/logs/maintenance.log inside the script itself.
+
+15 3 * * *   /usr/local/bin/run_maintenance.sh nightly
+ 0 4 * * 0   /usr/local/bin/run_maintenance.sh weekly
