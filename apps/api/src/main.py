@@ -74,20 +74,13 @@ async def lifespan(app: FastAPI):
         original dict. Registering the codec at pool-init time fixes
         every JSONB read across the app.
 
-        Server-side `statement_timeout` (2026-05-09, follow-up to the
-        Phase-2 'no silent fallback' contract): the audit's commit
-        be6e2b8 added a 15 s `SET LOCAL statement_timeout` to the
-        old inline-fallback path, which PR #3 then deleted with the
-        fallback. The replacement `local_db_search` ran without one,
-        leaving the asyncpg pool's 5-min `command_timeout` as the
-        only ceiling. A pathological COUNT(*) on the 186 M-row
-        systems table could pin a connection-pool slot for the full
-        five minutes before the request 503'd. We now set a 15 s
-        statement_timeout at connection init, which is allowed under
-        pgBouncer transaction-pool mode because it's a session-level
-        SET issued before the connection joins the pool. This keeps
-        the audit's 'fail loud and fast' semantics regardless of
-        which code path runs the query.
+        NOTE: `statement_timeout` is NOT set here — pgBouncer's
+        transaction-pool mode wipes session-level SETs when it returns
+        a server connection to its own pool (verified in prod
+        2026-05-09: `SHOW statement_timeout` came back `0` over a
+        pooled connection). Instead, it lives in the
+        `server_settings={'statement_timeout': …}` startup parameters
+        on `asyncpg.create_pool()` above, which pgBouncer preserves.
         """
         import json as _json
         await conn.set_type_codec(
@@ -102,21 +95,30 @@ async def lifespan(app: FastAPI):
             decoder=_json.loads,
             schema='pg_catalog',
         )
-        # 15 s server-side cap. Anything slower would have raced
-        # asyncpg's command_timeout anyway, but this fails inside
-        # PostgreSQL with a clean QueryCanceledError that the search
-        # router translates into RFC 7807 problem-details.
-        await conn.execute(
-            f"SET statement_timeout = {settings.statement_timeout_ms}"
-        )
 
     pool = await asyncpg.create_pool(
         dsn=settings.database_url,
         min_size=5, max_size=20,
+        # asyncpg's client-side ceiling — kept generous as a final
+        # backstop. The real query budget is enforced server-side via
+        # `statement_timeout` below.
         command_timeout=300,
         # pgBouncer transaction-pool mode requires prepared-statement cache off.
         statement_cache_size=0,
-        server_settings={'application_name': 'ed_finder_api'},
+        server_settings={
+            'application_name': 'ed_finder_api',
+            # `statement_timeout` MUST live here, not in `init=_init_conn`.
+            # asyncpg sends `server_settings` as protocol-level startup
+            # parameters which pgBouncer transaction-pool mode preserves
+            # across pooled connections, whereas a `SET statement_timeout`
+            # issued from the init callback is wiped by pgBouncer's
+            # implicit `DISCARD ALL` / `RESET` between transactions.
+            # Verified in prod 2026-05-09: `SHOW statement_timeout` over
+            # an asyncpg+pgbouncer pooled conn returned `0` (= unlimited)
+            # despite the init callback running. Making it a startup
+            # parameter fixes this without disabling pgbouncer pooling.
+            'statement_timeout': str(settings.statement_timeout_ms),
+        },
         init=_init_conn,
     )
     set_pool(pool)

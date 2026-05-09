@@ -13,21 +13,26 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_every_connection_has_a_statement_timeout(pool):
-    """The pool's per-connection initialiser must SET statement_timeout.
+    """The pool's server_settings must propagate statement_timeout
+    through pgBouncer transaction-pool mode.
 
-    Set 0 = no limit; we expect the configured non-zero value (default
-    15000 ms). Without this, the only ceiling is asyncpg's 5-min
-    `command_timeout`, which is the audit's exact 'silent slow path'
-    failure mode.
+    Production-verified failure mode (2026-05-09):
+        ``SHOW statement_timeout`` returned ``'0'`` over an
+        asyncpg+pgbouncer pooled connection because pgBouncer issues
+        an implicit ``DISCARD ALL`` / ``RESET`` between transactions,
+        wiping any ``SET`` we'd issued in the per-connection init
+        callback. Moving it into ``asyncpg.create_pool(server_settings=…)``
+        sends it as a protocol-level startup parameter which pgBouncer
+        preserves across the pool. This test pins that behaviour so we
+        don't silently regress when someone refactors the pool init.
     """
     async with pool.acquire() as conn:
         timeout = await conn.fetchval('SHOW statement_timeout')
-    # PG returns this as a string like '15s' or '15000ms'. Either is fine
-    # so long as it's NOT '0'/'0ms' (= no limit).
     assert timeout not in ('0', '0ms', '0s'), (
         f"statement_timeout is unset on pooled connections: {timeout!r}. "
-        "Searches will run for up to asyncpg.command_timeout (5 min) "
-        "and pin pool slots — see the audit's §C5 incident."
+        "If you moved it back into init=_init_conn, pgBouncer's RESET "
+        "is wiping it — put it in server_settings instead. See main.py "
+        "line ~120."
     )
 
 
