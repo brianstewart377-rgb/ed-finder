@@ -60,6 +60,13 @@ REDIS_URL   = os.getenv('REDIS_URL',     'redis://redis:6379/0')
 EDDN_RELAY  = os.getenv('EDDN_RELAY',   'tcp://eddn.edcd.io:9500')
 LOG_LEVEL   = os.getenv('LOG_LEVEL',    'INFO')
 LOG_FILE    = os.getenv('LOG_FILE',     '/data/logs/eddn.log')
+# Set LOG_FORMAT=json to emit each log record as a single-line JSON
+# document (required for ingest into Loki / ES / CloudWatch / etc.
+# without grok-parsing the human-friendly default).
+LOG_FORMAT  = os.getenv('LOG_FORMAT',   'text').lower()
+# Bind a Prometheus text-exposition server on this port. Disable by
+# setting METRICS_PORT=0. Production prometheus.yml scrapes this.
+METRICS_PORT = int(os.getenv('METRICS_PORT', '9091'))
 
 EDDN_PUBSUB_CHANNEL = 'eddn_events'
 
@@ -68,14 +75,55 @@ DIRTY_FLUSH_INTERVAL = int(os.getenv('DIRTY_FLUSH_INTERVAL', '300'))  # 5 minute
 
 os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler(sys.stdout),
-    ]
-)
+
+class _JsonFormatter(logging.Formatter):
+    """Single-line JSON formatter, compatible with structured-log shippers.
+
+    Produces the keys: ``ts``, ``level``, ``logger``, ``msg``, plus any
+    ``extra={...}`` dict the caller passed. Stack traces are emitted as a
+    string under ``exc_info`` so the output stays one record per line.
+    """
+    _RESERVED = {
+        'name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
+        'filename', 'module', 'exc_info', 'exc_text', 'stack_info',
+        'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
+        'thread', 'threadName', 'processName', 'process', 'message',
+        'asctime',
+    }
+
+    def format(self, record: logging.LogRecord) -> str:  # noqa: A003
+        payload = {
+            'ts':     datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            'level':  record.levelname,
+            'logger': record.name,
+            'msg':    record.getMessage(),
+        }
+        # Pass-through any caller-supplied extras
+        for k, v in record.__dict__.items():
+            if k not in self._RESERVED and not k.startswith('_'):
+                payload[k] = v
+        if record.exc_info:
+            payload['exc_info'] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str)
+
+
+_handlers = [
+    logging.FileHandler(LOG_FILE),
+    logging.StreamHandler(sys.stdout),
+]
+if LOG_FORMAT == 'json':
+    for h in _handlers:
+        h.setFormatter(_JsonFormatter())
+    logging.basicConfig(
+        level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+        handlers=_handlers,
+    )
+else:
+    logging.basicConfig(
+        level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        handlers=_handlers,
+    )
 log = logging.getLogger('eddn_listener')
 
 # ---------------------------------------------------------------------------
@@ -520,6 +568,117 @@ async def stats_reporter():
 
 
 # ---------------------------------------------------------------------------
+# Prometheus metrics endpoint
+# ---------------------------------------------------------------------------
+def _prometheus_text() -> bytes:
+    """Render the EDDN listener's _stats dict in Prometheus text format.
+
+    Stays dependency-free (no prometheus_client) so the EDDN image
+    keeps its 70 MB footprint. The metric names mirror the
+    Grafana-side queries already wired up by config/grafana/.
+    """
+    uptime_min = (time.time() - _stats['started_at']) / 60.0
+    rate       = _stats['events_received'] / max(uptime_min, 1)
+    err_rate   = _stats['errors']          / max(uptime_min, 1)
+    lines = [
+        '# HELP eddn_events_received_total Events ingested from the EDDN relay',
+        '# TYPE eddn_events_received_total counter',
+        f'eddn_events_received_total {_stats["events_received"]}',
+        '# HELP eddn_events_processed_total Events with a registered handler',
+        '# TYPE eddn_events_processed_total counter',
+        f'eddn_events_processed_total {_stats["events_processed"]}',
+        '# HELP eddn_events_skipped_total Events with no registered handler',
+        '# TYPE eddn_events_skipped_total counter',
+        f'eddn_events_skipped_total {_stats["events_skipped"]}',
+        '# HELP eddn_systems_upserted_total Systems written to the DB',
+        '# TYPE eddn_systems_upserted_total counter',
+        f'eddn_systems_upserted_total {_stats["systems_upserted"]}',
+        '# HELP eddn_bodies_upserted_total Bodies written to the DB',
+        '# TYPE eddn_bodies_upserted_total counter',
+        f'eddn_bodies_upserted_total {_stats["bodies_upserted"]}',
+        '# HELP eddn_errors_total Total errors (ZMQ + DB + decode)',
+        '# TYPE eddn_errors_total counter',
+        f'eddn_errors_total {_stats["errors"]}',
+        '# HELP eddn_pending_systems Systems buffered awaiting next flush',
+        '# TYPE eddn_pending_systems gauge',
+        f'eddn_pending_systems {len(_pending_systems)}',
+        '# HELP eddn_pending_bodies Bodies buffered awaiting next flush',
+        '# TYPE eddn_pending_bodies gauge',
+        f'eddn_pending_bodies {len(_pending_bodies)}',
+        '# HELP eddn_seconds_since_flush Seconds since the last DB flush',
+        '# TYPE eddn_seconds_since_flush gauge',
+        f'eddn_seconds_since_flush {time.time() - _last_flush:.1f}',
+        '# HELP eddn_uptime_seconds Seconds since process start',
+        '# TYPE eddn_uptime_seconds gauge',
+        f'eddn_uptime_seconds {(time.time() - _stats["started_at"]):.0f}',
+        '# HELP eddn_events_per_minute Rolling-average ingest rate',
+        '# TYPE eddn_events_per_minute gauge',
+        f'eddn_events_per_minute {rate:.2f}',
+        '# HELP eddn_errors_per_minute Rolling-average error rate',
+        '# TYPE eddn_errors_per_minute gauge',
+        f'eddn_errors_per_minute {err_rate:.4f}',
+        '',
+    ]
+    return ('\n'.join(lines)).encode('utf-8')
+
+
+async def _metrics_handler(reader: asyncio.StreamReader,
+                           writer: asyncio.StreamWriter) -> None:
+    """Tiny HTTP/1.1 handler — only serves GET /metrics, 404 elsewhere."""
+    try:
+        request_line = await asyncio.wait_for(reader.readline(), timeout=2.0)
+        # Drain headers so the client doesn't see a broken pipe
+        while True:
+            line = await asyncio.wait_for(reader.readline(), timeout=2.0)
+            if line in (b'\r\n', b'\n', b''):
+                break
+        if not request_line.startswith(b'GET '):
+            writer.write(b'HTTP/1.1 405 Method Not Allowed\r\n'
+                         b'Content-Length: 0\r\nConnection: close\r\n\r\n')
+        elif b' /metrics' in request_line or b' /metrics ' in request_line or request_line.startswith(b'GET /metrics'):
+            payload = _prometheus_text()
+            writer.write(
+                b'HTTP/1.1 200 OK\r\n'
+                b'Content-Type: text/plain; version=0.0.4\r\n'
+                + f'Content-Length: {len(payload)}\r\n'.encode()
+                + b'Connection: close\r\n\r\n'
+                + payload
+            )
+        elif request_line.startswith(b'GET /healthz'):
+            writer.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n'
+                         b'Connection: close\r\n\r\nok')
+        else:
+            writer.write(b'HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n'
+                         b'Connection: close\r\n\r\n')
+        await writer.drain()
+    except (asyncio.TimeoutError, ConnectionResetError):
+        pass
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def metrics_server() -> None:
+    """Bind 0.0.0.0:METRICS_PORT and serve /metrics for Prometheus scrape."""
+    if METRICS_PORT == 0:
+        log.info('metrics_server disabled (METRICS_PORT=0)')
+        return
+    server = await asyncio.start_server(
+        _metrics_handler, host='0.0.0.0', port=METRICS_PORT,
+    )
+    log.info(
+        'metrics_server listening',
+        extra={'metrics_port': METRICS_PORT,
+               'endpoint':     f'http://0.0.0.0:{METRICS_PORT}/metrics'},
+    )
+    async with server:
+        await server.serve_forever()
+
+
+# ---------------------------------------------------------------------------
 # Main EDDN loop
 # ---------------------------------------------------------------------------
 EVENT_HANDLERS = {
@@ -684,6 +843,7 @@ async def main():
         run_eddn_listener(pool, redis),
         dirty_recalc_job(pool),
         stats_reporter(),
+        metrics_server(),
     )
 
 

@@ -12,6 +12,18 @@ scrape_configs:
   - job_name: 'ed-api'
     static_configs:
       - targets: ['api:8000']
+    metrics_path: /api/metrics
+
+  # ── ED Finder EDDN listener metrics (added 2026-05-09) ────────────────────
+  # The listener exposes a tiny dependency-free Prometheus text endpoint at
+  # :9091/metrics — see apps/eddn/src/eddn_listener.py::metrics_server().
+  # Counters: eddn_events_received_total, eddn_events_processed_total,
+  # eddn_systems_upserted_total, eddn_bodies_upserted_total, eddn_errors_total.
+  # Gauges: eddn_pending_systems, eddn_pending_bodies, eddn_seconds_since_flush,
+  # eddn_events_per_minute, eddn_errors_per_minute.
+  - job_name: 'eddn'
+    static_configs:
+      - targets: ['eddn:9091']
     metrics_path: /metrics
 
   # ── PostgreSQL metrics ────────────────────────────────────────────────────
