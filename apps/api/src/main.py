@@ -73,6 +73,21 @@ async def lifespan(app: FastAPI):
         /api/profile/sync round-trip a stringified JSON instead of the
         original dict. Registering the codec at pool-init time fixes
         every JSONB read across the app.
+
+        Server-side `statement_timeout` (2026-05-09, follow-up to the
+        Phase-2 'no silent fallback' contract): the audit's commit
+        be6e2b8 added a 15 s `SET LOCAL statement_timeout` to the
+        old inline-fallback path, which PR #3 then deleted with the
+        fallback. The replacement `local_db_search` ran without one,
+        leaving the asyncpg pool's 5-min `command_timeout` as the
+        only ceiling. A pathological COUNT(*) on the 186 M-row
+        systems table could pin a connection-pool slot for the full
+        five minutes before the request 503'd. We now set a 15 s
+        statement_timeout at connection init, which is allowed under
+        pgBouncer transaction-pool mode because it's a session-level
+        SET issued before the connection joins the pool. This keeps
+        the audit's 'fail loud and fast' semantics regardless of
+        which code path runs the query.
         """
         import json as _json
         await conn.set_type_codec(
@@ -86,6 +101,13 @@ async def lifespan(app: FastAPI):
             encoder=_json.dumps,
             decoder=_json.loads,
             schema='pg_catalog',
+        )
+        # 15 s server-side cap. Anything slower would have raced
+        # asyncpg's command_timeout anyway, but this fails inside
+        # PostgreSQL with a clean QueryCanceledError that the search
+        # router translates into RFC 7807 problem-details.
+        await conn.execute(
+            f"SET statement_timeout = {settings.statement_timeout_ms}"
         )
 
     pool = await asyncpg.create_pool(

@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     rate_limit_default: str  = '120/minute'
     app_version:        str  = '3.0.1-hetzner'
     admin_token:        Optional[str] = None
+    # Per-connection PostgreSQL `statement_timeout` (milliseconds).
+    # Applied at pool init by main.py::_init_conn so every query —
+    # search, map, status — is bounded server-side. Picked to match the
+    # audit's original 15 s budget on the deleted inline-fallback path
+    # (commit be6e2b8). Set higher in long-running ad-hoc psql sessions
+    # via `SET statement_timeout = ...` per connection.
+    statement_timeout_ms: int = 15000
     # CORS: required in production. Default left as a sentinel that the
     # validator rejects so that an unset env in production fails closed.
     # Set CORS_ORIGINS=https://ed-finder.app,https://www.ed-finder.app in .env

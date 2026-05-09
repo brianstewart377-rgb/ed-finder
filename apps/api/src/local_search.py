@@ -304,6 +304,24 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         {where_sql}
     """
 
+    # Galaxy-wide queries with no distance filter can otherwise trigger
+    # a sequential scan of the entire 186 M-row `systems` table just to
+    # produce the `total` counter the v2 frontend renders as "X+ results".
+    # Cap that at the largest `LIMIT $cap` envelope we want to spend
+    # planner time on. The "+" badge in the UI already communicates
+    # truncation; precise totals on galaxy-wide are not worth the cost.
+    GALAXY_WIDE_COUNT_CAP = 10_000
+    if galaxy_wide:
+        count_sql = f"""
+            SELECT COUNT(*) FROM (
+                SELECT 1
+                FROM systems s
+                LEFT JOIN ratings r ON r.system_id64 = s.id64
+                {where_sql}
+                LIMIT {GALAXY_WIDE_COUNT_CAP}
+            ) t
+        """
+
     sql = f"""
         SELECT
             s.id64, s.name, s.x, s.y, s.z,
@@ -371,6 +389,10 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         "query_ms": elapsed,
         "display_economy": economy_filter or "overall",
     }
+    if galaxy_wide and total is not None and total >= GALAXY_WIDE_COUNT_CAP:
+        # The frontend should render "10,000+ matches" when this is set.
+        # See `SearchResponse.total_is_capped` in apps/api/src/models.py.
+        resp["total_is_capped"] = True
     if radius_capped:
         resp["warning"] = (
             f"Search radius capped at {int(MAX_SEARCH_RADIUS):,} LY "

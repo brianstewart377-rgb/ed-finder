@@ -301,6 +301,14 @@ class SearchResponse(BaseModel):
     source:           Optional[str] = None
     query_ms:         Optional[int] = None
     display_economy:  Optional[str] = None
+    # True when `total` was clamped at the galaxy-wide cap (currently
+    # 10 000) instead of being a precise count of all matches. Render
+    # as "X+" in the UI when set. Absent on local (distance-bounded)
+    # searches where the precise count is cheap.
+    total_is_capped:  Optional[bool] = None
+    # Surfaces the radius-cap notice from `local_db_search`. UI can
+    # render this as a small banner next to the results count.
+    warning:          Optional[str] = None
 
 
 class SystemDetailResponse(BaseModel):
