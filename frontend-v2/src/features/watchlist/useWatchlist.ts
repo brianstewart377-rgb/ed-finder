@@ -1,12 +1,26 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type WatchlistEntry } from '@/lib/api';
 
 /**
  * Watchlist state.
  *
- * Optimistic updates: add/remove mutate the local list immediately and roll
- * back on API failure. Without this, the UI feels laggy on every click —
- * the vanilla app waits for the round-trip and it's noticeable.
+ * Audit Phase 8 (2026-05-09): rewritten on top of TanStack Query so the
+ * NavBar count, the Watchlist tab, the SystemDetailModal "Save to
+ * Watchlist" toggle, and any future consumer all share one cache entry
+ * (`['watchlist']`). Previously each `useWatchlist()` callsite owned its
+ * own `useState`, so every tab refetched independently and the same
+ * data could be in three different states at once.
+ *
+ * Optimistic updates: add/remove mutate the cache immediately via
+ * `setQueryData` and roll back on `onError`. Without this, the UI feels
+ * laggy on every click — the vanilla app waits for the round-trip and
+ * it's noticeable. After settle we invalidate to pull canonical data
+ * (score + economy_suggestion are joined server-side and only available
+ * after the round-trip).
+ *
+ * Public interface (`UseWatchlist`) is unchanged from the bespoke
+ * implementation, so no consumers need rewriting.
  */
 export interface UseWatchlist {
   entries:   WatchlistEntry[];
@@ -18,68 +32,98 @@ export interface UseWatchlist {
   has:       (id64: number) => boolean;
 }
 
+const WATCHLIST_KEY = ['watchlist'] as const;
+
 export function useWatchlist(): UseWatchlist {
-  const [entries, setEntries] = useState<WatchlistEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  const query = useQuery({
+    queryKey:    WATCHLIST_KEY,
+    queryFn:     async () => (await api.watchlist()).watchlist,
+    staleTime:   30_000,        // re-fetch on tab focus only after 30s
+    gcTime:      5 * 60_000,    // 5min cache retention
+  });
+
+  const entries = query.data ?? [];
+  const loading = query.isPending;
+  const error   = query.error
+    ? (query.error instanceof Error ? query.error.message : String(query.error))
+    : null;
 
   const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await api.watchlist();
-      setEntries(r.watchlist);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    await qc.invalidateQueries({ queryKey: WATCHLIST_KEY });
+  }, [qc]);
 
-  // Initial load — explicit so consumers can opt in (e.g. lazy-load on the
-  // watchlist tab only). For now we always load on mount; the API call is
-  // cheap (~50 rows max) and the badge wants the count regardless.
-  useEffect(() => { void refresh(); }, [refresh]);
+  const addMutation = useMutation({
+    mutationFn: (vars: { id64: number; hint?: Partial<WatchlistEntry> }) =>
+      api.watchAdd(vars.id64),
+    onMutate: async ({ id64, hint }: { id64: number; hint?: Partial<WatchlistEntry> }) => {
+      // Cancel any in-flight refetch so it doesn't overwrite our optimistic update.
+      await qc.cancelQueries({ queryKey: WATCHLIST_KEY });
+      const previous = qc.getQueryData<WatchlistEntry[]>(WATCHLIST_KEY) ?? [];
+      if (previous.some((e) => e.system_id64 === id64)) {
+        return { previous, skip: true };
+      }
+      const optimistic: WatchlistEntry = {
+        system_id64:  id64,
+        name:         hint?.name ?? `System ${id64}`,
+        x:            hint?.x ?? 0,
+        y:            hint?.y ?? 0,
+        z:            hint?.z ?? 0,
+        population:   hint?.population ?? 0,
+        is_colonised: hint?.is_colonised ?? false,
+        added_at:     new Date().toISOString(),
+        score:        hint?.score ?? null,
+      };
+      qc.setQueryData<WatchlistEntry[]>(WATCHLIST_KEY, [optimistic, ...previous]);
+      return { previous, skip: false };
+    },
+    onError: (_err, _vars, ctx) => {
+      // Roll back to the snapshot we took in onMutate.
+      if (ctx?.previous) qc.setQueryData(WATCHLIST_KEY, ctx.previous);
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: WATCHLIST_KEY });
+    },
+  });
 
-  const add = useCallback(async (id64: number, hint?: Partial<WatchlistEntry>) => {
-    if (entries.some((e) => e.system_id64 === id64)) return;
-    // Optimistic insert with whatever hint info the caller supplied.
-    const optimistic: WatchlistEntry = {
-      system_id64:  id64,
-      name:         hint?.name ?? `System ${id64}`,
-      x:            hint?.x ?? 0,
-      y:            hint?.y ?? 0,
-      z:            hint?.z ?? 0,
-      population:   hint?.population ?? 0,
-      is_colonised: hint?.is_colonised ?? false,
-      added_at:     new Date().toISOString(),
-      score:        hint?.score ?? null,
-    };
-    setEntries((prev) => [optimistic, ...prev]);
-    try {
-      await api.watchAdd(id64);
-      // Refresh to pull canonical data (score + economy_suggestion are
-      // joined server-side and only available after the round-trip).
-      void refresh();
-    } catch (e) {
-      // Roll back.
-      setEntries((prev) => prev.filter((e2) => e2.system_id64 !== id64));
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [entries, refresh]);
+  const removeMutation = useMutation({
+    mutationFn: (id64: number) => api.watchRemove(id64),
+    onMutate: async (id64: number) => {
+      await qc.cancelQueries({ queryKey: WATCHLIST_KEY });
+      const previous = qc.getQueryData<WatchlistEntry[]>(WATCHLIST_KEY) ?? [];
+      qc.setQueryData<WatchlistEntry[]>(
+        WATCHLIST_KEY,
+        previous.filter((e) => e.system_id64 !== id64),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(WATCHLIST_KEY, ctx.previous);
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: WATCHLIST_KEY });
+    },
+  });
 
-  const remove = useCallback(async (id64: number) => {
-    const before = entries;
-    setEntries((prev) => prev.filter((e) => e.system_id64 !== id64));
-    try {
-      await api.watchRemove(id64);
-    } catch (e) {
-      setEntries(before);                                  // roll back
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [entries]);
+  const add = useCallback(
+    async (id64: number, hint?: Partial<WatchlistEntry>) => {
+      await addMutation.mutateAsync({ id64, hint });
+    },
+    [addMutation],
+  );
 
-  const has = useCallback((id64: number) => entries.some((e) => e.system_id64 === id64), [entries]);
+  const remove = useCallback(
+    async (id64: number) => {
+      await removeMutation.mutateAsync(id64);
+    },
+    [removeMutation],
+  );
+
+  const has = useCallback(
+    (id64: number) => entries.some((e) => e.system_id64 === id64),
+    [entries],
+  );
 
   return { entries, loading, error, refresh, add, remove, has };
 }

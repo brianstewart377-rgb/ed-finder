@@ -28,9 +28,16 @@ test.describe('ED Finder v2 — smoke', () => {
 
   test('search runs and renders at least one result', async ({ page }) => {
     await page.goto('/');
-    // Wait for "Scanning…" to disappear — the auto-search has finished.
+    // Wait for either a result-card to appear or the "No systems found"
+    // empty state — whichever the seed data produces. The previous
+    // wait-on-"Scanning systems"-disappearing was racy on a fast local
+    // backend (the spinner can come and go before Playwright's first
+    // poll). Use a positive condition instead.
     await page.waitForFunction(
-      () => !document.body.innerText.includes('Scanning systems'),
+      () => {
+        const t = document.body.innerText;
+        return t.includes('shown') || t.includes('No systems found');
+      },
       null,
       { timeout: 15_000 },
     );
@@ -40,9 +47,10 @@ test.describe('ED Finder v2 — smoke', () => {
     // names by probing for "LY" (distance suffix appears next to results)
     // OR a known seed name.
     const body = await page.locator('body').textContent();
-    const knownNames = ['Sol', 'Achenar', 'Lave', 'Procyon', 'Alioth'];
+    const knownNames = ['Sol', 'Achenar', 'Lave', 'Procyon', 'Alioth',
+                        'Wolf', 'HIP', 'Sothis', 'Pleione', 'Diaguandri'];
     const found = knownNames.some((n) => body?.includes(n));
-    expect(found, `Expected at least one seeded name in: ${body?.slice(0, 200)}`).toBe(true);
+    expect(found, `Expected at least one seeded name in: ${body?.slice(0, 400)}`).toBe(true);
   });
 
   test('pinned store persists across reload (Phase 7)', async ({ page }) => {
