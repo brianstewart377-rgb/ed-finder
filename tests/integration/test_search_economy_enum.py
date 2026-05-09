@@ -88,23 +88,7 @@ async def test_unknown_economy_skips_filter_not_503(client):
     assert r.status_code == 200, r.text
 
 
-async def test_economy_enum_value_helper():
-    """Direct unit-level coverage of the helper, since that's what the
-    SQL cast depends on. (Async-marked only to satisfy module-wide
-    pytestmark; the helper itself is sync.)"""
-    from search_economies import economy_enum_value
-
-    assert economy_enum_value('Agriculture')  == 'Agriculture'
-    assert economy_enum_value('agriculture')  == 'Agriculture'
-    assert economy_enum_value('High Tech')    == 'HighTech'
-    assert economy_enum_value('high tech')    == 'HighTech'
-    assert economy_enum_value('high-tech')    == 'HighTech'
-    assert economy_enum_value('hightech')     == 'HighTech'
-    assert economy_enum_value('HighTech')     == 'HighTech'
-    assert economy_enum_value('Extraction')   == 'Extraction'
-    assert economy_enum_value('extraction')   == 'Extraction'
-    # Unknown / blank → None (caller treats as no filter)
-    assert economy_enum_value(None)           is None
-    assert economy_enum_value('')             is None
-    assert economy_enum_value('any')          is None
-    assert economy_enum_value('Foo')          is None
+# Pure-function unit coverage of `economy_enum_value` lives in
+# tests/test_search_economies_unit.py — outside the integration
+# directory so the module-wide `pytestmark = pytest.mark.asyncio`
+# doesn't apply to a sync helper test.

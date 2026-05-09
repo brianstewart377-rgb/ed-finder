@@ -251,8 +251,29 @@ app.include_router(ratings_router)
 
 # ---------------------------------------------------------------------------
 # SPA fallback + static files
+#
+# In Docker the production bundle is baked at /app/frontend/ (next to
+# apps/api/src/), which is what `__file__.parent.parent / 'frontend'`
+# resolves to. In a local dev clone the equivalent location is
+# `frontend-v2/dist/` (post-`yarn build`). Try both, in that order, so
+# `python -m uvicorn main:app` works directly from the repo root without
+# rebuilding the image.
 # ---------------------------------------------------------------------------
-_FRONTEND_DIR  = _pl.Path(__file__).parent.parent / 'frontend'
+def _resolve_frontend_dir() -> _pl.Path:
+    here       = _pl.Path(__file__).resolve().parent
+    candidates = [
+        here.parent / 'frontend',                    # Docker baked layout
+        here.parent.parent.parent / 'frontend-v2' / 'dist',  # local dev
+    ]
+    for c in candidates:
+        if c.is_dir():
+            return c
+    # No bundle on disk yet — fall back to the Docker location so the
+    # 404 path still works; static-mount block below skips when missing.
+    return candidates[0]
+
+
+_FRONTEND_DIR = _resolve_frontend_dir()
 
 # Mount static assets directory before registering the catch-all so that
 # /static/<file> is served by StaticFiles (which includes its own safe path
@@ -285,6 +306,14 @@ async def spa_fallback(full_path: str):
     # /api/<unknown> return 404 JSON instead of serving index.html.
     if full_path.startswith('api/'):
         raise HTTPException(404, f'API endpoint {full_path} not found')
+
+    # No frontend bundle present (e.g. local dev before `yarn build`):
+    # short-circuit with a 404 instead of FileResponse'ing a missing file.
+    if not _FRONTEND_DIR.is_dir():
+        raise HTTPException(
+            404,
+            'Frontend bundle not built. Run `cd frontend-v2 && yarn build`.',
+        )
 
     candidate = _safe_frontend_path(full_path)
     if candidate and candidate.is_file():
