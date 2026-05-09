@@ -431,7 +431,10 @@ input[type='checkbox']:checked::after {
 }
 .animate-marquee {
   display: inline-block;
-  animation: marquee 65s linear infinite;
+  /* 2026-05-09: slowed from 65s → 140s so pips are actually readable.
+   * The list is doubled in the JSX so one full loop = 2× the visible
+   * content — at 140s you get ~70s per visible pass through the feed. */
+  animation: marquee 140s linear infinite;
   will-change: transform;
 }
 

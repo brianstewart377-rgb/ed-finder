@@ -98,7 +98,7 @@ jobs:
           for f in sql/001_schema.sql sql/002_indexes.sql sql/003_functions.sql \
                    sql/004_ratings_v31.sql sql/005_map_indexes.sql \
                    sql/007_profile_sync.sql sql/008_body_filter_aggregates.sql \
-                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql \
+                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql sql/011_autocomplete_index.sql \
                    sql/seed_preview.sql ; do
             psql -h localhost -U edfinder -d edfinder -f "$f"
           done
@@ -301,7 +301,7 @@ jobs:
           for f in sql/001_schema.sql sql/002_indexes.sql sql/003_functions.sql \
                    sql/004_ratings_v31.sql sql/005_map_indexes.sql \
                    sql/007_profile_sync.sql sql/008_body_filter_aggregates.sql \
-                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql ; do
+                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql sql/011_autocomplete_index.sql ; do
             psql -h localhost -U edfinder -d edfinder -f "$f"
           done
 
@@ -397,7 +397,7 @@ jobs:
           for f in sql/001_schema.sql sql/002_indexes.sql sql/003_functions.sql \
                    sql/004_ratings_v31.sql sql/005_map_indexes.sql \
                    sql/007_profile_sync.sql sql/008_body_filter_aggregates.sql \
-                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql \
+                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql sql/011_autocomplete_index.sql \
                    sql/seed_preview.sql ; do
             psql -h localhost -U edfinder -d edfinder -f "$f"
           done
