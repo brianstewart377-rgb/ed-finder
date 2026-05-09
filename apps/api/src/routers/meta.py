@@ -16,7 +16,7 @@ from fastapi.responses import PlainTextResponse
 
 from config import settings
 from deps   import get_pool, get_redis, cache_get, cache_set
-from models import HealthResponse
+from models import HealthResponse, StatusResponse
 from state  import metrics
 
 log = logging.getLogger('ed_finder')
@@ -46,7 +46,7 @@ async def health(pool: asyncpg.Pool = Depends(get_pool)):
         raise HTTPException(503, detail=str(e))
 
 
-@router.get('/api/status')
+@router.get('/api/status', response_model=StatusResponse)
 async def status(
     pool:  asyncpg.Pool              = Depends(get_pool),
     redis: Optional[aioredis.Redis]  = Depends(get_redis),
@@ -98,7 +98,7 @@ async def status(
     return result
 
 
-@router.get('/api/local/status')
+@router.get('/api/local/status', response_model=StatusResponse)
 async def local_status(
     pool:  asyncpg.Pool              = Depends(get_pool),
     redis: Optional[aioredis.Redis]  = Depends(get_redis),

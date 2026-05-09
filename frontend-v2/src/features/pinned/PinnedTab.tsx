@@ -142,11 +142,11 @@ export function PinnedTab({ pinned, onShowOnMap, onOpenDetail }: PinnedTabProps)
 export function toPinnedEntry(sys: {
   id64:         number;
   name:         string;
-  coords?:      { x: number; y: number; z: number };
+  coords?:      { x: number; y: number; z: number } | null;
   distance?:    number | null;
   population:   number;
-  is_colonised?: boolean;
-  _rating?:     { score: number | null; economySuggestion?: string | null } | null;
+  is_colonised?: boolean | null;
+  _rating?:     { score?: number | null; economySuggestion?: string | null } | null;
 }): PinnedEntry {
   return {
     id64:         sys.id64,

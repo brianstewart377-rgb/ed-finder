@@ -344,3 +344,134 @@ jobs:
             exit 1
           fi
           echo "✓ types match checked-in baseline"
+
+  # ─── End-to-end (Playwright + vite preview) ────────────────────────
+  # Audit Phase 6 follow-up: runs the smoke spec end-to-end against a
+  # production `vite build` served by `vite preview`, with the Vite
+  # preview server proxying /api to a freshly-booted FastAPI talking to
+  # a real PG+Redis service container. This is the closest we get to a
+  # production round-trip without paying for a hosted preview env.
+  e2e:
+    name: Frontend v2 E2E (Playwright)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER:     edfinder
+          POSTGRES_PASSWORD: edfinder
+          POSTGRES_DB:       edfinder
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install API deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt
+
+      - name: Apply schema + seed
+        env:
+          PGPASSWORD: edfinder
+        run: |
+          for f in sql/001_schema.sql sql/002_indexes.sql sql/003_functions.sql \
+                   sql/004_ratings_v31.sql sql/005_map_indexes.sql \
+                   sql/007_profile_sync.sql sql/008_body_filter_aggregates.sql \
+                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql \
+                   sql/seed_preview.sql ; do
+            psql -h localhost -U edfinder -d edfinder -f "$f"
+          done
+          # Same ratings seed as the integration job — gives /api/local/search
+          # something to return.
+          psql -h localhost -U edfinder -d edfinder <<SQL
+          INSERT INTO ratings (system_id64, score, score_agriculture, score_refinery,
+            score_industrial, score_hightech, score_military, score_tourism,
+            score_extraction, slots, body_quality, compactness, signal_quality,
+            orbital_safety, star_bonus, elw_count, ww_count, ammonia_count,
+            gas_giant_count, neutron_count, black_hole_count, white_dwarf_count,
+            landable_count, terraformable_count, bio_signal_total, geo_signal_total,
+            terraforming_potential, body_diversity, confidence, hmc_count,
+            metal_rich_count, rocky_count, rocky_ice_count, icy_count,
+            other_star_count, ring_count, walkable_count)
+          SELECT s.id64, ((s.id64 % 50) + 50)::int, ((s.id64 % 30) + 60)::int,
+            ((s.id64 % 25) + 50)::int, ((s.id64 % 35) + 55)::int, ((s.id64 % 40) + 45)::int,
+            ((s.id64 % 28) + 52)::int, ((s.id64 % 33) + 47)::int, ((s.id64 % 26) + 60)::int,
+            ((s.id64 % 5) + 1)::int, 60, 50, 70, 80, 5,
+            (s.id64 % 3)::int, (s.id64 % 4)::int, (s.id64 % 2)::int,
+            (s.id64 % 6)::int, (s.id64 % 2)::int, 0, 0, 5, 2, 10, 20, 30,
+            ((s.id64 % 30))::int, 0.85, 4, 1, 6, 2, 1, 2, 3, 2
+          FROM systems s ON CONFLICT DO NOTHING;
+          SELECT * FROM refresh_map_mviews(FALSE);
+          SQL
+
+      - name: Boot API in background
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          REDIS_URL:    redis://localhost:6379/0
+          CORS_ORIGINS: http://localhost:4173
+          ADMIN_TOKEN:  test-admin-token
+          LOG_LEVEL:    WARNING
+        working-directory: apps/api/src
+        run: |
+          nohup python -m uvicorn main:app --host 127.0.0.1 --port 8002 > /tmp/uvicorn.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8002/api/health >/dev/null 2>&1; then
+              echo "API ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::API failed to start within 30s"
+          tail -100 /tmp/uvicorn.log
+          exit 1
+
+      - name: Install frontend deps
+        working-directory: frontend-v2
+        run: yarn install --no-progress --non-interactive
+
+      - name: Build production bundle
+        working-directory: frontend-v2
+        run: yarn build
+
+      - name: Install Playwright Chromium
+        working-directory: frontend-v2
+        run: yarn e2e:install
+
+      - name: Run Playwright E2E
+        working-directory: frontend-v2
+        env:
+          # vite preview's proxy forwards /api → this. Default in
+          # vite.config.ts points at :8001 (the supervisor backend in
+          # the dev pod); CI runs on :8002 to coexist with anything
+          # else mapped to :8001 on the runner.
+          VITE_DEV_API_TARGET: http://127.0.0.1:8002
+          CI: 'true'
+        run: yarn e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend-v2/playwright-report
+          retention-days: 7

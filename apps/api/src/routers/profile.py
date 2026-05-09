@@ -37,7 +37,7 @@ class ProfileSyncBlob(BaseModel):
     feature set evolves on the client and the backend shouldn't be a
     moving target every time we add a new tab.
     """
-    blob: dict[str, Any] = Field(..., description='Arbitrary client-managed payload.')
+    blob: Any = Field(..., description='Arbitrary client-managed payload.')
 
 
 def _validate_sync_key(sync_key: str) -> None:

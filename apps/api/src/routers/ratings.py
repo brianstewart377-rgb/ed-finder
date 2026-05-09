@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from config import settings, limiter, log
 from deps   import get_pool, get_redis
+from models import RerankResponse, RerankWeights
 from search_economies import ratings_score_column, ECONOMIES
 
 router = APIRouter(tags=['ratings'])
@@ -55,11 +56,12 @@ _DEFAULT_WEIGHTS = {
 
 
 class RerankRequest(BaseModel):
-    id64s:   List[int] = Field(..., min_length=1, max_length=500)
-    weights: Optional[dict] = None
-    economy: Optional[str]  = None      # e.g. 'Tourism'; None = use stored primary
+    id64s:   List[int]               = Field(..., min_length=1, max_length=500)
+    # Partial overrides allowed; missing keys fall back to _DEFAULT_WEIGHTS.
+    weights: Optional[RerankWeights] = None
+    economy: Optional[str]           = None      # e.g. 'Tourism'; None = use stored primary
 
-@router.post('/api/ratings/rerank')
+@router.post('/api/ratings/rerank', response_model=RerankResponse)
 @limiter.limit('60/minute')
 async def ratings_rerank(
     request: Request,
@@ -69,8 +71,12 @@ async def ratings_rerank(
     # ── Normalise weights: accept partial user input, fill gaps from defaults
     w = dict(_DEFAULT_WEIGHTS)
     if body.weights:
-        for k, v in body.weights.items():
-            if k in w:
+        # body.weights is a Pydantic model; iterate the declared dimensions
+        # and overlay any values the client supplied (defaults are also
+        # set on RerankWeights, so a client that sends an empty {} just
+        # gets the canonical defaults).
+        for k, v in body.weights.model_dump().items():
+            if k in w and v is not None:
                 try:
                     w[k] = max(0.0, min(1.0, float(v)))
                 except (TypeError, ValueError):
