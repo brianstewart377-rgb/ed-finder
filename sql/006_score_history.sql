@@ -87,7 +87,10 @@ COMMENT ON VIEW score_trends IS
     'Shows current score vs previous snapshot and the delta for each system.';
 
 -- ── Table: app_meta additions ─────────────────────────────────────────────────
+-- The `value` column is NOT NULL (sql/001_schema.sql:625), so seeding a
+-- 'never-snapshotted-yet' sentinel cannot be NULL. Use the same 'never'
+-- sentinel build_grid uses for `last_nightly_update`.
 INSERT INTO app_meta (key, value) VALUES
     ('score_history_enabled', 'true'),
-    ('score_history_last_snapshot', NULL)
+    ('score_history_last_snapshot', 'never')
 ON CONFLICT (key) DO NOTHING;
