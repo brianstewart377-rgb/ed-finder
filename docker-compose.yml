@@ -152,7 +152,11 @@ services:
       DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@pgbouncer:5432/edfinder
       REDIS_URL:            redis://redis:6379/0
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
+      LOG_FORMAT:           ${EDDN_LOG_FORMAT:-text}    # set to `json` for Loki/CloudWatch
+      METRICS_PORT:         9091                          # Prometheus scrape target
       DIRTY_FLUSH_INTERVAL: 300
+    expose:
+      - "9091"  # internal-only — prometheus container scrapes via the docker network
     volumes:
       - /data/logs:/data/logs
     depends_on:

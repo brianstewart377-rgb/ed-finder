@@ -91,19 +91,19 @@ jobs:
           pip install -r apps/api/requirements.txt
           pip install pytest pytest-asyncio httpx
 
-      - name: Apply schema + seed
+      - name: Apply schema + seed (with invariant checks)
         env:
           PGPASSWORD: edfinder
-        run: |
-          for f in sql/001_schema.sql sql/002_indexes.sql sql/003_functions.sql \
-                   sql/004_ratings_v31.sql sql/005_map_indexes.sql \
-                   sql/007_profile_sync.sql sql/008_body_filter_aggregates.sql \
-                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql sql/011_autocomplete_index.sql \
-                   sql/seed_preview.sql ; do
-            psql -h localhost -U edfinder -d edfinder -f "$f"
-          done
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+        # `scripts/seed_check.sh` applies every sql/*.sql with
+        # ON_ERROR_STOP=1 and asserts post-conditions (every system has
+        # a rating, MVs refresh). Replaces the previous loose
+        # `for f in …; psql -f $f; done` that exited 0 on silent SQL
+        # errors — the 'INSERT has more expressions than target columns'
+        # regression in seed_preview.sql sat undetected for weeks.
+        run: bash scripts/seed_check.sh
 
-      - name: Seed ratings rows for integration tests
+      - name: Top up ratings (richer scoring for integration tests)
         env:
           PGPASSWORD: edfinder
         run: |
@@ -294,16 +294,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r apps/api/requirements.txt
 
-      - name: Apply schema migrations
+      - name: Apply schema migrations (with ON_ERROR_STOP)
         env:
           PGPASSWORD: edfinder
-        run: |
-          for f in sql/001_schema.sql sql/002_indexes.sql sql/003_functions.sql \
-                   sql/004_ratings_v31.sql sql/005_map_indexes.sql \
-                   sql/007_profile_sync.sql sql/008_body_filter_aggregates.sql \
-                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql sql/011_autocomplete_index.sql ; do
-            psql -h localhost -U edfinder -d edfinder -f "$f"
-          done
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+        run: bash scripts/seed_check.sh
 
       - name: Boot API in background
         env:
@@ -390,17 +385,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r apps/api/requirements.txt
 
-      - name: Apply schema + seed
+      - name: Apply schema + seed (with invariant checks)
+        env:
+          PGPASSWORD: edfinder
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+        run: bash scripts/seed_check.sh
+
+      - name: Top up ratings (richer scoring for E2E)
         env:
           PGPASSWORD: edfinder
         run: |
-          for f in sql/001_schema.sql sql/002_indexes.sql sql/003_functions.sql \
-                   sql/004_ratings_v31.sql sql/005_map_indexes.sql \
-                   sql/007_profile_sync.sql sql/008_body_filter_aggregates.sql \
-                   sql/009_map_materialised_views.sql sql/010_sync_key_scoping.sql sql/011_autocomplete_index.sql \
-                   sql/seed_preview.sql ; do
-            psql -h localhost -U edfinder -d edfinder -f "$f"
-          done
           # Same ratings seed as the integration job — gives /api/local/search
           # something to return.
           psql -h localhost -U edfinder -d edfinder <<SQL

@@ -755,8 +755,6 @@ export interface components {
             results: components["schemas"]["AutocompleteHit"][];
             /** Source */
             source?: string | null;
-        } & {
-            [key: string]: unknown;
         };
         /**
          * BodyCountFilter
@@ -872,13 +870,14 @@ export interface components {
              * @default 0
              */
             db_cache_rows: number;
-        } & {
-            [key: string]: unknown;
         };
         /** ClusterRequirement */
         ClusterRequirement: {
-            /** Economy */
-            economy: string;
+            /**
+             * Economy
+             * @enum {string}
+             */
+            economy: "Agriculture" | "Refinery" | "Industrial" | "HighTech" | "Military" | "Tourism" | "Extraction";
             /**
              * Min Count
              * @default 1
@@ -941,7 +940,7 @@ export interface components {
              * Economy
              * @default any
              */
-            economy: string;
+            economy: "any" | ("Agriculture" | "Refinery" | "Industrial" | "HighTech" | "Military" | "Tourism" | "Extraction") | null;
             /**
              * Min Score
              * @default 0
@@ -1098,8 +1097,6 @@ export interface components {
             economy_used?: string | null;
             /** Results */
             results: components["schemas"]["RerankRow"][];
-        } & {
-            [key: string]: unknown;
         };
         /** RerankRow */
         RerankRow: {
@@ -1156,7 +1153,7 @@ export interface components {
             distance?: components["schemas"]["RangeFilter"] | null;
             population?: components["schemas"]["RangeFilter"] | null;
             /** Economy */
-            economy?: string | null;
+            economy?: "any" | ("Agriculture" | "Refinery" | "Industrial" | "HighTech" | "Military" | "Tourism" | "Extraction") | null;
         };
         /**
          * SearchResponse
@@ -1181,8 +1178,10 @@ export interface components {
             query_ms?: number | null;
             /** Display Economy */
             display_economy?: string | null;
-        } & {
-            [key: string]: unknown;
+            /** Total Is Capped */
+            total_is_capped?: boolean | null;
+            /** Warning */
+            warning?: string | null;
         };
         /** StationModel */
         StationModel: {
@@ -1282,8 +1281,32 @@ export interface components {
              * @default
              */
             version: string;
-        } & {
-            [key: string]: unknown;
+            /** Backend */
+            backend?: string | null;
+            /** Pg Version */
+            pg_version?: string | null;
+            /** Station Count */
+            station_count?: number | null;
+            /** Cluster Count */
+            cluster_count?: number | null;
+            /** Grid Cells */
+            grid_cells?: number | null;
+            /** Macro Grid Cells */
+            macro_grid_cells?: number | null;
+            /** Galaxy Regions */
+            galaxy_regions?: number | null;
+            /** Db Size Mb */
+            db_size_mb?: number | null;
+            /** Import Status */
+            import_status?: unknown | null;
+            /** Cluster Radius Ly */
+            cluster_radius_ly?: number | null;
+            /** Has Cluster Summary */
+            has_cluster_summary?: boolean | null;
+            /** Has Bodies */
+            has_bodies?: boolean | null;
+            /** Reason */
+            reason?: string | null;
         };
         /**
          * SystemDetailResponse
@@ -1293,8 +1316,6 @@ export interface components {
         SystemDetailResponse: {
             record: components["schemas"]["SystemDetailRow"];
             system: components["schemas"]["SystemDetailRow"];
-        } & {
-            [key: string]: unknown;
         };
         /**
          * SystemDetailRow

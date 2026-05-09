@@ -22,6 +22,24 @@ Why both?
 If you tighten extras here, audit `helpers.sys_row_to_dict` and the
 SQL projections in `routers/systems.py` + `local_search.py` first.
 
+Strictness policy (2026-05-09 follow-up to the search-503 RCA):
+
+* **Row models** (`SystemRow`, `SystemDetailRow`, `BodyModel`,
+  `StationModel`, `RatingModel`, `RerankRow`, `AutocompleteHit`,
+  `RangeFilter`, `BodyCountFilter`, `BodyFilters`,
+  `ExplorationValueModel`) → `extra='allow'`. SQL projections
+  legitimately drift; silently dropping an existing field would be a
+  worse bug than passing through an unknown one.
+* **Response envelopes** (`SearchResponse`, `AutocompleteResponse`,
+  `StatusResponse`, `CacheStatsResponse`, `RerankResponse`,
+  `SystemDetailResponse`, `HealthResponse`) → `extra='forbid'`. The
+  top-level envelope shape changes rarely and intentionally;
+  forgetting to update the model when adding a key should be a loud
+  failure (Pydantic ValidationError → 500), not silently shipped
+  back to the client where typed consumers would 'unknown'-out the
+  field. The drift-check CI job already protects the wire contract,
+  so model_config drift can't go un-noticed.
+
 Note on dict-typed request fields (2026-05-09 follow-up): every
 request-side `Optional[dict]` has been replaced with a proper sub-model
 (RangeFilter, BodyFilters, RerankWeightsInput, etc.) or `Optional[Any]`
@@ -34,9 +52,83 @@ frontend useful types out of the box.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Economy enum — single source of truth for request-side typing.
+# ══════════════════════════════════════════════════════════════════════
+# These are the *wire* values, matching the PostgreSQL `economy_type`
+# enum literal exactly (sql/001_schema.sql). The TypeScript codegen
+# then emits this as a strict string union, which is what catches
+# "frontend ships 'High Tech' but PG enum is 'HighTech'"-class bugs
+# at PR time instead of at runtime via a 503 problem-detail.
+#
+# Canonical form is Title-cased PG enum literal. Any of the historical
+# input forms (lowercase, spaced, hyphenated) get normalised through
+# the BeforeValidator below, so old clients keep working.
+EconomyName = Literal[
+    'Agriculture',
+    'Refinery',
+    'Industrial',
+    'HighTech',
+    'Military',
+    'Tourism',
+    'Extraction',
+]
+# Allowed in *filter* fields (`SearchFilters.economy`,
+# `GalaxySearchRequest.economy`, …). 'any' opts out of the filter.
+EconomyFilter = Union[Literal['any'], EconomyName]
+
+
+def _normalise_economy_name(v: Any) -> Any:
+    """Normalise any historical wire form to the PG enum literal.
+
+    Runs at Pydantic validation time as a BeforeValidator so the field
+    type itself can stay strict (`EconomyName` / `EconomyFilter`) while
+    still accepting old inputs gracefully:
+
+      'high tech', 'High Tech', 'high-tech', 'hightech' → 'HighTech'
+      '', None, 'unknown' → 'any' (for filter fields) / None (otherwise)
+
+    Imported lazily so this module stays free of side-effects at
+    import time (search_economies.py is part of apps/api/src/ which
+    isn't always on the path during pure-model unit tests).
+    """
+    if v is None:
+        return v
+    if not isinstance(v, str):
+        return v
+    s = v.strip()
+    if not s:
+        return None
+    # Fast path: already canonical
+    if s in ('Agriculture', 'Refinery', 'Industrial', 'HighTech',
+             'Military', 'Tourism', 'Extraction', 'any'):
+        return s
+    if s.lower() in ('any', 'unknown'):
+        return 'any'
+    # Lazy import to avoid hard dep at model-import time
+    try:
+        from search_economies import economy_enum_value  # type: ignore
+    except ImportError:  # pragma: no cover — only triggered in pure-model tests
+        return s
+    enum_val = economy_enum_value(s)
+    return enum_val if enum_val is not None else s
+
+
+# Annotated alias the request models use directly so the validator
+# only has to be specified once.
+EconomyFilterField = Annotated[
+    Optional[EconomyFilter],
+    BeforeValidator(_normalise_economy_name),
+]
+EconomyNameField = Annotated[
+    EconomyName,
+    BeforeValidator(_normalise_economy_name),
+]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -288,7 +380,12 @@ class SystemDetailRow(BaseModel):
 # ══════════════════════════════════════════════════════════════════════
 class SearchResponse(BaseModel):
     """`/api/local/search` response."""
-    model_config = ConfigDict(extra='allow')
+    # Envelope-level forbid: any unrecognised top-level key is a sign
+    # the model is out of date with what `local_search.py` returns —
+    # surface that loudly via Pydantic ValidationError (→ 500) so it
+    # gets fixed in the same PR. Row-level extras flow through under
+    # `results: list[SystemRow]` where SystemRow keeps `extra='allow'`.
+    model_config = ConfigDict(extra='forbid')
 
     results: list[SystemRow]
     total:   int = 0
@@ -301,12 +398,20 @@ class SearchResponse(BaseModel):
     source:           Optional[str] = None
     query_ms:         Optional[int] = None
     display_economy:  Optional[str] = None
+    # True when `total` was clamped at the galaxy-wide cap (currently
+    # 10 000) instead of being a precise count of all matches. Render
+    # as "X+" in the UI when set. Absent on local (distance-bounded)
+    # searches where the precise count is cheap.
+    total_is_capped:  Optional[bool] = None
+    # Surfaces the radius-cap notice from `local_db_search`. UI can
+    # render this as a small banner next to the results count.
+    warning:          Optional[str] = None
 
 
 class SystemDetailResponse(BaseModel):
     """`/api/system/{id64}` response. Backend returns the same row
     twice under `record` and `system` for legacy compat."""
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     record: SystemDetailRow
     system: SystemDetailRow
@@ -331,7 +436,7 @@ class AutocompleteHit(BaseModel):
 
 
 class AutocompleteResponse(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     results: list[AutocompleteHit]
     source:  Optional[str] = None
@@ -339,7 +444,7 @@ class AutocompleteResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     """`/api/status` and `/api/local/status`."""
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     available:            bool
     systems_count:        int = 0
@@ -356,10 +461,26 @@ class StatusResponse(BaseModel):
     max_search_radius_ly: int = 500
     has_body_data:        bool = False
     version:              str = ''
+    # Optional fields surfaced by /api/local/status (real DB-backed
+    # variant of /api/status). Listed here so the envelope can be
+    # `forbid` without breaking that endpoint.
+    backend:              Optional[str]   = None
+    pg_version:           Optional[str]   = None
+    station_count:        Optional[int]   = None
+    cluster_count:        Optional[int]   = None
+    grid_cells:           Optional[int]   = None
+    macro_grid_cells:     Optional[int]   = None
+    galaxy_regions:       Optional[int]   = None
+    db_size_mb:           Optional[float] = None
+    import_status:        Optional[Any]   = None
+    cluster_radius_ly:    Optional[int]   = None
+    has_cluster_summary:  Optional[bool]  = None
+    has_bodies:           Optional[bool]  = None
+    reason:               Optional[str]   = None  # populated when available=False
 
 
 class CacheStatsResponse(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     cache_hits:       int = 0
     cache_misses:     int = 0
@@ -390,7 +511,7 @@ class RerankRow(BaseModel):
 
 
 class RerankResponse(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='forbid')
 
     weights_applied: RerankWeights
     economy_used:    Optional[str] = None
@@ -412,7 +533,15 @@ class NoteBody(BaseModel):
 class SearchFilters(BaseModel):
     distance:   Optional[RangeFilter] = None
     population: Optional[RangeFilter] = None
-    economy:    Optional[str]         = None
+    # economy: strict typed union (Agriculture, Refinery, Industrial,
+    # HighTech, Military, Tourism, Extraction, 'any'). The validator
+    # normalises historical wire forms ('high tech', 'High Tech',
+    # 'hightech', …) to the canonical PG enum literal — see
+    # _normalise_economy_name for the full mapping. Unknown strings
+    # fall through and are caught by Pydantic's union check, returning
+    # a 422 with a clear "input should be 'Agriculture' or 'Refinery'
+    # or …" message instead of the previous 503 from PostgreSQL.
+    economy:    EconomyFilterField    = None
 
 
 class LocalSearchRequest(BaseModel):
@@ -433,14 +562,19 @@ class LocalSearchRequest(BaseModel):
 
 
 class GalaxySearchRequest(BaseModel):
-    economy:   str = 'any'
+    # `EconomyFilter` — Agriculture | Refinery | Industrial | HighTech
+    # | Military | Tourism | Extraction | 'any'. Old wire forms are
+    # accepted via the model's normalising validator; see SearchFilters.
+    economy:   EconomyFilterField = 'any'
     min_score: int = Field(default=0, ge=0, le=100)
     limit:     int = Field(default=100, le=500)
     offset:    int = 0
 
 
 class ClusterRequirement(BaseModel):
-    economy:   str
+    # Cluster requirements MUST name a real economy — there's no
+    # 'any' here, an empty cluster requirement is meaningless.
+    economy:   EconomyNameField
     min_count: int = Field(default=1, ge=1)
     min_score: int = Field(default=40, ge=0, le=100)
 

@@ -415,7 +415,10 @@ const ECONOMY_OPTIONS: { value: string; label: string }[] = [
   { value: 'Agriculture', label: 'Agriculture' },
   { value: 'Refinery',    label: 'Refinery' },
   { value: 'Industrial',  label: 'Industrial' },
-  { value: 'High Tech',   label: 'High Tech' },
+  // Wire value MUST match the PostgreSQL `economy_type` enum literal
+  // (`HighTech`, no space) — see sql/001_schema.sql + apps/api/src/
+  // search_economies.py::ECONOMY_ENUM_LITERALS. Label is human-friendly.
+  { value: 'HighTech',    label: 'High Tech' },
   { value: 'Military',    label: 'Military' },
   { value: 'Tourism',     label: 'Tourism' },
   { value: 'Extraction',  label: 'Extraction' },

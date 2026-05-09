@@ -29,6 +29,7 @@ import asyncpg
 from search_economies import (
     ratings_score_column,
     cluster_count_column,
+    economy_enum_value,
     BODY_FILTER_COLS,
     normalise_body_filters,
 )
@@ -187,14 +188,33 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
     params: list = []
     wheres: list = []
+    select_params: list = []  # kept separately so count_sql doesn't see them
     p = 1
 
-    def add(val):
+    def add_where(val):
+        """Bind a value used in the WHERE clause. The same placeholder
+        is reused by count_sql, which builds from the WHERE list only."""
         nonlocal p
         params.append(val)
         idx = p
         p += 1
         return f"${idx}"
+
+    def add_select(val):
+        """Bind a value used in the SELECT projection (e.g. dist_expr)
+        or in LIMIT/OFFSET. count_sql NEVER sees these — passing them
+        would fail asyncpg's positional-argument-count validation,
+        which is exactly the regression ed1fce6 fixed."""
+        nonlocal p
+        params.append(val)
+        select_params.append(val)
+        idx = p
+        p += 1
+        return f"${idx}"
+
+    # Backwards-compatible alias for the body of this function — every
+    # site below was reaching for `add()` with 'goes into WHERE' intent.
+    add = add_where
 
     # ── Distance filter ───────────────────────────────────────────────────
     if not galaxy_wide:
@@ -213,10 +233,20 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         wheres.append("s.is_colonised = FALSE")
 
     if economy_filter and economy_filter not in ("any", "Any", "Unknown", ""):
-        wheres.append(f"s.primary_economy = {add(economy_filter)}::economy_type")
+        # Normalise to the PostgreSQL enum literal — the enum is Title-cased
+        # ('Agriculture', 'HighTech', …) and casting a raw user input like
+        # 'High Tech' or 'hightech' to ::economy_type raises
+        # InvalidTextRepresentationError, which after Phase-2 surfaces as
+        # HTTP 503 (no silent fallback). Unknown inputs skip the filter,
+        # matching the existing 'any' / 'Unknown' / '' semantics above.
+        enum_val = economy_enum_value(economy_filter)
+        if enum_val is not None:
+            wheres.append(f"s.primary_economy = {add(enum_val)}::economy_type")
 
     if sec_econ_filter and sec_econ_filter not in ("any", "Any", "Unknown", ""):
-        wheres.append(f"s.secondary_economy = {add(sec_econ_filter)}::economy_type")
+        sec_enum_val = economy_enum_value(sec_econ_filter)
+        if sec_enum_val is not None:
+            wheres.append(f"s.secondary_economy = {add(sec_enum_val)}::economy_type")
 
     # ── Galaxy region filter (NEW) ────────────────────────────────────────
     if galaxy_region_id:
@@ -260,21 +290,21 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
     where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
 
-    # Snapshot the param count for the WHERE clause — count_sql only uses
-    # WHERE-clause placeholders, so we must NOT pass the dist_expr or
-    # LIMIT/OFFSET params to it (asyncpg validates positional argument
-    # count and raises if extras are passed). This was the bug that made
-    # local_db_search fail on every request, falling back to the slower
-    # inline router which then served stale cached results because its
-    # cache key omitted body_filters.
+    # Snapshot the param count for the WHERE clause. count_sql consumes
+    # only the WHERE-clause placeholders; everything below this line is
+    # SELECT-side (dist_expr, LIMIT, OFFSET) and must use add_select()
+    # so it lands in `select_params` but not in the count_sql arg list.
+    # Keeping the snapshot here as a cross-check / regression guard
+    # against future inserts of add_where() below this line.
     where_param_count = len(params)
 
-    # Distance expression
+    # Distance expression — projected, not filtered. Uses add_select()
+    # so its placeholders are NOT replayed against count_sql.
     if not galaxy_wide:
         dist_expr = (
-            f"SQRT((s.x-{add(rx)})*(s.x-{add(rx)}) + "
-            f"(s.y-{add(ry)})*(s.y-{add(ry)}) + "
-            f"(s.z-{add(rz)})*(s.z-{add(rz)}))"
+            f"SQRT((s.x-{add_select(rx)})*(s.x-{add_select(rx)}) + "
+            f"(s.y-{add_select(ry)})*(s.y-{add_select(ry)}) + "
+            f"(s.z-{add_select(rz)})*(s.z-{add_select(rz)}))"
         )
     else:
         dist_expr = "0.0"
@@ -292,6 +322,24 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         LEFT JOIN ratings r ON r.system_id64 = s.id64
         {where_sql}
     """
+
+    # Galaxy-wide queries with no distance filter can otherwise trigger
+    # a sequential scan of the entire 186 M-row `systems` table just to
+    # produce the `total` counter the v2 frontend renders as "X+ results".
+    # Cap that at the largest `LIMIT $cap` envelope we want to spend
+    # planner time on. The "+" badge in the UI already communicates
+    # truncation; precise totals on galaxy-wide are not worth the cost.
+    GALAXY_WIDE_COUNT_CAP = 10_000
+    if galaxy_wide:
+        count_sql = f"""
+            SELECT COUNT(*) FROM (
+                SELECT 1
+                FROM systems s
+                LEFT JOIN ratings r ON r.system_id64 = s.id64
+                {where_sql}
+                LIMIT {GALAXY_WIDE_COUNT_CAP}
+            ) t
+        """
 
     sql = f"""
         SELECT
@@ -335,11 +383,19 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         LEFT JOIN galaxy_regions gr ON gr.id = s.galaxy_region_id
         {where_sql}
         {order_sql}
-        LIMIT {add(size)} OFFSET {add(from_idx)}
+        LIMIT {add_select(size)} OFFSET {add_select(from_idx)}
     """
 
     async with pool.acquire() as conn:
         rows  = await conn.fetch(sql, *params)
+        # count_sql uses ONLY the WHERE-clause placeholders; pass the
+        # snapshot taken before any add_select() call. Asserting here
+        # (instead of slicing by index) makes the contract explicit
+        # and means any future drift between add_where/add_select
+        # surfaces as a test failure, not a runtime asyncpg error.
+        assert len(params) == where_param_count + len(select_params), (
+            "param accounting drifted: WHERE+SELECT must equal total"
+        )
         total = await conn.fetchval(count_sql, *params[:where_param_count])
 
     results: list = []
@@ -360,6 +416,10 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         "query_ms": elapsed,
         "display_economy": economy_filter or "overall",
     }
+    if galaxy_wide and total is not None and total >= GALAXY_WIDE_COUNT_CAP:
+        # The frontend should render "10,000+ matches" when this is set.
+        # See `SearchResponse.total_is_capped` in apps/api/src/models.py.
+        resp["total_is_capped"] = True
     if radius_capped:
         resp["warning"] = (
             f"Search radius capped at {int(MAX_SEARCH_RADIUS):,} LY "
