@@ -101,7 +101,14 @@ SELECT id64,
   primary_economy,
   CASE WHEN name IN ('Sol', 'Lave', 'Shinrarta Dezhra') THEN 1 ELSE 0 END,
   CASE WHEN body_count > 8 THEN 2 ELSE 0 END,
-  0, 2, 3, 1, 1, 2, 2, 3, 4, 8, 5, 6, 70, 75, 80, 75, 5
+  -- Trailing literals map to: ammonia_count, gas_giant_count, rocky_count,
+  -- metal_rich_count, icy_count, hmc_count, landable_count,
+  -- terraformable_count, bio_signal_total, geo_signal_total, slots,
+  -- body_quality, compactness, signal_quality, orbital_safety, star_bonus
+  -- (16 values to match the 16 trailing target columns — the previous
+  -- 17-value list raised "INSERT has more expressions than target columns"
+  -- and left the seed `ratings` table empty, breaking integration tests).
+  0, 2, 3, 1, 1, 2, 2, 3, 4, 8, 5, 70, 75, 80, 75, 5
 FROM systems
 ON CONFLICT (system_id64) DO NOTHING;
 

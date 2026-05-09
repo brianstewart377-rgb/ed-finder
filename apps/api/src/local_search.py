@@ -29,6 +29,7 @@ import asyncpg
 from search_economies import (
     ratings_score_column,
     cluster_count_column,
+    economy_enum_value,
     BODY_FILTER_COLS,
     normalise_body_filters,
 )
@@ -213,10 +214,20 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         wheres.append("s.is_colonised = FALSE")
 
     if economy_filter and economy_filter not in ("any", "Any", "Unknown", ""):
-        wheres.append(f"s.primary_economy = {add(economy_filter)}::economy_type")
+        # Normalise to the PostgreSQL enum literal — the enum is Title-cased
+        # ('Agriculture', 'HighTech', …) and casting a raw user input like
+        # 'High Tech' or 'hightech' to ::economy_type raises
+        # InvalidTextRepresentationError, which after Phase-2 surfaces as
+        # HTTP 503 (no silent fallback). Unknown inputs skip the filter,
+        # matching the existing 'any' / 'Unknown' / '' semantics above.
+        enum_val = economy_enum_value(economy_filter)
+        if enum_val is not None:
+            wheres.append(f"s.primary_economy = {add(enum_val)}::economy_type")
 
     if sec_econ_filter and sec_econ_filter not in ("any", "Any", "Unknown", ""):
-        wheres.append(f"s.secondary_economy = {add(sec_econ_filter)}::economy_type")
+        sec_enum_val = economy_enum_value(sec_econ_filter)
+        if sec_enum_val is not None:
+            wheres.append(f"s.secondary_economy = {add(sec_enum_val)}::economy_type")
 
     # ── Galaxy region filter (NEW) ────────────────────────────────────────
     if galaxy_region_id:

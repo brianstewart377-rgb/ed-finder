@@ -49,6 +49,23 @@ ECONOMY_ALIASES: Mapping[str, str] = {
     'high-tech':  'hightech',
 }
 
+# Canonical → PostgreSQL `economy_type` enum literal mapping.
+# The enum is Title-cased ("Agriculture", "HighTech", …) — see
+# sql/001_schema.sql. Casting raw user input (e.g. "high tech") directly
+# to ::economy_type raises InvalidTextRepresentationError, which after
+# the Phase-2 search refactor surfaces as an HTTP 503 problem-detail
+# (no silent inline-SQL fallback). Use `economy_enum_value()` below
+# whenever you need the wire form for an SQL cast.
+ECONOMY_ENUM_LITERALS: Mapping[str, str] = {
+    'agriculture': 'Agriculture',
+    'refinery':    'Refinery',
+    'industrial':  'Industrial',
+    'hightech':    'HighTech',
+    'military':    'Military',
+    'tourism':     'Tourism',
+    'extraction':  'Extraction',
+}
+
 
 def _canon(name: Optional[str]) -> Optional[str]:
     """Lower-case + alias-resolve. Returns None for empty/unknown."""
@@ -57,6 +74,36 @@ def _canon(name: Optional[str]) -> Optional[str]:
     n = name.strip().lower()
     n = ECONOMY_ALIASES.get(n, n)
     return n if n in ECONOMIES else None
+
+
+def economy_enum_value(name: Optional[str]) -> Optional[str]:
+    """Resolve any user-supplied economy form to its PostgreSQL enum literal.
+
+    Accepts every shape the frontend / API consumers historically send —
+    'Agriculture', 'agriculture', 'High Tech', 'high-tech', 'HighTech',
+    'hightech', etc. Returns the exact spelling required by the
+    `economy_type` enum, or None when the input is empty / unknown
+    (caller should treat None as "no economy filter").
+
+    >>> economy_enum_value('Agriculture')
+    'Agriculture'
+    >>> economy_enum_value('high tech')
+    'HighTech'
+    >>> economy_enum_value('High Tech')
+    'HighTech'
+    >>> economy_enum_value('extraction')
+    'Extraction'
+    >>> economy_enum_value('any') is None
+    True
+    >>> economy_enum_value('') is None
+    True
+    >>> economy_enum_value('Foo') is None
+    True
+    """
+    canon = _canon(name)
+    if canon is None:
+        return None
+    return ECONOMY_ENUM_LITERALS.get(canon)
 
 
 # ── ratings.score_<economy> lookups ────────────────────────────────────────
@@ -158,6 +205,8 @@ def body_filter_column(key: str, *, alias: str = '') -> Optional[str]:
 __all__ = [
     'ECONOMIES',
     'ECONOMY_ALIASES',
+    'ECONOMY_ENUM_LITERALS',
+    'economy_enum_value',
     'ratings_score_column',
     'cluster_count_column',
     'BODY_FILTER_COLS',
