@@ -702,7 +702,16 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
 # Autocomplete
 # ---------------------------------------------------------------------------
 async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
-    """Fast trigram-based prefix search for system names."""
+    """Fast trigram-based prefix search for system names.
+
+    The prefix path uses a functional `(lower(name) text_pattern_ops)`
+    btree index (idx_sys_name_lower_pattern, sql/011_*). The previous
+    `WHERE name ILIKE $1` was unindexable on the existing
+    `idx_sys_name` (default text_ops) and forced the planner onto the
+    GIN trigram, which on 3-char queries like 'Sol' walks millions of
+    candidates and times out at 300s. The new index reduces the
+    `lower(name) LIKE 'sol%'` lookup to a sub-ms btree range scan.
+    """
     if len(q) < 2:
         return []
 
@@ -710,20 +719,20 @@ async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
         rows = await conn.fetch("""
             SELECT id64, name, x, y, z, galaxy_region_id
             FROM systems
-            WHERE name ILIKE $1
+            WHERE lower(name) LIKE $1
             ORDER BY name
             LIMIT 10
-        """, q + "%")
+        """, q.lower() + "%")
 
         if len(rows) < 5 and len(q) >= 3:
             trgm_rows = await conn.fetch("""
                 SELECT id64, name, x, y, z, galaxy_region_id
                 FROM systems
                 WHERE name % $1
-                  AND name NOT ILIKE $2
+                  AND lower(name) NOT LIKE $2
                 ORDER BY similarity(name, $1) DESC
                 LIMIT $3
-            """, q, q + "%", 10 - len(rows))
+            """, q, q.lower() + "%", 10 - len(rows))
             seen_ids = {r["id64"] for r in rows}
             rows = list(rows) + [r for r in trgm_rows if r["id64"] not in seen_ids]
 
