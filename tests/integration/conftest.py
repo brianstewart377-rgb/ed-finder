@@ -76,7 +76,18 @@ async def redis_client(app):
 
 @pytest_asyncio.fixture(autouse=True)
 async def clean_db():
-    """Wipe per-test mutable rows before every test (deterministic).
+    """Wipe per-test mutable rows + Redis cache before every test.
+
+    * PostgreSQL: TRUNCATE the small per-test mutable tables (watchlist,
+      system_notes, profile_sync, watchlist_changelog, api_cache).
+      Systems / bodies / ratings come from the seed and stay put.
+    * Redis (test DB 15): FLUSHDB. Without this, the API's per-endpoint
+      caches (map.regions / heatmap / timeline / status / search:v2:…)
+      bleed between tests — earlier-run state poisons the next test's
+      assertions. This was caught when the Phase-5 map-MV tests
+      sporadically failed with body['total']==0 even though the MV
+      had 40 rows: the previous test had cached the pre-seed empty
+      result.
 
     Acquires its own short-lived pool because depending on `app` here
     would chain the lifespan into every test that doesn't otherwise need
@@ -95,4 +106,17 @@ async def clean_db():
             )
     finally:
         await pool.close()
+
+    # Best-effort Redis flush — short timeout so a missing/locked Redis
+    # doesn't break tests that don't need it.
+    try:
+        r = aioredis.from_url(
+            os.environ['REDIS_URL'], decode_responses=True,
+            socket_connect_timeout=2, socket_timeout=2,
+        )
+        await r.flushdb()
+        await r.aclose()
+    except Exception:
+        pass
+
     yield
