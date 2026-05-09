@@ -52,9 +52,83 @@ frontend useful types out of the box.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Economy enum — single source of truth for request-side typing.
+# ══════════════════════════════════════════════════════════════════════
+# These are the *wire* values, matching the PostgreSQL `economy_type`
+# enum literal exactly (sql/001_schema.sql). The TypeScript codegen
+# then emits this as a strict string union, which is what catches
+# "frontend ships 'High Tech' but PG enum is 'HighTech'"-class bugs
+# at PR time instead of at runtime via a 503 problem-detail.
+#
+# Canonical form is Title-cased PG enum literal. Any of the historical
+# input forms (lowercase, spaced, hyphenated) get normalised through
+# the BeforeValidator below, so old clients keep working.
+EconomyName = Literal[
+    'Agriculture',
+    'Refinery',
+    'Industrial',
+    'HighTech',
+    'Military',
+    'Tourism',
+    'Extraction',
+]
+# Allowed in *filter* fields (`SearchFilters.economy`,
+# `GalaxySearchRequest.economy`, …). 'any' opts out of the filter.
+EconomyFilter = Union[Literal['any'], EconomyName]
+
+
+def _normalise_economy_name(v: Any) -> Any:
+    """Normalise any historical wire form to the PG enum literal.
+
+    Runs at Pydantic validation time as a BeforeValidator so the field
+    type itself can stay strict (`EconomyName` / `EconomyFilter`) while
+    still accepting old inputs gracefully:
+
+      'high tech', 'High Tech', 'high-tech', 'hightech' → 'HighTech'
+      '', None, 'unknown' → 'any' (for filter fields) / None (otherwise)
+
+    Imported lazily so this module stays free of side-effects at
+    import time (search_economies.py is part of apps/api/src/ which
+    isn't always on the path during pure-model unit tests).
+    """
+    if v is None:
+        return v
+    if not isinstance(v, str):
+        return v
+    s = v.strip()
+    if not s:
+        return None
+    # Fast path: already canonical
+    if s in ('Agriculture', 'Refinery', 'Industrial', 'HighTech',
+             'Military', 'Tourism', 'Extraction', 'any'):
+        return s
+    if s.lower() in ('any', 'unknown'):
+        return 'any'
+    # Lazy import to avoid hard dep at model-import time
+    try:
+        from search_economies import economy_enum_value  # type: ignore
+    except ImportError:  # pragma: no cover — only triggered in pure-model tests
+        return s
+    enum_val = economy_enum_value(s)
+    return enum_val if enum_val is not None else s
+
+
+# Annotated alias the request models use directly so the validator
+# only has to be specified once.
+EconomyFilterField = Annotated[
+    Optional[EconomyFilter],
+    BeforeValidator(_normalise_economy_name),
+]
+EconomyNameField = Annotated[
+    EconomyName,
+    BeforeValidator(_normalise_economy_name),
+]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -459,7 +533,15 @@ class NoteBody(BaseModel):
 class SearchFilters(BaseModel):
     distance:   Optional[RangeFilter] = None
     population: Optional[RangeFilter] = None
-    economy:    Optional[str]         = None
+    # economy: strict typed union (Agriculture, Refinery, Industrial,
+    # HighTech, Military, Tourism, Extraction, 'any'). The validator
+    # normalises historical wire forms ('high tech', 'High Tech',
+    # 'hightech', …) to the canonical PG enum literal — see
+    # _normalise_economy_name for the full mapping. Unknown strings
+    # fall through and are caught by Pydantic's union check, returning
+    # a 422 with a clear "input should be 'Agriculture' or 'Refinery'
+    # or …" message instead of the previous 503 from PostgreSQL.
+    economy:    EconomyFilterField    = None
 
 
 class LocalSearchRequest(BaseModel):
@@ -480,14 +562,19 @@ class LocalSearchRequest(BaseModel):
 
 
 class GalaxySearchRequest(BaseModel):
-    economy:   str = 'any'
+    # `EconomyFilter` — Agriculture | Refinery | Industrial | HighTech
+    # | Military | Tourism | Extraction | 'any'. Old wire forms are
+    # accepted via the model's normalising validator; see SearchFilters.
+    economy:   EconomyFilterField = 'any'
     min_score: int = Field(default=0, ge=0, le=100)
     limit:     int = Field(default=100, le=500)
     offset:    int = 0
 
 
 class ClusterRequirement(BaseModel):
-    economy:   str
+    # Cluster requirements MUST name a real economy — there's no
+    # 'any' here, an empty cluster requirement is meaningless.
+    economy:   EconomyNameField
     min_count: int = Field(default=1, ge=1)
     min_score: int = Field(default=40, ge=0, le=100)
 

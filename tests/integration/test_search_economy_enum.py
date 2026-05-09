@@ -75,17 +75,31 @@ async def test_galaxy_search_accepts_spaced_high_tech(client):
     assert r.status_code == 200, r.text
 
 
-async def test_unknown_economy_skips_filter_not_503(client):
-    """Inputs that don't match any known economy should be treated as
-    'no filter' (backwards-compatible with the existing 'any' / 'Unknown'
-    semantics) — never raise InvalidTextRepresentationError."""
+async def test_unknown_economy_returns_422_not_503(client):
+    """After Phase-2.1 (Literal-typed economy on request models), unknown
+    inputs that the BeforeValidator can't resolve fall through Pydantic's
+    union check and return a 422 with a clear 'input should be …' message
+    instead of the previous 503-from-PostgreSQL.
+
+    This is *better* than the old 'silently skip filter' semantics:
+      * The frontend gets an immediate, structured error pointing at
+        the bad field.
+      * The TS codegen union types the field as `Agriculture | Refinery
+        | Industrial | HighTech | Military | Tourism | Extraction |
+        'any'`, so this case is unreachable from the typed path.
+      * Old untyped consumers (curl, Postman, scripts) get an
+        actionable 422 rather than a confusing 503.
+    """
     r = await client.post('/api/local/search', json={
         'reference_coords': {'x': 0, 'y': 0, 'z': 0},
         'filters':          {'distance': {'min': 0, 'max': 1000},
                              'economy':  'NotAnEconomy'},
         'size':             3,
     })
-    assert r.status_code == 200, r.text
+    assert r.status_code == 422, r.text
+    body = r.json()
+    # FastAPI / Pydantic 2 error envelope
+    assert any('economy' in str(e.get('loc', '')) for e in body['detail']), body
 
 
 # Pure-function unit coverage of `economy_enum_value` lives in
