@@ -87,10 +87,41 @@ case "$TASK" in
         ;;
     smoke)
         # Manual sanity check from `docker compose run --rm maintenance smoke`.
-        # Exits 0 if the DB is reachable and seed_check invariants hold.
-        run_step "connectivity check" "SELECT 1;"
-        run_step "systems count"      "SELECT COUNT(*) FROM systems;"
-        run_step "ratings count"      "SELECT COUNT(*) FROM ratings;"
+        # Exits 0 if the DB is reachable and the seed_check invariants
+        # hold. Uses pg_class.reltuples (the planner's row-count estimate
+        # last set by ANALYZE) rather than COUNT(*) — at prod scale
+        # (~186M systems / ratings rows) a real COUNT does a sequential
+        # scan that exceeds the 15s statement_timeout. reltuples is
+        # instantaneous and accurate to ~5% if ANALYZE has run recently
+        # (which the nightly schedule guarantees).
+        run_step "connectivity"     "SELECT 1;"
+        run_step "systems estimate" \
+            "SELECT format('%s rows (planner estimate, last ANALYZE %s)',
+                           reltuples::bigint,
+                           COALESCE(to_char(s.last_analyze, 'YYYY-MM-DD HH24:MI'),
+                                    to_char(s.last_autoanalyze, 'YYYY-MM-DD HH24:MI'),
+                                    'never'))
+             FROM pg_class c
+             LEFT JOIN pg_stat_user_tables s ON s.relname = c.relname
+             WHERE c.relname='systems';"
+        run_step "ratings estimate" \
+            "SELECT format('%s rows (planner estimate, last ANALYZE %s)',
+                           reltuples::bigint,
+                           COALESCE(to_char(s.last_analyze, 'YYYY-MM-DD HH24:MI'),
+                                    to_char(s.last_autoanalyze, 'YYYY-MM-DD HH24:MI'),
+                                    'never'))
+             FROM pg_class c
+             LEFT JOIN pg_stat_user_tables s ON s.relname = c.relname
+             WHERE c.relname='ratings';"
+        run_step "bodies estimate" \
+            "SELECT format('%s rows (planner estimate, last ANALYZE %s)',
+                           reltuples::bigint,
+                           COALESCE(to_char(s.last_analyze, 'YYYY-MM-DD HH24:MI'),
+                                    to_char(s.last_autoanalyze, 'YYYY-MM-DD HH24:MI'),
+                                    'never'))
+             FROM pg_class c
+             LEFT JOIN pg_stat_user_tables s ON s.relname = c.relname
+             WHERE c.relname='bodies';"
         ;;
     *)
         echo "usage: $0 {nightly|weekly|smoke}" >&2
