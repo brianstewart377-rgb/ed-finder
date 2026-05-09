@@ -718,6 +718,119 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AutocompleteHit */
+        AutocompleteHit: {
+            /** Id64 */
+            id64: number;
+            /** Name */
+            name: string;
+            /**
+             * X
+             * @default 0
+             */
+            x: number;
+            /**
+             * Y
+             * @default 0
+             */
+            y: number;
+            /**
+             * Z
+             * @default 0
+             */
+            z: number;
+            /**
+             * Population
+             * @default 0
+             */
+            population: number;
+            /** Primaryeconomy */
+            primaryEconomy?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AutocompleteResponse */
+        AutocompleteResponse: {
+            /** Results */
+            results: components["schemas"]["AutocompleteHit"][];
+            /** Source */
+            source?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** BodyModel */
+        BodyModel: {
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name?: string | null;
+            /** Subtype */
+            subtype?: string | null;
+            /** Body Type */
+            body_type?: string | null;
+            /** Distance From Star */
+            distance_from_star?: number | null;
+            /** Is Landable */
+            is_landable?: boolean | null;
+            /** Is Terraformable */
+            is_terraformable?: boolean | null;
+            /** Is Earth Like */
+            is_earth_like?: boolean | null;
+            /** Is Water World */
+            is_water_world?: boolean | null;
+            /** Is Ammonia World */
+            is_ammonia_world?: boolean | null;
+            /** Bio Signal Count */
+            bio_signal_count?: number | null;
+            /** Geo Signal Count */
+            geo_signal_count?: number | null;
+            /** Surface Temp */
+            surface_temp?: number | null;
+            /** Radius */
+            radius?: number | null;
+            /** Mass */
+            mass?: number | null;
+            /** Gravity */
+            gravity?: number | null;
+            /** Estimated Mapping Value */
+            estimated_mapping_value?: number | null;
+            /** Estimated Scan Value */
+            estimated_scan_value?: number | null;
+            /** Is Main Star */
+            is_main_star?: boolean | null;
+            /** Spectral Class */
+            spectral_class?: string | null;
+            /** Is Scoopable */
+            is_scoopable?: boolean | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CacheStatsResponse */
+        CacheStatsResponse: {
+            /**
+             * Cache Hits
+             * @default 0
+             */
+            cache_hits: number;
+            /**
+             * Cache Misses
+             * @default 0
+             */
+            cache_misses: number;
+            /** Redis Hits */
+            redis_hits?: number | null;
+            /** Redis Misses */
+            redis_misses?: number | null;
+            /** Redis Memory Mb */
+            redis_memory_mb?: number | null;
+            /**
+             * Db Cache Rows
+             * @default 0
+             */
+            db_cache_rows: number;
+        } & {
+            [key: string]: unknown;
+        };
         /** ClusterRequirement */
         ClusterRequirement: {
             /** Economy */
@@ -748,7 +861,38 @@ export interface components {
              */
             offset: number;
             /** Reference Coords */
-            reference_coords?: Record<string, never> | null;
+            reference_coords?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** CoordsModel */
+        CoordsModel: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Z */
+            z: number;
+        };
+        /** ExplorationValueModel */
+        ExplorationValueModel: {
+            /**
+             * Total Scan Value
+             * @default 0
+             */
+            total_scan_value: number;
+            /**
+             * Total Mapping Value
+             * @default 0
+             */
+            total_mapping_value: number;
+            /**
+             * Combined Value
+             * @default 0
+             */
+            combined_value: number;
+        } & {
+            [key: string]: unknown;
         };
         /** GalaxySearchRequest */
         GalaxySearchRequest: {
@@ -791,7 +935,9 @@ export interface components {
         LocalSearchRequest: {
             filters?: components["schemas"]["SearchFilters"] | null;
             /** Reference Coords */
-            reference_coords?: Record<string, never> | null;
+            reference_coords?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Sort By
              * @default rating
@@ -808,7 +954,9 @@ export interface components {
              */
             from: number;
             /** Body Filters */
-            body_filters?: Record<string, never> | null;
+            body_filters?: {
+                [key: string]: unknown;
+            } | null;
             /** Require Bio */
             require_bio?: boolean | null;
             /** Require Geo */
@@ -843,33 +991,152 @@ export interface components {
              * Blob
              * @description Arbitrary client-managed payload.
              */
-            blob: Record<string, never>;
+            blob: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * RatingModel
+         * @description camelCase rating block embedded inside SystemRow under `_rating`.
+         *
+         *     Mirrors the shape produced by `helpers.sys_row_to_dict` so the
+         *     generated TypeScript matches what the search response actually puts
+         *     on the wire.
+         */
+        RatingModel: {
+            /** Score */
+            score?: number | null;
+            /** Scoreagriculture */
+            scoreAgriculture?: number | null;
+            /** Scorerefinery */
+            scoreRefinery?: number | null;
+            /** Scoreindustrial */
+            scoreIndustrial?: number | null;
+            /** Scorehightech */
+            scoreHightech?: number | null;
+            /** Scoremilitary */
+            scoreMilitary?: number | null;
+            /** Scoretourism */
+            scoreTourism?: number | null;
+            /** Scoreextraction */
+            scoreExtraction?: number | null;
+            /** Economysuggestion */
+            economySuggestion?: string | null;
+            /** Breakdown */
+            breakdown?: {
+                [key: string]: unknown;
+            } | null;
+            /** Terraformingpotential */
+            terraformingPotential?: number | null;
+            /** Bodydiversity */
+            bodyDiversity?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Rationale */
+            rationale?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** RerankRequest */
         RerankRequest: {
             /** Id64S */
             id64s: number[];
             /** Weights */
-            weights?: Record<string, never> | null;
+            weights?: {
+                [key: string]: unknown;
+            } | null;
             /** Economy */
             economy?: string | null;
+        };
+        /** RerankResponse */
+        RerankResponse: {
+            weights_applied: components["schemas"]["RerankWeights"];
+            /** Economy Used */
+            economy_used?: string | null;
+            /** Results */
+            results: components["schemas"]["RerankRow"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** RerankRow */
+        RerankRow: {
+            /** Id64 */
+            id64: number;
+            /** Reranked Score */
+            reranked_score: number;
+            /** Original Score */
+            original_score?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Rationale */
+            rationale?: string | null;
+            /** Economy Used */
+            economy_used?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** RerankWeights */
+        RerankWeights: {
+            /**
+             * Economy
+             * @default 0.42
+             */
+            economy: number;
+            /**
+             * Slots
+             * @default 0.23
+             */
+            slots: number;
+            /**
+             * Strategic
+             * @default 0.18
+             */
+            strategic: number;
+            /**
+             * Safety
+             * @default 0.1
+             */
+            safety: number;
+            /**
+             * Terraforming
+             * @default 0.05
+             */
+            terraforming: number;
+            /**
+             * Diversity
+             * @default 0.02
+             */
+            diversity: number;
         };
         /** SearchFilters */
         SearchFilters: {
             /** Distance */
-            distance?: Record<string, never> | null;
+            distance?: {
+                [key: string]: unknown;
+            } | null;
             /** Population */
-            population?: Record<string, never> | null;
+            population?: {
+                [key: string]: unknown;
+            } | null;
             /** Economy */
             economy?: string | null;
         };
-        /** SearchResponse */
+        /**
+         * SearchResponse
+         * @description `/api/local/search` response.
+         */
         SearchResponse: {
             /** Results */
-            results: Record<string, never>[];
-            /** Total */
+            results: components["schemas"]["SystemRow"][];
+            /**
+             * Total
+             * @default 0
+             */
             total: number;
-            /** Count */
+            /**
+             * Count
+             * @default 0
+             */
             count: number;
             /** Source */
             source?: string | null;
@@ -877,13 +1144,293 @@ export interface components {
             query_ms?: number | null;
             /** Display Economy */
             display_economy?: string | null;
+        } & {
+            [key: string]: unknown;
         };
-        /** SystemDetailResponse */
+        /** StationModel */
+        StationModel: {
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name?: string | null;
+            /** Station Type */
+            station_type?: string | null;
+            /** Distance From Star */
+            distance_from_star?: number | null;
+            /** Landing Pad Size */
+            landing_pad_size?: string | null;
+            /** Has Market */
+            has_market?: boolean | null;
+            /** Has Shipyard */
+            has_shipyard?: boolean | null;
+            /** Has Outfitting */
+            has_outfitting?: boolean | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * StatusResponse
+         * @description `/api/status` and `/api/local/status`.
+         */
+        StatusResponse: {
+            /** Available */
+            available: boolean;
+            /**
+             * Systems Count
+             * @default 0
+             */
+            systems_count: number;
+            /**
+             * Body Count
+             * @default 0
+             */
+            body_count: number;
+            /**
+             * Rated Count
+             * @default 0
+             */
+            rated_count: number;
+            /**
+             * Clustered Count
+             * @default 0
+             */
+            clustered_count: number;
+            /**
+             * Import Complete
+             * @default false
+             */
+            import_complete: boolean;
+            /**
+             * Ratings Built
+             * @default false
+             */
+            ratings_built: boolean;
+            /**
+             * Grid Built
+             * @default false
+             */
+            grid_built: boolean;
+            /**
+             * Clusters Built
+             * @default false
+             */
+            clusters_built: boolean;
+            /**
+             * Eddn Enabled
+             * @default false
+             */
+            eddn_enabled: boolean;
+            /**
+             * Last Nightly Update
+             * @default never
+             */
+            last_nightly_update: string;
+            /**
+             * Schema Version
+             * @default 1.0
+             */
+            schema_version: string;
+            /**
+             * Max Search Radius Ly
+             * @default 500
+             */
+            max_search_radius_ly: number;
+            /**
+             * Has Body Data
+             * @default false
+             */
+            has_body_data: boolean;
+            /**
+             * Version
+             * @default
+             */
+            version: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SystemDetailResponse
+         * @description `/api/system/{id64}` response. Backend returns the same row
+         *     twice under `record` and `system` for legacy compat.
+         */
         SystemDetailResponse: {
-            /** Record */
-            record: Record<string, never>;
-            /** System */
-            system: Record<string, never>;
+            record: components["schemas"]["SystemDetailRow"];
+            system: components["schemas"]["SystemDetailRow"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SystemDetailRow
+         * @description Full system detail returned by `/api/system/{id64}`.
+         *
+         *     The detail endpoint does *not* go through the camelCase translator —
+         *     it returns the joined ratings + bodies + stations rows snake_case
+         *     as PostgreSQL emits them (see `routers/systems.py::get_system`).
+         *     Frontend renders these strings directly.
+         */
+        SystemDetailRow: {
+            /** Id64 */
+            id64: number;
+            /** Name */
+            name: string;
+            /**
+             * X
+             * @default 0
+             */
+            x: number;
+            /**
+             * Y
+             * @default 0
+             */
+            y: number;
+            /**
+             * Z
+             * @default 0
+             */
+            z: number;
+            /**
+             * Population
+             * @default 0
+             */
+            population: number;
+            /** Primary Economy */
+            primary_economy?: string | null;
+            /** Secondary Economy */
+            secondary_economy?: string | null;
+            /** Security */
+            security?: string | null;
+            /** Allegiance */
+            allegiance?: string | null;
+            /** Government */
+            government?: string | null;
+            /** Is Colonised */
+            is_colonised?: boolean | null;
+            /** Main Star Type */
+            main_star_type?: string | null;
+            /** Main Star Subtype */
+            main_star_subtype?: string | null;
+            /** Score */
+            score?: number | null;
+            /** Score Agriculture */
+            score_agriculture?: number | null;
+            /** Score Refinery */
+            score_refinery?: number | null;
+            /** Score Industrial */
+            score_industrial?: number | null;
+            /** Score Hightech */
+            score_hightech?: number | null;
+            /** Score Military */
+            score_military?: number | null;
+            /** Score Tourism */
+            score_tourism?: number | null;
+            /** Score Extraction */
+            score_extraction?: number | null;
+            /** Economy Suggestion */
+            economy_suggestion?: string | null;
+            /** Elw Count */
+            elw_count?: number | null;
+            /** Ww Count */
+            ww_count?: number | null;
+            /** Ammonia Count */
+            ammonia_count?: number | null;
+            /** Gas Giant Count */
+            gas_giant_count?: number | null;
+            /** Landable Count */
+            landable_count?: number | null;
+            /** Terraformable Count */
+            terraformable_count?: number | null;
+            /** Bio Signal Total */
+            bio_signal_total?: number | null;
+            /** Geo Signal Total */
+            geo_signal_total?: number | null;
+            /** Neutron Count */
+            neutron_count?: number | null;
+            /** Black Hole Count */
+            black_hole_count?: number | null;
+            /** White Dwarf Count */
+            white_dwarf_count?: number | null;
+            /** Terraforming Potential */
+            terraforming_potential?: number | null;
+            /** Body Diversity */
+            body_diversity?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Rationale */
+            rationale?: string | null;
+            /** Bodies */
+            bodies?: components["schemas"]["BodyModel"][];
+            /** Stations */
+            stations?: components["schemas"]["StationModel"][];
+            exploration_value?: components["schemas"]["ExplorationValueModel"] | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SystemRow
+         * @description One result row inside `SearchResponse.results`.
+         *
+         *     Keep aligned with `helpers.sys_row_to_dict` (single source of truth
+         *     for the camelCase translator).
+         */
+        SystemRow: {
+            /** Id64 */
+            id64: number;
+            /**
+             * Name
+             * @default Unknown
+             */
+            name: string;
+            coords?: components["schemas"]["CoordsModel"] | null;
+            /** Distance */
+            distance?: number | null;
+            /**
+             * Population
+             * @default 0
+             */
+            population: number;
+            /** Primaryeconomy */
+            primaryEconomy?: string | null;
+            /** Secondaryeconomy */
+            secondaryEconomy?: string | null;
+            /** Security */
+            security?: string | null;
+            /** Allegiance */
+            allegiance?: string | null;
+            /** Government */
+            government?: string | null;
+            /** Is Colonised */
+            is_colonised?: boolean | null;
+            /** Is Being Colonised */
+            is_being_colonised?: boolean | null;
+            /** Main Star Type */
+            main_star_type?: string | null;
+            /** Main Star Subtype */
+            main_star_subtype?: string | null;
+            _rating?: components["schemas"]["RatingModel"] | null;
+            /** Elw Count */
+            elw_count?: number | null;
+            /** Ww Count */
+            ww_count?: number | null;
+            /** Ammonia Count */
+            ammonia_count?: number | null;
+            /** Gas Giant Count */
+            gas_giant_count?: number | null;
+            /** Landable Count */
+            landable_count?: number | null;
+            /** Terraformable Count */
+            terraformable_count?: number | null;
+            /** Bio Signal Total */
+            bio_signal_total?: number | null;
+            /** Geo Signal Total */
+            geo_signal_total?: number | null;
+            /** Neutron Count */
+            neutron_count?: number | null;
+            /** Black Hole Count */
+            black_hole_count?: number | null;
+            /** White Dwarf Count */
+            white_dwarf_count?: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /** ValidationError */
         ValidationError: {
@@ -1007,7 +1554,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusResponse"];
                 };
             };
         };
@@ -1027,7 +1574,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusResponse"];
                 };
             };
         };
@@ -1691,7 +2238,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CacheStatsResponse"];
                 };
             };
         };
@@ -1825,7 +2372,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AutocompleteResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2191,7 +2738,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RerankResponse"];
                 };
             };
             /** @description Validation Error */

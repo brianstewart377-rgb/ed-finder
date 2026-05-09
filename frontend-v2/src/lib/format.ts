@@ -43,9 +43,9 @@ export function formatConfidence(c: number | null | undefined):
  * Spansh's `is_colonised` flag is unreliable for old systems, so we OR a
  * few correlated signals together — same logic the vanilla app uses. */
 export function isInhabited(sys: {
-  is_colonised?:        boolean;
-  is_being_colonised?:  boolean;
-  population?:          number;
+  is_colonised?:        boolean | null;
+  is_being_colonised?:  boolean | null;
+  population?:          number | null;
 }): boolean {
   return !!(sys.is_colonised || sys.is_being_colonised || (sys.population ?? 0) > 0);
 }

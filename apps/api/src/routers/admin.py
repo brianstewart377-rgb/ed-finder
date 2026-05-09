@@ -15,12 +15,13 @@ from fastapi.responses import JSONResponse
 from config  import limiter
 from deps    import get_pool, get_redis, require_admin
 from helpers import run_cluster_rebuild
+from models  import CacheStatsResponse
 from state   import active_jobs, active_jobs_lock, metrics
 
 router = APIRouter(tags=['admin'])
 
 
-@router.get('/api/cache/stats')
+@router.get('/api/cache/stats', response_model=CacheStatsResponse)
 async def cache_stats(
     pool:  asyncpg.Pool              = Depends(get_pool),
     redis: Optional[aioredis.Redis]  = Depends(get_redis),

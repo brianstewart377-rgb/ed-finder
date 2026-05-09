@@ -25,7 +25,7 @@ from config import settings, limiter, log
 from deps   import get_pool, get_redis, cache_get, cache_set, inc_metric, log_slow
 from models import (
     SearchResponse, SearchFilters, LocalSearchRequest,
-    GalaxySearchRequest, ClusterSearchRequest,
+    GalaxySearchRequest, ClusterSearchRequest, AutocompleteResponse,
 )
 
 # Single search implementation. If this import fails the app cannot
@@ -59,7 +59,7 @@ def _search_unavailable(detail_msg: str, *, hint: str = '') -> JSONResponse:
 # ---------------------------------------------------------------------------
 # Autocomplete
 # ---------------------------------------------------------------------------
-@router.get('/api/local/autocomplete')
+@router.get('/api/local/autocomplete', response_model=AutocompleteResponse)
 @limiter.limit('60/minute')
 async def autocomplete(
     request: Request,

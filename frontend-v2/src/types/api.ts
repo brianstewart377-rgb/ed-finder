@@ -1,228 +1,66 @@
 /**
  * Wire types for the FastAPI backend.
  *
- * Hand-maintained for the POC. Once we want full coverage we can switch to
- * `openapi-typescript-codegen` against `https://ed-finder.app/openapi.json`,
- * which the modular backend already publishes. For now we only model the
- * fields that the result-card POC needs to render.
+ * **Audit Phase 7 follow-up (2026-05-09)**: this module now sources types
+ * from the auto-generated `api.gen.ts` for the response shapes the backend
+ * declares with `response_model=…`. The CI `openapi-types` job (see
+ * `.github/workflows/ci.yml`) fails on drift, so once the migration is
+ * complete the only place tweaking a wire type lives is `models.py` on
+ * the backend. No more "frontend says optional, backend says required"
+ * silent splits.
+ *
+ * If you need to add a field:
+ *   1. Add it to `apps/api/src/models.py` (Pydantic) AND emit it from
+ *      the SQL projection / `helpers.sys_row_to_dict`.
+ *   2. Locally: `cd frontend-v2 && yarn types:gen` (with the API on :8000).
+ *   3. Commit the regenerated `api.gen.ts`.
+ *   4. If the new field needs a friendlier camelCase alias for use in
+ *      this codebase, add it to the wrapper types below.
+ *
+ * What is NOT yet generated (left hand-written here):
+ *   - `WatchlistEntry` — the watchlist endpoint emits raw SQL rows; the
+ *     Pydantic model is intentionally not declared so we can iterate on
+ *     the table shape without a backend release.
+ *   - `Economy` enum + default rerank weights — these are frontend-side
+ *     constants, not wire types.
+ *   - The `LocalSearchBody` request shape used by `lib/api.ts` — the
+ *     generated `LocalSearchRequest` accepts `Record<string, never>` for
+ *     filters/body_filters because they're typed `dict` in the Python
+ *     model. Keeping the hand-written request shape until the Pydantic
+ *     side gets stricter.
  */
+import type { components } from '@/types/api.gen';
 
-export interface SystemRating {
-  score:                   number | null;
-  scoreAgriculture?:       number | null;
-  scoreRefinery?:          number | null;
-  scoreIndustrial?:        number | null;
-  scoreHightech?:          number | null;
-  scoreMilitary?:          number | null;
-  scoreTourism?:           number | null;
-  scoreExtraction?:        number | null;
-  economySuggestion?:      string | null;
-  breakdown?:              Record<string, unknown> | null;
-  /** v3.1 fields */
-  terraformingPotential?:  number | null;
-  bodyDiversity?:          number | null;
-  confidence?:             number | null;
-  rationale?:              string | null;
-}
+type Schemas = components['schemas'];
 
-export interface SystemCoords {
-  x: number;
-  y: number;
-  z: number;
-}
+// ─── Generated response/sub types (single source of truth) ────────────────
+export type SystemCoords = Schemas['CoordsModel'];
+export type SystemRating = Schemas['RatingModel'];
+export type SystemBody   = Schemas['BodyModel'];
+export type SystemStation = Schemas['StationModel'];
 
-export interface SystemResult {
-  id64:                  number;
-  name:                  string;
-  coords?:               SystemCoords;
-  /** Only populated for distance searches. */
-  distance?:             number | null;
-  population:            number;
-  primaryEconomy?:       string | null;
-  secondaryEconomy?:     string | null;
-  security?:             string | null;
-  allegiance?:           string | null;
-  government?:           string | null;
-  is_colonised?:         boolean;
-  is_being_colonised?:   boolean;
-  main_star_type?:       string | null;
-  main_star_subtype?:    string | null;
-  _rating?:              SystemRating | null;
-  /** Body counts on the rating row, surfaced for filter pills. */
-  elw_count?:            number | null;
-  ww_count?:             number | null;
-  ammonia_count?:        number | null;
-  gas_giant_count?:      number | null;
-  landable_count?:       number | null;
-  terraformable_count?:  number | null;
-  bio_signal_total?:     number | null;
-  geo_signal_total?:     number | null;
-  neutron_count?:        number | null;
-  black_hole_count?:     number | null;
-  white_dwarf_count?:    number | null;
-}
+/**
+ * One row from `/api/local/search`.
+ *
+ * Generated from `apps/api/src/models.py::SystemRow`. Camel-case rating
+ * block lives under `_rating` (Pydantic alias preserved through the
+ * codegen). Field added 2026-05-09 as part of Phase 7 follow-up.
+ */
+export type SystemResult = Schemas['SystemRow'];
 
-export interface SearchResponse {
-  results: SystemResult[];
-  total:   number;
-  count:   number;
-}
+export type SearchResponse        = Schemas['SearchResponse'];
+export type AutocompleteHit       = Schemas['AutocompleteHit'];
+export type AutocompleteResponse  = Schemas['AutocompleteResponse'];
+export type SystemDetail          = Schemas['SystemDetailRow'];
+export type SystemDetailResponse  = Schemas['SystemDetailResponse'];
+export type AppStatus             = Schemas['StatusResponse'];
+export type CacheStats            = Schemas['CacheStatsResponse'];
+export type RerankRequest         = Schemas['RerankRequest'];
+export type RerankResponse        = Schemas['RerankResponse'];
+export type RerankRow             = Schemas['RerankRow'];
+export type RerankWeights         = Schemas['RerankWeights'];
 
-export interface AutocompleteHit {
-  id64:           number;
-  name:           string;
-  x:              number;
-  y:              number;
-  z:              number;
-  population:     number;
-  primaryEconomy: string | null;
-}
-
-export interface AutocompleteResponse {
-  results: AutocompleteHit[];
-  source?: string;
-}
-
-// ─── /api/system/{id64} — full detail ────────────────────────────────────
-//
-// Endpoint returns snake_case (joins systems + ratings + bodies + stations).
-// Wire types mirror that — we don't camelCase-rewrite at the boundary
-// because the modal renders strings directly.
-
-export interface SystemBody {
-  id:                       number;
-  name:                     string;
-  subtype:                  string | null;
-  body_type:                string | null;   // 'Star' | 'Planet' | 'Moon' | 'Belt' | …
-  distance_from_star:       number | null;   // ls
-  is_landable:              boolean | null;
-  is_terraformable:         boolean | null;
-  is_earth_like:            boolean | null;
-  is_water_world:           boolean | null;
-  is_ammonia_world:         boolean | null;
-  bio_signal_count:         number | null;
-  geo_signal_count:         number | null;
-  surface_temp:             number | null;
-  radius:                   number | null;
-  mass:                     number | null;
-  gravity:                  number | null;
-  estimated_mapping_value:  number | null;
-  estimated_scan_value:     number | null;
-  is_main_star:             boolean | null;
-  spectral_class:           string | null;
-  is_scoopable:             boolean | null;
-}
-
-export interface SystemStation {
-  id:                  number;
-  name:                string;
-  station_type:        string | null;
-  distance_from_star:  number | null;
-  landing_pad_size:    'L' | 'M' | 'S' | null;
-  has_market:          boolean | null;
-  has_shipyard:        boolean | null;
-  has_outfitting:      boolean | null;
-}
-
-export interface SystemDetail {
-  id64:               number;
-  name:               string;
-  x:                  number;
-  y:                  number;
-  z:                  number;
-  population:         number;
-  primary_economy?:   string | null;
-  secondary_economy?: string | null;
-  security?:          string | null;
-  allegiance?:        string | null;
-  government?:        string | null;
-  is_colonised?:      boolean | null;
-  main_star_type?:    string | null;
-  main_star_subtype?: string | null;
-
-  // Flat rating fields (joined from ratings table)
-  score?:                  number | null;
-  score_agriculture?:      number | null;
-  score_refinery?:         number | null;
-  score_industrial?:       number | null;
-  score_hightech?:         number | null;
-  score_military?:         number | null;
-  score_tourism?:          number | null;
-  score_extraction?:       number | null;
-  economy_suggestion?:     string | null;
-  elw_count?:              number | null;
-  ww_count?:               number | null;
-  ammonia_count?:          number | null;
-  gas_giant_count?:        number | null;
-  landable_count?:         number | null;
-  terraformable_count?:    number | null;
-  bio_signal_total?:       number | null;
-  geo_signal_total?:       number | null;
-  neutron_count?:          number | null;
-  black_hole_count?:       number | null;
-  white_dwarf_count?:      number | null;
-  terraforming_potential?: number | null;
-  body_diversity?:         number | null;
-  confidence?:             number | null;
-  rationale?:              string | null;
-
-  bodies?:   SystemBody[];
-  stations?: SystemStation[];
-
-  exploration_value?: {
-    total_scan_value:    number;
-    total_mapping_value: number;
-    combined_value:      number;
-  };
-}
-
-/** Backend returns {record, system} — same data twice. */
-export interface SystemDetailResponse {
-  record: SystemDetail;
-  system: SystemDetail;
-}
-
-// ─── /api/status — system meta + counts ───────────────────────────────────
-
-export interface AppStatus {
-  available:           boolean;
-  systems_count:       number;
-  body_count:          number;
-  rated_count:         number;
-  clustered_count:     number;
-  import_complete:     boolean;
-  ratings_built:       boolean;
-  grid_built:          boolean;
-  clusters_built:      boolean;
-  eddn_enabled:        boolean;
-  last_nightly_update: string;
-  schema_version:      string;
-  max_search_radius_ly: number;
-  has_body_data:       boolean;
-  version:             string;
-}
-
-// ─── /api/cache/stats ─────────────────────────────────────────────────────
-
-export interface CacheStats {
-  cache_hits:       number;
-  cache_misses:     number;
-  redis_hits?:      number;
-  redis_misses?:    number;
-  redis_memory_mb?: number;
-  db_cache_rows:    number;
-}
-
-// ─── /api/ratings/rerank ──────────────────────────────────────────────────
-
-export interface RerankWeights {
-  economy:      number;
-  slots:        number;
-  strategic:    number;
-  safety:       number;
-  terraforming: number;
-  diversity:    number;
-}
+// ─── Frontend-side constants ──────────────────────────────────────────────
 
 export const DEFAULT_WEIGHTS: RerankWeights = {
   economy:      0.42,
@@ -236,25 +74,3 @@ export const DEFAULT_WEIGHTS: RerankWeights = {
 export type Economy =
   | 'Agriculture' | 'Refinery' | 'Industrial'
   | 'HighTech'    | 'Military' | 'Tourism' | 'Extraction';
-
-export interface RerankRequest {
-  id64s:    number[];
-  weights?: Partial<RerankWeights>;
-  /** null/undefined = use each row's stored economy_suggestion. */
-  economy?: Economy | null;
-}
-
-export interface RerankRow {
-  id64:           number;
-  reranked_score: number;
-  original_score: number | null;
-  confidence:     number | null;
-  rationale:      string | null;
-  economy_used:   string | null;
-}
-
-export interface RerankResponse {
-  weights_applied: RerankWeights;
-  economy_used:    Economy | null;
-  results:         RerankRow[];
-}

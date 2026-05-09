@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from config import settings, limiter, log
 from deps   import get_pool, get_redis
+from models import RerankResponse
 from search_economies import ratings_score_column, ECONOMIES
 
 router = APIRouter(tags=['ratings'])
@@ -59,7 +60,7 @@ class RerankRequest(BaseModel):
     weights: Optional[dict] = None
     economy: Optional[str]  = None      # e.g. 'Tourism'; None = use stored primary
 
-@router.post('/api/ratings/rerank')
+@router.post('/api/ratings/rerank', response_model=RerankResponse)
 @limiter.limit('60/minute')
 async def ratings_rerank(
     request: Request,
