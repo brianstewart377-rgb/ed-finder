@@ -5,6 +5,7 @@ should be able to hit these without auth.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Optional
@@ -34,13 +35,38 @@ except ImportError:
 
 @router.get('/api/health', response_model=HealthResponse)
 async def health(pool: asyncpg.Pool = Depends(get_pool)):
-    try:
+    """Cheap, bounded liveness probe.
+
+    Bounded at 2 s with `asyncio.wait_for` so a wedged pool (every
+    connection held by a slow query) cannot hang the healthcheck for
+    the asyncpg `command_timeout` of 5 minutes. nginx's
+    `proxy_read_timeout` on /api/health is 300s and Cloudflare's edge
+    timeout is ~100s, so an unbounded probe means CF returns its own
+    524 to the user before nginx ever gives up — and the api container
+    keeps showing (healthy) to Docker's own healthcheck because that
+    runs from inside the container against localhost without going
+    through any of those timeouts.
+
+    Capping the probe at 2 s makes /api/health honest about pool
+    exhaustion: if no connection is acquirable inside that window, we
+    return 503 with a clear message and Docker can mark the container
+    unhealthy and restart it, breaking the wedge.
+    """
+    async def _probe() -> None:
         async with pool.acquire() as conn:
             await conn.fetchval('SELECT 1')
+
+    try:
+        await asyncio.wait_for(_probe(), timeout=2.0)
         return HealthResponse(
             status='ok',
             database='connected',
             version=settings.app_version,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            503,
+            detail='database probe timed out after 2s — pool likely exhausted',
         )
     except Exception as e:
         raise HTTPException(503, detail=str(e))

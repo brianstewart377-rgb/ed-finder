@@ -1,3 +1,13 @@
+# Shared logging config — applied to every long-lived service via YAML anchor.
+# Without this, container stdout/stderr accumulates in /var/lib/docker/containers
+# until the disk fills; on a server doing 186M-row ingestion that takes weeks,
+# not months. 50m × 3 files = 150 MB cap per container.
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
 
   # ── PostgreSQL 16 ─────────────────────────────────────────────────────────
@@ -6,6 +16,17 @@ services:
     image: postgres:16-alpine
     container_name: ed-postgres
     restart: unless-stopped
+    logging: *default-logging
+    # Postgres is configured (shared_buffers=32GB, effective_cache_size=96GB,
+    # work_mem=512MB × max_connections=200) on the assumption that it owns
+    # most of the box. We give it a 96 GB ceiling — generous enough that
+    # the configured workload never hits it, but firm enough that a runaway
+    # query plan can't OOM-kill the api container alongside it. Total non-
+    # postgres footprint at peak (api 4 + eddn 1 + nginx 0.25 + maintenance
+    # 0.5 + redis 5 + importer 8 when running + monitoring 3) ≈ 22 GB,
+    # leaving postgres a comfortable 106 GB headroom against this limit.
+    mem_limit: 96g
+    cpus: 10.0
     environment:
       POSTGRES_USER:     edfinder
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -72,6 +93,9 @@ services:
     container_name: ed-pgbouncer
     profiles: ["pooler"]
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1.0
     environment:
       DB_USER:      edfinder
       DB_PASSWORD:  ${POSTGRES_PASSWORD}
@@ -98,6 +122,12 @@ services:
     image: redis:7-alpine
     container_name: ed-redis
     restart: unless-stopped
+    logging: *default-logging
+    # maxmemory is configured to 4 GB inside redis itself; give 1 GB
+    # headroom for fork-on-RDB and OS overhead. RDB persistence is
+    # disabled (--save "") and AOF is off, so this is a tight ceiling.
+    mem_limit: 5g
+    cpus: 2.0
     command: >
       redis-server
         --maxmemory 4gb
@@ -121,6 +151,15 @@ services:
       dockerfile: Dockerfile
     container_name: ed-api
     restart: unless-stopped
+    logging: *default-logging
+    # 4 GB / 4 cpu is well above the steady-state working set of one
+    # uvicorn worker + one asyncpg pool (5-20 conns). The ceiling exists
+    # primarily so that a runaway query result set or memory leak in
+    # this container can't OOM-kill postgres — without a limit, the
+    # kernel picks the largest non-postgres consumer when memory
+    # pressure spikes, which is always us.
+    mem_limit: 4g
+    cpus: 4.0
     environment:
       # Direct connection to postgres, bypassing pgbouncer.
       #
@@ -175,6 +214,9 @@ services:
       dockerfile: Dockerfile
     container_name: ed-eddn
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    cpus: 2.0
     environment:
       # Direct connection — see `api` service for full rationale.
       DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
@@ -216,6 +258,9 @@ services:
       dockerfile: Dockerfile
     container_name: ed-maintenance
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1.0
     environment:
       DATABASE_URL:  postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
       LOG_FILE:      /data/logs/maintenance.log
@@ -231,6 +276,9 @@ services:
     image: nginx:alpine
     container_name: ed-nginx
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    cpus: 1.0
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./config/security-headers.conf:/etc/nginx/snippets/security-headers.conf:ro
@@ -244,7 +292,15 @@ services:
     depends_on:
       - api
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/api/health"]
+      # Hit a static-string location served by nginx itself (see
+      # /nginx-healthz in config/nginx.conf). The previous test
+      # ("curl -f http://localhost/api/health") routed through the
+      # /api/ proxy → api → DB, so a slow DB or restarting api would
+      # cause Docker to mark nginx unhealthy and (worse) potentially
+      # restart it under restart_policy, compounding the outage.
+      # nginx:alpine ships wget but not curl in current builds, hence
+      # the wget invocation.
+      test: ["CMD", "wget", "-q", "-O-", "--tries=1", "--timeout=2", "http://127.0.0.1/nginx-healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -257,6 +313,15 @@ services:
       dockerfile: Dockerfile
     container_name: ed-importer
     profiles: ["import"]
+    logging: *default-logging
+    # 8 GB / 4 cpu — the importer streams a ~110 GB gzipped JSON dump
+    # so its working set is bounded by the asyncpg COPY buffer and
+    # ijson parse state, not the dump size. 8 GB is well above what
+    # we've measured (~2-3 GB resident). The cpu cap keeps the
+    # importer from saturating all 12 vCPUs and starving the api
+    # of scheduling time during the long ingestion window.
+    mem_limit: 8g
+    cpus: 4.0
     env_file:
       - .env
     environment:
@@ -289,6 +354,9 @@ services:
     container_name: ed-prometheus
     profiles: ["monitoring"]
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    cpus: 1.0
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -310,6 +378,9 @@ services:
     container_name: ed-grafana
     profiles: ["monitoring"]
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1.0
     environment:
       GF_SECURITY_ADMIN_USER:     ${GRAFANA_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
@@ -331,6 +402,9 @@ services:
     container_name: ed-postgres-exporter
     profiles: ["monitoring"]
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       DATA_SOURCE_NAME: "postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder?sslmode=disable"
       PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yaml
@@ -348,6 +422,9 @@ services:
     container_name: ed-redis-exporter
     profiles: ["monitoring"]
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       REDIS_ADDR: "redis://redis:6379"
     ports:
