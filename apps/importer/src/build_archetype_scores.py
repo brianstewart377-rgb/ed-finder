@@ -1267,7 +1267,7 @@ def main():
     parser.add_argument('--limit',   type=int, default=None)
     args = parser.parse_args()
 
-    startup_banner('build_archetype_scores', '1.0')
+    startup_banner(log, 'build_archetype_scores', '1.0')
     t_start = time.time()
 
     mode = 'dirty' if args.dirty else ('rebuild' if args.rebuild else 'new')
@@ -1275,7 +1275,7 @@ def main():
 
     conn = _connect_with_retry(DB_DSN, label='archetype_main')
     try:
-        stage_banner('Fetching system IDs')
+        stage_banner(log, 1, 2, 'Fetching system IDs')
         system_ids = _fetch_system_ids(conn, mode, args.limit)
         log.info(f"  {fmt_num(len(system_ids))} systems to score")
     finally:
@@ -1283,7 +1283,7 @@ def main():
 
     if not system_ids:
         log.info("Nothing to score.")
-        done_banner('build_archetype_scores', time.time() - t_start, 0)
+        done_banner(log, 'build_archetype_scores', time.time() - t_start)
         return
 
     chunks = [
@@ -1291,7 +1291,7 @@ def main():
         for i in range(0, len(system_ids), args.chunk)
     ]
 
-    stage_banner('Scoring archetypes')
+    stage_banner(log, 2, 2, 'Scoring archetypes')
     with mp.Pool(processes=args.workers) as pool:
         results = pool.starmap(
             worker_process,
@@ -1301,7 +1301,7 @@ def main():
     total_processed = sum(r['processed'] for r in results)
     total_errors    = sum(r['errors']    for r in results)
 
-    done_banner('build_archetype_scores', time.time() - t_start, total_processed)
+    done_banner(log, 'build_archetype_scores', time.time() - t_start)
     log.info(f"  Processed: {fmt_num(total_processed)} | Errors: {fmt_num(total_errors)}")
     if total_errors:
         log.warning(f"  {total_errors} systems failed — check log for details")

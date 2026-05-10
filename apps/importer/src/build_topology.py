@@ -984,7 +984,7 @@ def main():
                         help='Max systems to process (dev/test)')
     args = parser.parse_args()
 
-    startup_banner('build_topology', '1.0')
+    startup_banner(log, 'build_topology', '1.0')
     t_start = time.time()
 
     mode = 'dirty' if args.dirty else ('rebuild' if args.rebuild else 'new')
@@ -992,7 +992,7 @@ def main():
 
     conn = _connect_with_retry(DB_DSN, label='topology_main')
     try:
-        stage_banner('Fetching system IDs')
+        stage_banner(log, 1, 2, 'Fetching system IDs')
         system_ids = _fetch_system_ids(conn, mode, args.limit)
         log.info(f"  {fmt_num(len(system_ids))} systems to process")
     finally:
@@ -1000,7 +1000,7 @@ def main():
 
     if not system_ids:
         log.info("Nothing to do.")
-        done_banner('build_topology', time.time() - t_start, 0)
+        done_banner(log, 'build_topology', time.time() - t_start)
         return
 
     # Split into chunks for workers
@@ -1010,7 +1010,7 @@ def main():
     ]
     log.info(f"  {len(chunks)} chunks across {args.workers} workers")
 
-    stage_banner('Processing topology')
+    stage_banner(log, 2, 2, 'Processing topology')
     reporter = ProgressReporter(len(system_ids), label='systems')
 
     with mp.Pool(processes=args.workers) as pool:
@@ -1022,7 +1022,7 @@ def main():
     total_processed = sum(r['processed'] for r in results)
     total_errors    = sum(r['errors']    for r in results)
 
-    done_banner('build_topology', time.time() - t_start, total_processed)
+    done_banner(log, 'build_topology', time.time() - t_start)
     log.info(f"  Processed: {fmt_num(total_processed)} | Errors: {fmt_num(total_errors)}")
     if total_errors > 0:
         log.warning(f"  {total_errors} systems failed — check log for details")
