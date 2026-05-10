@@ -201,6 +201,40 @@ if (( DIRTY_COUNT > 0 )); then
 fi
 
 # ---------------------------------------------------------------------------
+# 3.5. Build archetype topology + scores for dirty systems
+# ---------------------------------------------------------------------------
+log "--- Step 3.5: Build archetype topology + scores ---"
+ARCH_DIRTY=$(pg_count "SELECT COUNT(*) FROM systems WHERE archetype_dirty = TRUE")
+log "Dirty archetype systems: $ARCH_DIRTY"
+
+if (( ARCH_DIRTY > 0 )); then
+    log "Running build_topology.py --dirty ..."
+    run_importer "build_topology" build_topology.py --dirty \
+        && success "Topology rebuilt" \
+        || warn "Topology rebuild had errors (check ${LOG_DIR}/build_topology.log)"
+
+    log "Running build_archetype_scores.py --dirty ..."
+    run_importer "build_archetype_scores" build_archetype_scores.py --dirty \
+        && success "Archetype scores rebuilt" \
+        || warn "Archetype score rebuild had errors (check ${LOG_DIR}/build_archetype_scores.log)"
+
+    log "Refreshing mv_archetype_rankings ..."
+    docker compose exec -T postgres psql -U edfinder -d edfinder \
+        -c "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
+        >> "$LOG" 2>&1 \
+        && success "mv_archetype_rankings refreshed" \
+        || warn "MV refresh failed"
+
+    # Post-rebuild verification: how many are still dirty?
+    STILL_DIRTY_A=$(pg_count "SELECT COUNT(*) FROM systems WHERE archetype_dirty = TRUE")
+    if (( STILL_DIRTY_A > 0 )); then
+        warn "Archetype rebuild incomplete: $STILL_DIRTY_A systems still have archetype_dirty=TRUE"
+    else
+        success "All archetype_dirty flags cleared"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 4. Rebuild clusters
 # ---------------------------------------------------------------------------
 log "--- Step 4: Rebuild clusters ---"
@@ -256,7 +290,7 @@ docker compose exec -T postgres psql -U edfinder -d edfinder -c \
 # ---------------------------------------------------------------------------
 log "--- Step 7: VACUUM ANALYZE ---"
 docker compose exec -T postgres psql -U edfinder -d edfinder -c \
-    "VACUUM ANALYZE systems; VACUUM ANALYZE ratings; VACUUM ANALYZE cluster_summary; VACUUM ANALYZE stations;" \
+    "VACUUM ANALYZE systems; VACUUM ANALYZE ratings; VACUUM ANALYZE cluster_summary; VACUUM ANALYZE stations; VACUUM ANALYZE system_archetype_scores; VACUUM ANALYZE system_archetype_traits;" \
     >> "$LOG" 2>&1 \
     && success "VACUUM ANALYZE complete" \
     || warn "VACUUM failed"
