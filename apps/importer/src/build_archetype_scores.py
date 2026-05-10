@@ -1158,7 +1158,7 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
 
     try:
         for system_id64 in system_ids:
-            hb.tick()
+            hb.tick(processed, errors)
             try:
                 # Fetch bodies
                 cur.execute("""
