@@ -821,14 +821,27 @@ def generate_rationale(counts: dict, scores: dict, primary_eco: str,
     scored as it did.  Designed to be surfaced in the UI directly under the
     star rating so CMDRs don't have to parse the breakdown dict.
 
-    Example outputs:
-      "Strong Agriculture via 2 ELW + 3 terraformable HMC; 8 landable ports."
-      "Tourism-leaning: neutron + 4 bio signals; limited surface slots."
-      "Extraction-rich: 3 ringed rocky, 2 metal-rich, 9 landable HMC."
+    The "via …" highlights are filtered to ONLY mention bodies that actually
+    feed `primary_eco`'s scoring formula. Pre-2026-05-10 the rationale
+    iterated `counts` blindly, so a system like HD 49188 (43 bodies, 1 ELW,
+    primary_eco=Refinery) produced:
+
+        "Strong Refinery; via 1 ELW, 4 ringed, 3 metal-rich; 15 landable;
+         — varied body mix"
+
+    even though the ELW and metal-rich bodies contribute zero points to
+    `score_refinery`. The text read like the ELW caused the score, when it
+    didn't. Filtering by the per-economy contributor list (defined in
+    ECON_HIGHLIGHT_BUILDERS below) keeps the explanation honest.
+
+    Example outputs (post-fix):
+      "Strong Refinery; via 8 clean rocky, 4 rocky-ringed, 3 HMC; 15 landable; — varied body mix"
+      "Strong HighTech; via 1 ELW, 2 gas giant, 1 exotic star; 8 landable"
+      "Tourism-leaning: 2 ELW, 1 black hole, 3 WW; 5 landable; — high terraforming potential"
     """
     parts = []
 
-    # Lead phrase keyed to primary economy
+    # Lead phrase keyed to primary economy.
     if scores[primary_eco] >= 60:
         parts.append(f"Strong {primary_eco}")
     elif scores[primary_eco] >= 40:
@@ -838,36 +851,24 @@ def generate_rationale(counts: dict, scores: dict, primary_eco: str,
     else:
         parts.append("Low-yield system")
 
-    # Key contributing bodies
-    highlights = []
-    if counts['elw']:
-        highlights.append(f"{counts['elw']} ELW")
-    if counts['ww']:
-        highlights.append(f"{counts['ww']} WW")
-    if counts['ammonia']:
-        highlights.append(f"{counts['ammonia']} AW")
-    if counts['terraformable']:
-        highlights.append(f"{counts['terraformable']} terraformable")
-    if counts['rocky_rings'] + counts['gas_giant']:
-        rings = counts['rocky_rings'] + counts['gas_giant']
-        highlights.append(f"{rings} ringed")
-    if counts['metal_rich']:
-        highlights.append(f"{counts['metal_rich']} metal-rich")
-    if counts['neutron'] or counts['black_hole']:
-        exotic = counts['neutron'] + counts['black_hole']
-        highlights.append(f"{exotic} exotic")
+    # Highlights — only mention bodies that actually contribute to the
+    # primary economy's score function. Each helper looks at `counts` and
+    # returns a list of human-readable phrases in priority order. We take
+    # the first three.
+    builder = ECON_HIGHLIGHT_BUILDERS.get(primary_eco, _highlights_generic)
+    highlights = builder(counts)
     if highlights:
         parts.append("via " + ", ".join(highlights[:3]))
 
-    # Slot note
-    if counts['landable'] >= 5:
+    # Slot note — universal across economies.
+    if counts.get('landable', 0) >= 5:
         parts.append(f"{counts['landable']} landable")
-    elif counts['landable'] == 0:
+    elif counts.get('landable', 0) == 0:
         parts.append("no surface slots")
 
-    # Hazard / diversity tail
+    # Hazard / diversity tail — universal.
     tails = []
-    if counts['white_dwarf']:
+    if counts.get('white_dwarf'):
         tails.append("white-dwarf hazard")
     if diversity >= 20:
         tails.append("varied body mix")
@@ -877,6 +878,108 @@ def generate_rationale(counts: dict, scores: dict, primary_eco: str,
         parts.append("— " + ", ".join(tails))
 
     return ("; ".join(parts))[:160]
+
+
+# ---------------------------------------------------------------------------
+# Per-economy highlight builders — invoked by generate_rationale().
+#
+# Each returns a list of "{N} {kind}" phrases for bodies that actually
+# contribute to the corresponding score_<economy> function above. Mirror
+# any change you make to the score_* functions here, otherwise the UI
+# rationale will drift back into describing bodies that didn't score.
+# ---------------------------------------------------------------------------
+def _h_refinery(c: dict) -> list:
+    out = []
+    if c.get('rocky_clean'):  out.append(f"{c['rocky_clean']} clean rocky")
+    if c.get('rocky_rings'):  out.append(f"{c['rocky_rings']} rocky-ringed")
+    if c.get('hmc'):          out.append(f"{c['hmc']} HMC")
+    if c.get('rocky_ice'):    out.append(f"{c['rocky_ice']} rocky-ice")
+    return out
+
+
+def _h_industrial(c: dict) -> list:
+    out = []
+    if c.get('icy'):          out.append(f"{c['icy']} icy")
+    if c.get('gas_giant'):    out.append(f"{c['gas_giant']} gas giant")
+    if c.get('rocky_ice'):    out.append(f"{c['rocky_ice']} rocky-ice")
+    if c.get('geo'):          out.append(f"{c['geo']} geo signal")
+    return out
+
+
+def _h_hightech(c: dict) -> list:
+    out = []
+    if c.get('elw'):          out.append(f"{c['elw']} ELW")
+    if c.get('ammonia'):      out.append(f"{c['ammonia']} AW")
+    if c.get('gas_giant'):    out.append(f"{c['gas_giant']} gas giant")
+    exotic = c.get('black_hole', 0) + c.get('neutron', 0) + c.get('white_dwarf', 0)
+    if exotic:                 out.append(f"{exotic} exotic star")
+    if c.get('geo'):          out.append(f"{c['geo']} geo signal")
+    if c.get('bio'):          out.append(f"{c['bio']} bio signal")
+    return out
+
+
+def _h_military(c: dict) -> list:
+    out = []
+    if c.get('elw'):          out.append(f"{c['elw']} ELW")
+    if c.get('gas_giant'):    out.append(f"{c['gas_giant']} gas giant")
+    if c.get('rocky_clean') or c.get('rocky_rings'):
+        rocky = c.get('rocky_clean', 0) + c.get('rocky_rings', 0)
+        out.append(f"{rocky} rocky surface")
+    exotic = c.get('black_hole', 0) + c.get('neutron', 0)
+    if exotic:                 out.append(f"{exotic} exotic star")
+    return out
+
+
+def _h_tourism(c: dict) -> list:
+    out = []
+    if c.get('elw'):          out.append(f"{c['elw']} ELW")
+    if c.get('ww'):           out.append(f"{c['ww']} WW")
+    if c.get('ammonia'):      out.append(f"{c['ammonia']} AW")
+    if c.get('black_hole'):   out.append(f"{c['black_hole']} black hole")
+    if c.get('neutron'):      out.append(f"{c['neutron']} neutron")
+    if c.get('white_dwarf'):  out.append(f"{c['white_dwarf']} white dwarf")
+    return out
+
+
+def _h_agriculture(c: dict) -> list:
+    out = []
+    if c.get('elw'):           out.append(f"{c['elw']} ELW")
+    if c.get('ww'):            out.append(f"{c['ww']} WW")
+    if c.get('terraformable'): out.append(f"{c['terraformable']} terraformable")
+    if c.get('bio'):           out.append(f"{c['bio']} bio signal")
+    return out
+
+
+def _h_extraction(c: dict) -> list:
+    out = []
+    if c.get('hmc'):          out.append(f"{c['hmc']} HMC")
+    if c.get('metal_rich'):   out.append(f"{c['metal_rich']} metal-rich")
+    if c.get('rocky_rings'):  out.append(f"{c['rocky_rings']} rocky-ringed")
+    if c.get('geo'):          out.append(f"{c['geo']} geo signal")
+    return out
+
+
+def _highlights_generic(c: dict) -> list:
+    """Defensive fallback for an unknown primary_eco. Lists everything that's
+    universally noteworthy, conservatively. Should never be called in
+    practice — kept only so a future new economy doesn't crash the rationale
+    generator before its builder is wired in."""
+    out = []
+    if c.get('elw'):          out.append(f"{c['elw']} ELW")
+    if c.get('ww'):           out.append(f"{c['ww']} WW")
+    if c.get('terraformable'):out.append(f"{c['terraformable']} terraformable")
+    return out
+
+
+ECON_HIGHLIGHT_BUILDERS = {
+    'Refinery':    _h_refinery,
+    'Industrial':  _h_industrial,
+    'HighTech':    _h_hightech,
+    'Military':    _h_military,
+    'Tourism':     _h_tourism,
+    'Agriculture': _h_agriculture,
+    'Extraction':  _h_extraction,
+}
 
 
 def compute_confidence(last_updated, report_count: int = 1) -> float:
@@ -977,17 +1080,23 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
     # v3.1: Extraction is now included symmetrically, so a pure mining system
     # can surface as "Primary: Extraction" instead of being forced into some
     # runner-up economy it doesn't actually fit.
+    #
+    # v3.3 (2026-05-10): when two or more economies tie at the top, the
+    # previous code picked whichever one came first in `scores.items()` —
+    # i.e. dict insertion order, which is silent and arbitrary. For
+    # HD 49188 (id64 167244365) this caused Refinery to be displayed as
+    # primary even though Military scored exactly the same and the
+    # complementary-pair card showed an Industrial+Military top pairing.
+    # We now break ties using the COMPLEMENTARY_PAIRS computation (see
+    # below): when there's a tie, prefer the economy that's part of the
+    # highest-scoring complementary pair, because that's the one the
+    # rest of the UI is already recommending. If neither tied economy is
+    # in `best_a`/`best_b`, fall through to dict-order — non-arbitrary
+    # cases never reach that branch in practice.
     sorted_ecos = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    primary_eco   = sorted_ecos[0][0]
-    primary_score = sorted_ecos[0][1]
-    secondary_eco = sorted_ecos[1][0] if len(sorted_ecos) > 1 else None
 
-    economy_suggestion = primary_eco if primary_score >= 20 else None
-
-    # ── Overall score: v3.2 — even-handed, pair-aware, rarity-gated ─────
-    # v3.1 weighted only the BEST single economy at 42% and added a +10
-    # safety baseline. v3.2 uses complementary economy pairs (Trailblazers
-    # Update 3) + top-3 average + a rarity gate at 85+.
+    # Compute the complementary-pair winner FIRST so it's available as a
+    # tiebreak signal for primary_eco selection.
     COMPLEMENTARY_PAIRS = [
         ('Extraction',  'Refinery'),
         ('Refinery',    'Industrial'),
@@ -1002,6 +1111,36 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
                    for a, b in COMPLEMENTARY_PAIRS]
     best_a, best_b, best_pair = max(pair_scores, key=lambda t: t[2])
 
+    # If multiple economies tie at the top score, pick the one that
+    # appears in the winning complementary pair. This makes "Suggested
+    # economy" line up with the pair-card the UI is already showing,
+    # instead of being dict-insertion-order roulette.
+    top_score = sorted_ecos[0][1]
+    tied_top  = [eco for eco, sc in sorted_ecos if sc == top_score]
+    if len(tied_top) >= 2:
+        if best_a in tied_top:
+            primary_eco = best_a
+        elif best_b in tied_top:
+            primary_eco = best_b
+        else:
+            primary_eco = tied_top[0]   # fall through — deterministic
+    else:
+        primary_eco = sorted_ecos[0][0]
+    primary_score = top_score
+    # Secondary: highest-scoring economy that isn't primary (skip the tied
+    # winner picked above, but only it — the others can still be secondary).
+    secondary_eco = next(
+        (eco for eco, _ in sorted_ecos if eco != primary_eco),
+        None,
+    )
+
+    economy_suggestion = primary_eco if primary_score >= 20 else None
+
+    # ── Overall score: v3.2 — even-handed, pair-aware, rarity-gated ─────
+    # v3.1 weighted only the BEST single economy at 42% and added a +10
+    # safety baseline. v3.2 uses complementary economy pairs (Trailblazers
+    # Update 3) + top-3 average + a rarity gate at 85+. (Pair computation
+    # was moved up to feed the primary_eco tiebreak above.)
     top3_avg = sum(sorted([s for s in scores.values()], reverse=True)[:3]) / 3
     strategic_bonus = (tf_potential / 100.0) * 4 + (diversity / 100.0) * 3
     raw_overall = best_pair * 0.60 + top3_avg * 0.35 + strategic_bonus
