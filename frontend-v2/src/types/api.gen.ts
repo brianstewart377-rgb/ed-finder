@@ -715,6 +715,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/archetypes/rankings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ranked systems by colony archetype
+         * @description Returns systems ranked by a specific colony archetype score. Uses the mv_archetype_rankings materialized view for fast reads. Slot counts are ESTIMATED — not authoritative.
+         */
+        get: operations["get_archetype_rankings_api_archetypes_rankings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/archetypes/rerank": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rerank systems by custom archetype weights */
+        post: operations["post_archetype_rerank_api_archetypes_rerank_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/archetypes/system/{id64}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Full archetype breakdown for a single system */
+        get: operations["get_system_archetypes_api_archetypes_system__id64__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/archetypes/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build simulation — score a system against a planned build
+         * @description Given a planned build (list of facility placements), estimate the
+         *     resulting economy distribution and score the system against the plan.
+         *
+         *     NOTE: This is a best-effort estimate. Economy outcomes depend on exact
+         *     construction order and Frontier's internal economy weighting, which is
+         *     not publicly documented.
+         */
+        post: operations["post_simulate_api_archetypes_simulate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/archetypes/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preset rerank weight profiles */
+        get: operations["get_profiles_api_archetypes_profiles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ratings/rerank": {
         parameters: {
             query?: never;
@@ -736,6 +832,250 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ArchetypeProfile */
+        ArchetypeProfile: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Description */
+            description: string;
+            /** Archetype */
+            archetype?: string | null;
+            weights: components["schemas"]["ArchetypeRerankWeights"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ArchetypeRankingRow
+         * @description One result row inside ArchetypeRankingsResponse.
+         */
+        ArchetypeRankingRow: {
+            /** Id64 */
+            id64: number;
+            /** Name */
+            name: string;
+            coords?: components["schemas"]["CoordsModel"] | null;
+            /** Distance To Sol */
+            distance_to_sol?: number | null;
+            /** Score */
+            score: number;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "S" | "A" | "B" | "C" | "D";
+            /** Primary Archetype */
+            primary_archetype?: string | null;
+            /** Secondary Archetype */
+            secondary_archetype?: string | null;
+            /** Archetype Confidence */
+            archetype_confidence?: number | null;
+            /** Overall Development Potential */
+            overall_development_potential?: number | null;
+            /** Buildability Score */
+            buildability_score?: number | null;
+            /** Build Complexity */
+            build_complexity?: string | null;
+            /** Purity Score */
+            purity_score?: number | null;
+            /** Contamination Risk */
+            contamination_risk?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Has Elw */
+            has_elw?: boolean | null;
+            /** Elw Count */
+            elw_count?: number | null;
+            /** Landable Count */
+            landable_count?: number | null;
+            /** Est Total Slots */
+            est_total_slots?: number | null;
+            /** Tags */
+            tags?: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ArchetypeRankingsResponse */
+        ArchetypeRankingsResponse: {
+            /** Archetype */
+            archetype: string;
+            /** Archetype Label */
+            archetype_label: string;
+            /** Results */
+            results: components["schemas"]["ArchetypeRankingRow"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /** Source */
+            source?: string | null;
+            /** Query Ms */
+            query_ms?: number | null;
+        };
+        /**
+         * ArchetypeRationale
+         * @description Structured JSONB rationale for a system's primary archetype.
+         *     Schema is intentionally flexible (extra='allow') so Frontier
+         *     mechanic changes can be absorbed without breaking existing consumers.
+         */
+        ArchetypeRationale: {
+            /** Summary */
+            summary?: string | null;
+            /** Tier */
+            tier?: ("S" | "A" | "B" | "C" | "D") | null;
+            /** Headline */
+            headline?: string | null;
+            /** Positives */
+            positives?: string[];
+            /** Risks */
+            risks?: string[];
+            /** Complexity */
+            complexity?: string | null;
+            /** Build Path */
+            build_path?: string | null;
+            /** Tags */
+            tags?: string[];
+            score_breakdown?: components["schemas"]["ArchetypeScoreBreakdown"] | null;
+            /** Data Confidence */
+            data_confidence?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ArchetypeRerankRequest
+         * @description Rerank a set of systems by custom archetype weights.
+         *
+         *     Either provide explicit weights OR a profile ID.
+         *     If both are given, the profile takes precedence.
+         *     If neither, default ArchetypeRerankWeights are applied.
+         */
+        ArchetypeRerankRequest: {
+            /** Id64S */
+            id64s: number[];
+            /** Archetype */
+            archetype?: ("refinery_industrial" | "extraction_refinery" | "agriculture_terraforming" | "hitech_tourism" | "expansion_capital" | "trade_logistics" | "population_capital" | "ax_forward_base" | "military_industrial" | "flexible_multirole") | null;
+            weights?: components["schemas"]["ArchetypeRerankWeights"] | null;
+            /** Profile */
+            profile?: string | null;
+        };
+        /** ArchetypeRerankResponse */
+        ArchetypeRerankResponse: {
+            /** Archetype */
+            archetype?: string | null;
+            /** Profile Applied */
+            profile_applied?: string | null;
+            weights_applied: components["schemas"]["ArchetypeRerankWeights"];
+            /** Results */
+            results: components["schemas"]["ArchetypeRerankRow"][];
+            /** Query Ms */
+            query_ms?: number | null;
+        };
+        /** ArchetypeRerankRow */
+        ArchetypeRerankRow: {
+            /** Id64 */
+            id64: number;
+            /** Reranked Score */
+            reranked_score: number;
+            /** Original Score */
+            original_score?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            rationale?: components["schemas"]["ArchetypeRationale"] | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ArchetypeRerankWeights
+         * @description Weight dimensions for archetype-based reranking.
+         *     All weights should sum to ~1.0 but are not enforced to do so
+         *     (allows intentional emphasis on a single dimension).
+         *
+         *     Default profile: balanced across purity, buildability, slots, expansion, logistics.
+         */
+        ArchetypeRerankWeights: {
+            /**
+             * Purity
+             * @description Clean economy stack, low contamination
+             * @default 0.3
+             */
+            purity: number;
+            /**
+             * Buildability
+             * @description Ease of build, CP efficiency, T3 scaling
+             * @default 0.25
+             */
+            buildability: number;
+            /**
+             * Slots
+             * @description Total slot count and topology quality
+             * @default 0.2
+             */
+            slots: number;
+            /**
+             * Expansion
+             * @description Overall development potential, growth headroom
+             * @default 0.15
+             */
+            expansion: number;
+            /**
+             * Logistics
+             * @description Distance from hub, scoopable star accessibility
+             * @default 0.1
+             */
+            logistics: number;
+        };
+        /**
+         * ArchetypeScore
+         * @description One archetype entry inside SystemArchetypeResponse.archetypes.
+         */
+        ArchetypeScore: {
+            /** Score */
+            score: number;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "S" | "A" | "B" | "C" | "D";
+            /** Label */
+            label: string;
+            rationale?: components["schemas"]["ArchetypeRationale"] | null;
+            /** Rank Global */
+            rank_global?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ArchetypeScoreBreakdown
+         * @description Per-component score decomposition for a single archetype.
+         */
+        ArchetypeScoreBreakdown: {
+            /** Body Composition */
+            body_composition?: number | null;
+            /** Topology */
+            topology?: number | null;
+            /** Pair Synergy Pts */
+            pair_synergy_pts?: number | null;
+            /** Purity Factor */
+            purity_factor?: number | null;
+            /** Contamination Risk */
+            contamination_risk?: number | null;
+            /** Diversity Factor */
+            diversity_factor?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ArchetypesProfilesResponse */
+        ArchetypesProfilesResponse: {
+            /** Profiles */
+            profiles: components["schemas"]["ArchetypeProfile"][];
+        };
         /** AutocompleteHit */
         AutocompleteHit: {
             /** Id64 */
@@ -865,6 +1205,37 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** BuildSimulateRequest */
+        BuildSimulateRequest: {
+            /** Id64 */
+            id64: number;
+            /**
+             * Planned Archetype
+             * @enum {string}
+             */
+            planned_archetype: "refinery_industrial" | "extraction_refinery" | "agriculture_terraforming" | "hitech_tourism" | "expansion_capital" | "trade_logistics" | "population_capital" | "ax_forward_base" | "military_industrial" | "flexible_multirole";
+            /** Planned Facilities */
+            planned_facilities?: components["schemas"]["PlannedFacility"][];
+        };
+        /** BuildSimulateResponse */
+        BuildSimulateResponse: {
+            /** Id64 */
+            id64: number;
+            /** Planned Archetype */
+            planned_archetype: string;
+            /** Simulation Score */
+            simulation_score: number;
+            /** Contamination Risk */
+            contamination_risk?: number | null;
+            /** Purity Score */
+            purity_score?: number | null;
+            /** Buildability Score */
+            buildability_score?: number | null;
+            /** Recommendations */
+            recommendations?: string[];
+            /** Disclaimer */
+            disclaimer?: string | null;
+        };
         /** CacheStatsResponse */
         CacheStatsResponse: {
             /**
@@ -931,6 +1302,24 @@ export interface components {
             y: number;
             /** Z */
             z: number;
+        };
+        /**
+         * EconomyPairDetail
+         * @description One economy pair synergy entry inside SystemArchetypeResponse.
+         */
+        EconomyPairDetail: {
+            /** Economy A */
+            economy_a: string;
+            /** Economy B */
+            economy_b: string;
+            /** Synergy Score */
+            synergy_score: number;
+            /** Purity Achievable */
+            purity_achievable?: number | null;
+            /** Contamination Paths */
+            contamination_paths?: unknown[];
+        } & {
+            [key: string]: unknown;
         };
         /** ExplorationValueModel */
         ExplorationValueModel: {
@@ -1029,6 +1418,20 @@ export interface components {
         NoteBody: {
             /** Note */
             note: string;
+        };
+        /**
+         * PlannedFacility
+         * @description One facility in a build simulation plan.
+         */
+        PlannedFacility: {
+            /** Type */
+            type: string;
+            /** Tier */
+            tier?: number | null;
+            /** Body */
+            body?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * ProfileSyncBlob
@@ -1327,6 +1730,58 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * SystemArchetypeResponse
+         * @description Full archetype breakdown for one system.
+         */
+        SystemArchetypeResponse: {
+            /** Id64 */
+            id64: number;
+            /** Name */
+            name: string;
+            coords?: components["schemas"]["CoordsModel"] | null;
+            /** Distance To Sol */
+            distance_to_sol?: number | null;
+            /** Main Star Type */
+            main_star_type?: string | null;
+            /** Archetypes */
+            archetypes: {
+                [key: string]: components["schemas"]["ArchetypeScore"];
+            };
+            /** Primary Archetype */
+            primary_archetype?: string | null;
+            /** Secondary Archetype */
+            secondary_archetype?: string | null;
+            /** Archetype Confidence */
+            archetype_confidence?: number | null;
+            /** Overall Development Potential */
+            overall_development_potential?: number | null;
+            /** Buildability Score */
+            buildability_score?: number | null;
+            /** Build Complexity */
+            build_complexity?: string | null;
+            /** Cp Efficiency */
+            cp_efficiency?: number | null;
+            /** T3 Scaling Viability */
+            t3_scaling_viability?: number | null;
+            /** Slot Efficiency */
+            slot_efficiency?: number | null;
+            /** Purity Score */
+            purity_score?: number | null;
+            /** Contamination Risk */
+            contamination_risk?: number | null;
+            /** Stable Top Two Prob */
+            stable_top_two_prob?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            topology?: components["schemas"]["TopologyDetail"] | null;
+            /** Economy Pairs */
+            economy_pairs?: components["schemas"]["EconomyPairDetail"][];
+            /** Tags */
+            tags?: string[];
+            /** Query Ms */
+            query_ms?: number | null;
+        };
+        /**
          * SystemDetailResponse
          * @description `/api/system/{id64}` response. Backend returns the same row
          *     twice under `record` and `system` for legacy compat.
@@ -1505,6 +1960,38 @@ export interface components {
             black_hole_count?: number | null;
             /** White Dwarf Count */
             white_dwarf_count?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TopologyDetail
+         * @description Topology metrics block inside SystemArchetypeResponse.
+         */
+        TopologyDetail: {
+            /** Estimated Orbital Slots */
+            estimated_orbital_slots?: number | null;
+            /** Estimated Ground Slots */
+            estimated_ground_slots?: number | null;
+            /** Estimated Total Slots */
+            estimated_total_slots?: number | null;
+            /** Strong Link Potential */
+            strong_link_potential?: number | null;
+            /** Weak Link Stability */
+            weak_link_stability?: number | null;
+            /** Contamination Risk */
+            contamination_risk?: number | null;
+            /** Orbital Synergy */
+            orbital_synergy?: number | null;
+            /** Ground Synergy */
+            ground_synergy?: number | null;
+            /** Nesting Potential */
+            nesting_potential?: number | null;
+            /** Build Flexibility */
+            build_flexibility?: number | null;
+            /** Has Viable Surface Port */
+            has_viable_surface_port?: boolean | null;
+            /** Has Deep Orbital Anchor */
+            has_deep_orbital_anchor?: boolean | null;
         } & {
             [key: string]: unknown;
         };
@@ -2791,6 +3278,163 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_archetype_rankings_api_archetypes_rankings_get: {
+        parameters: {
+            query: {
+                /** @description Colony archetype key */
+                archetype: string;
+                min_score?: number;
+                galaxy_region?: number | null;
+                max_distance_ly?: number | null;
+                has_elw?: boolean | null;
+                min_slots?: number | null;
+                max_contamination?: number | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchetypeRankingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_archetype_rerank_api_archetypes_rerank_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchetypeRerankRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchetypeRerankResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_system_archetypes_api_archetypes_system__id64__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemArchetypeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_simulate_api_archetypes_simulate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildSimulateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildSimulateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_profiles_api_archetypes_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchetypesProfilesResponse"];
                 };
             };
         };
