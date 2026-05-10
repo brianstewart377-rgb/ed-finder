@@ -730,7 +730,7 @@ def generate_structured_rationale(
 
     summary = (
         f"{_score_word(score)} candidate for {defn['label']}. "
-        f"{len(counts.get('rocky_clean', []))} clean Rocky, "
+        f"{counts.get('rocky_clean', 0)} clean Rocky, "
         f"{counts.get('elw', 0)} ELW."
     )[:200]
 
