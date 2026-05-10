@@ -202,17 +202,32 @@ fi
 
 # ---------------------------------------------------------------------------
 # 3.5. Build archetype topology + scores for dirty systems
+#
+# Dirty detection:
+#   build_topology.py --dirty  → ratings.rating_dirty = TRUE (or topology missing)
+#   build_archetype_scores.py --dirty → system_archetype_scores.dirty = TRUE
 # ---------------------------------------------------------------------------
 log "--- Step 3.5: Build archetype topology + scores ---"
-ARCH_DIRTY=$(pg_count "SELECT COUNT(*) FROM systems WHERE archetype_dirty = TRUE")
-log "Dirty archetype systems: $ARCH_DIRTY"
 
-if (( ARCH_DIRTY > 0 )); then
+# Use the same dirty signal as build_topology.py: ratings rows flagged dirty
+# or systems that have no topology row yet.
+TOPO_DIRTY=$(pg_count "SELECT COUNT(*) FROM ratings WHERE rating_dirty = TRUE")
+ARCH_SCORE_DIRTY=$(pg_count "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE")
+log "Topology dirty (rating_dirty): $TOPO_DIRTY | Archetype scores dirty: $ARCH_SCORE_DIRTY"
+
+if (( TOPO_DIRTY > 0 )); then
     log "Running build_topology.py --dirty ..."
     run_importer "build_topology" build_topology.py --dirty \
         && success "Topology rebuilt" \
         || warn "Topology rebuild had errors (check ${LOG_DIR}/build_topology.log)"
+fi
 
+# Re-check arch score dirty count after topology run (topology write sets dirty=TRUE
+# on system_archetype_scores for any system it touches)
+ARCH_SCORE_DIRTY=$(pg_count "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE")
+log "Archetype scores dirty after topology pass: $ARCH_SCORE_DIRTY"
+
+if (( ARCH_SCORE_DIRTY > 0 )); then
     log "Running build_archetype_scores.py --dirty ..."
     run_importer "build_archetype_scores" build_archetype_scores.py --dirty \
         && success "Archetype scores rebuilt" \
@@ -225,12 +240,12 @@ if (( ARCH_DIRTY > 0 )); then
         && success "mv_archetype_rankings refreshed" \
         || warn "MV refresh failed"
 
-    # Post-rebuild verification: how many are still dirty?
-    STILL_DIRTY_A=$(pg_count "SELECT COUNT(*) FROM systems WHERE archetype_dirty = TRUE")
+    # Post-rebuild verification
+    STILL_DIRTY_A=$(pg_count "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE")
     if (( STILL_DIRTY_A > 0 )); then
-        warn "Archetype rebuild incomplete: $STILL_DIRTY_A systems still have archetype_dirty=TRUE"
+        warn "Archetype rebuild incomplete: $STILL_DIRTY_A rows still have dirty=TRUE in system_archetype_scores"
     else
-        success "All archetype_dirty flags cleared"
+        success "All system_archetype_scores.dirty flags cleared"
     fi
 fi
 

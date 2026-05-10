@@ -836,6 +836,18 @@ def _write_topology_batch(conn, cur, topo_batch: list, pair_batch: list):
             updated_at              = NOW()
     """, topo_args)
 
+    # ── Mark archetype scores dirty for every system we just touched ─────────
+    # build_archetype_scores.py --dirty reads system_archetype_scores.dirty = TRUE.
+    # Nothing else sets this flag, so topology must propagate it.
+    # Use INSERT ... ON CONFLICT so rows are created (dirty=TRUE) even if
+    # build_archetype_scores.py has never run yet for a given system.
+    system_id64s = [r['system_id64'] for r in topo_batch]
+    cur.executemany("""
+        INSERT INTO system_archetype_scores (system_id64, dirty)
+        VALUES (%s, TRUE)
+        ON CONFLICT (system_id64) DO UPDATE SET dirty = TRUE
+    """, [(sid,) for sid in system_id64s])
+
     # ── economy_pair_synergy upsert ───────────────────────────────────────────
     if pair_batch:
         pair_args = [(
