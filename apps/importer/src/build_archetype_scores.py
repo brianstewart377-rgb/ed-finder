@@ -1162,11 +1162,11 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
             try:
                 # Fetch bodies
                 cur.execute("""
-                    SELECT body_id, name, body_type, subtype,
+                    SELECT id AS body_id, name, body_type, subtype,
                            is_landable, is_terraformable,
                            bio_signal_count, geo_signal_count,
                            distance_from_star, radius, gravity,
-                           has_rings
+                           (LOWER(subtype) LIKE '%ring%') AS has_rings
                     FROM bodies WHERE system_id64 = %s
                 """, (system_id64,))
                 bodies = [dict(r) for r in cur.fetchall()]

@@ -886,11 +886,11 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
                 # Fetch bodies for this system
                 cur.execute("""
                     SELECT
-                        b.body_id, b.name, b.body_type, b.subtype,
+                        b.id AS body_id, b.name, b.body_type, b.subtype,
                         b.is_landable, b.is_terraformable,
                         b.bio_signal_count, b.geo_signal_count,
                         b.distance_from_star, b.radius, b.gravity,
-                        b.has_rings,
+                        (LOWER(b.subtype) LIKE '%ring%') AS has_rings,
                         s.is_main_star, s.spectral_class
                     FROM bodies b
                     LEFT JOIN (
