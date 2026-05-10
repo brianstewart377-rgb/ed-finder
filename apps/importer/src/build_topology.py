@@ -931,7 +931,8 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
 
             except Exception as e:
                 errors += 1
-                log.warning(f"  Worker {worker_id}: error on {system_id64}: {e}")
+                import traceback as _tb
+                log.warning(f"  Worker {worker_id}: error on {system_id64}: {e}\n{''.join(_tb.format_exc())}")
                 conn.rollback()
 
         # Write remaining
