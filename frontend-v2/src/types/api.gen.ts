@@ -54,7 +54,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Cheap, bounded liveness probe.
+         *
+         *     Bounded at 2 s with `asyncio.wait_for` so a wedged pool (every
+         *     connection held by a slow query) cannot hang the healthcheck for
+         *     the asyncpg `command_timeout` of 5 minutes. nginx's
+         *     `proxy_read_timeout` on /api/health is 300s and Cloudflare's edge
+         *     timeout is ~100s, so an unbounded probe means CF returns its own
+         *     524 to the user before nginx ever gives up — and the api container
+         *     keeps showing (healthy) to Docker's own healthcheck because that
+         *     runs from inside the container against localhost without going
+         *     through any of those timeouts.
+         *
+         *     Capping the probe at 2 s makes /api/health honest about pool
+         *     exhaustion: if no connection is acquirable inside that window, we
+         *     return 503 with a clear message and Docker can mark the container
+         *     unhealthy and restart it, breaking the wedge.
+         */
         get: operations["health_api_health_get"];
         put?: never;
         post?: never;
