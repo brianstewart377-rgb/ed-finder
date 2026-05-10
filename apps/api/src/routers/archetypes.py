@@ -24,15 +24,13 @@ Backward compatibility:
     All new routes are under /api/archetypes/* to avoid conflicts.
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 import time
 from typing import Any, Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -50,7 +48,7 @@ from models import (
     RerankedSystemRow,
     SystemArchetypeResponse,
 )
-from state import get_pool, get_redis
+from state import get_pool_singleton as get_pool, get_redis_singleton as get_redis
 
 router = APIRouter(prefix='/api/archetypes', tags=['archetypes'])
 
@@ -244,7 +242,7 @@ async def get_archetype_rankings(
         idx += 1
 
     if max_distance_ly is not None:
-        where_parts.append(f"distance_to_sol <= ${idx}")
+        where_parts.append(f"SQRT(x*x + y*y + z*z) <= ${idx}")
         params.append(max_distance_ly)
         idx += 1
 
@@ -271,7 +269,8 @@ async def get_archetype_rankings(
     # Results query
     results_sql = f"""
         SELECT
-            id64, name, x, y, z, distance_to_sol,
+            id64, name, x, y, z,
+            SQRT(x*x + y*y + z*z) AS distance_to_sol,
             primary_archetype, secondary_archetype, archetype_confidence,
             {score_col}                AS score,
             overall_development_potential,
@@ -467,7 +466,8 @@ async def get_system_archetypes(request: Request, id64: int):
             # System + archetype scores
             row = await conn.fetchrow("""
                 SELECT
-                    s.id64, s.name, s.x, s.y, s.z, s.distance_to_sol,
+                    s.id64, s.name, s.x, s.y, s.z,
+                    SQRT(s.x*s.x + s.y*s.y + s.z*s.z) AS distance_to_sol,
                     s.main_star_type,
                     a.primary_archetype, a.secondary_archetype,
                     a.archetype_confidence,

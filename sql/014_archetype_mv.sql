@@ -44,7 +44,7 @@ SELECT
     s.x,
     s.y,
     s.z,
-    s.distance_to_sol,
+    SQRT(s.x*s.x + s.y*s.y + s.z*s.z) AS distance_to_sol,
     s.main_star_type,
     s.galaxy_region_id,
 
