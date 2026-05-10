@@ -1145,7 +1145,7 @@ def _write_scores_batch(conn, cur, scores_batch: list, traits_batch: list):
 
 def worker_process(worker_id: int, system_ids: list, db_dsn: str):
     """Worker: fetch bodies + topology, compute archetype scores, write DB."""
-    hb   = WorkerHeartbeat(worker_id)
+    hb   = WorkerHeartbeat(worker_id, len(system_ids))
     conn = _connect_with_retry(db_dsn, label=f'archetype_worker_{worker_id}')
     cur  = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 

@@ -866,7 +866,7 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
     Worker process: fetches bodies for the given system IDs, computes
     topology + pair synergy, and writes to DB.
     """
-    hb = WorkerHeartbeat(worker_id)
+    hb = WorkerHeartbeat(worker_id, len(system_ids))
     conn = _connect_with_retry(db_dsn, label=f'topology_worker_{worker_id}')
     cur  = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
