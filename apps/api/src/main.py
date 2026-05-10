@@ -17,7 +17,8 @@ Endpoint surface (see individual router docstrings for detail):
   routers/search.py     autocomplete + local/galaxy/cluster search
   routers/systems.py    per-system / per-body detail + batch lookup
   routers/map.py        galaxy regions, cluster hulls, heatmap, timeline
-  routers/ratings.py    rating rerank with custom weights
+  routers/ratings.py    rating rerank with custom weights (v3.1 — preserved unchanged)
+  routers/archetypes.py archetype rankings, rerank, system detail, simulate, profiles
   share_router.py       /s/{id64} OG-tagged share preview + PNG
 """
 import asyncio
@@ -48,6 +49,7 @@ from routers.map       import router as map_router
 from routers.meta      import router as meta_router
 from routers.notes     import router as notes_router
 from routers.profile   import router as profile_router
+from routers.archetypes import router as archetypes_router
 from routers.ratings   import router as ratings_router
 from routers.search    import router as search_router
 from routers.systems   import router as systems_router
@@ -248,6 +250,7 @@ app.include_router(events_router)
 app.include_router(search_router)
 app.include_router(systems_router)
 app.include_router(map_router)
+app.include_router(archetypes_router)
 app.include_router(ratings_router)
 
 

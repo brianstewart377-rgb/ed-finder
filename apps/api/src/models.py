@@ -584,3 +584,298 @@ class ClusterSearchRequest(BaseModel):
     limit:            int = Field(default=50, le=200)
     offset:           int = 0
     reference_coords: Optional[CoordsModel] = None
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Archetype engine models (v4.0 — Phase 3)
+#
+# Strictness policy (consistent with existing models above):
+#   • Row / result models  → extra='allow'   (SQL projections legitimately drift)
+#   • Response envelopes   → extra='forbid'  (loud failure if contract breaks)
+#   • Request models       → extra='forbid'  (prevent silent input discarding)
+# ══════════════════════════════════════════════════════════════════════
+
+# ── Valid archetype keys (single source of truth) ────────────────────
+ArchetypeKey = Literal[
+    'refinery_industrial',
+    'extraction_refinery',
+    'agriculture_terraforming',
+    'hitech_tourism',
+    'expansion_capital',
+    'trade_logistics',
+    'population_capital',
+    'ax_forward_base',
+    'military_industrial',
+    'flexible_multirole',
+]
+
+# ── Valid tier values ─────────────────────────────────────────────────
+TierValue = Literal['S', 'A', 'B', 'C', 'D']
+
+# ── Build complexity ──────────────────────────────────────────────────
+BuildComplexity = Literal['trivial', 'simple', 'moderate', 'advanced', 'expert']
+
+
+class ArchetypeRerankWeights(BaseModel):
+    """
+    Weight dimensions for archetype-based reranking.
+    All weights should sum to ~1.0 but are not enforced to do so
+    (allows intentional emphasis on a single dimension).
+
+    Default profile: balanced across purity, buildability, slots, expansion, logistics.
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    purity:       float = Field(default=0.30, ge=0.0, le=1.0,
+                                description='Clean economy stack, low contamination')
+    buildability: float = Field(default=0.25, ge=0.0, le=1.0,
+                                description='Ease of build, CP efficiency, T3 scaling')
+    slots:        float = Field(default=0.20, ge=0.0, le=1.0,
+                                description='Total slot count and topology quality')
+    expansion:    float = Field(default=0.15, ge=0.0, le=1.0,
+                                description='Overall development potential, growth headroom')
+    logistics:    float = Field(default=0.10, ge=0.0, le=1.0,
+                                description='Distance from hub, scoopable star accessibility')
+
+
+class ArchetypeScoreBreakdown(BaseModel):
+    """Per-component score decomposition for a single archetype."""
+    model_config = ConfigDict(extra='allow')
+
+    body_composition:   Optional[float] = None   # 0-60
+    topology:           Optional[float] = None   # 0-25
+    pair_synergy_pts:   Optional[float] = None   # 0-15
+    purity_factor:      Optional[float] = None   # multiplier
+    contamination_risk: Optional[float] = None   # 0-1
+    diversity_factor:   Optional[float] = None   # multiplier
+
+
+class ArchetypeRationale(BaseModel):
+    """
+    Structured JSONB rationale for a system's primary archetype.
+    Schema is intentionally flexible (extra='allow') so Frontier
+    mechanic changes can be absorbed without breaking existing consumers.
+    """
+    model_config = ConfigDict(extra='allow')
+
+    summary:        Optional[str]                     = None
+    tier:           Optional[TierValue]               = None
+    headline:       Optional[str]                     = None
+    positives:      list[str]                         = Field(default_factory=list)
+    risks:          list[str]                         = Field(default_factory=list)
+    complexity:     Optional[str]                     = None
+    build_path:     Optional[str]                     = None
+    tags:           list[str]                         = Field(default_factory=list)
+    score_breakdown: Optional[ArchetypeScoreBreakdown] = None
+    data_confidence: Optional[float]                  = None
+
+
+class ArchetypeScore(BaseModel):
+    """One archetype entry inside SystemArchetypeResponse.archetypes."""
+    model_config = ConfigDict(extra='allow')
+
+    score:      float
+    tier:       TierValue
+    label:      str
+    rationale:  Optional[ArchetypeRationale] = None   # only on primary archetype
+    rank_global: Optional[int]               = None   # populated in Phase 4
+
+
+class TopologyDetail(BaseModel):
+    """Topology metrics block inside SystemArchetypeResponse."""
+    model_config = ConfigDict(extra='allow')
+
+    estimated_orbital_slots: Optional[int]   = None
+    estimated_ground_slots:  Optional[int]   = None
+    estimated_total_slots:   Optional[int]   = None
+    strong_link_potential:   Optional[float] = None
+    weak_link_stability:     Optional[float] = None
+    contamination_risk:      Optional[float] = None
+    orbital_synergy:         Optional[float] = None
+    ground_synergy:          Optional[float] = None
+    nesting_potential:       Optional[float] = None
+    build_flexibility:       Optional[float] = None
+    has_viable_surface_port: Optional[bool]  = None
+    has_deep_orbital_anchor: Optional[bool]  = None
+
+
+class EconomyPairDetail(BaseModel):
+    """One economy pair synergy entry inside SystemArchetypeResponse."""
+    model_config = ConfigDict(extra='allow')
+
+    economy_a:           str
+    economy_b:           str
+    synergy_score:       float
+    purity_achievable:   Optional[float] = None
+    contamination_paths: list[Any]       = Field(default_factory=list)
+
+
+# ── Response: GET /api/archetypes/system/{id64} ───────────────────────
+class SystemArchetypeResponse(BaseModel):
+    """Full archetype breakdown for one system."""
+    model_config = ConfigDict(extra='forbid')
+
+    id64:             int
+    name:             str
+    coords:           Optional[CoordsModel] = None
+    distance_to_sol:  Optional[float]       = None
+    main_star_type:   Optional[str]         = None
+
+    # Per-archetype score map: archetype_key → ArchetypeScore
+    archetypes:       dict[str, ArchetypeScore]
+
+    primary_archetype:    Optional[str]   = None
+    secondary_archetype:  Optional[str]   = None
+    archetype_confidence: Optional[float] = None
+
+    overall_development_potential: Optional[float] = None
+    buildability_score:  Optional[float]  = None
+    build_complexity:    Optional[str]    = None
+    cp_efficiency:       Optional[float]  = None
+    t3_scaling_viability: Optional[float] = None
+    slot_efficiency:     Optional[float]  = None
+    purity_score:        Optional[float]  = None
+    contamination_risk:  Optional[float]  = None
+    stable_top_two_prob: Optional[float]  = None
+    confidence:          Optional[float]  = None
+
+    topology:       Optional[TopologyDetail]    = None
+    economy_pairs:  list[EconomyPairDetail]     = Field(default_factory=list)
+    tags:           list[str]                   = Field(default_factory=list)
+    query_ms:       Optional[int]               = None
+    _cached:        Optional[bool]              = None
+
+
+# ── Result row: GET /api/archetypes/rankings ─────────────────────────
+class ArchetypeRankingRow(BaseModel):
+    """One result row inside ArchetypeRankingsResponse."""
+    model_config = ConfigDict(extra='allow')
+
+    id64:             int
+    name:             str
+    coords:           Optional[CoordsModel] = None
+    distance_to_sol:  Optional[float]       = None
+    score:            float
+    tier:             TierValue
+    primary_archetype:    Optional[str]   = None
+    secondary_archetype:  Optional[str]   = None
+    archetype_confidence: Optional[float] = None
+    overall_development_potential: Optional[float] = None
+    buildability_score:  Optional[float]  = None
+    build_complexity:    Optional[str]    = None
+    purity_score:        Optional[float]  = None
+    contamination_risk:  Optional[float]  = None
+    confidence:          Optional[float]  = None
+    has_elw:             Optional[bool]   = None
+    elw_count:           Optional[int]    = None
+    landable_count:      Optional[int]    = None
+    est_total_slots:     Optional[int]    = None
+    tags:                list[str]        = Field(default_factory=list)
+
+
+# ── Response: GET /api/archetypes/rankings ───────────────────────────
+class ArchetypeRankingsResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    archetype:       str
+    archetype_label: str
+    results:         list[ArchetypeRankingRow]
+    total:           int = 0
+    count:           int = 0
+    source:          Optional[str] = None
+    query_ms:        Optional[int] = None
+    _cached:         Optional[bool] = None
+
+
+# ── Request: POST /api/archetypes/rerank ─────────────────────────────
+class ArchetypeRerankRequest(BaseModel):
+    """
+    Rerank a set of systems by custom archetype weights.
+
+    Either provide explicit weights OR a profile ID.
+    If both are given, the profile takes precedence.
+    If neither, default ArchetypeRerankWeights are applied.
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    id64s:     list[int]                      = Field(..., min_length=1, max_length=500)
+    archetype: Optional[ArchetypeKey]         = None
+    weights:   Optional[ArchetypeRerankWeights] = None
+    profile:   Optional[str]                  = None   # profile ID from /api/archetypes/profiles
+
+
+# ── Result row: POST /api/archetypes/rerank ───────────────────────────
+class ArchetypeRerankRow(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+    id64:             int
+    reranked_score:   int
+    original_score:   Optional[float]        = None
+    confidence:       Optional[float]        = None
+    rationale:        Optional[ArchetypeRationale] = None
+
+
+# ── Response: POST /api/archetypes/rerank ─────────────────────────────
+class ArchetypeRerankResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    archetype:       Optional[str]              = None
+    profile_applied: Optional[str]              = None
+    weights_applied: ArchetypeRerankWeights
+    results:         list[ArchetypeRerankRow]
+    query_ms:        Optional[int]              = None
+    _cached:         Optional[bool]             = None
+
+
+# Backward-compat alias used in ratings.py POST /api/ratings/rerank
+RerankedSystemRow = ArchetypeRerankRow
+
+
+# ── Request: POST /api/archetypes/simulate ───────────────────────────
+class PlannedFacility(BaseModel):
+    """One facility in a build simulation plan."""
+    model_config = ConfigDict(extra='allow')
+
+    type:   str                   # e.g. 'StarPort', 'RefineryHub', 'IndustrialHub'
+    tier:   Optional[int] = None  # 1, 2, or 3
+    body:   Optional[str] = None  # body key or name
+
+
+class BuildSimulateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    id64:              int
+    planned_archetype: ArchetypeKey
+    planned_facilities: list[PlannedFacility] = Field(default_factory=list)
+
+
+# ── Response: POST /api/archetypes/simulate ──────────────────────────
+class BuildSimulateResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    id64:               int
+    planned_archetype:  str
+    simulation_score:   int
+    contamination_risk: Optional[float] = None
+    purity_score:       Optional[float] = None
+    buildability_score: Optional[float] = None
+    recommendations:    list[str]       = Field(default_factory=list)
+    disclaimer:         Optional[str]   = None
+
+
+# ── Profile entry: GET /api/archetypes/profiles ──────────────────────
+class ArchetypeProfile(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+    id:          str
+    label:       str
+    description: str
+    archetype:   Optional[str]             = None
+    weights:     ArchetypeRerankWeights
+
+
+# ── Response: GET /api/archetypes/profiles ───────────────────────────
+class ArchetypesProfilesResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    profiles: list[ArchetypeProfile]
