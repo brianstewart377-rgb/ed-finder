@@ -902,7 +902,7 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
                         b.is_landable, b.is_terraformable,
                         b.bio_signal_count, b.geo_signal_count,
                         b.distance_from_star, b.radius, b.gravity,
-                        (LOWER(b.subtype) LIKE '%ring%') AS has_rings,
+                        (LOWER(b.subtype) LIKE '%%ring%%') AS has_rings,
                         s.is_main_star, s.spectral_class
                     FROM bodies b
                     LEFT JOIN (
@@ -931,8 +931,7 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
 
             except Exception as e:
                 errors += 1
-                import traceback as _tb
-                log.warning(f"  Worker {worker_id}: error on {system_id64}: {e}\n{''.join(_tb.format_exc())}")
+                log.warning(f"  Worker {worker_id}: error on {system_id64}: {e}")
                 conn.rollback()
 
         # Write remaining
