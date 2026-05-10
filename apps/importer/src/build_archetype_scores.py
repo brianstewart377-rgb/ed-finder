@@ -1112,6 +1112,7 @@ def _write_scores_batch(conn, cur, scores_batch: list, traits_batch: list):
                 has_white_dwarf     = EXCLUDED.has_white_dwarf,
                 has_ringed_body     = EXCLUDED.has_ringed_body,
                 has_terraformables  = EXCLUDED.has_terraformables,
+                has_pristine_res    = EXCLUDED.has_pristine_res,
                 has_bio_signals     = EXCLUDED.has_bio_signals,
                 has_geo_signals     = EXCLUDED.has_geo_signals,
                 is_scoopable_star   = EXCLUDED.is_scoopable_star,
