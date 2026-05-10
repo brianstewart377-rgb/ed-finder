@@ -670,7 +670,7 @@ async def post_simulate(request: Request, body: BuildSimulateRequest):
             'before attempting T3 scaling.'
         )
     if len(body.planned_facilities) > 0:
-        t3_count = sum(1 for f in body.planned_facilities if f.get('tier') == 3)
+        t3_count = sum(1 for f in body.planned_facilities if f.tier == 3)
         if t3_count > 0:
             recs.append(
                 f'{t3_count} T3 facilities planned. '
