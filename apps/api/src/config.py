@@ -88,12 +88,32 @@ log = logging.getLogger('ed_finder')
 
 
 # ---------------------------------------------------------------------------
-# Rate limiter (shared across all routers). Storage backed by Redis so
-# limits apply globally across workers & containers.
+# Rate limiter (shared across all routers).
+#
+# Storage: in-memory.
+#
+# The previous configuration used `storage_uri=settings.redis_url` so the
+# limit buckets were Redis-backed, on the premise that "limits apply
+# globally across workers & containers". In practice we run a single api
+# container with `--workers 1` (per the comment in apps/api/Dockerfile)
+# so there is no second process for the bucket to be shared with — the
+# Redis storage was buying nothing. What it WAS buying:
+#
+#   * If Redis is unreachable at api startup, slowapi/limits raises
+#     during the first rate-limited request, returning 500. A Redis
+#     blip therefore took down every search endpoint.
+#   * A Redis hiccup during runtime caused intermittent 500s on
+#     `@limiter.limit(...)` paths even though nothing else needed Redis
+#     for that request.
+#
+# Switching to memory:// removes both failure modes. If we ever scale
+# the api horizontally (multiple containers behind nginx), revisit —
+# but at that point we should also revisit pgbouncer, single-leader
+# SSE, and the in-process metrics dict, none of which scale either.
 # ---------------------------------------------------------------------------
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[settings.rate_limit_default],
-    storage_uri=settings.redis_url,
+    storage_uri='memory://',
     strategy='moving-window',
 )

@@ -794,6 +794,21 @@ async def main():
         dsn=DB_DSN, min_size=3, max_size=10, command_timeout=30,
         # Required for pgBouncer transaction-pool mode.
         statement_cache_size=0,
+        # Mirror the api fix in commit 4fe340a: pass statement_timeout
+        # through asyncpg's startup parameters (server_settings) rather
+        # than via a session-level SET, because pgBouncer's transaction-
+        # pool mode wipes session SETs between transactions but
+        # preserves protocol-level startup parameters across the pool.
+        # Without this ceiling, a hung body-upsert in flush_pending()
+        # against asyncpg's 30 s command_timeout pins a connection,
+        # back-pressures the EDDN ingestion loop, and ultimately makes
+        # the SSE bridge silent — exactly the failure mode the api
+        # commit was originally written to fix. application_name lets
+        # us spot eddn-originated queries in pg_stat_activity.
+        server_settings={
+            'application_name':   'ed_finder_eddn',
+            'statement_timeout':  '15000',
+        },
     )
     log.info("PostgreSQL pool ready")
 
