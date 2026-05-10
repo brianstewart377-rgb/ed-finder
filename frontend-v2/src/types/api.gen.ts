@@ -828,6 +828,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/systems/{id64}/slot-predictions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Slot Predictions
+         * @description Per-body slot predictions for a system.
+         *
+         *     Returns predicted orbital and surface slot counts for each scanned body,
+         *     with confidence scores and explainability reasons.
+         *
+         *     Data source priority:
+         *       1. body_scan_facts (EDDN-derived, highest confidence)
+         *       2. bodies table (Spansh-imported, moderate confidence)
+         *       3. No data → empty predictions with explanation
+         */
+        get: operations["get_slot_predictions_api_systems__id64__slot_predictions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/systems/{id64}/buildability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Buildability
+         * @description Full buildability analysis for a system.
+         *
+         *     Returns:
+         *       • Slot estimates (orbital + surface) with confidence
+         *       • CP capacity (yellow + green)
+         *       • Max T2/T3 port estimates
+         *       • Bottleneck identification
+         *       • Opportunities (ringed body, deep anchor, etc.)
+         *       • Recommended build order (step-by-step)
+         *       • Build complexity label
+         *       • Topology summary (human-readable points)
+         *
+         *     Data source priority:
+         *       1. buildability_analysis (pre-computed, fastest)
+         *       2. system_slot_topology + body_scan_facts (compute on demand)
+         *       3. system_archetype_traits (fallback, lower confidence)
+         */
+        get: operations["get_buildability_api_systems__id64__buildability_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/systems/{id64}/simulation-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Simulation Summary
+         * @description Combined simulation + archetype summary for a system.
+         *
+         *     This is the primary endpoint for the frontend simulation panel.
+         *     Returns everything needed to render:
+         *       • Archetype classification + scores
+         *       • Buildability analysis
+         *       • Slot predictions summary
+         *       • Composition guidance
+         *       • Recommended build strategy
+         *       • Warnings and opportunities
+         *
+         *     Aggregates data from:
+         *       • mv_archetype_rankings (archetype scores)
+         *       • system_slot_topology (topology)
+         *       • buildability_analysis (pre-computed if available)
+         *       • body_scan_facts or bodies (slot predictions)
+         */
+        get: operations["get_simulation_summary_api_systems__id64__simulation_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3459,6 +3557,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RerankResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_slot_predictions_api_systems__id64__slot_predictions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_buildability_api_systems__id64__buildability_get: {
+        parameters: {
+            query?: {
+                /** @description Target archetype key */
+                archetype?: string | null;
+            };
+            header?: never;
+            path: {
+                id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_simulation_summary_api_systems__id64__simulation_summary_get: {
+        parameters: {
+            query?: {
+                /** @description Target archetype key */
+                archetype?: string | null;
+            };
+            header?: never;
+            path: {
+                id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
