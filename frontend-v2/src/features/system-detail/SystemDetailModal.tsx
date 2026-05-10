@@ -4,6 +4,8 @@ import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
 import { formatPopulation } from '@/lib/format';
 import { useSystemDetail } from './useSystemDetail';
 import { RatingRadar } from './RatingRadar';
+import { BuildabilityPanel } from './BuildabilityPanel';
+import { SlotPredictionPanel } from './SlotPredictionPanel';
 
 export interface SystemDetailModalProps {
   id64:    number;
@@ -91,6 +93,15 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
               <BodiesSection bodies={data.bodies} />
               <StationsSection stations={data.stations} />
               <ExplorationValue value={data.exploration_value} />
+
+              {/* Colony Build Analysis — simulation engine panels */}
+              <Section title="Colony Build Analysis">
+                <BuildabilityPanel id64={id64} />
+                <div className="mt-3">
+                  <SlotPredictionPanel id64={id64} />
+                </div>
+              </Section>
+
               <ExternalLinks sys={data} />
             </>
           )}

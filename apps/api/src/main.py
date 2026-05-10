@@ -49,8 +49,9 @@ from routers.map       import router as map_router
 from routers.meta      import router as meta_router
 from routers.notes     import router as notes_router
 from routers.profile   import router as profile_router
-from routers.archetypes import router as archetypes_router
-from routers.ratings   import router as ratings_router
+from routers.archetypes  import router as archetypes_router
+from routers.ratings     import router as ratings_router
+from routers.simulation  import router as simulation_router
 from routers.search    import router as search_router
 from routers.systems   import router as systems_router
 from routers.watchlist import router as watchlist_router
@@ -146,6 +147,16 @@ async def lifespan(app: FastAPI):
     if redis is not None:
         _sse_pubsub_task = asyncio.create_task(eddn_pubsub_bridge())
         log.info("EDDN→SSE pub/sub bridge started ✓")
+
+    # Load facility catalogue into memory (simulation engine domain layer)
+    try:
+        async with pool.acquire() as _conn:
+            _rows = await _conn.fetch('SELECT * FROM facility_templates ORDER BY tier, id')
+            from domain.facilities import load_catalogue_from_rows
+            load_catalogue_from_rows([dict(r) for r in _rows])
+            log.info(f"Facility catalogue loaded ✓ ({len(_rows)} facilities)")
+    except Exception as _e:
+        log.warning(f"Facility catalogue load failed ({_e}) — simulation endpoints will use empty catalogue")
 
     log.info("PostgreSQL pool ready ✓")
     app.state.pool  = pool
@@ -252,6 +263,7 @@ app.include_router(systems_router)
 app.include_router(map_router)
 app.include_router(archetypes_router)
 app.include_router(ratings_router)
+app.include_router(simulation_router)
 
 
 # ---------------------------------------------------------------------------
