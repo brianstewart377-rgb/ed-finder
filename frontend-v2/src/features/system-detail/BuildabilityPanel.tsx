@@ -18,56 +18,13 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { BuildabilityData, SimulationSummary } from '@/types/api';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-interface BuildabilityData {
-  source: 'precomputed' | 'computed' | 'insufficient_data';
-  estimated_orbital_slots?: number;
-  estimated_ground_slots?: number;
-  slot_confidence?: number;
-  slot_confidence_label?: string;
-  estimated_yellow_cp?: number;
-  estimated_green_cp?: number;
-  max_t2_ports?: number;
-  max_t3_ports?: number;
-  cp_bottleneck_score?: number;
-  slot_exhaustion_risk?: number;
-  build_order_sensitivity?: number;
-  build_complexity?: string;
-  bottlenecks?: Array<{ type: string; description: string; severity?: string }>;
-  opportunities?: Array<{ type: string; description: string }>;
-  recommended_build_order?: Array<{
-    step: number;
-    facility_id?: string;
-    facility_name?: string;
-    location?: string;
-    notes?: string;
-    cumulative_yellow_cp?: number;
-    cumulative_green_cp?: number;
-  }>;
-  note?: string;
-}
-
-interface ClassificationData {
-  primary_archetype?: string;
-  secondary_archetype?: string;
-  confidence?: number;
-  overall_potential?: number;
-  display_tags?: string[];
-  rationale?: string;
-}
-
-interface SimulationSummary {
-  system_id64: number;
-  system_name?: string;
-  archetype?: string;
-  buildability?: BuildabilityData;
-  classification?: ClassificationData;
-  topology_summary?: string[];
-  distance_to_sol?: number;
-  main_star_type?: string;
-}
+type ClassificationData = NonNullable<SimulationSummary['classification']>;
+type BuildabilityIssue = NonNullable<BuildabilityData['bottlenecks']>[number];
+type RecommendedBuildStep = NonNullable<BuildabilityData['recommended_build_order']>[number];
 
 // ─── Fetch hook ─────────────────────────────────────────────────────────────
 
@@ -338,7 +295,7 @@ function ComplexityRow({ ba }: { ba: BuildabilityData }) {
 }
 
 function RiskMeter({ label, value, colour }: { label: string; value: number; colour: string }) {
-  const pct = Math.min(100, Math.round(value * 100));
+  const pct = riskPercent(value);
   return (
     <div className="flex flex-col items-center gap-0.5 min-w-[56px]">
       <div className="font-mono text-[9px] text-text-dim uppercase tracking-wide text-center whitespace-nowrap">
@@ -387,7 +344,7 @@ function TopologyNarrative({ points }: { points: string[] }) {
 function BottleneckList({
   items,
 }: {
-  items: Array<{ type: string; description: string; severity?: string }>;
+  items: BuildabilityIssue[];
 }) {
   return (
     <div className="space-y-1.5">
@@ -420,7 +377,7 @@ function BottleneckList({
 function OpportunityList({
   items,
 }: {
-  items: Array<{ type: string; description: string }>;
+  items: BuildabilityIssue[];
 }) {
   return (
     <div className="space-y-1.5">
@@ -449,15 +406,7 @@ function OpportunityList({
 function BuildOrderAccordion({
   steps,
 }: {
-  steps: Array<{
-    step: number;
-    facility_id?: string;
-    facility_name?: string;
-    location?: string;
-    notes?: string;
-    cumulative_yellow_cp?: number;
-    cumulative_green_cp?: number;
-  }>;
+  steps: RecommendedBuildStep[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -545,7 +494,7 @@ function DataSourceNote({
   confidence,
 }: {
   source: BuildabilityData['source'];
-  confidence?: number;
+  confidence?: number | null;
 }) {
   const labels: Record<string, string> = {
     precomputed: 'Pre-computed — updated with topology pipeline',
@@ -584,7 +533,7 @@ function Buildabilityskeleton() {
 
 // ─── LocationBadge ──────────────────────────────────────────────────────────
 
-function LocationBadge({ location }: { location?: string }) {
+function LocationBadge({ location }: { location?: string | null }) {
   if (!location) return <span className="text-text-dim">—</span>;
   const isOrbital = location === 'orbital';
   return (
@@ -610,7 +559,7 @@ function formatArchetype(key?: string | null): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function confidenceColour(label?: string): string {
+function confidenceColour(label?: string | null): string {
   switch (label) {
     case 'High':     return '#4caf50';  // green
     case 'Moderate': return '#f5c518';  // yellow
@@ -620,12 +569,19 @@ function confidenceColour(label?: string): string {
 }
 
 function riskColour(v: number): string {
-  if (v >= 0.7) return '#ef5350'; // red
-  if (v >= 0.4) return '#ff9800'; // orange
+  const pct = riskPercent(v);
+  if (pct >= 70) return '#ef5350'; // red
+  if (pct >= 40) return '#ff9800'; // orange
   return '#4caf50';               // green
 }
 
-function severityColour(sev?: string): string {
+function riskPercent(v: number): number {
+  const bounded = Number.isFinite(v) ? Math.max(0, v) : 0;
+  const pct = bounded <= 1 ? bounded * 100 : bounded;
+  return Math.min(100, Math.round(pct));
+}
+
+function severityColour(sev?: string | null): string {
   switch (sev?.toLowerCase()) {
     case 'high':     return '#ef5350';
     case 'medium':   return '#ff9800';
@@ -634,7 +590,7 @@ function severityColour(sev?: string): string {
   }
 }
 
-function complexityChipStyle(complexity?: string): React.CSSProperties {
+function complexityChipStyle(complexity?: string | null): React.CSSProperties {
   switch (complexity) {
     case 'trivial':     return { borderColor: '#4caf5060', color: '#4caf50', backgroundColor: '#4caf5018' };
     case 'simple':      return { borderColor: '#8bc34a60', color: '#8bc34a', backgroundColor: '#8bc34a14' };

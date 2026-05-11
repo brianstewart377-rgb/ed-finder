@@ -59,6 +59,12 @@ export type RerankRequest         = Schemas['RerankRequest'];
 export type RerankResponse        = Schemas['RerankResponse'];
 export type RerankRow             = Schemas['RerankRow'];
 export type RerankWeights         = Schemas['RerankWeights'];
+export type BuildabilityData      = Schemas['BuildabilityData'];
+export type BodySlotPrediction    = Schemas['BodySlotPrediction'];
+export type SimulationSummary     = Schemas['SimulationSummaryResponse'];
+export type SlotPredictionResponse = Schemas['SlotPredictionResponse'];
+export type SlotReason            = Schemas['SlotReason'];
+export type SystemBuildability    = Schemas['SystemBuildabilityResponse'];
 
 // ─── Frontend-side constants ──────────────────────────────────────────────
 

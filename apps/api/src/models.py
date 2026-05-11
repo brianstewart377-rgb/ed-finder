@@ -863,6 +863,166 @@ class BuildSimulateResponse(BaseModel):
     disclaimer:         Optional[str]   = None
 
 
+# ── Response: simulation/buildability endpoints ───────────────────────
+SimulationSource = Literal['precomputed', 'computed', 'insufficient_data']
+SlotDataSource = Literal['eddn', 'spansh', 'none']
+
+
+class SlotReason(BaseModel):
+    """One explainability note for a per-body slot prediction."""
+    model_config = ConfigDict(extra='allow')
+
+    factor:       str
+    delta:        Optional[float] = None
+    note:         Optional[str]   = None
+
+
+class BodySlotPrediction(BaseModel):
+    """One body row returned by GET /api/systems/{id64}/slot-predictions."""
+    model_config = ConfigDict(extra='allow')
+
+    system_address: int
+    body_id:        int
+    body_name:      Optional[str]   = None
+    planet_class:   Optional[str]   = None
+    surface_slots:  int             = 0
+    orbital_slots:  int             = 0
+    confidence:     float           = 0.0
+    slot_source:    str             = 'estimated'
+    reasons:        list[SlotReason]= Field(default_factory=list)
+    is_ringed:      Optional[bool]  = None
+    is_landable:    Optional[bool]  = None
+    radius:         Optional[float] = None
+
+
+class SlotPredictionResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64:             int
+    data_source:             SlotDataSource
+    body_count:              int
+    estimated_orbital_slots: int
+    estimated_ground_slots:  int
+    slot_confidence:         float
+    slot_confidence_label:   str
+    predictions:             list[BodySlotPrediction] = Field(default_factory=list)
+    note:                    Optional[str] = None
+
+
+class BuildabilityIssue(BaseModel):
+    """Bottleneck/opportunity item with frontend-friendly wording."""
+    model_config = ConfigDict(extra='allow')
+
+    type:        str
+    description: str
+    severity:    Optional[str] = None
+    detail:      Optional[str] = None
+
+
+class RecommendedBuildStep(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+    step:                 int
+    facility_id:          Optional[str] = None
+    facility_name:        Optional[str] = None
+    location:             Optional[str] = None
+    notes:                Optional[str] = None
+    cumulative_yellow_cp: Optional[int] = None
+    cumulative_green_cp:  Optional[int] = None
+
+
+class BuildabilityData(BaseModel):
+    """Stable buildability payload used both directly and inside summaries."""
+    model_config = ConfigDict(extra='allow')
+
+    source:                  SimulationSource
+    estimated_orbital_slots: Optional[int]   = None
+    estimated_ground_slots:  Optional[int]   = None
+    slot_confidence:         Optional[float] = None
+    slot_confidence_label:   Optional[str]   = None
+    estimated_yellow_cp:     Optional[int]   = None
+    estimated_green_cp:      Optional[int]   = None
+    max_t2_ports:            Optional[int]   = None
+    max_t3_ports:            Optional[int]   = None
+    cp_bottleneck_score:     Optional[float] = None
+    slot_exhaustion_risk:    Optional[float] = None
+    build_order_sensitivity: Optional[float] = None
+    build_complexity:        Optional[str]   = None
+    bottlenecks:             list[BuildabilityIssue] = Field(default_factory=list)
+    opportunities:           list[BuildabilityIssue] = Field(default_factory=list)
+    recommended_build_order: list[RecommendedBuildStep] = Field(default_factory=list)
+    warnings:                list[str]       = Field(default_factory=list)
+    note:                    Optional[str]   = None
+
+
+class TopologyContextResponse(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+    orbital_slots:          int   = 0
+    surface_slots:          int   = 0
+    has_ringed_body:        bool  = False
+    has_viable_surface:     bool  = True
+    has_deep_anchor:        bool  = False
+    orbital_synergy:        float = 0.0
+    ground_synergy:         float = 0.0
+    build_flexibility:      float = 0.0
+    contamination_risk:     float = 0.0
+    strong_link_potential:  float = 0.0
+    weak_link_stability:    float = 0.0
+    nesting_potential:      float = 0.0
+    slot_confidence:        float = 0.0
+
+
+class SystemBuildabilityResponse(BuildabilityData):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64:      int
+    system_name:      Optional[str] = None
+    archetype:        Optional[str] = None
+    topology_summary: list[str] = Field(default_factory=list)
+    topology:         Optional[TopologyContextResponse] = None
+
+
+class SimulationClassification(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+    primary_archetype:   Optional[str]   = None
+    secondary_archetype: Optional[str]   = None
+    confidence:          Optional[float] = None
+    overall_potential:   Optional[float] = None
+    purity_score:        Optional[float] = None
+    display_tags:        list[str]       = Field(default_factory=list)
+    data_confidence:     Optional[float] = None
+    rationale:           Optional[Any]   = None
+
+
+class SimulationBodySummary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    elw_count:           int = 0
+    hmc_count:           int = 0
+    gas_giant_count:     int = 0
+    terraformable_count: int = 0
+    bio_signal_total:    int = 0
+    geo_signal_total:    int = 0
+    scanned_body_count:  int = 0
+
+
+class SimulationSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64:       int
+    system_name:       Optional[str] = None
+    archetype:         Optional[str] = None
+    classification:    Optional[SimulationClassification] = None
+    archetype_scores:  dict[str, float] = Field(default_factory=dict)
+    body_summary:      Optional[SimulationBodySummary] = None
+    buildability:      BuildabilityData
+    topology_summary:  list[str] = Field(default_factory=list)
+    distance_to_sol:   Optional[float] = None
+    main_star_type:    Optional[str] = None
+
+
 # ── Profile entry: GET /api/archetypes/profiles ──────────────────────
 class ArchetypeProfile(BaseModel):
     model_config = ConfigDict(extra='allow')

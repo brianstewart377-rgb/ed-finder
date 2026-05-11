@@ -10,43 +10,13 @@
  * Design language: ED orange / brushed-steel (matches SystemDetailModal).
  */
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { BodySlotPrediction, SlotPredictionResponse, SlotReason } from '@/types/api';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface SlotReason {
-  factor: string;
-  delta?: number;
-  note?: string;
-}
-
-interface BodyPrediction {
-  system_address: number;
-  body_id: number;
-  body_name?: string;
-  planet_class?: string;
-  surface_slots: number;
-  orbital_slots: number;
-  confidence: number;
-  slot_source: string;  // 'radius_tier'|'class_modifier'|'fallback'|...
-  reasons: SlotReason[];
-  is_ringed?: boolean;
-  is_landable?: boolean;
-  radius?: number;
-}
-
-interface SlotPredictionResponse {
-  system_id64: number;
-  data_source: 'eddn' | 'spansh' | 'none';
-  body_count: number;
-  estimated_orbital_slots: number;
-  estimated_ground_slots: number;
-  slot_confidence: number;
-  slot_confidence_label: string;
-  predictions: BodyPrediction[];
-  note?: string;
-}
+type BodyPrediction = BodySlotPrediction;
 
 // ─── Fetch hook ─────────────────────────────────────────────────────────────
 
@@ -79,6 +49,7 @@ export interface SlotPredictionPanelProps {
 export function SlotPredictionPanel({ id64 }: SlotPredictionPanelProps) {
   const [open, setOpen] = useState(false);
   const { data, isLoading, isError, refetch } = useSlotPredictions(id64);
+  const predictions = data?.predictions ?? [];
 
   // Collapsed header — always show, even before expand
   const headerContent = () => {
@@ -100,7 +71,7 @@ export function SlotPredictionPanel({ id64 }: SlotPredictionPanelProps) {
         </span>
       );
     }
-    if (data.data_source === 'none' || data.predictions.length === 0) {
+    if (data.data_source === 'none' || predictions.length === 0) {
       return (
         <span className="font-mono text-silver-dk text-[11px] italic">
           No body scan data available
@@ -135,7 +106,7 @@ export function SlotPredictionPanel({ id64 }: SlotPredictionPanelProps) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        disabled={!data || data.predictions.length === 0}
+        disabled={!data || predictions.length === 0}
         className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-orange/5 disabled:cursor-default transition-colors"
       >
         <div className="flex items-center gap-3 flex-wrap">
@@ -144,7 +115,7 @@ export function SlotPredictionPanel({ id64 }: SlotPredictionPanelProps) {
           </span>
           {headerContent()}
         </div>
-        {data && data.predictions.length > 0 && (
+        {data && predictions.length > 0 && (
           <span
             className={[
               'font-mono text-orange text-sm transition-transform duration-200 ml-3 shrink-0',
@@ -157,9 +128,9 @@ export function SlotPredictionPanel({ id64 }: SlotPredictionPanelProps) {
       </button>
 
       {/* ── Expanded table ────────────────────────────────────────────── */}
-      {open && data && data.predictions.length > 0 && (
+      {open && data && predictions.length > 0 && (
         <div className="border-t border-border/50">
-          <PredictionTable predictions={data.predictions} />
+          <PredictionTable predictions={predictions} />
           {data.note && (
             <div className="px-3 py-2 font-mono text-[10px] text-silver-dk border-t border-border/40 italic leading-snug">
               {data.note}
@@ -199,9 +170,8 @@ function PredictionTable({ predictions }: { predictions: BodyPrediction[] }) {
         {predictions.map((p) => {
           const isExpanded = expandedId === p.body_id;
           return (
-            <>
+            <Fragment key={p.body_id}>
               <tr
-                key={p.body_id}
                 className="border-t border-border/40 hover:bg-orange/5 transition-colors cursor-pointer"
                 onClick={() => setExpandedId(isExpanded ? null : p.body_id)}
               >
@@ -255,7 +225,7 @@ function PredictionTable({ predictions }: { predictions: BodyPrediction[] }) {
                   </td>
                 </tr>
               )}
-            </>
+            </Fragment>
           );
         })}
       </tbody>
@@ -359,7 +329,7 @@ function confidenceColour(label: string): string {
 }
 
 /** Strip the system name prefix from body names (e.g. "Colonia 1 a" → "1 a") */
-function shortBodyName(name?: string): string {
+function shortBodyName(name?: string | null): string {
   if (!name) return '—';
   // Body names in ED follow pattern "<System> <body designator>"
   // We show the full name but truncate long system-name prefixes

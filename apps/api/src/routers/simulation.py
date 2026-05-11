@@ -35,6 +35,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from config import log
 from deps import get_pool, get_redis, cache_get, cache_set
 from ingest.slot_prediction import predict_system_slots, confidence_label
+from models import (
+    SimulationSummaryResponse,
+    SlotPredictionResponse,
+    SystemBuildabilityResponse,
+)
 from simulation.buildability import analyse_buildability
 from simulation.topology_simulator import (
     topology_from_row, topology_from_traits, summarise_topology,
@@ -48,7 +53,7 @@ _CACHE_TTL = 300   # 5 minutes
 # ---------------------------------------------------------------------------
 # GET /api/systems/{id64}/slot-predictions
 # ---------------------------------------------------------------------------
-@router.get('/{id64}/slot-predictions')
+@router.get('/{id64}/slot-predictions', response_model=SlotPredictionResponse)
 async def get_slot_predictions(
     id64: int,
     pool: asyncpg.Pool = Depends(get_pool),
@@ -65,7 +70,7 @@ async def get_slot_predictions(
       2. bodies table (Spansh-imported, moderate confidence)
       3. No data → empty predictions with explanation
     """
-    cache_key = f'sim:slots:{id64}'
+    cache_key = f'sim:v2:slots:{id64}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -156,7 +161,8 @@ async def get_slot_predictions(
         'slot_confidence':         round(prediction['slot_confidence'], 3),
         'slot_confidence_label':   confidence_label(prediction['slot_confidence']),
         'predictions': [
-            p.to_dict() for p in prediction['body_predictions']
+            _slot_prediction_to_api(p, fact)
+            for p, fact in zip(prediction['body_predictions'], facts)
             if p.orbital_slots > 0 or p.surface_slots > 0
         ],
     }
@@ -168,7 +174,7 @@ async def get_slot_predictions(
 # ---------------------------------------------------------------------------
 # GET /api/systems/{id64}/buildability
 # ---------------------------------------------------------------------------
-@router.get('/{id64}/buildability')
+@router.get('/{id64}/buildability', response_model=SystemBuildabilityResponse)
 async def get_buildability(
     id64: int,
     archetype: Optional[str] = Query(None, description='Target archetype key'),
@@ -193,7 +199,7 @@ async def get_buildability(
       2. system_slot_topology + body_scan_facts (compute on demand)
       3. system_archetype_traits (fallback, lower confidence)
     """
-    cache_key = f'sim:build:{id64}:{archetype or "auto"}'
+    cache_key = f'sim:v2:build:{id64}:{archetype or "auto"}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -255,8 +261,8 @@ async def get_buildability(
             'system_id64':             id64,
             'system_name':             system_row['name'],
             'archetype':               effective_archetype,
-            'source':                  'precomputed',
-            **{k: ba_dict.get(k) for k in [
+            **_normalise_buildability({
+                k: ba_dict.get(k) for k in [
                 'estimated_orbital_slots', 'estimated_ground_slots',
                 'slot_confidence', 'estimated_yellow_cp_capacity',
                 'estimated_green_cp_capacity', 'max_t2_ports_estimate',
@@ -264,8 +270,8 @@ async def get_buildability(
                 'slot_exhaustion_risk', 'build_order_sensitivity',
                 'build_complexity', 'bottlenecks', 'opportunities',
                 'recommended_build_order',
-            ]},
-            'slot_confidence_label':   _conf_label(ba_dict.get('slot_confidence', 0.0)),
+                ]
+            }, source='precomputed'),
             'topology_summary':        topology_summary,
             'topology':                ctx.to_dict() if ctx else None,
         }
@@ -278,13 +284,11 @@ async def get_buildability(
             'system_id64':   id64,
             'system_name':   system_row['name'],
             'archetype':     effective_archetype,
-            'source':        'insufficient_data',
-            'build_complexity': 'unknown',
-            'note': (
+            **_normalise_buildability({}, source='insufficient_data', note=(
                 'Insufficient topology data to compute buildability. '
                 'Run build_topology.py to generate slot estimates for this system, '
                 'or scan bodies in-game to contribute data via EDDN.'
-            ),
+            )),
         }
         await cache_set(cache_key, result, 60, redis)
         return result
@@ -307,8 +311,7 @@ async def get_buildability(
         'system_id64':   id64,
         'system_name':   system_row['name'],
         'archetype':     effective_archetype,
-        'source':        'computed',
-        **ba.to_dict(),
+        **_normalise_buildability(ba.to_dict(), source='computed'),
         'topology_summary': topology_summary,
         'topology':         ctx.to_dict(),
     }
@@ -320,7 +323,7 @@ async def get_buildability(
 # ---------------------------------------------------------------------------
 # GET /api/systems/{id64}/simulation-summary
 # ---------------------------------------------------------------------------
-@router.get('/{id64}/simulation-summary')
+@router.get('/{id64}/simulation-summary', response_model=SimulationSummaryResponse)
 async def get_simulation_summary(
     id64: int,
     archetype: Optional[str] = Query(None, description='Target archetype key'),
@@ -345,13 +348,14 @@ async def get_simulation_summary(
       • buildability_analysis (pre-computed if available)
       • body_scan_facts or bodies (slot predictions)
     """
-    cache_key = f'sim:summary:{id64}:{archetype or "auto"}'
+    cache_key = f'sim:v2:summary:{id64}:{archetype or "auto"}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
 
     async with pool.acquire() as conn:
         # System + archetype scores
+        sys_row = None
         mv_row = await conn.fetchrow("""
             SELECT
                 m.id64, m.name, m.primary_archetype, m.secondary_archetype,
@@ -403,11 +407,12 @@ async def get_simulation_summary(
     effective_archetype = archetype or (
         mv_row['primary_archetype'] if mv_row else None
     )
+    system_name = mv_row['name'] if mv_row else (sys_row['name'] if sys_row else None)
 
     # ── Build response ────────────────────────────────────────────────────
     response: dict[str, Any] = {
         'system_id64': id64,
-        'system_name': mv_row['name'] if mv_row else None,
+        'system_name': system_name,
         'archetype':   effective_archetype,
     }
 
@@ -452,24 +457,7 @@ async def get_simulation_summary(
     # Buildability
     if ba_row:
         ba = dict(ba_row)
-        response['buildability'] = {
-            'source':                  'precomputed',
-            'estimated_orbital_slots': ba.get('estimated_orbital_slots', 0),
-            'estimated_ground_slots':  ba.get('estimated_ground_slots', 0),
-            'slot_confidence':         float(ba.get('slot_confidence', 0)),
-            'slot_confidence_label':   _conf_label(float(ba.get('slot_confidence', 0))),
-            'estimated_yellow_cp':     ba.get('estimated_yellow_cp_capacity', 0),
-            'estimated_green_cp':      ba.get('estimated_green_cp_capacity', 0),
-            'max_t2_ports':            ba.get('max_t2_ports_estimate', 0),
-            'max_t3_ports':            ba.get('max_t3_ports_estimate', 0),
-            'cp_bottleneck_score':     float(ba.get('cp_bottleneck_score', 0)),
-            'slot_exhaustion_risk':    float(ba.get('slot_exhaustion_risk', 0)),
-            'build_order_sensitivity': float(ba.get('build_order_sensitivity', 0)),
-            'build_complexity':        ba.get('build_complexity', 'unknown'),
-            'bottlenecks':             ba.get('bottlenecks', []),
-            'opportunities':           ba.get('opportunities', []),
-            'recommended_build_order': ba.get('recommended_build_order', []),
-        }
+        response['buildability'] = _normalise_buildability(ba, source='precomputed')
     elif mv_row and (mv_row['topo_orbital_slots'] or mv_row['est_orbital_slots']):
         # Compute on demand from MV data
         orbital = int(mv_row['topo_orbital_slots'] or mv_row['est_orbital_slots'] or 0)
@@ -501,17 +489,13 @@ async def get_simulation_summary(
             archetype_key=effective_archetype,
             topo_row=topo_dict,
         )
-        response['buildability'] = {
-            'source': 'computed',
-            **ba.to_dict(),
-            'slot_confidence_label': _conf_label(ba.slot_confidence),
-        }
+        response['buildability'] = _normalise_buildability(ba.to_dict(), source='computed')
     else:
-        response['buildability'] = {
-            'source':       'insufficient_data',
-            'build_complexity': 'unknown',
-            'note': 'Run build_topology.py to generate slot estimates, or scan bodies in-game.',
-        }
+        response['buildability'] = _normalise_buildability(
+            {},
+            source='insufficient_data',
+            note='Run build_topology.py to generate slot estimates, or scan bodies in-game.',
+        )
 
     # Topology summary narrative
     if mv_row:
@@ -540,7 +524,132 @@ async def get_simulation_summary(
 
 
 def _conf_label(v: float) -> str:
+    v = _as_float(v, 0.0)
     if v >= 0.85: return 'High'
     if v >= 0.65: return 'Moderate'
     if v >= 0.45: return 'Low'
     return 'Estimated'
+
+
+def _slot_prediction_to_api(pred: Any, fact: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'system_address': pred.system_address,
+        'body_id':        pred.body_id,
+        'body_name':      fact.get('body_name'),
+        'planet_class':   fact.get('planet_class'),
+        'surface_slots':  pred.surface_slots,
+        'orbital_slots':  pred.orbital_slots,
+        'confidence':     round(float(pred.confidence or 0), 3),
+        'slot_source':    pred.slot_source,
+        'reasons':        [_normalise_slot_reason(r) for r in pred.reasons],
+        'is_ringed':      _maybe_bool(fact.get('is_ringed')),
+        'is_landable':    _maybe_bool(fact.get('is_landable')),
+        'radius':         _maybe_float(fact.get('radius')),
+    }
+
+
+def _normalise_slot_reason(reason: dict[str, Any]) -> dict[str, Any]:
+    out = dict(reason)
+    out['factor'] = str(out.get('factor') or 'note')
+    if 'note' not in out:
+        out['note'] = out.get('contribution') or out.get('detail')
+    if (
+        'delta' not in out
+        and isinstance(out.get('value'), (int, float))
+        and not isinstance(out.get('value'), bool)
+    ):
+        out['delta'] = out.get('value')
+    return out
+
+
+def _normalise_buildability(
+    raw: dict[str, Any],
+    *,
+    source: str,
+    note: Optional[str] = None,
+) -> dict[str, Any]:
+    confidence = _maybe_float(raw.get('slot_confidence'))
+    result = {
+        'source':                  source,
+        'estimated_orbital_slots': _maybe_int(raw.get('estimated_orbital_slots')),
+        'estimated_ground_slots':  _maybe_int(raw.get('estimated_ground_slots')),
+        'slot_confidence':         confidence,
+        'slot_confidence_label':   _conf_label(confidence or 0.0) if confidence is not None else None,
+        'estimated_yellow_cp':     _maybe_int(raw.get('estimated_yellow_cp', raw.get('estimated_yellow_cp_capacity'))),
+        'estimated_green_cp':      _maybe_int(raw.get('estimated_green_cp', raw.get('estimated_green_cp_capacity'))),
+        'max_t2_ports':            _maybe_int(raw.get('max_t2_ports', raw.get('max_t2_ports_estimate'))),
+        'max_t3_ports':            _maybe_int(raw.get('max_t3_ports', raw.get('max_t3_ports_estimate'))),
+        'cp_bottleneck_score':     _maybe_float(raw.get('cp_bottleneck_score')),
+        'slot_exhaustion_risk':    _maybe_float(raw.get('slot_exhaustion_risk')),
+        'build_order_sensitivity': _maybe_float(raw.get('build_order_sensitivity')),
+        'build_complexity':        raw.get('build_complexity') or ('unknown' if source == 'insufficient_data' else None),
+        'bottlenecks':             [_normalise_issue(i) for i in (raw.get('bottlenecks') or [])],
+        'opportunities':           [_normalise_issue(i) for i in (raw.get('opportunities') or [])],
+        'recommended_build_order': [
+            _normalise_build_step(i) for i in (raw.get('recommended_build_order') or [])
+        ],
+        'warnings':                list(raw.get('warnings') or []),
+    }
+    if note:
+        result['note'] = note
+    return result
+
+
+def _normalise_issue(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {'type': 'note', 'description': str(item)}
+    description = (
+        item.get('description') or item.get('detail') or item.get('reason') or
+        item.get('note') or item.get('type') or 'No details supplied'
+    )
+    return {
+        **item,
+        'type':        str(item.get('type') or 'note'),
+        'description': str(description),
+    }
+
+
+def _normalise_build_step(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {'step': 0, 'notes': str(item)}
+    facility_id = item.get('facility_id') or item.get('facility')
+    return {
+        **item,
+        'step':          _as_int(item.get('step'), 0),
+        'facility_id':   facility_id,
+        'facility_name': item.get('facility_name') or item.get('action') or facility_id,
+        'location':      item.get('location'),
+        'notes':         item.get('notes') or item.get('reason') or item.get('detail'),
+    }
+
+
+def _as_float(value: Any, default: float) -> float:
+    try:
+        return float(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _maybe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    return _as_float(value, 0.0)
+
+
+def _as_int(value: Any, default: int) -> int:
+    try:
+        return int(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _maybe_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    return _as_int(value, 0)
+
+
+def _maybe_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    return bool(value)

@@ -1303,6 +1303,50 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * BodySlotPrediction
+         * @description One body row returned by GET /api/systems/{id64}/slot-predictions.
+         */
+        BodySlotPrediction: {
+            /** System Address */
+            system_address: number;
+            /** Body Id */
+            body_id: number;
+            /** Body Name */
+            body_name?: string | null;
+            /** Planet Class */
+            planet_class?: string | null;
+            /**
+             * Surface Slots
+             * @default 0
+             */
+            surface_slots: number;
+            /**
+             * Orbital Slots
+             * @default 0
+             */
+            orbital_slots: number;
+            /**
+             * Confidence
+             * @default 0
+             */
+            confidence: number;
+            /**
+             * Slot Source
+             * @default estimated
+             */
+            slot_source: string;
+            /** Reasons */
+            reasons?: components["schemas"]["SlotReason"][];
+            /** Is Ringed */
+            is_ringed?: boolean | null;
+            /** Is Landable */
+            is_landable?: boolean | null;
+            /** Radius */
+            radius?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** BuildSimulateRequest */
         BuildSimulateRequest: {
             /** Id64 */
@@ -1333,6 +1377,69 @@ export interface components {
             recommendations?: string[];
             /** Disclaimer */
             disclaimer?: string | null;
+        };
+        /**
+         * BuildabilityData
+         * @description Stable buildability payload used both directly and inside summaries.
+         */
+        BuildabilityData: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "precomputed" | "computed" | "insufficient_data";
+            /** Estimated Orbital Slots */
+            estimated_orbital_slots?: number | null;
+            /** Estimated Ground Slots */
+            estimated_ground_slots?: number | null;
+            /** Slot Confidence */
+            slot_confidence?: number | null;
+            /** Slot Confidence Label */
+            slot_confidence_label?: string | null;
+            /** Estimated Yellow Cp */
+            estimated_yellow_cp?: number | null;
+            /** Estimated Green Cp */
+            estimated_green_cp?: number | null;
+            /** Max T2 Ports */
+            max_t2_ports?: number | null;
+            /** Max T3 Ports */
+            max_t3_ports?: number | null;
+            /** Cp Bottleneck Score */
+            cp_bottleneck_score?: number | null;
+            /** Slot Exhaustion Risk */
+            slot_exhaustion_risk?: number | null;
+            /** Build Order Sensitivity */
+            build_order_sensitivity?: number | null;
+            /** Build Complexity */
+            build_complexity?: string | null;
+            /** Bottlenecks */
+            bottlenecks?: components["schemas"]["BuildabilityIssue"][];
+            /** Opportunities */
+            opportunities?: components["schemas"]["BuildabilityIssue"][];
+            /** Recommended Build Order */
+            recommended_build_order?: components["schemas"]["RecommendedBuildStep"][];
+            /** Warnings */
+            warnings?: string[];
+            /** Note */
+            note?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * BuildabilityIssue
+         * @description Bottleneck/opportunity item with frontend-friendly wording.
+         */
+        BuildabilityIssue: {
+            /** Type */
+            type: string;
+            /** Description */
+            description: string;
+            /** Severity */
+            severity?: string | null;
+            /** Detail */
+            detail?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** CacheStatsResponse */
         CacheStatsResponse: {
@@ -1601,6 +1708,25 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** RecommendedBuildStep */
+        RecommendedBuildStep: {
+            /** Step */
+            step: number;
+            /** Facility Id */
+            facility_id?: string | null;
+            /** Facility Name */
+            facility_name?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Cumulative Yellow Cp */
+            cumulative_yellow_cp?: number | null;
+            /** Cumulative Green Cp */
+            cumulative_green_cp?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** RerankRequest */
         RerankRequest: {
             /** Id64S */
@@ -1701,6 +1827,125 @@ export interface components {
             total_is_capped?: boolean | null;
             /** Warning */
             warning?: string | null;
+        };
+        /** SimulationBodySummary */
+        SimulationBodySummary: {
+            /**
+             * Elw Count
+             * @default 0
+             */
+            elw_count: number;
+            /**
+             * Hmc Count
+             * @default 0
+             */
+            hmc_count: number;
+            /**
+             * Gas Giant Count
+             * @default 0
+             */
+            gas_giant_count: number;
+            /**
+             * Terraformable Count
+             * @default 0
+             */
+            terraformable_count: number;
+            /**
+             * Bio Signal Total
+             * @default 0
+             */
+            bio_signal_total: number;
+            /**
+             * Geo Signal Total
+             * @default 0
+             */
+            geo_signal_total: number;
+            /**
+             * Scanned Body Count
+             * @default 0
+             */
+            scanned_body_count: number;
+        };
+        /** SimulationClassification */
+        SimulationClassification: {
+            /** Primary Archetype */
+            primary_archetype?: string | null;
+            /** Secondary Archetype */
+            secondary_archetype?: string | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Overall Potential */
+            overall_potential?: number | null;
+            /** Purity Score */
+            purity_score?: number | null;
+            /** Display Tags */
+            display_tags?: string[];
+            /** Data Confidence */
+            data_confidence?: number | null;
+            /** Rationale */
+            rationale?: unknown | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SimulationSummaryResponse */
+        SimulationSummaryResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Archetype */
+            archetype?: string | null;
+            classification?: components["schemas"]["SimulationClassification"] | null;
+            /** Archetype Scores */
+            archetype_scores?: {
+                [key: string]: number;
+            };
+            body_summary?: components["schemas"]["SimulationBodySummary"] | null;
+            buildability: components["schemas"]["BuildabilityData"];
+            /** Topology Summary */
+            topology_summary?: string[];
+            /** Distance To Sol */
+            distance_to_sol?: number | null;
+            /** Main Star Type */
+            main_star_type?: string | null;
+        };
+        /** SlotPredictionResponse */
+        SlotPredictionResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /**
+             * Data Source
+             * @enum {string}
+             */
+            data_source: "eddn" | "spansh" | "none";
+            /** Body Count */
+            body_count: number;
+            /** Estimated Orbital Slots */
+            estimated_orbital_slots: number;
+            /** Estimated Ground Slots */
+            estimated_ground_slots: number;
+            /** Slot Confidence */
+            slot_confidence: number;
+            /** Slot Confidence Label */
+            slot_confidence_label: string;
+            /** Predictions */
+            predictions?: components["schemas"]["BodySlotPrediction"][];
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * SlotReason
+         * @description One explainability note for a per-body slot prediction.
+         */
+        SlotReason: {
+            /** Factor */
+            factor: string;
+            /** Delta */
+            delta?: number | null;
+            /** Note */
+            note?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** StationModel */
         StationModel: {
@@ -1878,6 +2123,57 @@ export interface components {
             tags?: string[];
             /** Query Ms */
             query_ms?: number | null;
+        };
+        /** SystemBuildabilityResponse */
+        SystemBuildabilityResponse: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "precomputed" | "computed" | "insufficient_data";
+            /** Estimated Orbital Slots */
+            estimated_orbital_slots?: number | null;
+            /** Estimated Ground Slots */
+            estimated_ground_slots?: number | null;
+            /** Slot Confidence */
+            slot_confidence?: number | null;
+            /** Slot Confidence Label */
+            slot_confidence_label?: string | null;
+            /** Estimated Yellow Cp */
+            estimated_yellow_cp?: number | null;
+            /** Estimated Green Cp */
+            estimated_green_cp?: number | null;
+            /** Max T2 Ports */
+            max_t2_ports?: number | null;
+            /** Max T3 Ports */
+            max_t3_ports?: number | null;
+            /** Cp Bottleneck Score */
+            cp_bottleneck_score?: number | null;
+            /** Slot Exhaustion Risk */
+            slot_exhaustion_risk?: number | null;
+            /** Build Order Sensitivity */
+            build_order_sensitivity?: number | null;
+            /** Build Complexity */
+            build_complexity?: string | null;
+            /** Bottlenecks */
+            bottlenecks?: components["schemas"]["BuildabilityIssue"][];
+            /** Opportunities */
+            opportunities?: components["schemas"]["BuildabilityIssue"][];
+            /** Recommended Build Order */
+            recommended_build_order?: components["schemas"]["RecommendedBuildStep"][];
+            /** Warnings */
+            warnings?: string[];
+            /** Note */
+            note?: string | null;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Archetype */
+            archetype?: string | null;
+            /** Topology Summary */
+            topology_summary?: string[];
+            topology?: components["schemas"]["TopologyContextResponse"] | null;
         };
         /**
          * SystemDetailResponse
@@ -2058,6 +2354,76 @@ export interface components {
             black_hole_count?: number | null;
             /** White Dwarf Count */
             white_dwarf_count?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** TopologyContextResponse */
+        TopologyContextResponse: {
+            /**
+             * Orbital Slots
+             * @default 0
+             */
+            orbital_slots: number;
+            /**
+             * Surface Slots
+             * @default 0
+             */
+            surface_slots: number;
+            /**
+             * Has Ringed Body
+             * @default false
+             */
+            has_ringed_body: boolean;
+            /**
+             * Has Viable Surface
+             * @default true
+             */
+            has_viable_surface: boolean;
+            /**
+             * Has Deep Anchor
+             * @default false
+             */
+            has_deep_anchor: boolean;
+            /**
+             * Orbital Synergy
+             * @default 0
+             */
+            orbital_synergy: number;
+            /**
+             * Ground Synergy
+             * @default 0
+             */
+            ground_synergy: number;
+            /**
+             * Build Flexibility
+             * @default 0
+             */
+            build_flexibility: number;
+            /**
+             * Contamination Risk
+             * @default 0
+             */
+            contamination_risk: number;
+            /**
+             * Strong Link Potential
+             * @default 0
+             */
+            strong_link_potential: number;
+            /**
+             * Weak Link Stability
+             * @default 0
+             */
+            weak_link_stability: number;
+            /**
+             * Nesting Potential
+             * @default 0
+             */
+            nesting_potential: number;
+            /**
+             * Slot Confidence
+             * @default 0
+             */
+            slot_confidence: number;
         } & {
             [key: string]: unknown;
         };
@@ -3587,7 +3953,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SlotPredictionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3621,7 +3987,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SystemBuildabilityResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3655,7 +4021,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SimulationSummaryResponse"];
                 };
             };
             /** @description Validation Error */
