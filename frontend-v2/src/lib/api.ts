@@ -17,6 +17,8 @@ import type {
   RerankRequest,
   RerankResponse,
   SearchResponse,
+  SimulationSummary,
+  SlotPredictionResponse,
   SystemDetail,
   SystemDetailResponse,
   SystemResult,
@@ -47,6 +49,17 @@ const API_BASE = (
   '/api'
 );
 
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly path: string,
+    public readonly body: string,
+  ) {
+    super(`API ${status} on ${path}: ${body}`);
+    this.name = 'ApiError';
+  }
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
   const res = await fetch(url, {
@@ -65,12 +78,35 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       body = await res.text();
     } catch { /* ignore */ }
-    throw new Error(`API ${res.status} on ${path}: ${body || res.statusText}`);
+    throw new ApiError(res.status, path, body || res.statusText);
   }
   return res.json() as Promise<T>;
 }
 
 // ── Endpoints we actually use in the POC ───────────────────────────────────
+export interface EddnEvent {
+  system_name: string;
+  id64:        number;
+  type:        string;
+  timestamp:   string | null;
+}
+
+export interface RecentEventsResponse {
+  events: EddnEvent[];
+  jobs:   Record<string, unknown>;
+}
+
+export interface ProfileSyncPull<TBlob> {
+  blob:       TBlob;
+  updated_at: string;
+  blob_bytes: number;
+}
+
+export interface ProfileSyncPush {
+  updated_at: string;
+  blob_bytes: number;
+}
+
 export const api = {
   health(): Promise<{ status: string; database: string; version: string }> {
     return jsonFetch('/health');
@@ -106,6 +142,30 @@ export const api = {
     const res = await jsonFetch<SystemDetailResponse>(`/system/${id64}`);
     // Endpoint returns {record, system} — same data twice for legacy compat.
     return res.record ?? res.system;
+  },
+
+  simulationSummary(id64: number): Promise<SimulationSummary> {
+    return jsonFetch(`/systems/${id64}/simulation-summary`);
+  },
+
+  slotPredictions(id64: number): Promise<SlotPredictionResponse> {
+    return jsonFetch(`/systems/${id64}/slot-predictions`);
+  },
+
+  recentEvents(limit = 20): Promise<RecentEventsResponse> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return jsonFetch(`/events/recent?${params.toString()}`, { cache: 'no-store' });
+  },
+
+  profileSyncPull<TBlob>(syncKey: string): Promise<ProfileSyncPull<TBlob>> {
+    return jsonFetch(`/profile/sync/${encodeURIComponent(syncKey)}`);
+  },
+
+  profileSyncPush<TBlob>(syncKey: string, blob: TBlob): Promise<ProfileSyncPush> {
+    return jsonFetch(`/profile/sync/${encodeURIComponent(syncKey)}`, {
+      method: 'PUT',
+      body:   JSON.stringify({ blob }),
+    });
   },
 
   // ── Optimizer / rerank ────────────────────────────────────────────────

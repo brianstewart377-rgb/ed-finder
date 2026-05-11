@@ -424,7 +424,27 @@ docker compose up -d eddn
 
 ## Operations
 
-### Deploy a code-only change (no schema migration)
+### Deploy `main`
+
+Use the production deploy wrapper for normal code/schema releases. It pulls
+`main`, applies the known safe additive SQL migrations, builds the frontend,
+rebuilds/restarts app containers, reloads nginx, and runs health checks.
+
+```bash
+ssh root@<hetzner-ip>
+cd /opt/ed-finder
+bash scripts/deploy_main.sh
+```
+
+Useful flags:
+
+```bash
+bash scripts/deploy_main.sh --skip-pull        # deploy the commit already checked out
+bash scripts/deploy_main.sh --skip-migrations  # code-only hotfix when DB is already current
+bash scripts/deploy_main.sh --skip-frontend    # backend-only hotfix
+```
+
+Manual fallback for code-only changes:
 
 For PRs that touch only Python or TypeScript — the common case post-launch:
 
@@ -439,8 +459,8 @@ git pull --ff-only origin main
 # rebuilt on the host (not inside a container).
 ( cd frontend-v2 && yarn install --frozen-lockfile && yarn build )
 
-# API: rebuild the image so the new Python source is baked in.
-docker compose up -d --build api
+# API: rebuild the images so the new Python source is baked in.
+docker compose up -d --build api eddn maintenance
 sleep 5
 docker compose logs --tail=50 api | grep -E "Application startup complete|ERROR"
 
@@ -449,9 +469,8 @@ docker compose exec nginx nginx -s reload
 
 # Verify the new code is live (substitute real schema refs you care about).
 curl -s http://localhost:8000/api/health
-docker compose exec -T api python3 -c "import urllib.request,json; \
-  d=json.load(urllib.request.urlopen('http://localhost:8000/openapi.json')); \
-  print(d['components']['schemas']['SearchResponse']['properties']['results']['items'])"
+docker compose exec -T postgres psql -U edfinder -d edfinder \
+  -c "SELECT COUNT(*) AS facility_templates FROM facility_templates;"
 ```
 
 > **Cloudflare**: if you cache `/v2/index.html` in the dashboard, **purge** it after deploy or users keep getting the old bundle until their TTL expires.
@@ -461,7 +480,7 @@ docker compose exec -T api python3 -c "import urllib.request,json; \
 PREV=$(awk '{print $1}' /tmp/pre-deploy-commit.txt)
 cd /opt/ed-finder && git reset --hard "$PREV"
 ( cd frontend-v2 && yarn build )
-docker compose up -d --build api
+docker compose up -d --build api eddn maintenance
 docker compose exec nginx nginx -s reload
 ```
 
