@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { api } from '@/lib/api';
+import type { EddnEvent } from '@/lib/api';
 
 /**
  * Live EDDN events feed hook.
@@ -15,12 +17,7 @@ import { useEffect, useRef, useState } from 'react';
  * always-polling implementation hammered Postgres at 4 s × N concurrent
  * users in production despite the SSE bridge already existing.
  */
-export interface EddnEvent {
-  system_name: string;
-  id64:        number;
-  type:        string;
-  timestamp:   string | null;
-}
+export type { EddnEvent };
 
 const KEY = (e: EddnEvent) => `${e.id64}|${e.type}|${e.timestamp}`;
 
@@ -96,9 +93,7 @@ export function useEddnFeed({
     // ── DEV: polling fallback ────────────────────────────────────────────
     const tick = async () => {
       try {
-        const res = await fetch('/api/events/recent?limit=20', { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
+        const json = await api.recentEvents(20);
         const fresh: EddnEvent[] = Array.isArray(json.events) ? json.events : [];
         push(fresh);
         setError(null);

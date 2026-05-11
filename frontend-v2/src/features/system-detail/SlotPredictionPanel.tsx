@@ -12,6 +12,7 @@
 
 import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import type { BodySlotPrediction, SlotPredictionResponse, SlotReason } from '@/types/api';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -20,21 +21,10 @@ type BodyPrediction = BodySlotPrediction;
 
 // ─── Fetch hook ─────────────────────────────────────────────────────────────
 
-const API_BASE = (
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, '') ??
-  '/api'
-);
-
 function useSlotPredictions(id64: number) {
   return useQuery<SlotPredictionResponse, Error>({
     queryKey: ['slot-predictions', id64],
-    queryFn:  async () => {
-      const res = await fetch(`${API_BASE}/systems/${id64}/slot-predictions`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      return res.json() as Promise<SlotPredictionResponse>;
-    },
+    queryFn:  () => api.slotPredictions(id64),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });

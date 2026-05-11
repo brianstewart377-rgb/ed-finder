@@ -18,6 +18,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import type { BuildabilityData, SimulationSummary } from '@/types/api';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -28,21 +29,10 @@ type RecommendedBuildStep = NonNullable<BuildabilityData['recommended_build_orde
 
 // ─── Fetch hook ─────────────────────────────────────────────────────────────
 
-const API_BASE = (
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, '') ??
-  '/api'
-);
-
 function useSimulationSummary(id64: number) {
   return useQuery<SimulationSummary, Error>({
     queryKey: ['sim-summary', id64],
-    queryFn:  async () => {
-      const res = await fetch(`${API_BASE}/systems/${id64}/simulation-summary`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      return res.json() as Promise<SimulationSummary>;
-    },
+    queryFn:  () => api.simulationSummary(id64),
     staleTime: 5 * 60 * 1000,   // 5 min — matches server Redis TTL
     retry:     1,
   });

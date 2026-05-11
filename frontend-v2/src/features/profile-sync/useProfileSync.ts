@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ColonyEntry } from '@/features/colony/useColony';
 import type { FcWaypoint, FcConfig } from '@/features/fc-planner/useFcPlanner';
 import type { PinnedEntry } from '@/features/pinned/usePinned';
+import { api, ApiError } from '@/lib/api';
 import type { SystemResult } from '@/types/api';
 
 /**
@@ -129,43 +130,31 @@ export function useProfileSync(): UseProfileSync {
     else   localStorage.removeItem(SYNC_KEY_STORAGE);
   }, []);
 
-  const apiBase = (import.meta.env.VITE_API_BASE ?? '/api').replace(/\/+$/, '');
-
   const pull = useCallback(async () => {
     if (!syncKey) return;
     setState({ kind: 'busy', what: 'pull' });
     try {
-      const res = await fetch(`${apiBase}/profile/sync/${encodeURIComponent(syncKey)}`);
-      if (!res.ok) {
-        if (res.status === 404) {
-          throw new Error('Slot is empty — push from another device first.');
-        }
-        throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-      }
-      const data = await res.json() as { blob: ProfileBlob; updated_at: string; blob_bytes: number };
+      const data = await api.profileSyncPull<ProfileBlob>(syncKey);
       applyLocalBlob(data.blob);
       setState({ kind: 'ok', what: 'pull', bytes: data.blob_bytes, updated_at: data.updated_at });
     } catch (e: unknown) {
+      const message = e instanceof ApiError && e.status === 404
+        ? 'Slot is empty — push from another device first.'
+        : e instanceof Error ? e.message : String(e);
       setState({
         kind:    'err',
         what:    'pull',
-        message: e instanceof Error ? e.message : String(e),
+        message,
       });
     }
-  }, [syncKey, apiBase]);
+  }, [syncKey]);
 
   const push = useCallback(async () => {
     if (!syncKey) return;
     setState({ kind: 'busy', what: 'push' });
     try {
       const blob = gatherLocalBlob();
-      const res  = await fetch(`${apiBase}/profile/sync/${encodeURIComponent(syncKey)}`, {
-        method:  'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ blob }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-      const data = await res.json() as { updated_at: string; blob_bytes: number };
+      const data = await api.profileSyncPush(syncKey, blob);
       localStorage.setItem(LAST_PUSH_STORAGE, data.updated_at);
       setLastPushAt(data.updated_at);
       setState({ kind: 'ok', what: 'push', bytes: data.blob_bytes, updated_at: data.updated_at });
@@ -176,7 +165,7 @@ export function useProfileSync(): UseProfileSync {
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [syncKey, apiBase]);
+  }, [syncKey]);
 
   const generateKey = useCallback((): string => {
     // 24 chars from a 64-symbol alphabet ≈ 144 bits. More than enough.
