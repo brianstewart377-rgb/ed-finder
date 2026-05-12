@@ -125,6 +125,40 @@ def test_lead_phrase_thresholds(score, expected_lead):
     assert expected_lead in text
 
 
+def test_rationale_uses_structured_labels_not_via_phrasing():
+    counts = _empty_counts()
+    counts.update(icy=3, rocky_ice=2, gas_giant=1, elw=1, landable=6)
+    scores = {e: 0 for e in ECON_HIGHLIGHT_BUILDERS}
+    scores['Industrial'] = 82
+
+    text = generate_rationale(counts, scores, primary_eco='Industrial',
+                              tf_score=0, diversity=0, main_star_type='K')
+
+    assert 'Primary score:' in text
+    assert 'Factors:' in text
+    assert ' via ' not in text
+    assert 'Industrial via ELW' not in text
+    assert 'ELW is not an Industrial driver' in text
+    assert 'icy' in text or 'rocky-ice' in text or 'gas giant' in text
+
+
+def test_military_elw_rationale_includes_mixed_economy_caveat():
+    counts = _empty_counts()
+    counts.update(elw=1, gas_giant=2, landable=7)
+    scores = {e: 0 for e in ECON_HIGHLIGHT_BUILDERS}
+    scores['Military'] = 88
+
+    text = generate_rationale(counts, scores, primary_eco='Military',
+                              tf_score=0, diversity=0, main_star_type='A')
+
+    assert 'Military via ELW' not in text
+    assert ' via ' not in text
+    assert 'ELW mixed' in text
+    assert 'Caveat:' in text
+    assert 'Agri/HT/Mil/Tourism' in text
+    assert 'star inheritance' in text
+
+
 # ---------------------------------------------------------------------------
 # 4. Tiebreak for primary_eco — the dict-order-arbitrary bug.
 # ---------------------------------------------------------------------------

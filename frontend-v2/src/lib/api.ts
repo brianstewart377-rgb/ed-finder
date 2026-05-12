@@ -15,6 +15,7 @@ import type {
   AutocompleteResponse,
   CacheStats,
   FacilityTemplate,
+  RecommendedBuildsResponse,
   RerankRequest,
   RerankResponse,
   SearchResponse,
@@ -162,6 +163,11 @@ export const api = {
     return jsonFetch(`/systems/${id64}/buildability${params}`);
   },
 
+  recommendedBuilds(id64: number, archetype?: string): Promise<RecommendedBuildsResponse> {
+    const params = archetype ? `?${new URLSearchParams({ archetype }).toString()}` : '';
+    return jsonFetch(`/systems/${id64}/recommended-builds${params}`);
+  },
+
   facilityTemplates(): Promise<FacilityTemplate[]> {
     return jsonFetch('/facility-templates');
   },
@@ -239,6 +245,10 @@ export function getBuildability(id64: number, archetype?: string): Promise<Syste
 
 export function getSimulationSummary(id64: number, archetype?: string): Promise<SimulationSummary> {
   return api.simulationSummary(id64, archetype);
+}
+
+export function getRecommendedBuilds(id64: number, archetype?: string): Promise<RecommendedBuildsResponse> {
+  return api.recommendedBuilds(id64, archetype);
 }
 
 export function getFacilityTemplates(): Promise<FacilityTemplate[]> {

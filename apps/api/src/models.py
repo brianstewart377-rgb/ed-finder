@@ -937,6 +937,39 @@ class SimulateBuildResponse(BaseModel):
     links:               SimulationLinks
 
 
+class RecommendedBuildPlan(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    id:                 str
+    label:              str
+    summary:            str
+    complexity:         Literal['simple', 'moderate', 'advanced', 'expert']
+    confidence:         float
+    final_score:        float
+    composition_score:  float
+    buildability_score: float
+    economy_result:     dict[str, float] = Field(default_factory=dict)
+    cp_result:          SimulationCPResult
+    build_order:        list[SimulateBuildPlacement] = Field(default_factory=list)
+    strengths:          list[str] = Field(default_factory=list)
+    warnings:           list[str] = Field(default_factory=list)
+    tradeoffs:          list[str] = Field(default_factory=list)
+    next_actions:       list[str] = Field(default_factory=list)
+    simulation_request: SimulateBuildRequest
+    is_default:         bool = False
+
+
+class RecommendedBuildsResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64:              int
+    target_archetype:         str
+    best_suggested_archetype: str
+    recommended_next_action:  str
+    plans:                   list[RecommendedBuildPlan] = Field(default_factory=list)
+    warnings:                list[str] = Field(default_factory=list)
+
+
 class FacilityTemplateResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 

@@ -1,11 +1,15 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, Play, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, Edit3, Play, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { getFacilityTemplates, simulateBuild } from '@/lib/api';
+import { getFacilityTemplates, getSimulationSummary, simulateBuild } from '@/lib/api';
 import type {
+  BuildabilityData,
   FacilityTemplate,
+  RecommendedBuildPlan,
   SimulateBuildPlacement,
+  SimulateBuildRequest,
   SimulateBuildResponse,
+  SimulationSummary,
   SystemBody,
   SystemDetail,
 } from '@/types/api';
@@ -20,11 +24,28 @@ const ARCHETYPES = [
   { id: 'flexible_multirole', label: 'Flexible Multirole' },
 ];
 
-export function SimulationPreview({ system }: { system: SystemDetail }) {
+type StartMode = 'recommended' | 'edit_recommended' | 'blank_advanced';
+type RecommendedStep = NonNullable<BuildabilityData['recommended_build_order']>[number];
+
+export function SimulationPreview({
+  system,
+  initialRequest,
+  initialPlanLabel,
+}: {
+  system: SystemDetail;
+  initialRequest?: SimulateBuildRequest | null;
+  initialPlanLabel?: string | null;
+}) {
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
     queryFn: getFacilityTemplates,
     staleTime: 30 * 60 * 1000,
+    retry: 1,
+  });
+  const summaryQuery = useQuery<SimulationSummary, Error>({
+    queryKey: ['sim-summary-preview', system.id64],
+    queryFn: () => getSimulationSummary(system.id64),
+    staleTime: 5 * 60 * 1000,
     retry: 1,
   });
   const [targetArchetype, setTargetArchetype] = useState('refinery_industrial');
@@ -32,14 +53,66 @@ export function SimulationPreview({ system }: { system: SystemDetail }) {
   const [result, setResult] = useState<SimulateBuildResponse | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [startMode, setStartMode] = useState<StartMode>('recommended');
+  const [autoLoadedRecommendation, setAutoLoadedRecommendation] = useState(false);
 
   const templates = templatesQuery.data ?? [];
   const bodies = useMemo(() => simulationBodies(system.bodies), [system.bodies]);
+  const recommendedSteps = summaryQuery.data?.buildability?.recommended_build_order ?? [];
+  const suggestedArchetype = summaryQuery.data?.classification?.primary_archetype
+    ?? archetypeFromEconomy(system.economy_suggestion)
+    ?? 'refinery_industrial';
+  const recommendedPlacements = useMemo(
+    () => buildRecommendedPlacements(recommendedSteps, templates, bodies),
+    [recommendedSteps, templates, bodies],
+  );
+  const hasRecommendedBuild = recommendedPlacements.length > 0;
   const canRun = placements.length > 0 && !running;
+
+  useEffect(() => {
+    if (!initialRequest) return;
+    setTargetArchetype(initialRequest.target_archetype);
+    setPlacements(resequence(initialRequest.placements));
+    setResult(null);
+    setError(null);
+    setStartMode('edit_recommended');
+    setAutoLoadedRecommendation(true);
+  }, [initialRequest]);
+
+  useEffect(() => {
+    if (!hasRecommendedBuild || autoLoadedRecommendation) return;
+    if (placements.length > 0 || startMode === 'blank_advanced') return;
+    setTargetArchetype(suggestedArchetype);
+    setPlacements(recommendedPlacements);
+    setResult(null);
+    setError(null);
+    setStartMode('recommended');
+    setAutoLoadedRecommendation(true);
+  }, [autoLoadedRecommendation, hasRecommendedBuild, placements.length, recommendedPlacements, startMode, suggestedArchetype]);
+
+  const loadRecommendedPlan = (mode: StartMode) => {
+    if (!hasRecommendedBuild) return;
+    setStartMode(mode);
+    setTargetArchetype(suggestedArchetype);
+    setPlacements(recommendedPlacements);
+    setResult(null);
+    setError(null);
+  };
+
+  const startBlankAdvanced = () => {
+    setStartMode('blank_advanced');
+    setAutoLoadedRecommendation(true);
+    setPlacements([]);
+    setResult(null);
+    setError(null);
+  };
 
   const addPlacement = () => {
     const firstTemplate = preferredTemplate(templates);
     if (!firstTemplate) return;
+    if (placements.length === 0 && startMode !== 'blank_advanced') {
+      setStartMode('edit_recommended');
+    }
     setPlacements((current) => [
       ...current,
       {
@@ -52,6 +125,9 @@ export function SimulationPreview({ system }: { system: SystemDetail }) {
   };
 
   const updatePlacement = (index: number, patch: Partial<SimulateBuildPlacement>) => {
+    if (startMode === 'recommended') {
+      setStartMode('edit_recommended');
+    }
     setPlacements((current) => current.map((item, i) => {
       if (i !== index) {
         return patch.is_primary_port ? { ...item, is_primary_port: false } : item;
@@ -61,10 +137,16 @@ export function SimulationPreview({ system }: { system: SystemDetail }) {
   };
 
   const removePlacement = (index: number) => {
+    if (startMode === 'recommended') {
+      setStartMode('edit_recommended');
+    }
     setPlacements((current) => resequence(current.filter((_, i) => i !== index)));
   };
 
   const movePlacement = (index: number, direction: -1 | 1) => {
+    if (startMode === 'recommended') {
+      setStartMode('edit_recommended');
+    }
     setPlacements((current) => {
       const nextIndex = index + direction;
       if (nextIndex < 0 || nextIndex >= current.length) return current;
@@ -106,9 +188,15 @@ export function SimulationPreview({ system }: { system: SystemDetail }) {
               Simulation Preview
             </h3>
             <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-              Choose a proposed build plan and preview CP pressure, economy order, contamination risk, and next steps.
+              This preview shows what your selected build would produce before you commit in-game.
             </p>
+            {initialPlanLabel && (
+              <p className="mt-1 text-[11px] text-orange font-mono">
+                You are previewing the {initialPlanLabel}.
+              </p>
+            )}
           </div>
+          <PlanBadge mode={startMode} hasRecommendedBuild={hasRecommendedBuild} />
           <button
             type="button"
             onClick={runSimulation}
@@ -121,8 +209,21 @@ export function SimulationPreview({ system }: { system: SystemDetail }) {
         </div>
       </div>
 
+      <div className="border-b border-border/60 px-4 py-3">
+        <StartModes
+          mode={startMode}
+          hasRecommendedBuild={hasRecommendedBuild}
+          loadingRecommended={summaryQuery.isLoading || templatesQuery.isLoading}
+          onUseRecommended={() => loadRecommendedPlan('recommended')}
+          onEditRecommended={() => loadRecommendedPlan('edit_recommended')}
+          onBlank={startBlankAdvanced}
+        />
+      </div>
+
       <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)]">
         <div className="space-y-3">
+          <ModeIntro mode={startMode} hasRecommendedBuild={hasRecommendedBuild} />
+
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <label className="space-y-1">
               <span className="block text-[10px] font-mono uppercase tracking-[0.16em] text-silver-dk">
@@ -160,10 +261,14 @@ export function SimulationPreview({ system }: { system: SystemDetail }) {
           )}
 
           {placements.length === 0 ? (
-            <div className="rounded-chunk-lg border border-dashed border-border bg-bg3/25 px-4 py-6 text-center">
-              <div className="font-mono text-xs text-silver">No facilities in this preview yet.</div>
+            <div className="rounded-chunk-lg border border-dashed border-gold/45 bg-gold/5 px-4 py-6 text-center">
+              <div className="font-mono text-xs text-gold">
+                {startMode === 'blank_advanced' ? 'Blank advanced simulation' : 'No recommended build loaded yet'}
+              </div>
               <div className="mt-1 text-[11px] text-silver-dk">
-                Add a primary port, then support facilities, then run the preview.
+                {startMode === 'blank_advanced'
+                  ? 'Start with a primary port, then add support facilities and run the preview.'
+                  : 'Use a recommended build when available, or choose the advanced blank mode.'}
               </div>
             </div>
           ) : (
@@ -202,6 +307,139 @@ export function SimulationPreview({ system }: { system: SystemDetail }) {
         </div>
       </div>
     </div>
+  );
+}
+
+export type { RecommendedBuildPlan };
+
+function StartModes({
+  mode,
+  hasRecommendedBuild,
+  loadingRecommended,
+  onUseRecommended,
+  onEditRecommended,
+  onBlank,
+}: {
+  mode: StartMode;
+  hasRecommendedBuild: boolean;
+  loadingRecommended: boolean;
+  onUseRecommended: () => void;
+  onEditRecommended: () => void;
+  onBlank: () => void;
+}) {
+  return (
+    <div className="grid gap-2 md:grid-cols-3">
+      <ModeButton
+        active={mode === 'recommended'}
+        disabled={!hasRecommendedBuild}
+        icon={<Sparkles size={15} />}
+        title="Use recommended build"
+        body={hasRecommendedBuild ? 'Load ED-Finder\'s suggested plan and preview it directly.' : loadingRecommended ? 'Looking for a suggested plan...' : 'No suggested plan is available yet.'}
+        onClick={onUseRecommended}
+      />
+      <ModeButton
+        active={mode === 'edit_recommended'}
+        disabled={!hasRecommendedBuild}
+        icon={<Edit3 size={15} />}
+        title="Edit selected recommended build"
+        body="Start from the suggested plan, then adjust facilities, bodies, and order."
+        onClick={onEditRecommended}
+      />
+      <ModeButton
+        active={mode === 'blank_advanced'}
+        icon={<AlertTriangle size={15} />}
+        title="Start blank advanced simulation"
+        body="Begin with an empty plan when you already know what you want to test."
+        onClick={onBlank}
+      />
+    </div>
+  );
+}
+
+function ModeButton({
+  active,
+  disabled,
+  icon,
+  title,
+  body,
+  onClick,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  icon: ReactNode;
+  title: string;
+  body: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={[
+        'rounded-chunk-lg border p-3 text-left transition-colors',
+        active
+          ? 'border-orange/65 bg-orange/12 shadow-brand-glow'
+          : 'border-border/70 bg-bg2/70 hover:border-orange/45 hover:bg-orange/5',
+        disabled ? 'cursor-not-allowed opacity-50' : '',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-orange">
+        {icon}
+        <span>{title}</span>
+      </div>
+      <p className="mt-1 text-[11px] leading-snug text-silver-dk">{body}</p>
+    </button>
+  );
+}
+
+function ModeIntro({
+  mode,
+  hasRecommendedBuild,
+}: {
+  mode: StartMode;
+  hasRecommendedBuild: boolean;
+}) {
+  const copy = mode === 'blank_advanced'
+    ? {
+        title: 'Advanced blank plan',
+        body: 'You are building from scratch. Add every facility yourself, then run the preview to check CP, economy order, and risks.',
+        tone: 'warn' as const,
+      }
+    : mode === 'edit_recommended'
+      ? {
+          title: 'Recommended plan editor',
+          body: 'A suggested build is loaded. Adjust the sequence or facilities before previewing the in-game outcome.',
+          tone: 'info' as const,
+        }
+      : {
+          title: hasRecommendedBuild ? 'Recommended build loaded' : 'Waiting for recommended build',
+          body: hasRecommendedBuild
+            ? 'Start here: this is the safest first view. Run the preview as-is, then edit if you want to experiment.'
+            : 'ED-Finder will load a recommended plan here when buildability data is available.',
+          tone: hasRecommendedBuild ? 'good' as const : 'info' as const,
+        };
+
+  return <Message title={copy.title} tone={copy.tone} items={[copy.body]} />;
+}
+
+function PlanBadge({
+  mode,
+  hasRecommendedBuild,
+}: {
+  mode: StartMode;
+  hasRecommendedBuild: boolean;
+}) {
+  const label = mode === 'blank_advanced'
+    ? 'Advanced blank'
+    : mode === 'edit_recommended'
+      ? 'Editing recommendation'
+      : hasRecommendedBuild ? 'Recommended plan' : 'Recommendation pending';
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-chunk-sm border border-orange/40 bg-orange/10 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-orange">
+      <CheckCircle2 size={13} />
+      {label}
+    </span>
   );
 }
 
@@ -512,6 +750,49 @@ function resequence(items: SimulateBuildPlacement[]): SimulateBuildPlacement[] {
   return items.map((item, index) => ({ ...item, build_order: index + 1 }));
 }
 
+function buildRecommendedPlacements(
+  steps: RecommendedStep[],
+  templates: FacilityTemplate[],
+  bodies: SystemBody[],
+): SimulateBuildPlacement[] {
+  if (steps.length === 0 || templates.length === 0) return [];
+  const byId = new Map(templates.map((template) => [template.id, template]));
+  let primaryPortAssigned = false;
+  const placements: SimulateBuildPlacement[] = [];
+
+  for (const step of steps) {
+    const facilityId = step.facility_id;
+    if (!facilityId) continue;
+    const template = byId.get(facilityId);
+    if (!template) continue;
+    const isPrimaryPort = template.is_port && !primaryPortAssigned;
+    if (isPrimaryPort) {
+      primaryPortAssigned = true;
+    }
+    placements.push({
+      facility_template_id: template.id,
+      local_body_id: recommendedBodyId(step.location, template, bodies),
+      is_primary_port: isPrimaryPort,
+      build_order: placements.length + 1,
+    });
+  }
+
+  return resequence(placements);
+}
+
+function recommendedBodyId(
+  location: string | null | undefined,
+  template: FacilityTemplate,
+  bodies: SystemBody[],
+): string | null {
+  if (bodies.length === 0) return null;
+  const locationText = `${location ?? ''} ${template.allowed_location}`.toLowerCase();
+  const body = locationText.includes('surface')
+    ? bodies.find((item) => item.is_landable) ?? bodies[0]
+    : bodies[0];
+  return body?.id != null ? String(body.id) : null;
+}
+
 function preferredTemplate(templates: FacilityTemplate[]): FacilityTemplate | undefined {
   return templates.find((item) => item.is_port) ?? templates[0];
 }
@@ -522,6 +803,17 @@ function simulationBodies(bodies?: SystemBody[]): SystemBody[] {
 
 function formatLocation(location: string): string {
   return location.replace(/_/g, ' ');
+}
+
+function archetypeFromEconomy(economy?: string | null): string | null {
+  const normalised = (economy ?? '').toLowerCase();
+  if (normalised.includes('refinery')) return 'refinery_industrial';
+  if (normalised.includes('extraction')) return 'extraction_refinery';
+  if (normalised.includes('agriculture')) return 'agriculture_terraforming';
+  if (normalised.includes('hightech') || normalised.includes('high tech') || normalised.includes('tourism')) return 'hitech_tourism';
+  if (normalised.includes('military')) return 'military_industrial';
+  if (normalised.includes('industrial')) return 'refinery_industrial';
+  return null;
 }
 
 function titleCase(value: string): string {

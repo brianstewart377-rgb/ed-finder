@@ -821,35 +821,29 @@ def generate_rationale(counts: dict, scores: dict, primary_eco: str,
     scored as it did.  Designed to be surfaced in the UI directly under the
     star rating so CMDRs don't have to parse the breakdown dict.
 
-    The "via …" highlights are filtered to ONLY mention bodies that actually
-    feed `primary_eco`'s scoring formula. Pre-2026-05-10 the rationale
-    iterated `counts` blindly, so a system like HD 49188 (43 bodies, 1 ELW,
-    primary_eco=Refinery) produced:
+    Rationale text is deliberately structured:
+      Primary score: ...
+      Factors: ...
+      Caveat: ...
 
-        "Strong Refinery; via 1 ELW, 4 ringed, 3 metal-rich; 15 landable;
-         — varied body mix"
-
-    even though the ELW and metal-rich bodies contribute zero points to
-    `score_refinery`. The text read like the ELW caused the score, when it
-    didn't. Filtering by the per-economy contributor list (defined in
-    ECON_HIGHLIGHT_BUILDERS below) keeps the explanation honest.
-
-    Example outputs (post-fix):
-      "Strong Refinery; via 8 clean rocky, 4 rocky-ringed, 3 HMC; 15 landable; — varied body mix"
-      "Strong HighTech; via 1 ELW, 2 gas giant, 1 exotic star; 8 landable"
-      "Tourism-leaning: 2 ELW, 1 black hole, 3 WW; 5 landable; — high terraforming potential"
+    Avoid old shorthand phrasing that makes mixed bodies such as ELWs read
+    like pure economy sources. ELWs can contribute to Agriculture, HighTech,
+    Military, and Tourism potential, but the mixed-economy caveat must stay
+    visible.
     """
     parts = []
+    primary_score = scores[primary_eco]
 
     # Lead phrase keyed to primary economy.
-    if scores[primary_eco] >= 60:
-        parts.append(f"Strong {primary_eco}")
-    elif scores[primary_eco] >= 40:
-        parts.append(f"Moderate {primary_eco}")
-    elif scores[primary_eco] >= 20:
-        parts.append(f"{primary_eco}-leaning")
+    if primary_score >= 60:
+        lead = f"Strong {primary_eco}"
+    elif primary_score >= 40:
+        lead = f"Moderate {primary_eco}"
+    elif primary_score >= 20:
+        lead = f"{primary_eco}-leaning"
     else:
-        parts.append("Low-yield system")
+        lead = "Low-yield system"
+    parts.append(f"Primary score: {lead} ({int(primary_score)})")
 
     # Highlights — only mention bodies that actually contribute to the
     # primary economy's score function. Each helper looks at `counts` and
@@ -857,25 +851,36 @@ def generate_rationale(counts: dict, scores: dict, primary_eco: str,
     # the first three.
     builder = ECON_HIGHLIGHT_BUILDERS.get(primary_eco, _highlights_generic)
     highlights = builder(counts)
+    if primary_eco == 'Military' and main_star_type:
+        highlights.insert(0, f"{main_star_type} star inheritance")
+    if primary_eco == 'Industrial' and not highlights:
+        highlights.append("industrial support facility potential")
     if highlights:
-        parts.append("via " + ", ".join(highlights[:3]))
+        parts.append("Factors: " + ", ".join(highlights[:3]))
 
     # Slot note — universal across economies.
-    if counts.get('landable', 0) >= 5:
-        parts.append(f"{counts['landable']} landable")
-    elif counts.get('landable', 0) == 0:
-        parts.append("no surface slots")
+    caveats = []
+    if counts.get('elw') and primary_eco in {'Agriculture', 'HighTech', 'Military', 'Tourism'}:
+        caveats.append("ELW mixed: Agri/HT/Mil/Tourism")
+    if primary_eco == 'Industrial' and counts.get('elw'):
+        caveats.append("ELW is not an Industrial driver")
+    if counts.get('landable', 0) == 0:
+        caveats.append("no surface slots")
+    if counts.get('white_dwarf'):
+        caveats.append("white-dwarf hazard")
+    if caveats:
+        parts.append("Caveat: " + "; ".join(caveats[:2]))
 
     # Hazard / diversity tail — universal.
-    tails = []
-    if counts.get('white_dwarf'):
-        tails.append("white-dwarf hazard")
+    context = []
     if diversity >= 20:
-        tails.append("varied body mix")
+        context.append("varied body mix")
     if tf_score >= 70:
-        tails.append("high terraforming potential")
-    if tails:
-        parts.append("— " + ", ".join(tails))
+        context.append("high terraforming potential")
+    if counts.get('landable', 0) >= 5:
+        context.insert(0, f"{counts['landable']} landable")
+    if context:
+        parts.append("Context: " + ", ".join(context[:2]))
 
     return ("; ".join(parts))[:160]
 
@@ -900,15 +905,15 @@ def _h_refinery(c: dict) -> list:
 def _h_industrial(c: dict) -> list:
     out = []
     if c.get('icy'):          out.append(f"{c['icy']} icy")
-    if c.get('gas_giant'):    out.append(f"{c['gas_giant']} gas giant")
     if c.get('rocky_ice'):    out.append(f"{c['rocky_ice']} rocky-ice")
+    if c.get('gas_giant'):    out.append(f"{c['gas_giant']} gas giant")
     if c.get('geo'):          out.append(f"{c['geo']} geo signal")
     return out
 
 
 def _h_hightech(c: dict) -> list:
     out = []
-    if c.get('elw'):          out.append(f"{c['elw']} ELW")
+    if c.get('elw'):          out.append(f"{c['elw']} ELW mixed")
     if c.get('ammonia'):      out.append(f"{c['ammonia']} AW")
     if c.get('gas_giant'):    out.append(f"{c['gas_giant']} gas giant")
     exotic = c.get('black_hole', 0) + c.get('neutron', 0) + c.get('white_dwarf', 0)
@@ -920,8 +925,9 @@ def _h_hightech(c: dict) -> list:
 
 def _h_military(c: dict) -> list:
     out = []
-    if c.get('elw'):          out.append(f"{c['elw']} ELW")
-    if c.get('gas_giant'):    out.append(f"{c['gas_giant']} gas giant")
+    if c.get('elw'):          out.append(f"{c['elw']} ELW mixed")
+    if c.get('landable'):     out.append(f"{c['landable']} landable support")
+    if c.get('gas_giant'):    out.append(f"{c['gas_giant']} GG inheritance")
     if c.get('rocky_clean') or c.get('rocky_rings'):
         rocky = c.get('rocky_clean', 0) + c.get('rocky_rings', 0)
         out.append(f"{rocky} rocky surface")
@@ -932,7 +938,7 @@ def _h_military(c: dict) -> list:
 
 def _h_tourism(c: dict) -> list:
     out = []
-    if c.get('elw'):          out.append(f"{c['elw']} ELW")
+    if c.get('elw'):          out.append(f"{c['elw']} ELW mixed")
     if c.get('ww'):           out.append(f"{c['ww']} WW")
     if c.get('ammonia'):      out.append(f"{c['ammonia']} AW")
     if c.get('black_hole'):   out.append(f"{c['black_hole']} black hole")
@@ -943,7 +949,7 @@ def _h_tourism(c: dict) -> list:
 
 def _h_agriculture(c: dict) -> list:
     out = []
-    if c.get('elw'):           out.append(f"{c['elw']} ELW")
+    if c.get('elw'):           out.append(f"{c['elw']} ELW mixed")
     if c.get('ww'):            out.append(f"{c['ww']} WW")
     if c.get('terraformable'): out.append(f"{c['terraformable']} terraformable")
     if c.get('bio'):           out.append(f"{c['bio']} bio signal")

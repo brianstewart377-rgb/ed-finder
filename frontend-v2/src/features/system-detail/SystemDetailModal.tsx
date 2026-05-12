@@ -1,12 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
+import type { RecommendedBuildPlan, SystemDetail, SystemBody, SystemStation } from '@/types/api';
 import { formatPopulation } from '@/lib/format';
+import { displayRationale } from '@/lib/rationale';
 import { useSystemDetail } from './useSystemDetail';
 import { RatingRadar } from './RatingRadar';
 import { BuildabilityPanel } from './BuildabilityPanel';
 import { SlotPredictionPanel } from './SlotPredictionPanel';
-import { SimulationPreview } from './SimulationPreview';
+import { RecommendedBuildsPanel } from './RecommendedBuildsPanel';
+import { SimulationPreviewPanel } from './SimulationPreviewPanel';
 
 export interface SystemDetailModalProps {
   id64:    number;
@@ -30,6 +32,7 @@ export interface SystemDetailModalProps {
  */
 export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetailModalProps) {
   const { data, loading, error, refetch } = useSystemDetail(id64);
+  const [selectedBuild, setSelectedBuild] = useState<RecommendedBuildPlan | null>(null);
 
   // Esc closes the modal. Body scroll lock only fires if we're actually
   // mounted (id64 changes between mounts so this is per-open).
@@ -43,6 +46,10 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
       document.body.style.overflow = prevOverflow;
     };
   }, [onClose]);
+
+  useEffect(() => {
+    setSelectedBuild(null);
+  }, [id64]);
 
   return (
     <div
@@ -96,12 +103,15 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
               <ExplorationValue value={data.exploration_value} />
 
               {/* Colony Build Analysis — simulation engine panels */}
-              <Section title="Colony Build Analysis">
-                <SimulationPreview system={data} />
+              <Section title="Colony Planning">
+                <BuildabilityPanel id64={id64} />
                 <div className="mt-4">
-                  <BuildabilityPanel id64={id64} />
+                  <RecommendedBuildsPanel system={data} onPreviewBuild={setSelectedBuild} />
                 </div>
-                <div className="mt-3">
+                <div className="mt-4">
+                  <SimulationPreviewPanel system={data} selectedPlan={selectedBuild} />
+                </div>
+                <div className="mt-4">
                   <SlotPredictionPanel id64={id64} />
                 </div>
               </Section>
@@ -187,7 +197,7 @@ function SystemInfoGrid({ sys }: { sys: SystemDetail }) {
     sys.main_star_subtype || sys.main_star_type
       ? { label: 'Main star', value: <span className="text-cyan">{sys.main_star_subtype || sys.main_star_type}</span> }
       : null,
-    sys.rationale ? { label: 'Rating rationale', value: <span className="italic text-text-dim">{sys.rationale}</span> } : null,
+    displayRationale(sys.rationale) ? { label: 'Rating rationale', value: <span className="italic text-text-dim">{displayRationale(sys.rationale)}</span> } : null,
   ];
 
   const visible = fields.filter(
