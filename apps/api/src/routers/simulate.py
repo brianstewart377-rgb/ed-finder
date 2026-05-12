@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 
 from deps import get_pool
 from domain.colonisation_rules import get_target_profile, profile_body
-from domain.facilities import FacilityTemplate, get_catalogue, load_catalogue_from_rows
+from domain.facilities import FacilityTemplate, get_catalogue, load_bundled_catalogue, load_catalogue_from_rows
 from models import (
     FacilityTemplateResponse,
     RecommendedBuildPlan,
@@ -210,7 +210,10 @@ async def _catalogue_or_db(pool: asyncpg.Pool) -> dict[str, FacilityTemplate]:
 
     async with pool.acquire() as conn:
         rows = await conn.fetch('SELECT * FROM facility_templates ORDER BY tier, id')
-    load_catalogue_from_rows([dict(row) for row in rows])
+    if rows:
+        load_catalogue_from_rows([dict(row) for row in rows])
+    else:
+        load_bundled_catalogue()
     return get_catalogue()
 
 

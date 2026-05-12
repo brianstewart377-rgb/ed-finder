@@ -16,7 +16,9 @@ Separation:
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 
@@ -169,6 +171,7 @@ class FacilityTemplate:
 # In-memory catalogue — loaded once at startup by the loader function below
 # ---------------------------------------------------------------------------
 _CATALOGUE: dict[str, FacilityTemplate] = {}
+_BUNDLED_CATALOGUE_PATH = Path(__file__).with_name('facility_catalogue_v1.json')
 
 
 def get_catalogue() -> dict[str, FacilityTemplate]:
@@ -190,6 +193,29 @@ def load_catalogue_from_rows(rows: list[dict]) -> None:
     _CATALOGUE = {r['id']: FacilityTemplate.from_db_row(r) for r in rows}
 
 
+def load_catalogue_from_json_data(data: dict[str, Any]) -> None:
+    """
+    Populate the in-memory catalogue from a bundled/generated catalogue JSON.
+
+    The V1 JSON is generated from DaftMav's workbook and intentionally mirrors
+    the database row shape so the simulator can consume the richer catalogue
+    without needing a schema migration.
+    """
+    templates = data.get('templates') or []
+    load_catalogue_from_rows([_template_json_to_row(item) for item in templates])
+
+
+def load_catalogue_from_json_path(path: Path | str) -> None:
+    data = json.loads(Path(path).read_text(encoding='utf-8'))
+    load_catalogue_from_json_data(data)
+
+
+def load_bundled_catalogue() -> dict[str, FacilityTemplate]:
+    """Load and return the DaftMav-derived bundled catalogue."""
+    load_catalogue_from_json_path(_BUNDLED_CATALOGUE_PATH)
+    return get_catalogue()
+
+
 def facilities_by_tier(tier: int) -> list[FacilityTemplate]:
     return [f for f in _CATALOGUE.values() if f.tier == tier]
 
@@ -200,3 +226,27 @@ def facilities_by_economy(economy: str) -> list[FacilityTemplate]:
 
 def port_facilities() -> list[FacilityTemplate]:
     return [f for f in _CATALOGUE.values() if f.is_port]
+
+
+def _template_json_to_row(template: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'id': template['id'],
+        'name': template['name'],
+        'category': template.get('category', 'support'),
+        'tier': template.get('tier', 1),
+        'economy': template.get('economy'),
+        'is_port': template.get('is_port', False),
+        'is_colony_port': template.get('is_colony_port', False),
+        'is_support_facility': template.get('is_support_facility', False),
+        'yellow_cp_generated': template.get('yellow_cp_generated', 0),
+        'green_cp_generated': template.get('green_cp_generated', 0),
+        'yellow_cp_cost': template.get('yellow_cp_cost', 0),
+        'green_cp_cost': template.get('green_cp_cost', 0),
+        'strong_link_value': template.get('strong_link_value', 0),
+        'weak_link_value': template.get('weak_link_value', 0.05),
+        'allowed_location': template.get('allowed_location', LOC_ORBITAL_SURFACE),
+        'pad_size': template.get('pad_size'),
+        'prerequisites': template.get('prerequisites') or [],
+        'economy_effects': template.get('economy_effects') or {},
+        'stat_effects': template.get('stat_effects') or {},
+    }

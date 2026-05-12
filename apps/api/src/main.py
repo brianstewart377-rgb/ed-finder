@@ -153,11 +153,23 @@ async def lifespan(app: FastAPI):
     try:
         async with pool.acquire() as _conn:
             _rows = await _conn.fetch('SELECT * FROM facility_templates ORDER BY tier, id')
-            from domain.facilities import load_catalogue_from_rows
-            load_catalogue_from_rows([dict(r) for r in _rows])
-            log.info(f"Facility catalogue loaded ✓ ({len(_rows)} facilities)")
+            from domain.facilities import load_bundled_catalogue, load_catalogue_from_rows
+            if _rows:
+                load_catalogue_from_rows([dict(r) for r in _rows])
+                log.info(f"Facility catalogue loaded ✓ ({len(_rows)} facilities)")
+            else:
+                _catalogue = load_bundled_catalogue()
+                log.info(f"Bundled facility catalogue loaded ✓ ({len(_catalogue)} facilities)")
     except Exception as _e:
-        log.warning(f"Facility catalogue load failed ({_e}) — simulation endpoints will use empty catalogue")
+        try:
+            from domain.facilities import load_bundled_catalogue
+            _catalogue = load_bundled_catalogue()
+            log.warning(f"Facility catalogue DB load failed ({_e}) — using bundled catalogue ({len(_catalogue)} facilities)")
+        except Exception as _fallback_e:
+            log.warning(
+                f"Facility catalogue load failed ({_e}); bundled fallback failed ({_fallback_e}) "
+                "— simulation endpoints will use empty catalogue"
+            )
 
     log.info("PostgreSQL pool ready ✓")
     app.state.pool  = pool
