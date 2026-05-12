@@ -7,11 +7,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
 from domain.colonisation_rules import get_target_profile
+from domain.colonisation_rules import profile_body
 from domain.facilities import FacilityTemplate
 from recommendations.body_selector import select_body_candidates
 from recommendations.build_generator import generate_build_drafts
 from recommendations.plan_ranker import rank_plans
 from models import SimulateBuildResponse
+from simulation.build_preview import PreviewContext
 
 
 def facility(
@@ -133,3 +135,70 @@ def test_ranker_uses_simulation_results_not_generated_order():
     ranked = rank_plans([(drafts[0], low), (drafts[-1], high)])
 
     assert ranked[0].simulation.final_score == 90
+
+
+async def test_recommended_builds_api_response_includes_body_mechanics_and_request(monkeypatch):
+    from routers import simulate as simulate_router
+
+    rows = [
+        body_row(body_id=1, body_name='Plain Rocky', subtype='Rocky body'),
+        body_row(body_id=2, body_name='ELW Prime', subtype='Earth-like world'),
+    ]
+    profiles = {str(row['body_id']): profile_body(row).to_context_profile() for row in rows}
+
+    async def fake_catalogue(_pool):
+        return catalogue()
+
+    async def fake_preview_context(_pool, system_id64):
+        return PreviewContext(
+            system_id64=system_id64,
+            estimated_orbital_slots=6,
+            estimated_ground_slots=4,
+            slot_confidence=0.82,
+            local_body_profiles=profiles,
+            mechanics_notes=['Body economy inheritance follows Mega Guide notes.'],
+        ), rows
+
+    monkeypatch.setattr(simulate_router, '_catalogue_or_db', fake_catalogue)
+    monkeypatch.setattr(simulate_router, '_preview_context', fake_preview_context)
+
+    response = await simulate_router.get_recommended_builds(
+        system_id64=123,
+        archetype='hitech_tourism',
+        pool=object(),
+    )
+
+    assert response.plans
+    plan = response.plans[0]
+    assert plan.selected_body_id
+    assert plan.selected_body_name
+    assert plan.body_selection_reason
+    assert plan.mechanics_basis
+    assert plan.economy_caveats
+    assert plan.assumptions
+    assert plan.simulation_request.system_id64 == 123
+    assert plan.simulation_request.placements
+    assert all(p.local_body_id == plan.selected_body_id for p in plan.simulation_request.placements)
+
+
+async def test_recommended_builds_api_unsupported_archetype_warns_without_plans(monkeypatch):
+    from routers import simulate as simulate_router
+
+    async def fake_catalogue(_pool):
+        return catalogue()
+
+    async def fake_preview_context(_pool, system_id64):
+        return PreviewContext(system_id64=system_id64), [body_row()]
+
+    monkeypatch.setattr(simulate_router, '_catalogue_or_db', fake_catalogue)
+    monkeypatch.setattr(simulate_router, '_preview_context', fake_preview_context)
+
+    response = await simulate_router.get_recommended_builds(
+        system_id64=123,
+        archetype='unknown_future_archetype',
+        pool=object(),
+    )
+
+    assert response.plans == []
+    assert response.warnings == ['Recommended build rules are not implemented for this archetype yet.']
+    assert 'not implemented' in response.recommended_next_action

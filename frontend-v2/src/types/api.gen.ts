@@ -2119,6 +2119,8 @@ export interface components {
             };
             /** Economy Order */
             economy_order?: string[];
+            /** Inherited Economies */
+            inherited_economies?: components["schemas"]["SimulationInheritedEconomy"][];
             /** Top Two Alignment */
             top_two_alignment: string;
             /** Contamination Risk */
@@ -2224,6 +2226,29 @@ export interface components {
             rationale?: unknown | null;
         } & {
             [key: string]: unknown;
+        };
+        /** SimulationLink */
+        SimulationInheritedEconomy: {
+            /** Source Body Id */
+            source_body_id?: string | null;
+            /** Source Body Name */
+            source_body_name?: string | null;
+            /** Base Economies */
+            base_economies?: string[];
+            /** Modifier Economies */
+            modifier_economies?: string[];
+            /** Weights */
+            weights?: {
+                [key: string]: number;
+            };
+            /** Purity */
+            purity: number;
+            /** Confidence */
+            confidence: number;
+            /** Caveats */
+            caveats?: string[];
+            /** Strategic Tags */
+            strategic_tags?: string[];
         };
         /** SimulationLink */
         SimulationLink: {

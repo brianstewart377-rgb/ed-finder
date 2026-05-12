@@ -124,6 +124,18 @@ export interface SimulationLinks {
   weak_links: SimulationLink[];
 }
 
+export interface SimulationInheritedEconomy {
+  source_body_id?: string | null;
+  source_body_name?: string | null;
+  base_economies: string[];
+  modifier_economies: string[];
+  weights: Record<string, number>;
+  purity: number;
+  confidence: number;
+  caveats: string[];
+  strategic_tags: string[];
+}
+
 export interface SimulateBuildResponse {
   system_id64: number;
   target_archetype: string;
@@ -135,6 +147,7 @@ export interface SimulateBuildResponse {
   cp: SimulationCPResult;
   economy_composition: Record<string, number>;
   economy_order: string[];
+  inherited_economies: SimulationInheritedEconomy[];
   top_two_alignment: string;
   contamination_risk: string;
   warnings: string[];
