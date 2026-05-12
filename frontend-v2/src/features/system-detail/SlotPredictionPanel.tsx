@@ -12,7 +12,7 @@
 
 import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getSlotPredictions } from '@/lib/api';
+import { api } from '@/lib/api';
 import type { BodySlotPrediction, SlotPredictionResponse, SlotReason } from '@/types/api';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ type BodyPrediction = BodySlotPrediction;
 function useSlotPredictions(id64: number) {
   return useQuery<SlotPredictionResponse, Error>({
     queryKey: ['slot-predictions', id64],
-    queryFn:  () => getSlotPredictions(id64),
+    queryFn:  () => api.slotPredictions(id64),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
