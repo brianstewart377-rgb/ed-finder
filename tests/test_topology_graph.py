@@ -55,16 +55,25 @@ T2_SURFACE = facility('surface_outpost', None, tier=2, is_port=True, allowed_loc
 T3_PORT = facility('ocellus_station', None, tier=3, is_port=True, allowed_location='orbital')
 REFINERY = facility('refinery_hub', 'Refinery', tier=1, is_support_facility=True, allowed_location='surface')
 INDUSTRIAL = facility('industrial_yard', 'Industrial', tier=1, is_support_facility=True)
+INDUSTRIAL_T2 = facility('industrial_yard_t2', 'Industrial', tier=2, is_support_facility=True)
 EXTRACTION_PORT = facility('asteroid_base', 'Extraction', tier=2, is_port=True, allowed_location='orbital')
 
 
-def placement(template: FacilityTemplate, body: str, order: int, *, location: str = 'orbital') -> GraphPlacement:
+def placement(
+    template: FacilityTemplate,
+    body: str,
+    order: int,
+    *,
+    location: str = 'orbital',
+    is_primary: bool = False,
+) -> GraphPlacement:
     return GraphPlacement(
         facility=template,
         local_body_id=body,
         build_order=order,
         location_type=location,
         economy=template.economy,
+        is_primary_port=is_primary,
     )
 
 
@@ -170,3 +179,48 @@ def test_surface_and_orbital_main_ports_are_classified_separately():
 
     assert roles[('surface_outpost', 'surface')] == ROLE_MAIN_SURFACE_PORT
     assert roles[('ocellus_station', 'orbital')] == ROLE_MAIN_ORBITAL_PORT
+
+
+def test_primary_t1_port_does_not_override_later_t3_main_port_selection():
+    graph = build_topology_graph([
+        placement(T1_PORT, '5', 1, is_primary=True),
+        placement(T3_PORT, '5', 2),
+    ])
+    roles = {item.placement.facility_id: item.effective_role for item in graph.classified_placements}
+
+    assert graph.local_body_groups[0].main_orbital_port.facility_id == 'ocellus_station'
+    assert roles['ocellus_station'] == ROLE_MAIN_ORBITAL_PORT
+    assert roles['colony_ship'] == ROLE_CONVERTED_SUPPORT_PORT
+
+
+def test_primary_flag_does_not_prevent_selected_main_port_receiving_links():
+    graph = build_topology_graph([
+        placement(T3_PORT, '6', 1, is_primary=True),
+        placement(INDUSTRIAL, '6', 2),
+    ])
+
+    assert graph.local_body_groups[0].main_orbital_port.facility_id == 'ocellus_station'
+    assert len(graph.strong_links) == 1
+    assert graph.strong_links[0].receiver_port_id == 'ocellus_station'
+
+
+def test_t1_support_to_t3_port_uses_t1_strong_link_value():
+    graph = build_topology_graph([
+        placement(T3_PORT, '7', 1),
+        placement(REFINERY, '7', 2, location='surface'),
+    ])
+
+    assert len(graph.strong_links) == 1
+    assert graph.strong_links[0].receiver_port_id == 'ocellus_station'
+    assert graph.strong_links[0].value == 0.4
+
+
+def test_t2_support_to_t3_port_uses_t2_strong_link_value():
+    graph = build_topology_graph([
+        placement(T3_PORT, '8', 1),
+        placement(INDUSTRIAL_T2, '8', 2),
+    ])
+
+    assert len(graph.strong_links) == 1
+    assert graph.strong_links[0].receiver_port_id == 'ocellus_station'
+    assert graph.strong_links[0].value == 0.8

@@ -212,8 +212,6 @@ def _select_main_port(ports: list[GraphPlacement]) -> Optional[GraphPlacement]:
 def _effective_role(placement: GraphPlacement, group: LocalBodyGroup) -> str:
     if not placement.facility.is_port:
         return ROLE_SUPPORTING_FACILITY
-    if placement.is_primary_port:
-        return ROLE_PRIMARY_PORT
     if placement == group.main_surface_port:
         return ROLE_MAIN_SURFACE_PORT
     if placement == group.main_orbital_port:
@@ -247,7 +245,7 @@ def _generate_strong_links(graph: TopologyGraph) -> list[StrongLink]:
                 receiver_port_name=receiver.facility_name,
                 local_body_id=group.local_body_id,
                 economy=placement.economy,
-                value=_strong_link_value(receiver),
+                value=_strong_link_value(placement),
                 note=f'{placement.facility_name} strongly links to local Main Port {receiver.facility_name}.',
             ))
     return links
@@ -268,7 +266,7 @@ def _generate_pass_through_links(graph: TopologyGraph) -> list[PassThroughLink]:
             orbital_receiver_name=group.main_orbital_port.facility_name,
             local_body_id=group.local_body_id,
             economy=group.main_surface_port.economy,
-            value=_strong_link_value(group.main_orbital_port),
+            value=_strong_link_value(group.main_surface_port),
             note=(
                 f'Surface Main Port {group.main_surface_port.facility_name} strongly links to '
                 f'orbital Main Port {group.main_orbital_port.facility_name}.'
@@ -356,8 +354,8 @@ def _can_emit_weak_link(placement: GraphPlacement, role: Optional[str]) -> bool:
     return placement.facility.is_support_facility or role == ROLE_CONVERTED_SUPPORT_PORT
 
 
-def _strong_link_value(receiver: GraphPlacement) -> float:
-    return STRONG_LINK_BY_TIER.get(receiver.facility.tier, STRONG_LINK_BY_TIER[1])
+def _strong_link_value(source: GraphPlacement) -> float:
+    return STRONG_LINK_BY_TIER.get(source.facility.tier, STRONG_LINK_BY_TIER[1])
 
 
 def _key(placement: GraphPlacement) -> tuple[str, str, int]:
