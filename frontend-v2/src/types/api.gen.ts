@@ -862,6 +862,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/systems/{system_id64}/recommended-builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Recommended Builds */
+        get: operations["get_recommended_builds_api_systems__system_id64__recommended_builds_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/systems/{id64}/slot-predictions": {
         parameters: {
             query?: never;
@@ -1854,6 +1871,49 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** RecommendedBuildPlan */
+        RecommendedBuildPlan: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Summary */
+            summary: string;
+            /**
+             * Complexity
+             * @enum {string}
+             */
+            complexity: "simple" | "moderate" | "advanced" | "expert";
+            /** Confidence */
+            confidence: number;
+            /** Final Score */
+            final_score: number;
+            /** Composition Score */
+            composition_score: number;
+            /** Buildability Score */
+            buildability_score: number;
+            /** Economy Result */
+            economy_result?: {
+                [key: string]: number;
+            };
+            cp_result: components["schemas"]["SimulationCPResult"];
+            /** Build Order */
+            build_order?: components["schemas"]["SimulateBuildPlacement"][];
+            /** Strengths */
+            strengths?: string[];
+            /** Warnings */
+            warnings?: string[];
+            /** Tradeoffs */
+            tradeoffs?: string[];
+            /** Next Actions */
+            next_actions?: string[];
+            simulation_request: components["schemas"]["SimulateBuildRequest"];
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+        };
         /** RecommendedBuildStep */
         RecommendedBuildStep: {
             /** Step */
@@ -1872,6 +1932,21 @@ export interface components {
             cumulative_green_cp?: number | null;
         } & {
             [key: string]: unknown;
+        };
+        /** RecommendedBuildsResponse */
+        RecommendedBuildsResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype: string;
+            /** Best Suggested Archetype */
+            best_suggested_archetype: string;
+            /** Recommended Next Action */
+            recommended_next_action: string;
+            /** Plans */
+            plans?: components["schemas"]["RecommendedBuildPlan"][];
+            /** Warnings */
+            warnings?: string[];
         };
         /** RerankRequest */
         RerankRequest: {
@@ -4198,6 +4273,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SimulateBuildResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_recommended_builds_api_systems__system_id64__recommended_builds_get: {
+        parameters: {
+            query?: {
+                archetype?: string | null;
+            };
+            header?: never;
+            path: {
+                system_id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendedBuildsResponse"];
                 };
             };
             /** @description Validation Error */
