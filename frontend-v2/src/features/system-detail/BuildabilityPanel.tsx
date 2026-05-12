@@ -18,7 +18,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { getSimulationSummary } from '@/lib/api';
 import type { BuildabilityData, SimulationSummary } from '@/types/api';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ type RecommendedBuildStep = NonNullable<BuildabilityData['recommended_build_orde
 function useSimulationSummary(id64: number) {
   return useQuery<SimulationSummary, Error>({
     queryKey: ['sim-summary', id64],
-    queryFn:  () => api.simulationSummary(id64),
+    queryFn:  () => getSimulationSummary(id64),
     staleTime: 5 * 60 * 1000,   // 5 min — matches server Redis TTL
     retry:     1,
   });

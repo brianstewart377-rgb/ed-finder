@@ -14,11 +14,15 @@ import type {
   AppStatus,
   AutocompleteResponse,
   CacheStats,
+  FacilityTemplate,
   RerankRequest,
   RerankResponse,
   SearchResponse,
+  SimulateBuildRequest,
+  SimulateBuildResponse,
   SimulationSummary,
   SlotPredictionResponse,
+  SystemBuildability,
   SystemDetail,
   SystemDetailResponse,
   SystemResult,
@@ -144,12 +148,29 @@ export const api = {
     return res.record ?? res.system;
   },
 
-  simulationSummary(id64: number): Promise<SimulationSummary> {
-    return jsonFetch(`/systems/${id64}/simulation-summary`);
+  simulationSummary(id64: number, archetype?: string): Promise<SimulationSummary> {
+    const params = archetype ? `?${new URLSearchParams({ archetype }).toString()}` : '';
+    return jsonFetch(`/systems/${id64}/simulation-summary${params}`);
   },
 
   slotPredictions(id64: number): Promise<SlotPredictionResponse> {
     return jsonFetch(`/systems/${id64}/slot-predictions`);
+  },
+
+  buildability(id64: number, archetype?: string): Promise<SystemBuildability> {
+    const params = archetype ? `?${new URLSearchParams({ archetype }).toString()}` : '';
+    return jsonFetch(`/systems/${id64}/buildability${params}`);
+  },
+
+  facilityTemplates(): Promise<FacilityTemplate[]> {
+    return jsonFetch('/facility-templates');
+  },
+
+  simulateBuild(body: SimulateBuildRequest): Promise<SimulateBuildResponse> {
+    return jsonFetch('/simulate/build', {
+      method: 'POST',
+      body:   JSON.stringify(body),
+    });
   },
 
   recentEvents(limit = 20): Promise<RecentEventsResponse> {
@@ -207,6 +228,26 @@ export const api = {
     });
   },
 };
+
+export function getSlotPredictions(id64: number): Promise<SlotPredictionResponse> {
+  return api.slotPredictions(id64);
+}
+
+export function getBuildability(id64: number, archetype?: string): Promise<SystemBuildability> {
+  return api.buildability(id64, archetype);
+}
+
+export function getSimulationSummary(id64: number, archetype?: string): Promise<SimulationSummary> {
+  return api.simulationSummary(id64, archetype);
+}
+
+export function getFacilityTemplates(): Promise<FacilityTemplate[]> {
+  return api.facilityTemplates();
+}
+
+export function simulateBuild(request: SimulateBuildRequest): Promise<SimulateBuildResponse> {
+  return api.simulateBuild(request);
+}
 
 /** Shape of one row from /api/watchlist. */
 export interface WatchlistEntry {

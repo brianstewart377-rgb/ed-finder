@@ -12,7 +12,7 @@
 
 import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { getSlotPredictions } from '@/lib/api';
 import type { BodySlotPrediction, SlotPredictionResponse, SlotReason } from '@/types/api';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ type BodyPrediction = BodySlotPrediction;
 function useSlotPredictions(id64: number) {
   return useQuery<SlotPredictionResponse, Error>({
     queryKey: ['slot-predictions', id64],
-    queryFn:  () => api.slotPredictions(id64),
+    queryFn:  () => getSlotPredictions(id64),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
@@ -182,17 +182,17 @@ function PredictionTable({ predictions }: { predictions: BodyPrediction[] }) {
 
                 {/* Orbital slots */}
                 <td className="px-3 py-2 text-right tabular-nums text-cyan font-bold">
-                  {p.orbital_slots > 0 ? p.orbital_slots : <span className="text-text-dim font-normal">—</span>}
+                  {p.estimated_orbital_slots > 0 ? p.estimated_orbital_slots : <span className="text-text-dim font-normal">—</span>}
                 </td>
 
                 {/* Surface slots */}
                 <td className="px-3 py-2 text-right tabular-nums text-gold font-bold">
-                  {p.surface_slots > 0 ? p.surface_slots : <span className="text-text-dim font-normal">—</span>}
+                  {p.estimated_surface_slots > 0 ? p.estimated_surface_slots : <span className="text-text-dim font-normal">—</span>}
                 </td>
 
                 {/* Confidence */}
                 <td className="px-3 py-2 text-center">
-                  <ConfidencePip value={p.confidence} />
+                  <ConfidencePip value={p.slot_confidence} />
                 </td>
 
                 {/* Reasons toggle */}

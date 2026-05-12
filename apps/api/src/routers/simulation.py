@@ -36,9 +36,9 @@ from config import log
 from deps import get_pool, get_redis, cache_get, cache_set
 from ingest.slot_prediction import predict_system_slots, confidence_label
 from models import (
+    BuildabilityResponse,
     SimulationSummaryResponse,
     SlotPredictionResponse,
-    SystemBuildabilityResponse,
 )
 from simulation.buildability import analyse_buildability
 from simulation.topology_simulator import (
@@ -70,7 +70,7 @@ async def get_slot_predictions(
       2. bodies table (Spansh-imported, moderate confidence)
       3. No data → empty predictions with explanation
     """
-    cache_key = f'sim:v2:slots:{id64}'
+    cache_key = f'sim:v3:slots:{id64}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -174,7 +174,7 @@ async def get_slot_predictions(
 # ---------------------------------------------------------------------------
 # GET /api/systems/{id64}/buildability
 # ---------------------------------------------------------------------------
-@router.get('/{id64}/buildability', response_model=SystemBuildabilityResponse)
+@router.get('/{id64}/buildability', response_model=BuildabilityResponse)
 async def get_buildability(
     id64: int,
     archetype: Optional[str] = Query(None, description='Target archetype key'),
@@ -199,7 +199,7 @@ async def get_buildability(
       2. system_slot_topology + body_scan_facts (compute on demand)
       3. system_archetype_traits (fallback, lower confidence)
     """
-    cache_key = f'sim:v2:build:{id64}:{archetype or "auto"}'
+    cache_key = f'sim:v3:build:{id64}:{archetype or "auto"}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -348,7 +348,7 @@ async def get_simulation_summary(
       • buildability_analysis (pre-computed if available)
       • body_scan_facts or bodies (slot predictions)
     """
-    cache_key = f'sim:v2:summary:{id64}:{archetype or "auto"}'
+    cache_key = f'sim:v3:summary:{id64}:{archetype or "auto"}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -537,9 +537,9 @@ def _slot_prediction_to_api(pred: Any, fact: dict[str, Any]) -> dict[str, Any]:
         'body_id':        pred.body_id,
         'body_name':      fact.get('body_name'),
         'planet_class':   fact.get('planet_class'),
-        'surface_slots':  pred.surface_slots,
-        'orbital_slots':  pred.orbital_slots,
-        'confidence':     round(float(pred.confidence or 0), 3),
+        'estimated_surface_slots': pred.surface_slots,
+        'estimated_orbital_slots': pred.orbital_slots,
+        'slot_confidence': round(float(pred.confidence or 0), 3),
         'slot_source':    pred.slot_source,
         'reasons':        [_normalise_slot_reason(r) for r in pred.reasons],
         'is_ringed':      _maybe_bool(fact.get('is_ringed')),

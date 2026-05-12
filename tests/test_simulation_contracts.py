@@ -11,7 +11,7 @@ _HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(_HERE, '..', 'apps', 'api', 'src'))
 
 from ingest.slot_prediction import SlotPrediction
-from models import BuildabilityData, SlotPredictionResponse
+from models import BuildabilityData, BuildabilityResponse, SlotPredictionResponse
 from routers.simulation import _normalise_buildability, _slot_prediction_to_api
 
 
@@ -39,11 +39,14 @@ class TestSimulationContracts(unittest.TestCase):
         }
 
         body = _slot_prediction_to_api(prediction, fact)
-        self.assertEqual(body['surface_slots'], 2)
-        self.assertEqual(body['orbital_slots'], 1)
-        self.assertEqual(body['confidence'], 0.75)
+        self.assertEqual(body['estimated_surface_slots'], 2)
+        self.assertEqual(body['estimated_orbital_slots'], 1)
+        self.assertEqual(body['slot_confidence'], 0.75)
         self.assertEqual(body['body_name'], 'Test System 4 a')
         self.assertEqual(body['reasons'][0]['note'], '+2 surface slots')
+        self.assertNotIn('surface_slots', body)
+        self.assertNotIn('orbital_slots', body)
+        self.assertNotIn('confidence', body)
 
         SlotPredictionResponse.model_validate({
             'system_id64': 123,
@@ -95,6 +98,10 @@ class TestSimulationContracts(unittest.TestCase):
         self.assertEqual(payload['recommended_build_order'][0]['notes'], 'Required first placement.')
 
         BuildabilityData.model_validate(payload)
+        BuildabilityResponse.model_validate({
+            'system_id64': 123,
+            **payload,
+        })
 
 
 if __name__ == '__main__':
