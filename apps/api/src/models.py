@@ -864,6 +864,99 @@ class BuildSimulateResponse(BaseModel):
 
 
 # ── Response: simulation/buildability endpoints ───────────────────────
+# -- Request/response: POST /api/simulate/build -----------------------------
+class SimulateBuildPlacement(BaseModel):
+    """One user-selected facility placement in Simulation Preview."""
+    model_config = ConfigDict(extra='forbid')
+
+    facility_template_id: str
+    local_body_id:        Optional[str] = None
+    is_primary_port:      bool          = False
+    build_order:          int           = Field(default=1, ge=1)
+
+
+class SimulateBuildRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64:       int
+    target_archetype:  str
+    placements:        list[SimulateBuildPlacement] = Field(default_factory=list)
+
+
+class SimulationCPResult(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    yellow_cp_final:     int
+    green_cp_final:      int
+    yellow_cp_generated: int = 0
+    green_cp_generated:  int = 0
+    yellow_cp_spent:     int = 0
+    green_cp_spent:      int = 0
+    t2_ports:            int
+    t3_ports:            int
+    warnings:            list[str] = Field(default_factory=list)
+
+
+class SimulationLink(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    port_facility_id:    Optional[str] = None
+    support_facility_id: str
+    local_body_id:       Optional[str] = None
+    economy:             Optional[str] = None
+    value:               float = 0.0
+    note:                str
+
+
+class SimulationLinks(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    strong_links: list[SimulationLink] = Field(default_factory=list)
+    weak_links:   list[SimulationLink] = Field(default_factory=list)
+
+
+class SimulateBuildResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64:         int
+    target_archetype:    str
+    final_score:         float
+    composition_score:   float
+    buildability_score:  float
+    build_complexity:    Literal['simple', 'moderate', 'advanced', 'expert']
+    confidence:          float
+    cp:                  SimulationCPResult
+    economy_composition: dict[str, float] = Field(default_factory=dict)
+    economy_order:       list[str] = Field(default_factory=list)
+    top_two_alignment:   str
+    contamination_risk:  str
+    warnings:            list[str] = Field(default_factory=list)
+    strengths:           list[str] = Field(default_factory=list)
+    recommendations:     list[str] = Field(default_factory=list)
+    mechanics_notes:     list[str] = Field(default_factory=list)
+    links:               SimulationLinks
+
+
+class FacilityTemplateResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    id:                  str
+    name:                str
+    category:            str
+    tier:                int
+    economy:             Optional[str] = None
+    is_port:             bool
+    is_support_facility: bool
+    allowed_location:    str
+    pad_size:            Optional[str] = None
+    confidence:          Optional[str] = None
+    notes:               Optional[str] = None
+    yellow_cp_generated: int = 0
+    green_cp_generated:  int = 0
+    yellow_cp_cost:      int = 0
+    green_cp_cost:       int = 0
+
+
 SimulationSource = Literal['precomputed', 'computed', 'insufficient_data']
 SlotDataSource = Literal['eddn', 'spansh', 'none']
 
@@ -885,9 +978,9 @@ class BodySlotPrediction(BaseModel):
     body_id:        int
     body_name:      Optional[str]   = None
     planet_class:   Optional[str]   = None
-    surface_slots:  int             = 0
-    orbital_slots:  int             = 0
-    confidence:     float           = 0.0
+    estimated_surface_slots: int    = 0
+    estimated_orbital_slots: int    = 0
+    slot_confidence: float          = 0.0
     slot_source:    str             = 'estimated'
     reasons:        list[SlotReason]= Field(default_factory=list)
     is_ringed:      Optional[bool]  = None
@@ -919,6 +1012,14 @@ class BuildabilityIssue(BaseModel):
     detail:      Optional[str] = None
 
 
+class BuildabilityBottleneck(BuildabilityIssue):
+    """A buildability limitation surfaced to the frontend."""
+
+
+class BuildabilityOpportunity(BuildabilityIssue):
+    """A buildability advantage surfaced to the frontend."""
+
+
 class RecommendedBuildStep(BaseModel):
     model_config = ConfigDict(extra='allow')
 
@@ -948,8 +1049,8 @@ class BuildabilityData(BaseModel):
     slot_exhaustion_risk:    Optional[float] = None
     build_order_sensitivity: Optional[float] = None
     build_complexity:        Optional[str]   = None
-    bottlenecks:             list[BuildabilityIssue] = Field(default_factory=list)
-    opportunities:           list[BuildabilityIssue] = Field(default_factory=list)
+    bottlenecks:             list[BuildabilityBottleneck] = Field(default_factory=list)
+    opportunities:           list[BuildabilityOpportunity] = Field(default_factory=list)
     recommended_build_order: list[RecommendedBuildStep] = Field(default_factory=list)
     warnings:                list[str]       = Field(default_factory=list)
     note:                    Optional[str]   = None
@@ -973,7 +1074,7 @@ class TopologyContextResponse(BaseModel):
     slot_confidence:        float = 0.0
 
 
-class SystemBuildabilityResponse(BuildabilityData):
+class BuildabilityResponse(BuildabilityData):
     model_config = ConfigDict(extra='forbid')
 
     system_id64:      int
@@ -981,6 +1082,10 @@ class SystemBuildabilityResponse(BuildabilityData):
     archetype:        Optional[str] = None
     topology_summary: list[str] = Field(default_factory=list)
     topology:         Optional[TopologyContextResponse] = None
+
+
+# Backwards-compatible public name used by older imports/docs.
+SystemBuildabilityResponse = BuildabilityResponse
 
 
 class SimulationClassification(BaseModel):

@@ -64,7 +64,85 @@ export type BodySlotPrediction    = Schemas['BodySlotPrediction'];
 export type SimulationSummary     = Schemas['SimulationSummaryResponse'];
 export type SlotPredictionResponse = Schemas['SlotPredictionResponse'];
 export type SlotReason            = Schemas['SlotReason'];
-export type SystemBuildability    = Schemas['SystemBuildabilityResponse'];
+export type BuildabilityResponse  = Schemas['BuildabilityResponse'];
+export type SystemBuildability    = BuildabilityResponse;
+
+export interface FacilityTemplate {
+  id: string;
+  name: string;
+  category: string;
+  tier: number;
+  economy?: string | null;
+  is_port: boolean;
+  is_support_facility: boolean;
+  allowed_location: string;
+  pad_size?: string | null;
+  confidence?: string | null;
+  notes?: string | null;
+  yellow_cp_generated: number;
+  green_cp_generated: number;
+  yellow_cp_cost: number;
+  green_cp_cost: number;
+}
+
+export interface SimulateBuildPlacement {
+  facility_template_id: string;
+  local_body_id?: string | null;
+  is_primary_port?: boolean;
+  build_order: number;
+}
+
+export interface SimulateBuildRequest {
+  system_id64: number;
+  target_archetype: string;
+  placements: SimulateBuildPlacement[];
+}
+
+export interface SimulationCPResult {
+  yellow_cp_final: number;
+  green_cp_final: number;
+  yellow_cp_generated: number;
+  green_cp_generated: number;
+  yellow_cp_spent: number;
+  green_cp_spent: number;
+  t2_ports: number;
+  t3_ports: number;
+  warnings: string[];
+}
+
+export interface SimulationLink {
+  port_facility_id?: string | null;
+  support_facility_id: string;
+  local_body_id?: string | null;
+  economy?: string | null;
+  value: number;
+  note: string;
+}
+
+export interface SimulationLinks {
+  strong_links: SimulationLink[];
+  weak_links: SimulationLink[];
+}
+
+export interface SimulateBuildResponse {
+  system_id64: number;
+  target_archetype: string;
+  final_score: number;
+  composition_score: number;
+  buildability_score: number;
+  build_complexity: 'simple' | 'moderate' | 'advanced' | 'expert';
+  confidence: number;
+  cp: SimulationCPResult;
+  economy_composition: Record<string, number>;
+  economy_order: string[];
+  top_two_alignment: string;
+  contamination_risk: string;
+  warnings: string[];
+  strengths: string[];
+  recommendations: string[];
+  mechanics_notes: string[];
+  links: SimulationLinks;
+}
 
 // ─── Frontend-side constants ──────────────────────────────────────────────
 

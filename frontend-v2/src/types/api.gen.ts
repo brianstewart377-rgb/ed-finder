@@ -828,6 +828,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/facility-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Facility Templates */
+        get: operations["get_facility_templates_api_facility_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/simulate/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Simulate Build */
+        post: operations["post_simulate_build_api_simulate_build_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/systems/{id64}/slot-predictions": {
         parameters: {
             query?: never;
@@ -1317,20 +1351,20 @@ export interface components {
             /** Planet Class */
             planet_class?: string | null;
             /**
-             * Surface Slots
+             * Estimated Surface Slots
              * @default 0
              */
-            surface_slots: number;
+            estimated_surface_slots: number;
             /**
-             * Orbital Slots
+             * Estimated Orbital Slots
              * @default 0
              */
-            orbital_slots: number;
+            estimated_orbital_slots: number;
             /**
-             * Confidence
+             * Slot Confidence
              * @default 0
              */
-            confidence: number;
+            slot_confidence: number;
             /**
              * Slot Source
              * @default estimated
@@ -1379,6 +1413,22 @@ export interface components {
             disclaimer?: string | null;
         };
         /**
+         * BuildabilityBottleneck
+         * @description A buildability limitation surfaced to the frontend.
+         */
+        BuildabilityBottleneck: {
+            /** Type */
+            type: string;
+            /** Description */
+            description: string;
+            /** Severity */
+            severity?: string | null;
+            /** Detail */
+            detail?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * BuildabilityData
          * @description Stable buildability payload used both directly and inside summaries.
          */
@@ -1413,9 +1463,9 @@ export interface components {
             /** Build Complexity */
             build_complexity?: string | null;
             /** Bottlenecks */
-            bottlenecks?: components["schemas"]["BuildabilityIssue"][];
+            bottlenecks?: components["schemas"]["BuildabilityBottleneck"][];
             /** Opportunities */
-            opportunities?: components["schemas"]["BuildabilityIssue"][];
+            opportunities?: components["schemas"]["BuildabilityOpportunity"][];
             /** Recommended Build Order */
             recommended_build_order?: components["schemas"]["RecommendedBuildStep"][];
             /** Warnings */
@@ -1426,10 +1476,10 @@ export interface components {
             [key: string]: unknown;
         };
         /**
-         * BuildabilityIssue
-         * @description Bottleneck/opportunity item with frontend-friendly wording.
+         * BuildabilityOpportunity
+         * @description A buildability advantage surfaced to the frontend.
          */
-        BuildabilityIssue: {
+        BuildabilityOpportunity: {
             /** Type */
             type: string;
             /** Description */
@@ -1440,6 +1490,57 @@ export interface components {
             detail?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** BuildabilityResponse */
+        BuildabilityResponse: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "precomputed" | "computed" | "insufficient_data";
+            /** Estimated Orbital Slots */
+            estimated_orbital_slots?: number | null;
+            /** Estimated Ground Slots */
+            estimated_ground_slots?: number | null;
+            /** Slot Confidence */
+            slot_confidence?: number | null;
+            /** Slot Confidence Label */
+            slot_confidence_label?: string | null;
+            /** Estimated Yellow Cp */
+            estimated_yellow_cp?: number | null;
+            /** Estimated Green Cp */
+            estimated_green_cp?: number | null;
+            /** Max T2 Ports */
+            max_t2_ports?: number | null;
+            /** Max T3 Ports */
+            max_t3_ports?: number | null;
+            /** Cp Bottleneck Score */
+            cp_bottleneck_score?: number | null;
+            /** Slot Exhaustion Risk */
+            slot_exhaustion_risk?: number | null;
+            /** Build Order Sensitivity */
+            build_order_sensitivity?: number | null;
+            /** Build Complexity */
+            build_complexity?: string | null;
+            /** Bottlenecks */
+            bottlenecks?: components["schemas"]["BuildabilityBottleneck"][];
+            /** Opportunities */
+            opportunities?: components["schemas"]["BuildabilityOpportunity"][];
+            /** Recommended Build Order */
+            recommended_build_order?: components["schemas"]["RecommendedBuildStep"][];
+            /** Warnings */
+            warnings?: string[];
+            /** Note */
+            note?: string | null;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Archetype */
+            archetype?: string | null;
+            /** Topology Summary */
+            topology_summary?: string[];
+            topology?: components["schemas"]["TopologyContextResponse"] | null;
         };
         /** CacheStatsResponse */
         CacheStatsResponse: {
@@ -1545,6 +1646,51 @@ export interface components {
             combined_value: number;
         } & {
             [key: string]: unknown;
+        };
+        /** FacilityTemplateResponse */
+        FacilityTemplateResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Category */
+            category: string;
+            /** Tier */
+            tier: number;
+            /** Economy */
+            economy?: string | null;
+            /** Is Port */
+            is_port: boolean;
+            /** Is Support Facility */
+            is_support_facility: boolean;
+            /** Allowed Location */
+            allowed_location: string;
+            /** Pad Size */
+            pad_size?: string | null;
+            /** Confidence */
+            confidence?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Yellow Cp Generated
+             * @default 0
+             */
+            yellow_cp_generated: number;
+            /**
+             * Green Cp Generated
+             * @default 0
+             */
+            green_cp_generated: number;
+            /**
+             * Yellow Cp Cost
+             * @default 0
+             */
+            yellow_cp_cost: number;
+            /**
+             * Green Cp Cost
+             * @default 0
+             */
+            green_cp_cost: number;
         };
         /** GalaxySearchRequest */
         GalaxySearchRequest: {
@@ -1828,6 +1974,75 @@ export interface components {
             /** Warning */
             warning?: string | null;
         };
+        /**
+         * SimulateBuildPlacement
+         * @description One user-selected facility placement in Simulation Preview.
+         */
+        SimulateBuildPlacement: {
+            /** Facility Template Id */
+            facility_template_id: string;
+            /** Local Body Id */
+            local_body_id?: string | null;
+            /**
+             * Is Primary Port
+             * @default false
+             */
+            is_primary_port: boolean;
+            /**
+             * Build Order
+             * @default 1
+             */
+            build_order: number;
+        };
+        /** SimulateBuildRequest */
+        SimulateBuildRequest: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype: string;
+            /** Placements */
+            placements?: components["schemas"]["SimulateBuildPlacement"][];
+        };
+        /** SimulateBuildResponse */
+        SimulateBuildResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype: string;
+            /** Final Score */
+            final_score: number;
+            /** Composition Score */
+            composition_score: number;
+            /** Buildability Score */
+            buildability_score: number;
+            /**
+             * Build Complexity
+             * @enum {string}
+             */
+            build_complexity: "simple" | "moderate" | "advanced" | "expert";
+            /** Confidence */
+            confidence: number;
+            cp: components["schemas"]["SimulationCPResult"];
+            /** Economy Composition */
+            economy_composition?: {
+                [key: string]: number;
+            };
+            /** Economy Order */
+            economy_order?: string[];
+            /** Top Two Alignment */
+            top_two_alignment: string;
+            /** Contamination Risk */
+            contamination_risk: string;
+            /** Warnings */
+            warnings?: string[];
+            /** Strengths */
+            strengths?: string[];
+            /** Recommendations */
+            recommendations?: string[];
+            /** Mechanics Notes */
+            mechanics_notes?: string[];
+            links: components["schemas"]["SimulationLinks"];
+        };
         /** SimulationBodySummary */
         SimulationBodySummary: {
             /**
@@ -1866,6 +2081,39 @@ export interface components {
              */
             scanned_body_count: number;
         };
+        /** SimulationCPResult */
+        SimulationCPResult: {
+            /** Yellow Cp Final */
+            yellow_cp_final: number;
+            /** Green Cp Final */
+            green_cp_final: number;
+            /**
+             * Yellow Cp Generated
+             * @default 0
+             */
+            yellow_cp_generated: number;
+            /**
+             * Green Cp Generated
+             * @default 0
+             */
+            green_cp_generated: number;
+            /**
+             * Yellow Cp Spent
+             * @default 0
+             */
+            yellow_cp_spent: number;
+            /**
+             * Green Cp Spent
+             * @default 0
+             */
+            green_cp_spent: number;
+            /** T2 Ports */
+            t2_ports: number;
+            /** T3 Ports */
+            t3_ports: number;
+            /** Warnings */
+            warnings?: string[];
+        };
         /** SimulationClassification */
         SimulationClassification: {
             /** Primary Archetype */
@@ -1886,6 +2134,31 @@ export interface components {
             rationale?: unknown | null;
         } & {
             [key: string]: unknown;
+        };
+        /** SimulationLink */
+        SimulationLink: {
+            /** Port Facility Id */
+            port_facility_id?: string | null;
+            /** Support Facility Id */
+            support_facility_id: string;
+            /** Local Body Id */
+            local_body_id?: string | null;
+            /** Economy */
+            economy?: string | null;
+            /**
+             * Value
+             * @default 0
+             */
+            value: number;
+            /** Note */
+            note: string;
+        };
+        /** SimulationLinks */
+        SimulationLinks: {
+            /** Strong Links */
+            strong_links?: components["schemas"]["SimulationLink"][];
+            /** Weak Links */
+            weak_links?: components["schemas"]["SimulationLink"][];
         };
         /** SimulationSummaryResponse */
         SimulationSummaryResponse: {
@@ -2123,57 +2396,6 @@ export interface components {
             tags?: string[];
             /** Query Ms */
             query_ms?: number | null;
-        };
-        /** SystemBuildabilityResponse */
-        SystemBuildabilityResponse: {
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "precomputed" | "computed" | "insufficient_data";
-            /** Estimated Orbital Slots */
-            estimated_orbital_slots?: number | null;
-            /** Estimated Ground Slots */
-            estimated_ground_slots?: number | null;
-            /** Slot Confidence */
-            slot_confidence?: number | null;
-            /** Slot Confidence Label */
-            slot_confidence_label?: string | null;
-            /** Estimated Yellow Cp */
-            estimated_yellow_cp?: number | null;
-            /** Estimated Green Cp */
-            estimated_green_cp?: number | null;
-            /** Max T2 Ports */
-            max_t2_ports?: number | null;
-            /** Max T3 Ports */
-            max_t3_ports?: number | null;
-            /** Cp Bottleneck Score */
-            cp_bottleneck_score?: number | null;
-            /** Slot Exhaustion Risk */
-            slot_exhaustion_risk?: number | null;
-            /** Build Order Sensitivity */
-            build_order_sensitivity?: number | null;
-            /** Build Complexity */
-            build_complexity?: string | null;
-            /** Bottlenecks */
-            bottlenecks?: components["schemas"]["BuildabilityIssue"][];
-            /** Opportunities */
-            opportunities?: components["schemas"]["BuildabilityIssue"][];
-            /** Recommended Build Order */
-            recommended_build_order?: components["schemas"]["RecommendedBuildStep"][];
-            /** Warnings */
-            warnings?: string[];
-            /** Note */
-            note?: string | null;
-            /** System Id64 */
-            system_id64: number;
-            /** System Name */
-            system_name?: string | null;
-            /** Archetype */
-            archetype?: string | null;
-            /** Topology Summary */
-            topology_summary?: string[];
-            topology?: components["schemas"]["TopologyContextResponse"] | null;
         };
         /**
          * SystemDetailResponse
@@ -3936,6 +4158,59 @@ export interface operations {
             };
         };
     };
+    get_facility_templates_api_facility_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacilityTemplateResponse"][];
+                };
+            };
+        };
+    };
+    post_simulate_build_api_simulate_build_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulateBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulateBuildResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_slot_predictions_api_systems__id64__slot_predictions_get: {
         parameters: {
             query?: never;
@@ -3987,7 +4262,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SystemBuildabilityResponse"];
+                    "application/json": components["schemas"]["BuildabilityResponse"];
                 };
             };
             /** @description Validation Error */

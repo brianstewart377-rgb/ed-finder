@@ -358,6 +358,19 @@ def complexity_label(
 # Private helpers
 # ---------------------------------------------------------------------------
 
+def port_cp_cost(tier: int, paid_port_index: int) -> tuple[int, int]:
+    """
+    Return the escalating CP cost for a paid port placement.
+
+    paid_port_index is zero-based within the port tier. Primary-port
+    exemptions should be handled by the caller by skipping this cost.
+    """
+    if tier == 3:
+        return _t3_yellow_cost(paid_port_index), _t3_green_cost(paid_port_index)
+    if tier == 2:
+        return _t2_yellow_cost(paid_port_index), _t2_green_cost(paid_port_index)
+    return 0, 0
+
 def _t2_yellow_cost(n: int) -> int:
     """Yellow CP cost of the (n+1)th T2 port (0-indexed)."""
     if n < len(_T2_PORT_COSTS_YELLOW):

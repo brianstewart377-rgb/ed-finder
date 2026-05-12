@@ -6,6 +6,7 @@ import { useSystemDetail } from './useSystemDetail';
 import { RatingRadar } from './RatingRadar';
 import { BuildabilityPanel } from './BuildabilityPanel';
 import { SlotPredictionPanel } from './SlotPredictionPanel';
+import { SimulationPreview } from './SimulationPreview';
 
 export interface SystemDetailModalProps {
   id64:    number;
@@ -53,7 +54,7 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
       aria-labelledby="system-detail-title"
     >
       <article
-        className="panel relative w-full max-w-4xl animate-fade-up"
+        className="panel relative w-full max-w-6xl animate-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
         <ModalHeader
@@ -96,7 +97,10 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
 
               {/* Colony Build Analysis — simulation engine panels */}
               <Section title="Colony Build Analysis">
-                <BuildabilityPanel id64={id64} />
+                <SimulationPreview system={data} />
+                <div className="mt-4">
+                  <BuildabilityPanel id64={id64} />
+                </div>
                 <div className="mt-3">
                   <SlotPredictionPanel id64={id64} />
                 </div>

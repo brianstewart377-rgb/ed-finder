@@ -51,6 +51,7 @@ from routers.notes     import router as notes_router
 from routers.profile   import router as profile_router
 from routers.archetypes  import router as archetypes_router
 from routers.ratings     import router as ratings_router
+from routers.simulate    import router as simulate_router
 from routers.simulation  import router as simulation_router
 from routers.search    import router as search_router
 from routers.systems   import router as systems_router
@@ -263,6 +264,7 @@ app.include_router(systems_router)
 app.include_router(map_router)
 app.include_router(archetypes_router)
 app.include_router(ratings_router)
+app.include_router(simulate_router)
 app.include_router(simulation_router)
 
 
