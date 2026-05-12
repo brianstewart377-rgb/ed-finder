@@ -2121,6 +2121,10 @@ export interface components {
             economy_order?: string[];
             /** Inherited Economies */
             inherited_economies?: components["schemas"]["SimulationInheritedEconomy"][];
+            /** Topology */
+            topology?: {
+                [key: string]: unknown;
+            };
             /** Top Two Alignment */
             top_two_alignment: string;
             /** Contamination Risk */

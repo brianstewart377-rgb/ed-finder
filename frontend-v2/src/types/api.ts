@@ -148,6 +148,7 @@ export interface SimulateBuildResponse {
   economy_composition: Record<string, number>;
   economy_order: string[];
   inherited_economies: SimulationInheritedEconomy[];
+  topology: Record<string, unknown>;
   top_two_alignment: string;
   contamination_risk: string;
   warnings: string[];
