@@ -324,15 +324,16 @@ def _build_recommendations(
     return recs
 
 
-# Archetype → expected economy pair
+# Archetype → expected economies. Terraforming is intentionally not mapped to
+# Industrial; it is a strategic tag in domain.colonisation_rules.
 _ARCHETYPE_ECONOMY_MAP: dict[str, list[str]] = {
     'refinery_industrial':       ['Refinery', 'Industrial'],
     'extraction_refinery':       ['Extraction', 'Refinery'],
-    'agriculture_terraforming':  ['Agriculture', 'Industrial'],
+    'agriculture_terraforming':  ['Agriculture'],
     'hitech_tourism':            ['HighTech', 'Tourism'],
-    'expansion_capital':         ['Industrial', 'Refinery'],
+    'expansion_capital':         [],
     'trade_logistics':           ['Industrial', 'Extraction'],
-    'population_capital':        ['Agriculture', 'Industrial'],
+    'population_capital':        ['Agriculture'],
     'ax_forward_base':           ['Military', 'Industrial'],
     'military_industrial':       ['Military', 'Industrial'],
     'flexible_multirole':        [],   # no specific pair

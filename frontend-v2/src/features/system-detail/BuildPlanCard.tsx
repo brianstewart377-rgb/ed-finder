@@ -47,9 +47,21 @@ export function BuildPlanCard({
         </div>
       )}
 
+      <div className="mt-3 rounded border border-cyan/25 bg-cyan/5 px-2 py-2">
+        <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-cyan">Selected body</div>
+        <div className="mt-1 font-mono text-[11px] text-silver">
+          {plan.selected_body_name || (plan.selected_body_id ? `Body ${plan.selected_body_id}` : 'Estimated body candidate')}
+        </div>
+        {plan.body_selection_reason && (
+          <p className="mt-1 text-[11px] leading-snug text-silver-dk">{plan.body_selection_reason}</p>
+        )}
+      </div>
+
       <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(150px,0.85fr)]">
         <BuildOrderTimeline steps={plan.build_order.slice(0, 5)} />
         <div className="space-y-2">
+          <MiniList title="Mechanics basis" items={plan.mechanics_basis} tone="info" />
+          <MiniList title="Caveats" items={plan.economy_caveats.length ? plan.economy_caveats : plan.assumptions} tone="warn" />
           <MiniList title="Strengths" items={plan.strengths} tone="good" />
           <MiniList title="Tradeoffs" items={plan.tradeoffs.length ? plan.tradeoffs : plan.warnings} tone="warn" />
         </div>
@@ -67,9 +79,9 @@ export function BuildPlanCard({
   );
 }
 
-function MiniList({ title, items, tone }: { title: string; items: string[]; tone: 'good' | 'warn' }) {
+function MiniList({ title, items, tone }: { title: string; items: string[]; tone: 'good' | 'warn' | 'info' }) {
   if (items.length === 0) return null;
-  const colour = tone === 'good' ? 'text-green' : 'text-gold';
+  const colour = tone === 'good' ? 'text-green' : tone === 'info' ? 'text-cyan' : 'text-gold';
   return (
     <div className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
       <div className={`font-mono text-[9px] uppercase tracking-[0.14em] ${colour}`}>{title}</div>

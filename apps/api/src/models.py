@@ -955,6 +955,12 @@ class RecommendedBuildPlan(BaseModel):
     warnings:           list[str] = Field(default_factory=list)
     tradeoffs:          list[str] = Field(default_factory=list)
     next_actions:       list[str] = Field(default_factory=list)
+    selected_body_id:   Optional[str] = None
+    selected_body_name: Optional[str] = None
+    body_selection_reason: str = ''
+    mechanics_basis:    list[str] = Field(default_factory=list)
+    economy_caveats:    list[str] = Field(default_factory=list)
+    assumptions:        list[str] = Field(default_factory=list)
     simulation_request: SimulateBuildRequest
     is_default:         bool = False
 

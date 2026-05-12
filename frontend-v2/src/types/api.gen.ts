@@ -1907,6 +1907,21 @@ export interface components {
             tradeoffs?: string[];
             /** Next Actions */
             next_actions?: string[];
+            /** Selected Body Id */
+            selected_body_id?: string | null;
+            /** Selected Body Name */
+            selected_body_name?: string | null;
+            /**
+             * Body Selection Reason
+             * @default
+             */
+            body_selection_reason: string;
+            /** Mechanics Basis */
+            mechanics_basis?: string[];
+            /** Economy Caveats */
+            economy_caveats?: string[];
+            /** Assumptions */
+            assumptions?: string[];
             simulation_request: components["schemas"]["SimulateBuildRequest"];
             /**
              * Is Default
