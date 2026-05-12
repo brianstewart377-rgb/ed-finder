@@ -12,6 +12,7 @@ from typing import Any, Optional
 from domain.colonisation_rules import get_target_profile
 from domain.facilities import FacilityTemplate
 from simulation.cp_simulator import port_cp_cost
+from simulation.topology_graph import GraphPlacement, build_topology_graph, infer_location_type
 
 
 _CONTAMINATION_ECONOMIES = {'Colony', 'Prison', 'Damaged', 'Rescue', 'Repair', 'None'}
@@ -109,7 +110,11 @@ def simulate_build_preview(
     cp = _simulate_cp(resolved)
     warnings.extend(cp['warnings'])
 
-    economy_strengths, links = _simulate_economies(resolved)
+    topology_graph = build_topology_graph(_graph_placements(resolved, context))
+    warnings.extend(topology_graph.warnings)
+
+    economy_strengths, _legacy_links = _simulate_economies(resolved)
+    links = _links_to_response(topology_graph)
     economy_composition = _to_percentages(economy_strengths)
     economy_order = sorted(economy_composition, key=economy_composition.get, reverse=True)
     inherited_profiles = _inherited_profiles(resolved)
@@ -167,6 +172,7 @@ def simulate_build_preview(
         'economy_composition': economy_composition,
         'economy_order': economy_order,
         'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
+        'topology': _topology_to_response(topology_graph),
         'top_two_alignment': composition['alignment'],
         'contamination_risk': composition['contamination_risk'],
         'warnings': _unique(warnings),
@@ -334,6 +340,101 @@ def _simulate_economies(placements: list[_ResolvedPlacement]) -> tuple[dict[str,
             })
 
     return strengths, {'strong_links': strong_links, 'weak_links': weak_links}
+
+
+def _graph_placements(
+    placements: list[_ResolvedPlacement],
+    context: PreviewContext,
+) -> list[GraphPlacement]:
+    graph_items: list[GraphPlacement] = []
+    for placement in placements:
+        body_id = str(placement.spec.local_body_id) if placement.spec.local_body_id is not None else None
+        profile = context.local_body_profiles.get(body_id or '', {})
+        graph_items.append(GraphPlacement(
+            facility=placement.facility,
+            local_body_id=body_id,
+            build_order=placement.spec.build_order,
+            location_type=infer_location_type(placement.facility),
+            economy=_support_link_economy(placement),
+            body_name=str(profile.get('body_name')) if profile.get('body_name') else None,
+            parent_body_id=str(profile.get('parent_body_id')) if profile.get('parent_body_id') else None,
+            is_primary_port=placement.spec.is_primary_port,
+        ))
+    return graph_items
+
+
+def _topology_to_response(graph: Any) -> dict[str, Any]:
+    return {
+        'local_body_groups': [
+            {
+                'local_body_id': group.local_body_id,
+                'body_name': group.body_name,
+                'parent_body_id': group.parent_body_id,
+                'main_surface_port': _placement_summary(group.main_surface_port),
+                'main_orbital_port': _placement_summary(group.main_orbital_port),
+                'facility_count': len(group.facilities),
+                'surface_port_count': len(group.surface_ports),
+                'orbital_port_count': len(group.orbital_ports),
+            }
+            for group in graph.local_body_groups
+        ],
+        'roles': [
+            {
+                'facility_id': item.placement.facility_id,
+                'facility_name': item.placement.facility_name,
+                'local_body_id': item.placement.local_body_id,
+                'location_type': item.placement.location_type,
+                'effective_role': item.effective_role,
+            }
+            for item in graph.classified_placements
+        ],
+        'strong_links': [link.to_dict() for link in graph.strong_links],
+        'weak_links': [link.to_dict() for link in graph.weak_links],
+        'pass_through_links': [link.to_dict() for link in graph.pass_through_links],
+        'converted_ports': [port.to_dict() for port in graph.converted_ports],
+        'assumptions': graph.assumptions,
+        'warnings': graph.warnings,
+    }
+
+
+def _links_to_response(graph: Any) -> dict[str, list[dict[str, Any]]]:
+    return {
+        'strong_links': [
+            {
+                'port_facility_id': link.receiver_port_id,
+                'support_facility_id': link.source_facility_id,
+                'local_body_id': link.local_body_id,
+                'economy': link.economy,
+                'value': link.value,
+                'note': link.note,
+            }
+            for link in graph.strong_links
+        ],
+        'weak_links': [
+            {
+                'port_facility_id': link.receiver_port_id,
+                'support_facility_id': link.source_facility_id,
+                'local_body_id': link.source_body_id,
+                'economy': link.economy,
+                'value': link.value,
+                'note': link.note,
+            }
+            for link in graph.weak_links
+        ],
+    }
+
+
+def _placement_summary(placement: Optional[GraphPlacement]) -> Optional[dict[str, Any]]:
+    if placement is None:
+        return None
+    return {
+        'facility_id': placement.facility_id,
+        'facility_name': placement.facility_name,
+        'tier': placement.facility.tier,
+        'build_order': placement.build_order,
+        'location_type': placement.location_type,
+        'economy': placement.economy,
+    }
 
 
 def _score_composition(

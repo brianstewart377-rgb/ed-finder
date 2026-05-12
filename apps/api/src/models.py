@@ -943,6 +943,7 @@ class SimulateBuildResponse(BaseModel):
     economy_composition: dict[str, float] = Field(default_factory=dict)
     economy_order:       list[str] = Field(default_factory=list)
     inherited_economies: list[SimulationInheritedEconomy] = Field(default_factory=list)
+    topology:            dict[str, Any] = Field(default_factory=dict)
     top_two_alignment:   str
     contamination_risk:  str
     warnings:            list[str] = Field(default_factory=list)
