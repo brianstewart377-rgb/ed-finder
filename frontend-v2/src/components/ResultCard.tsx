@@ -6,6 +6,7 @@ import {
   formatConfidence,
   isInhabited,
 } from '@/lib/format';
+import { displayRationale } from '@/lib/rationale';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
 } from 'lucide-react';
@@ -178,9 +179,9 @@ export function ResultCard({
       {open && (
         <div className="border-t border-border/70 px-4 py-4 space-y-3 animate-fade-up"
              style={{ background: 'linear-gradient(180deg, rgba(20,22,26,0.3), rgba(20,22,26,0.6))' }}>
-          {rating?.rationale && (
+          {displayRationale(rating?.rationale) && (
             <p className="text-silver-dk italic leading-snug text-sm">
-              {rating.rationale}
+              {displayRationale(rating?.rationale)}
             </p>
           )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono">

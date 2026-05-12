@@ -163,8 +163,12 @@ def test_simulation_preview_routes_are_in_openapi():
     openapi = app.openapi()
     assert '/api/simulate/build' in openapi['paths']
     assert '/api/facility-templates' in openapi['paths']
+    assert '/api/systems/{system_id64}/recommended-builds' in openapi['paths']
     assert (
         openapi['paths']['/api/simulate/build']['post']['responses']['200']['content']['application/json']['schema']['$ref']
         == '#/components/schemas/SimulateBuildResponse'
     )
-
+    assert (
+        openapi['paths']['/api/systems/{system_id64}/recommended-builds']['get']['responses']['200']['content']['application/json']['schema']['$ref']
+        == '#/components/schemas/RecommendedBuildsResponse'
+    )

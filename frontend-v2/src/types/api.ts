@@ -144,6 +144,35 @@ export interface SimulateBuildResponse {
   links: SimulationLinks;
 }
 
+export interface RecommendedBuildPlan {
+  id: string;
+  label: string;
+  summary: string;
+  complexity: 'simple' | 'moderate' | 'advanced' | 'expert';
+  confidence: number;
+  final_score: number;
+  composition_score: number;
+  buildability_score: number;
+  economy_result: Record<string, number>;
+  cp_result: SimulationCPResult;
+  build_order: SimulateBuildPlacement[];
+  strengths: string[];
+  warnings: string[];
+  tradeoffs: string[];
+  next_actions: string[];
+  simulation_request: SimulateBuildRequest;
+  is_default: boolean;
+}
+
+export interface RecommendedBuildsResponse {
+  system_id64: number;
+  target_archetype: string;
+  best_suggested_archetype: string;
+  recommended_next_action: string;
+  plans: RecommendedBuildPlan[];
+  warnings: string[];
+}
+
 // ─── Frontend-side constants ──────────────────────────────────────────────
 
 export const DEFAULT_WEIGHTS: RerankWeights = {
