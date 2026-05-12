@@ -7,6 +7,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, Query
 
 from deps import get_pool
+from domain.colonisation_rules import get_target_profile, profile_body
 from domain.facilities import FacilityTemplate, get_catalogue, load_catalogue_from_rows
 from models import (
     FacilityTemplateResponse,
@@ -14,8 +15,10 @@ from models import (
     RecommendedBuildsResponse,
     SimulateBuildRequest,
     SimulateBuildResponse,
-    SimulateBuildPlacement,
 )
+from recommendations.body_selector import select_body_candidates
+from recommendations.build_generator import generate_build_drafts
+from recommendations.plan_ranker import rank_plans
 from simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
 
 
@@ -55,7 +58,7 @@ async def post_simulate_build(
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> SimulateBuildResponse:
     catalogue = await _catalogue_or_db(pool)
-    context = await _preview_context(pool, body.system_id64)
+    context, _body_rows = await _preview_context(pool, body.system_id64)
     result = simulate_build_preview(
         system_id64=body.system_id64,
         target_archetype=body.target_archetype,
@@ -81,16 +84,51 @@ async def get_recommended_builds(
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> RecommendedBuildsResponse:
     catalogue = await _catalogue_or_db(pool)
-    context = await _preview_context(pool, system_id64)
-    target = archetype or await _suggested_archetype(pool, system_id64) or 'refinery_industrial'
-    requests = _recommended_requests(system_id64, target, catalogue, context)
+    context, body_rows = await _preview_context(pool, system_id64)
+    target = archetype or await _suggested_archetype(pool, system_id64) or 'flexible_multirole'
+    target_profile = get_target_profile(target)
     warnings: list[str] = []
 
-    if not requests:
+    if target_profile.warning:
+        warnings.append(target_profile.warning)
+    if not target_profile.supported:
+        return RecommendedBuildsResponse(
+            system_id64=system_id64,
+            target_archetype=target,
+            best_suggested_archetype=target,
+            recommended_next_action='Try a blank advanced simulation; recommended build rules are not implemented for this archetype yet.',
+            plans=[],
+            warnings=warnings,
+        )
+
+    total_slots = (context.estimated_orbital_slots or 0) + (context.estimated_ground_slots or 0)
+    candidates = select_body_candidates(
+        target,
+        target_profile,
+        body_rows,
+        slot_confidence=context.slot_confidence,
+        total_slots=total_slots,
+        limit=3,
+    )
+    if not candidates:
+        warnings.append('No suitable body candidate is available for this archetype. Recommended builds are hidden rather than guessed.')
+
+    drafts = []
+    if candidates:
+        drafts, draft_warnings = generate_build_drafts(
+            system_id64=system_id64,
+            target=target_profile,
+            body=candidates[0],
+            catalogue=catalogue,
+            slot_confidence=context.slot_confidence,
+            total_slots=total_slots,
+        )
+        warnings.extend(draft_warnings)
+    if not drafts and not warnings:
         warnings.append('No facility catalogue data is available yet. Try Simulation Preview manually once templates load.')
 
-    plans: list[RecommendedBuildPlan] = []
-    for idx, (plan_id, label, summary, request, tradeoffs) in enumerate(requests):
+    simulated = []
+    for draft in drafts:
         simulation = SimulateBuildResponse.model_validate(simulate_build_preview(
             system_id64=system_id64,
             target_archetype=target,
@@ -101,15 +139,28 @@ async def get_recommended_builds(
                     is_primary_port=p.is_primary_port,
                     build_order=p.build_order,
                 )
-                for p in request.placements
+                for p in draft.request.placements
             ],
             catalogue=catalogue,
             context=context,
         ))
+        simulated.append((draft, simulation))
+
+    ranked = rank_plans(simulated)
+    plans: list[RecommendedBuildPlan] = []
+    for idx, ranked_plan in enumerate(ranked):
+        draft = ranked_plan.draft
+        simulation = ranked_plan.simulation
+        body = draft.body
+        assumptions = ['Body economy is estimated from documented Mega Guide rules and available scan facts.']
+        if context.slot_confidence is None or context.slot_confidence < 0.75:
+            assumptions.append('Slot prediction is estimated, not observed in-game.')
+        if any(f.data_confidence == 'estimated' for f in catalogue.values()):
+            assumptions.append('Some facility data is provisional community-derived data.')
         plans.append(RecommendedBuildPlan(
-            id=plan_id,
-            label=label,
-            summary=summary,
+            id=draft.id,
+            label=draft.label,
+            summary=draft.summary,
             complexity=simulation.build_complexity,
             confidence=simulation.confidence,
             final_score=simulation.final_score,
@@ -117,21 +168,27 @@ async def get_recommended_builds(
             buildability_score=simulation.buildability_score,
             economy_result=simulation.economy_composition,
             cp_result=simulation.cp,
-            build_order=request.placements,
+            build_order=draft.request.placements,
             strengths=simulation.strengths[:4],
             warnings=simulation.warnings[:4],
-            tradeoffs=tradeoffs,
+            tradeoffs=draft.tradeoffs,
             next_actions=simulation.recommendations[:3] or ['Preview this plan, then adjust body placement before committing in-game.'],
-            simulation_request=request,
-            is_default=(idx == 1 if len(requests) > 1 else idx == 0),
+            selected_body_id=body.body_id,
+            selected_body_name=body.body_name,
+            body_selection_reason=body.reason,
+            mechanics_basis=draft.mechanics_basis,
+            economy_caveats=body.caveats,
+            assumptions=assumptions,
+            simulation_request=draft.request,
+            is_default=(idx == 0),
         ))
 
     next_action = (
-        'Open the balanced recommended build in Simulation Preview.'
+        'Open the top-ranked recommended build in Simulation Preview.'
         if len(plans) > 1 else
         'Open the recommended build in Simulation Preview.'
         if plans else
-        'Try a blank advanced simulation once more topology data is available.'
+        'Try a blank advanced simulation once more body and topology data is available.'
     )
     if context.slot_confidence is not None and context.slot_confidence < 0.55:
         warnings.append('Slot data is predicted, not observed. Advanced plans are hidden until better topology data is available.')
@@ -157,12 +214,12 @@ async def _catalogue_or_db(pool: asyncpg.Pool) -> dict[str, FacilityTemplate]:
     return get_catalogue()
 
 
-async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> PreviewContext:
+async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> tuple[PreviewContext, list[dict]]:
     async with pool.acquire() as conn:
         topology = await conn.fetchrow(
             """
             SELECT estimated_orbital_slots, estimated_ground_slots,
-                   has_ringed_gas_giant, has_viable_surface_port
+                   has_ringed_gas_giant, has_viable_surface_port, body_slots
             FROM system_slot_topology
             WHERE system_id64 = $1
             """,
@@ -178,12 +235,32 @@ async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> PreviewConte
         )
         body_rows = await conn.fetch(
             """
-            SELECT body_id, planet_class, is_landable, is_terraformable, confidence
+            SELECT body_id, body_name, 'Planet' AS body_type,
+                   planet_class AS subtype, planet_class,
+                   is_landable, is_terraformable, is_ringed,
+                   has_geo, has_bio, geo_signal_count, bio_signal_count,
+                   terraform_state, volcanism, confidence
             FROM body_scan_facts
             WHERE system_address = $1
+            ORDER BY body_id
             """,
             system_id64,
         )
+        if not body_rows:
+            body_rows = await conn.fetch(
+                """
+                SELECT id AS body_id, name AS body_name, body_type, subtype,
+                       is_landable, is_terraformable,
+                       (LOWER(COALESCE(subtype, '')) LIKE '%ring%') AS is_ringed,
+                       bio_signal_count, geo_signal_count,
+                       is_earth_like, is_water_world, is_ammonia_world,
+                       0.45::numeric AS confidence
+                FROM bodies
+                WHERE system_id64 = $1
+                ORDER BY COALESCE(distance_from_star, 999999), id
+                """,
+                system_id64,
+            )
 
     topology_dict = dict(topology) if topology else None
     buildability_dict = dict(buildability) if buildability else None
@@ -197,14 +274,17 @@ async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> PreviewConte
         ground = ground if ground is not None else _maybe_int(topology_dict, 'estimated_ground_slots')
         slot_confidence = slot_confidence if slot_confidence is not None else 0.65
 
-    body_profiles = {
-        str(body['body_id']): {
-            'base_economy': _body_economy(body),
-            'confidence': float(body.get('confidence') or 0.45),
-        }
-        for body in (dict(row) for row in body_rows)
-        if body.get('body_id') is not None
-    }
+    body_dicts = [dict(row) for row in body_rows]
+    body_profiles = {}
+    for body in body_dicts:
+        if body.get('body_id') is None:
+            continue
+        profile = profile_body(body)
+        body_profiles[str(body['body_id'])] = profile.to_context_profile()
+
+    mechanics_notes = ['Body economy inheritance follows the repo Mega Guide table in frontend-v2/public/ratings.html.']
+    if body_profiles:
+        mechanics_notes.append('Body economy is estimated from scan facts; confirm unusual cases in-game.')
 
     return PreviewContext(
         system_id64=system_id64,
@@ -213,7 +293,8 @@ async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> PreviewConte
         slot_confidence=slot_confidence,
         has_ringed_body=bool(topology_dict and topology_dict['has_ringed_gas_giant']),
         local_body_profiles=body_profiles,
-    )
+        mechanics_notes=mechanics_notes,
+    ), body_dicts
 
 
 async def _suggested_archetype(pool: asyncpg.Pool, system_id64: int) -> Optional[str]:
@@ -229,121 +310,6 @@ async def _suggested_archetype(pool: asyncpg.Pool, system_id64: int) -> Optional
     return str(row['primary_archetype']) if row and row['primary_archetype'] else None
 
 
-def _recommended_requests(
-    system_id64: int,
-    target: str,
-    catalogue: dict[str, FacilityTemplate],
-    context: PreviewContext,
-) -> list[tuple[str, str, str, SimulateBuildRequest, list[str]]]:
-    primary, secondary = _target_economies(target)
-    body_id = _first_body_id(context)
-    simple = _placements_for(catalogue, body_id, [
-        'colony_ship',
-        _support_for(catalogue, primary),
-        _support_for(catalogue, secondary),
-    ])
-    balanced = _placements_for(catalogue, body_id, [
-        'colony_ship',
-        _support_for(catalogue, primary),
-        _support_for(catalogue, primary, offset=1),
-        'coriolis_station',
-        _support_for(catalogue, secondary),
-    ])
-
-    plans: list[tuple[str, str, str, SimulateBuildRequest, list[str]]] = []
-    if simple:
-        plans.append((
-            'simple',
-            'Simple recommended build',
-            f'A low-risk starter plan focused on {primary} with a light {secondary} secondary economy.',
-            SimulateBuildRequest(system_id64=system_id64, target_archetype=target, placements=simple),
-            ['Lower ceiling than larger plans, but easier to reason about and adjust.'],
-        ))
-    if balanced:
-        plans.append((
-            'balanced',
-            'Balanced recommended build',
-            f'The default {primary} / {secondary} plan: enough support to test economy order before committing.',
-            SimulateBuildRequest(system_id64=system_id64, target_archetype=target, placements=balanced),
-            ['Build order matters; preview before swapping primary and secondary support.'],
-        ))
-
-    confidence = context.slot_confidence if context.slot_confidence is not None else 0.45
-    total_slots = (context.estimated_orbital_slots or 0) + (context.estimated_ground_slots or 0)
-    if confidence >= 0.6 and total_slots >= 3:
-        advanced = _placements_for(catalogue, body_id, [
-            'colony_ship',
-            _support_for(catalogue, primary),
-            _support_for(catalogue, primary, offset=1),
-            _support_for(catalogue, secondary),
-            'coriolis_station',
-            'orbis_t3',
-        ])
-        if advanced:
-            plans.append((
-                'advanced',
-                'Advanced high-capacity build',
-                f'A higher-ceiling {primary} / {secondary} plan with T3 capacity pressure included.',
-                SimulateBuildRequest(system_id64=system_id64, target_archetype=target, placements=advanced),
-                ['Higher CP pressure; only shown when slot confidence is strong enough for a useful preview.'],
-            ))
-
-    return plans[:3]
-
-
-def _placements_for(
-    catalogue: dict[str, FacilityTemplate],
-    body_id: Optional[str],
-    facility_ids: list[Optional[str]],
-) -> list[SimulateBuildPlacement]:
-    placements: list[SimulateBuildPlacement] = []
-    primary_assigned = False
-    for facility_id in facility_ids:
-        if not facility_id or facility_id not in catalogue:
-            continue
-        facility = catalogue[facility_id]
-        is_primary = facility.is_port and not primary_assigned
-        if is_primary:
-            primary_assigned = True
-        placements.append(SimulateBuildPlacement(
-            facility_template_id=facility_id,
-            local_body_id=body_id,
-            is_primary_port=is_primary,
-            build_order=len(placements) + 1,
-        ))
-    return placements
-
-
-def _support_for(catalogue: dict[str, FacilityTemplate], economy: str, *, offset: int = 0) -> Optional[str]:
-    matches = [
-        f for f in catalogue.values()
-        if f.economy == economy and f.is_support_facility
-    ]
-    matches.sort(key=lambda f: (f.tier, f.name))
-    if not matches:
-        return None
-    return matches[min(offset, len(matches) - 1)].id
-
-
-def _first_body_id(context: PreviewContext) -> Optional[str]:
-    if not context.local_body_profiles:
-        return None
-    return sorted(context.local_body_profiles.keys())[0]
-
-
-def _target_economies(target: str) -> tuple[str, str]:
-    mapping = {
-        'refinery_industrial':      ('Refinery', 'Industrial'),
-        'extraction_refinery':      ('Extraction', 'Refinery'),
-        'agriculture_terraforming': ('Agriculture', 'Industrial'),
-        'hitech_tourism':           ('HighTech', 'Tourism'),
-        'military_industrial':      ('Military', 'Industrial'),
-        'trade_logistics':          ('Industrial', 'Extraction'),
-        'flexible_multirole':       ('Industrial', 'Refinery'),
-    }
-    return mapping.get(target, ('Industrial', 'Refinery'))
-
-
 def _maybe_int(row: Optional[dict], key: str) -> Optional[int]:
     if not row or row.get(key) is None:
         return None
@@ -354,18 +320,3 @@ def _maybe_float(row: Optional[dict], key: str) -> Optional[float]:
     if not row or row.get(key) is None:
         return None
     return float(row[key])
-
-
-def _body_economy(row: dict) -> Optional[str]:
-    planet_class = str(row.get('planet_class') or '').lower()
-    if row.get('is_terraformable') or 'earth-like' in planet_class or 'water world' in planet_class:
-        return 'Agriculture'
-    if 'metal' in planet_class or 'high metal' in planet_class:
-        return 'Refinery'
-    if 'rocky' in planet_class:
-        return 'Industrial'
-    if 'icy' in planet_class:
-        return 'Extraction'
-    if row.get('is_landable'):
-        return 'Industrial'
-    return None

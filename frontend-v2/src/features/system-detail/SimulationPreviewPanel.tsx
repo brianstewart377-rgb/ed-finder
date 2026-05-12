@@ -13,6 +13,7 @@ export function SimulationPreviewPanel({
       system={system}
       initialRequest={selectedPlan?.simulation_request ?? null}
       initialPlanLabel={selectedPlan?.label ?? null}
+      initialAssumptions={selectedPlan?.assumptions ?? []}
     />
   );
 }

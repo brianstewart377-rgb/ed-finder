@@ -9,22 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from domain.colonisation_rules import get_target_profile
 from domain.facilities import FacilityTemplate
 from simulation.cp_simulator import port_cp_cost
 
-
-_TARGET_ECONOMIES: dict[str, list[str]] = {
-    'refinery_industrial':      ['Refinery', 'Industrial'],
-    'extraction_refinery':      ['Extraction', 'Refinery'],
-    'agriculture_terraforming': ['Agriculture', 'Industrial'],
-    'hitech_tourism':           ['HighTech', 'Tourism'],
-    'expansion_capital':        ['Industrial', 'Refinery'],
-    'trade_logistics':          ['Industrial', 'Extraction'],
-    'population_capital':       ['Agriculture', 'Industrial'],
-    'ax_forward_base':          ['Military', 'Industrial'],
-    'military_industrial':      ['Military', 'Industrial'],
-    'flexible_multirole':       [],
-}
 
 _CONTAMINATION_ECONOMIES = {'Colony', 'Prison', 'Damaged', 'Rescue', 'Repair', 'None'}
 
@@ -45,6 +33,7 @@ class PreviewContext:
     slot_confidence: Optional[float] = None
     has_ringed_body: Optional[bool] = None
     local_body_profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    mechanics_notes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -72,6 +61,7 @@ def simulate_build_preview(
         'This is a deterministic preview of your selected build, not an automatic optimiser.',
         'T2 and T3 port CP costs escalate with each additional paid port of the same tier.',
     ]
+    mechanics_notes.extend(context.mechanics_notes)
 
     ordered_specs = sorted(placements, key=lambda p: (p.build_order, p.facility_template_id))
     resolved: list[_ResolvedPlacement] = []
@@ -165,7 +155,8 @@ def _placement_economy(
 
     if facility.is_colony_port and local_body_id:
         profile = context.local_body_profiles.get(str(local_body_id), {})
-        economy = profile.get('base_economy') or profile.get('economy')
+        economies = profile.get('base_economies') or []
+        economy = profile.get('base_economy') or profile.get('economy') or (economies[0] if economies else None)
         if economy:
             return str(economy), None
         return None, (
@@ -310,7 +301,8 @@ def _score_composition(
     order: list[str],
     target_archetype: str,
 ) -> dict[str, Any]:
-    expected = _TARGET_ECONOMIES.get(target_archetype, [])
+    target = get_target_profile(target_archetype)
+    expected = target.expected_economies
     top_two = order[:2]
     warnings: list[str] = []
     strengths: list[str] = []
@@ -326,7 +318,11 @@ def _score_composition(
             'recommendations': ['Add economy-producing ports or support facilities before judging the build.'],
         }
 
-    if expected and top_two == expected:
+    if expected and len(expected) == 1 and top_two[:1] == expected:
+        alignment = 'excellent'
+        alignment_score = 92.0
+        strengths.append('Target economy is preserved as the primary outcome.')
+    elif expected and top_two == expected:
         alignment = 'excellent'
         alignment_score = 95.0
         strengths.append('Target economies are preserved as the top two.')
@@ -339,7 +335,7 @@ def _score_composition(
         alignment = 'partial'
         alignment_score = 58.0
         warnings.append('Only one target economy is present in the top two.')
-        recommendations.append(f'Add more {expected[0]} / {expected[1]} economy support to reinforce the intended pair.')
+        recommendations.append(f'Add more {", ".join(expected)} economy support to reinforce the intended target.')
     elif expected:
         alignment = 'poor'
         alignment_score = 30.0

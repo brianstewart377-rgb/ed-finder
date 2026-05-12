@@ -160,6 +160,12 @@ export interface RecommendedBuildPlan {
   warnings: string[];
   tradeoffs: string[];
   next_actions: string[];
+  selected_body_id?: string | null;
+  selected_body_name?: string | null;
+  body_selection_reason: string;
+  mechanics_basis: string[];
+  economy_caveats: string[];
+  assumptions: string[];
   simulation_request: SimulateBuildRequest;
   is_default: boolean;
 }

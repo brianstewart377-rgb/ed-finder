@@ -17,7 +17,7 @@ import type {
 const ARCHETYPES = [
   { id: 'refinery_industrial', label: 'Refinery / Industrial' },
   { id: 'extraction_refinery', label: 'Extraction / Refinery' },
-  { id: 'agriculture_terraforming', label: 'Agriculture / Industrial' },
+  { id: 'agriculture_terraforming', label: 'Agriculture / Terraforming' },
   { id: 'hitech_tourism', label: 'High Tech / Tourism' },
   { id: 'military_industrial', label: 'Military / Industrial' },
   { id: 'trade_logistics', label: 'Trade / Logistics' },
@@ -31,10 +31,12 @@ export function SimulationPreview({
   system,
   initialRequest,
   initialPlanLabel,
+  initialAssumptions = [],
 }: {
   system: SystemDetail;
   initialRequest?: SimulateBuildRequest | null;
   initialPlanLabel?: string | null;
+  initialAssumptions?: string[];
 }) {
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
@@ -218,6 +220,14 @@ export function SimulationPreview({
           onEditRecommended={() => loadRecommendedPlan('edit_recommended')}
           onBlank={startBlankAdvanced}
         />
+        {initialAssumptions.length > 0 && (
+          <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-gold">Estimated assumptions</div>
+            <ul className="mt-1 space-y-1 font-mono text-[11px] text-silver-dk">
+              {initialAssumptions.slice(0, 4).map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)]">
