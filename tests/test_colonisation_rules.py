@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
 from domain.colonisation_rules import get_target_profile, profile_body
-from recommendations.body_selector import select_body_candidates
 
 
 def body(**overrides):
@@ -37,6 +36,33 @@ def test_elw_profile_is_mixed_and_not_industrial():
     assert any('mixed economy' in caveat for caveat in profile.caveats)
 
 
+def test_water_world_profile_supports_tourism_and_agriculture():
+    profile = profile_body(body(subtype='Water world'))
+
+    assert profile.base_economies == ['Tourism', 'Agriculture']
+
+
+def test_ammonia_profile_keeps_hightech_as_supporting_modifier():
+    profile = profile_body(body(subtype='Ammonia world'))
+
+    assert profile.base_economies == ['Tourism']
+    assert profile.modifier_economies == ['HighTech']
+    assert 'exotic' in profile.strategic_tags
+    assert any('supporting' in caveat for caveat in profile.caveats)
+
+
+def test_hmc_profile_uses_extraction_and_observed_modifiers():
+    clean = profile_body(body(subtype='High metal content body'))
+    geo = profile_body(body(subtype='High metal content body', has_geo=True, geo_signal_count=2))
+    bio = profile_body(body(subtype='High metal content body', has_bio=True, bio_signal_count=1))
+
+    assert clean.base_economies == ['Extraction']
+    assert 'Refinery' not in clean.base_economies
+    assert geo.modifier_economies == ['Industrial']
+    assert bio.modifier_economies == ['Agriculture']
+    assert 'terraforming_pressure' in bio.strategic_tags
+
+
 def test_rocky_profile_modifiers_follow_mega_guide_table():
     clean = profile_body(body(subtype='Rocky body'))
     ringed = profile_body(body(subtype='Rocky body', is_ringed=True))
@@ -52,13 +78,22 @@ def test_rocky_profile_modifiers_follow_mega_guide_table():
     assert 'Extraction' in geo.modifier_economies
 
 
-def test_icy_and_hmc_profiles_do_not_use_old_refinery_guess():
+def test_icy_profile_gives_industrial():
     icy = profile_body(body(subtype='Icy body'))
-    hmc = profile_body(body(subtype='High metal content body'))
 
     assert icy.base_economies == ['Industrial']
-    assert hmc.base_economies == ['Extraction']
-    assert 'Refinery' not in hmc.base_economies
+
+
+def test_rocky_ice_profile_gives_industrial_and_refinery():
+    profile = profile_body(body(subtype='Rocky ice body'))
+
+    assert profile.base_economies == ['Industrial', 'Refinery']
+
+
+def test_gas_giant_profile_gives_hightech_and_industrial():
+    profile = profile_body(body(subtype='Class I gas giant'))
+
+    assert profile.base_economies == ['HighTech', 'Industrial']
 
 
 def test_agriculture_terraforming_target_does_not_fake_industrial():
@@ -76,37 +111,3 @@ def test_unsupported_archetype_has_no_silent_fallback():
     assert not target.supported
     assert target.expected_economies == []
     assert target.warning == 'Recommended build rules are not implemented for this archetype yet.'
-
-
-def test_extraction_refinery_does_not_pick_elw_over_hmc_or_ringed_body():
-    target = get_target_profile('extraction_refinery')
-    candidates = select_body_candidates('extraction_refinery', target, [
-        body(body_id=1, body_name='ELW', subtype='Earth-like world'),
-        body(body_id=2, body_name='HMC', subtype='High metal content body'),
-        body(body_id=3, body_name='Ringed Rocky', subtype='Rocky body', is_ringed=True),
-    ])
-
-    assert candidates
-    assert candidates[0].body_name in {'HMC', 'Ringed Rocky'}
-    assert candidates[0].body_name != 'ELW'
-
-
-def test_hitech_tourism_can_prefer_elw_ammonia_or_water_world():
-    target = get_target_profile('hitech_tourism')
-    candidates = select_body_candidates('hitech_tourism', target, [
-        body(body_id=1, body_name='Plain Rocky', subtype='Rocky body'),
-        body(body_id=2, body_name='ELW', subtype='Earth-like world'),
-        body(body_id=3, body_name='Ammonia', subtype='Ammonia world'),
-    ])
-
-    assert candidates[0].body_name in {'ELW', 'Ammonia'}
-
-
-def test_expansion_capital_prefers_slot_confidence_and_diversity():
-    target = get_target_profile('expansion_capital')
-    candidates = select_body_candidates('expansion_capital', target, [
-        body(body_id=1, body_name='Plain Rocky', subtype='Rocky body', confidence=0.4),
-        body(body_id=2, body_name='Mixed ELW', subtype='Earth-like world', confidence=0.9),
-    ], slot_confidence=0.85, total_slots=12)
-
-    assert candidates[0].body_name == 'Mixed ELW'

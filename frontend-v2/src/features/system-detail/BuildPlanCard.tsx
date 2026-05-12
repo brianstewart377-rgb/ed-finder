@@ -61,7 +61,8 @@ export function BuildPlanCard({
         <BuildOrderTimeline steps={plan.build_order.slice(0, 5)} />
         <div className="space-y-2">
           <MiniList title="Mechanics basis" items={plan.mechanics_basis} tone="info" />
-          <MiniList title="Caveats" items={plan.economy_caveats.length ? plan.economy_caveats : plan.assumptions} tone="warn" />
+          <MiniList title="Caveats" items={plan.economy_caveats} tone="warn" />
+          <MiniList title="Assumptions" items={plan.assumptions} tone="warn" />
           <MiniList title="Strengths" items={plan.strengths} tone="good" />
           <MiniList title="Tradeoffs" items={plan.tradeoffs.length ? plan.tradeoffs : plan.warnings} tone="warn" />
         </div>

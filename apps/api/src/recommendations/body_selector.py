@@ -99,15 +99,21 @@ def _score(
             score -= 34
             reasons.append('ELW rarity is not relevant to Extraction/Refinery selection.')
     elif archetype == 'agriculture_terraforming':
+        has_target_signal = False
         if 'Agriculture' in economies:
             add(30, 'Agriculture is supported by the body profile.')
+            has_target_signal = True
         if 'terraforming_candidate' in tags or 'terraforming_pressure' in tags:
             add(28, 'Terraforming is represented as a strategic planning tag.')
+            has_target_signal = True
         if 'elw_mixed' in tags:
             add(12, 'ELW has strong Agriculture value but remains mixed economy.')
+            has_target_signal = True
         if 'Industrial' in economies:
             score -= 12
             reasons.append('Industrial pressure is non-target for Agriculture/Terraforming.')
+        if not has_target_signal:
+            return 0.0, ''
     elif archetype == 'hitech_tourism':
         if 'HighTech' in economies:
             add(26, 'HighTech value is present.')

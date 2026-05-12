@@ -15,6 +15,9 @@ from simulation.cp_simulator import port_cp_cost
 
 
 _CONTAMINATION_ECONOMIES = {'Colony', 'Prison', 'Damaged', 'Rescue', 'Repair', 'None'}
+_PRIMARY_BASE_WEIGHT = 1.0
+_SECONDARY_BASE_WEIGHT = 0.8
+_MODIFIER_WEIGHT = 0.45
 
 
 @dataclass
@@ -37,10 +40,28 @@ class PreviewContext:
 
 
 @dataclass
+class EconomyContributionProfile:
+    base_economies: list[str] = field(default_factory=list)
+    modifier_economies: list[str] = field(default_factory=list)
+    weights: dict[str, float] = field(default_factory=dict)
+    purity: float = 1.0
+    confidence: float = 1.0
+    caveats: list[str] = field(default_factory=list)
+    strategic_tags: list[str] = field(default_factory=list)
+    source_body_id: Optional[str] = None
+    source_body_name: Optional[str] = None
+    inherited: bool = False
+
+    @property
+    def is_mixed(self) -> bool:
+        return len(self.base_economies) + len(self.modifier_economies) > 1
+
+
+@dataclass
 class _ResolvedPlacement:
     spec: PreviewPlacement
     facility: FacilityTemplate
-    economy: Optional[str]
+    economy_profile: Optional[EconomyContributionProfile] = None
     confidence_note: Optional[str] = None
 
 
@@ -72,10 +93,15 @@ def simulate_build_preview(
                 f'Facility template {spec.facility_template_id!r} is not in the loaded catalogue; it was skipped.'
             )
             continue
-        economy, note = _placement_economy(facility, spec.local_body_id, context)
+        economy_profile, note = _placement_economy_profile(facility, spec.local_body_id, context)
         if note:
-            warnings.append(note)
-        resolved.append(_ResolvedPlacement(spec=spec, facility=facility, economy=economy, confidence_note=note))
+            warnings.extend(note)
+        resolved.append(_ResolvedPlacement(
+            spec=spec,
+            facility=facility,
+            economy_profile=economy_profile,
+            confidence_note=' '.join(note) if note else None,
+        ))
 
     if not resolved:
         warnings.append('No valid facilities are selected yet. Add at least one facility to preview a build.')
@@ -86,7 +112,8 @@ def simulate_build_preview(
     economy_strengths, links = _simulate_economies(resolved)
     economy_composition = _to_percentages(economy_strengths)
     economy_order = sorted(economy_composition, key=economy_composition.get, reverse=True)
-    composition = _score_composition(economy_composition, economy_order, target_archetype)
+    inherited_profiles = _inherited_profiles(resolved)
+    composition = _score_composition(economy_composition, economy_order, target_archetype, inherited_profiles)
 
     warnings.extend(composition['warnings'])
     strengths.extend(composition['strengths'])
@@ -95,6 +122,10 @@ def simulate_build_preview(
     buildability = _score_buildability(resolved, context, cp)
     warnings.extend(buildability['warnings'])
     recommendations.extend(buildability['recommendations'])
+
+    profile_notes = _profile_mechanics_notes(inherited_profiles)
+    warnings.extend(_profile_warnings(inherited_profiles, target_archetype))
+    mechanics_notes.extend(profile_notes)
 
     confidence = _confidence(resolved, context, warnings)
     complexity = _complexity(cp, buildability, composition, confidence)
@@ -135,42 +166,50 @@ def simulate_build_preview(
         },
         'economy_composition': economy_composition,
         'economy_order': economy_order,
+        'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
         'top_two_alignment': composition['alignment'],
         'contamination_risk': composition['contamination_risk'],
         'warnings': _unique(warnings),
         'strengths': _unique(strengths),
         'recommendations': _unique(recommendations),
-        'mechanics_notes': mechanics_notes,
+        'mechanics_notes': _unique(mechanics_notes),
         'links': links,
     }
 
 
-def _placement_economy(
+def _placement_economy_profile(
     facility: FacilityTemplate,
     local_body_id: Optional[str],
     context: PreviewContext,
-) -> tuple[Optional[str], Optional[str]]:
-    if facility.economy:
-        return facility.economy, None
-
+) -> tuple[Optional[EconomyContributionProfile], list[str]]:
     if facility.is_colony_port and local_body_id:
         profile = context.local_body_profiles.get(str(local_body_id), {})
-        economies = profile.get('base_economies') or []
-        economy = profile.get('base_economy') or profile.get('economy') or (economies[0] if economies else None)
-        if economy:
-            return str(economy), None
-        return None, (
+        contribution = _body_profile_contribution(str(local_body_id), profile)
+        notes = list(contribution.caveats) if contribution else [str(caveat) for caveat in profile.get('caveats') or []]
+        if contribution and contribution.weights:
+            if contribution.is_mixed:
+                notes.append(
+                    f'{facility.name} inherits a mixed body economy from local body {local_body_id}; '
+                    'all documented base/modifier economies are represented.'
+                )
+            return contribution, notes
+        if facility.economy and facility.economy not in _CONTAMINATION_ECONOMIES:
+            return _explicit_economy_profile(facility.economy), notes
+        return None, notes + [
             f'{facility.name} has no explicit economy and local body {local_body_id} has no body economy profile; '
             'economy confidence is reduced.'
-        )
+        ]
+
+    if facility.economy:
+        return _explicit_economy_profile(facility.economy), []
 
     if facility.is_port:
-        return None, (
+        return None, [
             f'{facility.name} has no explicit economy. It will behave as an economy anchor only after support '
             'facilities are added around it.'
-        )
+        ]
 
-    return None, None
+    return None, []
 
 
 def _simulate_cp(placements: list[_ResolvedPlacement]) -> dict[str, Any]:
@@ -259,10 +298,11 @@ def _simulate_economies(placements: list[_ResolvedPlacement]) -> tuple[dict[str,
 
     for placement in placements:
         facility = placement.facility
-        economy = placement.economy
-        if economy:
-            strengths[economy] = strengths.get(economy, 0.0) + _economy_weight(facility)
+        profile = placement.economy_profile
+        for economy_name, share in (profile.weights if profile else {}).items():
+            strengths[economy_name] = strengths.get(economy_name, 0.0) + _economy_weight(facility) * share
 
+        economy = _support_link_economy(placement)
         if not facility.is_support_facility or not economy:
             continue
 
@@ -300,6 +340,7 @@ def _score_composition(
     composition: dict[str, float],
     order: list[str],
     target_archetype: str,
+    inherited_profiles: list[EconomyContributionProfile],
 ) -> dict[str, Any]:
     target = get_target_profile(target_archetype)
     expected = target.expected_economies
@@ -348,10 +389,22 @@ def _score_composition(
     tertiary = order[2] if len(order) > 2 else None
     tertiary_pct = composition.get(tertiary, 0.0) if tertiary else 0.0
     contamination_economies = [e for e in composition if e in _CONTAMINATION_ECONOMIES]
+    non_target_pressure = [
+        (economy, value)
+        for economy, value in composition.items()
+        if expected and economy not in expected and economy not in _CONTAMINATION_ECONOMIES and value >= 12
+    ]
+    low_purity_profiles = [profile for profile in inherited_profiles if profile.purity < 0.6]
+    modifier_pressure_count = sum(len(profile.modifier_economies) for profile in inherited_profiles)
     if contamination_economies:
         contamination_risk = 'high'
         contamination_penalty = 22.0
         warnings.append(f'Contamination economies present: {", ".join(contamination_economies)}.')
+    elif non_target_pressure and (tertiary_pct >= 18 or low_purity_profiles):
+        contamination_risk = 'high' if tertiary_pct >= 24 or len(non_target_pressure) >= 2 else 'medium'
+        contamination_penalty = 16.0 if contamination_risk == 'high' else 10.0
+        offenders = ', '.join(economy for economy, _value in non_target_pressure[:3])
+        warnings.append(f'Mixed-economy bodies are introducing non-target contamination pressure: {offenders}.')
     elif tertiary_pct >= 18:
         contamination_risk = 'medium'
         contamination_penalty = 10.0
@@ -361,6 +414,21 @@ def _score_composition(
         contamination_penalty = 0.0
         if tertiary:
             strengths.append(f'{tertiary} is present but remains tertiary, reducing contamination risk.')
+
+    if low_purity_profiles:
+        if contamination_risk == 'low':
+            contamination_risk = 'medium'
+        contamination_penalty += 6.0
+        warnings.append('Low purity body selection may reduce economy stability.')
+    if modifier_pressure_count >= 2:
+        if contamination_risk == 'low':
+            contamination_risk = 'medium'
+        contamination_penalty += 4.0
+        warnings.append('Modifier economies from body signals are becoming significant.')
+    if target_archetype == 'refinery_industrial' and any('elw_mixed' in profile.strategic_tags for profile in inherited_profiles):
+        contamination_risk = 'high' if contamination_risk == 'medium' else contamination_risk
+        contamination_penalty += 8.0
+        warnings.append('ELW inheritance is broad-spectrum and may weaken a specialised Refinery / Industrial build.')
 
     if len(top_two) >= 2:
         balance_gap = abs(composition[top_two[0]] - composition[top_two[1]])
@@ -437,6 +505,12 @@ def _confidence(
     uncertain = sum(1 for p in placements if p.facility.data_confidence == 'estimated')
     value -= min(0.15, uncertain * 0.04)
     value -= min(0.18, len([w for w in warnings if 'no body economy profile' in w]) * 0.06)
+    inherited = _inherited_profiles(placements)
+    if inherited:
+        value = min(value, min(profile.confidence for profile in inherited))
+        value -= min(0.12, sum(max(0.0, 0.7 - profile.purity) for profile in inherited) * 0.18)
+        value -= min(0.10, sum(max(0, len(profile.base_economies) - 1) for profile in inherited) * 0.025)
+        value -= min(0.08, sum(len(profile.modifier_economies) for profile in inherited) * 0.025)
     return max(0.2, min(0.95, value))
 
 
@@ -482,6 +556,110 @@ def _economy_weight(facility: FacilityTemplate) -> float:
     if facility.is_colony_port:
         return 1.2
     return 1.0
+
+
+def _explicit_economy_profile(economy: str) -> EconomyContributionProfile:
+    return EconomyContributionProfile(
+        base_economies=[economy],
+        weights={economy: 1.0},
+        purity=1.0,
+        confidence=1.0,
+    )
+
+
+def _body_profile_contribution(body_id: str, profile: dict[str, Any]) -> Optional[EconomyContributionProfile]:
+    weights = _body_profile_economy_weights(profile)
+    if not weights:
+        return None
+    return EconomyContributionProfile(
+        base_economies=[str(item) for item in profile.get('base_economies') or []],
+        modifier_economies=[str(item) for item in profile.get('modifier_economies') or []],
+        weights=weights,
+        purity=float(profile.get('purity') if profile.get('purity') is not None else 1.0),
+        confidence=float(profile.get('confidence') if profile.get('confidence') is not None else 0.7),
+        caveats=[str(item) for item in profile.get('caveats') or []],
+        strategic_tags=[str(item) for item in profile.get('strategic_tags') or []],
+        source_body_id=body_id,
+        source_body_name=str(profile.get('body_name')) if profile.get('body_name') else None,
+        inherited=True,
+    )
+
+
+def _body_profile_economy_weights(profile: dict[str, Any]) -> dict[str, float]:
+    base = [str(item) for item in profile.get('base_economies') or []]
+    if not base:
+        single = profile.get('base_economy') or profile.get('economy')
+        base = [str(single)] if single else []
+    modifiers = [str(item) for item in profile.get('modifier_economies') or [] if item not in base]
+
+    raw: dict[str, float] = {}
+    for index, economy in enumerate(base):
+        raw[economy] = raw.get(economy, 0.0) + (_PRIMARY_BASE_WEIGHT if index == 0 else _SECONDARY_BASE_WEIGHT)
+    for economy in modifiers:
+        raw[economy] = raw.get(economy, 0.0) + _MODIFIER_WEIGHT
+
+    total = sum(raw.values())
+    if total <= 0:
+        return {}
+    return {economy: value / total for economy, value in raw.items()}
+
+
+def _support_link_economy(placement: _ResolvedPlacement) -> Optional[str]:
+    if not placement.facility.is_support_facility:
+        return None
+    if placement.facility.economy:
+        return placement.facility.economy
+    profile = placement.economy_profile
+    if profile and len(profile.weights) == 1:
+        return next(iter(profile.weights))
+    return None
+
+
+def _inherited_profiles(placements: list[_ResolvedPlacement]) -> list[EconomyContributionProfile]:
+    return [
+        placement.economy_profile
+        for placement in placements
+        if placement.economy_profile and placement.economy_profile.inherited
+    ]
+
+
+def _profile_to_response(profile: EconomyContributionProfile) -> dict[str, Any]:
+    return {
+        'source_body_id': profile.source_body_id,
+        'source_body_name': profile.source_body_name,
+        'base_economies': profile.base_economies,
+        'modifier_economies': profile.modifier_economies,
+        'weights': {economy: round(weight, 3) for economy, weight in profile.weights.items()},
+        'purity': round(profile.purity, 2),
+        'confidence': round(profile.confidence, 2),
+        'caveats': profile.caveats,
+        'strategic_tags': profile.strategic_tags,
+    }
+
+
+def _profile_mechanics_notes(profiles: list[EconomyContributionProfile]) -> list[str]:
+    notes: list[str] = []
+    for profile in profiles:
+        label = profile.source_body_name or f'Body {profile.source_body_id}'
+        if profile.base_economies:
+            notes.append(f"{label} inherited base economies: {', '.join(profile.base_economies)}.")
+        if profile.modifier_economies:
+            notes.append(f"{label} modifier economy pressure: {', '.join(profile.modifier_economies)}.")
+        notes.extend(profile.caveats)
+    return notes
+
+
+def _profile_warnings(profiles: list[EconomyContributionProfile], target_archetype: str) -> list[str]:
+    warnings: list[str] = []
+    for profile in profiles:
+        label = profile.source_body_name or f'Body {profile.source_body_id}'
+        if profile.purity < 0.6:
+            warnings.append(f'{label} is a low-purity mixed economy body; specialised builds may be less stable.')
+        if profile.modifier_economies:
+            warnings.append(f'{label} adds modifier economy pressure from {", ".join(profile.modifier_economies)}.')
+        if target_archetype == 'refinery_industrial' and 'elw_mixed' in profile.strategic_tags:
+            warnings.append('ELW inheritance is broad-spectrum and may weaken a specialised Refinery / Industrial build.')
+    return warnings
 
 
 def _placement_location(facility: FacilityTemplate) -> str:

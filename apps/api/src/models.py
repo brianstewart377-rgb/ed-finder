@@ -915,6 +915,20 @@ class SimulationLinks(BaseModel):
     weak_links:   list[SimulationLink] = Field(default_factory=list)
 
 
+class SimulationInheritedEconomy(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    source_body_id:     Optional[str] = None
+    source_body_name:   Optional[str] = None
+    base_economies:     list[str] = Field(default_factory=list)
+    modifier_economies: list[str] = Field(default_factory=list)
+    weights:            dict[str, float] = Field(default_factory=dict)
+    purity:             float
+    confidence:         float
+    caveats:            list[str] = Field(default_factory=list)
+    strategic_tags:     list[str] = Field(default_factory=list)
+
+
 class SimulateBuildResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -928,6 +942,7 @@ class SimulateBuildResponse(BaseModel):
     cp:                  SimulationCPResult
     economy_composition: dict[str, float] = Field(default_factory=dict)
     economy_order:       list[str] = Field(default_factory=list)
+    inherited_economies: list[SimulationInheritedEconomy] = Field(default_factory=list)
     top_two_alignment:   str
     contamination_risk:  str
     warnings:            list[str] = Field(default_factory=list)
