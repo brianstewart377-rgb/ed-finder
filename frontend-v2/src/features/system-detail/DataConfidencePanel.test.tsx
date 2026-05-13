@@ -25,6 +25,7 @@ function result(): SimulateBuildResponse {
       warnings: [],
     },
     cp_timeline: [],
+    cp_repair_suggestions: [],
     economy_composition: {},
     economy_order: [],
     economy_stack: {},
@@ -33,6 +34,8 @@ function result(): SimulateBuildResponse {
     inherited_economies: [],
     topology: {},
     services: {},
+    port_service_states: [],
+    service_unlock_ledger: [],
     data_quality: {
       slots: 'estimated',
       facility_catalogue: 'community_observed',

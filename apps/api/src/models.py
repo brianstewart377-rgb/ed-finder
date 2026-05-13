@@ -942,6 +942,7 @@ class SimulateBuildResponse(BaseModel):
     confidence:          float
     cp:                  SimulationCPResult
     cp_timeline:         list[dict[str, Any]] = Field(default_factory=list)
+    cp_repair_suggestions: list[dict[str, Any]] = Field(default_factory=list)
     economy_composition: dict[str, float] = Field(default_factory=dict)
     economy_order:       list[str] = Field(default_factory=list)
     economy_stack:       dict[str, Any] = Field(default_factory=dict)
@@ -950,6 +951,8 @@ class SimulateBuildResponse(BaseModel):
     inherited_economies: list[SimulationInheritedEconomy] = Field(default_factory=list)
     topology:            dict[str, Any] = Field(default_factory=dict)
     services:            dict[str, Any] = Field(default_factory=dict)
+    port_service_states: list[dict[str, Any]] = Field(default_factory=list)
+    service_unlock_ledger: list[dict[str, Any]] = Field(default_factory=list)
     data_quality:        dict[str, str] = Field(default_factory=dict)
     confidence_signals:  list[dict[str, Any]] = Field(default_factory=list)
     mechanics_trace:     dict[str, list[dict[str, Any]]] = Field(default_factory=dict)

@@ -573,8 +573,10 @@ function SimulationResult({ result }: { result: SimulateBuildResponse }) {
       <InheritedEconomyPanel profiles={result.inherited_economies} />
       <TopologyPanel topology={result.topology} />
       <CpSummary cp={result.cp} />
+      <CpRepairPanel suggestions={result.cp_repair_suggestions} />
       <CpTimelinePanel timeline={result.cp_timeline} />
       <ServicesPanel services={result.services} />
+      <PortServicePanel states={result.port_service_states} ledger={result.service_unlock_ledger} />
 
       <div className="grid gap-2">
         {result.strengths.length > 0 && <Message title="Why this works" tone="good" items={result.strengths} />}
@@ -923,6 +925,113 @@ function ServicesPanel({ services }: { services: SimulateBuildResponse['services
   );
 }
 
+function PortServicePanel({
+  states,
+  ledger,
+}: {
+  states: SimulateBuildResponse['port_service_states'];
+  ledger: SimulateBuildResponse['service_unlock_ledger'];
+}) {
+  if ((!states || states.length === 0) && (!ledger || ledger.length === 0)) return null;
+  return (
+    <div className="rounded-chunk-lg border border-green/25 bg-green/5 p-3">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-green">
+        Port Service Graph
+      </div>
+      {states && states.length > 0 ? (
+        <div className="space-y-3">
+          {states.map((state) => {
+            const active = Object.values(state.active_services ?? {});
+            const locked = Object.values(state.locked_services ?? {});
+            const unknown = Object.values(state.unknown_services ?? {});
+            return (
+              <div key={`${state.local_body_id ?? 'system'}-${state.port_id}`} className="rounded border border-border/60 bg-bg3/45 px-2 py-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div className="font-mono text-[11px] text-silver">{state.port_name}</div>
+                    <div className="mt-0.5 font-mono text-[10px] text-silver-dk">
+                      {state.body_name || (state.local_body_id ? `Body ${state.local_body_id}` : 'System-wide')} · {titleCase(state.location_type)} · {titleCase(state.effective_role)}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-1.5 font-mono text-[10px]">
+                    <Chip tone="good">{active.length} active</Chip>
+                    <Chip tone={locked.length > 0 ? 'warn' : 'default'}>{locked.length} locked</Chip>
+                    <Chip>{unknown.length} unknown</Chip>
+                  </div>
+                </div>
+                <ServiceEntryGroup title="Active services" entries={active.slice(0, 4)} tone="good" />
+                <ServiceEntryGroup title="Locked services" entries={locked.slice(0, 4)} tone="warn" />
+                <ServiceEntryGroup title="Unknown" entries={unknown.slice(0, 3)} tone="default" />
+                {[...(state.warnings ?? []), ...(state.recommendations ?? [])].slice(0, 2).map((item) => (
+                  <div key={item} className="mt-2 rounded border border-gold/30 bg-gold/5 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded border border-border/60 bg-bg3/45 px-2 py-2 font-mono text-[10px] text-silver-dk">
+          No Main Ports are present yet, so there are no per-port service states.
+        </div>
+      )}
+      {ledger && ledger.length > 0 && (
+        <details className="mt-3 rounded border border-border/60 bg-bg2/55 px-2 py-2">
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
+            Service Unlock Ledger
+          </summary>
+          <div className="mt-2 space-y-1.5">
+            {ledger.slice(0, 14).map((entry) => (
+              <div key={`${entry.target_port_id}-${entry.service}-${entry.status}-${entry.unlock_type}-${entry.source_id ?? 'none'}`} className="rounded border border-border/50 bg-bg3/45 px-2 py-1.5">
+                <div className="grid gap-1 font-mono text-[10px] text-silver-dk sm:grid-cols-[92px_72px_minmax(0,1fr)_minmax(0,1fr)]">
+                  <span className={serviceTone(entry.status)}>{titleCase(entry.status)}</span>
+                  <span>{titleCase(entry.unlock_type)}</span>
+                  <span className="truncate"><span className="text-silver">Service:</span> {titleCase(entry.service)}</span>
+                  <span className="truncate"><span className="text-silver">Target:</span> {entry.target_port_name}</span>
+                </div>
+                <div className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
+                  <span className="text-silver">{titleCase(entry.confidence)}:</span> {entry.reason}
+                </div>
+                {entry.caveats.slice(0, 1).map((caveat) => (
+                  <div key={caveat} className="mt-1 font-mono text-[10px] leading-snug text-gold">{caveat}</div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function ServiceEntryGroup({
+  title,
+  entries,
+  tone,
+}: {
+  title: string;
+  entries: SimulateBuildResponse['service_unlock_ledger'];
+  tone: 'good' | 'warn' | 'default';
+}) {
+  if (!entries || entries.length === 0) return null;
+  const titleClass = tone === 'good' ? 'text-green' : tone === 'warn' ? 'text-gold' : 'text-silver-dk';
+  return (
+    <div className="mt-2 space-y-1">
+      <div className={`font-mono text-[9px] uppercase tracking-[0.14em] ${titleClass}`}>{title}</div>
+      {entries.map((entry) => (
+        <div key={`${entry.service}-${entry.status}-${entry.source_id ?? 'none'}`} className="rounded border border-border/50 bg-bg2/45 px-2 py-1 font-mono text-[10px] text-silver-dk">
+          <span className="text-silver">{titleCase(entry.service)}</span>
+          {entry.source_name && <span> · {entry.source_name}</span>}
+          <span> · {titleCase(entry.unlock_type)}</span>
+          {entry.requirements.length > 0 && <div className="mt-0.5 text-gold">{entry.requirements[0]}</div>}
+          {entry.caveats.length > 0 && <div className="mt-0.5 text-gold">{entry.caveats[0]}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function InheritedEconomyPanel({ profiles }: { profiles: SimulateBuildResponse['inherited_economies'] }) {
   if (!profiles || profiles.length === 0) return null;
   return (
@@ -1031,6 +1140,62 @@ function CpSummary({ cp }: { cp: SimulateBuildResponse['cp'] }) {
       )}
     </div>
   );
+}
+
+export function CpRepairPanel({ suggestions }: { suggestions: SimulateBuildResponse['cp_repair_suggestions'] }) {
+  if (!suggestions || suggestions.length === 0) return null;
+  const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const sorted = [...suggestions].sort((a, b) => (order[a.severity] ?? 99) - (order[b.severity] ?? 99));
+  return (
+    <div className="rounded-chunk-lg border border-gold/35 bg-gold/5 p-3">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-gold">
+        CP Repair Suggestions
+      </div>
+      <div className="space-y-2">
+        {sorted.slice(0, 3).map((suggestion) => (
+          <div key={`${suggestion.type}-${suggestion.summary}-${suggestion.affected_steps.join('-')}`} className="rounded border border-border/60 bg-bg3/45 px-2 py-2">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-mono text-[11px] text-silver">{suggestion.summary}</div>
+                <div className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">{suggestion.reason}</div>
+              </div>
+              <Chip tone={repairSeverityTone(suggestion.severity)}>{titleCase(suggestion.severity)} priority</Chip>
+            </div>
+            <div className="mt-2 grid gap-1.5 font-mono text-[10px] text-silver-dk sm:grid-cols-2">
+              <div><span className="text-silver">Expected effect:</span> {suggestion.expected_effect}</div>
+              <div><span className="text-silver">Action:</span> {suggestion.action}</div>
+              {suggestion.affected_steps.length > 0 && <div><span className="text-silver">Affected steps:</span> {suggestion.affected_steps.join(', ')}</div>}
+              <div><span className="text-silver">Confidence:</span> {titleCase(suggestion.confidence)}</div>
+            </div>
+            {(suggestion.caveats.length > 0 || suggestion.suggested_action) && (
+              <details className="mt-2 rounded border border-border/50 bg-bg2/45 px-2 py-1">
+                <summary className="cursor-pointer font-mono text-[10px] text-gold">Caveats and structured action</summary>
+                <div className="mt-1 space-y-1 font-mono text-[10px] leading-snug text-silver-dk">
+                  {suggestion.caveats.map((caveat) => <div key={caveat}>{caveat}</div>)}
+                  {suggestion.suggested_action && (
+                    <div>
+                      <span className="text-silver">Action type:</span> {titleCase(suggestion.suggested_action.action_type)}
+                      {suggestion.suggested_action.facility_name && <span> · {suggestion.suggested_action.facility_name}</span>}
+                      {suggestion.suggested_action.from_step != null && <span> · from step {suggestion.suggested_action.from_step}</span>}
+                      {suggestion.suggested_action.to_step != null && <span> · to step {suggestion.suggested_action.to_step}</span>}
+                      {suggestion.suggested_action.target_step != null && <span> · target step {suggestion.suggested_action.target_step}</span>}
+                    </div>
+                  )}
+                  {suggestion.suggested_action?.notes.map((note) => <div key={note}>{note}</div>)}
+                </div>
+              </details>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function repairSeverityTone(severity: string): 'good' | 'warn' | 'default' {
+  if (severity === 'critical' || severity === 'high' || severity === 'medium') return 'warn';
+  if (severity === 'low') return 'good';
+  return 'default';
 }
 
 function LinkSummary({ result }: { result: SimulateBuildResponse }) {

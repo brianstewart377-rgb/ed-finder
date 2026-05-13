@@ -49,7 +49,10 @@ TRACE_CATEGORIES = [
     'purity_effects',
     'contamination_effects',
     'cp_effects',
+    'cp_repair_effects',
     'service_unlock_effects',
+    'port_service_effects',
+    'service_unlock_ledger_effects',
     'confidence_adjustments',
 ]
 
@@ -68,6 +71,9 @@ def trace_simulation(
     confidence_signals: list[ConfidenceSignal],
     port_economy_states: list[Any] | None = None,
     influence_ledger: list[Any] | None = None,
+    port_service_states: list[Any] | None = None,
+    service_unlock_ledger: list[Any] | None = None,
+    cp_repair_suggestions: list[Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     trace = empty_trace()
 
@@ -206,6 +212,15 @@ def trace_simulation(
             source=SOURCE_MEGA_GUIDE,
         ).to_dict())
 
+    for suggestion in cp_repair_suggestions or []:
+        trace['cp_repair_effects'].append(MechanicsTraceEvent(
+            category='cp_repair_effects',
+            label=str(getattr(suggestion, 'summary', 'CP repair suggestion')),
+            description=str(getattr(suggestion, 'reason', '') or getattr(suggestion, 'expected_effect', '') or 'CP repair suggestion recorded.'),
+            confidence=str(getattr(suggestion, 'confidence', ConfidenceLevel.INFERRED.value)),
+            source='CP repair assistant',
+        ).to_dict())
+
     for service, detail in services.items():
         if not isinstance(detail, dict):
             continue
@@ -215,6 +230,30 @@ def trace_simulation(
             description=str(detail.get('reason') or 'Service unlock state modelled from catalogue rules.'),
             confidence=ConfidenceLevel.UNKNOWN.value if detail.get('status') == 'unknown' else ConfidenceLevel.INFERRED.value,
         ).to_dict())
+
+    for state in port_service_states or []:
+        label = getattr(state, 'port_name', 'Main Port')
+        active = len(getattr(state, 'active_services', {}) or {})
+        locked = len(getattr(state, 'locked_services', {}) or {})
+        unknown = len(getattr(state, 'unknown_services', {}) or {})
+        trace['port_service_effects'].append(MechanicsTraceEvent(
+            category='port_service_effects',
+            label=label,
+            description=f'{label} service state created with {active} active, {locked} locked, and {unknown} unknown services.',
+            confidence=ConfidenceLevel.INFERRED.value,
+            source='Service dependency graph',
+        ).to_dict())
+
+    for entry in service_unlock_ledger or []:
+        status = getattr(entry, 'status', '')
+        if status == 'active' or getattr(entry, 'unlock_type', '') in {'strong_link_unlock', 'unknown_rule'}:
+            trace['service_unlock_ledger_effects'].append(MechanicsTraceEvent(
+                category='service_unlock_ledger_effects',
+                label=f'{getattr(entry, "target_port_name", "Main Port")} {getattr(entry, "service", "service")}',
+                description=str(getattr(entry, 'reason', '') or 'Service unlock ledger entry recorded.'),
+                confidence=str(getattr(entry, 'confidence', ConfidenceLevel.INFERRED.value)),
+                source='Service dependency graph',
+            ).to_dict())
 
     for signal in confidence_signals:
         trace['confidence_adjustments'].append(MechanicsTraceEvent(

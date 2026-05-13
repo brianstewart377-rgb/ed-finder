@@ -110,6 +110,31 @@ export interface SimulationCPResult {
   warnings: string[];
 }
 
+export interface CPRepairAction {
+  action_type: string;
+  facility_template_id?: string | null;
+  facility_name?: string | null;
+  from_step?: number | null;
+  to_step?: number | null;
+  target_step?: number | null;
+  set_primary_port?: boolean | null;
+  notes: string[];
+}
+
+export interface CPRepairSuggestion {
+  suggestion_id: string;
+  type: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | string;
+  summary: string;
+  reason: string;
+  affected_steps: number[];
+  expected_effect: string;
+  action: string;
+  suggested_action?: CPRepairAction | null;
+  confidence: string;
+  caveats: string[];
+}
+
 export interface SimulationTimelineStep {
   step: number;
   facility_template_id: string;
@@ -181,6 +206,38 @@ export interface PortEconomyState {
   recommendations: string[];
 }
 
+export interface ServiceUnlockEntry {
+  service: string;
+  status: 'active' | 'locked' | 'unknown' | string;
+  source_id?: string | null;
+  source_name?: string | null;
+  source_type?: string | null;
+  target_port_id: string;
+  target_port_name: string;
+  local_body_id?: string | null;
+  unlock_type: string;
+  link_type?: string | null;
+  confidence: string;
+  reason: string;
+  requirements: string[];
+  caveats: string[];
+}
+
+export interface PortServiceState {
+  port_id: string;
+  port_name: string;
+  local_body_id?: string | null;
+  body_name?: string | null;
+  location_type: string;
+  effective_role: string;
+  active_services: Record<string, ServiceUnlockEntry>;
+  locked_services: Record<string, ServiceUnlockEntry>;
+  unknown_services: Record<string, ServiceUnlockEntry>;
+  service_sources: ServiceUnlockEntry[];
+  warnings: string[];
+  recommendations: string[];
+}
+
 export interface SimulationInheritedEconomy {
   source_body_id?: string | null;
   source_body_name?: string | null;
@@ -204,6 +261,7 @@ export interface SimulateBuildResponse {
   confidence: number;
   cp: SimulationCPResult;
   cp_timeline: SimulationTimelineStep[];
+  cp_repair_suggestions: CPRepairSuggestion[];
   economy_composition: Record<string, number>;
   economy_order: string[];
   economy_stack: Record<string, unknown>;
@@ -212,6 +270,8 @@ export interface SimulateBuildResponse {
   inherited_economies: SimulationInheritedEconomy[];
   topology: Record<string, unknown>;
   services: Record<string, { status: string; reason: string; requirements: string[] }>;
+  port_service_states: PortServiceState[];
+  service_unlock_ledger: ServiceUnlockEntry[];
   data_quality: Record<string, string>;
   confidence_signals: Array<{ area: string; level: string; reason: string; impact?: number | null }>;
   mechanics_trace: Record<string, Array<{

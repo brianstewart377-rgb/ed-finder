@@ -53,6 +53,7 @@ from mechanics.scoring_rules import (
 )
 from mechanics.versions import MECHANICS_VERSION
 from simulation.build_order import simulate_build_order
+from simulation.cp_repair import build_cp_repair_suggestions, cp_repair_suggestions_to_dict
 from simulation.economy_stack import analyse_economy_stack
 from simulation.mechanics_trace import trace_simulation
 from simulation.port_economy import (
@@ -60,6 +61,11 @@ from simulation.port_economy import (
     build_port_economy_states,
     influence_ledger_to_dict,
     port_states_to_dict,
+)
+from simulation.service_graph import (
+    build_port_service_states,
+    port_service_states_to_dict,
+    service_unlock_ledger_to_dict,
 )
 from simulation.services import model_services
 from simulation.topology_graph import GraphPlacement, build_topology_graph, infer_location_type
@@ -155,6 +161,7 @@ def simulate_build_preview(
         warnings.append('No valid facilities are selected yet. Add at least one facility to preview a build.')
 
     cp = simulate_build_order(resolved).to_cp_dict()
+    cp_repair_suggestions = build_cp_repair_suggestions(placements=resolved, cp=cp)
     warnings.extend(cp['warnings'])
 
     topology_graph = build_topology_graph(_graph_placements(resolved, context))
@@ -180,6 +187,10 @@ def simulate_build_preview(
         'recommendations': stack_result.recommendations,
     }
     services = model_services(resolved, topology_graph)
+    port_service_states, service_unlock_ledger = build_port_service_states(
+        placements=resolved,
+        topology_graph=topology_graph,
+    )
 
     warnings.extend(composition['warnings'])
     strengths.extend(composition['strengths'])
@@ -211,6 +222,9 @@ def simulate_build_preview(
         confidence_signals=confidence_signals,
         port_economy_states=port_economy_states,
         influence_ledger=influence_ledger,
+        port_service_states=port_service_states,
+        service_unlock_ledger=service_unlock_ledger,
+        cp_repair_suggestions=cp_repair_suggestions,
     )
     complexity = _complexity(cp, buildability, composition, confidence)
     final_score = round(
@@ -250,6 +264,7 @@ def simulate_build_preview(
             'warnings': cp['warnings'],
         },
         'cp_timeline': cp['timeline'],
+        'cp_repair_suggestions': cp_repair_suggestions_to_dict(cp_repair_suggestions),
         'economy_composition': economy_composition,
         'economy_order': economy_order,
         'economy_stack': stack_result.to_dict(),
@@ -258,6 +273,8 @@ def simulate_build_preview(
         'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
         'topology': _topology_to_response(topology_graph),
         'services': services,
+        'port_service_states': port_service_states_to_dict(port_service_states),
+        'service_unlock_ledger': service_unlock_ledger_to_dict(service_unlock_ledger),
         'data_quality': default_data_quality(),
         'confidence_signals': signals_to_dict(confidence_signals),
         'mechanics_trace': mechanics_trace,

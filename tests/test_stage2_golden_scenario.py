@@ -20,6 +20,11 @@ def test_stage2_refinery_industrial_golden_scenario_has_stage4a_outputs():
     assert any(entry['influence_type'] == 'weak_link' for entry in result['influence_ledger'])
     assert result['mechanics_trace']['port_economy_effects']
     assert result['mechanics_trace']['influence_ledger_effects']
+    assert result['port_service_states']
+    assert result['service_unlock_ledger']
+    assert result['mechanics_trace']['port_service_effects']
+    assert result['mechanics_trace']['service_unlock_ledger_effects']
+    assert any(entry['unlock_type'] == 'port_default' for entry in result['service_unlock_ledger'])
 
 
 def test_stage2_elw_golden_scenario_has_broad_body_inheritance_stage4a_outputs():
@@ -45,3 +50,5 @@ def test_stage2_elw_golden_scenario_has_broad_body_inheritance_stage4a_outputs()
     assert set(result['port_economy_states'][0]['inherited_economies']) == expected
     assert result['economy_composition']
     assert result['mechanics_trace']['port_economy_effects']
+    assert result['port_service_states']
+    assert result['service_unlock_ledger']

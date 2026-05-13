@@ -2197,6 +2197,8 @@ export interface components {
             cp: components["schemas"]["SimulationCPResult"];
             /** Cp Timeline */
             cp_timeline?: Record<string, never>[];
+            /** Cp Repair Suggestions */
+            cp_repair_suggestions?: Record<string, never>[];
             /** Economy Composition */
             economy_composition?: {
                 [key: string]: number;
@@ -2215,6 +2217,10 @@ export interface components {
             topology?: Record<string, never>;
             /** Services */
             services?: Record<string, never>;
+            /** Port Service States */
+            port_service_states?: Record<string, never>[];
+            /** Service Unlock Ledger */
+            service_unlock_ledger?: Record<string, never>[];
             /** Data Quality */
             data_quality?: {
                 [key: string]: string;
