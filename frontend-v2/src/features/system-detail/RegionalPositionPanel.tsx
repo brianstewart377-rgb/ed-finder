@@ -60,6 +60,9 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
             {data.nearest_colonised_system?.distance_ly != null && (
               <Badge label={`${data.nearest_colonised_system.distance_ly.toFixed(0)} LY nearest`} tone="cyan" />
             )}
+            {data.data_quality?.regional_position && (
+              <Badge label={standardLabel(data.data_quality.regional_position)} tone="cyan" />
+            )}
           </div>
           <p className="mt-3 text-sm leading-snug text-silver">
             {data.rationale?.summary}
@@ -97,6 +100,12 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
       {data.rationale?.warnings && data.rationale.warnings.length > 0 && (
         <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2 font-mono text-[11px] text-gold">
           {data.rationale.warnings[0]}
+        </div>
+      )}
+
+      {data.confidence_signals.length > 0 && (
+        <div className="mt-3 rounded border border-border/60 bg-bg3/35 px-3 py-2 font-mono text-[10px] text-silver-dk">
+          <span className="text-cyan">{standardLabel(data.confidence_signals[0].level)}:</span> {data.confidence_signals[0].reason}
         </div>
       )}
     </section>
@@ -137,4 +146,18 @@ function Badge({ label, tone }: { label: string; tone: 'orange' | 'cyan' }) {
 
 function formatRole(value: string): string {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function standardLabel(value: string): string {
+  const labels: Record<string, string> = {
+    observed: 'Observed',
+    verified: 'Verified',
+    community_observed: 'Community observed',
+    inferred: 'Inferred',
+    estimated: 'Estimated',
+    speculative: 'Speculative',
+    unknown: 'Unknown',
+    computed: 'Computed',
+  };
+  return labels[value] ?? formatRole(value);
 }

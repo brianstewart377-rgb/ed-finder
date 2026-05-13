@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, Query
 from deps import get_pool
 from domain.colonisation_rules import get_target_profile, profile_body
 from domain.facilities import FacilityTemplate, get_catalogue, load_bundled_catalogue, load_catalogue_from_rows
-from regional.regional_analysis import response_from_row
+from mechanics.scoring_rules import REGIONAL_RECOMMENDATION_WEIGHT, SIMULATION_RECOMMENDATION_WEIGHT
+from mechanics.versions import MECHANICS_VERSION
 from models import (
     FacilityTemplateResponse,
     RecommendedBuildPlan,
@@ -17,10 +18,12 @@ from models import (
     SimulateBuildRequest,
     SimulateBuildResponse,
 )
+from regional.regional_analysis import response_from_row
 from recommendations.body_selector import select_body_candidates
 from recommendations.build_generator import generate_build_drafts
 from recommendations.plan_ranker import rank_plans
 from simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
+from simulation.mechanics_trace import regional_trace_event
 
 
 router = APIRouter(tags=['simulation-preview'])
@@ -96,6 +99,7 @@ async def get_recommended_builds(
     if not target_profile.supported:
         return RecommendedBuildsResponse(
             system_id64=system_id64,
+            mechanics_version=MECHANICS_VERSION,
             target_archetype=target,
             best_suggested_archetype=target,
             recommended_next_action='Try a blank advanced simulation; recommended build rules are not implemented for this archetype yet.',
@@ -155,7 +159,17 @@ async def get_recommended_builds(
         simulation = ranked_plan.simulation
         body = draft.body
         regional_fit = float((regional_context.get('archetype_regional_fit') or {}).get(target, 0) or 0)
-        final_score = round(simulation.final_score * 0.93 + regional_fit * 0.07, 1) if regional_fit else simulation.final_score
+        final_score = (
+            round(simulation.final_score * SIMULATION_RECOMMENDATION_WEIGHT + regional_fit * REGIONAL_RECOMMENDATION_WEIGHT, 1)
+            if regional_fit else simulation.final_score
+        )
+        rank_breakdown = dict(ranked_plan.rank_breakdown)
+        if regional_fit:
+            rank_breakdown['regional_fit_score'] = round(regional_fit * REGIONAL_RECOMMENDATION_WEIGHT, 2)
+            rank_breakdown['final_rank_score'] = round(rank_breakdown['final_rank_score'] + rank_breakdown['regional_fit_score'], 2)
+            simulation.mechanics_trace.setdefault('regional_effects', []).append(
+                regional_trace_event(archetype=target, regional_fit=regional_fit, weight=REGIONAL_RECOMMENDATION_WEIGHT)
+            )
         assumptions = ['Body economy is estimated from documented Mega Guide rules and available scan facts.']
         if context.slot_confidence is None or context.slot_confidence < 0.75:
             assumptions.append('Slot prediction is estimated, not observed in-game.')
@@ -190,6 +204,14 @@ async def get_recommended_builds(
             ),
             archetype_regional_fit=regional_fit or None,
             regional_rationale=regional_context.get('rationale') or {},
+            decision_explanation=_decision_explanation(
+                draft=draft,
+                simulation=simulation,
+                regional_fit=regional_fit,
+                assumptions=assumptions,
+                is_default=(idx == 0),
+            ),
+            rank_breakdown=rank_breakdown,
             simulation_request=draft.request,
             is_default=(idx == 0),
         ))
@@ -206,6 +228,7 @@ async def get_recommended_builds(
 
     return RecommendedBuildsResponse(
         system_id64=system_id64,
+        mechanics_version=MECHANICS_VERSION,
         target_archetype=target,
         best_suggested_archetype=target,
         recommended_next_action=next_action,
@@ -334,6 +357,54 @@ def _maybe_float(row: Optional[dict], key: str) -> Optional[float]:
     if not row or row.get(key) is None:
         return None
     return float(row[key])
+
+
+def _decision_explanation(
+    *,
+    draft,
+    simulation: SimulateBuildResponse,
+    regional_fit: float,
+    assumptions: list[str],
+    is_default: bool,
+) -> dict[str, object]:
+    why_this_plan = []
+    if is_default:
+        why_this_plan.append('This plan ranked highest after simulation, economy stack, buildability, confidence, warnings, and complexity penalties.')
+    else:
+        why_this_plan.append('This plan remains a viable alternative but ranked below the default after transparent penalties.')
+    if simulation.strengths:
+        why_this_plan.extend(simulation.strengths[:2])
+    if regional_fit:
+        why_this_plan.append(f'Regional fit contributes lightly at {regional_fit:.0f}/100 and does not dominate the local simulation.')
+
+    why_not_simpler = []
+    if simulation.build_complexity in {'advanced', 'expert'}:
+        why_not_simpler.append('A simpler plan would not preserve the same economy stack or topology support.')
+    elif draft.tradeoffs:
+        why_not_simpler.append('Simpler alternatives are preferred unless their tradeoffs reduce economy or service coverage.')
+
+    why_not_more_advanced = []
+    if simulation.confidence < 0.7:
+        why_not_more_advanced.append('More advanced plans are limited by confidence in slots, topology, or facility data.')
+    if simulation.warnings:
+        why_not_more_advanced.append('Additional complexity would amplify existing warnings before the current plan is verified.')
+
+    return {
+        'why_this_plan_won': why_this_plan,
+        'why_not_simpler': why_not_simpler,
+        'why_not_more_advanced': why_not_more_advanced,
+        'main_tradeoffs': draft.tradeoffs or simulation.warnings[:3],
+        'sensitive_assumptions': assumptions,
+        'confidence_summary': _confidence_summary(simulation),
+    }
+
+
+def _confidence_summary(simulation: SimulateBuildResponse) -> str:
+    if simulation.confidence >= 0.75:
+        return 'High confidence for current deterministic rules; review caveats before committing in-game.'
+    if simulation.confidence >= 0.55:
+        return 'Medium confidence; key mechanics are modelled but some data is inferred or estimated.'
+    return 'Low confidence; confirm observed slot/body/service data before treating this as a stable plan.'
 
 
 async def _regional_context(pool: asyncpg.Pool, system_id64: int) -> dict:

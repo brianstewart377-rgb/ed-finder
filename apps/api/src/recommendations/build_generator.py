@@ -6,6 +6,12 @@ from typing import Optional
 
 from domain.colonisation_rules import TargetProfile
 from domain.facilities import FacilityTemplate
+from mechanics.scoring_rules import (
+    ADVANCED_PLAN_MIN_BODY_SCORE,
+    ADVANCED_PLAN_MIN_SLOT_CONFIDENCE,
+    ADVANCED_PLAN_MIN_TOTAL_SLOTS,
+    MAX_RECOMMENDED_DRAFTS,
+)
 from models import SimulateBuildPlacement, SimulateBuildRequest
 from recommendations.body_selector import BodyCandidate
 
@@ -95,10 +101,10 @@ def generate_build_drafts(
                 tradeoffs=['Higher CP pressure; only shown when slot confidence and body suitability support it.'],
                 mechanics_basis=_mechanics_basis(target, body),
             ))
-    elif slot_confidence is not None and slot_confidence < 0.6:
+    elif slot_confidence is not None and slot_confidence < ADVANCED_PLAN_MIN_SLOT_CONFIDENCE:
         warnings.append('Advanced plans are hidden because slot confidence is too low.')
 
-    return drafts[:3], warnings
+    return drafts[:MAX_RECOMMENDED_DRAFTS], warnings
 
 
 def _placements_for(
@@ -145,7 +151,12 @@ def _preferred_t2_port(
 
 
 def _can_generate_advanced(slot_confidence: Optional[float], total_slots: int, body: BodyCandidate) -> bool:
-    return bool(slot_confidence is not None and slot_confidence >= 0.6 and total_slots >= 3 and body.score >= 40)
+    return bool(
+        slot_confidence is not None
+        and slot_confidence >= ADVANCED_PLAN_MIN_SLOT_CONFIDENCE
+        and total_slots >= ADVANCED_PLAN_MIN_TOTAL_SLOTS
+        and body.score >= ADVANCED_PLAN_MIN_BODY_SCORE
+    )
 
 
 def _summary(label: str, target: TargetProfile, body: BodyCandidate) -> str:

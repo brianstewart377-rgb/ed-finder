@@ -19,6 +19,7 @@ import psycopg2.extras
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'apps' / 'api' / 'src'))
 
+from mechanics.regional_rules import REGIONAL_DISTANCE_BUCKETS
 from regional.regional_analysis import compute_regional_analysis
 
 
@@ -121,6 +122,7 @@ def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
 
 def _load_candidates(cur: Any, system: dict[str, Any]) -> list[dict[str, Any]]:
     x, y, z = float(system['x']), float(system['y']), float(system['z'])
+    radius = max(REGIONAL_DISTANCE_BUCKETS)
     cur.execute("""
         SELECT s.id64, s.name, s.x, s.y, s.z, s.population, s.is_colonised, s.is_being_colonised,
                COUNT(st.id) AS station_count
@@ -132,7 +134,7 @@ def _load_candidates(cur: Any, system: dict[str, Any]) -> list[dict[str, Any]]:
           AND s.z BETWEEN %s AND %s
           AND (s.is_colonised = TRUE OR s.is_being_colonised = TRUE OR s.population > 0)
         GROUP BY s.id64
-    """, (system['id64'], x - 250, x + 250, y - 250, y + 250, z - 250, z + 250))
+    """, (system['id64'], x - radius, x + radius, y - radius, y + radius, z - radius, z + radius))
     return [dict(row) for row in cur.fetchall()]
 
 

@@ -29,25 +29,30 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from domain.facilities import FacilityTemplate
+from mechanics.cp_rules import (
+    CP_COMPLEXITY_THRESHOLDS,
+    T2_GREEN_EXTRAPOLATION_STEP,
+    T2_PORT_COSTS_GREEN,
+    T2_PORT_COSTS_YELLOW,
+    T2_YELLOW_EXTRAPOLATION_STEP,
+    T3_GREEN_EXTRAPOLATION_STEP,
+    T3_PORT_COSTS_GREEN,
+    T3_PORT_COSTS_YELLOW,
+    T3_YELLOW_EXTRAPOLATION_STEP,
+)
 
 
 # ---------------------------------------------------------------------------
 # CP escalation curves (community estimates)
 # Indexed by port count (0-based): cost of the Nth port of that tier.
 # ---------------------------------------------------------------------------
-_T2_PORT_COSTS_YELLOW = [16, 20, 26, 34, 44, 56]   # 1st, 2nd, 3rd...
-_T3_PORT_COSTS_YELLOW = [40, 52, 68, 88]
-_T2_PORT_COSTS_GREEN  = [0,  0,  4,  8,  12, 16]
-_T3_PORT_COSTS_GREEN  = [16, 24, 36, 52]
+_T2_PORT_COSTS_YELLOW = T2_PORT_COSTS_YELLOW
+_T3_PORT_COSTS_YELLOW = T3_PORT_COSTS_YELLOW
+_T2_PORT_COSTS_GREEN = T2_PORT_COSTS_GREEN
+_T3_PORT_COSTS_GREEN = T3_PORT_COSTS_GREEN
 
 # Complexity thresholds
-_COMPLEXITY_THRESHOLDS = [
-    (90, 'expert'),
-    (65, 'advanced'),
-    (40, 'moderate'),
-    (15, 'simple'),
-    (0,  'trivial'),
-]
+_COMPLEXITY_THRESHOLDS = CP_COMPLEXITY_THRESHOLDS
 
 
 @dataclass
@@ -376,22 +381,22 @@ def _t2_yellow_cost(n: int) -> int:
     if n < len(_T2_PORT_COSTS_YELLOW):
         return _T2_PORT_COSTS_YELLOW[n]
     # Beyond table: extrapolate linearly
-    return _T2_PORT_COSTS_YELLOW[-1] + (n - len(_T2_PORT_COSTS_YELLOW) + 1) * 14
+    return _T2_PORT_COSTS_YELLOW[-1] + (n - len(_T2_PORT_COSTS_YELLOW) + 1) * T2_YELLOW_EXTRAPOLATION_STEP
 
 def _t2_green_cost(n: int) -> int:
     if n < len(_T2_PORT_COSTS_GREEN):
         return _T2_PORT_COSTS_GREEN[n]
-    return _T2_PORT_COSTS_GREEN[-1] + (n - len(_T2_PORT_COSTS_GREEN) + 1) * 6
+    return _T2_PORT_COSTS_GREEN[-1] + (n - len(_T2_PORT_COSTS_GREEN) + 1) * T2_GREEN_EXTRAPOLATION_STEP
 
 def _t3_yellow_cost(n: int) -> int:
     if n < len(_T3_PORT_COSTS_YELLOW):
         return _T3_PORT_COSTS_YELLOW[n]
-    return _T3_PORT_COSTS_YELLOW[-1] + (n - len(_T3_PORT_COSTS_YELLOW) + 1) * 22
+    return _T3_PORT_COSTS_YELLOW[-1] + (n - len(_T3_PORT_COSTS_YELLOW) + 1) * T3_YELLOW_EXTRAPOLATION_STEP
 
 def _t3_green_cost(n: int) -> int:
     if n < len(_T3_PORT_COSTS_GREEN):
         return _T3_PORT_COSTS_GREEN[n]
-    return _T3_PORT_COSTS_GREEN[-1] + (n - len(_T3_PORT_COSTS_GREEN) + 1) * 20
+    return _T3_PORT_COSTS_GREEN[-1] + (n - len(_T3_PORT_COSTS_GREEN) + 1) * T3_GREEN_EXTRAPOLATION_STEP
 
 
 class _DummyFacility:

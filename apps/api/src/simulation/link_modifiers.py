@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from domain.colonisation_constants import MIN_STRONG_LINK_MODIFIER, STRONG_LINK_BY_TIER
+from mechanics.link_rules import LINK_MODIFIER_DELTAS, MIN_STRONG_LINK_MODIFIER, STRONG_LINK_BY_TIER
 
 
 @dataclass(frozen=True)
@@ -77,42 +77,42 @@ def _modifier_components(
 
     if economy == 'Agriculture':
         if is_elw:
-            add(0.25, 'ELW agriculture strong-link boost.')
+            add(LINK_MODIFIER_DELTAS['agriculture_elw'], 'ELW agriculture strong-link boost.')
         if is_water:
-            add(0.18, 'Water World agriculture strong-link boost.')
+            add(LINK_MODIFIER_DELTAS['agriculture_water_world'], 'Water World agriculture strong-link boost.')
         if has_bio:
-            add(0.16, 'Organic/bio signal agriculture boost.')
+            add(LINK_MODIFIER_DELTAS['agriculture_bio'], 'Organic/bio signal agriculture boost.')
         if terraformable:
-            add(0.10, 'Terraformable body agriculture boost.')
+            add(LINK_MODIFIER_DELTAS['agriculture_terraformable'], 'Terraformable body agriculture boost.')
             caveats.append('Terraformable strong-link boost is low-confidence and may be bugged in-game.')
             assumptions.append('Terraformable modifier applied with low confidence.')
         if icy:
-            add(-0.45, 'Icy body agriculture malus.')
+            add(LINK_MODIFIER_DELTAS['agriculture_icy_malus'], 'Icy body agriculture malus.')
         if tidally_locked:
-            add(-0.25, 'Tidally locked agriculture malus.')
+            add(LINK_MODIFIER_DELTAS['agriculture_tidally_locked_malus'], 'Tidally locked agriculture malus.')
     elif economy == 'Extraction':
         if has_geo:
-            add(0.20, 'Volcanism/geological extraction boost.')
+            add(LINK_MODIFIER_DELTAS['extraction_geo'], 'Volcanism/geological extraction boost.')
         if rich_reserves:
-            add(0.22, 'Major/pristine reserve extraction boost.')
+            add(LINK_MODIFIER_DELTAS['extraction_rich_reserves'], 'Major/pristine reserve extraction boost.')
         if poor_reserves:
-            add(-0.55, 'Low/depleted reserve extraction malus.')
+            add(LINK_MODIFIER_DELTAS['extraction_poor_reserves_malus'], 'Low/depleted reserve extraction malus.')
     elif economy == 'HighTech':
         if is_elw or is_water or is_ammonia:
-            add(0.18, 'Exotic/high-value body HighTech boost.')
+            add(LINK_MODIFIER_DELTAS['hitech_exotic_body'], 'Exotic/high-value body HighTech boost.')
         if has_geo:
-            add(0.08, 'Geological HighTech support boost.')
+            add(LINK_MODIFIER_DELTAS['hitech_geo'], 'Geological HighTech support boost.')
         if has_bio:
-            add(0.08, 'Biological HighTech support boost.')
+            add(LINK_MODIFIER_DELTAS['hitech_bio'], 'Biological HighTech support boost.')
     elif economy == 'Tourism':
         if is_elw or is_water or is_ammonia or exotic_star:
-            add(0.22, 'Exotic body/star Tourism boost.')
+            add(LINK_MODIFIER_DELTAS['tourism_exotic'], 'Exotic body/star Tourism boost.')
         if has_geo:
-            add(0.08, 'Geological Tourism interest boost.')
+            add(LINK_MODIFIER_DELTAS['tourism_geo'], 'Geological Tourism interest boost.')
         if has_bio:
-            add(0.08, 'Biological Tourism interest boost.')
+            add(LINK_MODIFIER_DELTAS['tourism_bio'], 'Biological Tourism interest boost.')
     elif economy in {'Industrial', 'Refinery'}:
         if rich_reserves:
-            add(0.18, 'Major/pristine reserve Industrial/Refinery boost.')
+            add(LINK_MODIFIER_DELTAS['industrial_refinery_rich_reserves'], 'Major/pristine reserve Industrial/Refinery boost.')
 
     return max(0.0, multiplier), reasons, caveats, assumptions

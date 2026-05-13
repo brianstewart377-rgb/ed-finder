@@ -7,6 +7,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from mechanics.regional_rules import (
+    REGIONAL_ARCHETYPE_FORMULAS,
+    REGIONAL_ARCHETYPE_ROLE_BONUSES,
+    REGIONAL_FIT_LABEL_THRESHOLDS,
+    REGIONAL_SCORE_WEIGHTS,
+)
+
 
 ARCHETYPES = [
     'refinery_industrial',
@@ -28,10 +35,24 @@ def regional_scores(
 ) -> dict[str, float]:
     if nearest_distance_ly is None:
         return {'isolation': 0.0, 'density': 0.0, 'expansion': 0.0, 'competition': 0.0}
-    isolation = _clamp((nearest_distance_ly / 180.0) * 100.0)
-    density = _clamp((within_25 * 8) + (within_50 * 4) + (within_100 * 1.5) + (within_250 * 0.25))
-    competition = _clamp((within_25 * 10) + (within_50 * 5) + max(0, within_100 - 10) * 2)
-    expansion = _clamp(100.0 - abs(nearest_distance_ly - 90.0) * 0.65 - max(0, within_50 - 4) * 5)
+    w = REGIONAL_SCORE_WEIGHTS
+    isolation = _clamp((nearest_distance_ly / w['isolation_distance_scale']) * 100.0)
+    density = _clamp(
+        (within_25 * w['density_within_25'])
+        + (within_50 * w['density_within_50'])
+        + (within_100 * w['density_within_100'])
+        + (within_250 * w['density_within_250'])
+    )
+    competition = _clamp(
+        (within_25 * w['competition_within_25'])
+        + (within_50 * w['competition_within_50'])
+        + max(0, within_100 - w['competition_within_100_free']) * w['competition_extra_within_100']
+    )
+    expansion = _clamp(
+        100.0
+        - abs(nearest_distance_ly - w['expansion_target_distance']) * w['expansion_distance_penalty']
+        - max(0, within_50 - w['expansion_dense_50_free']) * w['expansion_dense_50_penalty']
+    )
     return {
         'isolation': round(isolation, 1),
         'density': round(density, 1),
@@ -54,14 +75,38 @@ def archetype_regional_fit(
     density = scores['density']
     expansion = scores['expansion']
     competition = scores['competition']
+    f = REGIONAL_ARCHETYPE_FORMULAS
+    bonuses = REGIONAL_ARCHETYPE_ROLE_BONUSES
 
     fit = {
-        'expansion_capital': _clamp(expansion + _role_bonus(regional_role, {'frontier_hub': 12, 'bridge_system': 10, 'isolated_frontier': 4, 'oversaturated_region': -25})),
-        'extraction_refinery': _clamp(isolation * 0.55 + (100 - competition) * 0.35 + _role_bonus(regional_role, {'isolated_frontier': 14, 'frontier_hub': 8, 'oversaturated_region': -24})),
-        'refinery_industrial': _clamp(75 - abs(nearest_distance_ly - 70) * 0.35 + (100 - competition) * 0.15 + _role_bonus(regional_role, {'frontier_hub': 8, 'bridge_system': 7, 'oversaturated_region': -18})),
-        'hitech_tourism': _clamp(density * 0.55 + (100 - isolation) * 0.25 + _role_bonus(regional_role, {'dense_developed_cluster': 14, 'emerging_cluster': 10, 'isolated_frontier': -24})),
-        'agriculture_terraforming': _clamp(80 - abs(nearest_distance_ly - 80) * 0.3 - max(0, within_50 - 8) * 4 + _role_bonus(regional_role, {'frontier_hub': 8, 'emerging_cluster': 6, 'oversaturated_region': -14})),
-        'flexible_multirole': _clamp(72 - abs(scores['density'] - 45) * 0.25 + _role_bonus(regional_role, {'bridge_system': 8, 'emerging_cluster': 7, 'unknown': -8})),
+        'expansion_capital': _clamp(expansion + _role_bonus(regional_role, bonuses['expansion_capital'])),
+        'extraction_refinery': _clamp(
+            isolation * f['extraction_isolation_weight']
+            + (100 - competition) * f['extraction_low_competition_weight']
+            + _role_bonus(regional_role, bonuses['extraction_refinery'])
+        ),
+        'refinery_industrial': _clamp(
+            f['refinery_base_score']
+            - abs(nearest_distance_ly - f['refinery_target_distance']) * f['refinery_distance_penalty']
+            + (100 - competition) * f['refinery_low_competition_weight']
+            + _role_bonus(regional_role, bonuses['refinery_industrial'])
+        ),
+        'hitech_tourism': _clamp(
+            density * f['hitech_density_weight']
+            + (100 - isolation) * f['hitech_access_weight']
+            + _role_bonus(regional_role, bonuses['hitech_tourism'])
+        ),
+        'agriculture_terraforming': _clamp(
+            f['agriculture_base_score']
+            - abs(nearest_distance_ly - f['agriculture_target_distance']) * f['agriculture_distance_penalty']
+            - max(0, within_50 - f['agriculture_dense_50_free']) * f['agriculture_dense_50_penalty']
+            + _role_bonus(regional_role, bonuses['agriculture_terraforming'])
+        ),
+        'flexible_multirole': _clamp(
+            f['flexible_base_score']
+            - abs(scores['density'] - f['flexible_density_target']) * f['flexible_density_penalty']
+            + _role_bonus(regional_role, bonuses['flexible_multirole'])
+        ),
     }
     return {key: round(value, 1) for key, value in fit.items()}
 
@@ -102,11 +147,12 @@ def regional_rationale(
 
 
 def _fit_note(score: float) -> str:
-    if score >= 85:
+    thresholds = REGIONAL_FIT_LABEL_THRESHOLDS
+    if score >= thresholds['excellent']:
         return 'excellent regional fit'
-    if score >= 70:
+    if score >= thresholds['good']:
         return 'good regional fit'
-    if score >= 50:
+    if score >= thresholds['mixed']:
         return 'mixed regional fit'
     return 'weak regional fit'
 

@@ -35,6 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from config import log
 from deps import get_pool, get_redis, cache_get, cache_set
 from ingest.slot_prediction import predict_system_slots, confidence_label
+from mechanics.versions import MECHANICS_VERSION
 from models import (
     BuildabilityResponse,
     RegionalAnalysisResponse,
@@ -451,6 +452,7 @@ async def get_simulation_summary(
     # ── Build response ────────────────────────────────────────────────────
     response: dict[str, Any] = {
         'system_id64': id64,
+        'mechanics_version': MECHANICS_VERSION,
         'system_name': system_name,
         'archetype':   effective_archetype,
         'regional_context': response_from_row(dict(regional_row) if regional_row else None, id64),

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from domain.facilities import FacilityTemplate
+from mechanics.cp_rules import LATE_T3_BUILD_ORDER_THRESHOLD
 from simulation.cp_simulator import port_cp_cost
 
 
@@ -87,7 +88,7 @@ def simulate_build_order(placements: list[Any]) -> BuildOrderResult:
                     paid_t2 += 1
                 elif facility.tier == 3:
                     yellow_cost, green_cost = port_cp_cost(3, paid_t3)
-                    if paid_t2 > 0 or spec.build_order > 3:
+                    if paid_t2 > 0 or spec.build_order > LATE_T3_BUILD_ORDER_THRESHOLD:
                         step_warnings.append('Build T3 ports earlier to avoid later escalation.')
                     paid_t3 += 1
                 else:

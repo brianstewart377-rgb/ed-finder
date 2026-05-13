@@ -1,12 +1,10 @@
-"""Colonisation mechanics constants with source-conscious defaults."""
+"""Compatibility re-exports for colonisation mechanics constants.
+
+New code should import from ``mechanics.*``. This module remains so older
+domain/simulation imports do not break while the mechanics layer is hardened.
+"""
 from __future__ import annotations
 
+from mechanics.link_rules import MIN_STRONG_LINK_MODIFIER, STRONG_LINK_BY_TIER, WEAK_LINK_STRENGTH
 
-STRONG_LINK_BY_TIER: dict[int, float] = {
-    1: 0.4,
-    2: 0.8,
-    3: 1.2,
-}
-
-WEAK_LINK_STRENGTH = 0.05
-MIN_STRONG_LINK_MODIFIER = 0.1
+__all__ = ['MIN_STRONG_LINK_MODIFIER', 'STRONG_LINK_BY_TIER', 'WEAK_LINK_STRENGTH']

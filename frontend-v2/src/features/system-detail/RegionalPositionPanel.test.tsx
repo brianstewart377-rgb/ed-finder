@@ -50,12 +50,15 @@ describe('RegionalPositionPanel', () => {
   it('renders an unknown state', async () => {
     mockedGetRegionalAnalysis.mockResolvedValue({
       system_id64: 123,
+      mechanics_version: 'colonisation-engine-v2.1',
       nearest_colonised_system: null,
       counts: { within_25ly: 0, within_50ly: 0, within_100ly: 0, within_250ly: 0 },
       scores: { isolation: 0, density: 0, expansion: 0, competition: 0 },
       regional_role: 'unknown',
       archetype_regional_fit: {},
       rationale: { summary: 'Coordinates are missing.' },
+      data_quality: { regional_position: 'unknown' },
+      confidence_signals: [],
       computed_at: null,
     });
 
@@ -67,6 +70,7 @@ describe('RegionalPositionPanel', () => {
   it('renders regional metrics and archetype fit', async () => {
     mockedGetRegionalAnalysis.mockResolvedValue({
       system_id64: 123,
+      mechanics_version: 'colonisation-engine-v2.1',
       nearest_colonised_system: { id64: 456, name: 'Frontier Stop', distance_ly: 74.2 },
       counts: { within_25ly: 0, within_50ly: 1, within_100ly: 3, within_250ly: 18 },
       scores: { isolation: 82, density: 31, expansion: 91, competition: 12 },
@@ -82,6 +86,8 @@ describe('RegionalPositionPanel', () => {
         warnings: ['Tourism fit is mixed.'],
         archetype_notes: {},
       },
+      data_quality: { regional_position: 'computed' },
+      confidence_signals: [{ area: 'regional_position', level: 'inferred', reason: 'Regional metrics are computed.' }],
       computed_at: '2026-05-13T00:00:00Z',
     } satisfies RegionalAnalysisResponse);
 
@@ -90,6 +96,8 @@ describe('RegionalPositionPanel', () => {
     const panel = await screen.findByTestId('regional-position-success');
     expect(panel.textContent).toContain('Frontier Hub');
     expect(panel.textContent).toContain('Frontier Stop');
+    expect(panel.textContent).toContain('Computed');
+    expect(panel.textContent).toContain('Inferred');
     expect(panel.textContent).toContain('94 regional fit');
     expect(panel.textContent).toContain('Tourism fit is mixed.');
   });

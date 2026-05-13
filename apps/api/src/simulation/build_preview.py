@@ -9,18 +9,57 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from domain.colonisation_rules import get_target_profile
 from domain.facilities import FacilityTemplate
+from mechanics.confidence import default_data_quality, signals_to_dict, simulation_confidence_signals
+from mechanics.economy_rules import (
+    BODY_PROFILE_CONFIDENCE_DEFAULT,
+    CONTAMINATION_ECONOMIES,
+    FACILITY_ECONOMY_WEIGHTS,
+    LOW_PURITY_THRESHOLD,
+    MODIFIER_ECONOMY_WEIGHT,
+    PRIMARY_BASE_WEIGHT,
+    PROFILE_FULL_CONFIDENCE,
+    PROFILE_FULL_PURITY,
+    SECONDARY_BASE_WEIGHT,
+)
+from mechanics.scoring_rules import (
+    BUILDABILITY_ESTIMATED_TOPOLOGY_SCORE,
+    BUILDABILITY_LOW_SLOT_CONFIDENCE_PENALTY,
+    BUILDABILITY_LOW_SLOT_CONFIDENCE_THRESHOLD,
+    BUILDABILITY_NEGATIVE_CP_PENALTY,
+    BUILDABILITY_OVER_SLOT_BASE_SCORE,
+    BUILDABILITY_OVER_SLOT_MIN_SCORE,
+    BUILDABILITY_OVER_SLOT_PENALTY,
+    BUILDABILITY_SLOT_FIT_SCORE,
+    COMPLEXITY_LOW_CONFIDENCE_THRESHOLD,
+    CONFIDENCE_LOW_THRESHOLD,
+    ESTIMATED_FACILITY_CONFIDENCE_MAX_PENALTY,
+    ESTIMATED_FACILITY_CONFIDENCE_PENALTY,
+    LOW_PURITY_CONFIDENCE_MAX_PENALTY,
+    LOW_PURITY_CONFIDENCE_SCALE,
+    MISSING_BODY_PROFILE_CONFIDENCE_MAX_PENALTY,
+    MISSING_BODY_PROFILE_CONFIDENCE_PENALTY,
+    MISSING_SLOT_CONFIDENCE_PENALTY,
+    MIXED_BASE_CONFIDENCE_MAX_PENALTY,
+    MIXED_BASE_CONFIDENCE_PENALTY,
+    MODIFIER_CONFIDENCE_MAX_PENALTY,
+    MODIFIER_CONFIDENCE_PENALTY,
+    SIMULATION_CONFIDENCE_BASE,
+    SIMULATION_CONFIDENCE_MAX,
+    SIMULATION_CONFIDENCE_MIN,
+    SIMULATION_FINAL_SCORE_WEIGHTS,
+    SLOT_CONFIDENCE_BASE,
+    SLOT_CONFIDENCE_WEIGHT,
+)
+from mechanics.versions import MECHANICS_VERSION
 from simulation.build_order import simulate_build_order
 from simulation.economy_stack import analyse_economy_stack
+from simulation.mechanics_trace import trace_simulation
 from simulation.services import model_services
 from simulation.topology_graph import GraphPlacement, build_topology_graph, infer_location_type
 
 
-_CONTAMINATION_ECONOMIES = {'Colony', 'Prison', 'Damaged', 'Rescue', 'Repair', 'None'}
-_PRIMARY_BASE_WEIGHT = 1.0
-_SECONDARY_BASE_WEIGHT = 0.8
-_MODIFIER_WEIGHT = 0.45
+_CONTAMINATION_ECONOMIES = CONTAMINATION_ECONOMIES
 
 
 @dataclass
@@ -145,11 +184,27 @@ def simulate_build_preview(
     mechanics_notes.extend(profile_notes)
 
     confidence = _confidence(resolved, context, warnings)
+    confidence_signals = simulation_confidence_signals(
+        slot_confidence=context.slot_confidence,
+        has_slot_estimates=context.estimated_orbital_slots is not None and context.estimated_ground_slots is not None,
+        estimated_facility_count=sum(1 for p in resolved if p.facility.data_confidence == 'estimated'),
+        inherited_profiles=inherited_profiles,
+        services=services,
+        warnings=warnings,
+    )
+    mechanics_trace = trace_simulation(
+        placements=resolved,
+        topology_graph=topology_graph,
+        cp=cp,
+        economy_stack=stack_result.to_dict(),
+        services=services,
+        confidence_signals=confidence_signals,
+    )
     complexity = _complexity(cp, buildability, composition, confidence)
     final_score = round(
-        composition['score'] * 0.55
-        + buildability['score'] * 0.35
-        + cp['health_score'] * 0.10,
+        composition['score'] * SIMULATION_FINAL_SCORE_WEIGHTS['composition']
+        + buildability['score'] * SIMULATION_FINAL_SCORE_WEIGHTS['buildability']
+        + cp['health_score'] * SIMULATION_FINAL_SCORE_WEIGHTS['cp_health'],
         1,
     )
 
@@ -157,13 +212,14 @@ def simulate_build_preview(
         strengths.append('The proposed order ends with a non-negative CP balance.')
     if links['strong_links']:
         strengths.append('Strong same-body support links are present in the proposed plan.')
-    if confidence < 0.65:
+    if confidence < CONFIDENCE_LOW_THRESHOLD:
         recommendations.append('Confirm slot and body data before committing resources in-game.')
     if cp['warnings']:
         recommendations.append('Move CP-generating support facilities earlier, or mark the intended first port as primary.')
 
     return {
         'system_id64': system_id64,
+        'mechanics_version': MECHANICS_VERSION,
         'target_archetype': target_archetype,
         'final_score': final_score,
         'composition_score': round(composition['score'], 1),
@@ -188,6 +244,9 @@ def simulate_build_preview(
         'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
         'topology': _topology_to_response(topology_graph),
         'services': services,
+        'data_quality': default_data_quality(),
+        'confidence_signals': signals_to_dict(confidence_signals),
+        'mechanics_trace': mechanics_trace,
         'top_two_alignment': composition['alignment'],
         'contamination_risk': composition['contamination_risk'],
         'warnings': _unique(warnings),
@@ -368,118 +427,6 @@ def _extend_topology_notes(graph: Any, warnings: list[str], mechanics_notes: lis
             mechanics_notes.append(assumption)
 
 
-def _score_composition(
-    composition: dict[str, float],
-    order: list[str],
-    target_archetype: str,
-    inherited_profiles: list[EconomyContributionProfile],
-) -> dict[str, Any]:
-    target = get_target_profile(target_archetype)
-    expected = target.expected_economies
-    top_two = order[:2]
-    warnings: list[str] = []
-    strengths: list[str] = []
-    recommendations: list[str] = []
-
-    if not composition:
-        return {
-            'score': 0.0,
-            'alignment': 'none',
-            'contamination_risk': 'unknown',
-            'warnings': ['No economy-producing facilities are present in the proposed build.'],
-            'strengths': [],
-            'recommendations': ['Add economy-producing ports or support facilities before judging the build.'],
-        }
-
-    if expected and len(expected) == 1 and top_two[:1] == expected:
-        alignment = 'excellent'
-        alignment_score = 92.0
-        strengths.append('Target economy is preserved as the primary outcome.')
-    elif expected and top_two == expected:
-        alignment = 'excellent'
-        alignment_score = 95.0
-        strengths.append('Target economies are preserved as the top two.')
-    elif expected and set(top_two) == set(expected):
-        alignment = 'good'
-        alignment_score = 82.0
-        strengths.append('Target economies are both in the top two, but the primary/secondary order is flipped.')
-        recommendations.append('Place the intended primary economy earlier or add one more matching support facility.')
-    elif expected and any(e in top_two for e in expected):
-        alignment = 'partial'
-        alignment_score = 58.0
-        warnings.append('Only one target economy is present in the top two.')
-        recommendations.append(f'Add more {", ".join(expected)} economy support to reinforce the intended target.')
-    elif expected:
-        alignment = 'poor'
-        alignment_score = 30.0
-        warnings.append('The top economies do not match the selected target archetype.')
-    else:
-        alignment = 'flexible'
-        alignment_score = 70.0
-        strengths.append('Flexible archetype selected; no fixed economy pair is required.')
-
-    tertiary = order[2] if len(order) > 2 else None
-    tertiary_pct = composition.get(tertiary, 0.0) if tertiary else 0.0
-    contamination_economies = [e for e in composition if e in _CONTAMINATION_ECONOMIES]
-    non_target_pressure = [
-        (economy, value)
-        for economy, value in composition.items()
-        if expected and economy not in expected and economy not in _CONTAMINATION_ECONOMIES and value >= 12
-    ]
-    low_purity_profiles = [profile for profile in inherited_profiles if profile.purity < 0.6]
-    modifier_pressure_count = sum(len(profile.modifier_economies) for profile in inherited_profiles)
-    if contamination_economies:
-        contamination_risk = 'high'
-        contamination_penalty = 22.0
-        warnings.append(f'Contamination economies present: {", ".join(contamination_economies)}.')
-    elif non_target_pressure and (tertiary_pct >= 18 or low_purity_profiles):
-        contamination_risk = 'high' if tertiary_pct >= 24 or len(non_target_pressure) >= 2 else 'medium'
-        contamination_penalty = 16.0 if contamination_risk == 'high' else 10.0
-        offenders = ', '.join(economy for economy, _value in non_target_pressure[:3])
-        warnings.append(f'Mixed-economy bodies are introducing non-target contamination pressure: {offenders}.')
-    elif tertiary_pct >= 18:
-        contamination_risk = 'medium'
-        contamination_penalty = 10.0
-        warnings.append(f'{tertiary} is strong enough to pressure the target pair as a tertiary economy.')
-    else:
-        contamination_risk = 'low'
-        contamination_penalty = 0.0
-        if tertiary:
-            strengths.append(f'{tertiary} is present but remains tertiary, reducing contamination risk.')
-
-    if low_purity_profiles:
-        if contamination_risk == 'low':
-            contamination_risk = 'medium'
-        contamination_penalty += 6.0
-        warnings.append('Low purity body selection may reduce economy stability.')
-    if modifier_pressure_count >= 2:
-        if contamination_risk == 'low':
-            contamination_risk = 'medium'
-        contamination_penalty += 4.0
-        warnings.append('Modifier economies from body signals are becoming significant.')
-    if target_archetype == 'refinery_industrial' and any('elw_mixed' in profile.strategic_tags for profile in inherited_profiles):
-        contamination_risk = 'high' if contamination_risk == 'medium' else contamination_risk
-        contamination_penalty += 8.0
-        warnings.append('ELW inheritance is broad-spectrum and may weaken a specialised Refinery / Industrial build.')
-
-    if len(top_two) >= 2:
-        balance_gap = abs(composition[top_two[0]] - composition[top_two[1]])
-        balance_bonus = max(0.0, 12.0 - balance_gap * 0.25)
-    else:
-        balance_bonus = 0.0
-        warnings.append('Only one economy dominates the plan; add a compatible secondary economy.')
-
-    score = max(0.0, min(100.0, alignment_score + balance_bonus - contamination_penalty))
-    return {
-        'score': score,
-        'alignment': alignment,
-        'contamination_risk': contamination_risk,
-        'warnings': warnings,
-        'strengths': strengths,
-        'recommendations': recommendations,
-    }
-
-
 def _score_buildability(
     placements: list[_ResolvedPlacement],
     context: PreviewContext,
@@ -495,7 +442,7 @@ def _score_buildability(
 
     if orbital_slots is None or ground_slots is None:
         warnings.append('Topology data is incomplete, so slot fit is estimated from the proposed placements only.')
-        score = 68.0
+        score = BUILDABILITY_ESTIMATED_TOPOLOGY_SCORE
     else:
         orbital_over = max(0, orbital_used - orbital_slots)
         ground_over = max(0, ground_used - ground_slots)
@@ -505,17 +452,17 @@ def _score_buildability(
                 f'The plan uses {orbital_used} orbital / {ground_used} surface slots, beyond the estimated '
                 f'{orbital_slots} orbital / {ground_slots} surface capacity.'
             )
-            score = max(25.0, 82.0 - total_over * 18.0)
+            score = max(BUILDABILITY_OVER_SLOT_MIN_SCORE, BUILDABILITY_OVER_SLOT_BASE_SCORE - total_over * BUILDABILITY_OVER_SLOT_PENALTY)
             recommendations.append('Reduce facilities or choose bodies with better slot availability.')
         else:
-            score = 88.0
+            score = BUILDABILITY_SLOT_FIT_SCORE
 
-    if context.slot_confidence is not None and context.slot_confidence < 0.55:
+    if context.slot_confidence is not None and context.slot_confidence < BUILDABILITY_LOW_SLOT_CONFIDENCE_THRESHOLD:
         warnings.append('Slot data is predicted rather than observed, so confidence is reduced.')
-        score -= 8.0
+        score -= BUILDABILITY_LOW_SLOT_CONFIDENCE_PENALTY
 
     if cp['yellow_cp_final'] < 0 or cp['green_cp_final'] < 0:
-        score -= 15.0
+        score -= BUILDABILITY_NEGATIVE_CP_PENALTY
 
     return {
         'score': max(0.0, min(100.0, score)),
@@ -529,21 +476,33 @@ def _confidence(
     context: PreviewContext,
     warnings: list[str],
 ) -> float:
-    value = 0.86
+    value = SIMULATION_CONFIDENCE_BASE
     if context.estimated_orbital_slots is None or context.estimated_ground_slots is None:
-        value -= 0.18
+        value -= MISSING_SLOT_CONFIDENCE_PENALTY
     if context.slot_confidence is not None:
-        value = min(value, 0.35 + context.slot_confidence * 0.65)
+        value = min(value, SLOT_CONFIDENCE_BASE + context.slot_confidence * SLOT_CONFIDENCE_WEIGHT)
     uncertain = sum(1 for p in placements if p.facility.data_confidence == 'estimated')
-    value -= min(0.15, uncertain * 0.04)
-    value -= min(0.18, len([w for w in warnings if 'no body economy profile' in w]) * 0.06)
+    value -= min(ESTIMATED_FACILITY_CONFIDENCE_MAX_PENALTY, uncertain * ESTIMATED_FACILITY_CONFIDENCE_PENALTY)
+    value -= min(
+        MISSING_BODY_PROFILE_CONFIDENCE_MAX_PENALTY,
+        len([w for w in warnings if 'no body economy profile' in w]) * MISSING_BODY_PROFILE_CONFIDENCE_PENALTY,
+    )
     inherited = _inherited_profiles(placements)
     if inherited:
         value = min(value, min(profile.confidence for profile in inherited))
-        value -= min(0.12, sum(max(0.0, 0.7 - profile.purity) for profile in inherited) * 0.18)
-        value -= min(0.10, sum(max(0, len(profile.base_economies) - 1) for profile in inherited) * 0.025)
-        value -= min(0.08, sum(len(profile.modifier_economies) for profile in inherited) * 0.025)
-    return max(0.2, min(0.95, value))
+        value -= min(
+            LOW_PURITY_CONFIDENCE_MAX_PENALTY,
+            sum(max(0.0, LOW_PURITY_THRESHOLD - profile.purity) for profile in inherited) * LOW_PURITY_CONFIDENCE_SCALE,
+        )
+        value -= min(
+            MIXED_BASE_CONFIDENCE_MAX_PENALTY,
+            sum(max(0, len(profile.base_economies) - 1) for profile in inherited) * MIXED_BASE_CONFIDENCE_PENALTY,
+        )
+        value -= min(
+            MODIFIER_CONFIDENCE_MAX_PENALTY,
+            sum(len(profile.modifier_economies) for profile in inherited) * MODIFIER_CONFIDENCE_PENALTY,
+        )
+    return max(SIMULATION_CONFIDENCE_MIN, min(SIMULATION_CONFIDENCE_MAX, value))
 
 
 def _complexity(
@@ -563,7 +522,7 @@ def _complexity(
         pressure += 1
     if composition['alignment'] in {'partial', 'poor'}:
         pressure += 1
-    if confidence < 0.6:
+    if confidence < COMPLEXITY_LOW_CONFIDENCE_THRESHOLD:
         pressure += 1
     if pressure >= 5:
         return 'expert'
@@ -584,18 +543,18 @@ def _to_percentages(strengths: dict[str, float]) -> dict[str, float]:
 
 def _economy_weight(facility: FacilityTemplate) -> float:
     if facility.is_port and not facility.is_colony_port:
-        return 2.0
+        return FACILITY_ECONOMY_WEIGHTS['specialised_port']
     if facility.is_colony_port:
-        return 1.2
-    return 1.0
+        return FACILITY_ECONOMY_WEIGHTS['colony_port']
+    return FACILITY_ECONOMY_WEIGHTS['support_or_default']
 
 
 def _explicit_economy_profile(economy: str) -> EconomyContributionProfile:
     return EconomyContributionProfile(
         base_economies=[economy],
-        weights={economy: 1.0},
-        purity=1.0,
-        confidence=1.0,
+        weights={economy: FACILITY_ECONOMY_WEIGHTS['support_or_default']},
+        purity=PROFILE_FULL_PURITY,
+        confidence=PROFILE_FULL_CONFIDENCE,
     )
 
 
@@ -607,8 +566,8 @@ def _body_profile_contribution(body_id: str, profile: dict[str, Any]) -> Optiona
         base_economies=[str(item) for item in profile.get('base_economies') or []],
         modifier_economies=[str(item) for item in profile.get('modifier_economies') or []],
         weights=weights,
-        purity=float(profile.get('purity') if profile.get('purity') is not None else 1.0),
-        confidence=float(profile.get('confidence') if profile.get('confidence') is not None else 0.7),
+        purity=float(profile.get('purity') if profile.get('purity') is not None else PROFILE_FULL_PURITY),
+        confidence=float(profile.get('confidence') if profile.get('confidence') is not None else BODY_PROFILE_CONFIDENCE_DEFAULT),
         caveats=[str(item) for item in profile.get('caveats') or []],
         strategic_tags=[str(item) for item in profile.get('strategic_tags') or []],
         source_body_id=body_id,
@@ -626,9 +585,9 @@ def _body_profile_economy_weights(profile: dict[str, Any]) -> dict[str, float]:
 
     raw: dict[str, float] = {}
     for index, economy in enumerate(base):
-        raw[economy] = raw.get(economy, 0.0) + (_PRIMARY_BASE_WEIGHT if index == 0 else _SECONDARY_BASE_WEIGHT)
+        raw[economy] = raw.get(economy, 0.0) + (PRIMARY_BASE_WEIGHT if index == 0 else SECONDARY_BASE_WEIGHT)
     for economy in modifiers:
-        raw[economy] = raw.get(economy, 0.0) + _MODIFIER_WEIGHT
+        raw[economy] = raw.get(economy, 0.0) + MODIFIER_ECONOMY_WEIGHT
 
     total = sum(raw.values())
     if total <= 0:
@@ -699,7 +658,7 @@ def _profile_warnings(profiles: list[EconomyContributionProfile], target_archety
     warnings: list[str] = []
     for profile in profiles:
         label = profile.source_body_name or f'Body {profile.source_body_id}'
-        if profile.purity < 0.6:
+        if profile.purity < LOW_PURITY_THRESHOLD:
             warnings.append(f'{label} is a low-purity mixed economy body; specialised builds may be less stable.')
         if profile.modifier_economies:
             warnings.append(f'{label} adds modifier economy pressure from {", ".join(profile.modifier_economies)}.')

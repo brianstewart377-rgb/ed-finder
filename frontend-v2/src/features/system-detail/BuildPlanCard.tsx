@@ -10,6 +10,8 @@ export function BuildPlanCard({
   onPreview: (plan: RecommendedBuildPlan) => void;
 }) {
   const economyRows = Object.entries(plan.economy_result).slice(0, 3);
+  const keyReason = plan.decision_explanation?.why_this_plan_won?.[0] ?? plan.strengths[0] ?? plan.summary;
+  const keyRisk = plan.warnings[0] ?? plan.tradeoffs[0] ?? plan.economy_caveats[0];
   return (
     <article
       className={[
@@ -26,6 +28,14 @@ export function BuildPlanCard({
             <Badge label={confidenceLabel(plan.confidence)} tone={confidenceTone(plan.confidence)} />
           </div>
           <p className="mt-2 text-xs leading-snug text-silver-dk">{plan.summary}</p>
+          <p className="mt-2 text-[11px] leading-snug text-silver">
+            <span className="font-mono text-green">Why this plan:</span> {keyReason}
+          </p>
+          {keyRisk && (
+            <p className="mt-1 text-[11px] leading-snug text-gold">
+              <span className="font-mono">Key risk:</span> {keyRisk}
+            </p>
+          )}
         </div>
         <div className="text-right font-mono">
           <div className="text-[9px] uppercase tracking-[0.14em] text-silver-dk">Score</div>
@@ -84,6 +94,37 @@ export function BuildPlanCard({
           <MiniList title="Tradeoffs" items={plan.tradeoffs.length ? plan.tradeoffs : plan.warnings} tone="warn" />
         </div>
       </div>
+
+      <details className="mt-3 rounded border border-border/60 bg-bg3/35 px-2 py-2">
+        <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
+          Why this plan won
+        </summary>
+        <div className="mt-2 grid gap-2 md:grid-cols-2">
+          <MiniList title="Decision" items={plan.decision_explanation?.why_this_plan_won ?? []} tone="good" />
+          <MiniList title="Sensitive assumptions" items={plan.decision_explanation?.sensitive_assumptions ?? []} tone="warn" />
+          <MiniList title="Why not simpler" items={plan.decision_explanation?.why_not_simpler ?? []} tone="info" />
+          <MiniList title="Why not advanced" items={plan.decision_explanation?.why_not_more_advanced ?? []} tone="warn" />
+        </div>
+        {plan.decision_explanation?.confidence_summary && (
+          <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">{plan.decision_explanation.confidence_summary}</p>
+        )}
+      </details>
+
+      {Object.keys(plan.rank_breakdown ?? {}).length > 0 && (
+        <details className="mt-2 rounded border border-border/60 bg-bg3/35 px-2 py-2">
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
+            Score breakdown
+          </summary>
+          <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+            {Object.entries(plan.rank_breakdown).map(([key, value]) => (
+              <div key={key} className="flex justify-between gap-2 rounded border border-border/50 bg-bg2/60 px-2 py-1 font-mono text-[10px]">
+                <span className="text-silver-dk">{titleCase(key)}</span>
+                <span className={value < 0 || key.includes('penalty') ? 'text-gold' : 'text-orange'}>{value.toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       <button
         type="button"

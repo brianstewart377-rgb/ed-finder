@@ -15,6 +15,7 @@ from regional.regional_analysis import compute_regional_analysis, distance_ly, r
 from regional.regional_roles import classify_regional_role
 from regional.regional_scoring import archetype_regional_fit, regional_scores
 from models import RegionalAnalysisResponse
+from mechanics.versions import MECHANICS_VERSION
 
 
 def system(id64: int, x: float, y: float, z: float, *, colonised: bool = False, population: int = 0):
@@ -124,7 +125,10 @@ def test_api_response_shape_adapter():
     response = response_from_row(row, 1)
 
     assert response['nearest_colonised_system']['distance_ly'] == 74.2
+    assert response['mechanics_version'] == MECHANICS_VERSION
     assert response['counts']['within_100ly'] == 3
     assert response['scores']['expansion'] == 91.0
     assert response['regional_role'] == 'frontier_hub'
+    assert response['data_quality']['regional_position'] == 'computed'
+    assert response['confidence_signals'][0]['level'] == 'inferred'
     RegionalAnalysisResponse.model_validate(response)

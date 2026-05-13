@@ -1,0 +1,178 @@
+"""Structured mechanics trace output for debugging colony simulations."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Optional
+
+from mechanics.confidence import ConfidenceLevel, ConfidenceSignal
+from mechanics.versions import SOURCE_FRONTIER_LINKS, SOURCE_MEGA_GUIDE
+
+
+@dataclass(frozen=True)
+class MechanicsTraceEvent:
+    category: str
+    label: str
+    description: str
+    value_before: Optional[float] = None
+    value_after: Optional[float] = None
+    delta: Optional[float] = None
+    confidence: str = ConfidenceLevel.INFERRED.value
+    source: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            'category': self.category,
+            'label': self.label,
+            'description': self.description,
+            'confidence': self.confidence,
+        }
+        if self.value_before is not None:
+            data['value_before'] = self.value_before
+        if self.value_after is not None:
+            data['value_after'] = self.value_after
+        if self.delta is not None:
+            data['delta'] = self.delta
+        if self.source:
+            data['source'] = self.source
+        return data
+
+
+TRACE_CATEGORIES = [
+    'economy_sources',
+    'strong_link_effects',
+    'weak_link_effects',
+    'pass_through_effects',
+    'converted_port_effects',
+    'regional_effects',
+    'purity_effects',
+    'contamination_effects',
+    'cp_effects',
+    'service_unlock_effects',
+    'confidence_adjustments',
+]
+
+
+def empty_trace() -> dict[str, list[dict[str, Any]]]:
+    return {category: [] for category in TRACE_CATEGORIES}
+
+
+def trace_simulation(
+    *,
+    placements: list[Any],
+    topology_graph: Any,
+    cp: dict[str, Any],
+    economy_stack: dict[str, Any],
+    services: dict[str, Any],
+    confidence_signals: list[ConfidenceSignal],
+) -> dict[str, list[dict[str, Any]]]:
+    trace = empty_trace()
+
+    for placement in placements:
+        profile = getattr(placement, 'economy_profile', None)
+        facility = getattr(placement, 'facility', None)
+        if not profile or not facility:
+            continue
+        for economy, weight in profile.weights.items():
+            trace['economy_sources'].append(MechanicsTraceEvent(
+                category='economy_sources',
+                label=f'{facility.name} -> {economy}',
+                description=f'{facility.name} contributes {economy} economy pressure.',
+                delta=round(float(weight), 3),
+                confidence=ConfidenceLevel.VERIFIED.value if not profile.inherited else ConfidenceLevel.INFERRED.value,
+                source=SOURCE_MEGA_GUIDE if profile.inherited else None,
+            ).to_dict())
+
+    for link in getattr(topology_graph, 'strong_links', []):
+        trace['strong_link_effects'].append(MechanicsTraceEvent(
+            category='strong_link_effects',
+            label=f'{link.source_facility_name} -> {link.receiver_port_name}',
+            description=(
+                f'{link.source_facility_name} strongly links to the local Main Port '
+                f'and adds {link.economy or "economy"} influence.'
+            ),
+            delta=float(link.value),
+            confidence=ConfidenceLevel.VERIFIED.value,
+            source=SOURCE_FRONTIER_LINKS,
+        ).to_dict())
+
+    for link in getattr(topology_graph, 'weak_links', []):
+        trace['weak_link_effects'].append(MechanicsTraceEvent(
+            category='weak_link_effects',
+            label=f'{link.source_facility_name} -> {link.receiver_port_name}',
+            description='Weak links target Main Ports on other local bodies at fixed strength.',
+            delta=float(link.value),
+            confidence=ConfidenceLevel.VERIFIED.value,
+            source=SOURCE_FRONTIER_LINKS,
+        ).to_dict())
+
+    for link in getattr(topology_graph, 'pass_through_links', []):
+        trace['pass_through_effects'].append(MechanicsTraceEvent(
+            category='pass_through_effects',
+            label=f'{link.source_facility_name} -> {link.orbital_receiver_name}',
+            description='Surface influence passes through the Surface Main Port to the Orbital Main Port without duplicate support inflation.',
+            delta=float(link.value),
+            confidence=ConfidenceLevel.INFERRED.value,
+            source=SOURCE_FRONTIER_LINKS,
+        ).to_dict())
+
+    for port in getattr(topology_graph, 'converted_ports', []):
+        trace['converted_port_effects'].append(MechanicsTraceEvent(
+            category='converted_port_effects',
+            label=port.facility_name,
+            description=port.reason,
+            confidence=ConfidenceLevel.INFERRED.value,
+            source=SOURCE_FRONTIER_LINKS,
+        ).to_dict())
+
+    for step in cp.get('timeline', []):
+        for warning in step.get('warnings', []):
+            trace['cp_effects'].append(MechanicsTraceEvent(
+                category='cp_effects',
+                label=step.get('facility_name', 'Build step'),
+                description=warning,
+                value_before=float(step.get('yellow_before', 0) + step.get('green_before', 0)),
+                value_after=float(step.get('yellow_after', 0) + step.get('green_after', 0)),
+                confidence=ConfidenceLevel.COMMUNITY_OBSERVED.value,
+            ).to_dict())
+
+    for warning in economy_stack.get('warnings', []):
+        category = 'purity_effects' if 'purity' in warning.lower() else 'contamination_effects'
+        trace[category].append(MechanicsTraceEvent(
+            category=category,
+            label='Economy stack',
+            description=str(warning),
+            confidence=ConfidenceLevel.INFERRED.value,
+            source=SOURCE_MEGA_GUIDE,
+        ).to_dict())
+
+    for service, detail in services.items():
+        if not isinstance(detail, dict):
+            continue
+        trace['service_unlock_effects'].append(MechanicsTraceEvent(
+            category='service_unlock_effects',
+            label=service,
+            description=str(detail.get('reason') or 'Service unlock state modelled from catalogue rules.'),
+            confidence=ConfidenceLevel.UNKNOWN.value if detail.get('status') == 'unknown' else ConfidenceLevel.INFERRED.value,
+        ).to_dict())
+
+    for signal in confidence_signals:
+        trace['confidence_adjustments'].append(MechanicsTraceEvent(
+            category='confidence_adjustments',
+            label=signal.area,
+            description=signal.reason,
+            delta=signal.impact,
+            confidence=signal.level.value,
+        ).to_dict())
+
+    return trace
+
+
+def regional_trace_event(*, archetype: str, regional_fit: float, weight: float) -> dict[str, Any]:
+    return MechanicsTraceEvent(
+        category='regional_effects',
+        label=f'{archetype} regional fit',
+        description='Regional fit is applied as a light recommendation adjustment and does not dominate local simulation mechanics.',
+        delta=round(regional_fit * weight, 3),
+        confidence=ConfidenceLevel.INFERRED.value,
+        source='Regional positioning model',
+    ).to_dict()

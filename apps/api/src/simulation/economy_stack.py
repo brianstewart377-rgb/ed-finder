@@ -10,9 +10,23 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from domain.colonisation_rules import get_target_profile
-
-
-MIXED_TOLERANT_ARCHETYPES = {'hitech_tourism', 'flexible_multirole', 'expansion_capital'}
+from mechanics.economy_rules import (
+    BROAD_STACK_ALLOWED_COUNT,
+    BROAD_STACK_PENALTY_PER_ECONOMY,
+    BROAD_STACK_THRESHOLD,
+    ECONOMY_STACK_FIT_SCORES,
+    ECONOMY_STACK_SCORE_WEIGHTS,
+    ELW_REFINERY_INDUSTRIAL_PENALTY,
+    LOW_PURITY_SPECIALISED_PENALTY,
+    LOW_PURITY_THRESHOLD,
+    MIXED_TOLERANT_ARCHETYPES,
+    PURITY_BASE_SCORE,
+    TERTIARY_HEAVY_PENALTY,
+    TERTIARY_HIGH_RISK_THRESHOLD,
+    TERTIARY_HEAVY_PRESSURE_THRESHOLD,
+    TERTIARY_LIGHT_PENALTY,
+    TERTIARY_PRESSURE_THRESHOLD,
+)
 
 
 @dataclass(frozen=True)
@@ -30,7 +44,11 @@ class EconomyStackResult:
 
     @property
     def score(self) -> float:
-        return round((self.purity_score * 0.35) + (self.archetype_fit_score * 0.65), 1)
+        return round(
+            self.purity_score * ECONOMY_STACK_SCORE_WEIGHTS['purity']
+            + self.archetype_fit_score * ECONOMY_STACK_SCORE_WEIGHTS['archetype_fit'],
+            1,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -113,20 +131,20 @@ def analyse_economy_stack(
 
 def _archetype_fit(top_two: list[str], expected: list[str]) -> tuple[float, str]:
     if not expected:
-        return 74.0, 'flexible'
+        return ECONOMY_STACK_FIT_SCORES['flexible'], 'flexible'
     if len(expected) == 1:
         if top_two[:1] == expected:
-            return 92.0, 'excellent'
+            return ECONOMY_STACK_FIT_SCORES['single_excellent'], 'excellent'
         if expected[0] in top_two:
-            return 70.0, 'partial'
-        return 35.0, 'poor'
+            return ECONOMY_STACK_FIT_SCORES['single_partial'], 'partial'
+        return ECONOMY_STACK_FIT_SCORES['single_poor'], 'poor'
     if top_two == expected[:2]:
-        return 96.0, 'excellent'
+        return ECONOMY_STACK_FIT_SCORES['pair_excellent'], 'excellent'
     if set(top_two) == set(expected[:2]):
-        return 84.0, 'good'
+        return ECONOMY_STACK_FIT_SCORES['pair_good_flipped'], 'good'
     if any(economy in top_two for economy in expected[:2]):
-        return 58.0, 'partial'
-    return 32.0, 'poor'
+        return ECONOMY_STACK_FIT_SCORES['pair_partial'], 'partial'
+    return ECONOMY_STACK_FIT_SCORES['pair_poor'], 'poor'
 
 
 def _purity(
@@ -137,35 +155,44 @@ def _purity(
     inherited_profiles: list[Any],
 ) -> tuple[float, str, list[str]]:
     warnings: list[str] = []
-    score = 92.0
+    score = PURITY_BASE_SCORE
     tertiary = ordered[2] if len(ordered) > 2 else None
     tertiary_value = composition.get(tertiary, 0.0) if tertiary else 0.0
-    non_target_tertiary = bool(tertiary and expected and tertiary not in expected and tertiary_value >= 15)
-    broad_count = len([value for value in composition.values() if value >= 8])
-    broad_penalty = 0.0 if target_archetype in MIXED_TOLERANT_ARCHETYPES else max(0, broad_count - 3) * 7.0
+    non_target_tertiary = bool(
+        tertiary and expected and tertiary not in expected and tertiary_value >= TERTIARY_PRESSURE_THRESHOLD
+    )
+    broad_count = len([value for value in composition.values() if value >= BROAD_STACK_THRESHOLD])
+    broad_penalty = (
+        0.0 if target_archetype in MIXED_TOLERANT_ARCHETYPES
+        else max(0, broad_count - BROAD_STACK_ALLOWED_COUNT) * BROAD_STACK_PENALTY_PER_ECONOMY
+    )
     low_purity = [
         profile for profile in inherited_profiles
-        if float(getattr(profile, 'purity', 1.0)) < 0.6
+        if float(getattr(profile, 'purity', 1.0)) < LOW_PURITY_THRESHOLD
     ]
     elw_broad = any('elw_mixed' in getattr(profile, 'strategic_tags', []) for profile in inherited_profiles)
 
     if non_target_tertiary:
-        penalty = 9.0 if tertiary_value < 18 else 16.0
+        penalty = TERTIARY_LIGHT_PENALTY if tertiary_value < TERTIARY_HEAVY_PRESSURE_THRESHOLD else TERTIARY_HEAVY_PENALTY
         score -= penalty
         warnings.append(f'{tertiary} is strong enough to pressure the target pair as a tertiary economy.')
     if broad_penalty:
         score -= broad_penalty
         warnings.append('Broad-spectrum mixed inheritance is diluting a specialised economy stack.')
     if low_purity and target_archetype not in MIXED_TOLERANT_ARCHETYPES:
-        score -= 10.0
+        score -= LOW_PURITY_SPECIALISED_PENALTY
         warnings.append('Low-purity body inheritance may reduce economy stack stability.')
     if elw_broad and target_archetype == 'refinery_industrial':
-        score -= 12.0
+        score -= ELW_REFINERY_INDUSTRIAL_PENALTY
         warnings.append('ELW broad-stack pressure is a poor fit for specialised Refinery / Industrial identity.')
 
-    if tertiary_value >= 24 or (broad_penalty >= 14) or (low_purity and target_archetype not in MIXED_TOLERANT_ARCHETYPES):
+    if (
+        tertiary_value >= TERTIARY_HIGH_RISK_THRESHOLD
+        or (broad_penalty >= BROAD_STACK_PENALTY_PER_ECONOMY * 2)
+        or (low_purity and target_archetype not in MIXED_TOLERANT_ARCHETYPES)
+    ):
         risk = 'high'
-    elif tertiary_value >= 15 or broad_penalty or low_purity:
+    elif tertiary_value >= TERTIARY_PRESSURE_THRESHOLD or broad_penalty or low_purity:
         risk = 'medium'
     else:
         risk = 'low'

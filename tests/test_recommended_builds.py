@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 's
 from domain.colonisation_rules import get_target_profile
 from domain.colonisation_rules import profile_body
 from domain.facilities import FacilityTemplate
+from mechanics.versions import MECHANICS_VERSION
 from recommendations.body_selector import select_body_candidates
 from recommendations.build_generator import generate_build_drafts
 from recommendations.plan_ranker import rank_plans
@@ -168,6 +169,7 @@ async def test_recommended_builds_api_response_includes_body_mechanics_and_reque
         pool=object(),
     )
 
+    assert response.mechanics_version == MECHANICS_VERSION
     assert response.plans
     plan = response.plans[0]
     assert plan.selected_body_id
@@ -176,6 +178,8 @@ async def test_recommended_builds_api_response_includes_body_mechanics_and_reque
     assert plan.mechanics_basis
     assert plan.economy_caveats
     assert plan.assumptions
+    assert plan.decision_explanation['why_this_plan_won']
+    assert plan.rank_breakdown['final_rank_score'] > 0
     assert plan.simulation_request.system_id64 == 123
     assert plan.simulation_request.placements
     assert all(p.local_body_id == plan.selected_body_id for p in plan.simulation_request.placements)
@@ -200,5 +204,49 @@ async def test_recommended_builds_api_unsupported_archetype_warns_without_plans(
     )
 
     assert response.plans == []
+    assert response.mechanics_version == MECHANICS_VERSION
     assert response.warnings == ['Recommended build rules are not implemented for this archetype yet.']
     assert 'not implemented' in response.recommended_next_action
+
+
+async def test_recommended_builds_regional_fit_is_visible_but_lightly_weighted(monkeypatch):
+    from routers import simulate as simulate_router
+
+    rows = [body_row(body_id=1, body_name='Plain Rocky', subtype='Rocky body')]
+    profiles = {str(row['body_id']): profile_body(row).to_context_profile() for row in rows}
+
+    async def fake_catalogue(_pool):
+        return catalogue()
+
+    async def fake_preview_context(_pool, system_id64):
+        return PreviewContext(
+            system_id64=system_id64,
+            estimated_orbital_slots=6,
+            estimated_ground_slots=4,
+            slot_confidence=0.82,
+            local_body_profiles=profiles,
+        ), rows
+
+    async def fake_regional_context(_pool, _system_id64):
+        return {
+            'regional_role': 'frontier_hub',
+            'nearest_colonised_system': {'distance_ly': 74.2},
+            'archetype_regional_fit': {'extraction_refinery': 100},
+            'rationale': {'summary': 'Excellent frontier placement.'},
+        }
+
+    monkeypatch.setattr(simulate_router, '_catalogue_or_db', fake_catalogue)
+    monkeypatch.setattr(simulate_router, '_preview_context', fake_preview_context)
+    monkeypatch.setattr(simulate_router, '_regional_context', fake_regional_context)
+
+    response = await simulate_router.get_recommended_builds(
+        system_id64=123,
+        archetype='extraction_refinery',
+        pool=object(),
+    )
+
+    plan = response.plans[0]
+    assert plan.archetype_regional_fit == 100
+    assert plan.rank_breakdown['regional_fit_score'] == 7.0
+    assert plan.rank_breakdown['regional_fit_score'] < plan.rank_breakdown['simulation_score']
+    assert 'Regional fit contributes lightly' in ' '.join(plan.decision_explanation['why_this_plan_won'])

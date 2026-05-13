@@ -4,6 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from mechanics.service_rules import (
+    MODELLED_SERVICES,
+    SERVICE_STATUS_ACTIVE,
+    SERVICE_STATUS_LOCKED,
+    SERVICE_STATUS_UNKNOWN,
+)
+
 
 SERVICE_PHRASES = {
     'commodity_market': ['commodities', 'commodity market'],
@@ -47,25 +54,25 @@ def model_services(placements: list[Any], topology_graph: Any) -> dict[str, dict
                 if unlock_type == 'Strong Link Unlock':
                     if facility.id in linked_sources:
                         active[service] = ServiceState(
-                            status='active',
+                            status=SERVICE_STATUS_ACTIVE,
                             reason=f'{_service_label(service)} unlocked by strong-linked {facility.name}.',
                         )
                     else:
                         locked.setdefault(service, ServiceState(
-                            status='locked',
+                            status=SERVICE_STATUS_LOCKED,
                             reason=f'{facility.name} documents {_service_label(service)}, but it is not strongly linked.',
                             requirements=[f'Strong-link {facility.name} to a local Main Port.'],
                         ))
                 else:
                     active[service] = ServiceState(
-                        status='active',
+                        status=SERVICE_STATUS_ACTIVE,
                         reason=f'{_service_label(service)} documented as a system unlock from {facility.name}.',
                     )
 
     result: dict[str, dict[str, Any]] = {}
-    for service in SERVICE_PHRASES:
+    for service in MODELLED_SERVICES:
         state = active.get(service) or locked.get(service) or ServiceState(
-            status='unknown',
+            status=SERVICE_STATUS_UNKNOWN,
             reason='No documented service unlock rule is present in the loaded facility catalogue for this build.',
         )
         result[service] = state.to_dict()

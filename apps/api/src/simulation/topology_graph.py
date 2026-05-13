@@ -14,8 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from domain.colonisation_constants import STRONG_LINK_BY_TIER, WEAK_LINK_STRENGTH
 from domain.facilities import FacilityTemplate, LOC_ORBITAL, LOC_RINGED_ORBITAL, LOC_SURFACE
+from mechanics.link_rules import WEAK_LINK_STRENGTH
 from simulation.link_modifiers import modified_strong_link_value
 
 
@@ -376,10 +376,6 @@ def _can_emit_weak_link(placement: GraphPlacement, role: Optional[str]) -> bool:
     if role in {ROLE_MAIN_SURFACE_PORT, ROLE_MAIN_ORBITAL_PORT, ROLE_PRIMARY_PORT, ROLE_ORDINARY_PORT}:
         return False
     return placement.facility.is_support_facility or role == ROLE_CONVERTED_SUPPORT_PORT
-
-
-def _strong_link_value(source: GraphPlacement) -> float:
-    return STRONG_LINK_BY_TIER.get(source.facility.tier, STRONG_LINK_BY_TIER[1])
 
 
 def _strong_link_modifier(source: GraphPlacement):

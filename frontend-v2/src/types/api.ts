@@ -152,6 +152,7 @@ export interface SimulationInheritedEconomy {
 
 export interface SimulateBuildResponse {
   system_id64: number;
+  mechanics_version: string;
   target_archetype: string;
   final_score: number;
   composition_score: number;
@@ -166,6 +167,18 @@ export interface SimulateBuildResponse {
   inherited_economies: SimulationInheritedEconomy[];
   topology: Record<string, unknown>;
   services: Record<string, { status: string; reason: string; requirements: string[] }>;
+  data_quality: Record<string, string>;
+  confidence_signals: Array<{ area: string; level: string; reason: string; impact?: number | null }>;
+  mechanics_trace: Record<string, Array<{
+    category: string;
+    label: string;
+    description: string;
+    value_before?: number | null;
+    value_after?: number | null;
+    delta?: number | null;
+    confidence: string;
+    source?: string | null;
+  }>>;
   top_two_alignment: string;
   contamination_risk: string;
   warnings: string[];
@@ -201,12 +214,22 @@ export interface RecommendedBuildPlan {
   nearest_colony_distance?: number | null;
   archetype_regional_fit?: number | null;
   regional_rationale: Record<string, unknown>;
+  decision_explanation: {
+    why_this_plan_won?: string[];
+    why_not_simpler?: string[];
+    why_not_more_advanced?: string[];
+    main_tradeoffs?: string[];
+    sensitive_assumptions?: string[];
+    confidence_summary?: string;
+  };
+  rank_breakdown: Record<string, number>;
   simulation_request: SimulateBuildRequest;
   is_default: boolean;
 }
 
 export interface RecommendedBuildsResponse {
   system_id64: number;
+  mechanics_version: string;
   target_archetype: string;
   best_suggested_archetype: string;
   recommended_next_action: string;
@@ -216,6 +239,7 @@ export interface RecommendedBuildsResponse {
 
 export interface RegionalAnalysisResponse {
   system_id64: number;
+  mechanics_version: string;
   nearest_colonised_system?: {
     id64?: number | null;
     name?: string | null;
@@ -241,6 +265,8 @@ export interface RegionalAnalysisResponse {
     warnings?: string[];
     archetype_notes?: Record<string, string>;
   };
+  data_quality: Record<string, string>;
+  confidence_signals: Array<{ area: string; level: string; reason: string; impact?: number | null }>;
   computed_at?: string | null;
 }
 

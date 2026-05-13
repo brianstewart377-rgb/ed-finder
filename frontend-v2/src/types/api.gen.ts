@@ -1947,6 +1947,12 @@ export interface components {
             archetype_regional_fit?: number | null;
             /** Regional Rationale */
             regional_rationale?: Record<string, never>;
+            /** Decision Explanation */
+            decision_explanation?: Record<string, never>;
+            /** Rank Breakdown */
+            rank_breakdown?: {
+                [key: string]: number;
+            };
             simulation_request: components["schemas"]["SimulateBuildRequest"];
             /**
              * Is Default
@@ -1977,6 +1983,11 @@ export interface components {
         RecommendedBuildsResponse: {
             /** System Id64 */
             system_id64: number;
+            /**
+             * Mechanics Version
+             * @default
+             */
+            mechanics_version: string;
             /** Target Archetype */
             target_archetype: string;
             /** Best Suggested Archetype */
@@ -1992,6 +2003,11 @@ export interface components {
         RegionalAnalysisResponse: {
             /** System Id64 */
             system_id64: number;
+            /**
+             * Mechanics Version
+             * @default
+             */
+            mechanics_version: string;
             /** Nearest Colonised System */
             nearest_colonised_system?: Record<string, never> | null;
             /** Counts */
@@ -2013,6 +2029,12 @@ export interface components {
             };
             /** Rationale */
             rationale?: Record<string, never>;
+            /** Data Quality */
+            data_quality?: {
+                [key: string]: string;
+            };
+            /** Confidence Signals */
+            confidence_signals?: Record<string, never>[];
             /** Computed At */
             computed_at?: unknown | null;
         };
@@ -2150,6 +2172,11 @@ export interface components {
         SimulateBuildResponse: {
             /** System Id64 */
             system_id64: number;
+            /**
+             * Mechanics Version
+             * @default
+             */
+            mechanics_version: string;
             /** Target Archetype */
             target_archetype: string;
             /** Final Score */
@@ -2182,6 +2209,16 @@ export interface components {
             topology?: Record<string, never>;
             /** Services */
             services?: Record<string, never>;
+            /** Data Quality */
+            data_quality?: {
+                [key: string]: string;
+            };
+            /** Confidence Signals */
+            confidence_signals?: Record<string, never>[];
+            /** Mechanics Trace */
+            mechanics_trace?: {
+                [key: string]: Record<string, never>[];
+            };
             /** Top Two Alignment */
             top_two_alignment: string;
             /** Contamination Risk */
@@ -2340,6 +2377,11 @@ export interface components {
         SimulationSummaryResponse: {
             /** System Id64 */
             system_id64: number;
+            /**
+             * Mechanics Version
+             * @default
+             */
+            mechanics_version: string;
             /** System Name */
             system_name?: string | null;
             /** Archetype */

@@ -566,6 +566,7 @@ function SimulationResult({ result }: { result: SimulateBuildResponse }) {
         <Metric label="Buildability" value={Math.round(result.buildability_score)} />
       </div>
 
+      <DataConfidencePanel result={result} />
       <EconomyBars composition={result.economy_composition} order={result.economy_order} />
       <EconomyStackPanel stack={result.economy_stack} />
       <InheritedEconomyPanel profiles={result.inherited_economies} />
@@ -581,7 +582,66 @@ function SimulationResult({ result }: { result: SimulateBuildResponse }) {
       </div>
 
       <LinkSummary result={result} />
+      <MechanicsTracePanel trace={result.mechanics_trace} />
     </div>
+  );
+}
+
+export function DataConfidencePanel({ result }: { result: SimulateBuildResponse }) {
+  const qualityRows = Object.entries(result.data_quality ?? {});
+  const signals = result.confidence_signals ?? [];
+  if (qualityRows.length === 0 && signals.length === 0) return null;
+  return (
+    <details className="rounded-chunk-lg border border-cyan/25 bg-cyan/5 p-3">
+      <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.18em] text-cyan">
+        Data Confidence
+      </summary>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {qualityRows.map(([area, level]) => (
+          <Chip key={area} tone={levelTone(level)}>{titleCase(area)}: {standardLabel(level)}</Chip>
+        ))}
+      </div>
+      {signals.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {signals.slice(0, 5).map((signal) => (
+            <div key={`${signal.area}-${signal.reason}`} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px]">
+                <span className="text-silver">{titleCase(signal.area)}</span>
+                <span className={confidenceLevelTone(signal.level)}>{standardLabel(signal.level)}</span>
+              </div>
+              <p className="mt-1 text-[10px] leading-snug text-silver-dk">{signal.reason}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </details>
+  );
+}
+
+export function MechanicsTracePanel({ trace }: { trace: SimulateBuildResponse['mechanics_trace'] }) {
+  const categories = Object.entries(trace ?? {}).filter(([, events]) => Array.isArray(events) && events.length > 0);
+  if (categories.length === 0) return null;
+  return (
+    <details data-testid="mechanics-trace-accordion" className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
+      <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.18em] text-silver">
+        Mechanics Trace
+      </summary>
+      <div className="mt-3 space-y-2">
+        {categories.slice(0, 6).map(([category, events]) => (
+          <div key={category} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-orange">{titleCase(category)}</div>
+            <div className="mt-1 space-y-1">
+              {events.slice(0, 3).map((event) => (
+                <div key={`${category}-${event.label}-${event.description}`} className="font-mono text-[10px] leading-snug text-silver-dk">
+                  <span className="text-silver">{event.label}:</span> {event.description}
+                  {event.delta != null && <span className="text-orange"> ({event.delta > 0 ? '+' : ''}{event.delta})</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -1021,6 +1081,34 @@ function serviceTone(status: string): string {
   if (status === 'active') return 'text-green';
   if (status === 'locked') return 'text-gold';
   return 'text-silver-dk';
+}
+
+function standardLabel(value: string): string {
+  const labels: Record<string, string> = {
+    observed: 'Observed',
+    verified: 'Verified',
+    community_observed: 'Community observed',
+    inferred: 'Inferred',
+    estimated: 'Estimated',
+    speculative: 'Speculative',
+    unknown: 'Unknown',
+    computed: 'Computed',
+    predicted: 'Estimated',
+  };
+  return labels[value] ?? titleCase(value);
+}
+
+function levelTone(value: string): 'default' | 'good' | 'warn' {
+  if (value === 'observed' || value === 'verified' || value === 'community_observed' || value === 'computed') return 'good';
+  if (value === 'estimated' || value === 'speculative' || value === 'unknown' || value === 'predicted') return 'warn';
+  return 'default';
+}
+
+function confidenceLevelTone(value: string): string {
+  if (value === 'observed' || value === 'verified' || value === 'community_observed') return 'text-green';
+  if (value === 'estimated' || value === 'speculative') return 'text-gold';
+  if (value === 'unknown') return 'text-silver-dk';
+  return 'text-cyan';
 }
 
 function asString(value: unknown): string | null {

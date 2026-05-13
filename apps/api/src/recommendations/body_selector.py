@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from domain.colonisation_rules import BodyEconomyProfile, TargetProfile, profile_body
+from mechanics.scoring_rules import BODY_SELECTOR_BASE_WEIGHTS, BODY_SELECTOR_POINTS
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,10 @@ def _score(
     economies = set(profile.base_economies) | set(profile.modifier_economies)
     tags = set(profile.strategic_tags)
     reasons: list[str] = []
-    score = profile.confidence * 10 + profile.purity * 12
+    score = (
+        profile.confidence * BODY_SELECTOR_BASE_WEIGHTS['confidence']
+        + profile.purity * BODY_SELECTOR_BASE_WEIGHTS['purity']
+    )
 
     def add(points: float, reason: str) -> None:
         nonlocal score
@@ -76,69 +80,87 @@ def _score(
         reasons.append(reason)
 
     if archetype == 'refinery_industrial':
+        points = BODY_SELECTOR_POINTS['refinery_industrial']
         if profile.subtype.lower().find('rocky ice') >= 0:
-            add(34, 'Rocky-Ice supports an Industrial + Refinery hybrid.')
+            add(points['rocky_ice'], 'Rocky-Ice supports an Industrial + Refinery hybrid.')
         if 'Refinery' in profile.base_economies and 'Industrial' not in profile.base_economies:
-            add(26, 'Clean Rocky body supports Refinery without ELW-style mixed contamination.')
+            add(points['clean_rocky'], 'Clean Rocky body supports Refinery without ELW-style mixed contamination.')
         if 'Industrial' in economies:
-            add(14, 'Industrial support opportunity is present.')
+            add(points['industrial_support'], 'Industrial support opportunity is present.')
         if 'Extraction' in economies:
-            score -= 10
+            score -= points['extraction_penalty']
             reasons.append('Extraction is present, so keep it tertiary for this archetype.')
         if 'elw_mixed' in tags:
-            score -= 30
+            score -= points['elw_penalty']
             reasons.append('ELW is mixed economy and not a Refinery/Industrial anchor.')
     elif archetype == 'extraction_refinery':
+        points = BODY_SELECTOR_POINTS['extraction_refinery']
         if 'Extraction' in profile.base_economies:
-            add(30, 'Body supports Extraction as a base economy.')
+            add(points['extraction_base'], 'Body supports Extraction as a base economy.')
         if 'Refinery' in economies:
-            add(18, 'Refinery pairing opportunity is present.')
+            add(points['refinery_pairing'], 'Refinery pairing opportunity is present.')
         if 'ringed' in tags or 'geological' in tags:
-            add(18, 'Ring or geological signals reinforce the mining stack.')
+            add(points['ring_or_geo'], 'Ring or geological signals reinforce the mining stack.')
         if 'elw_mixed' in tags:
-            score -= 34
+            score -= points['elw_penalty']
             reasons.append('ELW rarity is not relevant to Extraction/Refinery selection.')
     elif archetype == 'agriculture_terraforming':
+        points = BODY_SELECTOR_POINTS['agriculture_terraforming']
         has_target_signal = False
         if 'Agriculture' in economies:
-            add(30, 'Agriculture is supported by the body profile.')
+            add(points['agriculture'], 'Agriculture is supported by the body profile.')
             has_target_signal = True
         if 'terraforming_candidate' in tags or 'terraforming_pressure' in tags:
-            add(28, 'Terraforming is represented as a strategic planning tag.')
+            add(points['terraforming_tag'], 'Terraforming is represented as a strategic planning tag.')
             has_target_signal = True
         if 'elw_mixed' in tags:
-            add(12, 'ELW has strong Agriculture value but remains mixed economy.')
+            add(points['elw_mixed'], 'ELW has strong Agriculture value but remains mixed economy.')
             has_target_signal = True
         if 'Industrial' in economies:
-            score -= 12
+            score -= points['industrial_penalty']
             reasons.append('Industrial pressure is non-target for Agriculture/Terraforming.')
         if not has_target_signal:
             return 0.0, ''
     elif archetype == 'hitech_tourism':
+        points = BODY_SELECTOR_POINTS['hitech_tourism']
         if 'HighTech' in economies:
-            add(26, 'HighTech value is present.')
+            add(points['hitech'], 'HighTech value is present.')
         if 'Tourism' in economies:
-            add(26, 'Tourism value is present.')
+            add(points['tourism'], 'Tourism value is present.')
         if 'exotic' in tags or 'elw_mixed' in tags:
-            add(18, 'Exotic or ELW mixed value supports prestige planning.')
+            add(points['exotic_or_elw'], 'Exotic or ELW mixed value supports prestige planning.')
     elif archetype == 'military_industrial':
+        points = BODY_SELECTOR_POINTS['military_industrial']
         if 'Military' in economies:
-            add(26, 'Military value is present.')
+            add(points['military'], 'Military value is present.')
         if 'Industrial' in economies:
-            add(22, 'Industrial support opportunity is present.')
+            add(points['industrial'], 'Industrial support opportunity is present.')
         if 'elw_mixed' in tags:
-            add(12, 'ELW contributes mixed Military value, with caveats.')
+            add(points['elw_mixed'], 'ELW contributes mixed Military value, with caveats.')
         if 'landable' in tags:
-            add(8, 'Landable body supports surface military/industrial placement.')
+            add(points['landable'], 'Landable body supports surface military/industrial placement.')
     elif archetype == 'expansion_capital':
-        add(min(30, total_slots * 2.5), 'Expansion planning prioritises total slot capacity.')
+        points = BODY_SELECTOR_POINTS['expansion_capital']
+        add(
+            min(points['slot_capacity_cap'], total_slots * points['slot_capacity_weight']),
+            'Expansion planning prioritises total slot capacity.',
+        )
         if slot_confidence is not None:
-            add(slot_confidence * 20, 'Slot confidence supports a higher-capacity plan.')
-        add(len(profile.base_economies) * 6 + len(profile.modifier_economies) * 4, 'Body diversity supports flexible expansion.')
+            add(slot_confidence * points['slot_confidence_weight'], 'Slot confidence supports a higher-capacity plan.')
+        add(
+            len(profile.base_economies) * points['base_diversity_weight']
+            + len(profile.modifier_economies) * points['modifier_diversity_weight'],
+            'Body diversity supports flexible expansion.',
+        )
     elif archetype == 'flexible_multirole':
-        add(len(profile.base_economies) * 8 + len(profile.modifier_economies) * 6, 'Mixed economy options support flexible multirole planning.')
-        if profile.purity >= 0.75:
-            add(8, 'Low contamination helps keep options open.')
+        points = BODY_SELECTOR_POINTS['flexible_multirole']
+        add(
+            len(profile.base_economies) * points['base_diversity_weight']
+            + len(profile.modifier_economies) * points['modifier_diversity_weight'],
+            'Mixed economy options support flexible multirole planning.',
+        )
+        if profile.purity >= points['purity_threshold']:
+            add(points['purity_bonus'], 'Low contamination helps keep options open.')
     else:
         return 0.0, ''
 

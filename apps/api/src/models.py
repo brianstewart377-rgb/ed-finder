@@ -933,6 +933,7 @@ class SimulateBuildResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     system_id64:         int
+    mechanics_version:   str = ''
     target_archetype:    str
     final_score:         float
     composition_score:   float
@@ -947,6 +948,9 @@ class SimulateBuildResponse(BaseModel):
     inherited_economies: list[SimulationInheritedEconomy] = Field(default_factory=list)
     topology:            dict[str, Any] = Field(default_factory=dict)
     services:            dict[str, Any] = Field(default_factory=dict)
+    data_quality:        dict[str, str] = Field(default_factory=dict)
+    confidence_signals:  list[dict[str, Any]] = Field(default_factory=list)
+    mechanics_trace:     dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     top_two_alignment:   str
     contamination_risk:  str
     warnings:            list[str] = Field(default_factory=list)
@@ -984,6 +988,8 @@ class RecommendedBuildPlan(BaseModel):
     nearest_colony_distance: Optional[float] = None
     archetype_regional_fit: Optional[float] = None
     regional_rationale: dict[str, Any] = Field(default_factory=dict)
+    decision_explanation: dict[str, Any] = Field(default_factory=dict)
+    rank_breakdown:     dict[str, float] = Field(default_factory=dict)
     simulation_request: SimulateBuildRequest
     is_default:         bool = False
 
@@ -992,6 +998,7 @@ class RecommendedBuildsResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     system_id64:              int
+    mechanics_version:        str = ''
     target_archetype:         str
     best_suggested_archetype: str
     recommended_next_action:  str
@@ -1003,12 +1010,15 @@ class RegionalAnalysisResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     system_id64:                 int
+    mechanics_version:           str = ''
     nearest_colonised_system:    Optional[dict[str, Any]] = None
     counts:                      dict[str, int] = Field(default_factory=dict)
     scores:                      dict[str, float] = Field(default_factory=dict)
     regional_role:               str = 'unknown'
     archetype_regional_fit:      dict[str, float] = Field(default_factory=dict)
     rationale:                   dict[str, Any] = Field(default_factory=dict)
+    data_quality:                dict[str, str] = Field(default_factory=dict)
+    confidence_signals:          list[dict[str, Any]] = Field(default_factory=list)
     computed_at:                 Optional[Any] = None
 
 
@@ -1192,6 +1202,7 @@ class SimulationSummaryResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     system_id64:       int
+    mechanics_version: str = ''
     system_name:       Optional[str] = None
     archetype:         Optional[str] = None
     classification:    Optional[SimulationClassification] = None

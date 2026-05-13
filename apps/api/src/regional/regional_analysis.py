@@ -4,6 +4,9 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
+from mechanics.confidence import ConfidenceLevel, ConfidenceSignal, default_data_quality, signals_to_dict
+from mechanics.regional_rules import REGIONAL_DISTANCE_BUCKETS
+from mechanics.versions import MECHANICS_VERSION
 from regional.regional_roles import classify_regional_role
 from regional.regional_scoring import archetype_regional_fit, regional_rationale, regional_scores
 
@@ -44,10 +47,11 @@ def compute_regional_analysis(
         key=lambda item: item[0],
     )
     nearest_distance, nearest = distances[0]
-    within_25 = sum(1 for distance, _row in distances if distance <= 25)
-    within_50 = sum(1 for distance, _row in distances if distance <= 50)
-    within_100 = sum(1 for distance, _row in distances if distance <= 100)
-    within_250 = sum(1 for distance, _row in distances if distance <= 250)
+    bucket_25, bucket_50, bucket_100, bucket_250 = REGIONAL_DISTANCE_BUCKETS
+    within_25 = sum(1 for distance, _row in distances if distance <= bucket_25)
+    within_50 = sum(1 for distance, _row in distances if distance <= bucket_50)
+    within_100 = sum(1 for distance, _row in distances if distance <= bucket_100)
+    within_250 = sum(1 for distance, _row in distances if distance <= bucket_250)
     role = classify_regional_role(
         nearest_distance_ly=nearest_distance,
         within_25=within_25,
@@ -98,6 +102,7 @@ def response_from_row(row: dict[str, Any] | None, system_id64: int) -> dict[str,
     if not row:
         return {
             'system_id64': system_id64,
+            'mechanics_version': MECHANICS_VERSION,
             'nearest_colonised_system': None,
             'counts': {'within_25ly': 0, 'within_50ly': 0, 'within_100ly': 0, 'within_250ly': 0},
             'scores': {'isolation': 0.0, 'density': 0.0, 'expansion': 0.0, 'competition': 0.0},
@@ -109,10 +114,17 @@ def response_from_row(row: dict[str, Any] | None, system_id64: int) -> dict[str,
                 'warnings': ['Run build_regional_analysis.py to populate regional positioning data.'],
                 'archetype_notes': {},
             },
+            'data_quality': default_data_quality(has_regional_context=False),
+            'confidence_signals': signals_to_dict([ConfidenceSignal(
+                area='regional_position',
+                level=ConfidenceLevel.UNKNOWN,
+                reason='Regional analysis has not been computed for this system yet.',
+            )]),
             'computed_at': None,
         }
     return {
         'system_id64': system_id64,
+        'mechanics_version': MECHANICS_VERSION,
         'nearest_colonised_system': {
             'id64': row.get('nearest_colonised_system_id64'),
             'name': row.get('nearest_colonised_system_name'),
@@ -133,6 +145,12 @@ def response_from_row(row: dict[str, Any] | None, system_id64: int) -> dict[str,
         'regional_role': row.get('regional_role') or 'unknown',
         'archetype_regional_fit': row.get('archetype_regional_fit') or {},
         'rationale': row.get('rationale') or {},
+        'data_quality': default_data_quality(has_regional_context=True),
+        'confidence_signals': signals_to_dict([ConfidenceSignal(
+            area='regional_position',
+            level=ConfidenceLevel.INFERRED,
+            reason='Regional metrics are computed from stored system coordinates and colonised-neighbour counts.',
+        )]),
         'computed_at': row.get('computed_at'),
     }
 
