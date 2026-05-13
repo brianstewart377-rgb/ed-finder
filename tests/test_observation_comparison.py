@@ -157,13 +157,24 @@ def test_observed_service_with_no_prediction_returns_observed_only():
     assert 'no matching prediction' in diff['reason']
 
 
-def test_economy_top_two_match_confirms_prediction():
+def test_economy_top_two_match_uses_baseline_prediction():
+    baseline = run()
+    expected_top_two = (
+        baseline['economy_stack'].get('top_two')
+        or baseline['economy_order'][:2]
+    )
+
     result = run([ObservedFact(
-        area='economy_outcome', subject_id='top_two', subject_type='system', observed_value=['HighTech', 'Refinery'], source_type='test_fixture'
+        area='economy_outcome',
+        subject_id='top_two',
+        subject_type='system',
+        observed_value=expected_top_two,
+        source_type='test_fixture',
     )])
 
     diff = result['prediction_observation_diffs'][0]
     assert diff['status'] == 'confirmed'
+    assert diff['observed_value'] == expected_top_two
 
 
 def test_economy_mismatch_requires_review():
@@ -185,6 +196,27 @@ def test_cp_final_balance_mismatch_returns_high_severity():
     assert diff['status'] == 'mismatch'
     assert diff['severity'] == 'high'
     assert result['observation_summary']['confidence_impact'] == 'reduce_confidence'
+
+
+def test_observation_mismatch_does_not_change_scoring_or_confidence():
+    baseline = run()
+    with_mismatch = run([ObservedFact(
+        area='cp_balance',
+        subject_id='final_balance',
+        subject_type='system',
+        observed_value={'yellow_cp_final': 999, 'green_cp_final': 999},
+        source_type='test_fixture',
+    )])
+
+    assert with_mismatch['observation_summary']['mismatch_count'] >= 1
+    assert with_mismatch['observation_summary']['confidence_impact'] in {
+        'review_required',
+        'reduce_confidence',
+    }
+    assert with_mismatch['final_score'] == baseline['final_score']
+    assert with_mismatch['composition_score'] == baseline['composition_score']
+    assert with_mismatch['buildability_score'] == baseline['buildability_score']
+    assert with_mismatch['confidence'] == baseline['confidence']
 
 
 def test_observation_confidence_labels_use_standard_vocabulary():

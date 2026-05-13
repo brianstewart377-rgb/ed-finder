@@ -1,6 +1,6 @@
 # Stage 4D: Observed vs Predicted Data Foundation
 
-Stage 4D creates the foundation for comparing ED-Finder predictions with facts players later observe in-game. It is an additive data and comparison layer. It does **not** implement journal upload, EDMC integration, commander accounts, automatic ingestion, or automatic mechanics confidence upgrades.
+Stage 4D creates the foundation for comparing ED-Finder predictions with facts players later observe in-game. It is an additive data and comparison layer. It does **not** implement journal upload, EDMC integration, commander accounts, automatic ingestion, automatic mechanics confidence upgrades, or automatic scoring changes.
 
 ## Predicted Versus Observed
 
@@ -8,12 +8,14 @@ ED-Finder now distinguishes between a simulated prediction and an observed fact.
 
 > This foundation does not make predictions automatically “true” or “false”. It records differences and flags them for review.
 
+Stage 4D records and compares observations, but it does **not** automatically promote, demote, verify, or invalidate mechanics rules. Observation comparison is informational: it does not automatically alter the simulation confidence score, final score, economy score, buildability score, or ranking.
+
 | Concept | Meaning |
 |---|---|
 | Prediction | Output produced by Simulation Preview, including slots, services, economy, topology, and CP results. |
 | Observed fact | A structured record of something observed in-game, with source type, confidence, notes, and optional system/body/facility identifiers. |
 | Diff | A deterministic comparison between one observed fact and the matching prediction, when a match exists. |
-| Confidence impact | A review signal such as `none`, `increase_possible`, `review_required`, `reduce_confidence`, or `unknown`. |
+| Confidence impact | An advisory review signal such as `none`, `increase_possible`, `review_required`, `reduce_confidence`, or `unknown`; it does not directly change scores or mechanics confidence. |
 
 ## Observed Facts Table
 
@@ -49,12 +51,14 @@ Stage 4D comparisons are simple and deterministic. They compare attached facts a
 | `confirmed` | Observed value equals the predicted value. |
 | `mismatch` | Observed value differs materially from the predicted value. |
 | `observed_only` | An observed fact exists but no matching prediction exists in this simulation output. |
-| `predicted_only` | No observed facts are attached. |
+| `predicted_only` | No observed facts are attached. In Stage 4D v1 this status is observation-driven rather than a full inventory of every unobserved prediction. |
 | `unknown` | Observation is present but incomplete or unknown. |
 
 ## Initial Comparison Scope
 
 The v1 comparison helper supports a limited, useful set of domains: slot counts, port service states, service unlock statuses, economy top-two or composition values, and CP final balances. Future stages can expand this to colony progress, build-step observations, richer topology facts, and importer-specific journal events.
+
+Stage 4D v1 is observation-driven. It compares attached observed facts against available predictions, but it does not yet enumerate every prediction that lacks an observation. Therefore `predicted_only_count` is reserved for a future full prediction-inventory comparison pass and should not be interpreted as complete coverage of all unobserved predictions.
 
 | Area | Current Behaviour |
 |---|---|
@@ -65,7 +69,9 @@ The v1 comparison helper supports a limited, useful set of domains: slot counts,
 
 ## Confidence Impact Model
 
-Stage 4D does not change the simulation confidence score. It only reports a confidence impact signal for review.
+Stage 4D does not change the simulation confidence score. It only reports a `confidence_impact` signal for review. That signal is advisory only: it does not automatically alter the simulation confidence score, final score, economy score, buildability score, or ranking.
+
+A value such as `reduce_confidence` means “this observation should trigger human or future automated review”, not “ED-Finder has already reduced the model confidence”. Stage 4D records the review need without automatically rewriting, verifying, promoting, demoting, or invalidating mechanics rules.
 
 | Impact | Meaning |
 |---|---|

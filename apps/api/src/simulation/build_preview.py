@@ -275,11 +275,10 @@ def simulate_build_preview(
         'mechanics_notes': _unique(mechanics_notes),
         'links': links,
     }
-    observation_prediction = {
-        **response,
-        'estimated_orbital_slots': context.estimated_orbital_slots,
-        'estimated_ground_slots': context.estimated_ground_slots,
-    }
+    observation_prediction = _observation_prediction_snapshot(
+        response=response,
+        context=context,
+    )
     observation_summary, observation_diffs = compare_prediction_to_observations(
         prediction=observation_prediction,
         observed_facts=context.observed_facts,
@@ -311,6 +310,18 @@ def simulate_build_preview(
     )
     response['mechanics_trace'] = mechanics_trace
     return response
+
+
+def _observation_prediction_snapshot(
+    *,
+    response: dict[str, Any],
+    context: PreviewContext,
+) -> dict[str, Any]:
+    return {
+        **response,
+        'estimated_orbital_slots': context.estimated_orbital_slots,
+        'estimated_ground_slots': context.estimated_ground_slots,
+    }
 
 
 def _placement_economy_profile(

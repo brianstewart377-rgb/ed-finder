@@ -75,9 +75,9 @@ confidence signals describe the quality of the rule/data behind the plan.
 
 ## Stage 4D Observation Comparison
 
-Stage 4D adds `observation_summary` and `prediction_observation_diffs` to Simulation Preview. These fields distinguish predicted mechanics output from player-observed facts. Observation comparison can report `none`, `increase_possible`, `review_required`, `reduce_confidence`, or `unknown` as a **confidence impact** signal, but it does not automatically change the numeric confidence score.
+Stage 4D adds `observation_summary` and `prediction_observation_diffs` to Simulation Preview. These fields distinguish predicted mechanics output from player-observed facts. Observation comparison can report `none`, `increase_possible`, `review_required`, `reduce_confidence`, or `unknown` as a **confidence impact** signal, but that signal is advisory only. It does not automatically change the numeric confidence score, final score, economy score, buildability score, ranking, mechanics rules, or confidence labels.
 
-Observed facts are review inputs. A confirmed observation may support a future confidence upgrade, and a mismatch may support a future confidence reduction, but both require explicit mechanics review before rules or confidence labels change.
+Observed facts are review inputs. A value such as `reduce_confidence` means “this observation should trigger human or future automated review”, not “ED-Finder has already reduced the model confidence”. A confirmed observation may support a future confidence upgrade, and a mismatch may support a future confidence reduction, but both require explicit mechanics review before rules or confidence labels change. Stage 4D records and compares observations; it does not automatically promote, demote, verify, or invalidate mechanics rules.
 
 | Observation Outcome | Confidence Handling |
 |---|---|
@@ -87,4 +87,4 @@ Observed facts are review inputs. A confirmed observation may support a future c
 | Observed-only fact | Report review need because no prediction currently matches the fact. |
 | Unknown/incomplete observation | Report `unknown`; preserve current mechanics confidence. |
 
-This keeps the validation loop honest: ED-Finder can show what it predicts and what players observed, but it must not silently turn observations into mechanics changes without evidence review.
+This keeps the validation loop honest: ED-Finder can show what it predicts and what players observed, but it must not silently turn observations into mechanics changes, score changes, or ranking changes without evidence review.
