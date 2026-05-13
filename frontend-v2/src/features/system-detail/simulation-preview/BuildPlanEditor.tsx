@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
-import { Chip, IconButton } from './components/ui';
+import { Chip, IconButton } from './components';
 import { formatLocation } from './utils/formatters';
 
 export function BuildPlanEditor({

@@ -1,5 +1,5 @@
 import type { SimulateBuildResponse } from '@/types/api';
-import { Chip } from '../components/ui';
+import { Chip } from '../components';
 import { standardLabel, titleCase } from '../utils/formatters';
 import { confidenceLevelTone, levelTone } from '../utils/toneHelpers';
 

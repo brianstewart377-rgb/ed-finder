@@ -1,5 +1,5 @@
 import type { SimulationSummary } from '@/types/api';
-import { Chip } from '../components/ui';
+import { Chip } from '../components';
 import { titleCase } from '../utils/formatters';
 
 export function RegionalContextMini({

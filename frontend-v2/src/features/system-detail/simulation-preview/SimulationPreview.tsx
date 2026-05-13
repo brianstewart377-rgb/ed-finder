@@ -14,8 +14,8 @@ import type {
 import { BuildPlanEditor } from './BuildPlanEditor';
 import { SimulationResult } from './SimulationResult';
 import { ModeIntro, PlanBadge, StartModes } from './StartModes';
-import { GhostMetric, Message } from './components/ui';
-import { RegionalContextMini } from './panels/RegionalContextMini';
+import { GhostMetric, Message } from './components';
+import { RegionalContextMini } from './panels';
 import { ARCHETYPES, type StartMode } from './types';
 import {
   archetypeFromEconomy,

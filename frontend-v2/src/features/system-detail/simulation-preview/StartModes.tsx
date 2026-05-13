@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Edit3, Sparkles } from 'lucide-react';
-import { Message } from './components/ui';
+import { Message } from './components';
 import type { StartMode } from './types';
 
 export function StartModes({

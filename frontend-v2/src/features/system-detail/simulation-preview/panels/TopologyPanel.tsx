@@ -1,5 +1,5 @@
 import type { SimulateBuildResponse } from '@/types/api';
-import { Chip } from '../components/ui';
+import { Chip } from '../components';
 
 type TopologySummary = {
   local_body_groups?: Array<{

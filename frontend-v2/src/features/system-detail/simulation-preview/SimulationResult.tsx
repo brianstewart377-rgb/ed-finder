@@ -1,15 +1,23 @@
 import type { SimulateBuildResponse } from '@/types/api';
-import { Message, Metric } from './components/ui';
+import { Message, Metric } from './components';
 import { confidenceLabel, titleCase } from './utils/formatters';
 import { confidenceTone, complexityTone } from './utils/toneHelpers';
-import { ObservedVsPredictedPanel } from './panels/ObservedVsPredictedPanel';
-import { DataConfidencePanel } from './panels/DataConfidencePanel';
-import { MechanicsTracePanel } from './panels/MechanicsTracePanel';
-import { EconomyBars, EconomyStackPanel, InheritedEconomyPanel, PortEconomyPanel } from './panels/EconomyPanels';
-import { TopologyPanel } from './panels/TopologyPanel';
-import { CpRepairPanel, CpSummary, CpTimelinePanel } from './panels/CpPanels';
-import { PortServicePanel, ServicesPanel } from './panels/ServicesPanels';
-import { LinkSummary } from './panels/LinkSummary';
+import {
+  CpRepairPanel,
+  CpSummary,
+  CpTimelinePanel,
+  DataConfidencePanel,
+  EconomyBars,
+  EconomyStackPanel,
+  InheritedEconomyPanel,
+  LinkSummary,
+  MechanicsTracePanel,
+  ObservedVsPredictedPanel,
+  PortEconomyPanel,
+  PortServicePanel,
+  ServicesPanel,
+  TopologyPanel,
+} from './panels';
 
 export function SimulationResult({ result }: { result: SimulateBuildResponse }) {
   return (
