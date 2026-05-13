@@ -942,6 +942,7 @@ class SimulateBuildResponse(BaseModel):
     confidence:          float
     cp:                  SimulationCPResult
     cp_timeline:         list[dict[str, Any]] = Field(default_factory=list)
+    cp_repair_suggestions: list[dict[str, Any]] = Field(default_factory=list)
     economy_composition: dict[str, float] = Field(default_factory=dict)
     economy_order:       list[str] = Field(default_factory=list)
     economy_stack:       dict[str, Any] = Field(default_factory=dict)

@@ -60,6 +60,7 @@ Stage 4 begins with Stage 4A, an additive per-port economy propagation layer tha
 - Stage 4A influence ledger covering body inheritance, direct facility influence, strong links, weak links, pass-through effects, and converted ports.
 - Stage 4B per-Main-Port service states.
 - Stage 4B service unlock ledger covering port defaults, system unlocks, strong-link unlocks, inferred locked requirements, and unknown rules.
+- CP sequence repair assistant that reads the existing CP timeline and emits small repair suggestions without changing CP totals or running a full optimiser.
 - System-level economy and service compatibility while preserving existing response fields.
 - Simulation Preview Port Economy Breakdown, Influence Ledger, Port Service Graph, and Service Unlock Ledger displays.
 - Recommended Build card summary for main-port economy and contamination source.
@@ -69,6 +70,7 @@ Remaining Stage 4 work:
 
 - Advanced service unlock qualifier validation.
 - Service-aware recommendation scoring after the graph is stable.
+- Full build-order optimiser that can search alternatives beyond local CP sequence repairs.
 - Advanced contamination modelling.
 - Converted-port confidence refinement.
 - Local-body cluster strategy.

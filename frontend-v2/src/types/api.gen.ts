@@ -2197,6 +2197,8 @@ export interface components {
             cp: components["schemas"]["SimulationCPResult"];
             /** Cp Timeline */
             cp_timeline?: Record<string, never>[];
+            /** Cp Repair Suggestions */
+            cp_repair_suggestions?: Record<string, never>[];
             /** Economy Composition */
             economy_composition?: {
                 [key: string]: number;

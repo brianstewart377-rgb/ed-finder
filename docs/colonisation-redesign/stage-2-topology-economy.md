@@ -138,7 +138,7 @@ The key architectural change is that the simulation now builds an influence ledg
 | Converted ports are surfaced as caveated topology entries. | Converted-port influence appears in the ledger with caveats. |
 | System-level service modelling reports active, locked, or unknown service states. | Stage 4B adds per-port service states and a service unlock ledger while preserving the existing `services` field. |
 
-This layer remains deterministic and explanatory. It does not optimise builds and does not add unsupported mechanics beyond the already documented inferred rules.
+This layer remains deterministic and explanatory. It does not optimise builds and does not add unsupported mechanics beyond the already documented inferred rules. The CP sequence repair assistant follows the same rule: it suggests small repairs to the current order while preserving the existing CP timeline and avoiding a full optimiser claim.
 
 ## Stage 4B Additive Layer: Per-Port Service Dependency Graph
 

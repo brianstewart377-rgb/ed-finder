@@ -49,6 +49,7 @@ TRACE_CATEGORIES = [
     'purity_effects',
     'contamination_effects',
     'cp_effects',
+    'cp_repair_effects',
     'service_unlock_effects',
     'port_service_effects',
     'service_unlock_ledger_effects',
@@ -72,6 +73,7 @@ def trace_simulation(
     influence_ledger: list[Any] | None = None,
     port_service_states: list[Any] | None = None,
     service_unlock_ledger: list[Any] | None = None,
+    cp_repair_suggestions: list[Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     trace = empty_trace()
 
@@ -208,6 +210,15 @@ def trace_simulation(
             description=str(warning),
             confidence=ConfidenceLevel.INFERRED.value,
             source=SOURCE_MEGA_GUIDE,
+        ).to_dict())
+
+    for suggestion in cp_repair_suggestions or []:
+        trace['cp_repair_effects'].append(MechanicsTraceEvent(
+            category='cp_repair_effects',
+            label=str(getattr(suggestion, 'summary', 'CP repair suggestion')),
+            description=str(getattr(suggestion, 'reason', '') or getattr(suggestion, 'expected_effect', '') or 'CP repair suggestion recorded.'),
+            confidence=str(getattr(suggestion, 'confidence', ConfidenceLevel.INFERRED.value)),
+            source='CP repair assistant',
         ).to_dict())
 
     for service, detail in services.items():

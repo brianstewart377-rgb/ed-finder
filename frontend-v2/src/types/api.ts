@@ -110,6 +110,18 @@ export interface SimulationCPResult {
   warnings: string[];
 }
 
+export interface CPRepairSuggestion {
+  type: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | string;
+  summary: string;
+  reason: string;
+  affected_steps: number[];
+  expected_effect: string;
+  action: string;
+  confidence: string;
+  caveats: string[];
+}
+
 export interface SimulationTimelineStep {
   step: number;
   facility_template_id: string;
@@ -236,6 +248,7 @@ export interface SimulateBuildResponse {
   confidence: number;
   cp: SimulationCPResult;
   cp_timeline: SimulationTimelineStep[];
+  cp_repair_suggestions: CPRepairSuggestion[];
   economy_composition: Record<string, number>;
   economy_order: string[];
   economy_stack: Record<string, unknown>;

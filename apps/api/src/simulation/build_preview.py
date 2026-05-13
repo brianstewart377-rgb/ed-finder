@@ -53,6 +53,7 @@ from mechanics.scoring_rules import (
 )
 from mechanics.versions import MECHANICS_VERSION
 from simulation.build_order import simulate_build_order
+from simulation.cp_repair import build_cp_repair_suggestions, cp_repair_suggestions_to_dict
 from simulation.economy_stack import analyse_economy_stack
 from simulation.mechanics_trace import trace_simulation
 from simulation.port_economy import (
@@ -160,6 +161,7 @@ def simulate_build_preview(
         warnings.append('No valid facilities are selected yet. Add at least one facility to preview a build.')
 
     cp = simulate_build_order(resolved).to_cp_dict()
+    cp_repair_suggestions = build_cp_repair_suggestions(placements=resolved, cp=cp)
     warnings.extend(cp['warnings'])
 
     topology_graph = build_topology_graph(_graph_placements(resolved, context))
@@ -222,6 +224,7 @@ def simulate_build_preview(
         influence_ledger=influence_ledger,
         port_service_states=port_service_states,
         service_unlock_ledger=service_unlock_ledger,
+        cp_repair_suggestions=cp_repair_suggestions,
     )
     complexity = _complexity(cp, buildability, composition, confidence)
     final_score = round(
@@ -261,6 +264,7 @@ def simulate_build_preview(
             'warnings': cp['warnings'],
         },
         'cp_timeline': cp['timeline'],
+        'cp_repair_suggestions': cp_repair_suggestions_to_dict(cp_repair_suggestions),
         'economy_composition': economy_composition,
         'economy_order': economy_order,
         'economy_stack': stack_result.to_dict(),

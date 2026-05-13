@@ -25,6 +25,7 @@ function result(): SimulateBuildResponse {
       warnings: [],
     },
     cp_timeline: [],
+    cp_repair_suggestions: [],
     economy_composition: {},
     economy_order: [],
     economy_stack: {},
