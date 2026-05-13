@@ -992,6 +992,9 @@ function PortServicePanel({
                 <div className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
                   <span className="text-silver">{titleCase(entry.confidence)}:</span> {entry.reason}
                 </div>
+                {entry.caveats.slice(0, 1).map((caveat) => (
+                  <div key={caveat} className="mt-1 font-mono text-[10px] leading-snug text-gold">{caveat}</div>
+                ))}
               </div>
             ))}
           </div>
@@ -1021,6 +1024,7 @@ function ServiceEntryGroup({
           {entry.source_name && <span> · {entry.source_name}</span>}
           <span> · {titleCase(entry.unlock_type)}</span>
           {entry.requirements.length > 0 && <div className="mt-0.5 text-gold">{entry.requirements[0]}</div>}
+          {entry.caveats.length > 0 && <div className="mt-0.5 text-gold">{entry.caveats[0]}</div>}
         </div>
       ))}
     </div>

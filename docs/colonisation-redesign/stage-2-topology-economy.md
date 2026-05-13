@@ -142,9 +142,9 @@ This layer remains deterministic and explanatory. It does not optimise builds an
 
 ## Stage 4B Additive Layer: Per-Port Service Dependency Graph
 
-Stage 4B extends the same explainability pattern to services. The existing `services` response remains a backward-compatible system-level summary. The new `port_service_states` and `service_unlock_ledger` fields explain, per Main Port, which services are active, locked, or unknown; which facility or port caused each decision; whether the decision came from a port default, system unlock, strong-link unlock, inferred requirement, or unknown rule; and what is missing when a service is locked.
+Stage 4B extends the same explainability pattern to services. The existing `services` response remains a backward-compatible legacy/system-level summary. The new `port_service_states` and `service_unlock_ledger` fields explain, per Main Port, which services are active, locked, or unknown; which facility or port caused each decision; whether the decision came from a port default, system unlock, strong-link unlock, inferred requirement, pass-through caveat, converted-port caveat, or unknown rule; and what is missing when a service is locked.
 
-Strong-link service unlocks require an actual strong link to the target Main Port. System unlock text remains conservative and caveated where catalogue descriptions include unresolved port-type or facility-type qualifiers. Unknown service behaviour remains labelled `unknown` rather than treated as false.
+Strong-link service unlocks require an actual placement-specific strong link to the target Main Port. Weak links do not unlock strong-link services. Qualified system unlock text is not globally activated: simple deterministic qualifiers such as T1 surface or T2 orbital can be evaluated, while unresolved outpost/economy/faction-style qualifiers are marked unknown or locked with caveats. Pass-through service unlock behaviour is not assumed from economy pass-through, and converted-port service behaviour remains caveated. Unknown service behaviour remains labelled `unknown` rather than treated as false.
 
 ## Limitations And Future Work
 

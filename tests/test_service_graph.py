@@ -62,6 +62,7 @@ def facility(
 
 PORT = facility('ocellus', None, tier=2, is_port=True, allowed_location='orbital')
 OTHER_PORT = facility('orbis', None, tier=2, is_port=True, allowed_location='orbital')
+SURFACE_PORT = facility('surface_t1', None, tier=1, is_port=True, allowed_location='surface')
 RELAY = facility('relay_station', 'HighTech', is_support_facility=True, unlocks=[
     {'type': 'Strong Link Unlock', 'description': 'UC & VG, Commodities at Pirate, Scientific or Military Outposts'}
 ])
@@ -71,11 +72,17 @@ PIRATE = facility('pirate_base', 'Contraband', is_support_facility=True, unlocks
 MILITARY = facility('military_installation', 'Military', is_support_facility=True, unlocks=[
     {'type': 'System Unlock', 'description': 'Military Hub, Shipyard at T1 surface ports, Outfitting at non-Military Outposts'}
 ])
+UNQUALIFIED = facility('system_shipyard', 'Industrial', is_support_facility=True, unlocks=[
+    {'type': 'System Unlock', 'description': 'Shipyard'}
+])
+CONVERTED_SERVICE_PORT = facility('service_outpost', 'HighTech', tier=1, is_port=True, allowed_location='orbital', unlocks=[
+    {'type': 'Strong Link Unlock', 'description': 'UC'}
+])
 REFINERY = facility('refinery', 'Refinery', is_support_facility=True)
 
 
 def catalogue() -> dict[str, FacilityTemplate]:
-    items = [PORT, OTHER_PORT, RELAY, PIRATE, MILITARY, REFINERY]
+    items = [PORT, OTHER_PORT, SURFACE_PORT, RELAY, PIRATE, MILITARY, UNQUALIFIED, CONVERTED_SERVICE_PORT, REFINERY]
     return {item.id: item for item in items}
 
 
@@ -152,16 +159,33 @@ def test_unlinked_strong_link_unlock_is_locked_with_requirement():
     assert any(entry['requirements'] for entry in entries)
 
 
-def test_system_unlock_applies_to_each_main_port_without_removing_legacy_services():
+def test_unqualified_system_unlock_applies_to_each_main_port_without_removing_legacy_services():
     result = run([
         PreviewPlacement('ocellus', '1', is_primary_port=True, build_order=1),
         PreviewPlacement('orbis', '2', build_order=2),
-        PreviewPlacement('military_installation', '2', build_order=3),
+        PreviewPlacement('system_shipyard', '2', build_order=3),
     ])
 
     assert result['services']['shipyard']['status'] == 'active'
     assert all('shipyard' in state['active_services'] for state in result['port_service_states'])
     assert all(state['active_services']['shipyard']['unlock_type'] == 'system_unlock' for state in result['port_service_states'])
+
+
+def test_qualified_system_unlock_does_not_activate_on_non_matching_or_uncertain_ports():
+    result = run([
+        PreviewPlacement('ocellus', '1', is_primary_port=True, build_order=1),
+        PreviewPlacement('surface_t1', '2', build_order=2),
+        PreviewPlacement('military_installation', '2', build_order=3),
+    ])
+
+    orbital = state_for(result, 'ocellus')
+    surface = state_for(result, 'surface_t1')
+    assert 'shipyard' not in orbital['active_services']
+    assert orbital['locked_services']['shipyard']['status'] == 'locked'
+    assert 'shipyard' in surface['active_services']
+    assert 'outfitting' not in orbital['active_services']
+    assert orbital['unknown_services']['outfitting']['status'] == 'unknown'
+    assert any('qualifiers' in caveat for caveat in orbital['unknown_services']['outfitting']['caveats'])
 
 
 def test_unknown_and_locked_services_remain_explainable():
@@ -192,3 +216,65 @@ def test_service_unlock_ledger_uses_standard_confidence_labels_and_trace_events(
     assert result['mechanics_trace']['port_service_effects']
     assert result['mechanics_trace']['service_unlock_ledger_effects']
     SimulateBuildResponse.model_validate(result)
+
+
+def test_duplicate_same_template_strong_link_unlocks_match_each_local_port():
+    result = run([
+        PreviewPlacement('ocellus', '1', is_primary_port=True, build_order=1),
+        PreviewPlacement('relay_station', '1', build_order=2),
+        PreviewPlacement('orbis', '2', build_order=3),
+        PreviewPlacement('relay_station', '2', build_order=4),
+    ])
+
+    ocellus = state_for(result, 'ocellus')
+    orbis = state_for(result, 'orbis')
+    assert ocellus['active_services']['universal_cartographics']['target_port_id'] == 'ocellus'
+    assert orbis['active_services']['universal_cartographics']['target_port_id'] == 'orbis'
+    active_uc = service_entries(result, service='universal_cartographics', status='active', unlock_type='strong_link_unlock')
+    assert {entry['target_port_id'] for entry in active_uc} == {'ocellus', 'orbis'}
+
+
+def test_weak_link_does_not_unlock_strong_link_service_on_non_local_port():
+    result = run([
+        PreviewPlacement('ocellus', '1', is_primary_port=True, build_order=1),
+        PreviewPlacement('relay_station', '1', build_order=2),
+        PreviewPlacement('orbis', '2', build_order=3),
+    ])
+
+    ocellus = state_for(result, 'ocellus')
+    orbis = state_for(result, 'orbis')
+    assert 'universal_cartographics' in ocellus['active_services']
+    assert 'universal_cartographics' not in orbis['active_services']
+    assert orbis['locked_services'].get('universal_cartographics') or orbis['unknown_services'].get('universal_cartographics')
+
+
+def test_pass_through_service_behaviour_is_unknown_and_caveated():
+    result = run([
+        PreviewPlacement('surface_t1', '1', is_primary_port=True, build_order=1),
+        PreviewPlacement('orbis', '1', build_order=2),
+        PreviewPlacement('relay_station', '1', build_order=3),
+    ])
+
+    surface = state_for(result, 'surface_t1')
+    orbital = state_for(result, 'orbis')
+    assert 'universal_cartographics' in surface['active_services']
+    assert 'universal_cartographics' not in orbital['active_services']
+    pass_through_entries = [
+        entry for entry in result['service_unlock_ledger']
+        if entry['target_port_id'] == 'orbis' and entry['service'] == 'universal_cartographics' and entry['link_type'] == 'pass_through'
+    ]
+    assert pass_through_entries
+    assert pass_through_entries[0]['status'] == 'unknown'
+    assert any('Pass-through service unlock behaviour' in caveat for caveat in pass_through_entries[0]['caveats'])
+
+
+def test_converted_port_service_behaviour_is_caveated_and_not_verified():
+    result = run([
+        PreviewPlacement('ocellus', '1', is_primary_port=True, build_order=1),
+        PreviewPlacement('service_outpost', '1', build_order=2),
+    ])
+
+    entries = service_entries(result, service='universal_cartographics', status='active', unlock_type='strong_link_unlock')
+    assert entries
+    assert entries[0]['confidence'] == 'inferred'
+    assert any('Converted-port service unlock behaviour' in caveat for caveat in entries[0]['caveats'])

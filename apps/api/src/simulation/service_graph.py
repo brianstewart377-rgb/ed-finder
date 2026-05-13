@@ -33,7 +33,12 @@ LINK_SYSTEM = 'system'
 
 CONFIDENCE_COMMUNITY_OBSERVED = 'community_observed'
 CONFIDENCE_INFERRED = 'inferred'
+CONFIDENCE_SPECULATIVE = 'speculative'
 CONFIDENCE_UNKNOWN = 'unknown'
+
+_QUALIFIED_UNLOCK_CAVEAT = 'This service rule has qualifiers that ED-Finder cannot fully verify yet.'
+_PASS_THROUGH_SERVICE_CAVEAT = 'Pass-through service unlock behaviour is not yet verified; economy pass-through does not automatically imply service pass-through.'
+_CONVERTED_PORT_SERVICE_CAVEAT = 'Converted-port service unlock behaviour is inferred and should be verified in-game.'
 
 # Conservative hints for useful locked-service recommendations when no placed
 # facility currently documents that service. These are based on the bundled
@@ -78,6 +83,8 @@ class PortServiceState:
     body_name: str | None
     location_type: str
     effective_role: str
+    port_tier: int = 0
+    port_economy: str | None = None
     active_services: dict[str, ServiceUnlockEntry] = field(default_factory=dict)
     locked_services: dict[str, ServiceUnlockEntry] = field(default_factory=dict)
     unknown_services: dict[str, ServiceUnlockEntry] = field(default_factory=dict)
@@ -122,6 +129,8 @@ def build_port_service_states(
                 body_name=group.body_name,
                 location_type=port.location_type,
                 effective_role=role_by_key.get(_graph_key(port), role),
+                port_tier=getattr(port.facility, 'tier', 0) or 0,
+                port_economy=getattr(port, 'economy', None),
             )
             states[_port_key(port)] = state
 
@@ -172,7 +181,16 @@ def _apply_documented_unlocks(
     topology_graph: Any,
     graph_by_id_body: dict[tuple[str, str], Any],
 ) -> None:
-    strong_by_source = {link.source_facility_id: link for link in getattr(topology_graph, 'strong_links', [])}
+    strong_links = list(getattr(topology_graph, 'strong_links', []))
+    converted_keys = {
+        (port.facility_id, str(port.local_body_id or 'system'))
+        for port in getattr(topology_graph, 'converted_ports', [])
+    }
+    pass_through_links = list(getattr(topology_graph, 'pass_through_links', []))
+    pass_through_sources = {
+        (link.source_facility_id, str(link.local_body_id or 'system'))
+        for link in pass_through_links
+    }
     for placement in placements:
         facility = placement.facility
         graph_placement = graph_by_id_body.get((facility.id, str(placement.spec.local_body_id or 'system')))
@@ -184,35 +202,59 @@ def _apply_documented_unlocks(
             if not services:
                 continue
             if raw_type == 'Strong Link Unlock':
-                link = strong_by_source.get(facility.id)
-                if link is not None:
-                    state = states.get(_port_key_from_id(link.receiver_port_id, link.local_body_id))
-                    if state is None:
-                        continue
-                    for service in services:
-                        entry = ServiceUnlockEntry(
-                            service=service,
-                            status=SERVICE_STATUS_ACTIVE,
-                            source_id=facility.id,
-                            source_name=facility.name,
-                            source_type=source_type,
-                            target_port_id=link.receiver_port_id,
-                            target_port_name=link.receiver_port_name,
-                            local_body_id=link.local_body_id,
-                            unlock_type=UNLOCK_STRONG_LINK,
-                            link_type=LINK_STRONG,
-                            confidence=CONFIDENCE_COMMUNITY_OBSERVED,
-                            reason=f'{facility.name} strongly links to {link.receiver_port_name} and unlocks {_service_label(service)}.',
-                            requirements=[],
-                            caveats=_rule_caveats(text),
-                        )
-                        _record_entry(state, entry)
+                matching_links = _matching_strong_links(strong_links, placement)
+                if matching_links:
+                    for link in matching_links:
+                        state = states.get(_port_key_from_id(link.receiver_port_id, link.local_body_id))
+                        if state is None:
+                            continue
+                        source_key = (facility.id, str(placement.spec.local_body_id or 'system'))
+                        for service in services:
+                            caveats = _rule_caveats(text)
+                            confidence = CONFIDENCE_COMMUNITY_OBSERVED
+                            if source_key in converted_keys:
+                                caveats.append(_CONVERTED_PORT_SERVICE_CAVEAT)
+                                confidence = CONFIDENCE_INFERRED
+                            entry = ServiceUnlockEntry(
+                                service=service,
+                                status=SERVICE_STATUS_ACTIVE,
+                                source_id=facility.id,
+                                source_name=facility.name,
+                                source_type=source_type,
+                                target_port_id=link.receiver_port_id,
+                                target_port_name=link.receiver_port_name,
+                                local_body_id=link.local_body_id,
+                                unlock_type=UNLOCK_STRONG_LINK,
+                                link_type=LINK_STRONG,
+                                confidence=confidence,
+                                reason=f'{facility.name} strongly links to {link.receiver_port_name} and unlocks {_service_label(service)}.',
+                                requirements=[],
+                                caveats=_unique(caveats),
+                            )
+                            _record_entry(state, entry)
+                    _record_unverified_pass_through_entries(
+                        states=states,
+                        pass_through_links=pass_through_links,
+                        placement=placement,
+                        services=services,
+                        source_type=source_type,
+                        text=text,
+                    )
                 else:
                     target_states = _candidate_local_states(states, graph_placement)
                     for state in target_states:
                         for service in services:
                             if service in state.active_services:
                                 continue
+                            source_key = (facility.id, str(placement.spec.local_body_id or 'system'))
+                            caveats = _rule_caveats(text)
+                            confidence = CONFIDENCE_COMMUNITY_OBSERVED
+                            if source_key in pass_through_sources:
+                                caveats.append(_PASS_THROUGH_SERVICE_CAVEAT)
+                                confidence = CONFIDENCE_UNKNOWN
+                            if source_key in converted_keys:
+                                caveats.append(_CONVERTED_PORT_SERVICE_CAVEAT)
+                                confidence = CONFIDENCE_INFERRED
                             entry = ServiceUnlockEntry(
                                 service=service,
                                 status=SERVICE_STATUS_LOCKED,
@@ -224,18 +266,24 @@ def _apply_documented_unlocks(
                                 local_body_id=state.local_body_id,
                                 unlock_type=UNLOCK_STRONG_LINK,
                                 link_type=LINK_STRONG,
-                                confidence=CONFIDENCE_COMMUNITY_OBSERVED,
+                                confidence=confidence,
                                 reason=f'{facility.name} documents {_service_label(service)}, but it is not strongly linked to {state.port_name}.',
                                 requirements=[f'Strong-link {facility.name} to {state.port_name} on local body {state.local_body_id or "system"}.'],
-                                caveats=_rule_caveats(text),
+                                caveats=_unique(caveats),
                             )
                             _record_entry(state, entry)
             else:
                 for state in states.values():
                     for service in services:
+                        status, confidence, reason, requirements, caveats = _classify_system_unlock_for_port(
+                            service=service,
+                            text=text,
+                            facility_name=facility.name,
+                            state=state,
+                        )
                         entry = ServiceUnlockEntry(
                             service=service,
-                            status=SERVICE_STATUS_ACTIVE,
+                            status=status,
                             source_id=facility.id,
                             source_name=facility.name,
                             source_type=source_type,
@@ -244,12 +292,101 @@ def _apply_documented_unlocks(
                             local_body_id=state.local_body_id,
                             unlock_type=UNLOCK_SYSTEM,
                             link_type=LINK_SYSTEM,
-                            confidence=CONFIDENCE_COMMUNITY_OBSERVED,
-                            reason=f'{_service_label(service)} is documented as a system unlock from {facility.name}.',
-                            requirements=[],
-                            caveats=_rule_caveats(text),
+                            confidence=confidence,
+                            reason=reason,
+                            requirements=requirements,
+                            caveats=caveats,
                         )
                         _record_entry(state, entry)
+
+
+def _record_unverified_pass_through_entries(
+    *,
+    states: dict[str, PortServiceState],
+    pass_through_links: list[Any],
+    placement: Any,
+    services: list[str],
+    source_type: str,
+    text: str,
+) -> None:
+    body_id = str(placement.spec.local_body_id or 'system')
+    for link in pass_through_links:
+        if link.source_facility_id != placement.facility.id or str(link.local_body_id or 'system') != body_id:
+            continue
+        state = states.get(_port_key_from_id(link.orbital_receiver_id, link.local_body_id))
+        if state is None:
+            continue
+        for service in services:
+            if service in state.active_services:
+                continue
+            entry = ServiceUnlockEntry(
+                service=service,
+                status=SERVICE_STATUS_UNKNOWN,
+                source_id=placement.facility.id,
+                source_name=placement.facility.name,
+                source_type=source_type,
+                target_port_id=state.port_id,
+                target_port_name=state.port_name,
+                local_body_id=state.local_body_id,
+                unlock_type=UNLOCK_UNKNOWN,
+                link_type=LINK_PASS_THROUGH,
+                confidence=CONFIDENCE_UNKNOWN,
+                reason=f'{placement.facility.name} has pass-through topology toward {state.port_name}, but service pass-through is not verified for {_service_label(service)}.',
+                requirements=[],
+                caveats=_unique([*_rule_caveats(text), _PASS_THROUGH_SERVICE_CAVEAT]),
+            )
+            _record_entry(state, entry)
+
+
+def _matching_strong_links(strong_links: list[Any], placement: Any) -> list[Any]:
+    body_id = str(placement.spec.local_body_id or 'system')
+    return [
+        link for link in strong_links
+        if link.source_facility_id == placement.facility.id and str(link.local_body_id or 'system') == body_id
+    ]
+
+
+def _classify_system_unlock_for_port(
+    *,
+    service: str,
+    text: str,
+    facility_name: str,
+    state: PortServiceState,
+) -> tuple[str, str, str, list[str], list[str]]:
+    fragment = _service_fragment(text, service)
+    caveats = _rule_caveats(fragment)
+    if not _unlock_has_qualifiers(fragment):
+        return (
+            SERVICE_STATUS_ACTIVE,
+            CONFIDENCE_COMMUNITY_OBSERVED,
+            f'{_service_label(service)} is documented as an unqualified system unlock from {facility_name}.',
+            [],
+            caveats,
+        )
+    match = _port_matches_service_qualifier(fragment, state)
+    if match is True:
+        return (
+            SERVICE_STATUS_ACTIVE,
+            CONFIDENCE_COMMUNITY_OBSERVED,
+            f'{_service_label(service)} qualifier appears to match {state.port_name}: {fragment}.',
+            [],
+            caveats,
+        )
+    if match is False:
+        return (
+            SERVICE_STATUS_LOCKED,
+            CONFIDENCE_INFERRED,
+            f'{_service_label(service)} is documented by {facility_name}, but {state.port_name} does not satisfy the qualifier: {fragment}.',
+            [f'Use a Main Port that satisfies this catalogue qualifier: {fragment}.'],
+            caveats,
+        )
+    return (
+        SERVICE_STATUS_UNKNOWN,
+        CONFIDENCE_UNKNOWN,
+        f'{_service_label(service)} has catalogue qualifiers that ED-Finder cannot fully verify for {state.port_name}: {fragment}.',
+        [],
+        _unique([*caveats, _QUALIFIED_UNLOCK_CAVEAT]),
+    )
 
 
 def _candidate_local_states(states: dict[str, PortServiceState], graph_placement: Any | None) -> list[PortServiceState]:
@@ -335,12 +472,55 @@ def _services_in_text(text: str) -> list[str]:
     return sorted(service for service, phrases in SERVICE_PHRASES.items() if any(phrase in lowered for phrase in phrases))
 
 
+def _service_fragment(text: str, service: str) -> str:
+    clauses = [clause.strip() for clause in text.replace(';', ',').split(',') if clause.strip()]
+    phrases = SERVICE_PHRASES.get(service, [])
+    for clause in clauses:
+        lowered = clause.lower()
+        if any(phrase in lowered for phrase in phrases):
+            return clause
+    return text
+
+
+def _unlock_has_qualifiers(text: str) -> bool:
+    lowered = text.lower()
+    markers = (' at ', ' non-', 'only ', 'outpost', 'outposts', 'port', 'ports', 'surface', 'orbital', 'industrial', 'military', 'pirate', 'scientific')
+    return any(marker in lowered for marker in markers)
+
+
+def _port_matches_service_qualifier(text: str, state: PortServiceState) -> bool | None:
+    lowered = text.lower()
+    if 't1 surface' in lowered:
+        return state.location_type == 'surface' and state.port_tier == 1
+    if 't2 orbital' in lowered:
+        return state.location_type == 'orbital' and state.port_tier == 2
+    if 'surface port' in lowered or 'surface ports' in lowered:
+        return state.location_type == 'surface'
+    if 'orbital port' in lowered or 'orbital ports' in lowered:
+        return state.location_type == 'orbital'
+    # Outpost/faction/economy qualifiers are not yet reliably mapped to every
+    # port template, so they remain unknown instead of being over-activated.
+    if any(marker in lowered for marker in ('outpost', 'outposts', 'non-', 'pirate', 'scientific', 'military', 'industrial')):
+        return None
+    return None
+
+
 def _rule_caveats(text: str) -> list[str]:
     lowered = text.lower()
     caveats: list[str] = []
-    if ' at ' in lowered or ' non-' in lowered or ' or ' in lowered:
-        caveats.append('Catalogue unlock text contains port-type or facility-type qualifiers; Stage 4B models this conservatively.')
+    if _unlock_has_qualifiers(text) or ' or ' in lowered:
+        caveats.append('This service rule has qualifiers that ED-Finder cannot fully verify yet.')
     return caveats
+
+
+def _unique(items: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item and item not in seen:
+            result.append(item)
+            seen.add(item)
+    return result
 
 
 def _service_label(service: str) -> str:
