@@ -7,7 +7,7 @@ ledger explaining how each Main Port receives economy pressure.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from mechanics.economy_rules import FACILITY_ECONOMY_WEIGHTS
 
@@ -23,9 +23,9 @@ INFLUENCE_REGIONAL_CONTEXT = 'regional_context'
 
 _CONFIDENCE_INFERRED = 'inferred'
 _CONFIDENCE_COMMUNITY_OBSERVED = 'community_observed'
-_CONFIDENCE_LOW = 'low'
+_CONFIDENCE_ESTIMATED = 'estimated'
+_BODY_INHERITANCE_LOW_CONFIDENCE_CAVEAT = 'Body inheritance confidence is below the verified threshold.'
 _TERTIARY_THRESHOLD = 15.0
-_MAJOR_INFLUENCE_THRESHOLD = 0.4
 
 
 @dataclass(frozen=True)
@@ -104,10 +104,7 @@ def build_port_economy_states(
         for item in getattr(topology_graph, 'classified_placements', [])
     }
     resolved_by_key = {_resolved_key(item): item for item in placements}
-    graph_by_key = {_graph_key(item): item for group in getattr(topology_graph, 'local_body_groups', []) for item in group.facilities}
-
     states: dict[str, PortEconomyState] = {}
-    port_by_body_location: dict[tuple[str | None, str], Any] = {}
 
     for group in getattr(topology_graph, 'local_body_groups', []):
         for port, role in ((getattr(group, 'main_surface_port', None), 'main_surface_port'), (getattr(group, 'main_orbital_port', None), 'main_orbital_port')):
@@ -122,7 +119,6 @@ def build_port_economy_states(
                 effective_role=role_by_key.get(_graph_key(port), role),
             )
             states[_port_key(port)] = state
-            port_by_body_location[(group.local_body_id, port.location_type)] = port
 
     if not states:
         return [], []
@@ -135,7 +131,14 @@ def build_port_economy_states(
             profile = getattr(resolved, 'economy_profile', None)
             if profile is None or not getattr(profile, 'weights', None):
                 continue
-            target = _local_direct_target(graph_placement, group)
+            # Direct influence is reserved for Main Ports: colony ports may inherit
+            # body economies and specialised Main Ports may carry their own economy.
+            # Support facilities deliberately contribute through strong, weak,
+            # pass-through, or converted-port links so their economy is not counted
+            # once as direct pressure and again as linked pressure.
+            if not _is_direct_port_influence_source(graph_placement, group):
+                continue
+            target = graph_placement
             if target is None:
                 continue
             state = states.get(_port_key(target))
@@ -150,12 +153,14 @@ def build_port_economy_states(
                     continue
                 influence_type = INFLUENCE_BODY_INHERITANCE if inherited else INFLUENCE_DIRECT_FACILITY
                 caveats = list(getattr(profile, 'caveats', []) or [])
+                confidence = _profile_confidence(profile) if inherited else _CONFIDENCE_COMMUNITY_OBSERVED
+                if inherited and confidence == _CONFIDENCE_ESTIMATED:
+                    caveats.append(_BODY_INHERITANCE_LOW_CONFIDENCE_CAVEAT)
                 reason = (
                     f'{graph_placement.facility_name} inherits {economy} from local body economy profile.'
                     if inherited else
                     f'{graph_placement.facility_name} directly contributes {economy} to the local Main Port economy stack.'
                 )
-                confidence = _profile_confidence(profile) if inherited else _CONFIDENCE_COMMUNITY_OBSERVED
                 influence = EconomyInfluence(
                     source_id=graph_placement.facility_id,
                     source_name=graph_placement.facility_name,
@@ -178,7 +183,6 @@ def build_port_economy_states(
         state = states.get(_port_key_from_id(link.receiver_port_id, getattr(link, 'local_body_id', None)))
         if state is None or not link.economy:
             continue
-        source_graph = graph_by_key.get((link.source_facility_id, str(link.local_body_id), _graph_build_order_lookup(graph_by_key, link.source_facility_id, str(link.local_body_id))))
         source_type = 'converted_port' if _is_converted(topology_graph, link.source_facility_id, link.local_body_id) else 'facility'
         caveats = list(getattr(link, 'caveats', []) or [])
         if source_type == 'converted_port':
@@ -201,8 +205,6 @@ def build_port_economy_states(
         )
         _add_influence(state, influence)
         _add_value(state.converted_port_economies if source_type == 'converted_port' else state.strong_link_economies, str(link.economy), float(link.value))
-        if source_graph is None:
-            continue
 
     for link in getattr(topology_graph, 'weak_links', []):
         state = states.get(_port_key_from_id(link.receiver_port_id, getattr(link, 'target_body_id', None)))
@@ -273,13 +275,10 @@ def aggregate_port_strengths(port_states: list[PortEconomyState]) -> dict[str, f
     return strengths
 
 
-def _local_direct_target(graph_placement: Any, group: Any) -> Optional[Any]:
-    if graph_placement.facility.is_port:
-        if graph_placement == getattr(group, 'main_surface_port', None) or graph_placement == getattr(group, 'main_orbital_port', None):
-            return graph_placement
-    if graph_placement.location_type == 'surface':
-        return getattr(group, 'main_surface_port', None) or getattr(group, 'main_orbital_port', None)
-    return getattr(group, 'main_orbital_port', None) or getattr(group, 'main_surface_port', None)
+def _is_direct_port_influence_source(graph_placement: Any, group: Any) -> bool:
+    if not graph_placement.facility.is_port:
+        return False
+    return graph_placement == getattr(group, 'main_surface_port', None) or graph_placement == getattr(group, 'main_orbital_port', None)
 
 
 def _add_influence(state: PortEconomyState, influence: EconomyInfluence) -> None:
@@ -351,7 +350,7 @@ def _profile_confidence(profile: Any) -> str:
     confidence = float(getattr(profile, 'confidence', 0.0) or 0.0)
     if confidence >= 0.75:
         return _CONFIDENCE_INFERRED
-    return _CONFIDENCE_LOW
+    return _CONFIDENCE_ESTIMATED
 
 
 def _round_map(values: dict[str, float], *, ndigits: int = 3) -> dict[str, float]:
@@ -390,13 +389,6 @@ def _port_key(port: Any) -> str:
 
 def _port_key_from_id(port_id: str, local_body_id: str | None) -> str:
     return f'{local_body_id or "system"}::{port_id}'
-
-
-def _graph_build_order_lookup(graph_by_key: dict[tuple[str, str, int], Any], facility_id: str, local_body_id: str) -> int:
-    for candidate_facility_id, candidate_body_id, build_order in graph_by_key:
-        if candidate_facility_id == facility_id and candidate_body_id == local_body_id:
-            return build_order
-    return 0
 
 
 def _is_converted(topology_graph: Any, facility_id: str, local_body_id: str | None) -> bool:

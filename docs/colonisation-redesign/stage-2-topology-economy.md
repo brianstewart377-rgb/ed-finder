@@ -21,15 +21,14 @@ Main ports are selected from topology rules:
 
 Economy strength now comes from these deterministic sources:
 
-- Direct facility economy contribution.
-- Inherited body profile economies for colony ports.
-- Strong links into same-body main ports.
-- Fixed weak links into main ports on other bodies.
+- Direct Main Port economy contribution for specialised Main Ports.
+- Inherited body profile economies for colony Main Ports.
+- Strong links from same-body support facilities into Main Ports.
+- Fixed weak links from support facilities into Main Ports on other bodies.
 - Surface-to-orbital pass-through links.
 - Converted ports acting as support emitters, with caveats.
 
-Pass-through links are visible in the API, but a support facility is not counted
-twice when its same-body strong link has already contributed.
+Support facilities are not counted as both direct pressure and link pressure against the same Main Port. Their normal contribution path is the topology graph: strong links, weak links, pass-through links, or converted-port links. Pass-through links are visible in the API, but a support facility is not counted twice when its same-body strong link has already contributed to the same receiver.
 
 ## Strong And Weak Links
 
@@ -129,7 +128,7 @@ the internal simulation score is computed.
 
 Stage 4A extends this Stage 2 topology/economy architecture without replacing it. The topology graph remains the source of truth for local body grouping, Main Surface Port and Main Orbital Port selection, strong links, weak links, pass-through links, and converted-port detection. The new `simulation.port_economy` module consumes that graph and creates a `PortEconomyState` for each Main Port.
 
-The key architectural change is that the simulation now builds an influence ledger first, then derives each port’s economy stack, then aggregates those port states back into the backward-compatible system-level fields. This preserves existing API fields such as `economy_composition`, `economy_order`, `economy_stack`, `links`, and `topology`, while adding `port_economy_states` and `influence_ledger` for explainability.
+The key architectural change is that the simulation now builds an influence ledger first, then derives each port’s economy stack, then aggregates those port states back into the backward-compatible system-level fields. This preserves existing API fields such as `economy_composition`, `economy_order`, `economy_stack`, `links`, and `topology`, while adding `port_economy_states` and `influence_ledger` for explainability. Influence entries use the standard confidence vocabulary; low-confidence body inheritance is labelled `estimated` with a caveat rather than using a non-standard `low` label.
 
 | Stage 2 System | Stage 4A Extension |
 |---|---|
