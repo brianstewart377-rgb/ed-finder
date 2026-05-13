@@ -125,6 +125,21 @@ Simulation responses include:
 Recommended builds consume this output and lightly blend regional fit only after
 the internal simulation score is computed.
 
+## Stage 4A Additive Layer: Per-Port Economy Propagation
+
+Stage 4A extends this Stage 2 topology/economy architecture without replacing it. The topology graph remains the source of truth for local body grouping, Main Surface Port and Main Orbital Port selection, strong links, weak links, pass-through links, and converted-port detection. The new `simulation.port_economy` module consumes that graph and creates a `PortEconomyState` for each Main Port.
+
+The key architectural change is that the simulation now builds an influence ledger first, then derives each port’s economy stack, then aggregates those port states back into the backward-compatible system-level fields. This preserves existing API fields such as `economy_composition`, `economy_order`, `economy_stack`, `links`, and `topology`, while adding `port_economy_states` and `influence_ledger` for explainability.
+
+| Stage 2 System | Stage 4A Extension |
+|---|---|
+| Topology graph chooses Main Ports and links. | Port economy states consume those Main Ports and links. |
+| Economy stack reports system-level percentages. | Each Main Port reports its own stack and contamination sources. |
+| Mechanics trace explains broad economy/link effects. | Mechanics trace also records port-state creation, top-two protection, major influences, weak-link contamination, and pass-through influence. |
+| Converted ports are surfaced as caveated topology entries. | Converted-port influence appears in the ledger with caveats. |
+
+This layer remains deterministic and explanatory. It does not optimise builds and does not add unsupported mechanics beyond the already documented inferred rules.
+
 ## Limitations And Future Work
 
 Stage 2 is still a planner preview, not a full optimiser. It does not claim to

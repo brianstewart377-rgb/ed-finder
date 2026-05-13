@@ -43,6 +43,8 @@ TRACE_CATEGORIES = [
     'weak_link_effects',
     'pass_through_effects',
     'converted_port_effects',
+    'port_economy_effects',
+    'influence_ledger_effects',
     'regional_effects',
     'purity_effects',
     'contamination_effects',
@@ -64,6 +66,8 @@ def trace_simulation(
     economy_stack: dict[str, Any],
     services: dict[str, Any],
     confidence_signals: list[ConfidenceSignal],
+    port_economy_states: list[Any] | None = None,
+    influence_ledger: list[Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     trace = empty_trace()
 
@@ -123,6 +127,63 @@ def trace_simulation(
             confidence=ConfidenceLevel.INFERRED.value,
             source=SOURCE_FRONTIER_LINKS,
         ).to_dict())
+
+    for state in port_economy_states or []:
+        top_two = getattr(state, 'top_two', []) or []
+        label = getattr(state, 'port_name', 'Main Port')
+        trace['port_economy_effects'].append(MechanicsTraceEvent(
+            category='port_economy_effects',
+            label=label,
+            description=(
+                f'{label} port economy state created with '
+                f'{", ".join(top_two) if top_two else "no protected top-two economies"}.'
+            ),
+            value_after=round(float(getattr(state, 'purity_score', 0.0) or 0.0), 1),
+            confidence=ConfidenceLevel.INFERRED.value,
+            source=SOURCE_MEGA_GUIDE,
+        ).to_dict())
+        if top_two:
+            trace['port_economy_effects'].append(MechanicsTraceEvent(
+                category='port_economy_effects',
+                label=f'{label} top-two protection',
+                description=f'{label} protects {" / ".join(top_two)} as the dominant local economy pair.',
+                confidence=ConfidenceLevel.INFERRED.value,
+                source=SOURCE_MEGA_GUIDE,
+            ).to_dict())
+        for influence in getattr(state, 'contamination_sources', []) or []:
+            trace['contamination_effects'].append(MechanicsTraceEvent(
+                category='contamination_effects',
+                label=f'{getattr(influence, "source_name", "Source")} -> {label}',
+                description=(
+                    f'{getattr(influence, "economy", "Economy")} contamination source detected via '
+                    f'{getattr(influence, "influence_type", "influence")}.'
+                ),
+                delta=round(float(getattr(influence, 'value', 0.0) or 0.0), 3),
+                confidence=ConfidenceLevel.INFERRED.value,
+                source=SOURCE_FRONTIER_LINKS,
+            ).to_dict())
+
+    for influence in influence_ledger or []:
+        influence_type = getattr(influence, 'influence_type', '')
+        value = float(getattr(influence, 'value', 0.0) or 0.0)
+        if value >= 0.4 or influence_type in {'weak_link', 'pass_through'}:
+            trace['influence_ledger_effects'].append(MechanicsTraceEvent(
+                category='influence_ledger_effects',
+                label=f'{getattr(influence, "source_name", "Source")} -> {getattr(influence, "target_port_name", "Main Port")}',
+                description=str(getattr(influence, 'reason', '') or f'{influence_type} influence recorded in the ledger.'),
+                delta=round(value, 3),
+                confidence=str(getattr(influence, 'confidence', ConfidenceLevel.INFERRED.value)),
+                source=SOURCE_FRONTIER_LINKS,
+            ).to_dict())
+            if influence_type == 'weak_link':
+                trace['contamination_effects'].append(MechanicsTraceEvent(
+                    category='contamination_effects',
+                    label=f'Weak-link contamination: {getattr(influence, "target_port_name", "Main Port")}',
+                    description=str(getattr(influence, 'reason', 'Weak-link contamination pressure recorded.')),
+                    delta=round(value, 3),
+                    confidence=ConfidenceLevel.INFERRED.value,
+                    source=SOURCE_FRONTIER_LINKS,
+                ).to_dict())
 
     for step in cp.get('timeline', []):
         for warning in step.get('warnings', []):

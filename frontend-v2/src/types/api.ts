@@ -138,6 +138,49 @@ export interface SimulationLinks {
   weak_links: SimulationLink[];
 }
 
+export interface EconomyInfluence {
+  source_id: string;
+  source_name: string;
+  source_type: string;
+  target_port_id: string;
+  target_port_name: string;
+  local_body_id?: string | null;
+  economy: string;
+  value: number;
+  influence_type: string;
+  link_type?: string | null;
+  confidence: string;
+  reason: string;
+  caveats: string[];
+}
+
+export interface PortEconomyState {
+  port_id: string;
+  port_name: string;
+  local_body_id?: string | null;
+  body_name?: string | null;
+  location_type: string;
+  effective_role: string;
+  inherited_economies: Record<string, number>;
+  direct_economies: Record<string, number>;
+  strong_link_economies: Record<string, number>;
+  weak_link_economies: Record<string, number>;
+  pass_through_economies: Record<string, number>;
+  converted_port_economies: Record<string, number>;
+  final_economy_strengths: Record<string, number>;
+  final_economy_composition: Record<string, number>;
+  economy_order: string[];
+  top_two: string[];
+  tertiary_economies: string[];
+  purity_score: number;
+  contamination_risk: string;
+  contamination_sources: EconomyInfluence[];
+  influences: EconomyInfluence[];
+  warnings: string[];
+  strengths: string[];
+  recommendations: string[];
+}
+
 export interface SimulationInheritedEconomy {
   source_body_id?: string | null;
   source_body_name?: string | null;
@@ -164,6 +207,8 @@ export interface SimulateBuildResponse {
   economy_composition: Record<string, number>;
   economy_order: string[];
   economy_stack: Record<string, unknown>;
+  port_economy_states: PortEconomyState[];
+  influence_ledger: EconomyInfluence[];
   inherited_economies: SimulationInheritedEconomy[];
   topology: Record<string, unknown>;
   services: Record<string, { status: string; reason: string; requirements: string[] }>;
@@ -198,6 +243,7 @@ export interface RecommendedBuildPlan {
   composition_score: number;
   buildability_score: number;
   economy_result: Record<string, number>;
+  port_economy_summary: string[];
   cp_result: SimulationCPResult;
   build_order: SimulateBuildPlacement[];
   strengths: string[];

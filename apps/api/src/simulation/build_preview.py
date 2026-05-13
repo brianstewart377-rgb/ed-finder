@@ -55,6 +55,12 @@ from mechanics.versions import MECHANICS_VERSION
 from simulation.build_order import simulate_build_order
 from simulation.economy_stack import analyse_economy_stack
 from simulation.mechanics_trace import trace_simulation
+from simulation.port_economy import (
+    aggregate_port_strengths,
+    build_port_economy_states,
+    influence_ledger_to_dict,
+    port_states_to_dict,
+)
 from simulation.services import model_services
 from simulation.topology_graph import GraphPlacement, build_topology_graph, infer_location_type
 
@@ -155,7 +161,11 @@ def simulate_build_preview(
     warnings.extend(topology_graph.warnings)
     _extend_topology_notes(topology_graph, warnings, mechanics_notes)
 
-    economy_strengths = _simulate_economies(resolved, topology_graph)
+    port_economy_states, influence_ledger = build_port_economy_states(
+        placements=resolved,
+        topology_graph=topology_graph,
+    )
+    economy_strengths = aggregate_port_strengths(port_economy_states)
     links = _links_to_response(topology_graph)
     economy_composition = _to_percentages(economy_strengths)
     economy_order = sorted(economy_composition, key=economy_composition.get, reverse=True)
@@ -199,6 +209,8 @@ def simulate_build_preview(
         economy_stack=stack_result.to_dict(),
         services=services,
         confidence_signals=confidence_signals,
+        port_economy_states=port_economy_states,
+        influence_ledger=influence_ledger,
     )
     complexity = _complexity(cp, buildability, composition, confidence)
     final_score = round(
@@ -241,6 +253,8 @@ def simulate_build_preview(
         'economy_composition': economy_composition,
         'economy_order': economy_order,
         'economy_stack': stack_result.to_dict(),
+        'port_economy_states': port_states_to_dict(port_economy_states),
+        'influence_ledger': influence_ledger_to_dict(influence_ledger),
         'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
         'topology': _topology_to_response(topology_graph),
         'services': services,

@@ -28,6 +28,8 @@ function result(): SimulateBuildResponse {
     economy_composition: {},
     economy_order: [],
     economy_stack: {},
+    port_economy_states: [],
+    influence_ledger: [],
     inherited_economies: [],
     topology: {},
     services: {},

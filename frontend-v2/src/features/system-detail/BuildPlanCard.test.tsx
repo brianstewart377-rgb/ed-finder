@@ -14,6 +14,7 @@ function plan(): RecommendedBuildPlan {
     composition_score: 82,
     buildability_score: 86,
     economy_result: { Refinery: 42, Industrial: 38, Extraction: 8 },
+    port_economy_summary: ['Main port economy: Refinery / Industrial'],
     cp_result: {
       yellow_cp_final: 4,
       green_cp_final: 1,

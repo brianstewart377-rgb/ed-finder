@@ -945,6 +945,8 @@ class SimulateBuildResponse(BaseModel):
     economy_composition: dict[str, float] = Field(default_factory=dict)
     economy_order:       list[str] = Field(default_factory=list)
     economy_stack:       dict[str, Any] = Field(default_factory=dict)
+    port_economy_states: list[dict[str, Any]] = Field(default_factory=list)
+    influence_ledger:    list[dict[str, Any]] = Field(default_factory=list)
     inherited_economies: list[SimulationInheritedEconomy] = Field(default_factory=list)
     topology:            dict[str, Any] = Field(default_factory=dict)
     services:            dict[str, Any] = Field(default_factory=dict)
@@ -972,6 +974,7 @@ class RecommendedBuildPlan(BaseModel):
     composition_score:  float
     buildability_score: float
     economy_result:     dict[str, float] = Field(default_factory=dict)
+    port_economy_summary: list[str] = Field(default_factory=list)
     cp_result:          SimulationCPResult
     build_order:        list[SimulateBuildPlacement] = Field(default_factory=list)
     strengths:          list[str] = Field(default_factory=list)
