@@ -61,6 +61,8 @@ def rank_breakdown(simulation: SimulateBuildResponse, *, regional_fit: float = 0
     economy_component = simulation.composition_score * RANK_SCORE_WEIGHTS['economy_stack_score']
     buildability_component = simulation.buildability_score * RANK_SCORE_WEIGHTS['buildability_score']
     confidence_penalty = max(0.0, (1.0 - simulation.confidence) * RANK_SCORE_WEIGHTS['confidence_bonus'])
+    # Confidence is a small bonus reduced by a low-confidence penalty, not a
+    # full 0-100 weighted score. Local simulation quality stays dominant.
     confidence_component = RANK_SCORE_WEIGHTS['confidence_bonus'] - confidence_penalty
     regional_component = regional_fit * REGIONAL_RECOMMENDATION_WEIGHT
     # Reserved for service-aware ranking v2. Service unlocks are exposed today,

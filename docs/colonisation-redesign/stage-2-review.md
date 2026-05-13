@@ -49,6 +49,12 @@ what should not be overclaimed.
 - `mechanics_trace` gives structured debug events.
 - `rank_breakdown` exposes recommendation ranking components.
 - `decision_explanation` explains why a plan won and what assumptions matter.
+- Regional fit lightly affects ranking, but it is intentionally too small to
+  override a clearly stronger local build.
+- Service unlocks are modelled and displayed in Simulation Preview; service-aware
+  ranking is intentionally deferred.
+- Confidence is applied as a small bonus/penalty adjustment, not as a standalone
+  0-100 score component.
 
 ## Near-Term Recommendations
 

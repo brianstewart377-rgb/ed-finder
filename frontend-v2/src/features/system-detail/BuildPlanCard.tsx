@@ -135,7 +135,7 @@ export function BuildPlanCard({
           )}
           {serviceScoringReserved && (
             <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
-              Service scoring is not yet included in recommendation ranking.
+              Service unlocks are shown in Simulation Preview, but service-aware ranking is reserved for a later pass.
             </p>
           )}
         </details>

@@ -74,7 +74,8 @@ describe('BuildPlanCard explainability', () => {
     expect(screen.getAllByText(/This plan ranked highest/).length).toBeGreaterThan(0);
     expect(screen.getByText('Regional Fit Score')).toBeTruthy();
     expect(screen.queryByText('Service Score')).toBeNull();
-    expect(screen.getByText(/Service scoring is not yet included/)).toBeTruthy();
+    expect(screen.queryByText(/Service Score\s*0/i)).toBeNull();
+    expect(screen.getByText(/Service unlocks are shown in Simulation Preview/)).toBeTruthy();
     expect(screen.getByText(/Regional fit is a light adjustment/)).toBeTruthy();
   });
 });
