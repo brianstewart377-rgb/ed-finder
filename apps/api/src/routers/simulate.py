@@ -183,6 +183,7 @@ async def get_recommended_builds(
             composition_score=simulation.composition_score,
             buildability_score=simulation.buildability_score,
             economy_result=simulation.economy_composition,
+            port_economy_summary=_port_economy_summary(simulation),
             cp_result=simulation.cp,
             build_order=draft.request.placements,
             strengths=simulation.strengths[:4],
@@ -395,6 +396,27 @@ def _decision_explanation(
         'sensitive_assumptions': assumptions,
         'confidence_summary': _confidence_summary(simulation),
     }
+
+
+def _port_economy_summary(simulation: SimulateBuildResponse) -> list[str]:
+    summaries: list[str] = []
+    states = simulation.port_economy_states or []
+    if not states:
+        return summaries
+    main = states[0]
+    top_two = [str(item) for item in main.get('top_two', []) if item]
+    if top_two:
+        summaries.append(f'Main port economy: {" / ".join(top_two[:2])}')
+    sources = main.get('contamination_sources') or []
+    if sources:
+        source = sources[0]
+        economy = source.get('economy') or 'off-pair economy'
+        source_name = source.get('source_name') or 'another source'
+        influence_type = str(source.get('influence_type') or 'influence').replace('_', ' ')
+        summaries.append(f'Contamination source: {influence_type} {economy} from {source_name}')
+    elif main.get('tertiary_economies'):
+        summaries.append(f'Tertiary pressure: {", ".join(main.get("tertiary_economies", [])[:2])}')
+    return summaries[:2]
 
 
 def _confidence_summary(simulation: SimulateBuildResponse) -> str:

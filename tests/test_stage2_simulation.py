@@ -221,3 +221,61 @@ def test_service_strong_link_unlock_and_locked_requirement():
     locked = model_services([type('P', (), {'facility': BLACK_MARKET})()], locked_graph)['black_market']
     assert locked['status'] == 'locked'
     assert locked['requirements']
+
+
+def test_port_economy_state_and_ledger_explain_main_port_stack():
+    result = run([
+        PreviewPlacement('coriolis', '1', is_primary_port=True, build_order=1),
+        PreviewPlacement('refinery', '1', build_order=2),
+        PreviewPlacement('industrial', '1', build_order=3),
+        PreviewPlacement('orbis_t3', '2', build_order=4),
+        PreviewPlacement('extraction', '2', build_order=5),
+    ])
+
+    assert result['port_economy_states']
+    main = next(state for state in result['port_economy_states'] if state['port_id'] == 'coriolis')
+    assert main['top_two'][:2] == ['Industrial', 'Refinery']
+    assert main['strong_link_economies']['Refinery'] == 0.4
+    assert main['weak_link_economies']['Extraction'] == 0.05
+    assert any(item['influence_type'] == 'strong_link' for item in result['influence_ledger'])
+    assert any(item['influence_type'] == 'weak_link' for item in result['influence_ledger'])
+    assert 'port_economy_effects' in result['mechanics_trace']
+    assert result['mechanics_trace']['port_economy_effects']
+
+
+def test_pass_through_ledger_targets_orbital_without_duplicate_system_inflation():
+    result = run([
+        PreviewPlacement('surface_port', '1', is_primary_port=True, build_order=1),
+        PreviewPlacement('orbis_t3', '1', build_order=2),
+        PreviewPlacement('refinery', '1', build_order=3),
+    ])
+
+    pass_through = [item for item in result['influence_ledger'] if item['influence_type'] == 'pass_through']
+    assert pass_through
+    assert all(item['target_port_id'] == 'orbis_t3' for item in pass_through)
+    assert result['economy_composition']
+    assert result['economy_order']
+
+
+def test_converted_port_appears_in_ledger_with_caveat():
+    result = run([
+        PreviewPlacement('orbis_t3', '1', is_primary_port=True, build_order=1),
+        PreviewPlacement('asteroid_base', '1', build_order=2),
+        PreviewPlacement('coriolis', '2', build_order=3),
+    ])
+
+    converted_entries = [item for item in result['influence_ledger'] if item['influence_type'] == 'converted_port']
+    assert converted_entries
+    assert any(item['caveats'] for item in converted_entries)
+
+
+def test_empty_no_port_simulation_keeps_response_shape_without_crashing():
+    result = run([
+        PreviewPlacement('refinery', '1', build_order=1),
+        PreviewPlacement('industrial', '2', build_order=2),
+    ])
+
+    assert result['port_economy_states'] == []
+    assert result['influence_ledger'] == []
+    assert 'economy_composition' in result
+    assert 'links' in result

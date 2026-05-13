@@ -1913,6 +1913,8 @@ export interface components {
             economy_result?: {
                 [key: string]: number;
             };
+            /** Port Economy Summary */
+            port_economy_summary?: string[];
             cp_result: components["schemas"]["SimulationCPResult"];
             /** Build Order */
             build_order?: components["schemas"]["SimulateBuildPlacement"][];
@@ -2203,6 +2205,10 @@ export interface components {
             economy_order?: string[];
             /** Economy Stack */
             economy_stack?: Record<string, never>;
+            /** Port Economy States */
+            port_economy_states?: Record<string, never>[];
+            /** Influence Ledger */
+            influence_ledger?: Record<string, never>[];
             /** Inherited Economies */
             inherited_economies?: components["schemas"]["SimulationInheritedEconomy"][];
             /** Topology */

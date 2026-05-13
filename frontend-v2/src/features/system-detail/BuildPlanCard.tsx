@@ -48,6 +48,15 @@ export function BuildPlanCard({
         </div>
       </div>
 
+      {plan.port_economy_summary.length > 0 && (
+        <div className="mt-3 rounded border border-cyan/25 bg-cyan/5 px-2 py-2">
+          <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-cyan">Port economy</div>
+          <div className="mt-1 space-y-1 font-mono text-[10px] text-silver-dk">
+            {plan.port_economy_summary.slice(0, 2).map((item) => <div key={item}>{item}</div>)}
+          </div>
+        </div>
+      )}
+
       {economyRows.length > 0 && (
         <div className="mt-3 space-y-1.5">
           {economyRows.map(([economy, value]) => (

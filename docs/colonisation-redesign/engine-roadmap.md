@@ -54,14 +54,23 @@ how confident is ED-Finder?"
 
 ## Stage 4 - Topology/Economy Engine V2
 
-Future work after trust-layer hardening.
+Stage 4 begins with Stage 4A, an additive per-port economy propagation layer that keeps the Stage 2/3 deterministic preview and trust layer intact.
 
-- Full graph propagation.
+- Stage 4A per-Main-Port economy states.
+- Stage 4A influence ledger covering body inheritance, direct facility influence, strong links, weak links, pass-through effects, and converted ports.
+- System-level economy aggregation from port states while preserving existing response fields.
+- Simulation Preview Port Economy Breakdown and collapsed Influence Ledger display.
+- Recommended Build card summary for main-port economy and contamination source.
+- Mechanics trace events for port-state creation, top-two protection, major influence sources, weak-link contamination, and pass-through influence.
+
+Remaining Stage 4 work:
+
 - Service dependency graph.
 - Advanced contamination modelling.
 - Converted-port confidence refinement.
 - Local-body cluster strategy.
 - Pass-through validation against observed builds.
+- Richer visual graph rendering once more observations exist.
 
 ## Stage 5 - Optimiser V1
 
@@ -107,5 +116,4 @@ Longer-term destination.
 
 ## Current Guardrail
 
-Do not add more gameplay mechanics until Stage 3 remains easy to test, explain,
-and debug. The engine should be conservative when mechanics are unknown.
+Do not add unsupported gameplay mechanics until the deterministic preview remains easy to test, explain, and debug. Stage 4A should remain conservative: it explains existing topology/economy rules per port and labels inferred behaviour rather than inventing new mechanics.
