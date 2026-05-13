@@ -33,6 +33,7 @@ class GraphPlacement:
     local_body_id: Optional[str]
     build_order: int
     location_type: str
+    placement_instance_id: Optional[str] = None
     economy: Optional[str] = None
     body_name: Optional[str] = None
     parent_body_id: Optional[str] = None
@@ -386,8 +387,8 @@ def _strong_link_modifier(source: GraphPlacement):
     )
 
 
-def _key(placement: GraphPlacement) -> tuple[str, str, int]:
-    return (placement.facility_id, str(placement.local_body_id or 'system'), placement.build_order)
+def _key(placement: GraphPlacement) -> str:
+    return placement.placement_instance_id or f'{placement.build_order}:{placement.facility_id}:{placement.local_body_id or "system"}'
 
 
 def _assumptions(placements: list[GraphPlacement]) -> list[str]:

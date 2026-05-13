@@ -62,6 +62,7 @@ Stage 4 begins with Stage 4A, an additive per-port economy propagation layer tha
 - Stage 4B service unlock ledger covering port defaults, system unlocks, strong-link unlocks, inferred locked requirements, and unknown rules.
 - CP sequence repair assistant that reads the existing CP timeline and emits small repair suggestions without changing CP totals or running a full optimiser.
 - Stage 4D observed-vs-predicted foundation with observed fact models, comparison helpers, response summary/diffs, and informational confidence-impact signals.
+- Stage 4E simulation engine consolidation that keeps Simulation Preview behaviour stable while separating internal prediction state, observation comparison, and public response assembly.
 - System-level economy and service compatibility while preserving existing response fields.
 - Simulation Preview Port Economy Breakdown, Influence Ledger, Port Service Graph, and Service Unlock Ledger displays.
 - Recommended Build card summary for main-port economy and contamination source.
@@ -78,6 +79,20 @@ Remaining Stage 4 work:
 - Local-body cluster strategy.
 - Pass-through validation against observed builds.
 - Richer visual graph rendering once more observations exist.
+
+## Stage 4E - Simulation Engine Consolidation
+
+Stage 4E is a behaviour-preserving architecture hardening pass. It does not add gameplay mechanics, alter scoring weights, change CP formulas, or redesign the frontend. Its purpose is to make the deterministic simulation engine easier to maintain before Stage 5 starts calling it repeatedly from candidate-generation code.
+
+The preview pipeline is now documented as a sequence of internal stages: user placements are resolved into catalogue-backed placement instances, core prediction state is built from CP, topology, economy, and service calculations, explainability layers are attached, observations are compared against an internal prediction snapshot, and a dedicated response assembly module converts the internal state into the public API response. This keeps the public response contract stable while preventing the response dictionary from becoming internal engine state.
+
+| Stage 4E Concern | Hardening Outcome |
+|---|---|
+| Internal prediction state vs public response | Internal dataclasses represent resolved placements, economy/service state, complete prediction state, and observation comparison state before public serialization. |
+| Response assembly | Public Simulation Preview fields are centralised in a response assembly module so compatibility is easier to audit. |
+| Placement instance identity | Resolved placements carry deterministic instance IDs in the form `build_order:index:facility_template_id:local_body_id_or_none`, allowing duplicate same-template placements to be distinguished internally without changing public `facility_id` fields. |
+| Contract testing | A broad simulation contract test validates the Stage 4 response field set, Pydantic compatibility, mechanics trace sections, predicted-only observation summary, and absence of internal-only slot fields. |
+| Stage 5 dependency | The optimiser can later call the preview pipeline without needing to understand a monolithic API-response-building function. |
 
 ## Stage 5 - Optimiser V1
 
@@ -123,4 +138,4 @@ Longer-term destination.
 
 ## Current Guardrail
 
-Do not add unsupported gameplay mechanics until the deterministic preview remains easy to test, explain, and debug. Stage 4A should remain conservative: it explains existing topology/economy rules per port and labels inferred behaviour rather than inventing new mechanics.
+Do not add unsupported gameplay mechanics until the deterministic preview remains easy to test, explain, and debug. Stage 4 work should remain conservative: it explains existing topology, economy, service, CP, and observation-comparison rules while labelling inferred behaviour rather than inventing new mechanics.

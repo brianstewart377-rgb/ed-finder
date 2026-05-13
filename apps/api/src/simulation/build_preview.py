@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from domain.facilities import FacilityTemplate
-from mechanics.confidence import ConfidenceLevel, ConfidenceSignal, default_data_quality, signals_to_dict, simulation_confidence_signals
+from mechanics.confidence import ConfidenceLevel, ConfidenceSignal, simulation_confidence_signals
 from mechanics.economy_rules import (
     BODY_PROFILE_CONFIDENCE_DEFAULT,
     CONTAMINATION_ECONOMIES,
@@ -51,24 +51,20 @@ from mechanics.scoring_rules import (
     SLOT_CONFIDENCE_BASE,
     SLOT_CONFIDENCE_WEIGHT,
 )
-from mechanics.versions import MECHANICS_VERSION
 from observations.comparison import compare_prediction_to_observations
-from observations.schemas import observation_summary_to_dict, prediction_observation_diffs_to_dict
 from simulation.build_order import simulate_build_order
-from simulation.cp_repair import build_cp_repair_suggestions, cp_repair_suggestions_to_dict
+from simulation.cp_repair import build_cp_repair_suggestions
 from simulation.economy_stack import analyse_economy_stack
-from simulation.mechanics_trace import trace_simulation
-from simulation.port_economy import (
-    aggregate_port_strengths,
-    build_port_economy_states,
-    influence_ledger_to_dict,
-    port_states_to_dict,
+from simulation.port_economy import aggregate_port_strengths, build_port_economy_states
+from simulation.service_graph import build_port_service_states
+from simulation.preview_pipeline import (
+    EconomySimulationState,
+    ObservationComparisonState,
+    PlacementResolutionState,
+    ServiceSimulationState,
+    SimulationPrediction,
 )
-from simulation.service_graph import (
-    build_port_service_states,
-    port_service_states_to_dict,
-    service_unlock_ledger_to_dict,
-)
+from simulation.preview_response import assemble_preview_response, links_to_response, observation_prediction_snapshot
 from simulation.services import model_services
 from simulation.topology_graph import GraphPlacement, build_topology_graph, infer_location_type
 
@@ -118,6 +114,7 @@ class EconomyContributionProfile:
 class _ResolvedPlacement:
     spec: PreviewPlacement
     facility: FacilityTemplate
+    placement_instance_id: str
     economy_profile: Optional[EconomyContributionProfile] = None
     confidence_note: Optional[str] = None
 
@@ -132,9 +129,28 @@ def simulate_build_preview(
 ) -> dict[str, Any]:
     """Simulate a proposed build and return a Pydantic-ready response dict."""
     context = context or PreviewContext(system_id64=system_id64)
+    resolution = resolve_preview_placements(
+        placements=placements,
+        catalogue=catalogue,
+        context=context,
+    )
+    prediction = build_core_prediction(
+        system_id64=system_id64,
+        target_archetype=target_archetype,
+        context=context,
+        resolution=resolution,
+    )
+    observation = build_observation_comparison(prediction)
+    return assemble_preview_response(prediction, observation)
+
+
+def resolve_preview_placements(
+    *,
+    placements: list[PreviewPlacement],
+    catalogue: dict[str, FacilityTemplate],
+    context: PreviewContext,
+) -> PlacementResolutionState:
     warnings: list[str] = []
-    strengths: list[str] = []
-    recommendations: list[str] = []
     mechanics_notes: list[str] = [
         'This is a deterministic preview of your selected build, not an automatic optimiser.',
         'T2 and T3 port CP costs escalate with each additional paid port of the same tier.',
@@ -143,7 +159,7 @@ def simulate_build_preview(
 
     ordered_specs = sorted(placements, key=lambda p: (p.build_order, p.facility_template_id))
     resolved: list[_ResolvedPlacement] = []
-    for spec in ordered_specs:
+    for index, spec in enumerate(ordered_specs, start=1):
         facility = catalogue.get(spec.facility_template_id)
         if facility is None:
             warnings.append(
@@ -156,12 +172,33 @@ def simulate_build_preview(
         resolved.append(_ResolvedPlacement(
             spec=spec,
             facility=facility,
+            placement_instance_id=_placement_instance_id(index, spec),
             economy_profile=economy_profile,
             confidence_note=' '.join(note) if note else None,
         ))
 
     if not resolved:
         warnings.append('No valid facilities are selected yet. Add at least one facility to preview a build.')
+
+    return PlacementResolutionState(
+        resolved_placements=resolved,
+        warnings=warnings,
+        mechanics_notes=mechanics_notes,
+    )
+
+
+def build_core_prediction(
+    *,
+    system_id64: int,
+    target_archetype: str,
+    context: PreviewContext,
+    resolution: PlacementResolutionState,
+) -> SimulationPrediction:
+    resolved = resolution.resolved_placements
+    warnings = list(resolution.warnings)
+    strengths: list[str] = []
+    recommendations: list[str] = []
+    mechanics_notes = list(resolution.mechanics_notes)
 
     cp = simulate_build_order(resolved).to_cp_dict()
     cp_repair_suggestions = build_cp_repair_suggestions(placements=resolved, cp=cp)
@@ -171,12 +208,90 @@ def simulate_build_preview(
     warnings.extend(topology_graph.warnings)
     _extend_topology_notes(topology_graph, warnings, mechanics_notes)
 
+    economy = build_economy_prediction(
+        resolved=resolved,
+        topology_graph=topology_graph,
+        target_archetype=target_archetype,
+    )
+    services = build_service_prediction(
+        resolved=resolved,
+        topology_graph=topology_graph,
+    )
+
+    warnings.extend(economy.composition['warnings'])
+    strengths.extend(economy.composition['strengths'])
+    recommendations.extend(economy.composition['recommendations'])
+
+    buildability = _score_buildability(resolved, context, cp)
+    warnings.extend(buildability['warnings'])
+    recommendations.extend(buildability['recommendations'])
+
+    profile_notes = _profile_mechanics_notes(economy.inherited_profiles)
+    warnings.extend(_profile_warnings(economy.inherited_profiles, target_archetype))
+    mechanics_notes.extend(profile_notes)
+
+    confidence = _confidence(resolved, context, warnings)
+    confidence_signals = simulation_confidence_signals(
+        slot_confidence=context.slot_confidence,
+        has_slot_estimates=context.estimated_orbital_slots is not None and context.estimated_ground_slots is not None,
+        estimated_facility_count=sum(1 for p in resolved if p.facility.data_confidence == 'estimated'),
+        inherited_profiles=economy.inherited_profiles,
+        services=services.services,
+        warnings=warnings,
+    )
+    mechanics_notes.append('Observation comparison is informational and does not yet alter mechanics scoring.')
+
+    build_complexity = _complexity(cp, buildability, economy.composition, confidence)
+    final_score = round(
+        economy.composition['score'] * SIMULATION_FINAL_SCORE_WEIGHTS['composition']
+        + buildability['score'] * SIMULATION_FINAL_SCORE_WEIGHTS['buildability']
+        + cp['health_score'] * SIMULATION_FINAL_SCORE_WEIGHTS['cp_health'],
+        1,
+    )
+
+    if cp['yellow_cp_final'] >= 0 and cp['green_cp_final'] >= 0:
+        strengths.append('The proposed order ends with a non-negative CP balance.')
+    if economy.links['strong_links']:
+        strengths.append('Strong same-body support links are present in the proposed plan.')
+    if confidence < CONFIDENCE_LOW_THRESHOLD:
+        recommendations.append('Confirm slot and body data before committing resources in-game.')
+    if cp['warnings']:
+        recommendations.append('Move CP-generating support facilities earlier, or mark the intended first port as primary.')
+
+    return SimulationPrediction(
+        system_id64=system_id64,
+        target_archetype=target_archetype,
+        context=context,
+        resolved_placements=resolved,
+        cp=cp,
+        cp_repair_suggestions=cp_repair_suggestions,
+        topology_graph=topology_graph,
+        economy=economy,
+        services=services,
+        buildability=buildability,
+        confidence=confidence,
+        confidence_signals=confidence_signals,
+        build_complexity=build_complexity,
+        final_score=final_score,
+        warnings=warnings,
+        strengths=strengths,
+        recommendations=recommendations,
+        mechanics_notes=mechanics_notes,
+    )
+
+
+def build_economy_prediction(
+    *,
+    resolved: list[_ResolvedPlacement],
+    topology_graph: Any,
+    target_archetype: str,
+) -> EconomySimulationState:
     port_economy_states, influence_ledger = build_port_economy_states(
         placements=resolved,
         topology_graph=topology_graph,
     )
     economy_strengths = aggregate_port_strengths(port_economy_states)
-    links = _links_to_response(topology_graph)
+    links = links_to_response(topology_graph)
     economy_composition = _to_percentages(economy_strengths)
     economy_order = sorted(economy_composition, key=economy_composition.get, reverse=True)
     inherited_profiles = _inherited_profiles(resolved)
@@ -189,139 +304,59 @@ def simulate_build_preview(
         'strengths': stack_result.strengths,
         'recommendations': stack_result.recommendations,
     }
+    return EconomySimulationState(
+        links=links,
+        economy_composition=economy_composition,
+        economy_order=economy_order,
+        economy_stack=stack_result,
+        composition=composition,
+        port_economy_states=port_economy_states,
+        influence_ledger=influence_ledger,
+        inherited_profiles=inherited_profiles,
+    )
+
+
+def build_service_prediction(
+    *,
+    resolved: list[_ResolvedPlacement],
+    topology_graph: Any,
+) -> ServiceSimulationState:
     services = model_services(resolved, topology_graph)
     port_service_states, service_unlock_ledger = build_port_service_states(
         placements=resolved,
         topology_graph=topology_graph,
     )
-
-    warnings.extend(composition['warnings'])
-    strengths.extend(composition['strengths'])
-    recommendations.extend(composition['recommendations'])
-
-    buildability = _score_buildability(resolved, context, cp)
-    warnings.extend(buildability['warnings'])
-    recommendations.extend(buildability['recommendations'])
-
-    profile_notes = _profile_mechanics_notes(inherited_profiles)
-    warnings.extend(_profile_warnings(inherited_profiles, target_archetype))
-    mechanics_notes.extend(profile_notes)
-
-    confidence = _confidence(resolved, context, warnings)
-    confidence_signals = simulation_confidence_signals(
-        slot_confidence=context.slot_confidence,
-        has_slot_estimates=context.estimated_orbital_slots is not None and context.estimated_ground_slots is not None,
-        estimated_facility_count=sum(1 for p in resolved if p.facility.data_confidence == 'estimated'),
-        inherited_profiles=inherited_profiles,
+    return ServiceSimulationState(
         services=services,
-        warnings=warnings,
-    )
-    mechanics_notes.append('Observation comparison is informational and does not yet alter mechanics scoring.')
-    complexity = _complexity(cp, buildability, composition, confidence)
-    final_score = round(
-        composition['score'] * SIMULATION_FINAL_SCORE_WEIGHTS['composition']
-        + buildability['score'] * SIMULATION_FINAL_SCORE_WEIGHTS['buildability']
-        + cp['health_score'] * SIMULATION_FINAL_SCORE_WEIGHTS['cp_health'],
-        1,
+        port_service_states=port_service_states,
+        service_unlock_ledger=service_unlock_ledger,
     )
 
-    if cp['yellow_cp_final'] >= 0 and cp['green_cp_final'] >= 0:
-        strengths.append('The proposed order ends with a non-negative CP balance.')
-    if links['strong_links']:
-        strengths.append('Strong same-body support links are present in the proposed plan.')
-    if confidence < CONFIDENCE_LOW_THRESHOLD:
-        recommendations.append('Confirm slot and body data before committing resources in-game.')
-    if cp['warnings']:
-        recommendations.append('Move CP-generating support facilities earlier, or mark the intended first port as primary.')
 
-    response = {
-        'system_id64': system_id64,
-        'mechanics_version': MECHANICS_VERSION,
-        'target_archetype': target_archetype,
-        'final_score': final_score,
-        'composition_score': round(composition['score'], 1),
-        'buildability_score': round(buildability['score'], 1),
-        'build_complexity': complexity,
-        'confidence': round(confidence, 2),
-        'cp': {
-            'yellow_cp_final': cp['yellow_cp_final'],
-            'green_cp_final': cp['green_cp_final'],
-            'yellow_cp_generated': cp['yellow_cp_generated'],
-            'green_cp_generated': cp['green_cp_generated'],
-            'yellow_cp_spent': cp['yellow_cp_spent'],
-            'green_cp_spent': cp['green_cp_spent'],
-            't2_ports': cp['t2_ports'],
-            't3_ports': cp['t3_ports'],
-            'warnings': cp['warnings'],
-        },
-        'cp_timeline': cp['timeline'],
-        'cp_repair_suggestions': cp_repair_suggestions_to_dict(cp_repair_suggestions),
-        'economy_composition': economy_composition,
-        'economy_order': economy_order,
-        'economy_stack': stack_result.to_dict(),
-        'port_economy_states': port_states_to_dict(port_economy_states),
-        'influence_ledger': influence_ledger_to_dict(influence_ledger),
-        'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
-        'topology': _topology_to_response(topology_graph),
-        'services': services,
-        'port_service_states': port_service_states_to_dict(port_service_states),
-        'service_unlock_ledger': service_unlock_ledger_to_dict(service_unlock_ledger),
-        'data_quality': default_data_quality(),
-        'top_two_alignment': composition['alignment'],
-        'contamination_risk': composition['contamination_risk'],
-        'warnings': _unique(warnings),
-        'strengths': _unique(strengths),
-        'recommendations': _unique(recommendations),
-        'mechanics_notes': _unique(mechanics_notes),
-        'links': links,
-    }
-    observation_prediction = _observation_prediction_snapshot(
-        response=response,
-        context=context,
-    )
+def build_observation_comparison(prediction: SimulationPrediction) -> ObservationComparisonState:
     observation_summary, observation_diffs = compare_prediction_to_observations(
-        prediction=observation_prediction,
-        observed_facts=context.observed_facts,
+        prediction=observation_prediction_snapshot(prediction),
+        observed_facts=prediction.context.observed_facts,
     )
-    response['observation_summary'] = observation_summary_to_dict(observation_summary)
-    response['prediction_observation_diffs'] = prediction_observation_diffs_to_dict(observation_diffs)
-    confidence_signals.append(ConfidenceSignal(
+    confidence_signal = ConfidenceSignal(
         area='observations',
         level=ConfidenceLevel.OBSERVED if observation_summary.observed_facts_count else ConfidenceLevel.UNKNOWN,
         reason='Observed mismatch found.' if observation_summary.mismatch_count else (
-            'Observed data attached; comparison is informational.' if observation_summary.observed_facts_count else 'No observed data attached.'
+            'Observed data attached; comparison is informational.'
+            if observation_summary.observed_facts_count
+            else 'No observed data attached.'
         ),
-    ))
-    response['confidence_signals'] = signals_to_dict(confidence_signals)
-    mechanics_trace = trace_simulation(
-        placements=resolved,
-        topology_graph=topology_graph,
-        cp=cp,
-        economy_stack=stack_result.to_dict(),
-        services=services,
-        confidence_signals=confidence_signals,
-        port_economy_states=port_economy_states,
-        influence_ledger=influence_ledger,
-        port_service_states=port_service_states,
-        service_unlock_ledger=service_unlock_ledger,
-        cp_repair_suggestions=cp_repair_suggestions,
-        observation_summary=observation_summary,
-        prediction_observation_diffs=observation_diffs,
     )
-    response['mechanics_trace'] = mechanics_trace
-    return response
+    return ObservationComparisonState(
+        summary=observation_summary,
+        diffs=observation_diffs,
+        confidence_signal=confidence_signal,
+    )
 
 
-def _observation_prediction_snapshot(
-    *,
-    response: dict[str, Any],
-    context: PreviewContext,
-) -> dict[str, Any]:
-    return {
-        **response,
-        'estimated_orbital_slots': context.estimated_orbital_slots,
-        'estimated_ground_slots': context.estimated_ground_slots,
-    }
+def _placement_instance_id(index: int, spec: PreviewPlacement) -> str:
+    body = spec.local_body_id if spec.local_body_id is not None else 'none'
+    return f'{spec.build_order}:{index}:{spec.facility_template_id}:{body}'
 
 
 def _placement_economy_profile(
@@ -399,6 +434,7 @@ def _graph_placements(
             local_body_id=body_id,
             build_order=placement.spec.build_order,
             location_type=infer_location_type(placement.facility),
+            placement_instance_id=placement.placement_instance_id,
             economy=_topology_emitter_economy(placement),
             body_name=str(profile.get('body_name')) if profile.get('body_name') else None,
             parent_body_id=str(profile.get('parent_body_id')) if profile.get('parent_body_id') else None,
@@ -406,80 +442,6 @@ def _graph_placements(
             body_profile=profile,
         ))
     return graph_items
-
-
-def _topology_to_response(graph: Any) -> dict[str, Any]:
-    return {
-        'local_body_groups': [
-            {
-                'local_body_id': group.local_body_id,
-                'body_name': group.body_name,
-                'parent_body_id': group.parent_body_id,
-                'main_surface_port': _placement_summary(group.main_surface_port),
-                'main_orbital_port': _placement_summary(group.main_orbital_port),
-                'facility_count': len(group.facilities),
-                'surface_port_count': len(group.surface_ports),
-                'orbital_port_count': len(group.orbital_ports),
-            }
-            for group in graph.local_body_groups
-        ],
-        'roles': [
-            {
-                'facility_id': item.placement.facility_id,
-                'facility_name': item.placement.facility_name,
-                'local_body_id': item.placement.local_body_id,
-                'location_type': item.placement.location_type,
-                'effective_role': item.effective_role,
-            }
-            for item in graph.classified_placements
-        ],
-        'strong_links': [link.to_dict() for link in graph.strong_links],
-        'weak_links': [link.to_dict() for link in graph.weak_links],
-        'pass_through_links': [link.to_dict() for link in graph.pass_through_links],
-        'converted_ports': [port.to_dict() for port in graph.converted_ports],
-        'assumptions': graph.assumptions,
-        'warnings': graph.warnings,
-    }
-
-
-def _links_to_response(graph: Any) -> dict[str, list[dict[str, Any]]]:
-    return {
-        'strong_links': [
-            {
-                'port_facility_id': link.receiver_port_id,
-                'support_facility_id': link.source_facility_id,
-                'local_body_id': link.local_body_id,
-                'economy': link.economy,
-                'value': link.value,
-                'note': link.note,
-            }
-            for link in graph.strong_links
-        ],
-        'weak_links': [
-            {
-                'port_facility_id': link.receiver_port_id,
-                'support_facility_id': link.source_facility_id,
-                'local_body_id': link.source_body_id,
-                'economy': link.economy,
-                'value': link.value,
-                'note': link.note,
-            }
-            for link in graph.weak_links
-        ],
-    }
-
-
-def _placement_summary(placement: Optional[GraphPlacement]) -> Optional[dict[str, Any]]:
-    if placement is None:
-        return None
-    return {
-        'facility_id': placement.facility_id,
-        'facility_name': placement.facility_name,
-        'tier': placement.facility.tier,
-        'build_order': placement.build_order,
-        'location_type': placement.location_type,
-        'economy': placement.economy,
-    }
 
 
 def _extend_topology_notes(graph: Any, warnings: list[str], mechanics_notes: list[str]) -> None:
@@ -695,20 +657,6 @@ def _inherited_profiles(placements: list[_ResolvedPlacement]) -> list[EconomyCon
     ]
 
 
-def _profile_to_response(profile: EconomyContributionProfile) -> dict[str, Any]:
-    return {
-        'source_body_id': profile.source_body_id,
-        'source_body_name': profile.source_body_name,
-        'base_economies': profile.base_economies,
-        'modifier_economies': profile.modifier_economies,
-        'weights': {economy: round(weight, 3) for economy, weight in profile.weights.items()},
-        'purity': round(profile.purity, 2),
-        'confidence': round(profile.confidence, 2),
-        'caveats': profile.caveats,
-        'strategic_tags': profile.strategic_tags,
-    }
-
-
 def _profile_mechanics_notes(profiles: list[EconomyContributionProfile]) -> list[str]:
     notes: list[str] = []
     for profile in profiles:
@@ -738,13 +686,3 @@ def _placement_location(facility: FacilityTemplate) -> str:
     if facility.allowed_location == 'surface':
         return 'surface'
     return 'orbital'
-
-
-def _unique(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in items:
-        if item not in seen:
-            result.append(item)
-            seen.add(item)
-    return result
