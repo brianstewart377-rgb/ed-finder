@@ -181,6 +181,38 @@ export interface PortEconomyState {
   recommendations: string[];
 }
 
+export interface ServiceUnlockEntry {
+  service: string;
+  status: 'active' | 'locked' | 'unknown' | string;
+  source_id?: string | null;
+  source_name?: string | null;
+  source_type?: string | null;
+  target_port_id: string;
+  target_port_name: string;
+  local_body_id?: string | null;
+  unlock_type: string;
+  link_type?: string | null;
+  confidence: string;
+  reason: string;
+  requirements: string[];
+  caveats: string[];
+}
+
+export interface PortServiceState {
+  port_id: string;
+  port_name: string;
+  local_body_id?: string | null;
+  body_name?: string | null;
+  location_type: string;
+  effective_role: string;
+  active_services: Record<string, ServiceUnlockEntry>;
+  locked_services: Record<string, ServiceUnlockEntry>;
+  unknown_services: Record<string, ServiceUnlockEntry>;
+  service_sources: ServiceUnlockEntry[];
+  warnings: string[];
+  recommendations: string[];
+}
+
 export interface SimulationInheritedEconomy {
   source_body_id?: string | null;
   source_body_name?: string | null;
@@ -212,6 +244,8 @@ export interface SimulateBuildResponse {
   inherited_economies: SimulationInheritedEconomy[];
   topology: Record<string, unknown>;
   services: Record<string, { status: string; reason: string; requirements: string[] }>;
+  port_service_states: PortServiceState[];
+  service_unlock_ledger: ServiceUnlockEntry[];
   data_quality: Record<string, string>;
   confidence_signals: Array<{ area: string; level: string; reason: string; impact?: number | null }>;
   mechanics_trace: Record<string, Array<{

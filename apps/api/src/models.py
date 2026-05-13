@@ -950,6 +950,8 @@ class SimulateBuildResponse(BaseModel):
     inherited_economies: list[SimulationInheritedEconomy] = Field(default_factory=list)
     topology:            dict[str, Any] = Field(default_factory=dict)
     services:            dict[str, Any] = Field(default_factory=dict)
+    port_service_states: list[dict[str, Any]] = Field(default_factory=list)
+    service_unlock_ledger: list[dict[str, Any]] = Field(default_factory=list)
     data_quality:        dict[str, str] = Field(default_factory=dict)
     confidence_signals:  list[dict[str, Any]] = Field(default_factory=list)
     mechanics_trace:     dict[str, list[dict[str, Any]]] = Field(default_factory=dict)

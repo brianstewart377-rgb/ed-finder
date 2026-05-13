@@ -61,6 +61,11 @@ from simulation.port_economy import (
     influence_ledger_to_dict,
     port_states_to_dict,
 )
+from simulation.service_graph import (
+    build_port_service_states,
+    port_service_states_to_dict,
+    service_unlock_ledger_to_dict,
+)
 from simulation.services import model_services
 from simulation.topology_graph import GraphPlacement, build_topology_graph, infer_location_type
 
@@ -180,6 +185,10 @@ def simulate_build_preview(
         'recommendations': stack_result.recommendations,
     }
     services = model_services(resolved, topology_graph)
+    port_service_states, service_unlock_ledger = build_port_service_states(
+        placements=resolved,
+        topology_graph=topology_graph,
+    )
 
     warnings.extend(composition['warnings'])
     strengths.extend(composition['strengths'])
@@ -211,6 +220,8 @@ def simulate_build_preview(
         confidence_signals=confidence_signals,
         port_economy_states=port_economy_states,
         influence_ledger=influence_ledger,
+        port_service_states=port_service_states,
+        service_unlock_ledger=service_unlock_ledger,
     )
     complexity = _complexity(cp, buildability, composition, confidence)
     final_score = round(
@@ -258,6 +269,8 @@ def simulate_build_preview(
         'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
         'topology': _topology_to_response(topology_graph),
         'services': services,
+        'port_service_states': port_service_states_to_dict(port_service_states),
+        'service_unlock_ledger': service_unlock_ledger_to_dict(service_unlock_ledger),
         'data_quality': default_data_quality(),
         'confidence_signals': signals_to_dict(confidence_signals),
         'mechanics_trace': mechanics_trace,

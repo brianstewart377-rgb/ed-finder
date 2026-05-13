@@ -136,8 +136,15 @@ The key architectural change is that the simulation now builds an influence ledg
 | Economy stack reports system-level percentages. | Each Main Port reports its own stack and contamination sources. |
 | Mechanics trace explains broad economy/link effects. | Mechanics trace also records port-state creation, top-two protection, major influences, weak-link contamination, and pass-through influence. |
 | Converted ports are surfaced as caveated topology entries. | Converted-port influence appears in the ledger with caveats. |
+| System-level service modelling reports active, locked, or unknown service states. | Stage 4B adds per-port service states and a service unlock ledger while preserving the existing `services` field. |
 
 This layer remains deterministic and explanatory. It does not optimise builds and does not add unsupported mechanics beyond the already documented inferred rules.
+
+## Stage 4B Additive Layer: Per-Port Service Dependency Graph
+
+Stage 4B extends the same explainability pattern to services. The existing `services` response remains a backward-compatible system-level summary. The new `port_service_states` and `service_unlock_ledger` fields explain, per Main Port, which services are active, locked, or unknown; which facility or port caused each decision; whether the decision came from a port default, system unlock, strong-link unlock, inferred requirement, or unknown rule; and what is missing when a service is locked.
+
+Strong-link service unlocks require an actual strong link to the target Main Port. System unlock text remains conservative and caveated where catalogue descriptions include unresolved port-type or facility-type qualifiers. Unknown service behaviour remains labelled `unknown` rather than treated as false.
 
 ## Limitations And Future Work
 

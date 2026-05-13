@@ -33,6 +33,8 @@ function result(): SimulateBuildResponse {
     inherited_economies: [],
     topology: {},
     services: {},
+    port_service_states: [],
+    service_unlock_ledger: [],
     data_quality: {
       slots: 'estimated',
       facility_catalogue: 'community_observed',

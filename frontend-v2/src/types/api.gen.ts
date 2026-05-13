@@ -2215,6 +2215,10 @@ export interface components {
             topology?: Record<string, never>;
             /** Services */
             services?: Record<string, never>;
+            /** Port Service States */
+            port_service_states?: Record<string, never>[];
+            /** Service Unlock Ledger */
+            service_unlock_ledger?: Record<string, never>[];
             /** Data Quality */
             data_quality?: {
                 [key: string]: string;
