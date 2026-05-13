@@ -53,6 +53,7 @@ TRACE_CATEGORIES = [
     'service_unlock_effects',
     'port_service_effects',
     'service_unlock_ledger_effects',
+    'observation_comparison_effects',
     'confidence_adjustments',
 ]
 
@@ -74,6 +75,8 @@ def trace_simulation(
     port_service_states: list[Any] | None = None,
     service_unlock_ledger: list[Any] | None = None,
     cp_repair_suggestions: list[Any] | None = None,
+    observation_summary: Any | None = None,
+    prediction_observation_diffs: list[Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     trace = empty_trace()
 
@@ -254,6 +257,34 @@ def trace_simulation(
                 confidence=str(getattr(entry, 'confidence', ConfidenceLevel.INFERRED.value)),
                 source='Service dependency graph',
             ).to_dict())
+
+    if observation_summary is not None:
+        status = getattr(observation_summary, 'status', 'predicted_only')
+        summary_text = getattr(observation_summary, 'summary', 'Observation comparison state recorded.')
+        trace['observation_comparison_effects'].append(MechanicsTraceEvent(
+            category='observation_comparison_effects',
+            label=str(status),
+            description=str(summary_text),
+            confidence=ConfidenceLevel.OBSERVED.value if getattr(observation_summary, 'observed_facts_count', 0) else ConfidenceLevel.UNKNOWN.value,
+            source='Observed vs predicted comparison',
+        ).to_dict())
+        impact = getattr(observation_summary, 'confidence_impact', None)
+        if impact:
+            trace['observation_comparison_effects'].append(MechanicsTraceEvent(
+                category='observation_comparison_effects',
+                label=f'confidence impact: {impact}',
+                description='Observation comparison is informational and does not yet alter mechanics scoring.',
+                confidence=ConfidenceLevel.INFERRED.value,
+                source='Observed vs predicted comparison',
+            ).to_dict())
+    for diff in prediction_observation_diffs or []:
+        trace['observation_comparison_effects'].append(MechanicsTraceEvent(
+            category='observation_comparison_effects',
+            label=f'{getattr(diff, "area", "observation")} {getattr(diff, "status", "unknown")}',
+            description=str(getattr(diff, 'reason', '') or 'Observed-vs-predicted diff recorded.'),
+            confidence=str(getattr(diff, 'confidence', ConfidenceLevel.OBSERVED.value)),
+            source='Observed vs predicted comparison',
+        ).to_dict())
 
     for signal in confidence_signals:
         trace['confidence_adjustments'].append(MechanicsTraceEvent(

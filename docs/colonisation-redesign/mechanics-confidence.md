@@ -72,3 +72,19 @@ confidence signals describe the quality of the rule/data behind the plan.
   remains caveated.
 - Service unlock modelling must return `unknown` rather than false certainty
   when the catalogue lacks a documented rule.
+
+## Stage 4D Observation Comparison
+
+Stage 4D adds `observation_summary` and `prediction_observation_diffs` to Simulation Preview. These fields distinguish predicted mechanics output from player-observed facts. Observation comparison can report `none`, `increase_possible`, `review_required`, `reduce_confidence`, or `unknown` as a **confidence impact** signal, but it does not automatically change the numeric confidence score.
+
+Observed facts are review inputs. A confirmed observation may support a future confidence upgrade, and a mismatch may support a future confidence reduction, but both require explicit mechanics review before rules or confidence labels change.
+
+| Observation Outcome | Confidence Handling |
+|---|---|
+| No observed facts attached | Report `predicted_only`; no score impact. |
+| Confirmed observation | Report `increase_possible`; do not auto-upgrade confidence. |
+| Mismatch | Report `review_required` or `reduce_confidence`; do not auto-downgrade confidence. |
+| Observed-only fact | Report review need because no prediction currently matches the fact. |
+| Unknown/incomplete observation | Report `unknown`; preserve current mechanics confidence. |
+
+This keeps the validation loop honest: ED-Finder can show what it predicts and what players observed, but it must not silently turn observations into mechanics changes without evidence review.

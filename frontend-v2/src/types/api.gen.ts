@@ -2199,6 +2199,10 @@ export interface components {
             cp_timeline?: Record<string, never>[];
             /** Cp Repair Suggestions */
             cp_repair_suggestions?: Record<string, never>[];
+            /** Observation Summary */
+            observation_summary?: Record<string, never>;
+            /** Prediction Observation Diffs */
+            prediction_observation_diffs?: Record<string, never>[];
             /** Economy Composition */
             economy_composition?: {
                 [key: string]: number;

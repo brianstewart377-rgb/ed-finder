@@ -238,6 +238,33 @@ export interface PortServiceState {
   recommendations: string[];
 }
 
+export interface ObservationSummary {
+  status: string;
+  observed_facts_count: number;
+  confirmed_count: number;
+  mismatch_count: number;
+  observed_only_count: number;
+  predicted_only_count: number;
+  unknown_count: number;
+  confidence_impact: string;
+  summary: string;
+}
+
+export interface PredictionObservationDiff {
+  area: string;
+  subject_id: string;
+  subject_type: string;
+  predicted_value: unknown;
+  observed_value: unknown;
+  status: string;
+  severity: string;
+  confidence: string;
+  reason: string;
+  recommended_action?: string | null;
+  source_type?: string | null;
+  observed_at?: string | null;
+}
+
 export interface SimulationInheritedEconomy {
   source_body_id?: string | null;
   source_body_name?: string | null;
@@ -262,6 +289,8 @@ export interface SimulateBuildResponse {
   cp: SimulationCPResult;
   cp_timeline: SimulationTimelineStep[];
   cp_repair_suggestions: CPRepairSuggestion[];
+  observation_summary: ObservationSummary;
+  prediction_observation_diffs: PredictionObservationDiff[];
   economy_composition: Record<string, number>;
   economy_order: string[];
   economy_stack: Record<string, unknown>;

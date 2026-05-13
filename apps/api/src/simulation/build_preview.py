@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from domain.facilities import FacilityTemplate
-from mechanics.confidence import default_data_quality, signals_to_dict, simulation_confidence_signals
+from mechanics.confidence import ConfidenceLevel, ConfidenceSignal, default_data_quality, signals_to_dict, simulation_confidence_signals
 from mechanics.economy_rules import (
     BODY_PROFILE_CONFIDENCE_DEFAULT,
     CONTAMINATION_ECONOMIES,
@@ -52,6 +52,8 @@ from mechanics.scoring_rules import (
     SLOT_CONFIDENCE_WEIGHT,
 )
 from mechanics.versions import MECHANICS_VERSION
+from observations.comparison import compare_prediction_to_observations
+from observations.schemas import observation_summary_to_dict, prediction_observation_diffs_to_dict
 from simulation.build_order import simulate_build_order
 from simulation.cp_repair import build_cp_repair_suggestions, cp_repair_suggestions_to_dict
 from simulation.economy_stack import analyse_economy_stack
@@ -91,6 +93,7 @@ class PreviewContext:
     has_ringed_body: Optional[bool] = None
     local_body_profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
     mechanics_notes: list[str] = field(default_factory=list)
+    observed_facts: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -213,19 +216,7 @@ def simulate_build_preview(
         services=services,
         warnings=warnings,
     )
-    mechanics_trace = trace_simulation(
-        placements=resolved,
-        topology_graph=topology_graph,
-        cp=cp,
-        economy_stack=stack_result.to_dict(),
-        services=services,
-        confidence_signals=confidence_signals,
-        port_economy_states=port_economy_states,
-        influence_ledger=influence_ledger,
-        port_service_states=port_service_states,
-        service_unlock_ledger=service_unlock_ledger,
-        cp_repair_suggestions=cp_repair_suggestions,
-    )
+    mechanics_notes.append('Observation comparison is informational and does not yet alter mechanics scoring.')
     complexity = _complexity(cp, buildability, composition, confidence)
     final_score = round(
         composition['score'] * SIMULATION_FINAL_SCORE_WEIGHTS['composition']
@@ -243,7 +234,7 @@ def simulate_build_preview(
     if cp['warnings']:
         recommendations.append('Move CP-generating support facilities earlier, or mark the intended first port as primary.')
 
-    return {
+    response = {
         'system_id64': system_id64,
         'mechanics_version': MECHANICS_VERSION,
         'target_archetype': target_archetype,
@@ -272,12 +263,12 @@ def simulate_build_preview(
         'influence_ledger': influence_ledger_to_dict(influence_ledger),
         'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
         'topology': _topology_to_response(topology_graph),
+        'estimated_orbital_slots': context.estimated_orbital_slots,
+        'estimated_ground_slots': context.estimated_ground_slots,
         'services': services,
         'port_service_states': port_service_states_to_dict(port_service_states),
         'service_unlock_ledger': service_unlock_ledger_to_dict(service_unlock_ledger),
         'data_quality': default_data_quality(),
-        'confidence_signals': signals_to_dict(confidence_signals),
-        'mechanics_trace': mechanics_trace,
         'top_two_alignment': composition['alignment'],
         'contamination_risk': composition['contamination_risk'],
         'warnings': _unique(warnings),
@@ -286,6 +277,39 @@ def simulate_build_preview(
         'mechanics_notes': _unique(mechanics_notes),
         'links': links,
     }
+    observation_summary, observation_diffs = compare_prediction_to_observations(
+        prediction=response,
+        observed_facts=context.observed_facts,
+    )
+    response.pop('estimated_orbital_slots', None)
+    response.pop('estimated_ground_slots', None)
+    response['observation_summary'] = observation_summary_to_dict(observation_summary)
+    response['prediction_observation_diffs'] = prediction_observation_diffs_to_dict(observation_diffs)
+    confidence_signals.append(ConfidenceSignal(
+        area='observations',
+        level=ConfidenceLevel.OBSERVED if observation_summary.observed_facts_count else ConfidenceLevel.UNKNOWN,
+        reason='Observed mismatch found.' if observation_summary.mismatch_count else (
+            'Observed data attached; comparison is informational.' if observation_summary.observed_facts_count else 'No observed data attached.'
+        ),
+    ))
+    response['confidence_signals'] = signals_to_dict(confidence_signals)
+    mechanics_trace = trace_simulation(
+        placements=resolved,
+        topology_graph=topology_graph,
+        cp=cp,
+        economy_stack=stack_result.to_dict(),
+        services=services,
+        confidence_signals=confidence_signals,
+        port_economy_states=port_economy_states,
+        influence_ledger=influence_ledger,
+        port_service_states=port_service_states,
+        service_unlock_ledger=service_unlock_ledger,
+        cp_repair_suggestions=cp_repair_suggestions,
+        observation_summary=observation_summary,
+        prediction_observation_diffs=observation_diffs,
+    )
+    response['mechanics_trace'] = mechanics_trace
+    return response
 
 
 def _placement_economy_profile(
