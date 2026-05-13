@@ -263,8 +263,6 @@ def simulate_build_preview(
         'influence_ledger': influence_ledger_to_dict(influence_ledger),
         'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
         'topology': _topology_to_response(topology_graph),
-        'estimated_orbital_slots': context.estimated_orbital_slots,
-        'estimated_ground_slots': context.estimated_ground_slots,
         'services': services,
         'port_service_states': port_service_states_to_dict(port_service_states),
         'service_unlock_ledger': service_unlock_ledger_to_dict(service_unlock_ledger),
@@ -277,12 +275,15 @@ def simulate_build_preview(
         'mechanics_notes': _unique(mechanics_notes),
         'links': links,
     }
+    observation_prediction = {
+        **response,
+        'estimated_orbital_slots': context.estimated_orbital_slots,
+        'estimated_ground_slots': context.estimated_ground_slots,
+    }
     observation_summary, observation_diffs = compare_prediction_to_observations(
-        prediction=response,
+        prediction=observation_prediction,
         observed_facts=context.observed_facts,
     )
-    response.pop('estimated_orbital_slots', None)
-    response.pop('estimated_ground_slots', None)
     response['observation_summary'] = observation_summary_to_dict(observation_summary)
     response['prediction_observation_diffs'] = prediction_observation_diffs_to_dict(observation_diffs)
     confidence_signals.append(ConfidenceSignal(
