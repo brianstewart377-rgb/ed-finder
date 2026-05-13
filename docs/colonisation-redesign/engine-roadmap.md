@@ -98,10 +98,26 @@ The preview pipeline is now documented as a sequence of internal stages: user pl
 
 Generate candidate plans rather than only previewing selected plans.
 
-- Simple, balanced, and advanced plan generation.
-- Beam search or conservative greedy search.
-- Constraints by complexity and confidence.
+### Stage 5A - Deterministic Candidate Generation
+
+Stage 5A is implemented as a bounded backend candidate generator rather than a full search optimiser. It selects suitable body anchors through the existing target-profile and body-scoring rules, emits simple, balanced, and advanced deterministic placement plans where supporting data is strong enough, and runs each candidate through the existing Simulation Preview engine before returning it to clients.
+
+| Stage 5A Concern | Current Outcome |
+|---|---|
+| Candidate endpoint | `POST /api/optimiser/candidates` returns bounded candidate plans through `OptimiserCandidatesResponse`. |
+| Request contract | `system_id64`, optional `target_archetype_key`, and `max_candidates` are represented by `OptimiserCandidatesRequest`. |
+| Generation strategy | Body candidates are selected deterministically, then candidate IDs are deduplicated across simple, balanced, and advanced plan variants. |
+| Preview integration | Generated placements are converted into Simulation Preview placements so each candidate includes a `preview_summary` derived from the deterministic preview response. |
+| Guardrails | Unsupported archetypes and systems without suitable body anchors return explicit warnings rather than speculative plans. |
+| Tests | `tests/test_optimiser.py` covers generator behaviour, multi-plan generation, unsupported-target handling, and endpoint response serialization. |
+
+Remaining Stage 5 work:
+
+- Beam search or conservative greedy search beyond the bounded Stage 5A templates.
+- Constraints by complexity, confidence, CP pressure, and player preferences.
 - Explicit comparison of rejected alternatives.
+- Frontend candidate-picker UI and OpenAPI type regeneration.
+- Service-aware recommendation scoring after additional service validation.
 
 ## Stage 6 - Community Observation Loop
 

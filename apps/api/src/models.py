@@ -1239,3 +1239,53 @@ class ArchetypesProfilesResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     profiles: list[ArchetypeProfile]
+
+
+# ── Optimiser V1: Candidate Generation (Stage 5A) ────────────────────
+class OptimiserCandidateRequest(BaseModel):
+    """Request for deterministic candidate generation."""
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64: int
+    target_archetype_key: Optional[str] = None
+    max_candidates: int = 5
+
+
+class OptimiserCandidate(BaseModel):
+    """A single facility placement candidate suggested by the optimiser."""
+    model_config = ConfigDict(extra='allow')
+
+    id: str
+    label: str
+    description: str
+    archetype: str
+    placements: list[SimulateBuildPlacement]
+    preview_summary: Optional[BuildabilityData] = None
+    tradeoffs: list[str] = Field(default_factory=list)
+
+
+class OptimiserCandidateResponse(BaseModel):
+    """Response containing multiple deduplicated candidates."""
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64: int
+    candidates: list[OptimiserCandidate]
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OptimiserCandidatesRequest(BaseModel):
+    """Request for deterministic candidate generation (updated naming)."""
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64: int
+    target_archetype_key: Optional[str] = None
+    max_candidates: int = 5
+
+
+class OptimiserCandidatesResponse(BaseModel):
+    """Response containing multiple deduplicated candidates (updated naming)."""
+    model_config = ConfigDict(extra='forbid')
+
+    candidates: list[OptimiserCandidate]
+    warnings: list[str] = Field(default_factory=list)
