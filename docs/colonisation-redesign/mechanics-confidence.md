@@ -59,7 +59,10 @@ confidence signals describe the quality of the rule/data behind the plan.
 - Topology: inferred from local body id, location, tier, and build order.
 - Economy stack: inferred from Mega Guide body rules plus simulated links.
 - Services: inferred when catalogue unlocks are documented, unknown when missing.
-- Regional position: computed from coordinates and colonised-neighbour counts.
+- Regional position: `inferred` when regional context exists, because the raw
+  distances/counts are computed from stored coordinates but the strategic role
+  and archetype fit are interpreted by the regional model. It is `unknown` when
+  regional context has not been generated.
 
 ## Known Caveats
 

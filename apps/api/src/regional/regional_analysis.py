@@ -149,7 +149,7 @@ def response_from_row(row: dict[str, Any] | None, system_id64: int) -> dict[str,
         'confidence_signals': signals_to_dict([ConfidenceSignal(
             area='regional_position',
             level=ConfidenceLevel.INFERRED,
-            reason='Regional metrics are computed from stored system coordinates and colonised-neighbour counts.',
+            reason='Regional metrics are inferred from stored system coordinates and colonised-neighbour counts.',
         )]),
         'computed_at': row.get('computed_at'),
     }

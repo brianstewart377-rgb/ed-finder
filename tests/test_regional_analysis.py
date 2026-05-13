@@ -129,6 +129,6 @@ def test_api_response_shape_adapter():
     assert response['counts']['within_100ly'] == 3
     assert response['scores']['expansion'] == 91.0
     assert response['regional_role'] == 'frontier_hub'
-    assert response['data_quality']['regional_position'] == 'computed'
+    assert response['data_quality']['regional_position'] == 'inferred'
     assert response['confidence_signals'][0]['level'] == 'inferred'
     RegionalAnalysisResponse.model_validate(response)

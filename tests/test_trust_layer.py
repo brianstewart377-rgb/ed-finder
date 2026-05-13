@@ -13,10 +13,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 's
 
 from domain.colonisation_constants import WEAK_LINK_STRENGTH as LEGACY_WEAK_LINK_STRENGTH
 from domain.facilities import FacilityTemplate
-from mechanics.confidence import ConfidenceLevel
+from mechanics.confidence import ConfidenceLevel, default_data_quality
+from mechanics.constants import STANDARD_CONFIDENCE_LABELS
 from mechanics.link_rules import STRONG_LINK_BY_TIER, WEAK_LINK_STRENGTH
 from mechanics.versions import MECHANICS_VERSION
+from regional.regional_analysis import response_from_row
 from simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
+
+
+def assert_standard_data_quality(data_quality: dict[str, str]) -> None:
+    assert set(data_quality.values()) <= set(STANDARD_CONFIDENCE_LABELS)
 
 
 def facility(
@@ -106,6 +112,7 @@ def test_simulation_output_includes_version_data_quality_confidence_and_trace():
 
     assert result['mechanics_version'] == MECHANICS_VERSION
     assert result['data_quality']['slots'] == 'estimated'
+    assert_standard_data_quality(result['data_quality'])
     assert any(signal['area'] == 'slots' and signal['level'] == ConfidenceLevel.ESTIMATED.value for signal in result['confidence_signals'])
     assert result['mechanics_trace']['strong_link_effects']
     assert result['mechanics_trace']['weak_link_effects']
@@ -142,3 +149,34 @@ def test_mechanics_trace_includes_cp_warning_effect():
 
     assert result['cp']['warnings']
     assert result['mechanics_trace']['cp_effects']
+
+
+def test_default_data_quality_uses_standard_labels():
+    assert default_data_quality(has_regional_context=True)['regional_position'] == ConfidenceLevel.INFERRED.value
+    assert default_data_quality(has_regional_context=False)['regional_position'] == ConfidenceLevel.UNKNOWN.value
+    assert_standard_data_quality(default_data_quality(has_regional_context=True))
+    assert_standard_data_quality(default_data_quality(has_regional_context=False))
+
+
+def test_regional_response_data_quality_uses_standard_labels():
+    response = response_from_row({
+        'nearest_colonised_system_id64': 2,
+        'nearest_colonised_system_name': 'Anchor',
+        'nearest_colonised_system_distance_ly': 74.2,
+        'colonised_within_25ly': 0,
+        'colonised_within_50ly': 1,
+        'colonised_within_100ly': 3,
+        'colonised_within_250ly': 18,
+        'regional_isolation_score': 82.0,
+        'regional_density_score': 31.0,
+        'regional_expansion_score': 91.0,
+        'regional_competition_score': 12.0,
+        'regional_role': 'frontier_hub',
+        'archetype_regional_fit': {'expansion_capital': 94.0},
+        'rationale': {'summary': 'good', 'strengths': [], 'warnings': [], 'archetype_notes': {}},
+        'computed_at': '2026-05-13T00:00:00Z',
+    }, 1)
+
+    assert response['data_quality']['regional_position'] == ConfidenceLevel.INFERRED.value
+    assert_standard_data_quality(response['data_quality'])
+    assert response['confidence_signals'][0]['level'] == ConfidenceLevel.INFERRED.value

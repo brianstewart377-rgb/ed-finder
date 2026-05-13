@@ -51,7 +51,7 @@ function plan(): RecommendedBuildPlan {
       buildability_score: 12.9,
       regional_fit_score: 6.4,
       service_score: 0,
-      confidence_penalty: 0,
+      confidence_penalty: 0.3,
       complexity_penalty: 2,
       warning_penalty: 2,
       final_rank_score: 82,
@@ -73,5 +73,8 @@ describe('BuildPlanCard explainability', () => {
     expect(screen.getByText('Score breakdown')).toBeTruthy();
     expect(screen.getAllByText(/This plan ranked highest/).length).toBeGreaterThan(0);
     expect(screen.getByText('Regional Fit Score')).toBeTruthy();
+    expect(screen.queryByText('Service Score')).toBeNull();
+    expect(screen.getByText(/Service scoring is not yet included/)).toBeTruthy();
+    expect(screen.getByText(/Regional fit is a light adjustment/)).toBeTruthy();
   });
 });

@@ -41,7 +41,7 @@ def default_data_quality(*, has_regional_context: bool = False) -> dict[str, str
         'topology': ConfidenceLevel.INFERRED.value,
         'economy_stack': ConfidenceLevel.INFERRED.value,
         'services': ConfidenceLevel.ESTIMATED.value,
-        'regional_position': 'computed' if has_regional_context else ConfidenceLevel.UNKNOWN.value,
+        'regional_position': ConfidenceLevel.INFERRED.value if has_regional_context else ConfidenceLevel.UNKNOWN.value,
     }
 
 

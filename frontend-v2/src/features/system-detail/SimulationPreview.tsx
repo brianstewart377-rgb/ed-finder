@@ -1092,14 +1092,13 @@ function standardLabel(value: string): string {
     estimated: 'Estimated',
     speculative: 'Speculative',
     unknown: 'Unknown',
-    computed: 'Computed',
     predicted: 'Estimated',
   };
   return labels[value] ?? titleCase(value);
 }
 
 function levelTone(value: string): 'default' | 'good' | 'warn' {
-  if (value === 'observed' || value === 'verified' || value === 'community_observed' || value === 'computed') return 'good';
+  if (value === 'observed' || value === 'verified' || value === 'community_observed') return 'good';
   if (value === 'estimated' || value === 'speculative' || value === 'unknown' || value === 'predicted') return 'warn';
   return 'default';
 }

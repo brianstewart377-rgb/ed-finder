@@ -157,7 +157,6 @@ function standardLabel(value: string): string {
     estimated: 'Estimated',
     speculative: 'Speculative',
     unknown: 'Unknown',
-    computed: 'Computed',
   };
   return labels[value] ?? formatRole(value);
 }

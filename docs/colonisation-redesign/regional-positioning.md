@@ -69,9 +69,11 @@ The model keeps regional fit separate from internal build quality.
 - Agriculture/Terraforming likes moderate proximity and regional growth support.
 - Flexible Multirole likes balanced regional conditions.
 
-Recommended builds use regional fit as a light adjustment, roughly 5-10 percent,
-so local body mechanics, topology, economy stack, CP sequence, and services
-remain the primary signal.
+Recommended builds use regional fit as a light adjustment before recommendation
+sorting, roughly 5-10 percent, so close plans can be ordered by regional
+strategy while local body mechanics, topology, economy stack, CP sequence, and
+services remain the primary signal. A clearly stronger local build should not be
+overturned by regional fit alone.
 
 ## Importer
 
@@ -107,6 +109,10 @@ Frontend display includes:
 The Simulation Preview shows regional context separately from local deterministic
 results to avoid implying that regional access changes strong/weak link
 mechanics.
+
+Regional position uses the standard data-quality label `inferred`. The raw
+distance/count metrics are computed from stored coordinates, but strategic role
+and archetype fit are model interpretations.
 
 ## Limitations And Future Work
 

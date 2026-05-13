@@ -86,8 +86,8 @@ describe('RegionalPositionPanel', () => {
         warnings: ['Tourism fit is mixed.'],
         archetype_notes: {},
       },
-      data_quality: { regional_position: 'computed' },
-      confidence_signals: [{ area: 'regional_position', level: 'inferred', reason: 'Regional metrics are computed.' }],
+      data_quality: { regional_position: 'inferred' },
+      confidence_signals: [{ area: 'regional_position', level: 'inferred', reason: 'Regional metrics are inferred.' }],
       computed_at: '2026-05-13T00:00:00Z',
     } satisfies RegionalAnalysisResponse);
 
@@ -96,7 +96,6 @@ describe('RegionalPositionPanel', () => {
     const panel = await screen.findByTestId('regional-position-success');
     expect(panel.textContent).toContain('Frontier Hub');
     expect(panel.textContent).toContain('Frontier Stop');
-    expect(panel.textContent).toContain('Computed');
     expect(panel.textContent).toContain('Inferred');
     expect(panel.textContent).toContain('94 regional fit');
     expect(panel.textContent).toContain('Tourism fit is mixed.');

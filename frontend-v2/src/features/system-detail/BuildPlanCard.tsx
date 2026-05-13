@@ -12,6 +12,11 @@ export function BuildPlanCard({
   const economyRows = Object.entries(plan.economy_result).slice(0, 3);
   const keyReason = plan.decision_explanation?.why_this_plan_won?.[0] ?? plan.strengths[0] ?? plan.summary;
   const keyRisk = plan.warnings[0] ?? plan.tradeoffs[0] ?? plan.economy_caveats[0];
+  const rankBreakdownEntries = Object.entries(plan.rank_breakdown ?? {}).filter(
+    ([key, value]) => !(key === 'service_score' && value === 0),
+  );
+  const serviceScoringReserved = plan.rank_breakdown?.service_score === 0;
+  const regionalAdjustment = plan.rank_breakdown?.regional_fit_score ?? 0;
   return (
     <article
       className={[
@@ -110,19 +115,29 @@ export function BuildPlanCard({
         )}
       </details>
 
-      {Object.keys(plan.rank_breakdown ?? {}).length > 0 && (
+      {rankBreakdownEntries.length > 0 && (
         <details className="mt-2 rounded border border-border/60 bg-bg3/35 px-2 py-2">
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
             Score breakdown
           </summary>
           <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-            {Object.entries(plan.rank_breakdown).map(([key, value]) => (
+            {rankBreakdownEntries.map(([key, value]) => (
               <div key={key} className="flex justify-between gap-2 rounded border border-border/50 bg-bg2/60 px-2 py-1 font-mono text-[10px]">
                 <span className="text-silver-dk">{titleCase(key)}</span>
                 <span className={value < 0 || key.includes('penalty') ? 'text-gold' : 'text-orange'}>{value.toFixed(1)}</span>
               </div>
             ))}
           </div>
+          {regionalAdjustment > 0 && (
+            <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">
+              Regional fit is a light adjustment and does not override local build quality.
+            </p>
+          )}
+          {serviceScoringReserved && (
+            <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
+              Service scoring is not yet included in recommendation ranking.
+            </p>
+          )}
         </details>
       )}
 

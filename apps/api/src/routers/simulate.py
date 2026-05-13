@@ -152,21 +152,19 @@ async def get_recommended_builds(
         ))
         simulated.append((draft, simulation))
 
-    ranked = rank_plans(simulated)
+    ranked = rank_plans(simulated, archetype=target, regional_context=regional_context)
     plans: list[RecommendedBuildPlan] = []
     for idx, ranked_plan in enumerate(ranked):
         draft = ranked_plan.draft
         simulation = ranked_plan.simulation
         body = draft.body
-        regional_fit = float((regional_context.get('archetype_regional_fit') or {}).get(target, 0) or 0)
+        regional_fit = ranked_plan.regional_fit
         final_score = (
             round(simulation.final_score * SIMULATION_RECOMMENDATION_WEIGHT + regional_fit * REGIONAL_RECOMMENDATION_WEIGHT, 1)
             if regional_fit else simulation.final_score
         )
         rank_breakdown = dict(ranked_plan.rank_breakdown)
         if regional_fit:
-            rank_breakdown['regional_fit_score'] = round(regional_fit * REGIONAL_RECOMMENDATION_WEIGHT, 2)
-            rank_breakdown['final_rank_score'] = round(rank_breakdown['final_rank_score'] + rank_breakdown['regional_fit_score'], 2)
             simulation.mechanics_trace.setdefault('regional_effects', []).append(
                 regional_trace_event(archetype=target, regional_fit=regional_fit, weight=REGIONAL_RECOMMENDATION_WEIGHT)
             )

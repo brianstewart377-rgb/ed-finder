@@ -15,6 +15,8 @@ what should not be overclaimed.
 - Regional positioning is archetype-aware and does not use a generic "near is
   good" score.
 - Recommended builds now expose score breakdown and decision explanation.
+- Regional fit is included before recommendation sorting as a light adjustment,
+  so it can break close ties without overriding clearly superior local builds.
 
 ## What Is Inferred
 
@@ -25,6 +27,8 @@ what should not be overclaimed.
 - Converted-port behaviour is modelled with caveats.
 - Regional role thresholds are transparent heuristics pending broader observed
   validation.
+- Service unlocks are exposed in simulation output, but service score is
+  reserved for service-aware ranking v2 and does not currently move ranking.
 
 ## What Is Estimated
 
