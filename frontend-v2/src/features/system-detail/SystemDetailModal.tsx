@@ -9,6 +9,7 @@ import { BuildabilityPanel } from './BuildabilityPanel';
 import { SlotPredictionPanel } from './SlotPredictionPanel';
 import { RecommendedBuildsPanel } from './RecommendedBuildsPanel';
 import { SimulationPreviewPanel } from './SimulationPreviewPanel';
+import { RegionalPositionPanel } from './RegionalPositionPanel';
 
 export interface SystemDetailModalProps {
   id64:    number;
@@ -105,6 +106,9 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
               {/* Colony Build Analysis — simulation engine panels */}
               <Section title="Colony Planning">
                 <BuildabilityPanel id64={id64} />
+                <div className="mt-4">
+                  <RegionalPositionPanel id64={id64} />
+                </div>
                 <div className="mt-4">
                   <RecommendedBuildsPanel system={data} onPreviewBuild={setSelectedBuild} />
                 </div>

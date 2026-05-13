@@ -879,6 +879,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/systems/{id64}/regional-analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Regional Analysis */
+        get: operations["get_regional_analysis_api_systems__id64__regional_analysis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/systems/{id64}/slot-predictions": {
         parameters: {
             query?: never;
@@ -1922,6 +1939,14 @@ export interface components {
             economy_caveats?: string[];
             /** Assumptions */
             assumptions?: string[];
+            /** Regional Role */
+            regional_role?: string | null;
+            /** Nearest Colony Distance */
+            nearest_colony_distance?: number | null;
+            /** Archetype Regional Fit */
+            archetype_regional_fit?: number | null;
+            /** Regional Rationale */
+            regional_rationale?: Record<string, never>;
             simulation_request: components["schemas"]["SimulateBuildRequest"];
             /**
              * Is Default
@@ -1962,6 +1987,34 @@ export interface components {
             plans?: components["schemas"]["RecommendedBuildPlan"][];
             /** Warnings */
             warnings?: string[];
+        };
+        /** RegionalAnalysisResponse */
+        RegionalAnalysisResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** Nearest Colonised System */
+            nearest_colonised_system?: Record<string, never> | null;
+            /** Counts */
+            counts?: {
+                [key: string]: number;
+            };
+            /** Scores */
+            scores?: {
+                [key: string]: number;
+            };
+            /**
+             * Regional Role
+             * @default unknown
+             */
+            regional_role: string;
+            /** Archetype Regional Fit */
+            archetype_regional_fit?: {
+                [key: string]: number;
+            };
+            /** Rationale */
+            rationale?: Record<string, never>;
+            /** Computed At */
+            computed_at?: unknown | null;
         };
         /** RerankRequest */
         RerankRequest: {
@@ -2113,18 +2166,22 @@ export interface components {
             /** Confidence */
             confidence: number;
             cp: components["schemas"]["SimulationCPResult"];
+            /** Cp Timeline */
+            cp_timeline?: Record<string, never>[];
             /** Economy Composition */
             economy_composition?: {
                 [key: string]: number;
             };
             /** Economy Order */
             economy_order?: string[];
+            /** Economy Stack */
+            economy_stack?: Record<string, never>;
             /** Inherited Economies */
             inherited_economies?: components["schemas"]["SimulationInheritedEconomy"][];
             /** Topology */
-            topology?: {
-                [key: string]: unknown;
-            };
+            topology?: Record<string, never>;
+            /** Services */
+            services?: Record<string, never>;
             /** Top Two Alignment */
             top_two_alignment: string;
             /** Contamination Risk */
@@ -2231,7 +2288,7 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** SimulationLink */
+        /** SimulationInheritedEconomy */
         SimulationInheritedEconomy: {
             /** Source Body Id */
             source_body_id?: string | null;
@@ -2296,6 +2353,7 @@ export interface components {
             buildability: components["schemas"]["BuildabilityData"];
             /** Topology Summary */
             topology_summary?: string[];
+            regional_context?: components["schemas"]["RegionalAnalysisResponse"] | null;
             /** Distance To Sol */
             distance_to_sol?: number | null;
             /** Main Star Type */
@@ -4350,6 +4408,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecommendedBuildsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_regional_analysis_api_systems__id64__regional_analysis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionalAnalysisResponse"];
                 };
             };
             /** @description Validation Error */

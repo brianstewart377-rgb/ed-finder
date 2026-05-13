@@ -11,7 +11,9 @@ from typing import Any, Optional
 
 from domain.colonisation_rules import get_target_profile
 from domain.facilities import FacilityTemplate
-from simulation.cp_simulator import port_cp_cost
+from simulation.build_order import simulate_build_order
+from simulation.economy_stack import analyse_economy_stack
+from simulation.services import model_services
 from simulation.topology_graph import GraphPlacement, build_topology_graph, infer_location_type
 
 
@@ -107,18 +109,28 @@ def simulate_build_preview(
     if not resolved:
         warnings.append('No valid facilities are selected yet. Add at least one facility to preview a build.')
 
-    cp = _simulate_cp(resolved)
+    cp = simulate_build_order(resolved).to_cp_dict()
     warnings.extend(cp['warnings'])
 
     topology_graph = build_topology_graph(_graph_placements(resolved, context))
     warnings.extend(topology_graph.warnings)
+    _extend_topology_notes(topology_graph, warnings, mechanics_notes)
 
-    economy_strengths, _legacy_links = _simulate_economies(resolved)
+    economy_strengths = _simulate_economies(resolved, topology_graph)
     links = _links_to_response(topology_graph)
     economy_composition = _to_percentages(economy_strengths)
     economy_order = sorted(economy_composition, key=economy_composition.get, reverse=True)
     inherited_profiles = _inherited_profiles(resolved)
-    composition = _score_composition(economy_composition, economy_order, target_archetype, inherited_profiles)
+    stack_result = analyse_economy_stack(economy_composition, target_archetype, inherited_profiles)
+    composition = {
+        'score': stack_result.score,
+        'alignment': stack_result.alignment,
+        'contamination_risk': stack_result.contamination_risk,
+        'warnings': stack_result.warnings,
+        'strengths': stack_result.strengths,
+        'recommendations': stack_result.recommendations,
+    }
+    services = model_services(resolved, topology_graph)
 
     warnings.extend(composition['warnings'])
     strengths.extend(composition['strengths'])
@@ -169,10 +181,13 @@ def simulate_build_preview(
             't3_ports': cp['t3_ports'],
             'warnings': cp['warnings'],
         },
+        'cp_timeline': cp['timeline'],
         'economy_composition': economy_composition,
         'economy_order': economy_order,
+        'economy_stack': stack_result.to_dict(),
         'inherited_economies': [_profile_to_response(profile) for profile in inherited_profiles],
         'topology': _topology_to_response(topology_graph),
+        'services': services,
         'top_two_alignment': composition['alignment'],
         'contamination_risk': composition['contamination_risk'],
         'warnings': _unique(warnings),
@@ -218,89 +233,8 @@ def _placement_economy_profile(
     return None, []
 
 
-def _simulate_cp(placements: list[_ResolvedPlacement]) -> dict[str, Any]:
-    yellow_generated = green_generated = 0
-    yellow_spent = green_spent = 0
-    paid_t2 = paid_t3 = 0
-    total_t2 = total_t3 = 0
-    warnings: list[str] = []
-
-    for placement in placements:
-        facility = placement.facility
-        spec = placement.spec
-
-        if facility.is_port:
-            if facility.tier == 2:
-                total_t2 += 1
-            elif facility.tier == 3:
-                total_t3 += 1
-
-            if spec.is_primary_port:
-                if facility.tier in (2, 3):
-                    warnings.append(
-                        f'{facility.name} at step {spec.build_order} uses the primary-port exemption; no escalating CP cost is applied.'
-                    )
-            else:
-                if facility.tier == 2:
-                    yellow_cost, green_cost = port_cp_cost(2, paid_t2)
-                    paid_t2 += 1
-                elif facility.tier == 3:
-                    yellow_cost, green_cost = port_cp_cost(3, paid_t3)
-                    paid_t3 += 1
-                else:
-                    yellow_cost, green_cost = facility.yellow_cp_cost, facility.green_cp_cost
-
-                yellow_available = yellow_generated - yellow_spent
-                green_available = green_generated - green_spent
-                if yellow_available < yellow_cost or green_available < green_cost:
-                    warnings.append(
-                        f'{facility.name} at step {spec.build_order} needs {yellow_cost} yellow / {green_cost} green CP, '
-                        f'but only {yellow_available} yellow / {green_available} green CP is available at that point.'
-                    )
-                yellow_spent += yellow_cost
-                green_spent += green_cost
-        else:
-            yellow_cost = int(facility.yellow_cp_cost or 0)
-            green_cost = int(facility.green_cp_cost or 0)
-            if yellow_cost or green_cost:
-                yellow_available = yellow_generated - yellow_spent
-                green_available = green_generated - green_spent
-                if yellow_available < yellow_cost or green_available < green_cost:
-                    warnings.append(
-                        f'{facility.name} at step {spec.build_order} needs {yellow_cost} yellow / {green_cost} green CP, '
-                        f'but only {yellow_available} yellow / {green_available} green CP is available at that point.'
-                    )
-                yellow_spent += yellow_cost
-                green_spent += green_cost
-
-        yellow_generated += facility.yellow_cp_generated
-        green_generated += facility.green_cp_generated
-
-    yellow_final = yellow_generated - yellow_spent
-    green_final = green_generated - green_spent
-    shortage = abs(min(0, yellow_final)) + abs(min(0, green_final))
-    generated = max(1, yellow_generated + green_generated)
-    health_score = max(0.0, min(100.0, 100.0 - (shortage / generated) * 100.0))
-
-    return {
-        'yellow_cp_final': yellow_final,
-        'green_cp_final': green_final,
-        'yellow_cp_generated': yellow_generated,
-        'green_cp_generated': green_generated,
-        'yellow_cp_spent': yellow_spent,
-        'green_cp_spent': green_spent,
-        't2_ports': total_t2,
-        't3_ports': total_t3,
-        'warnings': warnings,
-        'health_score': round(health_score, 1),
-    }
-
-
-def _simulate_economies(placements: list[_ResolvedPlacement]) -> tuple[dict[str, float], dict[str, list[dict[str, Any]]]]:
+def _simulate_economies(placements: list[_ResolvedPlacement], topology_graph: Any) -> dict[str, float]:
     strengths: dict[str, float] = {}
-    strong_links: list[dict[str, Any]] = []
-    weak_links: list[dict[str, Any]] = []
-    ports = [p for p in placements if p.facility.is_port]
 
     for placement in placements:
         facility = placement.facility
@@ -308,38 +242,22 @@ def _simulate_economies(placements: list[_ResolvedPlacement]) -> tuple[dict[str,
         for economy_name, share in (profile.weights if profile else {}).items():
             strengths[economy_name] = strengths.get(economy_name, 0.0) + _economy_weight(facility) * share
 
-        economy = _support_link_economy(placement)
-        if not facility.is_support_facility or not economy:
+    for link in topology_graph.strong_links:
+        if link.economy:
+            strengths[link.economy] = strengths.get(link.economy, 0.0) + float(link.value)
+    for link in topology_graph.weak_links:
+        if link.economy:
+            strengths[link.economy] = strengths.get(link.economy, 0.0) + float(link.value)
+
+    strong_sources = {(link.source_facility_id, link.local_body_id) for link in topology_graph.strong_links}
+    for link in topology_graph.pass_through_links:
+        if not link.economy:
             continue
+        if (link.source_facility_id, link.local_body_id) in strong_sources:
+            continue
+        strengths[link.economy] = strengths.get(link.economy, 0.0) + float(link.value)
 
-        same_body_port = next(
-            (p for p in ports if p.spec.local_body_id and p.spec.local_body_id == placement.spec.local_body_id),
-            None,
-        )
-        if same_body_port:
-            value = float(facility.strong_link_value or 0.0)
-            strengths[economy] = strengths.get(economy, 0.0) + value
-            strong_links.append({
-                'port_facility_id': same_body_port.facility.id,
-                'support_facility_id': facility.id,
-                'local_body_id': placement.spec.local_body_id,
-                'economy': economy,
-                'value': round(value, 2),
-                'note': f'{facility.name} strongly reinforces {same_body_port.facility.name} on the same local body.',
-            })
-        elif ports:
-            value = float(facility.weak_link_value or 0.0)
-            strengths[economy] = strengths.get(economy, 0.0) + value
-            weak_links.append({
-                'port_facility_id': ports[0].facility.id,
-                'support_facility_id': facility.id,
-                'local_body_id': placement.spec.local_body_id,
-                'economy': economy,
-                'value': round(value, 2),
-                'note': f'{facility.name} weakly links across local bodies.',
-            })
-
-    return strengths, {'strong_links': strong_links, 'weak_links': weak_links}
+    return strengths
 
 
 def _graph_placements(
@@ -355,10 +273,11 @@ def _graph_placements(
             local_body_id=body_id,
             build_order=placement.spec.build_order,
             location_type=infer_location_type(placement.facility),
-            economy=_support_link_economy(placement),
+            economy=_topology_emitter_economy(placement),
             body_name=str(profile.get('body_name')) if profile.get('body_name') else None,
             parent_body_id=str(profile.get('parent_body_id')) if profile.get('parent_body_id') else None,
             is_primary_port=placement.spec.is_primary_port,
+            body_profile=profile,
         ))
     return graph_items
 
@@ -435,6 +354,18 @@ def _placement_summary(placement: Optional[GraphPlacement]) -> Optional[dict[str
         'location_type': placement.location_type,
         'economy': placement.economy,
     }
+
+
+def _extend_topology_notes(graph: Any, warnings: list[str], mechanics_notes: list[str]) -> None:
+    for port in graph.converted_ports:
+        warnings.append(f'{port.facility_name} is a converted port and may behave as a support emitter: {port.reason}')
+    for link in [*graph.strong_links, *graph.pass_through_links]:
+        for reason in getattr(link, 'modifier_reasons', []) or []:
+            mechanics_notes.append(reason)
+        for caveat in getattr(link, 'caveats', []) or []:
+            warnings.append(caveat)
+        for assumption in getattr(link, 'assumptions', []) or []:
+            mechanics_notes.append(assumption)
 
 
 def _score_composition(
@@ -713,6 +644,20 @@ def _support_link_economy(placement: _ResolvedPlacement) -> Optional[str]:
     profile = placement.economy_profile
     if profile and len(profile.weights) == 1:
         return next(iter(profile.weights))
+    return None
+
+
+def _topology_emitter_economy(placement: _ResolvedPlacement) -> Optional[str]:
+    support = _support_link_economy(placement)
+    if support:
+        return support
+    if not placement.facility.is_port:
+        return None
+    if placement.facility.economy and placement.facility.economy not in _CONTAMINATION_ECONOMIES:
+        return placement.facility.economy
+    profile = placement.economy_profile
+    if profile and profile.weights:
+        return max(profile.weights, key=profile.weights.get)
     return None
 
 

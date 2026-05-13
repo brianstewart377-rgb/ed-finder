@@ -57,6 +57,23 @@ export function BuildPlanCard({
         )}
       </div>
 
+      {(plan.regional_role || plan.nearest_colony_distance != null || plan.archetype_regional_fit != null) && (
+        <div className="mt-3 rounded border border-orange/25 bg-orange/5 px-2 py-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {plan.regional_role && <Badge label={`Region: ${titleCase(plan.regional_role)}`} tone="orange" />}
+            {plan.nearest_colony_distance != null && (
+              <Badge label={`${plan.nearest_colony_distance.toFixed(0)} LY nearest`} tone="gold" />
+            )}
+            {plan.archetype_regional_fit != null && (
+              <Badge label={`${Math.round(plan.archetype_regional_fit)} regional fit`} tone={plan.archetype_regional_fit >= 70 ? 'green' : 'gold'} />
+            )}
+          </div>
+          {regionalSummary(plan.regional_rationale) && (
+            <p className="mt-2 text-[11px] leading-snug text-silver-dk">{regionalSummary(plan.regional_rationale)}</p>
+          )}
+        </div>
+      )}
+
       <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(150px,0.85fr)]">
         <BuildOrderTimeline steps={plan.build_order.slice(0, 5)} />
         <div className="space-y-2">
@@ -128,4 +145,9 @@ function complexityTone(value: RecommendedBuildPlan['complexity']): 'green' | 'g
   if (value === 'moderate') return 'gold';
   if (value === 'advanced') return 'orange';
   return 'red';
+}
+
+function regionalSummary(value: Record<string, unknown> | undefined): string | null {
+  const summary = value?.summary;
+  return typeof summary === 'string' && summary.length > 0 ? summary : null;
 }

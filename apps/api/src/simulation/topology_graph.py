@@ -16,6 +16,7 @@ from typing import Optional
 
 from domain.colonisation_constants import STRONG_LINK_BY_TIER, WEAK_LINK_STRENGTH
 from domain.facilities import FacilityTemplate, LOC_ORBITAL, LOC_RINGED_ORBITAL, LOC_SURFACE
+from simulation.link_modifiers import modified_strong_link_value
 
 
 ROLE_PRIMARY_PORT = 'primary_port'
@@ -36,6 +37,7 @@ class GraphPlacement:
     body_name: Optional[str] = None
     parent_body_id: Optional[str] = None
     is_primary_port: bool = False
+    body_profile: dict | None = None
 
     @property
     def facility_id(self) -> str:
@@ -74,6 +76,11 @@ class StrongLink:
     economy: Optional[str]
     value: float
     note: str
+    base_value: float = 0.0
+    modifier: float = 1.0
+    modifier_reasons: list[str] = field(default_factory=list)
+    caveats: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
@@ -107,6 +114,11 @@ class PassThroughLink:
     economy: Optional[str]
     value: float
     note: str
+    base_value: float = 0.0
+    modifier: float = 1.0
+    modifier_reasons: list[str] = field(default_factory=list)
+    caveats: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
@@ -238,6 +250,7 @@ def _generate_strong_links(graph: TopologyGraph) -> list[StrongLink]:
             receiver = _strong_receiver(placement, group)
             if receiver is None or receiver == placement:
                 continue
+            modifier = _strong_link_modifier(placement)
             links.append(StrongLink(
                 source_facility_id=placement.facility_id,
                 source_facility_name=placement.facility_name,
@@ -245,8 +258,13 @@ def _generate_strong_links(graph: TopologyGraph) -> list[StrongLink]:
                 receiver_port_name=receiver.facility_name,
                 local_body_id=group.local_body_id,
                 economy=placement.economy,
-                value=_strong_link_value(placement),
+                value=modifier.value,
                 note=f'{placement.facility_name} strongly links to local Main Port {receiver.facility_name}.',
+                base_value=modifier.base_value,
+                modifier=modifier.multiplier,
+                modifier_reasons=modifier.reasons,
+                caveats=modifier.caveats,
+                assumptions=modifier.assumptions,
             ))
     return links
 
@@ -257,6 +275,7 @@ def _generate_pass_through_links(graph: TopologyGraph) -> list[PassThroughLink]:
     for group in graph.local_body_groups:
         if not group.main_surface_port or not group.main_orbital_port:
             continue
+        surface_modifier = _strong_link_modifier(group.main_surface_port)
         links.append(PassThroughLink(
             source_facility_id=group.main_surface_port.facility_id,
             source_facility_name=group.main_surface_port.facility_name,
@@ -266,11 +285,16 @@ def _generate_pass_through_links(graph: TopologyGraph) -> list[PassThroughLink]:
             orbital_receiver_name=group.main_orbital_port.facility_name,
             local_body_id=group.local_body_id,
             economy=group.main_surface_port.economy,
-            value=_strong_link_value(group.main_surface_port),
+            value=surface_modifier.value,
             note=(
                 f'Surface Main Port {group.main_surface_port.facility_name} strongly links to '
                 f'orbital Main Port {group.main_orbital_port.facility_name}.'
             ),
+            base_value=surface_modifier.base_value,
+            modifier=surface_modifier.multiplier,
+            modifier_reasons=surface_modifier.reasons,
+            caveats=surface_modifier.caveats,
+            assumptions=surface_modifier.assumptions,
         ))
         for placement in group.facilities:
             if placement.location_type != 'surface' or placement.facility.is_port or not placement.economy:
@@ -356,6 +380,14 @@ def _can_emit_weak_link(placement: GraphPlacement, role: Optional[str]) -> bool:
 
 def _strong_link_value(source: GraphPlacement) -> float:
     return STRONG_LINK_BY_TIER.get(source.facility.tier, STRONG_LINK_BY_TIER[1])
+
+
+def _strong_link_modifier(source: GraphPlacement):
+    return modified_strong_link_value(
+        source_tier=source.facility.tier,
+        economy=source.economy,
+        body_profile=source.body_profile,
+    )
 
 
 def _key(placement: GraphPlacement) -> tuple[str, str, int]:

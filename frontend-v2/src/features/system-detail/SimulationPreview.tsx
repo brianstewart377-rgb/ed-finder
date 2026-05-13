@@ -61,6 +61,7 @@ export function SimulationPreview({
   const templates = templatesQuery.data ?? [];
   const bodies = useMemo(() => simulationBodies(system.bodies), [system.bodies]);
   const recommendedSteps = summaryQuery.data?.buildability?.recommended_build_order ?? [];
+  const regionalContext = summaryQuery.data?.regional_context ?? null;
   const suggestedArchetype = summaryQuery.data?.classification?.primary_archetype
     ?? archetypeFromEconomy(system.economy_suggestion)
     ?? 'refinery_industrial';
@@ -294,6 +295,7 @@ export function SimulationPreview({
         </div>
 
         <div className="space-y-3">
+          <RegionalContextMini regional={regionalContext} loading={summaryQuery.isLoading} />
           {error && <Message tone="danger" items={[error]} />}
           {result ? (
             <SimulationResult result={result} />
@@ -565,9 +567,12 @@ function SimulationResult({ result }: { result: SimulateBuildResponse }) {
       </div>
 
       <EconomyBars composition={result.economy_composition} order={result.economy_order} />
+      <EconomyStackPanel stack={result.economy_stack} />
       <InheritedEconomyPanel profiles={result.inherited_economies} />
       <TopologyPanel topology={result.topology} />
       <CpSummary cp={result.cp} />
+      <CpTimelinePanel timeline={result.cp_timeline} />
+      <ServicesPanel services={result.services} />
 
       <div className="grid gap-2">
         {result.strengths.length > 0 && <Message title="Why this works" tone="good" items={result.strengths} />}
@@ -576,6 +581,92 @@ function SimulationResult({ result }: { result: SimulateBuildResponse }) {
       </div>
 
       <LinkSummary result={result} />
+    </div>
+  );
+}
+
+function RegionalContextMini({
+  regional,
+  loading,
+}: {
+  regional: SimulationSummary['regional_context'];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-chunk-lg border border-border/50 bg-bg3/25 p-3">
+        <div className="h-3 w-40 rounded bg-bg4/60" />
+        <div className="mt-3 h-3 w-2/3 rounded bg-bg4/40" />
+      </div>
+    );
+  }
+  if (!regional || regional.regional_role === 'unknown') {
+    return (
+      <div className="rounded-chunk-lg border border-border/60 bg-bg3/25 p-3 font-mono text-[11px] text-silver-dk">
+        <div className="text-[10px] uppercase tracking-[0.18em] text-silver-dk">Regional context</div>
+        <div className="mt-1">Regional positioning is not computed yet; local simulation remains deterministic.</div>
+      </div>
+    );
+  }
+  const bestFit = Object.entries(regional.archetype_regional_fit)
+    .sort((a, b) => b[1] - a[1])[0];
+  return (
+    <div className="rounded-chunk-lg border border-orange/25 bg-orange/5 p-3 font-mono text-[11px] text-silver">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-orange">Regional context</div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Chip tone="warn">{titleCase(regional.regional_role)}</Chip>
+        {regional.nearest_colonised_system?.distance_ly != null && (
+          <Chip>{regional.nearest_colonised_system.distance_ly.toFixed(0)} LY nearest colony</Chip>
+        )}
+        {bestFit && <Chip tone="good">{titleCase(bestFit[0])}: {Math.round(bestFit[1])}</Chip>}
+      </div>
+      {regional.rationale?.summary && (
+        <p className="mt-2 leading-snug text-silver-dk">{regional.rationale.summary}</p>
+      )}
+    </div>
+  );
+}
+
+function EconomyStackPanel({ stack }: { stack: SimulateBuildResponse['economy_stack'] }) {
+  const topTwo = asStringArray(stack.top_two);
+  const tertiary = asStringArray(stack.tertiary);
+  const strengths = stack.strengths && typeof stack.strengths === 'object'
+    ? Object.entries(stack.strengths as Record<string, unknown>)
+      .filter(([, value]) => typeof value === 'number')
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 5)
+    : [];
+  const warnings = asStringArray(stack.warnings);
+  if (topTwo.length === 0 && strengths.length === 0) return null;
+  return (
+    <div className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+        Economy stack identity
+      </div>
+      <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
+        {topTwo.map((economy) => <Chip key={economy} tone="good">{economy} top-two</Chip>)}
+        {tertiary.map((economy) => <Chip key={economy} tone="warn">{economy} tertiary pressure</Chip>)}
+        {asNumber(stack.purity_score) != null && <Chip>{Math.round(asNumber(stack.purity_score) ?? 0)} purity</Chip>}
+        {asString(stack.contamination_risk) && <Chip tone={asString(stack.contamination_risk) === 'low' ? 'good' : 'warn'}>{titleCase(asString(stack.contamination_risk) ?? '')} contamination</Chip>}
+      </div>
+      {strengths.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {strengths.map(([economy, value]) => (
+            <div key={economy} className="grid grid-cols-[96px_minmax(0,1fr)_42px] items-center gap-2">
+              <span className="truncate font-mono text-[10px] text-silver-dk">{economy}</span>
+              <div className="h-2 overflow-hidden rounded-full border border-border bg-bg4">
+                <div className="h-full rounded-full bg-orange-grad" style={{ width: `${Math.max(3, Math.min(100, Number(value)))}%` }} />
+              </div>
+              <span className="text-right font-mono text-[10px] text-orange tabular-nums">{Number(value).toFixed(0)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {warnings.slice(0, 2).map((warning) => (
+        <div key={warning} className="mt-2 rounded border border-gold/30 bg-gold/5 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
+          {warning}
+        </div>
+      ))}
     </div>
   );
 }
@@ -628,6 +719,58 @@ function TopologyPanel({ topology }: { topology: SimulateBuildResponse['topology
           {port.facility_name}: {port.reason}
         </div>
       ))}
+    </div>
+  );
+}
+
+function CpTimelinePanel({ timeline }: { timeline: SimulateBuildResponse['cp_timeline'] }) {
+  if (!timeline || timeline.length === 0) return null;
+  return (
+    <div className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+        CP build-order timeline
+      </div>
+      <div className="space-y-1.5">
+        {timeline.slice(0, 5).map((step) => (
+          <div key={`${step.step}-${step.facility_template_id}`} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2 font-mono text-[10px] text-silver">
+              <span className="truncate">{step.step}. {step.facility_name}</span>
+              <span className="shrink-0 tabular-nums text-orange">
+                Y {signed(step.yellow_delta)} / G {signed(step.green_delta)}
+              </span>
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-silver-dk">
+              {step.yellow_before} {'->'} {step.yellow_after} yellow, {step.green_before} {'->'} {step.green_after} green
+            </div>
+            {step.warnings.slice(0, 1).map((warning) => (
+              <div key={warning} className="mt-1 text-[10px] text-gold">{warning}</div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ServicesPanel({ services }: { services: SimulateBuildResponse['services'] }) {
+  const rows = Object.entries(services ?? {});
+  if (rows.length === 0) return null;
+  return (
+    <div className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+        Service unlocks
+      </div>
+      <div className="grid gap-1.5 sm:grid-cols-2">
+        {rows.map(([service, detail]) => (
+          <div key={service} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
+              <span className="truncate text-silver">{titleCase(service)}</span>
+              <span className={serviceTone(detail.status)}>{titleCase(detail.status)}</span>
+            </div>
+            <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-silver-dk">{detail.reason}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -868,6 +1011,28 @@ function Chip({ children, tone = 'default' }: { children: ReactNode; tone?: 'def
       {children}
     </span>
   );
+}
+
+function signed(value: number): string {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function serviceTone(status: string): string {
+  if (status === 'active') return 'text-green';
+  if (status === 'locked') return 'text-gold';
+  return 'text-silver-dk';
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 function resequence(items: SimulateBuildPlacement[]): SimulateBuildPlacement[] {

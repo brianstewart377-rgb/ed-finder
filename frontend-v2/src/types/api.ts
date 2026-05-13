@@ -61,7 +61,7 @@ export type RerankRow             = Schemas['RerankRow'];
 export type RerankWeights         = Schemas['RerankWeights'];
 export type BuildabilityData      = Schemas['BuildabilityData'];
 export type BodySlotPrediction    = Schemas['BodySlotPrediction'];
-export type SimulationSummary     = Schemas['SimulationSummaryResponse'];
+export type SimulationSummary     = Schemas['SimulationSummaryResponse'] & { regional_context?: RegionalAnalysisResponse | null };
 export type SlotPredictionResponse = Schemas['SlotPredictionResponse'];
 export type SlotReason            = Schemas['SlotReason'];
 export type BuildabilityResponse  = Schemas['BuildabilityResponse'];
@@ -110,6 +110,20 @@ export interface SimulationCPResult {
   warnings: string[];
 }
 
+export interface SimulationTimelineStep {
+  step: number;
+  facility_template_id: string;
+  facility_name: string;
+  yellow_before: number;
+  yellow_after: number;
+  green_before: number;
+  green_after: number;
+  yellow_delta: number;
+  green_delta: number;
+  warnings: string[];
+  notes?: string[];
+}
+
 export interface SimulationLink {
   port_facility_id?: string | null;
   support_facility_id: string;
@@ -145,10 +159,13 @@ export interface SimulateBuildResponse {
   build_complexity: 'simple' | 'moderate' | 'advanced' | 'expert';
   confidence: number;
   cp: SimulationCPResult;
+  cp_timeline: SimulationTimelineStep[];
   economy_composition: Record<string, number>;
   economy_order: string[];
+  economy_stack: Record<string, unknown>;
   inherited_economies: SimulationInheritedEconomy[];
   topology: Record<string, unknown>;
+  services: Record<string, { status: string; reason: string; requirements: string[] }>;
   top_two_alignment: string;
   contamination_risk: string;
   warnings: string[];
@@ -180,6 +197,10 @@ export interface RecommendedBuildPlan {
   mechanics_basis: string[];
   economy_caveats: string[];
   assumptions: string[];
+  regional_role?: string | null;
+  nearest_colony_distance?: number | null;
+  archetype_regional_fit?: number | null;
+  regional_rationale: Record<string, unknown>;
   simulation_request: SimulateBuildRequest;
   is_default: boolean;
 }
@@ -191,6 +212,36 @@ export interface RecommendedBuildsResponse {
   recommended_next_action: string;
   plans: RecommendedBuildPlan[];
   warnings: string[];
+}
+
+export interface RegionalAnalysisResponse {
+  system_id64: number;
+  nearest_colonised_system?: {
+    id64?: number | null;
+    name?: string | null;
+    distance_ly?: number | null;
+  } | null;
+  counts: {
+    within_25ly: number;
+    within_50ly: number;
+    within_100ly: number;
+    within_250ly: number;
+  };
+  scores: {
+    isolation: number;
+    density: number;
+    expansion: number;
+    competition: number;
+  };
+  regional_role: string;
+  archetype_regional_fit: Record<string, number>;
+  rationale: {
+    summary?: string;
+    strengths?: string[];
+    warnings?: string[];
+    archetype_notes?: Record<string, string>;
+  };
+  computed_at?: string | null;
 }
 
 // ─── Frontend-side constants ──────────────────────────────────────────────

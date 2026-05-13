@@ -940,10 +940,13 @@ class SimulateBuildResponse(BaseModel):
     build_complexity:    Literal['simple', 'moderate', 'advanced', 'expert']
     confidence:          float
     cp:                  SimulationCPResult
+    cp_timeline:         list[dict[str, Any]] = Field(default_factory=list)
     economy_composition: dict[str, float] = Field(default_factory=dict)
     economy_order:       list[str] = Field(default_factory=list)
+    economy_stack:       dict[str, Any] = Field(default_factory=dict)
     inherited_economies: list[SimulationInheritedEconomy] = Field(default_factory=list)
     topology:            dict[str, Any] = Field(default_factory=dict)
+    services:            dict[str, Any] = Field(default_factory=dict)
     top_two_alignment:   str
     contamination_risk:  str
     warnings:            list[str] = Field(default_factory=list)
@@ -977,6 +980,10 @@ class RecommendedBuildPlan(BaseModel):
     mechanics_basis:    list[str] = Field(default_factory=list)
     economy_caveats:    list[str] = Field(default_factory=list)
     assumptions:        list[str] = Field(default_factory=list)
+    regional_role:      Optional[str] = None
+    nearest_colony_distance: Optional[float] = None
+    archetype_regional_fit: Optional[float] = None
+    regional_rationale: dict[str, Any] = Field(default_factory=dict)
     simulation_request: SimulateBuildRequest
     is_default:         bool = False
 
@@ -990,6 +997,19 @@ class RecommendedBuildsResponse(BaseModel):
     recommended_next_action:  str
     plans:                   list[RecommendedBuildPlan] = Field(default_factory=list)
     warnings:                list[str] = Field(default_factory=list)
+
+
+class RegionalAnalysisResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64:                 int
+    nearest_colonised_system:    Optional[dict[str, Any]] = None
+    counts:                      dict[str, int] = Field(default_factory=dict)
+    scores:                      dict[str, float] = Field(default_factory=dict)
+    regional_role:               str = 'unknown'
+    archetype_regional_fit:      dict[str, float] = Field(default_factory=dict)
+    rationale:                   dict[str, Any] = Field(default_factory=dict)
+    computed_at:                 Optional[Any] = None
 
 
 class FacilityTemplateResponse(BaseModel):
@@ -1179,6 +1199,7 @@ class SimulationSummaryResponse(BaseModel):
     body_summary:      Optional[SimulationBodySummary] = None
     buildability:      BuildabilityData
     topology_summary:  list[str] = Field(default_factory=list)
+    regional_context:  Optional[RegionalAnalysisResponse] = None
     distance_to_sol:   Optional[float] = None
     main_star_type:    Optional[str] = None
 

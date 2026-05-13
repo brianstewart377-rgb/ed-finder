@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from deps import get_pool
 from domain.colonisation_rules import get_target_profile, profile_body
 from domain.facilities import FacilityTemplate, get_catalogue, load_bundled_catalogue, load_catalogue_from_rows
+from regional.regional_analysis import response_from_row
 from models import (
     FacilityTemplateResponse,
     RecommendedBuildPlan,
@@ -87,6 +88,7 @@ async def get_recommended_builds(
     context, body_rows = await _preview_context(pool, system_id64)
     target = archetype or await _suggested_archetype(pool, system_id64) or 'flexible_multirole'
     target_profile = get_target_profile(target)
+    regional_context = await _regional_context(pool, system_id64)
     warnings: list[str] = []
 
     if target_profile.warning:
@@ -152,6 +154,8 @@ async def get_recommended_builds(
         draft = ranked_plan.draft
         simulation = ranked_plan.simulation
         body = draft.body
+        regional_fit = float((regional_context.get('archetype_regional_fit') or {}).get(target, 0) or 0)
+        final_score = round(simulation.final_score * 0.93 + regional_fit * 0.07, 1) if regional_fit else simulation.final_score
         assumptions = ['Body economy is estimated from documented Mega Guide rules and available scan facts.']
         if context.slot_confidence is None or context.slot_confidence < 0.75:
             assumptions.append('Slot prediction is estimated, not observed in-game.')
@@ -163,7 +167,7 @@ async def get_recommended_builds(
             summary=draft.summary,
             complexity=simulation.build_complexity,
             confidence=simulation.confidence,
-            final_score=simulation.final_score,
+            final_score=final_score,
             composition_score=simulation.composition_score,
             buildability_score=simulation.buildability_score,
             economy_result=simulation.economy_composition,
@@ -179,6 +183,13 @@ async def get_recommended_builds(
             mechanics_basis=draft.mechanics_basis,
             economy_caveats=body.caveats,
             assumptions=assumptions,
+            regional_role=regional_context.get('regional_role'),
+            nearest_colony_distance=(
+                (regional_context.get('nearest_colonised_system') or {}).get('distance_ly')
+                if regional_context.get('nearest_colonised_system') else None
+            ),
+            archetype_regional_fit=regional_fit or None,
+            regional_rationale=regional_context.get('rationale') or {},
             simulation_request=draft.request,
             is_default=(idx == 0),
         ))
@@ -323,3 +334,17 @@ def _maybe_float(row: Optional[dict], key: str) -> Optional[float]:
     if not row or row.get(key) is None:
         return None
     return float(row[key])
+
+
+async def _regional_context(pool: asyncpg.Pool, system_id64: int) -> dict:
+    if not hasattr(pool, 'acquire'):
+        return {}
+    async with pool.acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                'SELECT * FROM system_regional_analysis WHERE system_id64 = $1',
+                system_id64,
+            )
+        except (asyncpg.UndefinedTableError, AttributeError):
+            row = None
+    return response_from_row(dict(row) if row else None, system_id64)

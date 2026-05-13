@@ -16,6 +16,7 @@ import type {
   CacheStats,
   FacilityTemplate,
   RecommendedBuildsResponse,
+  RegionalAnalysisResponse,
   RerankRequest,
   RerankResponse,
   SearchResponse,
@@ -168,6 +169,10 @@ export const api = {
     return jsonFetch(`/systems/${id64}/recommended-builds${params}`);
   },
 
+  regionalAnalysis(id64: number): Promise<RegionalAnalysisResponse> {
+    return jsonFetch(`/systems/${id64}/regional-analysis`);
+  },
+
   facilityTemplates(): Promise<FacilityTemplate[]> {
     return jsonFetch('/facility-templates');
   },
@@ -249,6 +254,10 @@ export function getSimulationSummary(id64: number, archetype?: string): Promise<
 
 export function getRecommendedBuilds(id64: number, archetype?: string): Promise<RecommendedBuildsResponse> {
   return api.recommendedBuilds(id64, archetype);
+}
+
+export function getRegionalAnalysis(id64: number): Promise<RegionalAnalysisResponse> {
+  return api.regionalAnalysis(id64);
 }
 
 export function getFacilityTemplates(): Promise<FacilityTemplate[]> {

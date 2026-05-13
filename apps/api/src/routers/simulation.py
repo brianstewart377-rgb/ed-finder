@@ -37,9 +37,11 @@ from deps import get_pool, get_redis, cache_get, cache_set
 from ingest.slot_prediction import predict_system_slots, confidence_label
 from models import (
     BuildabilityResponse,
+    RegionalAnalysisResponse,
     SimulationSummaryResponse,
     SlotPredictionResponse,
 )
+from regional.regional_analysis import response_from_row
 from simulation.buildability import analyse_buildability
 from simulation.topology_simulator import (
     topology_from_row, topology_from_traits, summarise_topology,
@@ -48,6 +50,36 @@ from simulation.topology_simulator import (
 router = APIRouter(prefix='/api/systems', tags=['simulation'])
 
 _CACHE_TTL = 300   # 5 minutes
+
+
+# ---------------------------------------------------------------------------
+# GET /api/systems/{id64}/regional-analysis
+# ---------------------------------------------------------------------------
+@router.get('/{id64}/regional-analysis', response_model=RegionalAnalysisResponse)
+async def get_regional_analysis(
+    id64: int,
+    pool: asyncpg.Pool = Depends(get_pool),
+    redis: Optional[aioredis.Redis] = Depends(get_redis),
+):
+    cache_key = f'sim:v3:regional:{id64}'
+    cached = await cache_get(cache_key, redis)
+    if cached:
+        return cached
+
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval('SELECT 1 FROM systems WHERE id64 = $1', id64)
+        if not exists:
+            raise HTTPException(404, f'System {id64} not found')
+        try:
+            row = await conn.fetchrow(
+                'SELECT * FROM system_regional_analysis WHERE system_id64 = $1',
+                id64,
+            )
+        except asyncpg.UndefinedTableError:
+            row = None
+    result = response_from_row(dict(row) if row else None, id64)
+    await cache_set(cache_key, result, _CACHE_TTL, redis)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +435,13 @@ async def get_simulation_summary(
             'SELECT COUNT(*) FROM bodies WHERE system_id64 = $1 AND body_type != $2',
             id64, 'Star'
         ) or 0
+        try:
+            regional_row = await conn.fetchrow(
+                'SELECT * FROM system_regional_analysis WHERE system_id64 = $1',
+                id64,
+            )
+        except asyncpg.UndefinedTableError:
+            regional_row = None
 
     effective_archetype = archetype or (
         mv_row['primary_archetype'] if mv_row else None
@@ -414,6 +453,7 @@ async def get_simulation_summary(
         'system_id64': id64,
         'system_name': system_name,
         'archetype':   effective_archetype,
+        'regional_context': response_from_row(dict(regional_row) if regional_row else None, id64),
     }
 
     # Archetype classification
