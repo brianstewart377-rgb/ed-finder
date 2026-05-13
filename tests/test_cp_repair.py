@@ -108,6 +108,8 @@ def test_cp_negative_step_produces_high_or_critical_repair_suggestion():
     assert negative
     assert negative[0]['severity'] in {'high', 'critical'}
     assert negative[0]['affected_steps'] == [1]
+    assert negative[0]['suggestion_id'] == 'cp_negative_step_1'
+    assert negative[0]['suggested_action']['action_type'] == 'review_sequence'
 
 
 def test_later_cp_generating_support_produces_move_earlier_suggestion():
@@ -119,7 +121,11 @@ def test_later_cp_generating_support_produces_move_earlier_suggestion():
     move = suggestions(result, 'move_cp_generator_earlier')
     assert move
     assert move[0]['affected_steps'] == [1, 2]
-    assert 'Move Support Green from step 2 to before step 1' in move[0]['action']
+    assert move[0]['suggestion_id'] == 'move_support_green_before_step_1'
+    assert move[0]['suggested_action']['action_type'] == 'move_facility_earlier'
+    assert move[0]['suggested_action']['facility_template_id'] == 'support_green'
+    assert 'before step 1' not in move[0]['action']
+    assert any('initial colony anchor' in caveat for caveat in move[0]['caveats'])
 
 
 def test_first_non_primary_port_with_early_cp_pressure_suggests_primary_port():
@@ -131,6 +137,28 @@ def test_first_non_primary_port_with_early_cp_pressure_suggests_primary_port():
     primary = suggestions(result, 'mark_primary_port')
     assert primary
     assert primary[0]['affected_steps'] == [1]
+    assert primary[0]['suggested_action']['action_type'] == 'mark_primary_port'
+    assert primary[0]['suggested_action']['set_primary_port'] is True
+
+
+def test_step1_non_primary_port_and_later_cp_negative_step_suggests_primary_port():
+    result = run([
+        PreviewPlacement('support_small', '1', build_order=1),
+        PreviewPlacement('t2_port', '1', build_order=2),
+        PreviewPlacement('t2_port', '1', build_order=3),
+    ])
+
+    primary = suggestions(result, 'mark_primary_port')
+    assert primary
+    assert primary[0]['affected_steps'][0] == 2
+
+
+def test_no_port_simulation_does_not_produce_primary_suggestion():
+    result = run([
+        PreviewPlacement('support_small', '1', build_order=1),
+    ])
+
+    assert suggestions(result, 'mark_primary_port') == []
 
 
 def test_already_primary_port_does_not_duplicate_primary_suggestion():
@@ -181,5 +209,36 @@ def test_cp_repair_suggestions_use_standard_confidence_labels_and_trace_events()
     ])
 
     assert {item['confidence'] for item in result['cp_repair_suggestions']} <= STANDARD_CONFIDENCE_LABELS
+    assert all(item['suggestion_id'] for item in result['cp_repair_suggestions'])
+    actionable = [item for item in result['cp_repair_suggestions'] if item['type'] != 'sequence_is_valid_but_fragile']
+    assert all(item['suggested_action'] is not None for item in actionable)
     assert result['mechanics_trace']['cp_repair_effects']
     SimulateBuildResponse.model_validate(result)
+
+
+def test_add_cp_generator_and_delay_expensive_port_appear_when_no_move_earlier_repair_exists():
+    result = run([
+        PreviewPlacement('t2_port', '1', build_order=1),
+    ])
+
+    assert suggestions(result, 'delay_expensive_port')
+    assert suggestions(result, 'add_cp_generator')
+    assert suggestions(result, 'delay_expensive_port')[0]['suggested_action']['action_type'] == 'delay_facility'
+    assert suggestions(result, 'add_cp_generator')[0]['suggested_action']['action_type'] == 'add_cp_generator'
+
+
+def test_suggestion_output_is_capped_and_retains_high_severity_items():
+    result = run([
+        PreviewPlacement('t2_port', '1', build_order=1),
+        PreviewPlacement('t2_port', '1', build_order=2),
+        PreviewPlacement('t2_port', '1', build_order=3),
+        PreviewPlacement('t3_port', '1', build_order=4),
+        PreviewPlacement('t3_port', '1', build_order=5),
+        PreviewPlacement('support_big', '1', build_order=6),
+    ])
+
+    items = result['cp_repair_suggestions']
+    assert len(items) <= 6
+    assert any(item['severity'] in {'high', 'critical'} for item in items)
+    first_step_items = [item for item in items if item['affected_steps'] and min(item['affected_steps']) == 1]
+    assert len(first_step_items) <= 3

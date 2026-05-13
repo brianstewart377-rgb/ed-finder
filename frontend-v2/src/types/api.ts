@@ -110,7 +110,19 @@ export interface SimulationCPResult {
   warnings: string[];
 }
 
+export interface CPRepairAction {
+  action_type: string;
+  facility_template_id?: string | null;
+  facility_name?: string | null;
+  from_step?: number | null;
+  to_step?: number | null;
+  target_step?: number | null;
+  set_primary_port?: boolean | null;
+  notes: string[];
+}
+
 export interface CPRepairSuggestion {
+  suggestion_id: string;
   type: string;
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | string;
   summary: string;
@@ -118,6 +130,7 @@ export interface CPRepairSuggestion {
   affected_steps: number[];
   expected_effect: string;
   action: string;
+  suggested_action?: CPRepairAction | null;
   confidence: string;
   caveats: string[];
 }
