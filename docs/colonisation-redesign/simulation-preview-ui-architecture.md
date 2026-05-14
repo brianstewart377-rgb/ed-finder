@@ -18,6 +18,7 @@ The Simulation Preview UI now lives under `frontend-v2/src/features/system-detai
 | `components/` | One file per shared UI atom, re-exported by `components/index.ts`. |
 | `panels/` | One file per major Simulation Preview result panel, re-exported by `panels/index.ts`. |
 | `utils/` | Formatting, tone, and placement helper functions shared by preview components. |
+| `optimiser/` | Stage 5C read-only optimiser candidate comparison UI, including candidate cards, details, ranking breakdown, placement list, and sorting utilities. |
 
 ## Shared UI Atoms
 
@@ -73,5 +74,7 @@ The legacy wrapper `frontend-v2/src/features/system-detail/SimulationPreview.tsx
 ## Stage 5 Guidance
 
 Stage 5 optimiser UI should treat this structure as the boundary for existing Simulation Preview behaviour. Candidate lists, candidate comparison, optimiser warnings, and candidate explanation should be added as optimiser-specific components rather than folded into `SimulationPreview.tsx` or `SimulationResult.tsx`. Existing panels can be reused where they present the same response shape, but optimiser-specific state should remain separate.
+
+Stage 5C uses `simulation-preview/optimiser/` for a read-only comparison panel. It may fetch ranked candidates and highlight a selected candidate, but it must not apply candidates, overwrite placements, or mutate the current build editor; Stage 5D is reserved for that behaviour.
 
 This keeps the preview area behaviour-preserving and gives the next stage a clear extension point without reintroducing a frontend monolith.

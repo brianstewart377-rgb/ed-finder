@@ -15,6 +15,7 @@ import { BuildPlanEditor } from './BuildPlanEditor';
 import { SimulationResult } from './SimulationResult';
 import { ModeIntro, PlanBadge, StartModes } from './StartModes';
 import { GhostMetric, Message } from './components';
+import { OptimiserCandidatePanel } from './optimiser';
 import { RegionalContextMini } from './panels';
 import { ARCHETYPES, type StartMode } from './types';
 import {
@@ -315,6 +316,10 @@ export function SimulationPreview({
             </div>
           )}
         </div>
+      </div>
+
+      <div className="border-t border-border/60 p-4">
+        <OptimiserCandidatePanel systemId64={system.id64} targetArchetype={targetArchetype} />
       </div>
     </div>
   );

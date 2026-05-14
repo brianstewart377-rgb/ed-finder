@@ -15,6 +15,8 @@ import type {
   AutocompleteResponse,
   CacheStats,
   FacilityTemplate,
+  OptimiserCandidatesRequest,
+  OptimiserCandidatesResponse,
   RecommendedBuildsResponse,
   RegionalAnalysisResponse,
   RerankRequest,
@@ -184,6 +186,19 @@ export const api = {
     });
   },
 
+  optimiserCandidates(body: OptimiserCandidatesRequest): Promise<OptimiserCandidatesResponse> {
+    return jsonFetch('/optimiser/candidates', {
+      method: 'POST',
+      body:   JSON.stringify({
+        max_candidates: 5,
+        allow_estimated_data: true,
+        run_preview: true,
+        include_ranking: true,
+        ...body,
+      }),
+    });
+  },
+
   recentEvents(limit = 20): Promise<RecentEventsResponse> {
     const params = new URLSearchParams({ limit: String(limit) });
     return jsonFetch(`/events/recent?${params.toString()}`, { cache: 'no-store' });
@@ -254,6 +269,10 @@ export function getSimulationSummary(id64: number, archetype?: string): Promise<
 
 export function getRecommendedBuilds(id64: number, archetype?: string): Promise<RecommendedBuildsResponse> {
   return api.recommendedBuilds(id64, archetype);
+}
+
+export function fetchOptimiserCandidates(request: OptimiserCandidatesRequest): Promise<OptimiserCandidatesResponse> {
+  return api.optimiserCandidates(request);
 }
 
 export function getRegionalAnalysis(id64: number): Promise<RegionalAnalysisResponse> {

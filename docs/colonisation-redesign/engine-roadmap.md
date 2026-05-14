@@ -124,9 +124,19 @@ Stage 5B ranks existing Stage 5A candidates when clients request `include_rankin
 | Guardrails | Missing preview summaries are handled with an explanatory reason; candidate warnings and negative CP pressure reduce rank without crashing. |
 | Tests | `tests/test_optimiser.py` covers deterministic ranking, penalties, serialization, non-mutation, and endpoint compatibility. |
 
+### Stage 5C - Read-only Candidate Comparison UI
+
+Stage 5C adds a frontend comparison panel under `simulation-preview/optimiser/`. It deliberately fetches candidates with `run_preview=true` and `include_ranking=true`, displays ranked cards, rationale, warnings, assumptions, placements, and structured ranking breakdowns, and keeps candidate comparison read-only. It does not apply candidates to the current build editor or mutate Simulation Preview state.
+
+| Stage 5C Concern | Current Outcome |
+|---|---|
+| UI placement | `OptimiserCandidatePanel` is rendered as a sibling panel inside Simulation Preview rather than folded into the existing result sections. |
+| Candidate display | Cards show rank, tier, score, strategy, preview summary signals, warning count, and CP risk. |
+| Details display | Selected candidate details show rationale, warnings, assumptions, placements, and ranking breakdown including `alignment_component`. |
+| Read-only guardrail | No apply/use-candidate button is exposed; Stage 5D is reserved for applying candidates to the editable build. |
+
 Remaining Stage 5 work:
 
-- Stage 5C candidate comparison UI.
 - Stage 5D applying a candidate into Simulation Preview.
 - Deeper constraints by complexity, confidence, CP pressure, and player preferences.
 - Explicit comparison of rejected alternatives.

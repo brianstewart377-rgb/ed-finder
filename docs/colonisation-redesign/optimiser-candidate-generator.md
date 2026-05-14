@@ -124,6 +124,12 @@ The ranking object is top-level and references candidates by `candidate_id`:
 
 The Stage 5A strategies are intentionally simple and bounded. `balanced` uses a compact port plus target-economy support where available. `pure` favours primary target-economy supports. `services_aware` may include an obvious service-unlocking support when catalogue metadata exposes one, with Simulation Preview still responsible for validating service results. `low_cp` favours smaller, lower-cost candidates. `flexible_multirole` samples broader support options without exhaustive search.
 
+## Stage 5C Read-only Comparison UI
+
+Stage 5C exposes generated and ranked candidates in the frontend under `frontend-v2/src/features/system-detail/simulation-preview/optimiser/`. The panel deliberately requests candidates with `run_preview=true` and `include_ranking=true`, shows ranking tiers, scores, structured breakdowns, rationale, warnings, assumptions, and placements, and sorts display cards by top-level ranking references to `candidate_id`.
+
+The comparison UI is **read-only**. It does not apply candidates to the build editor, overwrite user placements, or mutate Simulation Preview state. Stage 5D is reserved for apply-candidate behaviour.
+
 ## Deferred Work
 
-Stage 5C should handle candidate comparison UI. Stage 5D should handle applying a candidate into Simulation Preview. Stage 5A/5B should remain the clean backend foundation for those later stages, not an overclaim of full optimiser completion.
+Stage 5D should handle applying a candidate into Simulation Preview. Stage 5A/5B/5C should remain the clean foundation for that later stage, not an overclaim of full optimiser completion.
