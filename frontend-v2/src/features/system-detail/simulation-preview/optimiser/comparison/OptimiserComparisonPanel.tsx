@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import type { BuildComparisonResult, FacilityCountDelta, NumericDelta, PlacementChange, StringSetChanges } from './types';
 import { formatChangeType, formatDeltaValue, formatRiskDirection, formatVerdictLabel } from './comparisonFormatters';
 
 export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonResult | null }) {
+  const [expanded, setExpanded] = useState(true);
+
   if (!result) {
     return (
       <section className="rounded border border-border/45 bg-bg3/20 px-3 py-2" aria-label="Optimiser comparison">
-        <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Comparison</h5>
+        <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Compare with current preview</h5>
         <p className="mt-1 text-[11px] text-silver-dk">
           Comparison needs a current preview plan. Add placements or load a candidate to compare changes.
         </p>
@@ -13,42 +16,60 @@ export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonR
     );
   }
 
+  const verdictLabel = formatVerdictLabel(result.recommendation.verdict);
+
   return (
-    <section className="space-y-3 rounded border border-cyan/30 bg-cyan/5 px-3 py-3" aria-label="Optimiser comparison">
-      <div>
-        <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Comparison</h5>
-        <p className="mt-1 text-[11px] text-silver-dk">
-          This comparison is advisory and preview-only. It does not run Simulation Preview, save a build, or commit anything in-game.
-        </p>
+    <section className="rounded-chunk-lg border border-cyan/30 bg-cyan/5" aria-label="Optimiser comparison">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan/20 px-3 py-2">
+        <div className="min-w-0">
+          <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Compare with current preview</h5>
+          <div className="mt-1 text-sm font-semibold text-silver">{verdictLabel}</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="rounded border border-cyan/40 bg-bg2/80 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan hover:bg-cyan/10"
+          aria-expanded={expanded}
+        >
+          {expanded ? 'Hide comparison' : 'Show comparison'}
+        </button>
       </div>
 
-      <div className="rounded border border-border/45 bg-bg1/40 px-3 py-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Verdict</div>
-        <div className="mt-1 text-sm font-semibold text-silver">{formatVerdictLabel(result.recommendation.verdict)}</div>
-        {result.recommendation.reasons.length > 0 && (
-          <ul className="mt-1 space-y-1 text-[11px] text-silver-dk">
-            {result.recommendation.reasons.map((reason) => <li key={reason}>• {reason}</li>)}
-          </ul>
-        )}
-      </div>
+      {expanded && (
+        <div className="space-y-3 px-3 py-3">
+          <p className="text-[11px] text-silver-dk">
+            This comparison is advisory and preview-only. It does not run Simulation Preview, persist a build, or affect in-game state.
+          </p>
 
-      <ListSection title="Tradeoff summary" items={result.tradeoff_summary} empty="No major placement changes detected." />
+          <div className="rounded border border-border/45 bg-bg1/40 px-3 py-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Verdict</div>
+            <div className="mt-1 text-sm font-semibold text-silver">{verdictLabel}</div>
+            {result.recommendation.reasons.length > 0 && (
+              <ul className="mt-1 space-y-1 text-[11px] text-silver-dk">
+                {result.recommendation.reasons.map((reason) => <li key={reason}>• {reason}</li>)}
+              </ul>
+            )}
+          </div>
 
-      {result.target_archetype_changed && (
-        <ListSection
-          title="Target archetype"
-          items={[`Changes from ${result.before_target_archetype ?? 'unknown'} to ${result.after_target_archetype ?? 'unknown'}.`]}
-          empty="Target archetype is unchanged."
-        />
+          <ListSection title="Tradeoff summary" items={result.tradeoff_summary} empty="No major placement changes detected." />
+
+          {result.target_archetype_changed && (
+            <ListSection
+              title="Target archetype"
+              items={[`Changes from ${result.before_target_archetype ?? 'unknown'} to ${result.after_target_archetype ?? 'unknown'}.`]}
+              empty="Target archetype is unchanged."
+            />
+          )}
+
+          <FacilityDeltaSection deltas={result.facility_count_deltas} />
+          <PlacementDeltaSection result={result} />
+          <PreviewDeltaSection result={result} />
+          <RankingDeltaSection result={result} />
+          <RiskSection result={result} />
+          <SetChangeSection title="Warning changes" changes={result.warning_changes} />
+          <SetChangeSection title="Assumption changes" changes={result.assumption_changes} />
+        </div>
       )}
-
-      <FacilityDeltaSection deltas={result.facility_count_deltas} />
-      <PlacementDeltaSection result={result} />
-      <PreviewDeltaSection result={result} />
-      <RankingDeltaSection result={result} />
-      <RiskSection result={result} />
-      <SetChangeSection title="Warning changes" changes={result.warning_changes} />
-      <SetChangeSection title="Assumption changes" changes={result.assumption_changes} />
     </section>
   );
 }

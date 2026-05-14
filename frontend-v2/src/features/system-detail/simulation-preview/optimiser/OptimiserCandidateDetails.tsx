@@ -123,7 +123,7 @@ export function OptimiserCandidateDetails({
         <div className="rounded-chunk-lg border border-orange/30 bg-orange/8 p-3">
           <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Load candidate</div>
           <p className="mt-1 text-[11px] text-silver-dk">
-            Copies this candidate into the editable Simulation Preview. Nothing is committed in-game.
+            Copies this candidate into the editable Simulation Preview. Nothing affects in-game state.
           </p>
           {confirmingLoad ? (
             <div className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2">

@@ -364,15 +364,15 @@ export function SimulationPreview({
       </div>
 
       <div className="border-t border-border/60 p-4">
-            <OptimiserCandidatePanel
-              systemId64={system.id64}
-              targetArchetype={targetArchetype}
-              hasExistingPreviewPlan={placements.length > 0}
-              onLoadCandidate={loadOptimiserCandidateIntoPreview}
-              currentPreviewPlacements={placements}
-              currentTargetArchetype={targetArchetype}
-              currentPreviewLabel="Current editable preview plan"
-            />
+        <OptimiserCandidatePanel
+          systemId64={system.id64}
+          targetArchetype={targetArchetype}
+          hasExistingPreviewPlan={placements.length > 0}
+          onLoadCandidate={loadOptimiserCandidateIntoPreview}
+          currentPreviewPlacements={placements}
+          currentTargetArchetype={targetArchetype}
+          currentPreviewLabel="Current editable preview plan"
+        />
       </div>
     </div>
   );

@@ -144,9 +144,9 @@ The comparison engine does not run simulations, mutate candidate/current placeme
 
 ## Stage 5F Comparison UI and Final Hardening
 
-Stage 5F renders Stage 5E comparison output in the optimiser candidate details pane. The primary UI path compares the current editable Simulation Preview plan against the selected optimiser candidate. It displays the advisory verdict, tradeoff summary, target-archetype change, facility and placement deltas, preview-summary deltas, ranking availability, warning/assumption changes, and risk direction where data exists.
+Stage 5F renders Stage 5E comparison output in a contained show/hide panel inside the optimiser candidate details pane. The primary UI path compares the latest current editable Simulation Preview plan against the selected optimiser candidate. It displays the advisory verdict, tradeoff summary, target-archetype change, facility and placement deltas, preview-summary deltas, ranking availability, warning/assumption changes, and risk direction where data exists.
 
-The comparison display is advisory and preview-only. It does not run Simulation Preview, save a build, commit anything in-game, mutate the editable preview plan, or change backend generation/ranking/scoring mechanics. Candidate-vs-candidate comparison remains engine-supported but UI-deferred to avoid clutter.
+The comparison display is advisory and preview-only. It does not run Simulation Preview, save a build, commit anything in-game, mutate the editable preview plan, or change backend generation/ranking/scoring mechanics. Candidate-vs-candidate comparison remains engine-supported, but the Stage 5F selector UI is explicitly deferred to avoid clutter.
 
 ## Deferred Work
 
