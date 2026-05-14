@@ -57,7 +57,8 @@ export function SimulationPreview({
   const [error, setError] = useState<string | null>(null);
   const [startMode, setStartMode] = useState<StartMode>('recommended');
   const [autoLoadedRecommendation, setAutoLoadedRecommendation] = useState(false);
-  const [loadedOptimiserCandidateLabel, setLoadedOptimiserCandidateLabel] = useState<string | null>(null);
+  const [optimiserCandidateOriginLabel, setOptimiserCandidateOriginLabel] = useState<string | null>(null);
+  const [optimiserCandidateWasEdited, setOptimiserCandidateWasEdited] = useState(false);
 
   const templates = templatesQuery.data ?? [];
   const bodies = useMemo(() => simulationBodies(system.bodies), [system.bodies]);
@@ -80,7 +81,8 @@ export function SimulationPreview({
     setResult(null);
     setError(null);
     setStartMode('edit_recommended');
-    setLoadedOptimiserCandidateLabel(null);
+    setOptimiserCandidateOriginLabel(null);
+    setOptimiserCandidateWasEdited(false);
     setAutoLoadedRecommendation(true);
   }, [initialRequest]);
 
@@ -92,7 +94,8 @@ export function SimulationPreview({
     setResult(null);
     setError(null);
     setStartMode('recommended');
-    setLoadedOptimiserCandidateLabel(null);
+    setOptimiserCandidateOriginLabel(null);
+    setOptimiserCandidateWasEdited(false);
     setAutoLoadedRecommendation(true);
   }, [autoLoadedRecommendation, hasRecommendedBuild, placements.length, recommendedPlacements, startMode, suggestedArchetype]);
 
@@ -102,7 +105,8 @@ export function SimulationPreview({
     setTargetArchetype(suggestedArchetype);
     setPlacements(recommendedPlacements);
     setResult(null);
-    setLoadedOptimiserCandidateLabel(null);
+    setOptimiserCandidateOriginLabel(null);
+    setOptimiserCandidateWasEdited(false);
     setError(null);
   };
 
@@ -114,21 +118,30 @@ export function SimulationPreview({
     setError(null);
     setStartMode('optimiser_candidate');
     setAutoLoadedRecommendation(true);
-    setLoadedOptimiserCandidateLabel(candidate.label);
+    setOptimiserCandidateOriginLabel(candidate.label);
+    setOptimiserCandidateWasEdited(false);
   };
 
   const startBlankAdvanced = () => {
     setStartMode('blank_advanced');
-    setLoadedOptimiserCandidateLabel(null);
+    setOptimiserCandidateOriginLabel(null);
+    setOptimiserCandidateWasEdited(false);
     setAutoLoadedRecommendation(true);
     setPlacements([]);
     setResult(null);
     setError(null);
   };
 
+  const markOptimiserCandidateEdited = () => {
+    if (optimiserCandidateOriginLabel) {
+      setOptimiserCandidateWasEdited(true);
+    }
+  };
+
   const addPlacement = () => {
     const firstTemplate = preferredTemplate(templates);
     if (!firstTemplate) return;
+    markOptimiserCandidateEdited();
     if (placements.length === 0 && startMode !== 'blank_advanced') {
       setStartMode('edit_recommended');
     }
@@ -144,6 +157,7 @@ export function SimulationPreview({
   };
 
   const updatePlacement = (index: number, patch: Partial<SimulateBuildPlacement>) => {
+    markOptimiserCandidateEdited();
     if (startMode === 'recommended') {
       setStartMode('edit_recommended');
     }
@@ -156,6 +170,7 @@ export function SimulationPreview({
   };
 
   const removePlacement = (index: number) => {
+    markOptimiserCandidateEdited();
     if (startMode === 'recommended') {
       setStartMode('edit_recommended');
     }
@@ -163,6 +178,7 @@ export function SimulationPreview({
   };
 
   const movePlacement = (index: number, direction: -1 | 1) => {
+    markOptimiserCandidateEdited();
     if (startMode === 'recommended') {
       setStartMode('edit_recommended');
     }
@@ -237,11 +253,15 @@ export function SimulationPreview({
           onEditRecommended={() => loadRecommendedPlan('edit_recommended')}
           onBlank={startBlankAdvanced}
         />
-        {loadedOptimiserCandidateLabel && (
+        {optimiserCandidateOriginLabel && (
           <div className="mt-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2">
-            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Loaded optimiser candidate</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Optimiser candidate origin</div>
             <div className="mt-1 text-[11px] text-silver-dk">
-              Loaded optimiser candidate: <span className="text-silver">{loadedOptimiserCandidateLabel}</span>. You can edit the build and run the normal preview.
+              {optimiserCandidateWasEdited ? (
+                <>Started from optimiser candidate: <span className="text-silver">{optimiserCandidateOriginLabel}</span>. This preview plan has been edited since loading.</>
+              ) : (
+                <>Loaded optimiser candidate: <span className="text-silver">{optimiserCandidateOriginLabel}</span>. You can edit the build and run the normal preview.</>
+              )}
             </div>
           </div>
         )}

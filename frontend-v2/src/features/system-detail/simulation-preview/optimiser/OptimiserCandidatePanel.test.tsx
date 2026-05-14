@@ -248,8 +248,22 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getByText('Optimiser candidates')).toBeTruthy();
     expect(screen.getByText(/Read-only for now/i)).toBeTruthy();
     expect(screen.getByText('Generate candidates')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /load into preview/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /apply/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /use this build/i })).toBeNull();
+  });
+
+  it('renders load-enabled panel copy when a load callback is provided', () => {
+    render(
+      <OptimiserCandidatePanel
+        systemId64={123}
+        targetArchetype="agriculture_terraforming"
+        onLoadCandidate={() => undefined}
+      />,
+    );
+    expect(screen.getByText(/load a selected candidate into the editable preview/i)).toBeTruthy();
+    expect(screen.getByText(/Nothing is committed in-game/i)).toBeTruthy();
+    expect(screen.queryByText(/Read-only for now/i)).toBeNull();
   });
 
   it('clicking Generate candidates calls API with ranking and preview enabled', async () => {

@@ -132,9 +132,9 @@ The comparison UI remains non-destructive. Candidate selection only changes the 
 
 ## Stage 5D Load into Preview
 
-Stage 5D adds the explicit `Load into preview` action in candidate details when Simulation Preview provides a load callback. The action copies candidate placements into the editable preview plan, updates the preview target archetype, clears stale result/error state, and leaves the user to run the normal preview manually.
+Stage 5D adds the explicit `Load into preview` action in candidate details when Simulation Preview provides a load callback. Without that callback, the panel keeps the Stage 5C read-only copy and does not show the load button. With the callback, the panel explains that the user can load a selected candidate into the editable preview and that nothing is committed in-game.
 
-Existing non-empty preview plans require confirmation before replacement. Cancelling preserves the current plan. Loading a candidate does **not** commit anything in-game, save a build, auto-run Simulation Preview, or change backend generation, ranking, scoring, CP, economy, or service mechanics.
+The action copies candidate placements into the editable preview plan, updates the preview target archetype, clears stale result/error state, and leaves the user to run the normal preview manually. Existing non-empty preview plans require confirmation before replacement. Cancelling preserves the current plan. If the user edits, moves, removes, or adds placements after loading, the origin message changes from a loaded-candidate message to an edited-from-candidate message. Loading a candidate does **not** commit anything in-game, save a build, auto-run Simulation Preview, or change backend generation, ranking, scoring, CP, economy, or service mechanics.
 
 ## Deferred Work
 
