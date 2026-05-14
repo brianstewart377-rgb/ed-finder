@@ -97,6 +97,12 @@ export function ModeIntro({
         body: 'You are building from scratch. Add every facility yourself, then run the preview to check CP, economy order, and risks.',
         tone: 'warn' as const,
       }
+    : mode === 'optimiser_candidate'
+      ? {
+          title: 'Optimiser candidate loaded',
+          body: 'An optimiser candidate is loaded into the editable preview plan. Adjust facilities or run the normal preview when ready.',
+          tone: 'info' as const,
+        }
     : mode === 'edit_recommended'
       ? {
           title: 'Recommended plan editor',
@@ -123,9 +129,11 @@ export function PlanBadge({
 }) {
   const label = mode === 'blank_advanced'
     ? 'Advanced blank'
-    : mode === 'edit_recommended'
-      ? 'Editing recommendation'
-      : hasRecommendedBuild ? 'Recommended plan' : 'Recommendation pending';
+    : mode === 'optimiser_candidate'
+      ? 'Optimiser candidate'
+      : mode === 'edit_recommended'
+        ? 'Editing recommendation'
+        : hasRecommendedBuild ? 'Recommended plan' : 'Recommendation pending';
   return (
     <span className="inline-flex items-center gap-1.5 rounded-chunk-sm border border-orange/40 bg-orange/10 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-orange">
       <CheckCircle2 size={13} />

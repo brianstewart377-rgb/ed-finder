@@ -7,7 +7,7 @@ import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
-import { sortCandidatesForDisplay } from './optimiserUtils';
+import { candidatePlacementsToPreviewPlacements, sortCandidatesForDisplay } from './optimiserUtils';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
@@ -105,6 +105,24 @@ describe('optimiser candidate comparison UI', () => {
     mockedFetchOptimiserCandidates.mockReset();
   });
 
+  it('candidatePlacementsToPreviewPlacements converts and resequences without mutating input', () => {
+    const input = [
+      { facility_template_id: 'support-second', local_body_id: undefined, is_primary_port: true, build_order: 20 },
+      { facility_template_id: 'port-first', local_body_id: 'body1', is_primary_port: true, build_order: 10 },
+      { facility_template_id: 'support-third', local_body_id: null, is_primary_port: false, build_order: 30 },
+    ];
+    const before = structuredClone(input);
+    const output = candidatePlacementsToPreviewPlacements(input);
+
+    expect(input).toEqual(before);
+    expect(output).toEqual([
+      { facility_template_id: 'port-first', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+      { facility_template_id: 'support-second', local_body_id: null, is_primary_port: false, build_order: 2 },
+      { facility_template_id: 'support-third', local_body_id: null, is_primary_port: false, build_order: 3 },
+    ]);
+    expect(output[0]).not.toBe(input[1]);
+  });
+
   it('sorts ranked candidates without mutating the original array', () => {
     const original = [candidate('candidate-a'), candidate('candidate-b')];
     const before = original.map((item) => item.candidate_id);
@@ -143,6 +161,48 @@ describe('optimiser candidate comparison UI', () => {
     const noPreview = { ...candidate('no-preview'), preview_summary: null };
     render(<OptimiserCandidateCard candidate={noPreview} selected={false} onSelect={() => undefined} />);
     expect(screen.getByText('No preview summary')).toBeTruthy();
+  });
+
+  it('does not render Load into preview when no load callback is provided', () => {
+    render(<OptimiserCandidateDetails candidate={candidate('candidate-a', 'Candidate A')} />);
+    expect(screen.queryByRole('button', { name: 'Load into preview' })).toBeNull();
+  });
+
+  it('renders Load into preview with callback and loads immediately when no preview plan exists', () => {
+    const onLoadCandidate = vi.fn();
+    const selected = candidate('candidate-a', 'Candidate A');
+    render(<OptimiserCandidateDetails candidate={selected} onLoadCandidate={onLoadCandidate} />);
+
+    expect(screen.getByText(/Nothing is committed in-game/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+
+    expect(onLoadCandidate).toHaveBeenCalledTimes(1);
+    expect(onLoadCandidate).toHaveBeenCalledWith(selected);
+  });
+
+  it('requires confirmation before replacing an existing preview plan', () => {
+    const onLoadCandidate = vi.fn();
+    const selected = candidate('candidate-a', 'Candidate A');
+    render(
+      <OptimiserCandidateDetails
+        candidate={selected}
+        hasExistingPreviewPlan
+        onLoadCandidate={onLoadCandidate}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+    expect(screen.getByText('Replace current preview plan with this optimiser candidate?')).toBeTruthy();
+    expect(onLoadCandidate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Replace current preview plan with this optimiser candidate?')).toBeNull();
+    expect(onLoadCandidate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replace preview plan' }));
+    expect(onLoadCandidate).toHaveBeenCalledTimes(1);
+    expect(onLoadCandidate).toHaveBeenCalledWith(selected);
   });
 
   it('shows ranking reasons separately from warnings', () => {

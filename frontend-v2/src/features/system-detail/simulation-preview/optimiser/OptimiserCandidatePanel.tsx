@@ -10,9 +10,13 @@ import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
 export function OptimiserCandidatePanel({
   systemId64,
   targetArchetype,
+  hasExistingPreviewPlan = false,
+  onLoadCandidate,
 }: {
   systemId64: number;
   targetArchetype: string;
+  hasExistingPreviewPlan?: boolean;
+  onLoadCandidate?: (candidate: OptimiserCandidate) => void;
 }) {
   const [maxCandidates, setMaxCandidates] = useState(5);
   const [allowEstimatedData, setAllowEstimatedData] = useState(true);
@@ -123,6 +127,8 @@ export function OptimiserCandidatePanel({
             candidate={selectedCandidate}
             ranking={selectedCandidate ? rankLookup.get(selectedCandidate.candidate_id) : undefined}
             response={response}
+            hasExistingPreviewPlan={hasExistingPreviewPlan}
+            onLoadCandidate={onLoadCandidate}
           />
         </div>
       )}

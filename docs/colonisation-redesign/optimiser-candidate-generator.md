@@ -128,8 +128,14 @@ The Stage 5A strategies are intentionally simple and bounded. `balanced` uses a 
 
 Stage 5C exposes generated and ranked candidates in the frontend under `frontend-v2/src/features/system-detail/simulation-preview/optimiser/`. The panel deliberately requests candidates with `run_preview=true` and `include_ranking=true`, shows ranking tiers, scores, structured breakdowns, rationale, warnings, assumptions, and placements, and sorts display cards by top-level ranking references to `candidate_id`.
 
-The comparison UI is **read-only**. It does not apply candidates to the build editor, overwrite user placements, or mutate Simulation Preview state. Stage 5D is reserved for apply-candidate behaviour.
+The comparison UI remains non-destructive. Candidate selection only changes the highlighted candidate and details pane.
+
+## Stage 5D Load into Preview
+
+Stage 5D adds the explicit `Load into preview` action in candidate details when Simulation Preview provides a load callback. The action copies candidate placements into the editable preview plan, updates the preview target archetype, clears stale result/error state, and leaves the user to run the normal preview manually.
+
+Existing non-empty preview plans require confirmation before replacement. Cancelling preserves the current plan. Loading a candidate does **not** commit anything in-game, save a build, auto-run Simulation Preview, or change backend generation, ranking, scoring, CP, economy, or service mechanics.
 
 ## Deferred Work
 
-Stage 5D should handle applying a candidate into Simulation Preview. Stage 5A/5B/5C should remain the clean foundation for that later stage, not an overclaim of full optimiser completion.
+Stage 5E may add candidate-vs-current delta polish. Stage 5A/5B/5C/5D should remain the clean foundation for later stages, not an overclaim of full optimiser completion.

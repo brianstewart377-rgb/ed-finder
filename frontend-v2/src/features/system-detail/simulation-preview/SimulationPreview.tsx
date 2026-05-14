@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getFacilityTemplates, getSimulationSummary, simulateBuild } from '@/lib/api';
 import type {
   FacilityTemplate,
+  OptimiserCandidate,
   RecommendedBuildPlan,
   SimulateBuildPlacement,
   SimulateBuildRequest,
@@ -15,7 +16,7 @@ import { BuildPlanEditor } from './BuildPlanEditor';
 import { SimulationResult } from './SimulationResult';
 import { ModeIntro, PlanBadge, StartModes } from './StartModes';
 import { GhostMetric, Message } from './components';
-import { OptimiserCandidatePanel } from './optimiser';
+import { OptimiserCandidatePanel, candidatePlacementsToPreviewPlacements } from './optimiser';
 import { RegionalContextMini } from './panels';
 import { ARCHETYPES, type StartMode } from './types';
 import {
@@ -56,6 +57,7 @@ export function SimulationPreview({
   const [error, setError] = useState<string | null>(null);
   const [startMode, setStartMode] = useState<StartMode>('recommended');
   const [autoLoadedRecommendation, setAutoLoadedRecommendation] = useState(false);
+  const [loadedOptimiserCandidateLabel, setLoadedOptimiserCandidateLabel] = useState<string | null>(null);
 
   const templates = templatesQuery.data ?? [];
   const bodies = useMemo(() => simulationBodies(system.bodies), [system.bodies]);
@@ -78,6 +80,7 @@ export function SimulationPreview({
     setResult(null);
     setError(null);
     setStartMode('edit_recommended');
+    setLoadedOptimiserCandidateLabel(null);
     setAutoLoadedRecommendation(true);
   }, [initialRequest]);
 
@@ -89,6 +92,7 @@ export function SimulationPreview({
     setResult(null);
     setError(null);
     setStartMode('recommended');
+    setLoadedOptimiserCandidateLabel(null);
     setAutoLoadedRecommendation(true);
   }, [autoLoadedRecommendation, hasRecommendedBuild, placements.length, recommendedPlacements, startMode, suggestedArchetype]);
 
@@ -98,11 +102,24 @@ export function SimulationPreview({
     setTargetArchetype(suggestedArchetype);
     setPlacements(recommendedPlacements);
     setResult(null);
+    setLoadedOptimiserCandidateLabel(null);
     setError(null);
+  };
+
+  const loadOptimiserCandidateIntoPreview = (candidate: OptimiserCandidate) => {
+    const candidatePlacements = candidatePlacementsToPreviewPlacements(candidate.placements);
+    setTargetArchetype(candidate.target_archetype);
+    setPlacements(resequence(candidatePlacements));
+    setResult(null);
+    setError(null);
+    setStartMode('optimiser_candidate');
+    setAutoLoadedRecommendation(true);
+    setLoadedOptimiserCandidateLabel(candidate.label);
   };
 
   const startBlankAdvanced = () => {
     setStartMode('blank_advanced');
+    setLoadedOptimiserCandidateLabel(null);
     setAutoLoadedRecommendation(true);
     setPlacements([]);
     setResult(null);
@@ -220,6 +237,14 @@ export function SimulationPreview({
           onEditRecommended={() => loadRecommendedPlan('edit_recommended')}
           onBlank={startBlankAdvanced}
         />
+        {loadedOptimiserCandidateLabel && (
+          <div className="mt-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Loaded optimiser candidate</div>
+            <div className="mt-1 text-[11px] text-silver-dk">
+              Loaded optimiser candidate: <span className="text-silver">{loadedOptimiserCandidateLabel}</span>. You can edit the build and run the normal preview.
+            </div>
+          </div>
+        )}
         {initialAssumptions.length > 0 && (
           <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2">
             <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-gold">Estimated assumptions</div>
@@ -319,7 +344,12 @@ export function SimulationPreview({
       </div>
 
       <div className="border-t border-border/60 p-4">
-        <OptimiserCandidatePanel systemId64={system.id64} targetArchetype={targetArchetype} />
+        <OptimiserCandidatePanel
+          systemId64={system.id64}
+          targetArchetype={targetArchetype}
+          hasExistingPreviewPlan={placements.length > 0}
+          onLoadCandidate={loadOptimiserCandidateIntoPreview}
+        />
       </div>
     </div>
   );

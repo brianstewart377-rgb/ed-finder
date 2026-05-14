@@ -75,6 +75,6 @@ The legacy wrapper `frontend-v2/src/features/system-detail/SimulationPreview.tsx
 
 Stage 5 optimiser UI should treat this structure as the boundary for existing Simulation Preview behaviour. Candidate lists, candidate comparison, optimiser warnings, and candidate explanation should be added as optimiser-specific components rather than folded into `SimulationPreview.tsx` or `SimulationResult.tsx`. Existing panels can be reused where they present the same response shape, but optimiser-specific state should remain separate.
 
-Stage 5C uses `simulation-preview/optimiser/` for a read-only comparison panel. It may fetch ranked candidates and highlight a selected candidate, but it must not apply candidates, overwrite placements, or mutate the current build editor; Stage 5D is reserved for that behaviour.
+Stage 5C uses `simulation-preview/optimiser/` for candidate comparison. Stage 5D keeps the optimiser components grouped there and adds an opt-in load callback from `SimulationPreview.tsx`. Candidate details can show `Load into preview` only when that callback is present. Non-empty preview plans require confirmation before replacement, and loading copies placements into the existing editor without saving, committing in-game, or auto-running preview.
 
-This keeps the preview area behaviour-preserving and gives the next stage a clear extension point without reintroducing a frontend monolith.
+This keeps the preview area behaviour-preserving and gives later stages a clear extension point without reintroducing a frontend monolith.
