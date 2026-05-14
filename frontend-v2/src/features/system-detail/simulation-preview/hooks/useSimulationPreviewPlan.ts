@@ -8,7 +8,8 @@ import type {
 } from '@/types/api';
 import { candidatePlacementsToPreviewPlacements } from '../optimiser';
 import type { StartMode } from '../types';
-import { preferredTemplate, resequence } from '../utils/placementHelpers';
+import { useOptimiserCandidateOrigin } from './useOptimiserCandidateOrigin';
+import { usePlacementEditor } from './usePlacementEditor';
 
 export interface UseSimulationPreviewPlanOptions {
   initialRequest?: SimulateBuildRequest | null;
@@ -46,47 +47,46 @@ export function useSimulationPreviewPlan({
   suggestedArchetype,
 }: UseSimulationPreviewPlanOptions): UseSimulationPreviewPlanResult {
   const [targetArchetype, setTargetArchetype] = useState('refinery_industrial');
-  const [placements, setPlacements] = useState<SimulateBuildPlacement[]>([]);
   const [startMode, setStartMode] = useState<StartMode>('recommended');
   const [autoLoadedRecommendation, setAutoLoadedRecommendation] = useState(false);
-  const [optimiserCandidateOriginLabel, setOptimiserCandidateOriginLabel] = useState<string | null>(null);
-  const [optimiserCandidateWasEdited, setOptimiserCandidateWasEdited] = useState(false);
   const [planReplacementVersion, setPlanReplacementVersion] = useState(0);
 
-  const clearOptimiserOrigin = () => {
-    setOptimiserCandidateOriginLabel(null);
-    setOptimiserCandidateWasEdited(false);
-  };
+  const origin = useOptimiserCandidateOrigin();
+  const placementEditor = usePlacementEditor({
+    templates,
+    bodies,
+    startMode,
+    setStartMode,
+    onManualEdit: origin.markOptimiserCandidateEdited,
+  });
 
-  const markOptimiserCandidateEdited = () => {
-    if (optimiserCandidateOriginLabel) {
-      setOptimiserCandidateWasEdited(true);
-    }
+  const signalPlanReplacement = () => {
+    setPlanReplacementVersion((current) => current + 1);
   };
 
   useEffect(() => {
     if (!initialRequest) return;
     setTargetArchetype(initialRequest.target_archetype);
-    setPlacements(resequence(initialRequest.placements));
+    placementEditor.replacePlacements(initialRequest.placements);
     setStartMode('edit_recommended');
-    clearOptimiserOrigin();
+    origin.clearOptimiserCandidateOrigin();
     setAutoLoadedRecommendation(true);
-    setPlanReplacementVersion((current) => current + 1);
+    signalPlanReplacement();
   }, [initialRequest]);
 
   useEffect(() => {
     if (!hasRecommendedBuild || autoLoadedRecommendation) return;
-    if (placements.length > 0 || startMode === 'blank_advanced') return;
+    if (placementEditor.placements.length > 0 || startMode === 'blank_advanced') return;
     setTargetArchetype(suggestedArchetype);
-    setPlacements(recommendedPlacements);
+    placementEditor.replacePlacements(recommendedPlacements);
     setStartMode('recommended');
-    clearOptimiserOrigin();
+    origin.clearOptimiserCandidateOrigin();
     setAutoLoadedRecommendation(true);
-    setPlanReplacementVersion((current) => current + 1);
+    signalPlanReplacement();
   }, [
     autoLoadedRecommendation,
     hasRecommendedBuild,
-    placements.length,
+    placementEditor.placements.length,
     recommendedPlacements,
     startMode,
     suggestedArchetype,
@@ -96,98 +96,44 @@ export function useSimulationPreviewPlan({
     if (!hasRecommendedBuild) return;
     setStartMode(mode);
     setTargetArchetype(suggestedArchetype);
-    setPlacements(recommendedPlacements);
-    clearOptimiserOrigin();
-    setPlanReplacementVersion((current) => current + 1);
+    placementEditor.replacePlacements(recommendedPlacements);
+    origin.clearOptimiserCandidateOrigin();
+    signalPlanReplacement();
   };
 
   const loadOptimiserCandidateIntoPreview = (candidate: OptimiserCandidate) => {
     const candidatePlacements = candidatePlacementsToPreviewPlacements(candidate.placements);
     setTargetArchetype(candidate.target_archetype);
-    setPlacements(resequence(candidatePlacements));
+    placementEditor.replacePlacements(candidatePlacements);
     setStartMode('optimiser_candidate');
     setAutoLoadedRecommendation(true);
-    setOptimiserCandidateOriginLabel(candidate.label);
-    setOptimiserCandidateWasEdited(false);
-    setPlanReplacementVersion((current) => current + 1);
+    origin.setLoadedOptimiserCandidate(candidate.label);
+    signalPlanReplacement();
   };
 
   const startBlankAdvanced = () => {
     setStartMode('blank_advanced');
-    clearOptimiserOrigin();
+    origin.clearOptimiserCandidateOrigin();
     setAutoLoadedRecommendation(true);
-    setPlacements([]);
-    setPlanReplacementVersion((current) => current + 1);
-  };
-
-  const addPlacement = () => {
-    const firstTemplate = preferredTemplate(templates);
-    if (!firstTemplate) return;
-    markOptimiserCandidateEdited();
-    if (placements.length === 0 && startMode !== 'blank_advanced') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => [
-      ...current,
-      {
-        facility_template_id: firstTemplate.id,
-        local_body_id: bodies[0]?.id != null ? String(bodies[0].id) : null,
-        is_primary_port: current.length === 0 && firstTemplate.is_port,
-        build_order: current.length + 1,
-      },
-    ]);
-  };
-
-  const updatePlacement = (index: number, patch: Partial<SimulateBuildPlacement>) => {
-    markOptimiserCandidateEdited();
-    if (startMode === 'recommended') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => current.map((item, i) => {
-      if (i !== index) {
-        return patch.is_primary_port ? { ...item, is_primary_port: false } : item;
-      }
-      return { ...item, ...patch };
-    }));
-  };
-
-  const removePlacement = (index: number) => {
-    markOptimiserCandidateEdited();
-    if (startMode === 'recommended') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => resequence(current.filter((_, i) => i !== index)));
-  };
-
-  const movePlacement = (index: number, direction: -1 | 1) => {
-    markOptimiserCandidateEdited();
-    if (startMode === 'recommended') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => {
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= current.length) return current;
-      const copy = [...current];
-      [copy[index], copy[nextIndex]] = [copy[nextIndex], copy[index]];
-      return resequence(copy);
-    });
+    placementEditor.clearPlacements();
+    signalPlanReplacement();
   };
 
   return {
     targetArchetype,
     setTargetArchetype,
-    placements,
+    placements: placementEditor.placements,
     startMode,
     autoLoadedRecommendation,
-    optimiserCandidateOriginLabel,
-    optimiserCandidateWasEdited,
+    optimiserCandidateOriginLabel: origin.optimiserCandidateOriginLabel,
+    optimiserCandidateWasEdited: origin.optimiserCandidateWasEdited,
     loadRecommendedPlan,
     loadOptimiserCandidateIntoPreview,
     startBlankAdvanced,
-    addPlacement,
-    updatePlacement,
-    removePlacement,
-    movePlacement,
+    addPlacement: placementEditor.addPlacement,
+    updatePlacement: placementEditor.updatePlacement,
+    removePlacement: placementEditor.removePlacement,
+    movePlacement: placementEditor.movePlacement,
     planReplacementVersion,
   };
 }
