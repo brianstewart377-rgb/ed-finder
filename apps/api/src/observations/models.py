@@ -134,3 +134,117 @@ def observed_fact_from_any(value: Any) -> ObservedFact:
             notes=list(value.get('notes') or []),
         )
     raise TypeError(f'Unsupported observed fact value: {type(value)!r}')
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Stage 6A persisted observed-fact foundation
+# ══════════════════════════════════════════════════════════════════════
+class ObservationSource(str, Enum):
+    MANUAL = 'manual'
+    IMPORTED = 'imported'
+    INFERRED = 'inferred'
+    TEST_FIXTURE = 'test_fixture'
+
+
+class ObservedFactType(str, Enum):
+    SERVICE_PRESENCE = 'service_presence'
+    ECONOMY_PRESENCE = 'economy_presence'
+    FACILITY_STATE = 'facility_state'
+    CP_VALUE = 'cp_value'
+    BUILD_OUTCOME = 'build_outcome'
+    PREDICTION_MATCH = 'prediction_match'
+    PREDICTION_MISMATCH = 'prediction_mismatch'
+    NOTE = 'note'
+
+
+class ObservedSubjectType(str, Enum):
+    SYSTEM = 'system'
+    BODY = 'body'
+    FACILITY = 'facility'
+    SERVICE = 'service'
+    ECONOMY = 'economy'
+    BUILD = 'build'
+    SIMULATION = 'simulation'
+    CP = 'cp'
+
+
+class ObservedStatus(str, Enum):
+    OBSERVED_PRESENT = 'observed_present'
+    OBSERVED_ABSENT = 'observed_absent'
+    CONFIRMED = 'confirmed'
+    CONTRADICTED = 'contradicted'
+    UNKNOWN = 'unknown'
+    UNVERIFIED = 'unverified'
+
+
+class ObservedConfidence(str, Enum):
+    LOW = 'low'
+    MEDIUM = 'medium'
+    HIGH = 'high'
+
+
+JsonValue = Any
+
+
+@dataclass(frozen=True)
+class PersistedObservedFact:
+    observation_id: str
+    system_id64: int
+    created_at: str
+    updated_at: str | None
+    source: str
+    fact_type: str
+    subject_type: str
+    subject_id: str | None
+    status: str
+    observed_value: JsonValue | None = None
+    expected_value: JsonValue | None = None
+    confidence: str = ObservedConfidence.MEDIUM.value
+    notes: str | None = None
+    build_fingerprint: str | None = None
+    simulation_fingerprint: str | None = None
+    target_archetype: str | None = None
+    facility_template_id: str | None = None
+    local_body_id: str | None = None
+    service_id: str | None = None
+    economy: str | None = None
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ObservationFactSummary:
+    total_count: int
+    by_fact_type: dict[str, int]
+    by_status: dict[str, int]
+    by_confidence: dict[str, int]
+    latest_observed_at: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def summarise_observed_facts(facts: list[PersistedObservedFact]) -> ObservationFactSummary:
+    by_fact_type: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    by_confidence: dict[str, int] = {}
+    latest_observed_at: str | None = None
+
+    for fact in facts:
+        by_fact_type[fact.fact_type] = by_fact_type.get(fact.fact_type, 0) + 1
+        by_status[fact.status] = by_status.get(fact.status, 0) + 1
+        by_confidence[fact.confidence] = by_confidence.get(fact.confidence, 0) + 1
+        observed_at = fact.updated_at or fact.created_at
+        if observed_at and (latest_observed_at is None or observed_at > latest_observed_at):
+            latest_observed_at = observed_at
+
+    return ObservationFactSummary(
+        total_count=len(facts),
+        by_fact_type=by_fact_type,
+        by_status=by_status,
+        by_confidence=by_confidence,
+        latest_observed_at=latest_observed_at,
+    )

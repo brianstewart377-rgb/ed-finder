@@ -104,7 +104,20 @@ Stage 5.9D keeps that UX intact while reducing `SimulationPreview.tsx` from an a
 
 Stage 5.9E hardens the full Colony Planner workflow before Stage 6. Generated candidates remain visible when target archetype, maximum candidate count, or estimated-data settings become stale, but the UI shows generated/current values and requires explicit older-candidate confirmation before loading stale candidates. Preview Result now marks an existing result stale when the exact preview fingerprint changes after an explicit run; that fingerprint includes system ID, target archetype, and resequenced placements. No automatic preview rerun is introduced.
 
-Future Search Tuning work should add clearer presets, before/after rank movement, and better explanations, but that rework is separate from the Stage 5 colony optimiser and is not implemented in this pass. Stage 6 observed-vs-predicted validation should remain deferred until this workflow safety remains stable under broader usage.
+Future Search Tuning work should add clearer presets, before/after rank movement, and better explanations, but that rework is separate from the Stage 5 colony optimiser and is not implemented in this pass.
+
+## Stage 6 - Observed vs Predicted Validation
+
+Stage 6A begins the validation layer as a backend-only observed facts foundation. It adds a passive `observed_facts` persistence contract, manual/test-fixture source support, CRUD API endpoints, and descriptive summaries. Observations record evidence; they do not mutate predictions, optimiser generation, ranking, Simulation Preview scoring, or CP/economy/service/buildability mechanics.
+
+| Stage 6A Concern | Current Outcome |
+|---|---|
+| Backend data shelf | `apps/api/src/observations/` defines explicit observed fact enums, persisted fact records, request/response models, store helpers, and descriptive summary counts. |
+| API surface | `POST/GET/PATCH/DELETE /api/observations/facts` supports create, list/filter by system, get, update, and hard-delete for Stage 6A. |
+| Persistence | `sql/018_observed_facts_stage6a.sql` extends the existing `observed_facts` table with stable observation IDs, typed fact/status/source fields, JSON value columns, fingerprints, tags, metadata, and useful indexes. |
+| Boundaries | No frontend UI, EDMC/journal ingestion, account persistence, auto-learning, mechanics mutation, or predicted-vs-observed comparison is implemented in Stage 6A. |
+
+Stage 6B should add manual observation entry UI on top of this API. Stage 6C should add the predicted-vs-observed comparison engine that interprets stored observations against simulation output. Until those stages exist, observed facts are a trustworthy evidence shelf only.
 
 ### Stage 5A - Deterministic Candidate Generation
 

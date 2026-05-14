@@ -103,3 +103,71 @@ For Stage 5B ranking, clients request `include_ranking=true`. Ranking is returne
 5. Update frontend components to use generated types and central client helpers.
 6. Add or update contract tests so old field names cannot silently return.
 
+
+## Stage 6A Observed Facts API
+
+Stage 6A adds a backend-only observed-facts shelf. An **observation** is manually supplied evidence about something a player saw; it is not a prediction, it is not an optimiser input, and it does not mutate Simulation Preview scoring or mechanics. Predicted-vs-observed comparison is intentionally reserved for later Stage 6 work.
+
+| Endpoint | Purpose | Response Model |
+|---|---|---|
+| `POST /api/observations/facts` | Create one observed fact. | `ObservedFactResponse` |
+| `GET /api/observations/facts?system_id64=123` | List observed facts for a system, with optional filters. | `ObservedFactListResponse` |
+| `GET /api/observations/facts/{observation_id}` | Retrieve one observed fact by ID. | `ObservedFactResponse` |
+| `PATCH /api/observations/facts/{observation_id}` | Update allowed observed-fact fields. | `ObservedFactResponse` |
+| `DELETE /api/observations/facts/{observation_id}` | Hard-delete one observed fact for Stage 6A. | `ObservedFactDeleteResponse` |
+
+The list endpoint supports `fact_type`, `subject_type`, `status`, `target_archetype`, `build_fingerprint`, `simulation_fingerprint`, `limit`, and `offset` query filters. The initial Stage 6A source values accepted by write requests are `manual` and `test_fixture`; imported sources are represented in the enum vocabulary but are not accepted until future ingestion stages define provenance rules.
+
+Example create request:
+
+```json
+{
+  "system_id64": 123,
+  "source": "manual",
+  "fact_type": "service_presence",
+  "subject_type": "service",
+  "subject_id": "market",
+  "status": "observed_present",
+  "service_id": "market",
+  "observed_value": { "present": true },
+  "expected_value": { "present": false },
+  "confidence": "high",
+  "notes": "Observed after construction tick.",
+  "target_archetype": "trade_logistics",
+  "tags": ["service", "tick"],
+  "metadata": { "source_screen": "station services" }
+}
+```
+
+Example response:
+
+```json
+{
+  "observation_id": "obs_...",
+  "system_id64": 123,
+  "created_at": "2026-05-14T13:00:00+00:00",
+  "updated_at": null,
+  "source": "manual",
+  "fact_type": "service_presence",
+  "subject_type": "service",
+  "subject_id": "market",
+  "status": "observed_present",
+  "observed_value": { "present": true },
+  "expected_value": { "present": false },
+  "confidence": "high",
+  "notes": "Observed after construction tick.",
+  "build_fingerprint": null,
+  "simulation_fingerprint": null,
+  "target_archetype": "trade_logistics",
+  "facility_template_id": null,
+  "local_body_id": null,
+  "service_id": "market",
+  "economy": null,
+  "tags": ["service", "tick"],
+  "metadata": { "source_screen": "station services" }
+}
+```
+
+The write models validate enum values, require positive `system_id64`, normalise/dedupe/cap tags, require object-shaped metadata, and require structured identifiers for the most common typed facts: `service_presence` needs `service_id`, `economy_presence` needs `economy`, and `facility_state` needs `facility_template_id`. These checks keep observations structured without claiming that one observed fact proves or disproves a mechanics rule.
+
+Observations do **not** change optimiser ranking, candidate generation, Simulation Preview scoring, CP/economy/service/buildability mechanics, or existing simulation response fields. They are stored evidence for future manual-entry UI and predicted-vs-observed comparison stages.

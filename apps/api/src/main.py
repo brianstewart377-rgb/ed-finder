@@ -57,6 +57,7 @@ from routers.search    import router as search_router
 from routers.systems   import router as systems_router
 from routers.watchlist import router as watchlist_router
 from routers.optimiser import router as optimiser_router
+from routers.observations import router as observations_router
 from share_router      import router as share_router
 
 # ---------------------------------------------------------------------------
@@ -280,6 +281,7 @@ app.include_router(ratings_router)
 app.include_router(simulate_router)
 app.include_router(simulation_router)
 app.include_router(optimiser_router)
+app.include_router(observations_router)
 
 
 # ---------------------------------------------------------------------------
