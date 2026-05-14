@@ -146,10 +146,20 @@ Stage 5D lets the user deliberately load a selected optimiser candidate into the
 | Overwrite protection | Non-empty preview plans require confirmation before replacement; cancel preserves the current plan. |
 | Preview execution | Loading a candidate clears stale result/error state but does not call `simulateBuild`; the existing Run Preview button remains the execution path. |
 
+### Stage 5E - Optimiser Comparison Engine
+
+Stage 5E adds a deterministic frontend comparison engine under `simulation-preview/optimiser/comparison/`. The engine compares any two compatible build-plan sources, including the current editable preview plan and optimiser candidates, without running simulations or changing backend mechanics. It produces serialisable output for facility additions/removals, count deltas, body/order/primary-port changes, target-archetype changes, lightweight preview-summary deltas, ranking deltas, warning and assumption changes, risk direction, tradeoff summaries, and a conservative recommendation verdict.
+
+| Stage 5E Concern | Current Outcome |
+|---|---|
+| Engine boundary | Comparison logic is isolated in `comparisonEngine.ts`, with serialisable types and pure formatters for Stage 5F. |
+| Input sources | Helpers create copied comparison sources from optimiser candidates and current preview placements without mutating inputs. |
+| Scope guardrail | Stage 5E does not build a full comparison UI, run Simulation Preview, save builds, or alter backend generation/ranking/scoring mechanics. |
+
 Remaining Stage 5 work:
 
+- Stage 5F rendering and hardening of comparison output in the optimiser UI.
 - Deeper constraints by complexity, confidence, CP pressure, and player preferences.
-- Explicit candidate-vs-current delta/comparison polish.
 - Explicit comparison of rejected alternatives.
 
 ## Stage 6 - Community Observation Loop

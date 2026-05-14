@@ -6,3 +6,4 @@ export { OptimiserErrorState } from './OptimiserErrorState';
 export { OptimiserPlacementList } from './OptimiserPlacementList';
 export { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 export { buildRankLookup, candidatePlacementsToPreviewPlacements, sortCandidatesForDisplay } from './optimiserUtils';
+export * from './comparison';
