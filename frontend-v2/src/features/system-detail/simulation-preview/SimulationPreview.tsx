@@ -1,29 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Play, Plus } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getFacilityTemplates, getSimulationSummary, simulateBuild } from '@/lib/api';
+import { getFacilityTemplates, getSimulationSummary } from '@/lib/api';
 import type {
   FacilityTemplate,
-  OptimiserCandidate,
   RecommendedBuildPlan,
-  SimulateBuildPlacement,
   SimulateBuildRequest,
-  SimulateBuildResponse,
   SimulationSummary,
   SystemDetail,
 } from '@/types/api';
-import { BuildPlanEditor } from './BuildPlanEditor';
-import { SimulationResult } from './SimulationResult';
-import { ModeIntro, PlanBadge, StartModes } from './StartModes';
-import { GhostMetric, Message } from './components';
-import { OptimiserCandidatePanel, candidatePlacementsToPreviewPlacements } from './optimiser';
-import { RegionalContextMini } from './panels';
-import { ARCHETYPES, type StartMode } from './types';
+import { BuildPlanSection } from './BuildPlanSection';
+import { ColonyPlannerHeader } from './ColonyPlannerHeader';
+import { ColonyPlannerSectionNav } from './ColonyPlannerSectionNav';
+import { PreviewResultSection } from './PreviewResultSection';
+import { OptimiserCandidatePanel } from './optimiser';
+import { useSimulationPreviewPlan } from './hooks/useSimulationPreviewPlan';
+import { useSimulationPreviewRun } from './hooks/useSimulationPreviewRun';
 import {
   archetypeFromEconomy,
   buildRecommendedPlacements,
-  preferredTemplate,
-  resequence,
   simulationBodies,
 } from './utils/placementHelpers';
 
@@ -50,15 +44,6 @@ export function SimulationPreview({
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
-  const [targetArchetype, setTargetArchetype] = useState('refinery_industrial');
-  const [placements, setPlacements] = useState<SimulateBuildPlacement[]>([]);
-  const [result, setResult] = useState<SimulateBuildResponse | null>(null);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [startMode, setStartMode] = useState<StartMode>('recommended');
-  const [autoLoadedRecommendation, setAutoLoadedRecommendation] = useState(false);
-  const [optimiserCandidateOriginLabel, setOptimiserCandidateOriginLabel] = useState<string | null>(null);
-  const [optimiserCandidateWasEdited, setOptimiserCandidateWasEdited] = useState(false);
 
   const templates = templatesQuery.data ?? [];
   const bodies = useMemo(() => simulationBodies(system.bodies), [system.bodies]);
@@ -72,142 +57,25 @@ export function SimulationPreview({
     [recommendedSteps, templates, bodies],
   );
   const hasRecommendedBuild = recommendedPlacements.length > 0;
-  const canRun = placements.length > 0 && !running;
+
+  const plan = useSimulationPreviewPlan({
+    initialRequest,
+    templates,
+    bodies,
+    recommendedPlacements,
+    hasRecommendedBuild,
+    suggestedArchetype,
+  });
+
+  const runState = useSimulationPreviewRun({
+    systemId64: system.id64,
+    targetArchetype: plan.targetArchetype,
+    placements: plan.placements,
+  });
 
   useEffect(() => {
-    if (!initialRequest) return;
-    setTargetArchetype(initialRequest.target_archetype);
-    setPlacements(resequence(initialRequest.placements));
-    setResult(null);
-    setError(null);
-    setStartMode('edit_recommended');
-    setOptimiserCandidateOriginLabel(null);
-    setOptimiserCandidateWasEdited(false);
-    setAutoLoadedRecommendation(true);
-  }, [initialRequest]);
-
-  useEffect(() => {
-    if (!hasRecommendedBuild || autoLoadedRecommendation) return;
-    if (placements.length > 0 || startMode === 'blank_advanced') return;
-    setTargetArchetype(suggestedArchetype);
-    setPlacements(recommendedPlacements);
-    setResult(null);
-    setError(null);
-    setStartMode('recommended');
-    setOptimiserCandidateOriginLabel(null);
-    setOptimiserCandidateWasEdited(false);
-    setAutoLoadedRecommendation(true);
-  }, [autoLoadedRecommendation, hasRecommendedBuild, placements.length, recommendedPlacements, startMode, suggestedArchetype]);
-
-  const loadRecommendedPlan = (mode: StartMode) => {
-    if (!hasRecommendedBuild) return;
-    setStartMode(mode);
-    setTargetArchetype(suggestedArchetype);
-    setPlacements(recommendedPlacements);
-    setResult(null);
-    setOptimiserCandidateOriginLabel(null);
-    setOptimiserCandidateWasEdited(false);
-    setError(null);
-  };
-
-  const loadOptimiserCandidateIntoPreview = (candidate: OptimiserCandidate) => {
-    const candidatePlacements = candidatePlacementsToPreviewPlacements(candidate.placements);
-    setTargetArchetype(candidate.target_archetype);
-    setPlacements(resequence(candidatePlacements));
-    setResult(null);
-    setError(null);
-    setStartMode('optimiser_candidate');
-    setAutoLoadedRecommendation(true);
-    setOptimiserCandidateOriginLabel(candidate.label);
-    setOptimiserCandidateWasEdited(false);
-  };
-
-  const startBlankAdvanced = () => {
-    setStartMode('blank_advanced');
-    setOptimiserCandidateOriginLabel(null);
-    setOptimiserCandidateWasEdited(false);
-    setAutoLoadedRecommendation(true);
-    setPlacements([]);
-    setResult(null);
-    setError(null);
-  };
-
-  const markOptimiserCandidateEdited = () => {
-    if (optimiserCandidateOriginLabel) {
-      setOptimiserCandidateWasEdited(true);
-    }
-  };
-
-  const addPlacement = () => {
-    const firstTemplate = preferredTemplate(templates);
-    if (!firstTemplate) return;
-    markOptimiserCandidateEdited();
-    if (placements.length === 0 && startMode !== 'blank_advanced') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => [
-      ...current,
-      {
-        facility_template_id: firstTemplate.id,
-        local_body_id: bodies[0]?.id != null ? String(bodies[0].id) : null,
-        is_primary_port: current.length === 0 && firstTemplate.is_port,
-        build_order: current.length + 1,
-      },
-    ]);
-  };
-
-  const updatePlacement = (index: number, patch: Partial<SimulateBuildPlacement>) => {
-    markOptimiserCandidateEdited();
-    if (startMode === 'recommended') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => current.map((item, i) => {
-      if (i !== index) {
-        return patch.is_primary_port ? { ...item, is_primary_port: false } : item;
-      }
-      return { ...item, ...patch };
-    }));
-  };
-
-  const removePlacement = (index: number) => {
-    markOptimiserCandidateEdited();
-    if (startMode === 'recommended') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => resequence(current.filter((_, i) => i !== index)));
-  };
-
-  const movePlacement = (index: number, direction: -1 | 1) => {
-    markOptimiserCandidateEdited();
-    if (startMode === 'recommended') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => {
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= current.length) return current;
-      const copy = [...current];
-      [copy[index], copy[nextIndex]] = [copy[nextIndex], copy[index]];
-      return resequence(copy);
-    });
-  };
-
-  const runSimulation = async () => {
-    if (!canRun) return;
-    setRunning(true);
-    setError(null);
-    try {
-      const response = await simulateBuild({
-        system_id64: system.id64,
-        target_archetype: targetArchetype,
-        placements: resequence(placements),
-      });
-      setResult(response);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Simulation failed');
-    } finally {
-      setRunning(false);
-    }
-  };
+    runState.clearPreviewState();
+  }, [plan.planReplacementVersion, runState.clearPreviewState]);
 
   return (
     <div
@@ -216,192 +84,59 @@ export function SimulationPreview({
         background: 'linear-gradient(180deg, rgba(27,29,34,0.95), rgba(11,13,17,0.95))',
       }}
     >
-      <div className="px-4 py-3 border-b border-border/70 bg-orange/5">
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">
-              Colony Planner
-            </h3>
-            <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-              Plan a colony build for this system. Generate candidate plans, compare them with your editable build plan, and run a preview before doing anything in-game.
-            </p>
-            {initialPlanLabel && (
-              <p className="mt-1 text-[11px] text-orange font-mono">
-                You are previewing the {initialPlanLabel}.
-              </p>
-            )}
-          </div>
-          <PlanBadge mode={startMode} hasRecommendedBuild={hasRecommendedBuild} />
-          <button
-            type="button"
-            onClick={runSimulation}
-            disabled={!canRun}
-            className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 disabled:opacity-45 disabled:cursor-not-allowed"
-          >
-            <Play size={14} />
-            {running ? 'Running' : 'Run Preview'}
-          </button>
-        </div>
-      </div>
+      <ColonyPlannerHeader
+        initialPlanLabel={initialPlanLabel}
+        startMode={plan.startMode}
+        hasRecommendedBuild={hasRecommendedBuild}
+        canRun={runState.canRun}
+        running={runState.running}
+        onRunPreview={() => void runState.runSimulation()}
+      />
 
-      <div className="border-b border-border/60 px-4 py-3">
-        <StartModes
-          mode={startMode}
-          hasRecommendedBuild={hasRecommendedBuild}
-          loadingRecommended={summaryQuery.isLoading || templatesQuery.isLoading}
-          onUseRecommended={() => loadRecommendedPlan('recommended')}
-          onEditRecommended={() => loadRecommendedPlan('edit_recommended')}
-          onBlank={startBlankAdvanced}
-        />
-        {optimiserCandidateOriginLabel && (
-          <div className="mt-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2">
-            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Optimiser candidate origin</div>
-            <div className="mt-1 text-[11px] text-silver-dk">
-              {optimiserCandidateWasEdited ? (
-                <>Started from optimiser candidate: <span className="text-silver">{optimiserCandidateOriginLabel}</span>. This preview plan has been edited since loading.</>
-              ) : (
-                <>Loaded optimiser candidate: <span className="text-silver">{optimiserCandidateOriginLabel}</span>. You can edit the build and run the normal preview.</>
-              )}
-            </div>
-          </div>
-        )}
-        {initialAssumptions.length > 0 && (
-          <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2">
-            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-gold">Estimated assumptions</div>
-            <ul className="mt-1 space-y-1 font-mono text-[11px] text-silver-dk">
-              {initialAssumptions.slice(0, 4).map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          </div>
-        )}
-      </div>
-
-      <div className="border-b border-border/60 px-4 py-2">
-        <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-[0.14em]">
-          <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 text-orange">Build Plan</span>
-          <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 text-cyan">Optimiser Candidates</span>
-          <span className="rounded border border-border bg-bg3 px-2 py-1 text-silver-dk">Preview Result</span>
-        </div>
-      </div>
+      <ColonyPlannerSectionNav />
 
       <div className="space-y-4 p-4">
-        <section aria-label="Build Plan" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
-          <div className="mb-3">
-            <h4 className="font-mono text-[11px] uppercase tracking-[0.18em] text-orange">Build Plan</h4>
-            <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-              Edit the facility list, body assignments, and target archetype before running the Simulation Preview.
-            </p>
-          </div>
-          <ModeIntro mode={startMode} hasRecommendedBuild={hasRecommendedBuild} />
-
-          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <label className="space-y-1">
-              <span className="block text-[10px] font-mono uppercase tracking-[0.16em] text-silver-dk">
-                Target archetype
-              </span>
-              <select
-                value={targetArchetype}
-                onChange={(e) => setTargetArchetype(e.target.value)}
-                className="w-full"
-              >
-                {ARCHETYPES.map((archetype) => (
-                  <option key={archetype.id} value={archetype.id}>{archetype.label}</option>
-                ))}
-              </select>
-              <span className="block text-[10px] text-silver-dk font-mono leading-snug">
-                Target archetype guides candidate generation, ranking, and preview scoring. Changing it does not change anything in-game.
-              </span>
-            </label>
-            <button
-              type="button"
-              onClick={addPlacement}
-              disabled={templates.length === 0}
-              className="self-end inline-flex items-center justify-center gap-2 rounded-chunk-sm border border-border bg-bg3 px-3 py-2 text-xs font-mono text-silver hover:border-orange/60 hover:text-orange disabled:opacity-45"
-            >
-              <Plus size={14} />
-              Add Facility
-            </button>
-          </div>
-
-          {templatesQuery.isLoading && (
-            <div className="mt-3 rounded border border-border/60 bg-bg3/30 px-3 py-3 text-xs font-mono text-silver-dk">
-              Loading facility catalogue...
-            </div>
-          )}
-
-          {templatesQuery.isError && (
-            <div className="mt-3"><Message tone="warn" items={[templatesQuery.error?.message ?? 'Facility catalogue failed to load.']} /></div>
-          )}
-
-          <div className="mt-3">
-            {placements.length === 0 ? (
-              <div className="rounded-chunk-lg border border-dashed border-gold/45 bg-gold/5 px-4 py-6 text-center">
-                <div className="font-mono text-xs text-gold">
-                  {startMode === 'blank_advanced' ? 'Blank advanced simulation' : 'No recommended build loaded yet'}
-                </div>
-                <div className="mt-1 text-[11px] text-silver-dk">
-                  {startMode === 'blank_advanced'
-                    ? 'Start with a primary port, then add support facilities and run the preview.'
-                    : 'Use a recommended build when available, or choose the advanced blank mode.'}
-                </div>
-              </div>
-            ) : (
-              <BuildPlanEditor
-                placements={placements}
-                templates={templates}
-                bodies={bodies}
-                onUpdate={updatePlacement}
-                onRemove={removePlacement}
-                onMove={movePlacement}
-              />
-            )}
-          </div>
-        </section>
+        <BuildPlanSection
+          startMode={plan.startMode}
+          hasRecommendedBuild={hasRecommendedBuild}
+          loadingRecommended={summaryQuery.isLoading || templatesQuery.isLoading}
+          targetArchetype={plan.targetArchetype}
+          onTargetArchetypeChange={plan.setTargetArchetype}
+          placements={plan.placements}
+          templates={templates}
+          bodies={bodies}
+          templatesLoading={templatesQuery.isLoading}
+          templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
+          optimiserCandidateOriginLabel={plan.optimiserCandidateOriginLabel}
+          optimiserCandidateWasEdited={plan.optimiserCandidateWasEdited}
+          initialAssumptions={initialAssumptions}
+          onUseRecommended={() => plan.loadRecommendedPlan('recommended')}
+          onEditRecommended={() => plan.loadRecommendedPlan('edit_recommended')}
+          onBlank={plan.startBlankAdvanced}
+          onAddPlacement={plan.addPlacement}
+          onUpdatePlacement={plan.updatePlacement}
+          onRemovePlacement={plan.removePlacement}
+          onMovePlacement={plan.movePlacement}
+        />
 
         <section aria-label="Optimiser Candidates">
           <OptimiserCandidatePanel
             systemId64={system.id64}
-            targetArchetype={targetArchetype}
-            hasExistingPreviewPlan={placements.length > 0}
-            onLoadCandidate={loadOptimiserCandidateIntoPreview}
-            currentPreviewPlacements={placements}
-            currentTargetArchetype={targetArchetype}
+            targetArchetype={plan.targetArchetype}
+            hasExistingPreviewPlan={plan.placements.length > 0}
+            onLoadCandidate={plan.loadOptimiserCandidateIntoPreview}
+            currentPreviewPlacements={plan.placements}
+            currentTargetArchetype={plan.targetArchetype}
             currentPreviewLabel="Current editable Build Plan"
           />
         </section>
 
-        <section aria-label="Preview Result" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h4 className="font-mono text-[11px] uppercase tracking-[0.18em] text-silver">Preview Result</h4>
-              <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-                Simulation Preview is the explicit action/result that scores the current editable Build Plan.
-              </p>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <RegionalContextMini regional={regionalContext} loading={summaryQuery.isLoading} />
-            {error && <Message tone="danger" items={[error]} />}
-            {result ? (
-              <SimulationResult result={result} />
-            ) : (
-              <div className="min-h-[260px] rounded-chunk-lg border border-border/60 bg-bg3/25 p-4">
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-                  Awaiting preview
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <GhostMetric label="Score" />
-                  <GhostMetric label="Build" />
-                  <GhostMetric label="Confidence" />
-                </div>
-                <div className="mt-5 space-y-2">
-                  <div className="h-3 w-4/5 rounded bg-bg4/70" />
-                  <div className="h-3 w-2/3 rounded bg-bg4/50" />
-                  <div className="h-3 w-1/2 rounded bg-bg4/40" />
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
+        <PreviewResultSection
+          regional={regionalContext}
+          loadingRegional={summaryQuery.isLoading}
+          error={runState.error}
+          result={runState.result}
+        />
       </div>
     </div>
   );

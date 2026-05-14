@@ -1,0 +1,11 @@
+export function ColonyPlannerSectionNav() {
+  return (
+    <div className="border-b border-border/60 px-4 py-2">
+      <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-[0.14em]">
+        <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 text-orange">Build Plan</span>
+        <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 text-cyan">Optimiser Candidates</span>
+        <span className="rounded border border-border bg-bg3 px-2 py-1 text-silver-dk">Preview Result</span>
+      </div>
+    </div>
+  );
+}

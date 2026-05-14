@@ -100,7 +100,9 @@ Generate candidate plans rather than only previewing selected plans. This Stage 
 
 Stage 5.9C reframes the frontend planning surface as **Colony Planner**, with visible **Build Plan**, **Optimiser Candidates**, and **Preview Result** sections. Simulation Preview is now treated as the explicit preview action/result inside that workspace. Optimiser candidates show the generation parameters they were created with and warn when target archetype, max candidate count, or estimated-data controls have changed since generation.
 
-Future Search Tuning work should add clearer presets, before/after rank movement, and better explanations, but that rework is separate from the Stage 5 colony optimiser and is not implemented in this pass. Future Stage 5.9D should extract deeper planner state/hooks; future Stage 5.9E should harden end-to-end wiring tests before Stage 6 observed-vs-predicted validation work expands the planner surface again.
+Stage 5.9D keeps that UX intact while reducing `SimulationPreview.tsx` from an all-in-one state/layout component into a composition component. Plan ownership now lives in `hooks/useSimulationPreviewPlan.ts`, explicit preview execution lives in `hooks/useSimulationPreviewRun.ts`, and Colony Planner header, Build Plan, section labels, and Preview Result rendering live in focused presentational components. No backend optimiser generation, ranking, scoring, CP/economy/service mechanics, Search Tuning behaviour, route structure, or Stage 6 validation work changed.
+
+Future Search Tuning work should add clearer presets, before/after rank movement, and better explanations, but that rework is separate from the Stage 5 colony optimiser and is not implemented in this pass. Future Stage 5.9E should harden end-to-end wiring tests before Stage 6 observed-vs-predicted validation work expands the planner surface again.
 
 ### Stage 5A - Deterministic Candidate Generation
 
