@@ -57,10 +57,14 @@ export function OptimiserCandidateDetails({
         title="Warnings"
         items={[
           ...candidate.warnings,
-          ...rankingReasons,
           ...(candidate.preview_summary?.warnings_count ? [`Preview summary reported ${candidate.preview_summary.warnings_count} warning(s).`] : []),
         ]}
-        empty="No candidate or ranking warnings."
+        empty="No candidate warnings."
+      />
+      <Section
+        title="Ranking reasons"
+        items={rankingReasons}
+        empty="No ranking-specific reasons were returned."
       />
       <Section
         title="Assumptions"

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOptimiserCandidates } from '@/lib/api';
 import type { OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
+import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
@@ -142,6 +143,36 @@ describe('optimiser candidate comparison UI', () => {
     const noPreview = { ...candidate('no-preview'), preview_summary: null };
     render(<OptimiserCandidateCard candidate={noPreview} selected={false} onSelect={() => undefined} />);
     expect(screen.getByText('No preview summary')).toBeTruthy();
+  });
+
+  it('shows ranking reasons separately from warnings', () => {
+    const warnedCandidate = {
+      ...candidate('candidate-warning', 'Candidate Warning'),
+      warnings: ['Candidate warning'],
+      preview_summary: {
+        ...candidate('candidate-warning').preview_summary!,
+        warnings_count: 0,
+      },
+    };
+    const ranked = {
+      ...ranking.ranked_candidates[0],
+      candidate_id: warnedCandidate.candidate_id,
+      rank_breakdown: {
+        ...ranking.ranked_candidates[0].rank_breakdown,
+        reasons: ['Preview confidence is low.'],
+      },
+    };
+
+    render(<OptimiserCandidateDetails candidate={warnedCandidate} ranking={ranked} />);
+
+    expect(screen.getByText('Warnings')).toBeTruthy();
+    expect(screen.getByText('• Candidate warning')).toBeTruthy();
+    expect(screen.getByText('Ranking reasons')).toBeTruthy();
+    expect(screen.getAllByText('• Preview confidence is low.').length).toBeGreaterThan(0);
+    expect(screen.getByText('No additional assumptions were returned.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /apply/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /use this build/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /load candidate/i })).toBeNull();
   });
 
   it('renders placement build order and primary port', () => {
