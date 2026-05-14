@@ -1,7 +1,29 @@
-"""Observation domain models for observed-vs-predicted comparisons.
+"""Observed-facts domain models.
 
-Stage 4D intentionally stores and compares observed facts without treating them
-as automatic mechanics upgrades. Differences are surfaced for review.
+This module hosts two related but distinct sets of models:
+
+1. Stage 4D legacy comparison models (``ObservedFact``,
+   ``PredictionObservationDiff``, ``ObservationSummary``, plus the
+   ``ObservationArea`` / ``ObservationSourceType`` / ``ObservationComparisonStatus``
+   / ``ObservationSeverity`` enums). These describe ad-hoc observed facts and
+   the predicted-vs-observed comparison summary used by older simulation
+   integrations. They are retained so that pre-existing comparison code paths
+   keep working until the Stage 6 comparison engine replaces them.
+
+2. Stage 6A persisted-observation models (``PersistedObservedFact``,
+   ``ObservationFactSummary``, ``ObservationSource``, ``ObservedFactType``,
+   ``ObservedSubjectType``, ``ObservedStatus``, ``ObservedConfidence`` and
+   ``summarise_observed_facts``). These define the new passive
+   "evidence shelf" data contract used by the Stage 6A CRUD API.
+
+Stage 6A creates a *passive* evidence shelf for manual / test-fixture
+observations. Observations are recorded **separately** from predictions and
+**must not** mutate simulation mechanics, optimiser ranking, candidate
+generation, CP / economy / service / buildability rules, or Simulation
+Preview scoring. Later stages (6B/6C) may compare predictions with
+observations or add ingestion UIs, but this module only defines the
+observation data contract; it does not consume observations to change
+predicted behaviour.
 """
 from __future__ import annotations
 
@@ -140,6 +162,12 @@ def observed_fact_from_any(value: Any) -> ObservedFact:
 # Stage 6A persisted observed-fact foundation
 # ══════════════════════════════════════════════════════════════════════
 class ObservationSource(str, Enum):
+    # Stage 6A accepts ``manual`` and ``test_fixture`` sources through the
+    # public API. ``imported`` and ``inferred`` are reserved enum values for
+    # later ingestion/comparison stages (e.g. EDMC/journal ingestion in 6B,
+    # automated inference in 6C) and are intentionally rejected by Stage 6A
+    # request validation so they cannot be silently introduced before those
+    # stages define their own provenance rules.
     MANUAL = 'manual'
     IMPORTED = 'imported'
     INFERRED = 'inferred'
