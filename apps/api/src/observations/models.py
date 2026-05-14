@@ -1,7 +1,29 @@
-"""Observation domain models for observed-vs-predicted comparisons.
+"""Observed-facts domain models.
 
-Stage 4D intentionally stores and compares observed facts without treating them
-as automatic mechanics upgrades. Differences are surfaced for review.
+This module hosts two related but distinct sets of models:
+
+1. Stage 4D legacy comparison models (``ObservedFact``,
+   ``PredictionObservationDiff``, ``ObservationSummary``, plus the
+   ``ObservationArea`` / ``ObservationSourceType`` / ``ObservationComparisonStatus``
+   / ``ObservationSeverity`` enums). These describe ad-hoc observed facts and
+   the predicted-vs-observed comparison summary used by older simulation
+   integrations. They are retained so that pre-existing comparison code paths
+   keep working until the Stage 6 comparison engine replaces them.
+
+2. Stage 6A persisted-observation models (``PersistedObservedFact``,
+   ``ObservationFactSummary``, ``ObservationSource``, ``ObservedFactType``,
+   ``ObservedSubjectType``, ``ObservedStatus``, ``ObservedConfidence`` and
+   ``summarise_observed_facts``). These define the new passive
+   "evidence shelf" data contract used by the Stage 6A CRUD API.
+
+Stage 6A creates a *passive* evidence shelf for manual / test-fixture
+observations. Observations are recorded **separately** from predictions and
+**must not** mutate simulation mechanics, optimiser ranking, candidate
+generation, CP / economy / service / buildability rules, or Simulation
+Preview scoring. Later stages (6B/6C) may compare predictions with
+observations or add ingestion UIs, but this module only defines the
+observation data contract; it does not consume observations to change
+predicted behaviour.
 """
 from __future__ import annotations
 
@@ -134,3 +156,123 @@ def observed_fact_from_any(value: Any) -> ObservedFact:
             notes=list(value.get('notes') or []),
         )
     raise TypeError(f'Unsupported observed fact value: {type(value)!r}')
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Stage 6A persisted observed-fact foundation
+# ══════════════════════════════════════════════════════════════════════
+class ObservationSource(str, Enum):
+    # Stage 6A accepts ``manual`` and ``test_fixture`` sources through the
+    # public API. ``imported`` and ``inferred`` are reserved enum values for
+    # later ingestion/comparison stages (e.g. EDMC/journal ingestion in 6B,
+    # automated inference in 6C) and are intentionally rejected by Stage 6A
+    # request validation so they cannot be silently introduced before those
+    # stages define their own provenance rules.
+    MANUAL = 'manual'
+    IMPORTED = 'imported'
+    INFERRED = 'inferred'
+    TEST_FIXTURE = 'test_fixture'
+
+
+class ObservedFactType(str, Enum):
+    SERVICE_PRESENCE = 'service_presence'
+    ECONOMY_PRESENCE = 'economy_presence'
+    FACILITY_STATE = 'facility_state'
+    CP_VALUE = 'cp_value'
+    BUILD_OUTCOME = 'build_outcome'
+    PREDICTION_MATCH = 'prediction_match'
+    PREDICTION_MISMATCH = 'prediction_mismatch'
+    NOTE = 'note'
+
+
+class ObservedSubjectType(str, Enum):
+    SYSTEM = 'system'
+    BODY = 'body'
+    FACILITY = 'facility'
+    SERVICE = 'service'
+    ECONOMY = 'economy'
+    BUILD = 'build'
+    SIMULATION = 'simulation'
+    CP = 'cp'
+
+
+class ObservedStatus(str, Enum):
+    OBSERVED_PRESENT = 'observed_present'
+    OBSERVED_ABSENT = 'observed_absent'
+    CONFIRMED = 'confirmed'
+    CONTRADICTED = 'contradicted'
+    UNKNOWN = 'unknown'
+    UNVERIFIED = 'unverified'
+
+
+class ObservedConfidence(str, Enum):
+    LOW = 'low'
+    MEDIUM = 'medium'
+    HIGH = 'high'
+
+
+JsonValue = Any
+
+
+@dataclass(frozen=True)
+class PersistedObservedFact:
+    observation_id: str
+    system_id64: int
+    created_at: str
+    updated_at: str | None
+    source: str
+    fact_type: str
+    subject_type: str
+    subject_id: str | None
+    status: str
+    observed_value: JsonValue | None = None
+    expected_value: JsonValue | None = None
+    confidence: str = ObservedConfidence.MEDIUM.value
+    notes: str | None = None
+    build_fingerprint: str | None = None
+    simulation_fingerprint: str | None = None
+    target_archetype: str | None = None
+    facility_template_id: str | None = None
+    local_body_id: str | None = None
+    service_id: str | None = None
+    economy: str | None = None
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ObservationFactSummary:
+    total_count: int
+    by_fact_type: dict[str, int]
+    by_status: dict[str, int]
+    by_confidence: dict[str, int]
+    latest_observed_at: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def summarise_observed_facts(facts: list[PersistedObservedFact]) -> ObservationFactSummary:
+    by_fact_type: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    by_confidence: dict[str, int] = {}
+    latest_observed_at: str | None = None
+
+    for fact in facts:
+        by_fact_type[fact.fact_type] = by_fact_type.get(fact.fact_type, 0) + 1
+        by_status[fact.status] = by_status.get(fact.status, 0) + 1
+        by_confidence[fact.confidence] = by_confidence.get(fact.confidence, 0) + 1
+        observed_at = fact.updated_at or fact.created_at
+        if observed_at and (latest_observed_at is None or observed_at > latest_observed_at):
+            latest_observed_at = observed_at
+
+    return ObservationFactSummary(
+        total_count=len(facts),
+        by_fact_type=by_fact_type,
+        by_status=by_status,
+        by_confidence=by_confidence,
+        latest_observed_at=latest_observed_at,
+    )

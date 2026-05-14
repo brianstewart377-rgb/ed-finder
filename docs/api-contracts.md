@@ -103,3 +103,104 @@ For Stage 5B ranking, clients request `include_ranking=true`. Ranking is returne
 5. Update frontend components to use generated types and central client helpers.
 6. Add or update contract tests so old field names cannot silently return.
 
+
+## Stage 6A Observed Facts API
+
+Stage 6A adds a backend-only observed-facts shelf. An **observation** is manually supplied evidence about something a player saw; it is not a prediction, it is not an optimiser input, and it does not mutate Simulation Preview scoring or mechanics. Predicted-vs-observed comparison is intentionally reserved for later Stage 6 work.
+
+Stage 6A is a **passive evidence shelf**: observations are recorded separately from predictions and **do not mutate** optimiser ranking, candidate generation, Simulation Preview scoring, CP / economy / service / buildability mechanics, or any existing simulation response field. Static safety tests assert that the optimiser, simulation, mechanics, and their routers never import the observation store.
+
+| Endpoint | Purpose | Response Model |
+|---|---|---|
+| `POST /api/observations/facts` | Create one observed fact. | `ObservedFactResponse` |
+| `GET /api/observations/facts?system_id64=123` | List observed facts for a system, with optional filters. | `ObservedFactListResponse` |
+| `GET /api/observations/facts/{observation_id}` | Retrieve one observed fact by ID. | `ObservedFactResponse` |
+| `PATCH /api/observations/facts/{observation_id}` | Update allowed observed-fact fields. | `ObservedFactResponse` |
+| `DELETE /api/observations/facts/{observation_id}` | Hard-delete one observed fact for Stage 6A. | `ObservedFactDeleteResponse` |
+
+The list endpoint supports `fact_type`, `subject_type`, `status`, `target_archetype`, `build_fingerprint`, `simulation_fingerprint`, `limit`, and `offset` query filters.
+
+### Accepted and reserved sources
+
+The Stage 6A public API accepts only:
+
+- `manual`
+- `test_fixture`
+
+`imported` and `inferred` are present in the `ObservationSource` enum vocabulary but are **reserved for later stages** (EDMC/journal ingestion in 6B, automated inference in 6C). Stage 6A request validation rejects them with HTTP 422. Future stages will define provenance and trust rules before lifting that restriction.
+
+### Summary semantics
+
+`ObservedFactListResponse.summary` describes the **full filtered result set**, not just the paginated page returned in `facts`. So if `limit=1` is sent against three matching observations, `facts` has one entry, `total` is `3`, and `summary.total_count` / `summary.by_fact_type` / `summary.by_status` / `summary.by_confidence` all count all three. The store provides a dedicated `summarise_observed_facts_for_filter` query for this; it shares the same filter clause as the list query so total and summary always describe the same rows.
+
+### Nullable subject_id
+
+`subject_id` may be `null` for system-level or build-level notes that do not target a specific service, economy, facility, or other subject (for example a free-form `note` fact_type). The Stage 4D `subject_id NOT NULL` constraint is relaxed in `sql/018_observed_facts_stage6a.sql`, and the Stage 6A store preserves `None` end-to-end without coercing it to an empty string.
+
+### Legacy compatibility columns
+
+`observed_facts` existed before Stage 6A with Stage 4D comparison columns. The Stage 6A store keeps both the new and legacy columns populated on every write so existing Stage 4D readers continue to see consistent rows:
+
+| Legacy column | New Stage 6A column |
+|---|---|
+| `area` | `fact_type` |
+| `source_type` | `source` |
+| `observed_value` | `observed_value_json` |
+| `facility_id` | `facility_template_id` |
+| `body_id` | `local_body_id` |
+
+A later migration will normalise or drop these duplicate columns; until then the duplication is deliberate and documented in `apps/api/src/observations/store.py` and `sql/018_observed_facts_stage6a.sql`.
+
+Example create request:
+
+```json
+{
+  "system_id64": 123,
+  "source": "manual",
+  "fact_type": "service_presence",
+  "subject_type": "service",
+  "subject_id": "market",
+  "status": "observed_present",
+  "service_id": "market",
+  "observed_value": { "present": true },
+  "expected_value": { "present": false },
+  "confidence": "high",
+  "notes": "Observed after construction tick.",
+  "target_archetype": "trade_logistics",
+  "tags": ["service", "tick"],
+  "metadata": { "source_screen": "station services" }
+}
+```
+
+Example response:
+
+```json
+{
+  "observation_id": "obs_...",
+  "system_id64": 123,
+  "created_at": "2026-05-14T13:00:00+00:00",
+  "updated_at": null,
+  "source": "manual",
+  "fact_type": "service_presence",
+  "subject_type": "service",
+  "subject_id": "market",
+  "status": "observed_present",
+  "observed_value": { "present": true },
+  "expected_value": { "present": false },
+  "confidence": "high",
+  "notes": "Observed after construction tick.",
+  "build_fingerprint": null,
+  "simulation_fingerprint": null,
+  "target_archetype": "trade_logistics",
+  "facility_template_id": null,
+  "local_body_id": null,
+  "service_id": "market",
+  "economy": null,
+  "tags": ["service", "tick"],
+  "metadata": { "source_screen": "station services" }
+}
+```
+
+The write models validate enum values, require positive `system_id64`, normalise/dedupe/cap tags, require object-shaped metadata, and require structured identifiers for the most common typed facts: `service_presence` needs `service_id`, `economy_presence` needs `economy`, and `facility_state` needs `facility_template_id`. These checks keep observations structured without claiming that one observed fact proves or disproves a mechanics rule.
+
+Observations do **not** change optimiser ranking, candidate generation, Simulation Preview scoring, CP/economy/service/buildability mechanics, or existing simulation response fields. They are stored evidence for future manual-entry UI and predicted-vs-observed comparison stages.
