@@ -136,6 +136,12 @@ Stage 5D adds the explicit `Load into preview` action in candidate details when 
 
 The action copies candidate placements into the editable preview plan, updates the preview target archetype, clears stale result/error state, and leaves the user to run the normal preview manually. Existing non-empty preview plans require confirmation before replacement. Cancelling preserves the current plan. If the user edits, moves, removes, or adds placements after loading, the origin message changes from a loaded-candidate message to an edited-from-candidate message. Loading a candidate does **not** commit anything in-game, save a build, auto-run Simulation Preview, or change backend generation, ranking, scoring, CP, economy, or service mechanics.
 
+## Stage 5E Comparison Engine
+
+Stage 5E adds the deterministic frontend comparison engine under `frontend-v2/src/features/system-detail/simulation-preview/optimiser/comparison/`. The engine compares compatible build-plan sources, including current preview plans and optimiser candidates, and returns serialisable deltas for placements, facility counts, body assignment, build order, primary port, target archetype, lightweight preview summaries, ranking, warnings, assumptions, risk, tradeoff summary, and recommendation verdict.
+
+The comparison engine does not run simulations, mutate candidate/current placement arrays, save builds, change backend generation or ranking, or render the full comparison UI. Stage 5F is reserved for rendering and hardening the comparison output in the optimiser UI.
+
 ## Deferred Work
 
-Stage 5E may add candidate-vs-current delta polish. Stage 5A/5B/5C/5D should remain the clean foundation for later stages, not an overclaim of full optimiser completion.
+Stage 5F may add candidate-vs-current rendering and final optimiser hardening. Stage 5A/5B/5C/5D/5E should remain the clean foundation for later stages, not an overclaim of full optimiser completion.
