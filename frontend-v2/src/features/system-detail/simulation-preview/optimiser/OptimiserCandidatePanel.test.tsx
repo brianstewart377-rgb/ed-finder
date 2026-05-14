@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOptimiserCandidates } from '@/lib/api';
-import type { OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking } from '@/types/api';
+import type { OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking, SimulateBuildPlacement } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
@@ -130,6 +130,57 @@ describe('optimiser candidate comparison UI', () => {
     expect(sorted.map((item) => item.candidate_id)).toEqual(['candidate-b', 'candidate-a']);
     expect(original.map((item) => item.candidate_id)).toEqual(before);
     expect(sorted).not.toBe(original);
+  });
+
+  it('renders selected candidate comparison against current preview plan', () => {
+    const load = vi.fn();
+    const currentPlacements: SimulateBuildPlacement[] = [
+      { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+      { facility_template_id: 'legacy_support', local_body_id: 'body2', is_primary_port: false, build_order: 2 },
+    ];
+
+    render(
+      <OptimiserCandidateDetails
+        candidate={candidate('candidate-b', 'Candidate B')}
+        ranking={ranking.ranked_candidates[0]}
+        response={response()}
+        currentPreviewPlacements={currentPlacements}
+        currentTargetArchetype="refinery_industrial"
+        onLoadCandidate={load}
+      />,
+    );
+
+    expect(screen.getByText('Comparison')).toBeTruthy();
+    expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
+    expect(screen.getByText('Prefer before')).toBeTruthy();
+    expect(screen.getByText('Tradeoff summary')).toBeTruthy();
+    expect(screen.getByText('Target archetype')).toBeTruthy();
+    expect(screen.getByText(/Changes from refinery_industrial to agriculture_terraforming/)).toBeTruthy();
+    expect(screen.getByText('Facility count changes')).toBeTruthy();
+    expect(screen.getByText(/agri_support_a: 0 → 1/)).toBeTruthy();
+    expect(screen.getByText(/legacy_support: removed/)).toBeTruthy();
+    expect(screen.getByText('Preview summary deltas')).toBeTruthy();
+    expect(screen.getByText('Ranking delta')).toBeTruthy();
+    expect(screen.getByText(/Ranking delta is unavailable for the current manual preview plan/)).toBeTruthy();
+    expect(screen.getByText('Risk changes')).toBeTruthy();
+    expect(screen.getByText('Warning changes')).toBeTruthy();
+    expect(screen.getByText('Assumption changes')).toBeTruthy();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('renders comparison empty copy when no current preview plan exists', () => {
+    render(
+      <OptimiserCandidateDetails
+        candidate={candidate('candidate-a', 'Candidate A')}
+        ranking={ranking.ranked_candidates[1]}
+        response={response()}
+        currentPreviewPlacements={[]}
+        currentTargetArchetype="agriculture_terraforming"
+      />,
+    );
+
+    expect(screen.getByText('Comparison')).toBeTruthy();
+    expect(screen.getByText(/Comparison needs a current preview plan/)).toBeTruthy();
   });
 
   it('renders ranking breakdown with alignment_component separately', () => {
