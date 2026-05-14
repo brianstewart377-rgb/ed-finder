@@ -118,6 +118,13 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     renderPreview();
 
+    expect(await screen.findByText('Colony Planner')).toBeTruthy();
+    expect(screen.getByText(/Plan a colony build for this system/)).toBeTruthy();
+    expect(screen.getAllByText('Build Plan').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Optimiser Candidates').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Preview Result').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Target archetype guides candidate generation, ranking, and preview scoring/)).toBeTruthy();
+
     fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
 

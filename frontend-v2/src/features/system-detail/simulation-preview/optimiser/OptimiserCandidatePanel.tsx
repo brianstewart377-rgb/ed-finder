@@ -7,6 +7,12 @@ import { OptimiserEmptyState } from './OptimiserEmptyState';
 import { OptimiserErrorState } from './OptimiserErrorState';
 import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
 
+type GeneratedCandidateParams = {
+  targetArchetype: string;
+  maxCandidates: number;
+  allowEstimatedData: boolean;
+};
+
 export function OptimiserCandidatePanel({
   systemId64,
   targetArchetype,
@@ -30,6 +36,7 @@ export function OptimiserCandidatePanel({
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<OptimiserCandidatesResponse | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [generatedParams, setGeneratedParams] = useState<GeneratedCandidateParams | null>(null);
 
   const rankLookup = useMemo(() => buildRankLookup(response?.ranking), [response]);
   const candidates = useMemo(
@@ -37,19 +44,27 @@ export function OptimiserCandidatePanel({
     [response],
   );
   const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selectedId) ?? candidates[0];
+  const currentParams: GeneratedCandidateParams = { targetArchetype, maxCandidates, allowEstimatedData };
+  const controlsChangedSinceGeneration = Boolean(generatedParams && (
+    generatedParams.targetArchetype !== currentParams.targetArchetype
+    || generatedParams.maxCandidates !== currentParams.maxCandidates
+    || generatedParams.allowEstimatedData !== currentParams.allowEstimatedData
+  ));
 
   const generateCandidates = async () => {
     setLoading(true);
     setError(null);
     try {
+      const requestParams = { ...currentParams };
       const data = await fetchOptimiserCandidates({
         system_id64: systemId64,
-        target_archetype: targetArchetype,
-        max_candidates: maxCandidates,
-        allow_estimated_data: allowEstimatedData,
+        target_archetype: requestParams.targetArchetype,
+        max_candidates: requestParams.maxCandidates,
+        allow_estimated_data: requestParams.allowEstimatedData,
         run_preview: true,
         include_ranking: true,
       });
+      setGeneratedParams(requestParams);
       setResponse(data);
       setSelectedId(data.ranking?.ranked_candidates[0]?.candidate_id ?? data.candidates[0]?.candidate_id ?? null);
     } catch (err) {
@@ -63,11 +78,14 @@ export function OptimiserCandidatePanel({
     <section className="rounded-chunk-lg border border-orange/20 bg-bg1/55 p-4" aria-label="Optimiser candidates">
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Optimiser candidates</h3>
+          <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Optimiser Candidates</h3>
+          <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
+            Optimiser Candidates generates a small set of build-plan suggestions for this system using the current target archetype. Candidates are ranked and compared against your editable Build Plan. Nothing is saved or committed in-game.
+          </p>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
             {onLoadCandidate
-              ? 'Generated and ranked suggestions. You can load a selected candidate into the editable preview. Nothing is committed in-game.'
-              : 'Generated and ranked suggestions. Read-only for now — applying a candidate comes in a later stage.'}
+              ? 'Load a selected candidate deliberately when you want to copy it into the editable Build Plan.'
+              : 'Read-only for now — applying a candidate comes in a later stage.'}
           </p>
         </div>
       </div>
@@ -86,17 +104,22 @@ export function OptimiserCandidatePanel({
             {[3, 5, 8, 10].map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
         </label>
-        <button
-          type="button"
-          onClick={() => void generateCandidates()}
-          disabled={loading}
-          className="rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 font-mono text-xs font-bold text-orange hover:bg-orange/25 disabled:opacity-45"
-        >
-          {loading ? 'Generating' : 'Generate candidates'}
-        </button>
+        <div className="space-y-1">
+          <button
+            type="button"
+            onClick={() => void generateCandidates()}
+            disabled={loading}
+            className="rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 font-mono text-xs font-bold text-orange hover:bg-orange/25 disabled:opacity-45"
+          >
+            {loading ? 'Generating' : 'Generate candidates'}
+          </button>
+          <p className="max-w-xs font-mono text-[10px] leading-snug text-silver-dk">
+            Generates bounded candidate build plans and lightweight preview summaries. It does not run the main Simulation Preview or change your current Build Plan.
+          </p>
+        </div>
       </div>
 
-      <label className="mb-3 flex items-center gap-2 font-mono text-[11px] text-silver-dk">
+      <label className="mb-1 flex items-center gap-2 font-mono text-[11px] text-silver-dk">
         <input
           type="checkbox"
           checked={allowEstimatedData}
@@ -104,6 +127,26 @@ export function OptimiserCandidatePanel({
         />
         Include estimated data
       </label>
+      <p className="mb-3 max-w-2xl font-mono text-[10px] leading-snug text-silver-dk">
+        Allows candidate generation to use inferred or incomplete data when exact data is unavailable. This can produce more suggestions, but confidence and warnings should be reviewed.
+      </p>
+
+      {generatedParams && (
+        <div className="mb-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2 font-mono text-[10px] leading-snug text-silver-dk">
+          <div className="uppercase tracking-[0.16em] text-cyan">Generated for</div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            <span>Target archetype: <span className="text-silver">{generatedParams.targetArchetype}</span></span>
+            <span>Max candidates: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
+            <span>Estimated data: <span className="text-silver">{generatedParams.allowEstimatedData ? 'on' : 'off'}</span></span>
+          </div>
+        </div>
+      )}
+
+      {controlsChangedSinceGeneration && (
+        <div className="mb-3 rounded border border-gold/45 bg-gold/10 px-3 py-2 font-mono text-[11px] leading-snug text-gold">
+          Controls have changed since these candidates were generated. Generate again to refresh candidates before comparing or loading.
+        </div>
+      )}
 
       {loading && (
         <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
