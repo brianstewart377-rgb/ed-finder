@@ -10,7 +10,7 @@ const TABS = [
   { key: 'watchlist', label: 'Watchlist', icon: Eye,        badge: 7 },
   { key: 'pinned',    label: 'Pinned',    icon: Pin,        badge: 3 },
   { key: 'compare',   label: 'Compare',   icon: Scale,      badge: 2 },
-  { key: 'optimizer', label: 'Optimizer', icon: Sliders     },
+  { key: 'optimizer', label: 'Search Tuning', icon: Sliders     },
   { key: 'fc',        label: 'FC Route',  icon: Route,      badge: 4 },
   { key: 'colony',    label: 'Colony',    icon: Building2,  badge: 4 },
   { key: 'map',       label: 'Map',       icon: Map         },

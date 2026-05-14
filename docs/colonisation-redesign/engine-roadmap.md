@@ -96,7 +96,9 @@ The preview pipeline is now documented as a sequence of internal stages: user pl
 
 ## Stage 5 - Optimiser V1
 
-Generate candidate plans rather than only previewing selected plans.
+Generate candidate plans rather than only previewing selected plans. This Stage 5 colony optimiser is separate from **Search Tuning**, the legacy Finder-result reranking tool that only adjusts weights and reorders the current Finder search results via the ratings rerank endpoint.
+
+Future Search Tuning work should add clearer presets, before/after rank movement, and better explanations, but that rework is separate from the Stage 5 colony optimiser and is not implemented in this pass.
 
 ### Stage 5A - Deterministic Candidate Generation
 

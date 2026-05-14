@@ -53,7 +53,7 @@ export function NavBar({
           <Tab label="☁️ Watchlist"  active={current === 'watchlist'} onClick={() => onNavigate('watchlist')} testid="nav-watchlist" badge={watchlistCount ?? undefined} title="Watchlist — synced to your account, alerts on changes" />
           <Tab label="📌 Pins"       active={current === 'pinned'}    onClick={() => onNavigate('pinned')}    testid="nav-pinned"    badge={pinnedCount} title="Pins — quick local shortlist on this device only" />
           <Tab label="⚖️ Compare"    active={current === 'compare'}   onClick={() => onNavigate('compare')}   testid="nav-compare"   badge={compareCount} />
-          <Tab label="🎚️ Optimizer"  active={current === 'optimizer'} onClick={() => onNavigate('optimizer')} testid="nav-optimizer" />
+          <Tab label="🎚️ Search Tuning"  active={current === 'optimizer'} onClick={() => onNavigate('optimizer')} testid="nav-optimizer" />
           <Tab label="🚀 FC"         active={current === 'fc'}        onClick={() => onNavigate('fc')}        testid="nav-fc"        badge={fcCount} />
           <Tab label="🏗️ Colony"     active={current === 'colony'}    onClick={() => onNavigate('colony')}    testid="nav-colony"    badge={colonyCount} />
           <Tab label="🗺️ Map"        active={current === 'map'}       onClick={() => onNavigate('map')}       testid="nav-map" />

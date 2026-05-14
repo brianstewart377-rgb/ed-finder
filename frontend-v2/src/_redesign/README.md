@@ -40,7 +40,7 @@ _redesign/
 │   ├── Plan/      ←  FC Planner workspace
 │   ├── Track/     ←  Colony Tracker workspace
 │   ├── Shell/     ←  TopBar + StatusStrip (top + bottom HUD)
-│   ├── Tabs/      ←  Watchlist/Pinned/Compare/Optimizer/Admin stubs
+│   ├── Tabs/      ←  Watchlist/Pinned/Compare/Search Tuning/Admin stubs
 │   └── UI/        ←  Hud primitives (Panel, HudButton, RatingBar, TierPill, etc.)
 └── lib/
     └── mockData.js          # single source of truth for the prototype
