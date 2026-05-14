@@ -105,6 +105,7 @@ The ranking object is top-level and references candidates by `candidate_id`:
           "confidence_component": 11.0,
           "buildability_component": 16.0,
           "composition_component": 17.0,
+          "alignment_component": 5.0,
           "warning_penalty": -2.0,
           "cp_penalty": 0.0,
           "strategy_modifier": 3.0,

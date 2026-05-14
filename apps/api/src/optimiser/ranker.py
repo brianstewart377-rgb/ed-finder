@@ -119,10 +119,11 @@ def _score_candidate(candidate: OptimiserCandidate) -> RankedOptimiserCandidate:
     total = round(total, 2)
 
     breakdown = CandidateRankBreakdown(
-        preview_score_component=round(preview_score_component + alignment_component, 2),
-        confidence_component=round(confidence_component, 2),
-        buildability_component=round(buildability_component, 2),
+        preview_score_component=round(preview_score_component, 2),
         composition_component=round(composition_component, 2),
+        buildability_component=round(buildability_component, 2),
+        confidence_component=round(confidence_component, 2),
+        alignment_component=round(alignment_component, 2),
         warning_penalty=round(preview_warning_penalty + candidate_warning_penalty + missing_preview_penalty, 2),
         cp_penalty=round(cp_penalty, 2),
         strategy_modifier=round(strategy_modifier, 2),

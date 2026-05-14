@@ -92,7 +92,7 @@ For optimiser candidates, clients should consume the backend field names exactly
 
 The optimiser `preview_summary` is deliberately lightweight and optimiser-specific. It is not a full Simulation Preview response and should not be treated as the source of detailed mechanics explanation. Candidate dedupe uses ordered placement fingerprints because build order affects CP timing and repair suggestions.
 
-For Stage 5B ranking, clients request `include_ranking=true`. Ranking is returned as a top-level `ranking` object with `target_archetype`, `ranked_candidates`, `warnings`, and `assumptions`. Each ranked entry references `candidate_id` and includes `rank`, `rank_score`, `rank_tier`, and `rank_breakdown`; it must not duplicate full candidate objects or add rank fields to candidates. When `include_ranking=false`, candidate ordering and shape remain the Stage 5A response behaviour.
+For Stage 5B ranking, clients request `include_ranking=true`. Ranking is returned as a top-level `ranking` object with `target_archetype`, `ranked_candidates`, `warnings`, and `assumptions`. Each ranked entry references `candidate_id` and includes `rank`, `rank_score`, `rank_tier`, and `rank_breakdown`; it must not duplicate full candidate objects or add rank fields to candidates. The ranking breakdown includes `alignment_component` for the top-two/economy alignment contribution. When `include_ranking=false`, candidate ordering and shape remain the Stage 5A response behaviour.
 
 ## Change Workflow
 

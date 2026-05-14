@@ -606,9 +606,10 @@ def test_rank_breakdown_is_serializable():
     breakdown = payload['ranked_candidates'][0]['rank_breakdown']
     assert set(breakdown) == {
         'preview_score_component',
-        'confidence_component',
-        'buildability_component',
         'composition_component',
+        'buildability_component',
+        'confidence_component',
+        'alignment_component',
         'warning_penalty',
         'cp_penalty',
         'strategy_modifier',
@@ -886,6 +887,17 @@ def test_rank_candidates_assigns_rank_tiers():
     assert tiers['weak'] == 'weak'
 
 
+def test_rank_breakdown_exposes_alignment_component_separately():
+    result = rank_candidates([
+        ranked_test_candidate('candidate', final_score=80, top_two_alignment='strong')
+    ], target_archetype='agriculture_terraforming')
+    breakdown = result.ranked_candidates[0].rank_breakdown
+    assert breakdown.preview_score_component == 28.0
+    assert breakdown.alignment_component > 0
+    assert breakdown.total_score >= breakdown.preview_score_component + breakdown.alignment_component
+
+
+
 def test_rank_breakdown_is_serializable():
     result = rank_candidates([ranked_test_candidate('candidate')], target_archetype='agriculture_terraforming')
     payload = ranking_result_to_dict(result)
@@ -893,9 +905,10 @@ def test_rank_breakdown_is_serializable():
     assert set(ranked) == {'candidate_id', 'rank', 'rank_score', 'rank_tier', 'rank_breakdown'}
     assert set(ranked['rank_breakdown']) == {
         'preview_score_component',
-        'confidence_component',
-        'buildability_component',
         'composition_component',
+        'buildability_component',
+        'confidence_component',
+        'alignment_component',
         'warning_penalty',
         'cp_penalty',
         'strategy_modifier',

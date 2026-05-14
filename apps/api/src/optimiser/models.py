@@ -129,9 +129,10 @@ def candidate_result_to_dict(result: CandidateGenerationResult) -> dict[str, Any
 @dataclass(frozen=True)
 class CandidateRankBreakdown:
     preview_score_component: float = 0.0
-    confidence_component: float = 0.0
-    buildability_component: float = 0.0
     composition_component: float = 0.0
+    buildability_component: float = 0.0
+    confidence_component: float = 0.0
+    alignment_component: float = 0.0
     warning_penalty: float = 0.0
     cp_penalty: float = 0.0
     strategy_modifier: float = 0.0
@@ -159,9 +160,10 @@ class CandidateRankingResult:
 def rank_breakdown_to_dict(breakdown: CandidateRankBreakdown) -> dict[str, Any]:
     return {
         'preview_score_component': breakdown.preview_score_component,
-        'confidence_component': breakdown.confidence_component,
-        'buildability_component': breakdown.buildability_component,
         'composition_component': breakdown.composition_component,
+        'buildability_component': breakdown.buildability_component,
+        'confidence_component': breakdown.confidence_component,
+        'alignment_component': breakdown.alignment_component,
         'warning_penalty': breakdown.warning_penalty,
         'cp_penalty': breakdown.cp_penalty,
         'strategy_modifier': breakdown.strategy_modifier,

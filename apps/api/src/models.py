@@ -1287,9 +1287,10 @@ class OptimiserRankBreakdown(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     preview_score_component: float = 0.0
-    confidence_component: float = 0.0
-    buildability_component: float = 0.0
     composition_component: float = 0.0
+    buildability_component: float = 0.0
+    confidence_component: float = 0.0
+    alignment_component: float = 0.0
     warning_penalty: float = 0.0
     cp_penalty: float = 0.0
     strategy_modifier: float = 0.0
