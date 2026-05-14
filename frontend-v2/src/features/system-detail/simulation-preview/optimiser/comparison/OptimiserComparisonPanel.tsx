@@ -38,7 +38,7 @@ export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonR
       {expanded && (
         <div className="space-y-3 px-3 py-3">
           <p className="text-[11px] text-silver-dk">
-            This comparison is advisory and preview-only. It does not run Simulation Preview, persist a build, or affect in-game state.
+            This comparison is advisory and preview-only. It does not run Simulation Preview, save a build, or commit anything in-game.
           </p>
 
           <div className="rounded border border-border/45 bg-bg1/40 px-3 py-2">

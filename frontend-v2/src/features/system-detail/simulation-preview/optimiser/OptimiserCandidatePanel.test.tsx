@@ -242,10 +242,12 @@ describe('optimiser candidate comparison UI', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Load into preview' })).toBeTruthy();
-    expect(container.textContent).not.toMatch(/\bApply\b/i);
-    expect(container.textContent).not.toMatch(/\bCommit\b/i);
+    expect(screen.getByText(/Nothing is committed in-game/)).toBeTruthy();
+    expect(screen.getByText(/does not run Simulation Preview, save a build, or commit anything in-game/)).toBeTruthy();
+    expect(container.textContent).not.toMatch(/\bApply candidate\b/i);
+    expect(container.textContent).not.toMatch(/\bCommit build\b/i);
     expect(container.textContent).not.toMatch(/\bSave build\b/i);
-    expect(container.textContent).not.toMatch(/\bOptimal\b/i);
+    expect(container.textContent).not.toMatch(/\bOptimal build\b/i);
     expect(container.textContent).not.toMatch(/\bBest build\b/i);
     expect(container.textContent).not.toMatch(/\bGuaranteed\b/i);
     expect(container.textContent).not.toMatch(/\bProven\b/i);
@@ -293,7 +295,7 @@ describe('optimiser candidate comparison UI', () => {
     const selected = candidate('candidate-a', 'Candidate A');
     render(<OptimiserCandidateDetails candidate={selected} onLoadCandidate={onLoadCandidate} />);
 
-    expect(screen.getByText(/Nothing affects in-game state/)).toBeTruthy();
+    expect(screen.getByText(/Nothing is committed in-game/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
 
     expect(onLoadCandidate).toHaveBeenCalledTimes(1);
@@ -382,7 +384,7 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
     expect(screen.getByText(/load a selected candidate into the editable preview/i)).toBeTruthy();
-    expect(screen.getByText(/Nothing affects in-game state/i)).toBeTruthy();
+    expect(screen.getByText(/Nothing is committed in-game/i)).toBeTruthy();
     expect(screen.queryByText(/Read-only for now/i)).toBeNull();
   });
 
