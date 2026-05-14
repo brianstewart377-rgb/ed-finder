@@ -1282,6 +1282,42 @@ class OptimiserCandidate(BaseModel):
     preview_summary: Optional[OptimiserCandidatePreviewSummary] = None
 
 
+class OptimiserRankBreakdown(BaseModel):
+    """Structured explanation for a ranked optimiser candidate."""
+    model_config = ConfigDict(extra='forbid')
+
+    preview_score_component: float = 0.0
+    confidence_component: float = 0.0
+    buildability_component: float = 0.0
+    composition_component: float = 0.0
+    warning_penalty: float = 0.0
+    cp_penalty: float = 0.0
+    strategy_modifier: float = 0.0
+    total_score: float = 0.0
+    reasons: list[str] = Field(default_factory=list)
+
+
+class OptimiserRankedCandidate(BaseModel):
+    """Ranking entry that references a candidate by ID without duplicating it."""
+    model_config = ConfigDict(extra='forbid')
+
+    candidate_id: str
+    rank: int = Field(ge=1)
+    rank_score: float = Field(ge=0.0, le=100.0)
+    rank_tier: str
+    rank_breakdown: OptimiserRankBreakdown
+
+
+class OptimiserRankingResponse(BaseModel):
+    """Top-level optional Stage 5B ranking result."""
+    model_config = ConfigDict(extra='forbid')
+
+    target_archetype: str
+    ranked_candidates: list[OptimiserRankedCandidate]
+    warnings: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
 class OptimiserCandidatesRequest(BaseModel):
     """Request for bounded deterministic Stage 5A candidate generation."""
     model_config = ConfigDict(extra='forbid')
@@ -1293,6 +1329,7 @@ class OptimiserCandidatesRequest(BaseModel):
     preferred_body_ids: list[str] = Field(default_factory=list)
     allow_estimated_data: bool = True
     run_preview: bool = True
+    include_ranking: bool = False
 
 
 class OptimiserCandidatesResponse(BaseModel):
@@ -1305,6 +1342,7 @@ class OptimiserCandidatesResponse(BaseModel):
     candidates: list[OptimiserCandidate]
     warnings: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
+    ranking: Optional[OptimiserRankingResponse] = None
 
 
 # Backwards-compatible singular names for older imports.

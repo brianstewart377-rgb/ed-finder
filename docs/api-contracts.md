@@ -56,7 +56,7 @@ Use the central helper functions:
 - `getBuildability(id64, archetype?)`
 - `getSimulationSummary(id64, archetype?)`
 
-Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidatesRequest` with `system_id64`, preferred `target_archetype`, compatibility `target_archetype_key`, `max_candidates` bounded to 1-10 by the public API model, `preferred_body_ids`, `allow_estimated_data`, and `run_preview`. The endpoint returns `OptimiserCandidatesResponse`, containing a bounded candidate envelope with `system_id64`, `target_archetype`, `candidate_count`, `candidates`, `warnings`, and `assumptions`. Frontend integration should add a central API helper rather than calling this route directly from components.
+Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidatesRequest` with `system_id64`, preferred `target_archetype`, compatibility `target_archetype_key`, `max_candidates` bounded to 1-10 by the public API model, `preferred_body_ids`, `allow_estimated_data`, `run_preview`, and optional Stage 5B `include_ranking`. The endpoint returns `OptimiserCandidatesResponse`, containing a bounded candidate envelope with `system_id64`, `target_archetype`, `candidate_count`, `candidates`, `warnings`, `assumptions`, and nullable top-level `ranking`. Frontend integration should add a central API helper rather than calling this route directly from components.
 
 Avoid scattered raw `fetch()` calls for these endpoints. The central client is the only place that should know endpoint paths.
 
@@ -91,6 +91,8 @@ For optimiser candidates, clients should consume the backend field names exactly
 - `preview_summary`
 
 The optimiser `preview_summary` is deliberately lightweight and optimiser-specific. It is not a full Simulation Preview response and should not be treated as the source of detailed mechanics explanation. Candidate dedupe uses ordered placement fingerprints because build order affects CP timing and repair suggestions.
+
+For Stage 5B ranking, clients request `include_ranking=true`. Ranking is returned as a top-level `ranking` object with `target_archetype`, `ranked_candidates`, `warnings`, and `assumptions`. Each ranked entry references `candidate_id` and includes `rank`, `rank_score`, `rank_tier`, and `rank_breakdown`; it must not duplicate full candidate objects or add rank fields to candidates. When `include_ranking=false`, candidate ordering and shape remain the Stage 5A response behaviour.
 
 ## Change Workflow
 

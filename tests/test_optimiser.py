@@ -18,9 +18,13 @@ from optimiser.dedupe import placement_fingerprint
 from optimiser.models import (
     CandidateGenerationRequest,
     CandidatePlacement,
+    CandidatePreviewSummary,
+    OptimiserCandidate,
     candidate_placement_to_preview_placement,
     candidate_to_dict,
+    ranking_result_to_dict,
 )
+from optimiser.ranker import rank_candidates
 from routers.optimiser import router as optimiser_router
 
 
@@ -486,3 +490,586 @@ def test_candidate_fingerprint_is_order_sensitive_because_cp_timing_matters():
         CandidatePlacement('generic_port_alpha', local_body_id='body1', is_primary_port=True, build_order=2),
     ]
     assert placement_fingerprint(port_then_support) != placement_fingerprint(support_then_port)
+
+
+def ranked_candidate(
+    candidate_id: str,
+    *,
+    final_score: float | None = 80.0,
+    composition_score: float | None = 80.0,
+    buildability_score: float | None = 80.0,
+    confidence: float | None = 0.8,
+    warnings_count: int = 0,
+    cp_negative: bool | None = False,
+    strategy: str = 'balanced',
+    warnings: list[str] | None = None,
+    top_two_alignment: str | None = 'strong',
+) -> OptimiserCandidate:
+    summary = None
+    if final_score is not None:
+        summary = CandidatePreviewSummary(
+            final_score=final_score,
+            composition_score=composition_score,
+            buildability_score=buildability_score,
+            confidence=confidence,
+            build_complexity='moderate',
+            warnings_count=warnings_count,
+            cp_negative=cp_negative,
+            top_two_alignment=top_two_alignment,
+        )
+    return OptimiserCandidate(
+        candidate_id=candidate_id,
+        label=f'{candidate_id} label',
+        target_archetype='agriculture_terraforming',
+        strategy=strategy,
+        placements=[CandidatePlacement('generic_port_alpha', local_body_id='body1', is_primary_port=True, build_order=1)],
+        rationale=['Synthetic ranking candidate.'],
+        warnings=warnings or [],
+        assumptions=[],
+        tags=[strategy],
+        preview_summary=summary,
+    )
+
+
+def test_rank_candidates_orders_by_rank_score():
+    weak = ranked_candidate('weak', final_score=40, composition_score=40, buildability_score=40, confidence=0.4)
+    strong = ranked_candidate('strong', final_score=90, composition_score=90, buildability_score=90, confidence=0.9)
+    result = rank_candidates([weak, strong], target_archetype='agriculture_terraforming')
+    assert [candidate.candidate_id for candidate in result.ranked_candidates] == ['strong', 'weak']
+    assert result.ranked_candidates[0].rank == 1
+    assert result.ranked_candidates[0].rank_score > result.ranked_candidates[1].rank_score
+
+
+def test_rank_candidates_is_deterministic_for_equal_inputs():
+    candidates = [ranked_candidate('b'), ranked_candidate('a')]
+    first = rank_candidates(candidates, target_archetype='agriculture_terraforming')
+    second = rank_candidates(candidates, target_archetype='agriculture_terraforming')
+    assert ranking_result_to_dict(first) == ranking_result_to_dict(second)
+    assert [candidate.candidate_id for candidate in first.ranked_candidates] == ['a', 'b']
+
+
+def test_rank_candidates_handles_missing_preview_summary():
+    candidate = ranked_candidate('missing-preview', final_score=None)
+    result = rank_candidates([candidate], target_archetype='agriculture_terraforming')
+    ranked = result.ranked_candidates[0]
+    assert 0.0 <= ranked.rank_score <= 100.0
+    assert ranked.rank_tier in {'weak', 'risky', 'viable', 'strong', 'excellent'}
+
+
+def test_missing_preview_summary_includes_explanatory_reason():
+    candidate = ranked_candidate('missing-preview', final_score=None)
+    result = rank_candidates([candidate], target_archetype='agriculture_terraforming')
+    reasons = result.ranked_candidates[0].rank_breakdown.reasons
+    assert any('not been preview-scored' in reason for reason in reasons)
+
+
+def test_rank_candidates_penalizes_candidate_warnings():
+    clean = ranked_candidate('clean')
+    warned = ranked_candidate('warned', warnings=['candidate warning'])
+    result = rank_candidates([clean, warned], target_archetype='agriculture_terraforming')
+    scores = {candidate.candidate_id: candidate.rank_score for candidate in result.ranked_candidates}
+    assert scores['clean'] > scores['warned']
+
+
+def test_rank_candidates_penalizes_cp_negative():
+    ok = ranked_candidate('ok', cp_negative=False)
+    negative = ranked_candidate('negative', cp_negative=True)
+    result = rank_candidates([ok, negative], target_archetype='agriculture_terraforming')
+    scores = {candidate.candidate_id: candidate.rank_score for candidate in result.ranked_candidates}
+    assert scores['ok'] > scores['negative']
+
+
+def test_rank_candidates_uses_confidence_component():
+    low = ranked_candidate('low-confidence', confidence=0.2)
+    high = ranked_candidate('high-confidence', confidence=0.9)
+    result = rank_candidates([low, high], target_archetype='agriculture_terraforming')
+    scores = {candidate.candidate_id: candidate.rank_score for candidate in result.ranked_candidates}
+    assert scores['high-confidence'] > scores['low-confidence']
+    high_breakdown = next(c.rank_breakdown for c in result.ranked_candidates if c.candidate_id == 'high-confidence')
+    assert high_breakdown.confidence_component > 0
+
+
+def test_rank_candidates_assigns_rank_tiers():
+    candidates = [
+        ranked_candidate('excellent', final_score=100, composition_score=100, buildability_score=100, confidence=1.0),
+        ranked_candidate('weak', final_score=10, composition_score=10, buildability_score=10, confidence=0.1, warnings_count=5, cp_negative=True),
+    ]
+    result = rank_candidates(candidates, target_archetype='agriculture_terraforming')
+    tiers = {candidate.candidate_id: candidate.rank_tier for candidate in result.ranked_candidates}
+    assert tiers['excellent'] == 'excellent'
+    assert tiers['weak'] == 'weak'
+
+
+def test_rank_breakdown_is_serializable():
+    result = rank_candidates([ranked_candidate('candidate')], target_archetype='agriculture_terraforming')
+    payload = ranking_result_to_dict(result)
+    breakdown = payload['ranked_candidates'][0]['rank_breakdown']
+    assert set(breakdown) == {
+        'preview_score_component',
+        'confidence_component',
+        'buildability_component',
+        'composition_component',
+        'warning_penalty',
+        'cp_penalty',
+        'strategy_modifier',
+        'total_score',
+        'reasons',
+    }
+
+
+def test_ranking_does_not_mutate_candidates():
+    candidate = ranked_candidate('candidate')
+    before = candidate_to_dict(candidate)
+    rank_candidates([candidate], target_archetype='agriculture_terraforming')
+    assert candidate_to_dict(candidate) == before
+    assert not hasattr(candidate, 'rank')
+    assert not hasattr(candidate, 'rank_score')
+
+
+@pytest.mark.asyncio
+async def test_endpoint_without_ranking_preserves_stage5a_shape(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 2,
+            'run_preview': False,
+            'include_ranking': False,
+        })
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['ranking'] is None
+    assert all('rank' not in candidate and 'rank_score' not in candidate for candidate in payload['candidates'])
+
+
+@pytest.mark.asyncio
+async def test_include_ranking_false_does_not_add_rank_fields_to_candidates(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 2,
+            'run_preview': False,
+        })
+    payload = response.json()
+    assert response.status_code == 200
+    assert all('rank' not in candidate and 'rank_breakdown' not in candidate for candidate in payload['candidates'])
+
+
+@pytest.mark.asyncio
+async def test_include_ranking_false_preserves_candidate_order(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 3,
+            'run_preview': False,
+            'include_ranking': False,
+        })
+    payload = response.json()
+    assert response.status_code == 200
+    direct = await generate(catalogue, max_candidates=3, run_preview=False)
+    assert [candidate['candidate_id'] for candidate in payload['candidates']] == [
+        candidate.candidate_id for candidate in direct.candidates
+    ]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_with_ranking_returns_top_level_ranking_object(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 2,
+            'run_preview': True,
+            'include_ranking': True,
+        })
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload['ranking'] is not None
+    assert set(payload['ranking']) == {'target_archetype', 'ranked_candidates', 'warnings', 'assumptions'}
+
+
+@pytest.mark.asyncio
+async def test_endpoint_with_ranking_returns_ranked_candidate_ids(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 2,
+            'run_preview': True,
+            'include_ranking': True,
+        })
+    payload = response.json()
+    candidate_ids = {candidate['candidate_id'] for candidate in payload['candidates']}
+    ranked_ids = {candidate['candidate_id'] for candidate in payload['ranking']['ranked_candidates']}
+    assert ranked_ids == candidate_ids
+
+
+@pytest.mark.asyncio
+async def test_endpoint_with_ranking_does_not_duplicate_full_candidates_inside_ranking(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 1,
+            'run_preview': True,
+            'include_ranking': True,
+        })
+    ranked = response.json()['ranking']['ranked_candidates'][0]
+    assert set(ranked) == {'candidate_id', 'rank', 'rank_score', 'rank_tier', 'rank_breakdown'}
+    assert 'placements' not in ranked
+    assert 'preview_summary' not in ranked
+
+
+def ranked_test_candidate(
+    candidate_id: str,
+    *,
+    final_score: float | None = 80.0,
+    composition_score: float | None = 80.0,
+    buildability_score: float | None = 80.0,
+    confidence: float | None = 0.8,
+    warnings_count: int = 0,
+    cp_negative: bool | None = False,
+    top_two_alignment: str | None = 'strong',
+    warnings: list[str] | None = None,
+    strategy: str = 'balanced',
+    preview: bool = True,
+) -> OptimiserCandidate:
+    summary = None
+    if preview:
+        summary = CandidatePreviewSummary(
+            final_score=final_score,
+            composition_score=composition_score,
+            buildability_score=buildability_score,
+            confidence=confidence,
+            build_complexity='moderate',
+            warnings_count=warnings_count,
+            cp_negative=cp_negative,
+            top_two_alignment=top_two_alignment,
+        )
+    return OptimiserCandidate(
+        candidate_id=candidate_id,
+        label=f'{candidate_id} label',
+        target_archetype='agriculture_terraforming',
+        strategy=strategy,
+        placements=[CandidatePlacement('generic_port_alpha', local_body_id='body1', is_primary_port=True, build_order=1)],
+        rationale=[],
+        warnings=warnings or [],
+        assumptions=[],
+        tags=[],
+        preview_summary=summary,
+    )
+
+
+def test_rank_candidates_orders_by_rank_score():
+    weaker = ranked_test_candidate('weak_candidate', final_score=40, composition_score=40, buildability_score=40, confidence=0.4)
+    stronger = ranked_test_candidate('strong_candidate', final_score=90, composition_score=90, buildability_score=90, confidence=0.9)
+    result = rank_candidates([weaker, stronger], target_archetype='agriculture_terraforming')
+    assert [item.candidate_id for item in result.ranked_candidates] == ['strong_candidate', 'weak_candidate']
+    assert result.ranked_candidates[0].rank == 1
+    assert result.ranked_candidates[0].rank_score >= result.ranked_candidates[1].rank_score
+
+
+def test_rank_candidates_is_deterministic_for_equal_inputs():
+    candidates = [
+        ranked_test_candidate('candidate_b', final_score=80),
+        ranked_test_candidate('candidate_a', final_score=80),
+    ]
+    first = rank_candidates(candidates, target_archetype='agriculture_terraforming')
+    second = rank_candidates(candidates, target_archetype='agriculture_terraforming')
+    assert [item.candidate_id for item in first.ranked_candidates] == ['candidate_a', 'candidate_b']
+    assert ranking_result_to_dict(first) == ranking_result_to_dict(second)
+
+
+def test_rank_candidates_handles_missing_preview_summary():
+    result = rank_candidates([
+        ranked_test_candidate('unpreviewed', preview=False),
+    ], target_archetype='agriculture_terraforming')
+    ranked = result.ranked_candidates[0]
+    assert 0.0 <= ranked.rank_score <= 100.0
+    assert ranked.rank_tier in {'weak', 'risky', 'viable', 'strong', 'excellent'}
+
+
+def test_missing_preview_summary_includes_explanatory_reason():
+    result = rank_candidates([
+        ranked_test_candidate('unpreviewed', preview=False),
+    ], target_archetype='agriculture_terraforming')
+    reasons = result.ranked_candidates[0].rank_breakdown.reasons
+    assert any('not been preview-scored' in reason for reason in reasons)
+
+
+def test_rank_candidates_penalizes_candidate_warnings():
+    clean = ranked_test_candidate('clean')
+    warned = ranked_test_candidate('warned', warnings=['Candidate warning'])
+    result = rank_candidates([clean, warned], target_archetype='agriculture_terraforming')
+    scores = {item.candidate_id: item.rank_score for item in result.ranked_candidates}
+    assert scores['clean'] > scores['warned']
+
+
+def test_rank_candidates_penalizes_cp_negative():
+    ok = ranked_test_candidate('cp_ok', cp_negative=False)
+    negative = ranked_test_candidate('cp_negative', cp_negative=True)
+    result = rank_candidates([ok, negative], target_archetype='agriculture_terraforming')
+    scores = {item.candidate_id: item.rank_score for item in result.ranked_candidates}
+    assert scores['cp_ok'] > scores['cp_negative']
+
+
+def test_rank_candidates_uses_confidence_component():
+    high = ranked_test_candidate('high_confidence', confidence=0.9)
+    low = ranked_test_candidate('low_confidence', confidence=0.2)
+    result = rank_candidates([low, high], target_archetype='agriculture_terraforming')
+    scores = {item.candidate_id: item.rank_score for item in result.ranked_candidates}
+    assert scores['high_confidence'] > scores['low_confidence']
+    high_breakdown = next(item.rank_breakdown for item in result.ranked_candidates if item.candidate_id == 'high_confidence')
+    assert high_breakdown.confidence_component > 0
+
+
+def test_rank_candidates_assigns_rank_tiers():
+    candidates = [
+        ranked_test_candidate('excellent', final_score=100, composition_score=100, buildability_score=100, confidence=1.0),
+        ranked_test_candidate('weak', final_score=10, composition_score=10, buildability_score=10, confidence=0.1, top_two_alignment='poor'),
+    ]
+    result = rank_candidates(candidates, target_archetype='agriculture_terraforming')
+    tiers = {item.candidate_id: item.rank_tier for item in result.ranked_candidates}
+    assert tiers['excellent'] == 'excellent'
+    assert tiers['weak'] == 'weak'
+
+
+def test_rank_breakdown_is_serializable():
+    result = rank_candidates([ranked_test_candidate('candidate')], target_archetype='agriculture_terraforming')
+    payload = ranking_result_to_dict(result)
+    ranked = payload['ranked_candidates'][0]
+    assert set(ranked) == {'candidate_id', 'rank', 'rank_score', 'rank_tier', 'rank_breakdown'}
+    assert set(ranked['rank_breakdown']) == {
+        'preview_score_component',
+        'confidence_component',
+        'buildability_component',
+        'composition_component',
+        'warning_penalty',
+        'cp_penalty',
+        'strategy_modifier',
+        'total_score',
+        'reasons',
+    }
+
+
+def test_ranking_does_not_mutate_candidates():
+    candidate = ranked_test_candidate('candidate')
+    before = candidate_to_dict(candidate)
+    rank_candidates([candidate], target_archetype='agriculture_terraforming')
+    after = candidate_to_dict(candidate)
+    assert before == after
+    assert 'rank' not in after
+    assert 'rank_score' not in after
+
+
+@pytest.mark.asyncio
+async def test_endpoint_without_ranking_preserves_stage5a_shape(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 2,
+            'run_preview': False,
+        })
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['ranking'] is None
+    assert 'rank' not in payload['candidates'][0]
+    assert 'rank_score' not in payload['candidates'][0]
+
+
+@pytest.mark.asyncio
+async def test_include_ranking_false_does_not_add_rank_fields_to_candidates(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 1,
+            'run_preview': False,
+            'include_ranking': False,
+        })
+
+    assert response.status_code == 200
+    candidate = response.json()['candidates'][0]
+    assert 'rank' not in candidate
+    assert 'rank_score' not in candidate
+    assert 'rank_breakdown' not in candidate
+
+
+@pytest.mark.asyncio
+async def test_include_ranking_false_preserves_candidate_order(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 3,
+            'run_preview': False,
+            'include_ranking': False,
+        })
+
+    assert response.status_code == 200
+    ids = [candidate['candidate_id'] for candidate in response.json()['candidates']]
+    expected = await generate(catalogue, max_candidates=3, run_preview=False)
+    assert ids == [candidate.candidate_id for candidate in expected.candidates]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_with_ranking_returns_top_level_ranking_object(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 2,
+            'run_preview': False,
+            'include_ranking': True,
+        })
+
+    assert response.status_code == 200
+    ranking = response.json()['ranking']
+    assert ranking is not None
+    assert set(ranking) == {'target_archetype', 'ranked_candidates', 'warnings', 'assumptions'}
+    assert ranking['target_archetype'] == 'agriculture_terraforming'
+
+
+@pytest.mark.asyncio
+async def test_endpoint_with_ranking_returns_ranked_candidate_ids(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 2,
+            'run_preview': False,
+            'include_ranking': True,
+        })
+
+    assert response.status_code == 200
+    payload = response.json()
+    candidate_ids = {candidate['candidate_id'] for candidate in payload['candidates']}
+    ranked_ids = {item['candidate_id'] for item in payload['ranking']['ranked_candidates']}
+    assert ranked_ids == candidate_ids
+
+
+@pytest.mark.asyncio
+async def test_endpoint_with_ranking_does_not_duplicate_full_candidates_inside_ranking(catalogue, monkeypatch):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    app = FastAPI()
+    app.include_router(optimiser_router)
+    app.dependency_overrides[get_pool] = lambda: MockPool()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/optimiser/candidates', json={
+            'system_id64': 123,
+            'target_archetype': 'agriculture_terraforming',
+            'max_candidates': 1,
+            'run_preview': False,
+            'include_ranking': True,
+        })
+
+    assert response.status_code == 200
+    ranked = response.json()['ranking']['ranked_candidates'][0]
+    assert set(ranked) == {'candidate_id', 'rank', 'rank_score', 'rank_tier', 'rank_breakdown'}
+    assert 'placements' not in ranked
+    assert 'preview_summary' not in ranked
+    assert 'rationale' not in ranked
