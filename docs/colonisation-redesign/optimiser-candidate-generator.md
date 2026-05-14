@@ -1,6 +1,6 @@
 # Stage 5A/5B Optimiser Candidate Generation And Ranking
 
-Stage 5A is a **bounded deterministic candidate-generation foundation** for ED-Finder colony planning. Stage 5B adds **deterministic candidate ranking** over those existing Stage 5A candidates. Together, they are still not a full optimiser, not an exhaustive search engine, not candidate comparison UI, and not an apply-candidate flow. **Simulation Preview remains the source of truth** for full mechanics explanation.
+Stage 5A is a **bounded deterministic candidate-generation foundation** for ED-Finder colony planning. Stage 5B adds **deterministic candidate ranking** over those existing Stage 5A candidates. Stages 5C–5F added candidate inspection, loading into the editable preview, and advisory comparison UI. Stage 5.9C now frames this surface as the **Colony Planner** workspace with **Build Plan**, **Optimiser Candidates**, and **Preview Result** sections. It is still not a full optimiser, not an exhaustive search engine, and not an in-game apply/save workflow. **Simulation Preview remains the explicit preview action/result for the editable Build Plan.**
 
 The optimiser package lives in `apps/api/src/optimiser/`. Core candidate generation is implemented in `candidate_generator.py`, ranking is implemented in `ranker.py`, optimiser dataclasses and serialization helpers live in `models.py`, archetype guidance lives in `archetype_rules.py`, and placement fingerprint deduplication lives in `dedupe.py`. No Stage 5A or Stage 5B optimiser logic lives under `apps/api/src/recommendations/`.
 
@@ -8,11 +8,12 @@ The optimiser package lives in `apps/api/src/optimiser/`. Core candidate generat
 |---|---|
 | Stage 5A scope | Generates bounded heuristic candidates only. |
 | Stage 5B scope | Ranks existing Stage 5A candidates using a deterministic heuristic. |
-| Non-scope | Does not perform Stage 5C comparison UI, Stage 5D candidate application, exhaustive search, or simulation mechanics changes. |
-| Simulation relationship | Simulation Preview remains the source of truth for detailed scoring, CP, economy, service, and explanation output. |
+| Non-scope | Does not perform exhaustive search, in-game save/apply, backend scoring changes, or simulation mechanics changes. |
+| Simulation relationship | Simulation Preview is now treated as the explicit preview/result mode inside Colony Planner and remains the source of truth for detailed scoring, CP, economy, service, and explanation output. |
 | Candidate strategies | `balanced`, `pure`, `services_aware`, `low_cp`, and `flexible_multirole`. |
 | Preview execution | `run_preview` controls whether a lightweight `preview_summary` is attached; full Simulation Preview responses are never embedded in candidates. |
 | Ranking execution | `include_ranking=true` adds a top-level ranking object that references candidates by `candidate_id`. |
+| Stage 5.9C UI framing | The frontend presents candidate generation under Colony Planner → Optimiser Candidates, stamps generated candidates with target archetype, max candidate count, and estimated-data setting, and warns when controls become stale. |
 | Candidate immutability | Ranking does not mutate candidate objects, add rank fields to candidates, reorder the `candidates` array, or duplicate full candidate payloads inside ranking. |
 | Failure handling | Preview failures are captured on the affected candidate and do not abort generation. |
 | Deduplication | Duplicate ordered placement fingerprints are deduped before returning results; the fingerprint is order-sensitive because build order affects CP timing and repair suggestions. |

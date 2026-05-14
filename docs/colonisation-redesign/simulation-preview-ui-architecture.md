@@ -10,7 +10,7 @@ The Simulation Preview UI now lives under `frontend-v2/src/features/system-detai
 
 | Path | Responsibility |
 |---|---|
-| `SimulationPreview.tsx` | Top-level orchestration and state for facility/template queries, build-plan state, target archetype, run action, and error/result selection. |
+| `SimulationPreview.tsx` | Top-level orchestration and state for facility/template queries, Build Plan state, target archetype, optimiser-candidate loading, run action, and error/result selection. Stage 5.9C also frames this surface as the Colony Planner workspace with Build Plan, Optimiser Candidates, and Preview Result sections. |
 | `SimulationResult.tsx` | Result layout and panel ordering for an already-returned `SimulateBuildResponse`. |
 | `BuildPlanEditor.tsx` | Placement editor for facility template, body, primary-port flag, sequence movement, and removal controls. |
 | `StartModes.tsx` | Start-mode cards, mode intro copy, and current plan badge. |
@@ -18,7 +18,7 @@ The Simulation Preview UI now lives under `frontend-v2/src/features/system-detai
 | `components/` | One file per shared UI atom, re-exported by `components/index.ts`. |
 | `panels/` | One file per major Simulation Preview result panel, re-exported by `panels/index.ts`. |
 | `utils/` | Formatting, tone, and placement helper functions shared by preview components. |
-| `optimiser/` | Stage 5C read-only optimiser candidate comparison UI, including candidate cards, details, ranking breakdown, placement list, and sorting utilities. |
+| `optimiser/` | Stage 5 optimiser candidate UI, including candidate cards, details, ranking breakdown, placement list, generated-parameter stamps, stale-control warnings, and comparison utilities. |
 
 ## Shared UI Atoms
 
@@ -73,8 +73,8 @@ The legacy wrapper `frontend-v2/src/features/system-detail/SimulationPreview.tsx
 
 ## Stage 5 Guidance
 
-Stage 5 optimiser UI should treat this structure as the boundary for existing Simulation Preview behaviour. Candidate lists, candidate comparison, optimiser warnings, and candidate explanation should be added as optimiser-specific components rather than folded into `SimulationPreview.tsx` or `SimulationResult.tsx`. Existing panels can be reused where they present the same response shape, but optimiser-specific state should remain separate.
+Stage 5 optimiser UI should treat this structure as the boundary for existing Simulation Preview behaviour. Stage 5.9C reframes the product surface as **Colony Planner** while keeping the implementation under `simulation-preview/` to avoid churn. Candidate lists, candidate comparison, optimiser warnings, generated-parameter stamps, stale-control warnings, and candidate explanation should remain optimiser-specific components rather than being folded into `SimulationResult.tsx`. The deeper hook/state extraction is deferred to Stage 5.9D.
 
 Stage 5C uses `simulation-preview/optimiser/` for candidate comparison. Stage 5D keeps the optimiser components grouped there and adds an opt-in load callback from `SimulationPreview.tsx`. Candidate details can show `Load into preview` only when that callback is present; otherwise the panel remains honestly read-only. Non-empty preview plans require confirmation before replacement, and loading copies placements into the existing editor without saving, committing in-game, or auto-running preview. The preview tracks optimiser-candidate origin and marks that origin as edited once the user manually changes placements.
 
-Stage 5E adds the comparison engine under `simulation-preview/optimiser/comparison/`. It intentionally exports serialisable types, source helpers, deterministic comparison logic, and pure formatter helpers without rendering the full comparison UI. Stage 5F consumes this engine in a focused show/hide comparison panel within optimiser candidate details. The comparison panel renders candidate-vs-current-preview deltas from the latest editable preview placements and target archetype while remaining advisory and read-only; it does not run preview, mutate placements, save builds, or replace the Stage 5D load confirmation flow. Candidate-vs-candidate comparison remains engine-supported, with selector UI deferred to avoid clutter.
+Stage 5E adds the comparison engine under `simulation-preview/optimiser/comparison/`. It intentionally exports serialisable types, source helpers, deterministic comparison logic, and pure formatter helpers without rendering the full comparison UI. Stage 5F consumes this engine in a focused show/hide comparison panel within optimiser candidate details. Stage 5.9C positions that panel inside the Colony Planner → Optimiser Candidates section and adds generated-request visibility so users can tell when target archetype, max candidate count, or estimated-data controls have changed since generation. The comparison panel remains advisory and read-only; it does not run preview, mutate placements, save builds, or replace the Stage 5D load confirmation flow. Candidate-vs-candidate comparison remains engine-supported, with selector UI deferred to avoid clutter.

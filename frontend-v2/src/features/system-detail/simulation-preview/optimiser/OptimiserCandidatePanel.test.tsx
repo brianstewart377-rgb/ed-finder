@@ -365,9 +365,16 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getAllByText('Body: body1').length).toBeGreaterThan(0);
   });
 
-  it('renders initial read-only panel state with no apply button', () => {
+  it('renders initial read-only panel state with clear purpose copy and no apply button', () => {
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    expect(screen.getByText('Optimiser candidates')).toBeTruthy();
+    expect(screen.getByText('Optimiser Candidates')).toBeTruthy();
+    expect(screen.getByText(/generates a small set of build-plan suggestions/i)).toBeTruthy();
+    expect(screen.getByText(/ranked and compared against your editable Build Plan/i)).toBeTruthy();
+    expect(screen.getByText(/Nothing is saved or committed in-game/i)).toBeTruthy();
+    expect(screen.getByText(/Generates bounded candidate build plans and lightweight preview summaries/i)).toBeTruthy();
+    expect(screen.getByText(/does not run the main Simulation Preview or change your current Build Plan/i)).toBeTruthy();
+    expect(screen.getByText(/Allows candidate generation to use inferred or incomplete data/i)).toBeTruthy();
+    expect(screen.getByText(/confidence and warnings should be reviewed/i)).toBeTruthy();
     expect(screen.getByText(/Read-only for now/i)).toBeTruthy();
     expect(screen.getByText('Generate candidates')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /load into preview/i })).toBeNull();
@@ -383,8 +390,8 @@ describe('optimiser candidate comparison UI', () => {
         onLoadCandidate={() => undefined}
       />,
     );
-    expect(screen.getByText(/load a selected candidate into the editable preview/i)).toBeTruthy();
-    expect(screen.getByText(/Nothing is committed in-game/i)).toBeTruthy();
+    expect(screen.getByText(/copy it into the editable Build Plan/i)).toBeTruthy();
+    expect(screen.getByText(/Nothing is saved or committed in-game/i)).toBeTruthy();
     expect(screen.queryByText(/Read-only for now/i)).toBeNull();
   });
 
@@ -396,9 +403,58 @@ describe('optimiser candidate comparison UI', () => {
     expect(mockedFetchOptimiserCandidates).toHaveBeenCalledWith(expect.objectContaining({
       system_id64: 123,
       target_archetype: 'agriculture_terraforming',
+      max_candidates: 5,
+      allow_estimated_data: true,
       run_preview: true,
       include_ranking: true,
     }));
+  });
+
+  it('renders generated-parameter stamp after successful generation', async () => {
+    mockedFetchOptimiserCandidates.mockResolvedValue(response());
+    render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    fireEvent.click(screen.getByText('Generate candidates'));
+
+    expect(await screen.findByText('Generated for')).toBeTruthy();
+    expect(screen.getByText(/Target archetype:/)).toBeTruthy();
+    expect(screen.getAllByText(/agriculture_terraforming/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Max candidates:/)).toBeTruthy();
+    expect(screen.getAllByText('5').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Estimated data:/)).toBeTruthy();
+    expect(screen.getByText('on')).toBeTruthy();
+  });
+
+  it('warns when target archetype changes after generation', async () => {
+    mockedFetchOptimiserCandidates.mockResolvedValue(response());
+    const { rerender } = render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    fireEvent.click(screen.getByText('Generate candidates'));
+    await screen.findByText('Generated for');
+
+    rerender(<OptimiserCandidatePanel systemId64={123} targetArchetype="refinery_industrial" />);
+
+    expect(screen.getByText(/Controls have changed since these candidates were generated/)).toBeTruthy();
+  });
+
+  it('warns when max candidates changes after generation', async () => {
+    mockedFetchOptimiserCandidates.mockResolvedValue(response());
+    render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    fireEvent.click(screen.getByText('Generate candidates'));
+    await screen.findByText('Generated for');
+
+    fireEvent.change(screen.getByDisplayValue('5'), { target: { value: '8' } });
+
+    expect(screen.getByText(/Controls have changed since these candidates were generated/)).toBeTruthy();
+  });
+
+  it('warns when estimated-data toggle changes after generation', async () => {
+    mockedFetchOptimiserCandidates.mockResolvedValue(response());
+    render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    fireEvent.click(screen.getByText('Generate candidates'));
+    await screen.findByText('Generated for');
+
+    fireEvent.click(screen.getByLabelText(/Include estimated data/i));
+
+    expect(screen.getByText(/Controls have changed since these candidates were generated/)).toBeTruthy();
   });
 
   it('renders loading state while candidates are being fetched', () => {

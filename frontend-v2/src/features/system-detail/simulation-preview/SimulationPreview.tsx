@@ -220,10 +220,10 @@ export function SimulationPreview({
         <div className="flex flex-wrap items-start gap-3">
           <div className="min-w-0 flex-1">
             <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">
-              Simulation Preview
+              Colony Planner
             </h3>
             <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-              This preview shows what your selected build would produce before you commit in-game.
+              Plan a colony build for this system. Generate candidate plans, compare them with your editable build plan, and run a preview before doing anything in-game.
             </p>
             {initialPlanLabel && (
               <p className="mt-1 text-[11px] text-orange font-mono">
@@ -275,11 +275,25 @@ export function SimulationPreview({
         )}
       </div>
 
-      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)]">
-        <div className="space-y-3">
+      <div className="border-b border-border/60 px-4 py-2">
+        <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-[0.14em]">
+          <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 text-orange">Build Plan</span>
+          <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 text-cyan">Optimiser Candidates</span>
+          <span className="rounded border border-border bg-bg3 px-2 py-1 text-silver-dk">Preview Result</span>
+        </div>
+      </div>
+
+      <div className="space-y-4 p-4">
+        <section aria-label="Build Plan" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
+          <div className="mb-3">
+            <h4 className="font-mono text-[11px] uppercase tracking-[0.18em] text-orange">Build Plan</h4>
+            <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
+              Edit the facility list, body assignments, and target archetype before running the Simulation Preview.
+            </p>
+          </div>
           <ModeIntro mode={startMode} hasRecommendedBuild={hasRecommendedBuild} />
 
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <label className="space-y-1">
               <span className="block text-[10px] font-mono uppercase tracking-[0.16em] text-silver-dk">
                 Target archetype
@@ -293,6 +307,9 @@ export function SimulationPreview({
                   <option key={archetype.id} value={archetype.id}>{archetype.label}</option>
                 ))}
               </select>
+              <span className="block text-[10px] text-silver-dk font-mono leading-snug">
+                Target archetype guides candidate generation, ranking, and preview scoring. Changing it does not change anything in-game.
+              </span>
             </label>
             <button
               type="button"
@@ -306,73 +323,85 @@ export function SimulationPreview({
           </div>
 
           {templatesQuery.isLoading && (
-            <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 text-xs font-mono text-silver-dk">
+            <div className="mt-3 rounded border border-border/60 bg-bg3/30 px-3 py-3 text-xs font-mono text-silver-dk">
               Loading facility catalogue...
             </div>
           )}
 
           {templatesQuery.isError && (
-            <Message tone="warn" items={[templatesQuery.error?.message ?? 'Facility catalogue failed to load.']} />
+            <div className="mt-3"><Message tone="warn" items={[templatesQuery.error?.message ?? 'Facility catalogue failed to load.']} /></div>
           )}
 
-          {placements.length === 0 ? (
-            <div className="rounded-chunk-lg border border-dashed border-gold/45 bg-gold/5 px-4 py-6 text-center">
-              <div className="font-mono text-xs text-gold">
-                {startMode === 'blank_advanced' ? 'Blank advanced simulation' : 'No recommended build loaded yet'}
+          <div className="mt-3">
+            {placements.length === 0 ? (
+              <div className="rounded-chunk-lg border border-dashed border-gold/45 bg-gold/5 px-4 py-6 text-center">
+                <div className="font-mono text-xs text-gold">
+                  {startMode === 'blank_advanced' ? 'Blank advanced simulation' : 'No recommended build loaded yet'}
+                </div>
+                <div className="mt-1 text-[11px] text-silver-dk">
+                  {startMode === 'blank_advanced'
+                    ? 'Start with a primary port, then add support facilities and run the preview.'
+                    : 'Use a recommended build when available, or choose the advanced blank mode.'}
+                </div>
               </div>
-              <div className="mt-1 text-[11px] text-silver-dk">
-                {startMode === 'blank_advanced'
-                  ? 'Start with a primary port, then add support facilities and run the preview.'
-                  : 'Use a recommended build when available, or choose the advanced blank mode.'}
-              </div>
+            ) : (
+              <BuildPlanEditor
+                placements={placements}
+                templates={templates}
+                bodies={bodies}
+                onUpdate={updatePlacement}
+                onRemove={removePlacement}
+                onMove={movePlacement}
+              />
+            )}
+          </div>
+        </section>
+
+        <section aria-label="Optimiser Candidates">
+          <OptimiserCandidatePanel
+            systemId64={system.id64}
+            targetArchetype={targetArchetype}
+            hasExistingPreviewPlan={placements.length > 0}
+            onLoadCandidate={loadOptimiserCandidateIntoPreview}
+            currentPreviewPlacements={placements}
+            currentTargetArchetype={targetArchetype}
+            currentPreviewLabel="Current editable Build Plan"
+          />
+        </section>
+
+        <section aria-label="Preview Result" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="font-mono text-[11px] uppercase tracking-[0.18em] text-silver">Preview Result</h4>
+              <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
+                Simulation Preview is the explicit action/result that scores the current editable Build Plan.
+              </p>
             </div>
-          ) : (
-            <BuildPlanEditor
-              placements={placements}
-              templates={templates}
-              bodies={bodies}
-              onUpdate={updatePlacement}
-              onRemove={removePlacement}
-              onMove={movePlacement}
-            />
-          )}
-        </div>
-
-        <div className="space-y-3">
-          <RegionalContextMini regional={regionalContext} loading={summaryQuery.isLoading} />
-          {error && <Message tone="danger" items={[error]} />}
-          {result ? (
-            <SimulationResult result={result} />
-          ) : (
-            <div className="h-full min-h-[260px] rounded-chunk-lg border border-border/60 bg-bg3/25 p-4">
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-                Awaiting preview
+          </div>
+          <div className="space-y-3">
+            <RegionalContextMini regional={regionalContext} loading={summaryQuery.isLoading} />
+            {error && <Message tone="danger" items={[error]} />}
+            {result ? (
+              <SimulationResult result={result} />
+            ) : (
+              <div className="min-h-[260px] rounded-chunk-lg border border-border/60 bg-bg3/25 p-4">
+                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                  Awaiting preview
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  <GhostMetric label="Score" />
+                  <GhostMetric label="Build" />
+                  <GhostMetric label="Confidence" />
+                </div>
+                <div className="mt-5 space-y-2">
+                  <div className="h-3 w-4/5 rounded bg-bg4/70" />
+                  <div className="h-3 w-2/3 rounded bg-bg4/50" />
+                  <div className="h-3 w-1/2 rounded bg-bg4/40" />
+                </div>
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                <GhostMetric label="Score" />
-                <GhostMetric label="Build" />
-                <GhostMetric label="Confidence" />
-              </div>
-              <div className="mt-5 space-y-2">
-                <div className="h-3 w-4/5 rounded bg-bg4/70" />
-                <div className="h-3 w-2/3 rounded bg-bg4/50" />
-                <div className="h-3 w-1/2 rounded bg-bg4/40" />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="border-t border-border/60 p-4">
-        <OptimiserCandidatePanel
-          systemId64={system.id64}
-          targetArchetype={targetArchetype}
-          hasExistingPreviewPlan={placements.length > 0}
-          onLoadCandidate={loadOptimiserCandidateIntoPreview}
-          currentPreviewPlacements={placements}
-          currentTargetArchetype={targetArchetype}
-          currentPreviewLabel="Current editable preview plan"
-        />
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
