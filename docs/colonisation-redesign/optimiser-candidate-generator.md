@@ -2,7 +2,7 @@
 
 Stage 5A is a **bounded deterministic candidate-generation foundation** for ED-Finder colony planning. It is deliberately not a full optimiser, not an exhaustive search engine, not final scoring or ranking, and not candidate comparison UI. Its job is to produce a small set of clean, explainable candidate plans that can later be inspected through the existing Simulation Preview engine; it does not apply candidates to Simulation Preview yet.
 
-The generator lives in `apps/api/src/optimiser/`. Core generation is implemented in `candidate_generator.py`, optimiser-specific dataclasses live in `models.py`, archetype guidance lives in `archetype_rules.py`, and placement fingerprint deduplication lives in `dedupe.py`. The older `apps/api/src/recommendations/optimiser_generator.py` file is retained only as a compatibility wrapper.
+The generator lives in `apps/api/src/optimiser/`. Core generation is implemented in `candidate_generator.py`, optimiser-specific dataclasses live in `models.py`, archetype guidance lives in `archetype_rules.py`, and placement fingerprint deduplication lives in `dedupe.py`. No Stage 5A optimiser logic remains under `apps/api/src/recommendations/`.
 
 | Concern | Stage 5A Behaviour |
 |---|---|
