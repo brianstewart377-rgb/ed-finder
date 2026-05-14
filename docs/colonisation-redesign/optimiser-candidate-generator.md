@@ -1,6 +1,6 @@
 # Stage 5A Optimiser Candidate Generator
 
-Stage 5A is a **bounded deterministic candidate-generation foundation** for ED-Finder colony planning. It is deliberately not a full optimiser, not an exhaustive search engine, and not the final ranking or comparison UI. Its job is to produce a small set of clean, explainable candidate plans that can be validated by the existing Simulation Preview engine.
+Stage 5A is a **bounded deterministic candidate-generation foundation** for ED-Finder colony planning. It is deliberately not a full optimiser, not an exhaustive search engine, not final scoring or ranking, and not candidate comparison UI. Its job is to produce a small set of clean, explainable candidate plans that can later be inspected through the existing Simulation Preview engine; it does not apply candidates to Simulation Preview yet.
 
 The generator lives in `apps/api/src/optimiser/`. Core generation is implemented in `candidate_generator.py`, optimiser-specific dataclasses live in `models.py`, archetype guidance lives in `archetype_rules.py`, and placement fingerprint deduplication lives in `dedupe.py`. The older `apps/api/src/recommendations/optimiser_generator.py` file is retained only as a compatibility wrapper.
 
@@ -10,9 +10,9 @@ The generator lives in `apps/api/src/optimiser/`. Core generation is implemented
 | Non-scope | Does not perform Stage 5B ranking, Stage 5C comparison UI, or candidate application UI. |
 | Simulation relationship | Simulation Preview remains the source of truth for detailed scoring, CP, economy, service, and explanation output. |
 | Candidate strategies | `balanced`, `pure`, `services_aware`, `low_cp`, and `flexible_multirole`. |
-| Preview execution | `run_preview` controls whether a lightweight `preview_summary` is attached. |
+| Preview execution | `run_preview` controls whether a lightweight `preview_summary` is attached; full Simulation Preview responses are never embedded in candidates. |
 | Failure handling | Preview failures are captured on the affected candidate and do not abort generation. |
-| Deduplication | Duplicate placement fingerprints are deduped before returning results. |
+| Deduplication | Duplicate ordered placement fingerprints are deduped before returning results. The fingerprint is order-sensitive because build order affects CP timing and repair suggestions. |
 | Context safety | Candidate preview runs clone the base `PreviewContext` rather than mutating shared context. |
 
 ## API Contract
@@ -23,7 +23,7 @@ The endpoint is:
 POST /api/optimiser/candidates
 ```
 
-The request accepts the preferred `target_archetype` field and still accepts `target_archetype_key` for compatibility with the first Stage 5A branch attempt.
+The request accepts the preferred `target_archetype` field and still accepts `target_archetype_key` for compatibility with the first Stage 5A branch attempt. Public API validation requires `max_candidates` to be between 1 and 10 inclusive; the internal generator defensively returns an empty result if called directly with zero.
 
 ```json
 {
@@ -36,7 +36,7 @@ The request accepts the preferred `target_archetype` field and still accepts `ta
 }
 ```
 
-The response uses the clean Stage 5A shape. It intentionally includes only a **lightweight optimiser preview summary**, not the full Simulation Preview response.
+The response uses the clean Stage 5A shape. It intentionally includes only a **lightweight optimiser preview summary**, not the full Simulation Preview response. Detailed mechanics traces, port economy state, service unlock ledgers, and observation diffs remain Simulation Preview concerns.
 
 ```json
 {
@@ -84,4 +84,4 @@ The strategies are intentionally simple and bounded. `balanced` uses a compact p
 
 ## Deferred Work
 
-Stage 5B should handle scoring and ranking explanation. Stage 5C should handle candidate comparison UI. Stage 5D should handle applying a candidate into Simulation Preview. Stage 5A should remain the clean backend foundation for those later stages, not a renamed recommended-build helper.
+Stage 5B should handle scoring and ranking explanation. Stage 5C should handle candidate comparison UI. Stage 5D should handle applying a candidate into Simulation Preview. Stage 5A should remain the clean backend foundation for those later stages, not a renamed recommended-build helper and not an overclaim of full optimiser completion.

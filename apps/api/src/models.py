@@ -1289,7 +1289,7 @@ class OptimiserCandidatesRequest(BaseModel):
     system_id64: int
     target_archetype: Optional[str] = None
     target_archetype_key: Optional[str] = None
-    max_candidates: int = Field(default=5, ge=0, le=25)
+    max_candidates: int = Field(default=5, ge=1, le=10)
     preferred_body_ids: list[str] = Field(default_factory=list)
     allow_estimated_data: bool = True
     run_preview: bool = True

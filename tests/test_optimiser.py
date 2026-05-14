@@ -7,16 +7,19 @@ os.environ.setdefault('DATABASE_URL', 'postgresql://user:password@localhost:5432
 
 import pytest
 from fastapi import FastAPI
+from pydantic import ValidationError
 from httpx import ASGITransport, AsyncClient
 
 from deps import get_pool
 from domain.facilities import FacilityTemplate
 from models import OptimiserCandidatesRequest, OptimiserCandidatesResponse
 from optimiser.candidate_generator import generate_candidates
+from optimiser.dedupe import placement_fingerprint
 from optimiser.models import (
     CandidateGenerationRequest,
     CandidatePlacement,
     candidate_placement_to_preview_placement,
+    candidate_to_dict,
 )
 from routers.optimiser import router as optimiser_router
 
@@ -349,3 +352,137 @@ async def test_endpoint_respects_max_candidates(catalogue, monkeypatch):
     payload = response.json()
     assert payload['candidate_count'] == 2
     assert len(payload['candidates']) == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_candidates_zero_max_candidates_returns_empty_defensively(catalogue):
+    result = await generate(catalogue, max_candidates=0)
+    assert result.candidate_count == 0
+    assert result.candidates == []
+
+
+def test_optimiser_request_rejects_zero_max_candidates():
+    with pytest.raises(ValidationError):
+        OptimiserCandidatesRequest(
+            system_id64=123,
+            target_archetype='agriculture_terraforming',
+            max_candidates=0,
+        )
+
+
+def test_public_optimiser_response_model_matches_clean_contract():
+    payload = {
+        'system_id64': 123,
+        'target_archetype': 'agriculture_terraforming',
+        'candidate_count': 1,
+        'candidates': [
+            {
+                'candidate_id': 'agriculture_terraforming_body1_balanced',
+                'label': 'Balanced Agriculture / Terraforming candidate',
+                'target_archetype': 'agriculture_terraforming',
+                'strategy': 'balanced',
+                'placements': [
+                    {
+                        'facility_template_id': 'generic_port_alpha',
+                        'local_body_id': 'body1',
+                        'is_primary_port': True,
+                        'build_order': 1,
+                    }
+                ],
+                'rationale': ['Body supports target economies: Agriculture.'],
+                'warnings': [],
+                'assumptions': [],
+                'tags': ['balanced', 'agriculture_terraforming'],
+                'preview_summary': {
+                    'final_score': 82.4,
+                    'composition_score': 85.0,
+                    'buildability_score': 78.0,
+                    'confidence': 0.72,
+                    'build_complexity': 'moderate',
+                    'warnings_count': 2,
+                    'cp_negative': False,
+                    'top_two_alignment': 'strong',
+                },
+            }
+        ],
+        'warnings': [],
+        'assumptions': ['Stage 5A generates bounded heuristic candidates only; Simulation Preview remains the source of truth.'],
+    }
+
+    response = OptimiserCandidatesResponse.model_validate(payload)
+    candidate_payload = response.model_dump()['candidates'][0]
+    assert set(candidate_payload) == {
+        'candidate_id',
+        'label',
+        'target_archetype',
+        'strategy',
+        'placements',
+        'rationale',
+        'warnings',
+        'assumptions',
+        'tags',
+        'preview_summary',
+    }
+    assert set(candidate_payload['preview_summary']) == {
+        'final_score',
+        'composition_score',
+        'buildability_score',
+        'confidence',
+        'build_complexity',
+        'warnings_count',
+        'cp_negative',
+        'top_two_alignment',
+    }
+    assert 'id' not in candidate_payload
+    assert 'archetype' not in candidate_payload
+    assert 'description' not in candidate_payload
+    assert 'tradeoffs' not in candidate_payload
+
+
+@pytest.mark.asyncio
+async def test_run_preview_true_does_not_embed_full_simulation_preview_response(catalogue):
+    large_preview_response = preview_response(
+        mechanics_trace={'cp_effects': []},
+        port_economy_states=[],
+        service_unlock_ledger=[],
+        prediction_observation_diffs=[],
+        very_large_field={'should_not': 'leak'},
+    )
+    result = await generate(
+        catalogue,
+        max_candidates=1,
+        run_preview=True,
+        preview_runner=lambda **kwargs: large_preview_response,
+    )
+    summary = result.candidates[0].preview_summary
+    assert summary is not None
+
+    payload = {'candidates': [candidate_to_dict(result.candidates[0])]}
+    preview_summary = payload['candidates'][0]['preview_summary']
+    assert set(preview_summary) == {
+        'final_score',
+        'composition_score',
+        'buildability_score',
+        'confidence',
+        'build_complexity',
+        'warnings_count',
+        'cp_negative',
+        'top_two_alignment',
+    }
+    assert 'mechanics_trace' not in preview_summary
+    assert 'port_economy_states' not in preview_summary
+    assert 'service_unlock_ledger' not in preview_summary
+    assert 'prediction_observation_diffs' not in preview_summary
+    assert 'very_large_field' not in preview_summary
+
+
+def test_candidate_fingerprint_is_order_sensitive_because_cp_timing_matters():
+    port_then_support = [
+        CandidatePlacement('generic_port_alpha', local_body_id='body1', is_primary_port=True, build_order=1),
+        CandidatePlacement('agri_support_a', local_body_id='body1', is_primary_port=False, build_order=2),
+    ]
+    support_then_port = [
+        CandidatePlacement('agri_support_a', local_body_id='body1', is_primary_port=False, build_order=1),
+        CandidatePlacement('generic_port_alpha', local_body_id='body1', is_primary_port=True, build_order=2),
+    ]
+    assert placement_fingerprint(port_then_support) != placement_fingerprint(support_then_port)

@@ -1,7 +1,7 @@
 """Compatibility wrapper for Stage 5A optimiser candidate generation.
 
-Core optimiser logic now lives in ``optimiser.candidate_generator``. This module
-is retained only for older imports that still call ``generate_optimiser_candidates``.
+Core optimiser logic lives in ``apps/api/src/optimiser/``. This module remains
+only for older imports that still call ``generate_optimiser_candidates``.
 """
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ import asyncpg
 from domain.facilities import FacilityTemplate
 from optimiser.candidate_generator import generate_candidates
 from optimiser.models import CandidateGenerationRequest, candidate_result_to_dict
+
+__all__ = ['generate_candidates', 'generate_optimiser_candidates']
 
 
 async def generate_optimiser_candidates(

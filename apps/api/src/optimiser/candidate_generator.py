@@ -47,10 +47,21 @@ async def generate_candidates(
     preview_runner: PreviewRunner = simulate_build_preview,
 ) -> CandidateGenerationResult:
     rule, warnings = resolve_archetype_rule(request.target_archetype)
-    context, body_rows = await _get_preview_context_and_body_rows(pool, request.system_id64)
     assumptions = [
         'Stage 5A generates bounded heuristic candidates only; Simulation Preview remains the source of truth.',
     ]
+
+    if request.max_candidates <= 0:
+        return CandidateGenerationResult(
+            system_id64=request.system_id64,
+            target_archetype=rule.key,
+            candidate_count=0,
+            candidates=[],
+            warnings=warnings,
+            assumptions=assumptions,
+        )
+
+    context, body_rows = await _get_preview_context_and_body_rows(pool, request.system_id64)
 
     if not catalogue:
         return CandidateGenerationResult(

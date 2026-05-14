@@ -56,7 +56,7 @@ Use the central helper functions:
 - `getBuildability(id64, archetype?)`
 - `getSimulationSummary(id64, archetype?)`
 
-Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidatesRequest` with `system_id64`, preferred `target_archetype`, compatibility `target_archetype_key`, `max_candidates`, `preferred_body_ids`, `allow_estimated_data`, and `run_preview`. The endpoint returns `OptimiserCandidatesResponse`, containing a bounded candidate envelope with `system_id64`, `target_archetype`, `candidate_count`, `candidates`, `warnings`, and `assumptions`. Frontend integration should add a central API helper rather than calling this route directly from components.
+Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidatesRequest` with `system_id64`, preferred `target_archetype`, compatibility `target_archetype_key`, `max_candidates` bounded to 1-10 by the public API model, `preferred_body_ids`, `allow_estimated_data`, and `run_preview`. The endpoint returns `OptimiserCandidatesResponse`, containing a bounded candidate envelope with `system_id64`, `target_archetype`, `candidate_count`, `candidates`, `warnings`, and `assumptions`. Frontend integration should add a central API helper rather than calling this route directly from components.
 
 Avoid scattered raw `fetch()` calls for these endpoints. The central client is the only place that should know endpoint paths.
 
@@ -90,7 +90,7 @@ For optimiser candidates, clients should consume the backend field names exactly
 - `tags`
 - `preview_summary`
 
-The optimiser `preview_summary` is deliberately lightweight and optimiser-specific. It is not a full Simulation Preview response and should not be treated as the source of detailed mechanics explanation.
+The optimiser `preview_summary` is deliberately lightweight and optimiser-specific. It is not a full Simulation Preview response and should not be treated as the source of detailed mechanics explanation. Candidate dedupe uses ordered placement fingerprints because build order affects CP timing and repair suggestions.
 
 ## Change Workflow
 
