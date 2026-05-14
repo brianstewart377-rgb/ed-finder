@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +22,9 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
 from deps import get_pool
-from observations.api_models import ObservedFactCreateRequest
+from observations.api_models import ObservedFactCreateRequest, ObservedFactUpdateRequest
 from observations.models import (
+    ObservationFactSummary,
     PersistedObservedFact,
     summarise_observed_facts,
 )
@@ -32,15 +33,25 @@ from routers import observations as observations_router
 
 
 class FakeObservedFactStore:
+    """In-memory test double that mirrors the asyncpg-backed store contract.
+
+    The fake intentionally preserves the behaviours the Stage 6A hardening
+    pass cares about: null subject_id is kept as None (never coerced to
+    '') and ``summarise_observed_facts_for_filter`` summarises the full
+    filtered result set, not just the paginated page returned by
+    ``list_observed_facts``.
+    """
+
     def __init__(self) -> None:
         self.items: dict[str, PersistedObservedFact] = {}
         self.next_id = 1
 
     async def create_observed_fact(self, _pool: object, request: ObservedFactCreateRequest) -> PersistedObservedFact:
-        now = datetime.now(timezone.utc).isoformat()
+        now = (datetime.now(timezone.utc) + timedelta(microseconds=self.next_id)).isoformat()
         observation_id = f'obs_test_{self.next_id}'
         self.next_id += 1
         payload = request.model_dump(mode='json')
+        # Mirror real store: do NOT coerce missing/None subject_id to ''.
         fact = PersistedObservedFact(
             observation_id=observation_id,
             created_at=now,
@@ -50,17 +61,23 @@ class FakeObservedFactStore:
         self.items[observation_id] = fact
         return fact
 
-    async def list_observed_facts(self, _pool: object, **filters: Any) -> tuple[list[PersistedObservedFact], int]:
+    def _filter(self, **filters: Any) -> list[PersistedObservedFact]:
         facts = [item for item in self.items.values() if item.system_id64 == filters['system_id64']]
         for key in ('fact_type', 'subject_type', 'status', 'target_archetype', 'build_fingerprint', 'simulation_fingerprint'):
             value = filters.get(key)
             if value is not None:
                 facts = [item for item in facts if getattr(item, key) == value]
-        facts = sorted(facts, key=lambda item: item.created_at, reverse=True)
+        return sorted(facts, key=lambda item: item.created_at, reverse=True)
+
+    async def list_observed_facts(self, _pool: object, **filters: Any) -> tuple[list[PersistedObservedFact], int]:
+        facts = self._filter(**filters)
         total = len(facts)
         offset = filters.get('offset', 0)
         limit = filters.get('limit', 100)
         return facts[offset:offset + limit], total
+
+    async def summarise_observed_facts_for_filter(self, _pool: object, **filters: Any) -> ObservationFactSummary:
+        return summarise_observed_facts(self._filter(**filters))
 
     async def get_observed_fact(self, _pool: object, observation_id: str) -> PersistedObservedFact | None:
         return self.items.get(observation_id)
@@ -85,6 +102,7 @@ def fake_store(monkeypatch) -> FakeObservedFactStore:
     store = FakeObservedFactStore()
     monkeypatch.setattr(observations_router.store, 'create_observed_fact', store.create_observed_fact)
     monkeypatch.setattr(observations_router.store, 'list_observed_facts', store.list_observed_facts)
+    monkeypatch.setattr(observations_router.store, 'summarise_observed_facts_for_filter', store.summarise_observed_facts_for_filter)
     monkeypatch.setattr(observations_router.store, 'get_observed_fact', store.get_observed_fact)
     monkeypatch.setattr(observations_router.store, 'update_observed_fact', store.update_observed_fact)
     monkeypatch.setattr(observations_router.store, 'delete_observed_fact', store.delete_observed_fact)
@@ -236,6 +254,144 @@ async def test_validation_rejects_invalid_inputs(app: FastAPI):
     assert metadata_list.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_create_observed_fact_preserves_null_subject_id(app: FastAPI, fake_store: FakeObservedFactStore):
+    """Stage 6A allows system-level NOTE observations without a subject_id.
+
+    Earlier code coerced ``payload.get('subject_id') or ''`` which silently
+    converted a missing/null subject_id into an empty string on the way to
+    asyncpg. The hardening pass preserves None end-to-end.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        # subject_id field omitted entirely.
+        omitted = await client.post('/api/observations/facts', json={
+            'system_id64': 123,
+            'source': 'manual',
+            'fact_type': 'note',
+            'subject_type': 'system',
+            'status': 'unknown',
+        })
+        # subject_id field explicitly null.
+        explicit_null = await client.post('/api/observations/facts', json={
+            'system_id64': 123,
+            'source': 'manual',
+            'fact_type': 'note',
+            'subject_type': 'system',
+            'subject_id': None,
+            'status': 'unknown',
+        })
+
+    assert omitted.status_code == 200
+    assert omitted.json()['subject_id'] is None
+    assert explicit_null.status_code == 200
+    assert explicit_null.json()['subject_id'] is None
+
+    # The persisted Python representation also remains None, not ''.
+    persisted_ids = [omitted.json()['observation_id'], explicit_null.json()['observation_id']]
+    for observation_id in persisted_ids:
+        stored = fake_store.items[observation_id]
+        assert stored.subject_id is None
+
+
+@pytest.mark.asyncio
+async def test_update_observed_fact_preserves_null_subject_id(app: FastAPI, fake_store: FakeObservedFactStore):
+    """Updating without touching subject_id must leave a previously-null
+    subject_id as None (the store must not re-coerce existing values)."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        created = (await client.post('/api/observations/facts', json={
+            'system_id64': 123,
+            'source': 'manual',
+            'fact_type': 'note',
+            'subject_type': 'system',
+            'status': 'unknown',
+        })).json()
+
+        # Update unrelated fields; subject_id is not in the patch body.
+        patched = await client.patch(f"/api/observations/facts/{created['observation_id']}", json={
+            'notes': 'patch without touching subject_id',
+        })
+
+    assert patched.status_code == 200
+    assert patched.json()['subject_id'] is None
+    assert fake_store.items[created['observation_id']].subject_id is None
+
+    # Note on the update-to-null case: Pydantic v2's ``exclude_unset`` makes
+    # patching an existing value back to null indistinguishable from "field
+    # omitted" with the current ObservedFactUpdateRequest shape (both look
+    # like "unset"). Stage 6A documents this limitation rather than adding
+    # a tri-state sentinel; explicit clearing of subject_id will be
+    # revisited when a real use case appears.
+
+
+@pytest.mark.asyncio
+async def test_list_summary_counts_full_filtered_result_not_page(app: FastAPI):
+    """``summary`` must describe the full filtered result set, even when
+    ``limit`` returns fewer facts than match the filter."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        for confidence in ('high', 'medium', 'low'):
+            await client.post('/api/observations/facts', json={
+                'system_id64': 777,
+                'source': 'manual',
+                'fact_type': 'service_presence',
+                'subject_type': 'service',
+                'subject_id': f'market_{confidence}',
+                'status': 'observed_present',
+                'service_id': f'market_{confidence}',
+                'confidence': confidence,
+            })
+
+        listed = await client.get('/api/observations/facts', params={
+            'system_id64': 777,
+            'limit': 1,
+        })
+
+    assert listed.status_code == 200
+    payload = listed.json()
+    assert len(payload['facts']) == 1
+    assert payload['total'] == 3
+    summary = payload['summary']
+    assert summary['total_count'] == 3
+    assert summary['by_fact_type'] == {'service_presence': 3}
+    assert summary['by_status'] == {'observed_present': 3}
+    assert summary['by_confidence'] == {'high': 1, 'medium': 1, 'low': 1}
+
+
+@pytest.mark.asyncio
+async def test_reserved_sources_are_rejected_in_stage6a(app: FastAPI):
+    """``imported`` and ``inferred`` are reserved enum values for later
+    ingestion/comparison stages and MUST be rejected by Stage 6A
+    validation. This test names them explicitly so future maintainers
+    cannot accidentally enable them without revisiting Stage 6A scope."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        for reserved in ('imported', 'inferred'):
+            response = await client.post('/api/observations/facts', json={
+                'system_id64': 123,
+                'source': reserved,
+                'fact_type': 'note',
+                'subject_type': 'system',
+                'status': 'unknown',
+            })
+            assert response.status_code == 422, f'{reserved} should be reserved, not accepted'
+
+    # Model-level check too: the Pydantic validator rejects reserved sources
+    # before the request ever reaches the router.
+    for reserved in ('imported', 'inferred'):
+        with pytest.raises(ValidationError):
+            ObservedFactCreateRequest.model_validate({
+                'system_id64': 123,
+                'source': reserved,
+                'fact_type': 'note',
+                'subject_type': 'system',
+                'status': 'unknown',
+            })
+        with pytest.raises(ValidationError):
+            ObservedFactUpdateRequest.model_validate({'source': reserved})
+
+
 def test_request_model_normalises_tags_and_caps_metadata_shape():
     request = ObservedFactCreateRequest.model_validate({
         'system_id64': 123,
@@ -297,6 +453,40 @@ def test_store_row_json_roundtrip_and_structured_fact_fields():
     assert fact.metadata == {'screen': 'construction'}
 
 
+def test_store_row_preserves_null_subject_id():
+    """``row_to_observed_fact`` must pass NULL subject_id through as None,
+    matching the Stage 6A domain contract and the DROP NOT NULL applied
+    in sql/018."""
+    row = {
+        'observation_id': 'obs_null_subject',
+        'system_id64': 123,
+        'created_at': datetime(2026, 1, 1, tzinfo=timezone.utc),
+        'updated_at': None,
+        'source': 'manual',
+        'fact_type': 'note',
+        'subject_type': 'system',
+        'subject_id': None,
+        'status': 'unknown',
+        'observed_value_json': None,
+        'expected_value_json': None,
+        'confidence': 'medium',
+        'notes': None,
+        'build_fingerprint': None,
+        'simulation_fingerprint': None,
+        'target_archetype': None,
+        'facility_template_id': None,
+        'local_body_id': None,
+        'service_id': None,
+        'economy': None,
+        'tags_json': '[]',
+        'metadata_json': '{}',
+    }
+
+    fact = row_to_observed_fact(row)
+
+    assert fact.subject_id is None
+
+
 def test_observation_summary_counts_by_type_status_and_confidence():
     facts = [
         PersistedObservedFact('obs1', 123, '2026-01-01T00:00:00+00:00', None, 'manual', 'service_presence', 'service', 'market', 'confirmed', confidence='high'),
@@ -314,15 +504,41 @@ def test_observation_summary_counts_by_type_status_and_confidence():
 
 
 def test_observation_store_is_not_imported_by_simulation_or_optimiser_mechanics():
+    """Stage 6A is a passive evidence shelf: predictions/scoring/ranking
+    must NOT consume the observation store. This static safety test
+    covers the router, simulation, optimiser, and mechanics paths so a
+    later change cannot quietly cross the boundary."""
     root = Path(__file__).resolve().parents[1]
     forbidden_paths = [
         root / 'apps/api/src/optimiser',
         root / 'apps/api/src/simulation',
         root / 'apps/api/src/mechanics',
+        root / 'apps/api/src/routers/optimiser.py',
+        root / 'apps/api/src/routers/simulation.py',
+        root / 'apps/api/src/routers/simulate.py',
     ]
+    forbidden_symbols = (
+        'observations.store',
+        'from observations import store',
+        'create_observed_fact',
+        'list_observed_facts',
+        'update_observed_fact',
+        'delete_observed_fact',
+        'summarise_observed_facts_for_filter',
+    )
 
+    checked_any = False
     for path in forbidden_paths:
-        for source in path.rglob('*.py'):
+        if path.is_file():
+            sources = [path]
+        elif path.is_dir():
+            sources = list(path.rglob('*.py'))
+        else:
+            continue
+        for source in sources:
+            checked_any = True
             text = source.read_text()
-            assert 'observations.store' not in text
-            assert 'create_observed_fact' not in text
+            for symbol in forbidden_symbols:
+                assert symbol not in text, f'{source} unexpectedly imports observation store symbol {symbol!r}'
+
+    assert checked_any, 'Static safety test did not inspect any optimiser/simulation/mechanics source files'

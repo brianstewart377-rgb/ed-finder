@@ -13,7 +13,6 @@ from observations.api_models import (
     ObservedFactUpdateRequest,
     ObservationFactSummaryResponse,
 )
-from observations.models import summarise_observed_facts
 
 router = APIRouter(tags=['observations'])
 
@@ -52,7 +51,19 @@ async def list_observed_facts(
         limit=limit,
         offset=offset,
     )
-    summary = summarise_observed_facts(facts)
+    # Summary must describe the full filtered result set, not just the
+    # paginated page returned above. We re-run the same filter without
+    # limit/offset so total and summary describe identical row sets.
+    summary = await store.summarise_observed_facts_for_filter(
+        pool,
+        system_id64=system_id64,
+        fact_type=fact_type,
+        subject_type=subject_type,
+        status=status,
+        target_archetype=target_archetype,
+        build_fingerprint=build_fingerprint,
+        simulation_fingerprint=simulation_fingerprint,
+    )
     return ObservedFactListResponse(
         facts=[ObservedFactResponse.from_domain(fact) for fact in facts],
         total=total,

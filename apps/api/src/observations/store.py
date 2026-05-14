@@ -8,7 +8,7 @@ from uuid import uuid4
 import asyncpg
 
 from .api_models import ObservedFactCreateRequest, ObservedFactUpdateRequest
-from .models import PersistedObservedFact, summarise_observed_facts
+from .models import ObservationFactSummary, PersistedObservedFact, summarise_observed_facts
 
 _JSON_DEFAULT_TAGS = '[]'
 _JSON_DEFAULT_METADATA = '{}'
@@ -136,23 +136,16 @@ async def list_observed_facts(
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[PersistedObservedFact], int]:
-    conditions = ['system_id64 = $1']
-    args: list[Any] = [system_id64]
-    filters = {
-        'fact_type': fact_type,
-        'subject_type': subject_type,
-        'status': status,
-        'target_archetype': target_archetype,
-        'build_fingerprint': build_fingerprint,
-        'simulation_fingerprint': simulation_fingerprint,
-    }
-    for column, value in filters.items():
-        if value is None:
-            continue
-        args.append(value)
-        conditions.append(f'{column} = ${len(args)}')
-    where = ' AND '.join(conditions)
-    args_for_count = list(args)
+    where, args_for_count = _build_filter_clause(
+        system_id64=system_id64,
+        fact_type=fact_type,
+        subject_type=subject_type,
+        status=status,
+        target_archetype=target_archetype,
+        build_fingerprint=build_fingerprint,
+        simulation_fingerprint=simulation_fingerprint,
+    )
+    args = list(args_for_count)
     args.extend([limit, offset])
     limit_pos = len(args) - 1
     offset_pos = len(args)
@@ -169,6 +162,80 @@ async def list_observed_facts(
             *args,
         )
     return [row_to_observed_fact(row) for row in rows], int(total or 0)
+
+
+def _build_filter_clause(
+    *,
+    system_id64: int,
+    fact_type: str | None,
+    subject_type: str | None,
+    status: str | None,
+    target_archetype: str | None,
+    build_fingerprint: str | None,
+    simulation_fingerprint: str | None,
+) -> tuple[str, list[Any]]:
+    """Build the shared WHERE clause used by both list and summary queries.
+
+    Returning ``(where_sql, args)`` keeps list_observed_facts and
+    summarise_observed_facts_for_filter consistent so the paginated list
+    and the full-filter summary always describe the same result set.
+    """
+    conditions = ['system_id64 = $1']
+    args: list[Any] = [system_id64]
+    filters = {
+        'fact_type': fact_type,
+        'subject_type': subject_type,
+        'status': status,
+        'target_archetype': target_archetype,
+        'build_fingerprint': build_fingerprint,
+        'simulation_fingerprint': simulation_fingerprint,
+    }
+    for column, value in filters.items():
+        if value is None:
+            continue
+        args.append(value)
+        conditions.append(f'{column} = ${len(args)}')
+    return ' AND '.join(conditions), args
+
+
+async def summarise_observed_facts_for_filter(
+    pool: asyncpg.Pool,
+    *,
+    system_id64: int,
+    fact_type: str | None = None,
+    subject_type: str | None = None,
+    status: str | None = None,
+    target_archetype: str | None = None,
+    build_fingerprint: str | None = None,
+    simulation_fingerprint: str | None = None,
+) -> 'ObservationFactSummary':
+    """Summarise ALL observed facts matching the given filters.
+
+    Stage 6A's list endpoint returns ``summary`` over the full filtered
+    result set (not just the paginated page) so callers can show
+    accurate by_fact_type / by_status / by_confidence / total_count
+    breakdowns alongside the paginated facts. The query intentionally
+    ignores limit/offset; Stage 6A data volume per system is small
+    enough that a SELECT-all-then-aggregate is acceptable. If volumes
+    grow, this function is the single place to replace with DB-side
+    GROUP BY aggregations without changing the router contract.
+    """
+    where, args = _build_filter_clause(
+        system_id64=system_id64,
+        fact_type=fact_type,
+        subject_type=subject_type,
+        status=status,
+        target_archetype=target_archetype,
+        build_fingerprint=build_fingerprint,
+        simulation_fingerprint=simulation_fingerprint,
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f'SELECT * FROM observed_facts WHERE {where} ORDER BY created_at DESC, observation_id DESC',
+            *args,
+        )
+    facts = [row_to_observed_fact(row) for row in rows]
+    return summarise_observed_facts(facts)
 
 
 async def get_observed_fact(pool: asyncpg.Pool, observation_id: str) -> PersistedObservedFact | None:
