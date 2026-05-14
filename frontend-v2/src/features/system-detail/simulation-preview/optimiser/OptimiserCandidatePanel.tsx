@@ -142,9 +142,17 @@ export function OptimiserCandidatePanel({
         </div>
       )}
 
-      {controlsChangedSinceGeneration && (
-        <div className="mb-3 rounded border border-gold/45 bg-gold/10 px-3 py-2 font-mono text-[11px] leading-snug text-gold">
-          Controls have changed since these candidates were generated. Generate again to refresh candidates before comparing or loading.
+      {controlsChangedSinceGeneration && generatedParams && (
+        <div className="mb-3 rounded border border-gold/55 bg-gold/12 px-3 py-2 font-mono text-[11px] leading-snug text-gold">
+          <div className="font-bold">Controls have changed since these candidates were generated. Generate again to refresh candidates before comparing or loading.</div>
+          <div className="mt-2 grid gap-1 text-[10px] text-silver-dk sm:grid-cols-3">
+            <span>Generated target: <span className="text-silver">{generatedParams.targetArchetype}</span></span>
+            <span>Generated max: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
+            <span>Generated estimated data: <span className="text-silver">{generatedParams.allowEstimatedData ? 'on' : 'off'}</span></span>
+            <span>Current target: <span className="text-silver">{currentParams.targetArchetype}</span></span>
+            <span>Current max: <span className="text-silver">{currentParams.maxCandidates}</span></span>
+            <span>Current estimated data: <span className="text-silver">{currentParams.allowEstimatedData ? 'on' : 'off'}</span></span>
+          </div>
         </div>
       )}
 
@@ -183,6 +191,9 @@ export function OptimiserCandidatePanel({
             currentPreviewPlacements={currentPreviewPlacements}
             currentTargetArchetype={currentTargetArchetype}
             currentPreviewLabel={currentPreviewLabel}
+            controlsChangedSinceGeneration={controlsChangedSinceGeneration}
+            generatedTargetArchetype={generatedParams?.targetArchetype ?? null}
+            currentControlTargetArchetype={currentParams.targetArchetype}
           />
         </div>
       )}

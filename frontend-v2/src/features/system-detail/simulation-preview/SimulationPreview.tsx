@@ -136,6 +136,7 @@ export function SimulationPreview({
           loadingRegional={summaryQuery.isLoading}
           error={runState.error}
           result={runState.result}
+          isResultStale={runState.isResultStale}
         />
       </div>
     </div>

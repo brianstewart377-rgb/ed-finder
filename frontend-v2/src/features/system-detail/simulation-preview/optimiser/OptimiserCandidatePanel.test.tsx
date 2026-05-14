@@ -327,6 +327,60 @@ describe('optimiser candidate comparison UI', () => {
     expect(onLoadCandidate).toHaveBeenCalledWith(selected);
   });
 
+  it('stale candidate load requires explicit older-candidate confirmation', () => {
+    const onLoadCandidate = vi.fn();
+    const selected = candidate('candidate-a', 'Candidate A');
+    render(
+      <OptimiserCandidateDetails
+        candidate={selected}
+        onLoadCandidate={onLoadCandidate}
+        controlsChangedSinceGeneration
+        generatedTargetArchetype="agriculture_terraforming"
+        currentControlTargetArchetype="refinery_industrial"
+      />,
+    );
+
+    expect(screen.getAllByText(/Loading is still possible, but requires confirmation/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+    expect(onLoadCandidate).not.toHaveBeenCalled();
+    expect(screen.getByText('These candidates were generated with older controls')).toBeTruthy();
+    expect(screen.getByText(/Generate again for the safest comparison/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older candidate anyway' }));
+    expect(onLoadCandidate).toHaveBeenCalledTimes(1);
+    expect(onLoadCandidate).toHaveBeenCalledWith(selected);
+  });
+
+  it('stale candidate load with existing preview plan uses combined replacement confirmation', () => {
+    const onLoadCandidate = vi.fn();
+    const selected = candidate('candidate-a', 'Candidate A');
+    render(
+      <OptimiserCandidateDetails
+        candidate={selected}
+        hasExistingPreviewPlan
+        onLoadCandidate={onLoadCandidate}
+        controlsChangedSinceGeneration
+        generatedTargetArchetype="agriculture_terraforming"
+        currentControlTargetArchetype="refinery_industrial"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+    expect(onLoadCandidate).not.toHaveBeenCalled();
+    expect(screen.getByText('Replace current preview plan with older generated candidate?')).toBeTruthy();
+    expect(screen.getByText(/generated with older controls/)).toBeTruthy();
+    expect(screen.getByText(/does not save anything or affect in-game state/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onLoadCandidate).not.toHaveBeenCalled();
+    expect(screen.queryByText('Replace current preview plan with older generated candidate?')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replace with older candidate' }));
+    expect(onLoadCandidate).toHaveBeenCalledTimes(1);
+    expect(onLoadCandidate).toHaveBeenCalledWith(selected);
+  });
+
   it('shows ranking reasons separately from warnings', () => {
     const warnedCandidate = {
       ...candidate('candidate-warning', 'Candidate Warning'),
