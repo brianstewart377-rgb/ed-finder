@@ -30,7 +30,7 @@ export function OptimiserCandidateDetails({
   generatedTargetArchetype?: string | null;
   currentControlTargetArchetype?: string | null;
 }) {
-  const [confirmingLoad, setConfirmingLoad] = useState(false);
+  const [loadConfirmation, setLoadConfirmation] = useState<'replace' | 'stale' | 'stale_replace' | null>(null);
   const comparison = useMemo(() => {
     if (!candidate || !currentPreviewPlacements || currentPreviewPlacements.length === 0) {
       return null;
@@ -58,8 +58,12 @@ export function OptimiserCandidateDetails({
 
   const requestLoad = () => {
     if (!onLoadCandidate) return;
+    if (controlsChangedSinceGeneration) {
+      setLoadConfirmation(hasExistingPreviewPlan ? 'stale_replace' : 'stale');
+      return;
+    }
     if (hasExistingPreviewPlan) {
-      setConfirmingLoad(true);
+      setLoadConfirmation('replace');
       return;
     }
     onLoadCandidate(candidate);
@@ -68,8 +72,10 @@ export function OptimiserCandidateDetails({
   const confirmLoad = () => {
     if (!onLoadCandidate) return;
     onLoadCandidate(candidate);
-    setConfirmingLoad(false);
+    setLoadConfirmation(null);
   };
+
+  const cancelLoad = () => setLoadConfirmation(null);
 
   return (
     <div className="space-y-3 rounded-chunk-lg border border-border/60 bg-bg1/45 p-4">
@@ -127,7 +133,7 @@ export function OptimiserCandidateDetails({
 
       {controlsChangedSinceGeneration && (
         <div className="rounded-chunk-lg border border-gold/45 bg-gold/10 p-3 font-mono text-[11px] leading-snug text-gold">
-          These candidates may not match the current Build Plan target/settings.
+          These candidates may not match the current Build Plan target/settings. Loading is still possible, but requires confirmation because the candidate was generated from older controls.
           {generatedTargetArchetype && currentControlTargetArchetype && generatedTargetArchetype !== currentControlTargetArchetype && (
             <div className="mt-1 text-[10px] text-silver-dk">
               Generated target differs from the current Build Plan target. Generate again for the current target before relying on comparison.
@@ -144,32 +150,15 @@ export function OptimiserCandidateDetails({
           </p>
           {controlsChangedSinceGeneration && (
             <p className="mt-2 text-[11px] text-gold">
-              These candidates may not match the current Build Plan target/settings.
+              These candidates may not match the current Build Plan target/settings. Loading is still possible, but requires confirmation because the candidate was generated from older controls.
             </p>
           )}
-          {confirmingLoad ? (
-            <div className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2">
-              <div className="text-xs font-semibold text-gold">Replace current preview plan with this optimiser candidate?</div>
-              <p className="mt-1 text-[11px] text-silver-dk">
-                This only replaces the editable preview placements. It does not save anything or affect in-game state.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConfirmingLoad(false)}
-                  className="rounded border border-border bg-bg3 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-orange/50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmLoad}
-                  className="rounded border border-orange/50 bg-orange/15 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/25"
-                >
-                  Replace preview plan
-                </button>
-              </div>
-            </div>
+          {loadConfirmation ? (
+            <LoadConfirmation
+              mode={loadConfirmation}
+              onCancel={cancelLoad}
+              onConfirm={confirmLoad}
+            />
           ) : (
             <button
               type="button"
@@ -185,6 +174,56 @@ export function OptimiserCandidateDetails({
       <OptimiserComparisonPanel result={comparison} />
 
       <OptimiserRankingBreakdown breakdown={ranking?.rank_breakdown} />
+    </div>
+  );
+}
+
+function LoadConfirmation({
+  mode,
+  onCancel,
+  onConfirm,
+}: {
+  mode: 'replace' | 'stale' | 'stale_replace';
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const isStale = mode === 'stale' || mode === 'stale_replace';
+  const title = mode === 'stale_replace'
+    ? 'Replace current preview plan with older generated candidate?'
+    : mode === 'stale'
+      ? 'These candidates were generated with older controls'
+      : 'Replace current preview plan with this optimiser candidate?';
+  const body = mode === 'stale_replace'
+    ? 'These candidates were generated with older controls and may not match the current Build Plan target/settings. This only replaces the editable preview placements. It does not save anything or affect in-game state.'
+    : mode === 'stale'
+      ? 'The current target/settings differ from the values used to generate this candidate. Generate again for the safest comparison, or deliberately load this older candidate into the editable Build Plan.'
+      : 'This only replaces the editable preview placements. It does not save anything or affect in-game state.';
+  const confirmLabel = mode === 'stale_replace'
+    ? 'Replace with older candidate'
+    : isStale
+      ? 'Load older candidate anyway'
+      : 'Replace preview plan';
+
+  return (
+    <div className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2">
+      <div className="text-xs font-semibold text-gold">{title}</div>
+      <p className="mt-1 text-[11px] text-silver-dk">{body}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-border bg-bg3 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-orange/50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="rounded border border-orange/50 bg-orange/15 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/25"
+        >
+          {confirmLabel}
+        </button>
+      </div>
     </div>
   );
 }

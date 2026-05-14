@@ -20,8 +20,13 @@ export interface UseSimulationPreviewRunResult {
   runSimulation: () => Promise<void>;
 }
 
-function previewInputFingerprint(targetArchetype: string, placements: SimulateBuildPlacement[]): string {
+export function previewInputFingerprint(
+  systemId64: number,
+  targetArchetype: string,
+  placements: SimulateBuildPlacement[],
+): string {
   return JSON.stringify({
+    system_id64: systemId64,
     target_archetype: targetArchetype,
     placements: resequence(placements).map((placement) => ({
       facility_template_id: placement.facility_template_id,
@@ -43,8 +48,8 @@ export function useSimulationPreviewRun({
   const [lastRunFingerprint, setLastRunFingerprint] = useState<string | null>(null);
   const canRun = placements.length > 0 && !running;
   const currentFingerprint = useMemo(
-    () => previewInputFingerprint(targetArchetype, placements),
-    [placements, targetArchetype],
+    () => previewInputFingerprint(systemId64, targetArchetype, placements),
+    [placements, systemId64, targetArchetype],
   );
   const isResultStale = Boolean(result && lastRunFingerprint && currentFingerprint !== lastRunFingerprint);
 
@@ -61,7 +66,7 @@ export function useSimulationPreviewRun({
   const runSimulation = useCallback(async () => {
     if (!canRun) return;
     const nextPlacements = resequence(placements);
-    const runFingerprint = previewInputFingerprint(targetArchetype, nextPlacements);
+    const runFingerprint = previewInputFingerprint(systemId64, targetArchetype, nextPlacements);
     setRunning(true);
     setError(null);
     try {
