@@ -98,6 +98,31 @@ function renderPreview() {
   );
 }
 
+function mockNoRecommendedBuild() {
+  mockedGetFacilityTemplates.mockResolvedValue(templates);
+  mockedGetSimulationSummary.mockResolvedValue({
+    classification: { primary_archetype: 'refinery_industrial' },
+    buildability: { recommended_build_order: [] },
+    regional_context: null,
+  } as unknown as SimulationSummary);
+  mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+}
+
+function mockRecommendedBuild() {
+  mockedGetFacilityTemplates.mockResolvedValue(templates);
+  mockedGetSimulationSummary.mockResolvedValue({
+    classification: { primary_archetype: 'refinery_industrial' },
+    buildability: {
+      recommended_build_order: [
+        { facility_id: 'generic_port_alpha', location: 'surface' },
+        { facility_id: 'agri_support_a', location: 'surface' },
+      ],
+    },
+    regional_context: null,
+  } as unknown as SimulationSummary);
+  mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+}
+
 describe('SimulationPreview optimiser candidate loading', () => {
   afterEach(() => {
     cleanup();
@@ -108,14 +133,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
   });
 
   it('loads a selected optimiser candidate into the editable preview without auto-running simulation', async () => {
-    mockedGetFacilityTemplates.mockResolvedValue(templates);
-    mockedGetSimulationSummary.mockResolvedValue({
-      classification: { primary_archetype: 'refinery_industrial' },
-      buildability: { recommended_build_order: [] },
-      regional_context: null,
-    } as unknown as SimulationSummary);
-    mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
-
+    mockNoRecommendedBuild();
     renderPreview();
 
     expect(await screen.findByText('Colony Planner')).toBeTruthy();
@@ -136,5 +154,72 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getAllByText('agri_support_a').length).toBeGreaterThan(0);
     expect(screen.getByText('Optimiser candidate')).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
+  });
+
+  it('marks an optimiser-origin plan as edited after manual add', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
+    await screen.findByText(/Loaded optimiser candidate:/);
+
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+
+    expect(screen.getByText(/Started from optimiser candidate:/)).toBeTruthy();
+    expect(screen.getByText(/has been edited since loading/)).toBeTruthy();
+  });
+
+  it('blank advanced mode clears optimiser origin state', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
+    await screen.findByText(/Loaded optimiser candidate:/);
+
+    fireEvent.click(screen.getByRole('button', { name: /Start blank advanced simulation/i }));
+
+    expect(screen.queryByText(/Loaded optimiser candidate:/)).toBeNull();
+    expect(screen.queryByText(/Started from optimiser candidate:/)).toBeNull();
+    expect(screen.getByText(/Blank advanced simulation/)).toBeTruthy();
+  });
+
+  it('recommended plan loading clears optimiser origin state', async () => {
+    mockRecommendedBuild();
+    renderPreview();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Replace preview plan/i }));
+    await screen.findByText(/Loaded optimiser candidate:/);
+
+    fireEvent.click(screen.getByRole('button', { name: /Use recommended build/i }));
+
+    expect(screen.queryByText(/Loaded optimiser candidate:/)).toBeNull();
+    expect(screen.queryByText(/Started from optimiser candidate:/)).toBeNull();
+    expect(screen.getByText(/Recommended build loaded/)).toBeTruthy();
+  });
+
+  it('run preview remains explicit and sends resequenced current placements', async () => {
+    mockNoRecommendedBuild();
+    mockedSimulateBuild.mockReturnValue(new Promise(() => {}) as never);
+    renderPreview();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
+    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(screen.getAllByRole('button', { name: /Move down/i })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
+
+    await waitFor(() => expect(mockedSimulateBuild).toHaveBeenCalledTimes(1));
+    expect(mockedSimulateBuild).toHaveBeenCalledWith({
+      system_id64: 123,
+      target_archetype: 'agriculture_terraforming',
+      placements: [
+        { facility_template_id: 'agri_support_a', local_body_id: 'body1', is_primary_port: false, build_order: 1 },
+        { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 2 },
+      ],
+    });
   });
 });
