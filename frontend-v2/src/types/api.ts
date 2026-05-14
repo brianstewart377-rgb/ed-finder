@@ -419,3 +419,84 @@ export const DEFAULT_WEIGHTS: RerankWeights = {
 export type Economy =
   | 'Agriculture' | 'Refinery' | 'Industrial'
   | 'HighTech'    | 'Military' | 'Tourism' | 'Extraction';
+
+// ─── Optimiser Candidate Generation / Ranking (Stages 5A-5C) ────────────────
+export interface OptimiserCandidatePlacement {
+  facility_template_id: string;
+  local_body_id?: string | null;
+  is_primary_port: boolean;
+  build_order: number;
+}
+
+export interface OptimiserCandidatePreviewSummary {
+  final_score?: number | null;
+  composition_score?: number | null;
+  buildability_score?: number | null;
+  confidence?: number | null;
+  build_complexity?: string | null;
+  warnings_count: number;
+  cp_negative?: boolean | null;
+  top_two_alignment?: string | null;
+}
+
+export interface OptimiserCandidate {
+  candidate_id: string;
+  label: string;
+  target_archetype: string;
+  strategy: string;
+  placements: OptimiserCandidatePlacement[];
+  rationale: string[];
+  warnings: string[];
+  assumptions: string[];
+  tags: string[];
+  preview_summary?: OptimiserCandidatePreviewSummary | null;
+}
+
+export interface OptimiserRankBreakdown {
+  preview_score_component: number;
+  composition_component: number;
+  buildability_component: number;
+  confidence_component: number;
+  alignment_component: number;
+  warning_penalty: number;
+  cp_penalty: number;
+  strategy_modifier: number;
+  total_score: number;
+  reasons: string[];
+}
+
+export interface RankedOptimiserCandidate {
+  candidate_id: string;
+  rank: number;
+  rank_score: number;
+  rank_tier: string;
+  rank_breakdown: OptimiserRankBreakdown;
+}
+
+export interface OptimiserRanking {
+  target_archetype: string;
+  ranked_candidates: RankedOptimiserCandidate[];
+  warnings: string[];
+  assumptions: string[];
+}
+
+export interface OptimiserCandidatesRequest {
+  system_id64: number;
+  target_archetype?: string;
+  target_archetype_key?: string;
+  max_candidates?: number;
+  preferred_body_ids?: string[];
+  allow_estimated_data?: boolean;
+  run_preview?: boolean;
+  include_ranking?: boolean;
+}
+
+export interface OptimiserCandidatesResponse {
+  system_id64: number;
+  target_archetype: string;
+  candidate_count: number;
+  candidates: OptimiserCandidate[];
+  warnings: string[];
+  assumptions: string[];
+  ranking?: OptimiserRanking | null;
+}
