@@ -56,7 +56,7 @@ Use the central helper functions:
 - `getBuildability(id64, archetype?)`
 - `getSimulationSummary(id64, archetype?)`
 
-Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidatesRequest` with `system_id64`, optional `target_archetype_key`, and `max_candidates`. The endpoint returns `OptimiserCandidatesResponse`, containing a list of candidate plans plus non-fatal warnings. Frontend integration should add a central API helper rather than calling this route directly from components.
+Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidatesRequest` with `system_id64`, preferred `target_archetype`, compatibility `target_archetype_key`, `max_candidates`, `preferred_body_ids`, `allow_estimated_data`, and `run_preview`. The endpoint returns `OptimiserCandidatesResponse`, containing a bounded candidate envelope with `system_id64`, `target_archetype`, `candidate_count`, `candidates`, `warnings`, and `assumptions`. Frontend integration should add a central API helper rather than calling this route directly from components.
 
 Avoid scattered raw `fetch()` calls for these endpoints. The central client is the only place that should know endpoint paths.
 
@@ -79,14 +79,18 @@ Do not introduce frontend-only names such as `surface_slots`, `orbital_slots`, o
 
 For optimiser candidates, clients should consume the backend field names exactly:
 
-- `id`
+- `candidate_id`
 - `label`
-- `description`
-- `archetype`
+- `target_archetype`
+- `strategy`
 - `placements`
-- `preview_summary`
-- `tradeoffs`
+- `rationale`
 - `warnings`
+- `assumptions`
+- `tags`
+- `preview_summary`
+
+The optimiser `preview_summary` is deliberately lightweight and optimiser-specific. It is not a full Simulation Preview response and should not be treated as the source of detailed mechanics explanation.
 
 ## Change Workflow
 

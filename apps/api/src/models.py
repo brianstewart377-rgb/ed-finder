@@ -1242,50 +1242,71 @@ class ArchetypesProfilesResponse(BaseModel):
 
 
 # ── Optimiser V1: Candidate Generation (Stage 5A) ────────────────────
-class OptimiserCandidateRequest(BaseModel):
-    """Request for deterministic candidate generation."""
+class OptimiserCandidatePlacement(BaseModel):
+    """One facility placement in an optimiser candidate."""
     model_config = ConfigDict(extra='forbid')
 
-    system_id64: int
-    target_archetype_key: Optional[str] = None
-    max_candidates: int = 5
+    facility_template_id: str
+    local_body_id: Optional[str] = None
+    is_primary_port: bool = False
+    build_order: int = Field(default=1, ge=1)
+
+
+class OptimiserCandidatePreviewSummary(BaseModel):
+    """Lightweight optimiser-specific summary of Simulation Preview output."""
+    model_config = ConfigDict(extra='forbid')
+
+    final_score: Optional[float] = None
+    composition_score: Optional[float] = None
+    buildability_score: Optional[float] = None
+    confidence: Optional[float] = None
+    build_complexity: Optional[str] = None
+    warnings_count: int = 0
+    cp_negative: Optional[bool] = None
+    top_two_alignment: Optional[str] = None
 
 
 class OptimiserCandidate(BaseModel):
-    """A single facility placement candidate suggested by the optimiser."""
-    model_config = ConfigDict(extra='allow')
-
-    id: str
-    label: str
-    description: str
-    archetype: str
-    placements: list[SimulateBuildPlacement]
-    preview_summary: Optional[BuildabilityData] = None
-    tradeoffs: list[str] = Field(default_factory=list)
-
-
-class OptimiserCandidateResponse(BaseModel):
-    """Response containing multiple deduplicated candidates."""
+    """A single bounded Stage 5A candidate plan."""
     model_config = ConfigDict(extra='forbid')
 
-    system_id64: int
-    candidates: list[OptimiserCandidate]
+    candidate_id: str
+    label: str
+    target_archetype: str
+    strategy: str
+    placements: list[OptimiserCandidatePlacement]
+    rationale: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    assumptions: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    preview_summary: Optional[OptimiserCandidatePreviewSummary] = None
 
 
 class OptimiserCandidatesRequest(BaseModel):
-    """Request for deterministic candidate generation (updated naming)."""
+    """Request for bounded deterministic Stage 5A candidate generation."""
     model_config = ConfigDict(extra='forbid')
 
     system_id64: int
+    target_archetype: Optional[str] = None
     target_archetype_key: Optional[str] = None
-    max_candidates: int = 5
+    max_candidates: int = Field(default=5, ge=0, le=25)
+    preferred_body_ids: list[str] = Field(default_factory=list)
+    allow_estimated_data: bool = True
+    run_preview: bool = True
 
 
 class OptimiserCandidatesResponse(BaseModel):
-    """Response containing multiple deduplicated candidates (updated naming)."""
+    """Response envelope for bounded deterministic Stage 5A candidates."""
     model_config = ConfigDict(extra='forbid')
 
+    system_id64: int
+    target_archetype: str
+    candidate_count: int
     candidates: list[OptimiserCandidate]
     warnings: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+# Backwards-compatible singular names for older imports.
+OptimiserCandidateRequest = OptimiserCandidatesRequest
+OptimiserCandidateResponse = OptimiserCandidatesResponse
