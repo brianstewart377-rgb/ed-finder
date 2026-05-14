@@ -1239,3 +1239,74 @@ class ArchetypesProfilesResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     profiles: list[ArchetypeProfile]
+
+
+# ── Optimiser V1: Candidate Generation (Stage 5A) ────────────────────
+class OptimiserCandidatePlacement(BaseModel):
+    """One facility placement in an optimiser candidate."""
+    model_config = ConfigDict(extra='forbid')
+
+    facility_template_id: str
+    local_body_id: Optional[str] = None
+    is_primary_port: bool = False
+    build_order: int = Field(default=1, ge=1)
+
+
+class OptimiserCandidatePreviewSummary(BaseModel):
+    """Lightweight optimiser-specific summary of Simulation Preview output."""
+    model_config = ConfigDict(extra='forbid')
+
+    final_score: Optional[float] = None
+    composition_score: Optional[float] = None
+    buildability_score: Optional[float] = None
+    confidence: Optional[float] = None
+    build_complexity: Optional[str] = None
+    warnings_count: int = 0
+    cp_negative: Optional[bool] = None
+    top_two_alignment: Optional[str] = None
+
+
+class OptimiserCandidate(BaseModel):
+    """A single bounded Stage 5A candidate plan."""
+    model_config = ConfigDict(extra='forbid')
+
+    candidate_id: str
+    label: str
+    target_archetype: str
+    strategy: str
+    placements: list[OptimiserCandidatePlacement]
+    rationale: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    preview_summary: Optional[OptimiserCandidatePreviewSummary] = None
+
+
+class OptimiserCandidatesRequest(BaseModel):
+    """Request for bounded deterministic Stage 5A candidate generation."""
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64: int
+    target_archetype: Optional[str] = None
+    target_archetype_key: Optional[str] = None
+    max_candidates: int = Field(default=5, ge=1, le=10)
+    preferred_body_ids: list[str] = Field(default_factory=list)
+    allow_estimated_data: bool = True
+    run_preview: bool = True
+
+
+class OptimiserCandidatesResponse(BaseModel):
+    """Response envelope for bounded deterministic Stage 5A candidates."""
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64: int
+    target_archetype: str
+    candidate_count: int
+    candidates: list[OptimiserCandidate]
+    warnings: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+# Backwards-compatible singular names for older imports.
+OptimiserCandidateRequest = OptimiserCandidatesRequest
+OptimiserCandidateResponse = OptimiserCandidatesResponse

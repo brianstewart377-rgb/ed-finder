@@ -98,9 +98,26 @@ The preview pipeline is now documented as a sequence of internal stages: user pl
 
 Generate candidate plans rather than only previewing selected plans.
 
-- Simple, balanced, and advanced plan generation.
-- Beam search or conservative greedy search.
-- Constraints by complexity and confidence.
+### Stage 5A - Deterministic Candidate Generation
+
+Stage 5A is implemented as a bounded backend candidate generator rather than a full search optimiser. The hardened implementation lives in `apps/api/src/optimiser/`, with internal dataclasses, central archetype metadata, catalogue-driven facility selection, placement-fingerprint dedupe, and lightweight preview-summary extraction separated from the older recommendations package.
+
+| Stage 5A Concern | Current Outcome |
+|---|---|
+| Candidate endpoint | `POST /api/optimiser/candidates` delegates to `optimiser.candidate_generator.generate_candidates`. |
+| Request contract | `system_id64`, `target_archetype`, `max_candidates`, `preferred_body_ids`, `allow_estimated_data`, and `run_preview`; `target_archetype_key` remains accepted as compatibility input. |
+| Response contract | `system_id64`, `target_archetype`, `candidate_count`, `candidates`, `warnings`, and `assumptions`. Candidate fields use `candidate_id`, `target_archetype`, `strategy`, `placements`, `rationale`, `warnings`, `assumptions`, `tags`, and lightweight `preview_summary`. |
+| Generation strategy | Bounded deterministic strategies are `balanced`, `pure`, `services_aware`, `low_cp`, and `flexible_multirole`. |
+| Preview integration | `run_preview` controls whether generated placements are previewed; preview summaries are lightweight only, and preview failures are captured per candidate without aborting generation. |
+| Guardrails | Unknown archetypes fall back to `flexible_multirole` with a warning, duplicate ordered placement fingerprints are deduped, and generated placements use catalogue-present facility IDs only. Dedupe is order-sensitive because build order affects CP timing. |
+| Tests | `tests/test_optimiser.py` covers required Stage 5A behaviours including max-candidate bounds, deterministic IDs, build-order sequencing, primary-port limits, dedupe, fallback, no-body-data generation, preferred bodies, preview modes, preview failure isolation, conversion helpers, and endpoint response shape. |
+
+Remaining Stage 5 work:
+
+- Stage 5B scoring and ranking explanation.
+- Stage 5C candidate comparison UI.
+- Stage 5D applying a candidate into Simulation Preview.
+- Deeper constraints by complexity, confidence, CP pressure, and player preferences.
 - Explicit comparison of rejected alternatives.
 
 ## Stage 6 - Community Observation Loop
