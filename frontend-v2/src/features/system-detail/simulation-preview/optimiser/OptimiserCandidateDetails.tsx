@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import type { OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate } from '@/types/api';
+import { useMemo, useState } from 'react';
+import type { OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
+import { OptimiserComparisonPanel, compareBuildSources, sourceFromCurrentPreview, sourceFromOptimiserCandidate } from './comparison';
 import { formatScore, rankTone, strategyLabel } from './optimiserUtils';
 
 export function OptimiserCandidateDetails({
@@ -10,14 +11,33 @@ export function OptimiserCandidateDetails({
   response,
   hasExistingPreviewPlan = false,
   onLoadCandidate,
+  currentPreviewPlacements,
+  currentTargetArchetype,
+  currentPreviewLabel = 'Current preview plan',
 }: {
   candidate?: OptimiserCandidate;
   ranking?: RankedOptimiserCandidate;
   response?: OptimiserCandidatesResponse | null;
   hasExistingPreviewPlan?: boolean;
   onLoadCandidate?: (candidate: OptimiserCandidate) => void;
+  currentPreviewPlacements?: SimulateBuildPlacement[];
+  currentTargetArchetype?: string | null;
+  currentPreviewLabel?: string;
 }) {
   const [confirmingLoad, setConfirmingLoad] = useState(false);
+  const comparison = useMemo(() => {
+    if (!candidate || !currentPreviewPlacements || currentPreviewPlacements.length === 0) {
+      return null;
+    }
+    return compareBuildSources(
+      sourceFromCurrentPreview({
+        label: currentPreviewLabel,
+        targetArchetype: currentTargetArchetype,
+        placements: currentPreviewPlacements,
+      }),
+      sourceFromOptimiserCandidate(candidate, ranking),
+    );
+  }, [candidate, currentPreviewLabel, currentPreviewPlacements, currentTargetArchetype, ranking]);
 
   if (!candidate) {
     return (
@@ -139,6 +159,8 @@ export function OptimiserCandidateDetails({
           )}
         </div>
       )}
+
+      <OptimiserComparisonPanel result={comparison} />
 
       <OptimiserRankingBreakdown breakdown={ranking?.rank_breakdown} />
     </div>

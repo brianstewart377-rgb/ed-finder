@@ -369,6 +369,9 @@ export function SimulationPreview({
           targetArchetype={targetArchetype}
           hasExistingPreviewPlan={placements.length > 0}
           onLoadCandidate={loadOptimiserCandidateIntoPreview}
+          currentPreviewPlacements={placements}
+          currentTargetArchetype={targetArchetype}
+          currentPreviewLabel="Current editable preview plan"
         />
       </div>
     </div>

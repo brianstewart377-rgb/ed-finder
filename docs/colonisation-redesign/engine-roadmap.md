@@ -156,11 +156,22 @@ Stage 5E adds a deterministic frontend comparison engine under `simulation-previ
 | Input sources | Helpers create copied comparison sources from optimiser candidates and current preview placements without mutating inputs. |
 | Scope guardrail | Stage 5E does not build a full comparison UI, run Simulation Preview, save builds, or alter backend generation/ranking/scoring mechanics. |
 
-Remaining Stage 5 work:
+### Stage 5F - Optimiser Comparison UI and Final Stage 5 Hardening
 
-- Stage 5F rendering and hardening of comparison output in the optimiser UI.
+Stage 5F renders the Stage 5E comparison output in a contained, show/hide comparison panel inside the optimiser details pane. The primary path compares the latest current editable Simulation Preview plan against the selected optimiser candidate, showing the conservative verdict, deterministic tradeoff summary, target-archetype change, facility and placement deltas, preview-summary deltas, ranking availability, warning/assumption changes, and risk direction. The comparison is advisory and preview-only: it does not run Simulation Preview, save a build, commit anything in-game, or alter backend mechanics.
+
+| Stage 5F Concern | Current Outcome |
+|---|---|
+| Rendering boundary | UI consumes `compareBuildSources(...)` output rather than reimplementing comparison logic in React components. |
+| Candidate-vs-current | Selected candidates compare against the current editable preview placements and target archetype. |
+| Candidate-vs-candidate | Engine support exists from Stage 5E; the selector UI remains explicitly deferred to avoid clutter. |
+| Safety | Comparison rendering is read-only, uses the latest editor props, and does not affect the Stage 5D load/confirmation flow. |
+
+Remaining optimiser work:
+
 - Deeper constraints by complexity, confidence, CP pressure, and player preferences.
 - Explicit comparison of rejected alternatives.
+- Stage 6 observed/predicted validation remains a separate later phase.
 
 ## Stage 6 - Community Observation Loop
 

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOptimiserCandidates } from '@/lib/api';
-import type { OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking } from '@/types/api';
+import type { OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking, SimulateBuildPlacement } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
@@ -130,6 +130,128 @@ describe('optimiser candidate comparison UI', () => {
     expect(sorted.map((item) => item.candidate_id)).toEqual(['candidate-b', 'candidate-a']);
     expect(original.map((item) => item.candidate_id)).toEqual(before);
     expect(sorted).not.toBe(original);
+  });
+
+  it('renders selected candidate comparison against current preview plan and supports hide/show', () => {
+    const load = vi.fn();
+    const currentPlacements: SimulateBuildPlacement[] = [
+      { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+      { facility_template_id: 'legacy_support', local_body_id: 'body2', is_primary_port: false, build_order: 2 },
+    ];
+
+    render(
+      <OptimiserCandidateDetails
+        candidate={candidate('candidate-b', 'Candidate B')}
+        ranking={ranking.ranked_candidates[0]}
+        response={response()}
+        currentPreviewPlacements={currentPlacements}
+        currentTargetArchetype="refinery_industrial"
+        onLoadCandidate={load}
+      />,
+    );
+
+    expect(screen.getByText('Compare with current preview')).toBeTruthy();
+    expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
+    expect(screen.getAllByText('Prefer before').length).toBeGreaterThan(0);
+    expect(screen.getByText('Tradeoff summary')).toBeTruthy();
+    expect(screen.getByText('Target archetype')).toBeTruthy();
+    expect(screen.getByText(/Changes from refinery_industrial to agriculture_terraforming/)).toBeTruthy();
+    expect(screen.getByText('Facility count changes')).toBeTruthy();
+    expect(screen.getByText(/agri_support_a: 0 → 1/)).toBeTruthy();
+    expect(screen.getByText(/legacy_support: removed/)).toBeTruthy();
+    expect(screen.getByText('Preview summary deltas')).toBeTruthy();
+    expect(screen.getByText('Ranking delta')).toBeTruthy();
+    expect(screen.getByText(/Ranking delta is unavailable for the current manual preview plan/)).toBeTruthy();
+    expect(screen.getByText('Risk changes')).toBeTruthy();
+    expect(screen.getByText('Warning changes')).toBeTruthy();
+    expect(screen.getByText('Assumption changes')).toBeTruthy();
+    expect(load).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide comparison' }));
+    expect(screen.queryByText(/advisory and preview-only/i)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show comparison' }));
+    expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
+  });
+
+  it('renders comparison empty copy when no current preview plan exists', () => {
+    render(
+      <OptimiserCandidateDetails
+        candidate={candidate('candidate-a', 'Candidate A')}
+        ranking={ranking.ranked_candidates[1]}
+        response={response()}
+        currentPreviewPlacements={[]}
+        currentTargetArchetype="agriculture_terraforming"
+      />,
+    );
+
+    expect(screen.getByText('Compare with current preview')).toBeTruthy();
+    expect(screen.getByText(/Comparison needs a current preview plan/)).toBeTruthy();
+  });
+
+  it('updates comparison when current preview placements change and does not mutate inputs', () => {
+    const selected = candidate('candidate-a', 'Candidate A');
+    const firstPlacements: SimulateBuildPlacement[] = [
+      { facility_template_id: 'legacy_support', local_body_id: 'body2', is_primary_port: false, build_order: 1 },
+    ];
+    const secondPlacements: SimulateBuildPlacement[] = [
+      { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+      { facility_template_id: 'agri_support_a', local_body_id: 'body1', is_primary_port: false, build_order: 2 },
+    ];
+    const candidateBefore = structuredClone(selected.placements);
+    const firstBefore = structuredClone(firstPlacements);
+    const { rerender } = render(
+      <OptimiserCandidateDetails
+        candidate={selected}
+        ranking={ranking.ranked_candidates[1]}
+        response={response()}
+        currentPreviewPlacements={firstPlacements}
+        currentTargetArchetype="refinery_industrial"
+      />,
+    );
+
+    expect(screen.getByText(/legacy_support: removed/)).toBeTruthy();
+    rerender(
+      <OptimiserCandidateDetails
+        candidate={selected}
+        ranking={ranking.ranked_candidates[1]}
+        response={response()}
+        currentPreviewPlacements={secondPlacements}
+        currentTargetArchetype="agriculture_terraforming"
+      />,
+    );
+
+    expect(screen.queryByText(/legacy_support: removed/)).toBeNull();
+    expect(screen.getByText('No facility count changes.')).toBeTruthy();
+    expect(selected.placements).toEqual(candidateBefore);
+    expect(firstPlacements).toEqual(firstBefore);
+  });
+
+  it('does not use unsafe wording in optimiser comparison UI', () => {
+    const load = vi.fn();
+    const { container } = render(
+      <OptimiserCandidateDetails
+        candidate={candidate('candidate-b', 'Candidate B')}
+        ranking={ranking.ranked_candidates[0]}
+        response={response()}
+        currentPreviewPlacements={[
+          { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+        ]}
+        currentTargetArchetype="agriculture_terraforming"
+        onLoadCandidate={load}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Load into preview' })).toBeTruthy();
+    expect(screen.getByText(/Nothing is committed in-game/)).toBeTruthy();
+    expect(screen.getByText(/does not run Simulation Preview, save a build, or commit anything in-game/)).toBeTruthy();
+    expect(container.textContent).not.toMatch(/\bApply candidate\b/i);
+    expect(container.textContent).not.toMatch(/\bCommit build\b/i);
+    expect(container.textContent).not.toMatch(/\bSave build\b/i);
+    expect(container.textContent).not.toMatch(/\bOptimal build\b/i);
+    expect(container.textContent).not.toMatch(/\bBest build\b/i);
+    expect(container.textContent).not.toMatch(/\bGuaranteed\b/i);
+    expect(container.textContent).not.toMatch(/\bProven\b/i);
+    expect(load).not.toHaveBeenCalled();
   });
 
   it('renders ranking breakdown with alignment_component separately', () => {

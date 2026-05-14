@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { fetchOptimiserCandidates } from '@/lib/api';
-import type { OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate } from '@/types/api';
+import type { OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserEmptyState } from './OptimiserEmptyState';
@@ -12,11 +12,17 @@ export function OptimiserCandidatePanel({
   targetArchetype,
   hasExistingPreviewPlan = false,
   onLoadCandidate,
+  currentPreviewPlacements,
+  currentTargetArchetype,
+  currentPreviewLabel,
 }: {
   systemId64: number;
   targetArchetype: string;
   hasExistingPreviewPlan?: boolean;
   onLoadCandidate?: (candidate: OptimiserCandidate) => void;
+  currentPreviewPlacements?: SimulateBuildPlacement[];
+  currentTargetArchetype?: string | null;
+  currentPreviewLabel?: string;
 }) {
   const [maxCandidates, setMaxCandidates] = useState(5);
   const [allowEstimatedData, setAllowEstimatedData] = useState(true);
@@ -131,6 +137,9 @@ export function OptimiserCandidatePanel({
             response={response}
             hasExistingPreviewPlan={hasExistingPreviewPlan}
             onLoadCandidate={onLoadCandidate}
+            currentPreviewPlacements={currentPreviewPlacements}
+            currentTargetArchetype={currentTargetArchetype}
+            currentPreviewLabel={currentPreviewLabel}
           />
         </div>
       )}

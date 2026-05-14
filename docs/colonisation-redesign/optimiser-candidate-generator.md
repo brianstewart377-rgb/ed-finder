@@ -142,6 +142,12 @@ Stage 5E adds the deterministic frontend comparison engine under `frontend-v2/sr
 
 The comparison engine does not run simulations, mutate candidate/current placement arrays, save builds, change backend generation or ranking, or render the full comparison UI. Stage 5F is reserved for rendering and hardening the comparison output in the optimiser UI.
 
+## Stage 5F Comparison UI and Final Hardening
+
+Stage 5F renders Stage 5E comparison output in a contained show/hide panel inside the optimiser candidate details pane. The primary UI path compares the latest current editable Simulation Preview plan against the selected optimiser candidate. It displays the advisory verdict, tradeoff summary, target-archetype change, facility and placement deltas, preview-summary deltas, ranking availability, warning/assumption changes, and risk direction where data exists.
+
+The comparison display is advisory and preview-only. It does not run Simulation Preview, save a build, commit anything in-game, mutate the editable preview plan, or change backend generation/ranking/scoring mechanics. Candidate-vs-candidate comparison remains engine-supported, but the Stage 5F selector UI is explicitly deferred to avoid clutter.
+
 ## Deferred Work
 
-Stage 5F may add candidate-vs-current rendering and final optimiser hardening. Stage 5A/5B/5C/5D/5E should remain the clean foundation for later stages, not an overclaim of full optimiser completion.
+Future optimiser work may add candidate-vs-candidate rendering, rejected-alternative comparison polish, and preference controls. Stage 5A/5B/5C/5D/5E/5F should remain the clean foundation for later stages, not an overclaim of full optimiser completion.
