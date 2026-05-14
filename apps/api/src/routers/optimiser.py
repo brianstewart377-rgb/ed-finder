@@ -7,7 +7,8 @@ from deps import get_pool
 from domain.facilities import FacilityTemplate, get_catalogue, load_bundled_catalogue, load_catalogue_from_rows
 from models import OptimiserCandidatesRequest, OptimiserCandidatesResponse
 from optimiser.candidate_generator import generate_candidates
-from optimiser.models import CandidateGenerationRequest, candidate_result_to_dict
+from optimiser.models import CandidateGenerationRequest, candidate_result_to_dict, ranking_result_to_dict
+from optimiser.ranker import rank_candidates
 
 
 router = APIRouter(tags=['optimiser'])
@@ -32,7 +33,11 @@ async def post_optimiser_candidates(
         catalogue=catalogue,
         pool=pool,
     )
-    return OptimiserCandidatesResponse.model_validate(candidate_result_to_dict(result))
+    payload = candidate_result_to_dict(result)
+    if body.include_ranking:
+        ranking = rank_candidates(result.candidates, target_archetype=result.target_archetype)
+        payload['ranking'] = ranking_result_to_dict(ranking)
+    return OptimiserCandidatesResponse.model_validate(payload)
 
 
 async def _catalogue_or_db(pool: asyncpg.Pool) -> dict[str, FacilityTemplate]:

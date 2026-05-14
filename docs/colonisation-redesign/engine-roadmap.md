@@ -112,9 +112,20 @@ Stage 5A is implemented as a bounded backend candidate generator rather than a f
 | Guardrails | Unknown archetypes fall back to `flexible_multirole` with a warning, duplicate ordered placement fingerprints are deduped, and generated placements use catalogue-present facility IDs only. Dedupe is order-sensitive because build order affects CP timing. |
 | Tests | `tests/test_optimiser.py` covers required Stage 5A behaviours including max-candidate bounds, deterministic IDs, build-order sequencing, primary-port limits, dedupe, fallback, no-body-data generation, preferred bodies, preview modes, preview failure isolation, conversion helpers, and endpoint response shape. |
 
+### Stage 5B - Candidate Ranking and Explanation
+
+Stage 5B ranks existing Stage 5A candidates when clients request `include_ranking=true`. It is deterministic and heuristic, using only lightweight preview summaries, candidate warnings, assumptions, candidate metadata, CP risk, confidence, and target alignment. Ranking output is a top-level object that references candidates by `candidate_id`; it does not mutate candidates, add rank fields to candidates, duplicate full candidate payloads, call Simulation Preview, or expand the candidate search space.
+
+| Stage 5B Concern | Current Outcome |
+|---|---|
+| Ranking module | `optimiser.ranker.rank_candidates` owns ranking logic; the router remains a thin orchestration layer. |
+| Request contract | `include_ranking=false` preserves Stage 5A candidate shape and ordering; `include_ranking=true` adds top-level `ranking`. |
+| Ranking response | Ranked entries include `candidate_id`, `rank`, `rank_score`, `rank_tier`, and structured `rank_breakdown`. |
+| Guardrails | Missing preview summaries are handled with an explanatory reason; candidate warnings and negative CP pressure reduce rank without crashing. |
+| Tests | `tests/test_optimiser.py` covers deterministic ranking, penalties, serialization, non-mutation, and endpoint compatibility. |
+
 Remaining Stage 5 work:
 
-- Stage 5B scoring and ranking explanation.
 - Stage 5C candidate comparison UI.
 - Stage 5D applying a candidate into Simulation Preview.
 - Deeper constraints by complexity, confidence, CP pressure, and player preferences.

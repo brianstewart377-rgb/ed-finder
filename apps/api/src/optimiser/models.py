@@ -124,3 +124,68 @@ def candidate_result_to_dict(result: CandidateGenerationResult) -> dict[str, Any
         'warnings': list(result.warnings),
         'assumptions': list(result.assumptions),
     }
+
+
+@dataclass(frozen=True)
+class CandidateRankBreakdown:
+    preview_score_component: float = 0.0
+    composition_component: float = 0.0
+    buildability_component: float = 0.0
+    confidence_component: float = 0.0
+    alignment_component: float = 0.0
+    warning_penalty: float = 0.0
+    cp_penalty: float = 0.0
+    strategy_modifier: float = 0.0
+    total_score: float = 0.0
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RankedOptimiserCandidate:
+    candidate_id: str
+    rank: int
+    rank_score: float
+    rank_tier: str
+    rank_breakdown: CandidateRankBreakdown
+
+
+@dataclass(frozen=True)
+class CandidateRankingResult:
+    target_archetype: str
+    ranked_candidates: list[RankedOptimiserCandidate]
+    warnings: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+
+
+def rank_breakdown_to_dict(breakdown: CandidateRankBreakdown) -> dict[str, Any]:
+    return {
+        'preview_score_component': breakdown.preview_score_component,
+        'composition_component': breakdown.composition_component,
+        'buildability_component': breakdown.buildability_component,
+        'confidence_component': breakdown.confidence_component,
+        'alignment_component': breakdown.alignment_component,
+        'warning_penalty': breakdown.warning_penalty,
+        'cp_penalty': breakdown.cp_penalty,
+        'strategy_modifier': breakdown.strategy_modifier,
+        'total_score': breakdown.total_score,
+        'reasons': list(breakdown.reasons),
+    }
+
+
+def ranked_candidate_to_dict(candidate: RankedOptimiserCandidate) -> dict[str, Any]:
+    return {
+        'candidate_id': candidate.candidate_id,
+        'rank': candidate.rank,
+        'rank_score': candidate.rank_score,
+        'rank_tier': candidate.rank_tier,
+        'rank_breakdown': rank_breakdown_to_dict(candidate.rank_breakdown),
+    }
+
+
+def ranking_result_to_dict(result: CandidateRankingResult) -> dict[str, Any]:
+    return {
+        'target_archetype': result.target_archetype,
+        'ranked_candidates': [ranked_candidate_to_dict(candidate) for candidate in result.ranked_candidates],
+        'warnings': list(result.warnings),
+        'assumptions': list(result.assumptions),
+    }
