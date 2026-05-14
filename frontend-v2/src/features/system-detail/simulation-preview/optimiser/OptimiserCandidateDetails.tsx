@@ -14,6 +14,9 @@ export function OptimiserCandidateDetails({
   currentPreviewPlacements,
   currentTargetArchetype,
   currentPreviewLabel = 'Current preview plan',
+  controlsChangedSinceGeneration = false,
+  generatedTargetArchetype,
+  currentControlTargetArchetype,
 }: {
   candidate?: OptimiserCandidate;
   ranking?: RankedOptimiserCandidate;
@@ -23,6 +26,9 @@ export function OptimiserCandidateDetails({
   currentPreviewPlacements?: SimulateBuildPlacement[];
   currentTargetArchetype?: string | null;
   currentPreviewLabel?: string;
+  controlsChangedSinceGeneration?: boolean;
+  generatedTargetArchetype?: string | null;
+  currentControlTargetArchetype?: string | null;
 }) {
   const [confirmingLoad, setConfirmingLoad] = useState(false);
   const comparison = useMemo(() => {
@@ -119,12 +125,28 @@ export function OptimiserCandidateDetails({
         <OptimiserPlacementList placements={candidate.placements} />
       </div>
 
+      {controlsChangedSinceGeneration && (
+        <div className="rounded-chunk-lg border border-gold/45 bg-gold/10 p-3 font-mono text-[11px] leading-snug text-gold">
+          These candidates may not match the current Build Plan target/settings.
+          {generatedTargetArchetype && currentControlTargetArchetype && generatedTargetArchetype !== currentControlTargetArchetype && (
+            <div className="mt-1 text-[10px] text-silver-dk">
+              Generated target differs from the current Build Plan target. Generate again for the current target before relying on comparison.
+            </div>
+          )}
+        </div>
+      )}
+
       {onLoadCandidate && (
         <div className="rounded-chunk-lg border border-orange/30 bg-orange/8 p-3">
           <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Load candidate</div>
           <p className="mt-1 text-[11px] text-silver-dk">
             Copies this candidate into the editable Simulation Preview. Nothing is committed in-game.
           </p>
+          {controlsChangedSinceGeneration && (
+            <p className="mt-2 text-[11px] text-gold">
+              These candidates may not match the current Build Plan target/settings.
+            </p>
+          )}
           {confirmingLoad ? (
             <div className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2">
               <div className="text-xs font-semibold text-gold">Replace current preview plan with this optimiser candidate?</div>

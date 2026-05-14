@@ -8,11 +8,13 @@ export function PreviewResultSection({
   loadingRegional,
   error,
   result,
+  isResultStale,
 }: {
   regional: SimulationSummary['regional_context'];
   loadingRegional: boolean;
   error: string | null;
   result: SimulateBuildResponse | null;
+  isResultStale: boolean;
 }) {
   return (
     <section aria-label="Preview Result" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
@@ -27,6 +29,13 @@ export function PreviewResultSection({
       <div className="space-y-3">
         <RegionalContextMini regional={regional} loading={loadingRegional} />
         {error && <Message tone="danger" items={[error]} />}
+        {result && isResultStale && (
+          <Message
+            tone="warn"
+            title="Preview result is stale"
+            items={['The Build Plan has changed since this preview was run. Run Preview again to refresh the result.']}
+          />
+        )}
         {result ? (
           <SimulationResult result={result} />
         ) : (
