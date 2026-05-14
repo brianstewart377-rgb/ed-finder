@@ -108,6 +108,8 @@ For Stage 5B ranking, clients request `include_ranking=true`. Ranking is returne
 
 Stage 6A adds a backend-only observed-facts shelf. An **observation** is manually supplied evidence about something a player saw; it is not a prediction, it is not an optimiser input, and it does not mutate Simulation Preview scoring or mechanics. Predicted-vs-observed comparison is intentionally reserved for later Stage 6 work.
 
+Stage 6A is a **passive evidence shelf**: observations are recorded separately from predictions and **do not mutate** optimiser ranking, candidate generation, Simulation Preview scoring, CP / economy / service / buildability mechanics, or any existing simulation response field. Static safety tests assert that the optimiser, simulation, mechanics, and their routers never import the observation store.
+
 | Endpoint | Purpose | Response Model |
 |---|---|---|
 | `POST /api/observations/facts` | Create one observed fact. | `ObservedFactResponse` |
@@ -116,7 +118,38 @@ Stage 6A adds a backend-only observed-facts shelf. An **observation** is manuall
 | `PATCH /api/observations/facts/{observation_id}` | Update allowed observed-fact fields. | `ObservedFactResponse` |
 | `DELETE /api/observations/facts/{observation_id}` | Hard-delete one observed fact for Stage 6A. | `ObservedFactDeleteResponse` |
 
-The list endpoint supports `fact_type`, `subject_type`, `status`, `target_archetype`, `build_fingerprint`, `simulation_fingerprint`, `limit`, and `offset` query filters. The initial Stage 6A source values accepted by write requests are `manual` and `test_fixture`; imported sources are represented in the enum vocabulary but are not accepted until future ingestion stages define provenance rules.
+The list endpoint supports `fact_type`, `subject_type`, `status`, `target_archetype`, `build_fingerprint`, `simulation_fingerprint`, `limit`, and `offset` query filters.
+
+### Accepted and reserved sources
+
+The Stage 6A public API accepts only:
+
+- `manual`
+- `test_fixture`
+
+`imported` and `inferred` are present in the `ObservationSource` enum vocabulary but are **reserved for later stages** (EDMC/journal ingestion in 6B, automated inference in 6C). Stage 6A request validation rejects them with HTTP 422. Future stages will define provenance and trust rules before lifting that restriction.
+
+### Summary semantics
+
+`ObservedFactListResponse.summary` describes the **full filtered result set**, not just the paginated page returned in `facts`. So if `limit=1` is sent against three matching observations, `facts` has one entry, `total` is `3`, and `summary.total_count` / `summary.by_fact_type` / `summary.by_status` / `summary.by_confidence` all count all three. The store provides a dedicated `summarise_observed_facts_for_filter` query for this; it shares the same filter clause as the list query so total and summary always describe the same rows.
+
+### Nullable subject_id
+
+`subject_id` may be `null` for system-level or build-level notes that do not target a specific service, economy, facility, or other subject (for example a free-form `note` fact_type). The Stage 4D `subject_id NOT NULL` constraint is relaxed in `sql/018_observed_facts_stage6a.sql`, and the Stage 6A store preserves `None` end-to-end without coercing it to an empty string.
+
+### Legacy compatibility columns
+
+`observed_facts` existed before Stage 6A with Stage 4D comparison columns. The Stage 6A store keeps both the new and legacy columns populated on every write so existing Stage 4D readers continue to see consistent rows:
+
+| Legacy column | New Stage 6A column |
+|---|---|
+| `area` | `fact_type` |
+| `source_type` | `source` |
+| `observed_value` | `observed_value_json` |
+| `facility_id` | `facility_template_id` |
+| `body_id` | `local_body_id` |
+
+A later migration will normalise or drop these duplicate columns; until then the duplication is deliberate and documented in `apps/api/src/observations/store.py` and `sql/018_observed_facts_stage6a.sql`.
 
 Example create request:
 
