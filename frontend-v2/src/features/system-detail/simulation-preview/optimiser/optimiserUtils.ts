@@ -1,7 +1,9 @@
 import type {
   OptimiserCandidate,
+  OptimiserCandidatePlacement,
   OptimiserRanking,
   RankedOptimiserCandidate,
+  SimulateBuildPlacement,
 } from '@/types/api';
 
 export type RankLookup = Map<string, RankedOptimiserCandidate>;
@@ -30,6 +32,26 @@ export function sortCandidatesForDisplay(
     if (rankB != null) return 1;
     return (originalIndex.get(a.candidate_id) ?? 0) - (originalIndex.get(b.candidate_id) ?? 0);
   });
+}
+
+export function candidatePlacementsToPreviewPlacements(
+  placements: OptimiserCandidatePlacement[],
+): SimulateBuildPlacement[] {
+  let primaryPortAssigned = false;
+  return [...placements]
+    .sort((a, b) => a.build_order - b.build_order)
+    .map((placement, index) => {
+      const isPrimaryPort = Boolean(placement.is_primary_port && !primaryPortAssigned);
+      if (isPrimaryPort) {
+        primaryPortAssigned = true;
+      }
+      return {
+        facility_template_id: placement.facility_template_id,
+        local_body_id: placement.local_body_id ?? null,
+        is_primary_port: isPrimaryPort,
+        build_order: index + 1,
+      };
+    });
 }
 
 export function formatScore(value?: number | null): string {

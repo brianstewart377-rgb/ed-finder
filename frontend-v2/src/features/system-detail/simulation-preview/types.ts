@@ -10,5 +10,5 @@ export const ARCHETYPES = [
   { id: 'flexible_multirole', label: 'Flexible Multirole' },
 ];
 
-export type StartMode = 'recommended' | 'edit_recommended' | 'blank_advanced';
+export type StartMode = 'recommended' | 'edit_recommended' | 'blank_advanced' | 'optimiser_candidate';
 export type RecommendedStep = NonNullable<BuildabilityData['recommended_build_order']>[number];

@@ -10,9 +10,13 @@ import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
 export function OptimiserCandidatePanel({
   systemId64,
   targetArchetype,
+  hasExistingPreviewPlan = false,
+  onLoadCandidate,
 }: {
   systemId64: number;
   targetArchetype: string;
+  hasExistingPreviewPlan?: boolean;
+  onLoadCandidate?: (candidate: OptimiserCandidate) => void;
 }) {
   const [maxCandidates, setMaxCandidates] = useState(5);
   const [allowEstimatedData, setAllowEstimatedData] = useState(true);
@@ -55,7 +59,9 @@ export function OptimiserCandidatePanel({
         <div className="min-w-0 flex-1">
           <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Optimiser candidates</h3>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-            Generated and ranked suggestions. Read-only for now — applying a candidate comes in a later stage.
+            {onLoadCandidate
+              ? 'Generated and ranked suggestions. You can load a selected candidate into the editable preview. Nothing is committed in-game.'
+              : 'Generated and ranked suggestions. Read-only for now — applying a candidate comes in a later stage.'}
           </p>
         </div>
       </div>
@@ -123,6 +129,8 @@ export function OptimiserCandidatePanel({
             candidate={selectedCandidate}
             ranking={selectedCandidate ? rankLookup.get(selectedCandidate.candidate_id) : undefined}
             response={response}
+            hasExistingPreviewPlan={hasExistingPreviewPlan}
+            onLoadCandidate={onLoadCandidate}
           />
         </div>
       )}

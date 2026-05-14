@@ -133,12 +133,23 @@ Stage 5C adds a frontend comparison panel under `simulation-preview/optimiser/`.
 | UI placement | `OptimiserCandidatePanel` is rendered as a sibling panel inside Simulation Preview rather than folded into the existing result sections. |
 | Candidate display | Cards show rank, tier, score, strategy, preview summary signals, warning count, and CP risk. |
 | Details display | Selected candidate details show rationale, warnings, assumptions, placements, and ranking breakdown including `alignment_component`. |
-| Read-only guardrail | No apply/use-candidate button is exposed; Stage 5D is reserved for applying candidates to the editable build. |
+| Read-only guardrail | Candidate selection and comparison remain non-destructive; Stage 5D owns the deliberate load-into-preview action. |
+
+### Stage 5D - Load Optimiser Candidate into Preview
+
+Stage 5D lets the user deliberately load a selected optimiser candidate into the editable Simulation Preview plan. Loading copies candidate placements, updates the target archetype, clears stale preview output, and shows an optimiser-candidate origin marker. If the user edits, moves, removes, or adds placements after loading, the marker changes to show that the preview plan started from that optimiser candidate but has since been edited. Loading remains local preview-only: it does not commit anything in-game, save a build, auto-run Simulation Preview, or alter backend generation, ranking, scoring, CP, economy, or service mechanics.
+
+| Stage 5D Concern | Current Outcome |
+|---|---|
+| Load action | Candidate details expose `Load into preview` only when Simulation Preview passes an explicit load callback; otherwise the panel keeps the Stage 5C read-only copy. |
+| Conversion | Candidate placements are copied into preview placements, resequenced, and defensively normalised to one primary port. |
+| Overwrite protection | Non-empty preview plans require confirmation before replacement; cancel preserves the current plan. |
+| Preview execution | Loading a candidate clears stale result/error state but does not call `simulateBuild`; the existing Run Preview button remains the execution path. |
 
 Remaining Stage 5 work:
 
-- Stage 5D applying a candidate into Simulation Preview.
 - Deeper constraints by complexity, confidence, CP pressure, and player preferences.
+- Explicit candidate-vs-current delta/comparison polish.
 - Explicit comparison of rejected alternatives.
 
 ## Stage 6 - Community Observation Loop
