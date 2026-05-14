@@ -240,7 +240,7 @@ export function CompareTab() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// OPTIMIZER  ·  weight-tuned re-rank with proper sliders
+// SEARCH TUNING  ·  weight-tuned Finder-result re-rank with proper sliders
 // ════════════════════════════════════════════════════════════════
 const WEIGHT_DEFS = [
   { key: 'economy',     label: 'Economy match',     def: 30 },
@@ -265,8 +265,8 @@ export function OptimizerTab() {
       <Panel className="overflow-hidden flex flex-col">
         <PanelHeader
           icon={<Sliders size={14} strokeWidth={1.6} />}
-          title="WEIGHTS"
-          sub={`Total ${total}% · re-ranks Finder results`}
+          title="SEARCH TUNING"
+          sub={`Total ${total}% · reorders Finder results only`}
           right={<HudButton size="sm" icon={Zap} active>RUN</HudButton>}
         />
         <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
@@ -325,8 +325,8 @@ export function OptimizerTab() {
       <Panel className="overflow-hidden flex flex-col">
         <PanelHeader
           icon={<Activity size={14} strokeWidth={1.6} />}
-          title="RE-RANKED RESULTS"
-          sub="Tuned by your weights · live"
+          title="RE-RANKED FINDER RESULTS"
+          sub="Search Tuning does not generate colony build plans"
         />
         <div className="flex-1 overflow-y-auto divide-y divide-[hsla(232,22%,55%,0.15)]">
           {SYSTEMS.map((s, i) => (

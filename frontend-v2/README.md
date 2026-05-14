@@ -27,7 +27,7 @@ root flip to `/v2/`. Now also:
 - ✅ **Watchlist tab** — sortable table backed by `/api/watchlist`. Optimistic add/remove with rollback. Renders via the shared `<SystemTable>`. Row-click opens the detail modal.
 - ✅ **Pinned tab** — localStorage-backed shortlist, schema-compatible with the vanilla `ed_pinned` key. Export-as-JSON, clear-all, cross-tab sync.
 - ✅ **Compare tab** — up to 6 systems, matrix view with per-row winner highlighting, CSV export. Snapshot-based localStorage (`ed_compare_v2`).
-- ✅ **Optimizer tab** — 6 weight sliders + economy preference selector. Reranks current Finder results in place via `/api/ratings/rerank`, with original→reranked deltas.
+- ✅ **Search Tuning tab** — legacy Finder-result reranking tool with 6 weight sliders + economy preference selector. It reorders current Finder results in place via `/api/ratings/rerank`, with original→reranked deltas, and is separate from the Stage 5 colony optimiser inside Simulation Preview.
 - ✅ **FC Planner tab** — Fleet Carrier route planner with autocomplete-driven waypoints, 4 config inputs (jump range, cargo, tritium/jump, tritium price), pure-client math (no backend call) for total LY / hops / tritium / cost / cargo trips. CSV export. localStorage persisted (`ed_fc_v2`).
 - ✅ **Colony Tracker tab** — localStorage-backed list of claimed systems (`ed_colony_v2`) with 4-state phase machine (planning / building / active / complete), per-row population progress bar, edit modal, CSV export, count badges per phase.
 - ✅ **System Detail Modal** — full-detail overlay (system info grid + 8 score bars + bodies table + stations table + exploration value + external links). Shares Watchlist / Pin / Compare hooks. **Deep-linkable**: `#tab/system/12345678`.
@@ -49,7 +49,7 @@ src/
     watchlist/                      server-backed
     pinned/                         localStorage (ed_pinned)
     compare/                        localStorage (ed_compare_v2)
-    optimizer/                      POST /api/ratings/rerank
+    optimizer/                      Search Tuning; POST /api/ratings/rerank
     fc-planner/                     localStorage (ed_fc_v2), pure-client math
     colony/                         localStorage (ed_colony_v2), phase state machine
     admin/                          sessionStorage token + ops actions
@@ -88,7 +88,7 @@ src/
     compare/                        compare (client-only, localStorage)
       CompareTab.tsx
       useCompare.ts
-    optimizer/                      optimizer (POST /api/ratings/rerank)
+    optimizer/                      Search Tuning reranker (POST /api/ratings/rerank)
       OptimizerTab.tsx
       useOptimizer.ts
     admin/                          admin (token-gated ops)
@@ -242,7 +242,7 @@ it's not worth the complexity.
 4. ✅ Watchlist / Pinned / Compare.
 5. ✅ Map.
 6. ✅ System Detail Modal — deep-linkable.
-7. ✅ Optimizer + Admin.
+7. ✅ Search Tuning + Admin. Future Search Tuning rework should add clearer presets, before/after rank movement, and stronger explanations without changing colony-build optimisation.
 8. ✅ FC Planner + Colony Tracker.
 9. ✅ Polish — Vitest tests + PWA + OpenAPI codegen wired + Profile sync (backend + frontend).
 10. **Parity flip → ready.** One-liner deploy:

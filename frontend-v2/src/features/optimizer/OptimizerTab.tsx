@@ -10,7 +10,7 @@ export interface OptimizerTabProps {
 }
 
 const WEIGHT_LABELS: Array<{ key: keyof UseOptimizer['weights']; label: string; hint: string }> = [
-  { key: 'economy',      label: 'Economy',      hint: 'Per-economy match (Tourism, HighTech, …)' },
+  { key: 'economy',      label: 'Economy',      hint: 'Changes how strongly matching economies affect the rerank.' },
   { key: 'slots',        label: 'Slots',        hint: 'Build-slot capacity from body counts' },
   { key: 'strategic',    label: 'Strategic',    hint: 'Body-quality / system value' },
   { key: 'safety',       label: 'Safety',       hint: 'Orbital safety (no neutron / black hole)' },
@@ -19,8 +19,9 @@ const WEIGHT_LABELS: Array<{ key: keyof UseOptimizer['weights']; label: string; 
 ];
 
 /**
- * Optimizer = re-weight the score for the current Finder results.
+ * Legacy Search Tuning = re-weight the score for the current Finder results.
  *
+ * This legacy optimizer feature tunes Finder result ranking. The Stage 5 colony optimiser lives under Simulation Preview.
  * UX: 6 weight sliders + economy selector + Run button.
  * The "source" is whatever Finder last returned — no separate search here.
  * If Finder has no results, the Run button is disabled with a clear hint.
@@ -36,10 +37,11 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
   return (
     <section data-testid="optimizer-tab" className="space-y-5">
       <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
-        <h2 className="font-display text-orange tracking-[0.14em] text-lg">🎚️ Optimizer</h2>
-        <span className="font-mono text-xs text-silver-dk">
-          re-weight rating dimensions and rerank current Finder results
-        </span>
+        <h2 className="font-display text-orange tracking-[0.14em] text-lg">🎚️ Search Tuning</h2>
+        <div className="font-mono text-xs text-silver-dk">
+          <div>Re-weight and reorder your current Finder results.</div>
+          <div className="mt-1 text-[11px] text-gold">This tunes Finder search results only. It does not generate colony build plans.</div>
+        </div>
       </header>
 
       <div className="grid lg:grid-cols-[360px_1fr] gap-6">
@@ -63,7 +65,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
               ))}
             </select>
             <p className="text-[10px] text-silver-dk mt-1">
-              Drives the &ldquo;Economy&rdquo; weight column for every row.
+              Changes how strongly matching economies affect the rerank.
             </p>
           </div>
 
@@ -79,6 +81,9 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
                 ↺ Reset to v3.1 defaults
               </button>
             </div>
+            <p className="text-[10px] text-silver-dk">
+              Adjust how much each scoring dimension matters when reordering the current Finder results.
+            </p>
             {WEIGHT_LABELS.map(({ key, label, hint }) => (
               <WeightSlider
                 key={key}
@@ -113,7 +118,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
                 : 'btn-primary',
             ].join(' ')}
           >
-            {state.kind === 'busy' ? '⟳ Reranking…' : '▶ Rerank'}
+            {state.kind === 'busy' ? '⟳ Reranking…' : '▶ Rerank results'}
           </button>
 
           {state.kind === 'err' && (
@@ -129,10 +134,10 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
           {state.kind === 'idle' && (
             <EmptyState
               icon="🎚️"
-              title="Ready to rerank"
+              title="Ready to tune search results"
               hint={sourceCount === 0
-                ? 'Run a Finder search first to populate the source list.'
-                : `Tweak the weights and hit Rerank to reorder ${sourceCount} systems.`}
+                ? 'Run a Finder search first. Search Tuning reorders the systems already in your Finder results; it does not search or create colony build plans.'
+                : 'Adjust what matters most, then rerank the current Finder results.'}
             />
           )}
 
@@ -197,7 +202,7 @@ function ResultsList({
       <EmptyState
         icon="🤔"
         title="No results in source"
-        hint="The rerank service returned nothing — typically because the source IDs aren't in the ratings table."
+        hint="Search Tuning returned nothing — typically because the current Finder result IDs are not in the ratings table."
       />
     );
   }
