@@ -67,6 +67,18 @@ async def create_observed_fact(
 ) -> PersistedObservedFact:
     observation_id = f'obs_{uuid4().hex}'
     payload = request.model_dump(mode='json')
+    # The ``observed_facts`` table existed before Stage 6A with legacy
+    # comparison columns (Stage 4D shape):
+    #   area                = fact_type
+    #   source_type         = source
+    #   observed_value      = observed_value_json
+    #   facility_id         = facility_template_id
+    #   body_id             = local_body_id
+    # Stage 6A writes both the new CRUD contract columns and the legacy
+    # aliases so older Stage 4D comparison/trace code can keep reading the
+    # same table until a later migration removes or fully normalises those
+    # columns. The duplicated parameter positions ($3/$4/$8/$15/$16 below)
+    # are intentional and mirror this mapping.
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             '''
@@ -179,6 +191,11 @@ async def update_observed_fact(
     current.update(updates)
     current['updated_at'] = datetime.now(timezone.utc).isoformat()
 
+    # See create_observed_fact() for the legacy-column compatibility mapping
+    # (area=fact_type, source_type=source, observed_value=observed_value_json,
+    # facility_id=facility_template_id, body_id=local_body_id). The UPDATE
+    # below keeps both the new and legacy columns in sync so any Stage 4D
+    # reader still observes a consistent row.
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             '''
