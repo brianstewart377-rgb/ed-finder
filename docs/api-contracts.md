@@ -235,3 +235,121 @@ Central API client helpers in `frontend-v2/src/lib/api.ts` follow the existing `
 The Stage 6B UI only ever sends `source: 'manual'` in create requests. `imported` and `inferred` remain reserved Stage 6A enum values and are intentionally not exposed as create-form source options; the manual UI does not provide any control that could pick them.
 
 Stage 6B is a **passive** integration: the Observed Evidence panel does not feed observed facts back into `simulateBuild`, `fetchOptimiserCandidates`, optimiser ranking, candidate generation, or Simulation Preview scoring. The simulation and optimiser request payloads remain unchanged. Predicted-vs-observed comparison is reserved for Stage 6C, and validation rendering for Stage 6D.
+
+## Stage 6C Predicted-vs-Observed Comparison
+
+Stage 6C adds a **comparison-only** endpoint that compares a Simulation Preview prediction against persisted Stage 6A observed facts and returns a structured per-row comparison plus a top-level summary. Stage 6C is the engine; Stage 6D will render its output in the validation UI.
+
+Core principle: **prediction is what ED-Finder thinks should happen, observation is what a user actually saw, comparison is a structured diff between the two.** Stage 6C compares; it does not change predictions, scoring, ranking, candidate generation, or Simulation Preview output.
+
+### Endpoint
+
+| Method + Path | Purpose | Response |
+|---|---|---|
+| `POST /api/observations/compare` | Run deterministic comparison engine over a prediction and observed-facts list. | `PredictionObservationCompareResponse` |
+
+The endpoint supports two modes:
+
+- **Mode A** — caller supplies `prediction`, `system_id64`, and `target_archetype`; the backend loads observed facts for `system_id64` (and optionally `target_archetype`) from the persisted Stage 6A store, up to `fact_load_limit`.
+- **Mode B** — caller supplies `observed_facts` in addition to the other fields. The backend uses the supplied list verbatim and does NOT query the database for facts.
+
+Validation: `system_id64` must be `> 0`, `prediction` must be a JSON object (lists / strings / numbers are rejected with HTTP 422), `observed_facts` (when supplied) must be a list of fact-shaped objects.
+
+### Response vocabulary
+
+Per-row `status` (`PredictionObservationComparisonResponse.status`):
+
+- `confirmed` — observation aligns with prediction.
+- `contradicted` — observation conflicts with prediction (subject to severity clamping by observation `confidence`).
+- `predicted_only` — prediction includes the subject but no observation has been recorded for it.
+- `observed_only` — observation records the subject but the prediction does not.
+- `unknown` / `unverified` — observation is not strong enough to confirm or contradict.
+
+`severity` (`info` / `low` / `medium` / `high`) is clamped by the observation's confidence: a `low`-confidence observation can never produce a `high`-severity contradiction; a `medium`-confidence observation clamps `high` base severities down to `medium`.
+
+`PredictionObservationComparisonSummaryResponse.status` (the top-level summary status):
+
+- `no_observations` — system has no observed evidence yet.
+- `confirmed` — all comparable observations match the prediction.
+- `needs_review` — only contradictions, no confirmations.
+- `mixed` — at least one confirmation and at least one contradiction.
+- `insufficient_evidence` — observations exist but none are strong enough to confirm or contradict.
+
+`confidence_impact` (`none` / `strengthened` / `weakened` / `mixed` / `insufficient_evidence`) is a UI hint only. Stage 6C does NOT plumb confidence impact back into Simulation Preview scoring or optimiser ranking.
+
+### Example request (Mode A)
+
+```json
+{
+  "system_id64": 123,
+  "target_archetype": "trade_logistics",
+  "prediction": {
+    "services": { "refining": { "status": "active" } },
+    "economy_composition": { "extraction": 0.7 },
+    "economy_order": ["extraction"],
+    "cp": { "yellow_cp_final": 12, "green_cp_final": 4 },
+    "final_score": 88.0,
+    "confidence": "high"
+  }
+}
+```
+
+### Example response
+
+```json
+{
+  "system_id64": 123,
+  "target_archetype": "trade_logistics",
+  "generated_at": "2026-05-15T12:00:00+00:00",
+  "summary": {
+    "status": "confirmed",
+    "observed_facts_count": 1,
+    "compared_predictions_count": 2,
+    "confirmed_count": 1,
+    "contradicted_count": 0,
+    "observed_only_count": 0,
+    "predicted_only_count": 1,
+    "unknown_count": 0,
+    "unverified_count": 0,
+    "confidence_impact": "strengthened",
+    "summary": "Observations support the prediction: 1 confirmed, 1 predicted-only."
+  },
+  "comparisons": [
+    {
+      "comparison_id": "service:refining",
+      "area": "service",
+      "subject_type": "service",
+      "subject_id": "refining",
+      "predicted_value": "active",
+      "observed_value": { "present": true },
+      "status": "confirmed",
+      "severity": "info",
+      "confidence": "high",
+      "reason": "Predicted active and observed present (status=active).",
+      "recommended_action": null,
+      "evidence": [
+        {
+          "observation_id": "obs_abc",
+          "fact_type": "service_presence",
+          "subject_type": "service",
+          "subject_id": "refining",
+          "status": "observed_present",
+          "confidence": "high",
+          "observed_value": { "present": true },
+          "expected_value": null,
+          "notes": null
+        }
+      ],
+      "prediction_source": "services"
+    }
+  ],
+  "warnings": [],
+  "assumptions": []
+}
+```
+
+### Passivity guarantee
+
+`POST /api/observations/compare` is read-only over its inputs. It does not import or invoke any simulation, optimiser, ranking, or candidate-generation code, and it does not mutate persisted observations. The comparison engine is pure and deterministic given its inputs (`generated_at` is the only time-dependent field and is injectable for tests). A static passivity test in the test suite asserts that simulation/optimiser/ranking source files do not import `observations.comparison_engine` or `observations.store`.
+
+Stage 6C tests live in `tests/test_stage6c_comparison.py`. The legacy Stage 4D in-pipeline comparison code in `apps/api/src/observations/comparison.py` and its tests in `tests/test_observation_comparison.py` remain untouched.
