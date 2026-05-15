@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react';
  *   #finder                       → route='finder',    selectedSystemId=null
  *   #pinned                       → route='pinned',    selectedSystemId=null
  *   #pinned/system/12345678       → route='pinned',    selectedSystemId=12345678
+ *   #search-tuning                → route='search-tuning', selectedSystemId=null
+ *   #optimizer                    → route='optimizer', selectedSystemId=null (legacy alias)
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
  *   <empty> or unknown            → route='finder',    selectedSystemId=null
  *
@@ -18,8 +20,8 @@ import { useEffect, useState } from 'react';
  * beats pulling in react-router. Re-evaluate that trade-off when v2 sprouts
  * its 6th sub-route.
  */
-export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'optimizer' | 'fc' | 'colony' | 'admin';
-const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'optimizer', 'fc', 'colony', 'admin'];
+export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'optimizer' | 'search-tuning' | 'fc' | 'colony' | 'admin';
+const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'optimizer', 'search-tuning', 'fc', 'colony', 'admin'];
 
 export interface ParsedHash {
   route:            Route;

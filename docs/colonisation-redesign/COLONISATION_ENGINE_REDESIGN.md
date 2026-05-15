@@ -1736,6 +1736,12 @@ Response:
 
 ### 10.5 Updated: `POST /api/ratings/rerank`
 
+> Stage 7B status: this section is historical design material. The current
+> `/api/ratings/rerank` contract remains the v3.1 ratings rerank endpoint with
+> `id64s`, optional `weights`, and optional `economy`. It does not implement
+> `use_archetype_engine`, `archetype`, or `profile`, and the UI now presents
+> the feature as Advanced Search Tuning.
+
 **Backward-compatible.** The existing endpoint is unchanged. It continues to read from the `ratings` table using the v3.1 weights. A new optional field `use_archetype_engine` switches to the new scoring system:
 
 ```python

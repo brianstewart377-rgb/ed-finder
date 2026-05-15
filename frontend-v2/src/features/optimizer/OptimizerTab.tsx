@@ -1,6 +1,6 @@
 import type { RerankRow, SystemResult } from '@/types/api';
 import { ratingTier } from '@/lib/format';
-import { ECONOMIES, type UseOptimizer } from './useOptimizer';
+import { ECONOMIES, type SourceRankSnapshot, type UseOptimizer } from './useOptimizer';
 import type { useSearch } from '@/features/search/useSearch';
 
 export interface OptimizerTabProps {
@@ -10,20 +10,20 @@ export interface OptimizerTabProps {
 }
 
 const WEIGHT_LABELS: Array<{ key: keyof UseOptimizer['weights']; label: string; hint: string }> = [
-  { key: 'economy',      label: 'Economy',      hint: 'Changes how strongly matching economies affect the rerank.' },
-  { key: 'slots',        label: 'Slots',        hint: 'Build-slot capacity from body counts' },
-  { key: 'strategic',    label: 'Strategic',    hint: 'Body-quality / system value' },
-  { key: 'safety',       label: 'Safety',       hint: 'Orbital safety (no neutron / black hole)' },
-  { key: 'terraforming', label: 'Terraforming', hint: 'Terraforming potential' },
-  { key: 'diversity',    label: 'Diversity',    hint: 'Body-type diversity' },
+  { key: 'economy',      label: 'Economy',      hint: 'Economy-score emphasis' },
+  { key: 'slots',        label: 'Slots',        hint: 'Available/buildable capacity signal' },
+  { key: 'strategic',    label: 'Strategic',    hint: 'Body quality / strategic value signal' },
+  { key: 'safety',       label: 'Safety',       hint: 'Orbital safety signal' },
+  { key: 'terraforming', label: 'Terraforming', hint: 'Terraforming potential signal' },
+  { key: 'diversity',    label: 'Diversity',    hint: 'Body diversity signal' },
 ];
 
 /**
- * Legacy Search Tuning = re-weight the score for the current Finder results.
+ * Advanced Search Tuning = re-weight a copy of the current Finder results.
  *
- * This legacy optimizer feature tunes Finder result ranking. The Stage 5 colony optimiser lives under Simulation Preview.
- * UX: 6 weight sliders + economy selector + Run button.
- * The "source" is whatever Finder last returned — no separate search here.
+ * The internal `optimizer` route/folder name is kept for compatibility. The
+ * user-facing surface is now an advanced Finder tool, not Colony Planner.
+ * The "source" is whatever Finder last returned - no separate search here.
  * If Finder has no results, the Run button is disabled with a clear hint.
  */
 export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabProps) {
@@ -31,16 +31,26 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
   const sourceCount = search.results.length;
   const sumOk = Math.abs(weightSum - 1.0) < 0.01;
 
-  // Index source by id64 for cheap join with rerank results.
+  // Live Finder data is only a fallback for names. Tuned rank movement uses
+  // the source snapshot captured when the tuning run started.
   const sourceById = new Map(search.results.map((s) => [s.id64, s] as const));
 
   return (
     <section data-testid="optimizer-tab" className="space-y-5">
-      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
-        <h2 className="font-display text-orange tracking-[0.14em] text-lg">🎚️ Search Tuning</h2>
-        <div className="font-mono text-xs text-silver-dk">
-          <div>Re-weight and reorder your current Finder results.</div>
-          <div className="mt-1 text-[11px] text-gold">This tunes Finder search results only. It does not generate colony build plans.</div>
+      <header className="panel flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-display text-orange tracking-[0.14em] text-lg">Advanced Search Tuning</h2>
+            <span className="rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+              Uses current Finder results
+            </span>
+          </div>
+          <p className="font-mono text-xs text-silver-dk max-w-4xl">
+            Advanced Search Tuning re-prioritises the current Finder results. It does not run a new search, save preferences, or change Colony Planner.
+          </p>
+          <p className="font-mono text-[11px] text-silver-dk max-w-4xl">
+            It reranks a copy of those results into a temporary tuned order; the original Finder results are not mutated.
+          </p>
         </div>
       </header>
 
@@ -51,7 +61,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
 
           <div>
             <label className="block font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em] mb-1">
-              Economy preference
+              Economy scoring emphasis
             </label>
             <select
               value={economy ?? ''}
@@ -65,7 +75,8 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
               ))}
             </select>
             <p className="text-[10px] text-silver-dk mt-1">
-              Changes how strongly matching economies affect the rerank.
+              This changes which economy score is emphasised during tuning. It does not filter systems out.
+              Auto uses the best available stored economy score per system.
             </p>
           </div>
 
@@ -82,7 +93,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
               </button>
             </div>
             <p className="text-[10px] text-silver-dk">
-              Adjust how much each scoring dimension matters when reordering the current Finder results.
+              Weights apply only to this tuning run. The backend normalises them for the temporary tuned score.
             </p>
             {WEIGHT_LABELS.map(({ key, label, hint }) => (
               <WeightSlider
@@ -118,7 +129,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
                 : 'btn-primary',
             ].join(' ')}
           >
-            {state.kind === 'busy' ? '⟳ Reranking…' : '▶ Rerank results'}
+            {state.kind === 'busy' ? 'Building tuned order...' : 'Show tuned order'}
           </button>
 
           {state.kind === 'err' && (
@@ -134,10 +145,18 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
           {state.kind === 'idle' && (
             <EmptyState
               icon="🎚️"
-              title="Ready to tune search results"
+              title={sourceCount === 0 ? 'Run a Finder search first.' : 'Ready to tune current Finder results'}
               hint={sourceCount === 0
-                ? 'Run a Finder search first. Search Tuning reorders the systems already in your Finder results; it does not search or create colony build plans.'
-                : 'Adjust what matters most, then rerank the current Finder results.'}
+                ? 'Advanced Search Tuning works on the current Finder results. It cannot tune systems that have not been searched yet.'
+                : 'Adjust the scoring emphasis, then build a temporary tuned order from the current Finder results.'}
+            />
+          )}
+
+          {state.kind === 'busy' && (
+            <EmptyState
+              icon="🎚️"
+              title="Building tuned order..."
+              hint="Advanced Search Tuning is re-prioritising a copy of the current Finder results."
             />
           )}
 
@@ -145,6 +164,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
             <ResultsList
               results={state.data.results}
               sourceById={sourceById}
+              sourceSnapshot={state.sourceSnapshot}
               onOpenDetail={onOpenDetail}
             />
           )}
@@ -163,7 +183,7 @@ function SourceBadge({ count }: { count: number }) {
       count > 0 ? 'border-cyan/40 bg-cyan/10 text-cyan'
                 : 'border-red/40  bg-red/10  text-red',
     ].join(' ')}>
-      Source: {count} system{count === 1 ? '' : 's'} from current Finder results
+      Uses current Finder results: {count} system{count === 1 ? '' : 's'}
     </div>
   );
 }
@@ -191,10 +211,11 @@ function WeightSlider({ label, hint, value, onChange, testid }: {
 }
 
 function ResultsList({
-  results, sourceById, onOpenDetail,
+  results, sourceById, sourceSnapshot, onOpenDetail,
 }: {
   results:    RerankRow[];
   sourceById: Map<number, SystemResult>;
+  sourceSnapshot: SourceRankSnapshot;
   onOpenDetail?: (id64: number) => void;
 }) {
   if (results.length === 0) {
@@ -202,7 +223,7 @@ function ResultsList({
       <EmptyState
         icon="🤔"
         title="No results in source"
-        hint="Search Tuning returned nothing — typically because the current Finder result IDs are not in the ratings table."
+        hint="Advanced Search Tuning returned nothing - typically because the current Finder result IDs are not in the ratings table."
       />
     );
   }
@@ -210,7 +231,12 @@ function ResultsList({
   return (
     <ul className="space-y-2">
       {results.map((r, idx) => {
-        const src     = sourceById.get(r.id64);
+        const snapshot = sourceSnapshot[r.id64];
+        const src = sourceById.get(r.id64);
+        const displayName = snapshot?.name ?? src?.name ?? `id ${r.id64}`;
+        const originalRank = snapshot?.originalRank;
+        const tunedRank = idx + 1;
+        const movement = describeMovement(originalRank, tunedRank);
         const delta   = r.original_score != null ? r.reranked_score - r.original_score : null;
         const tier    = ratingTier(r.reranked_score);
         return (
@@ -219,20 +245,31 @@ function ResultsList({
             data-testid={`optimizer-row-${r.id64}`}
             onClick={onOpenDetail ? () => onOpenDetail(r.id64) : undefined}
             className={[
-              'panel-thin p-3 grid grid-cols-[40px_1fr_120px_140px] gap-3 items-center text-sm font-mono',
+              'panel-thin p-3 grid gap-3 items-center text-sm font-mono md:grid-cols-[150px_minmax(0,1fr)_120px_170px]',
               onOpenDetail ? 'hover:border-orange/40 cursor-pointer transition-all' : '',
             ].join(' ')}
           >
-            <span className="text-silver-dk text-xs tabular-nums text-right">#{idx + 1}</span>
+            <div className="text-[11px] text-silver-dk tabular-nums">
+              <div className="text-silver">Finder #{originalRank ?? '?'} -&gt; Tuned #{tunedRank}</div>
+              <div
+                data-testid={`optimizer-movement-${r.id64}`}
+                className={movement.tone}
+              >
+                {movement.label}
+              </div>
+            </div>
             <div className="min-w-0">
               <div className="text-orange-lt font-bold truncate">
-                {src?.name ?? `id ${r.id64}`}
+                {displayName}
               </div>
               {r.rationale && (
                 <div className="text-[11px] text-silver-dk italic truncate">
-                  {r.rationale}
+                  <span className="not-italic text-silver">Stored rating rationale:</span> {r.rationale}
                 </div>
               )}
+              <div className="text-[10px] text-silver-dk">
+                The tuned score is temporary for this run. Stored rating rationale comes from the existing rating data.
+              </div>
             </div>
             <div className="text-[11px] text-silver-dk">
               {r.economy_used ? <span className="text-orange-lt">{r.economy_used}</span> : '—'}
@@ -243,6 +280,10 @@ function ResultsList({
               )}
             </div>
             <div className="flex items-center gap-2 justify-end">
+              <div className="text-right text-[10px] leading-tight text-silver-dk">
+                <div>Temporary tuned score</div>
+                {r.original_score != null && <div>Original stored score {r.original_score}</div>}
+              </div>
               <span
                 className="px-2.5 py-1 rounded-chunk-sm border text-[11px] font-bold tabular-nums"
                 style={{
@@ -272,6 +313,21 @@ function ResultsList({
       })}
     </ul>
   );
+}
+
+function describeMovement(originalRank: number | undefined, tunedRank: number) {
+  if (originalRank == null) {
+    return { label: 'Finder rank unavailable', tone: 'text-silver-dk' };
+  }
+  const places = originalRank - tunedRank;
+  if (places > 0) {
+    return { label: `Moved up ${places} place${places === 1 ? '' : 's'}`, tone: 'text-green' };
+  }
+  if (places < 0) {
+    const down = Math.abs(places);
+    return { label: `Moved down ${down} place${down === 1 ? '' : 's'}`, tone: 'text-red' };
+  }
+  return { label: 'Unchanged', tone: 'text-silver-dk' };
 }
 
 function EmptyState({ icon, title, hint }: {

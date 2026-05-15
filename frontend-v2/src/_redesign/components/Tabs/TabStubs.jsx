@@ -240,7 +240,7 @@ export function CompareTab() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// SEARCH TUNING  ·  weight-tuned Finder-result re-rank with proper sliders
+// ADVANCED SEARCH TUNING  ·  weight-tuned Finder-result re-rank with proper sliders
 // ════════════════════════════════════════════════════════════════
 const WEIGHT_DEFS = [
   { key: 'economy',     label: 'Economy match',     def: 30 },
@@ -265,8 +265,8 @@ export function OptimizerTab() {
       <Panel className="overflow-hidden flex flex-col">
         <PanelHeader
           icon={<Sliders size={14} strokeWidth={1.6} />}
-          title="SEARCH TUNING"
-          sub={`Total ${total}% · reorders Finder results only`}
+          title="ADVANCED SEARCH TUNING"
+          sub={`Total ${total}% · tunes current Finder results only`}
           right={<HudButton size="sm" icon={Zap} active>RUN</HudButton>}
         />
         <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
@@ -325,8 +325,8 @@ export function OptimizerTab() {
       <Panel className="overflow-hidden flex flex-col">
         <PanelHeader
           icon={<Activity size={14} strokeWidth={1.6} />}
-          title="RE-RANKED FINDER RESULTS"
-          sub="Search Tuning does not generate colony build plans"
+          title="TUNED FINDER RESULTS"
+          sub="Advanced Search Tuning does not generate colony build plans"
         />
         <div className="flex-1 overflow-y-auto divide-y divide-[hsla(232,22%,55%,0.15)]">
           {SYSTEMS.map((s, i) => (
