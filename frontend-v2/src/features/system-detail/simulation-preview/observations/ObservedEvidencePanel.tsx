@@ -82,10 +82,19 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
     retry: 1,
   });
 
-  // Confidence filtering happens client-side because the Stage 6A list
-  // endpoint does not expose a confidence query param yet. The backend
-  // summary still describes the full filtered result set; client-side
-  // confidence filtering is a UI-only refinement.
+  // Confidence filtering is applied locally because the Stage 6A list
+  // endpoint accepts `fact_type` and `status` query params but does not
+  // expose a `confidence` query param. As a result:
+  //   - The backend list query reflects only the type/status filters.
+  //   - The `summary` returned by the backend describes that backend
+  //     result set (type/status filters applied), NOT the
+  //     confidence-narrowed visible list below.
+  //   - The confidence filter is a UI-only refinement that hides rows
+  //     from view; it does not change the totals shown in summary.
+  // The UI surfaces this distinction explicitly via a "Showing X of Y
+  // records after confidence filter" line when the confidence filter is
+  // active. Adding backend confidence filtering is deferred until the
+  // backend list endpoint is extended in a later stage.
   const facts = useMemo(() => {
     const all = listQuery.data?.facts ?? [];
     if (!confidenceFilter) return all;
@@ -250,8 +259,15 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
         <div className="mb-3 rounded border border-border/60 bg-bg3/20 px-3 py-2 font-mono text-[10px] text-silver-dk">
           <div className="uppercase tracking-[0.16em] text-silver">
             Summary
-            {filtersActive && <span className="ml-2 text-cyan">(filtered)</span>}
+            {(factTypeFilter || statusFilter) && (
+              <span className="ml-2 text-cyan">(type / status filtered)</span>
+            )}
           </div>
+          <p className="mt-1 text-[10px] text-silver-dk">
+            Totals reflect the type and status filters only. Confidence
+            filtering is applied locally and narrows the visible list
+            below without changing these totals.
+          </p>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
             <span>Total: <span className="text-silver">{summary.total_count}</span></span>
             {Object.entries(summary.by_fact_type ?? {}).map(([type, count]) => (
@@ -272,7 +288,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
           </div>
           {confidenceFilter && (
             <p className="mt-1 text-[10px] text-silver-dk">
-              Showing {filteredCount} of {summary.total_count} records after confidence filter.
+              Showing {filteredCount} of {summary.total_count} records after local confidence filter.
             </p>
           )}
         </div>

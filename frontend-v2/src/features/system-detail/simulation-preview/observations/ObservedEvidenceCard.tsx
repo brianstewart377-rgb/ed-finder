@@ -16,7 +16,6 @@ import {
   formatObservedValue,
   parseObservedValue,
   parseTagsInput,
-  tagsToInputValue,
 } from './observationUtils';
 
 interface ObservedEvidenceCardProps {
@@ -324,7 +323,7 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex gap-2">
       <dt className="shrink-0 text-silver-dk">{label}:</dt>
-      <dd className="min-w-0 break-words text-silver">{tagsToInputValue([value])}</dd>
+      <dd className="min-w-0 break-words text-silver">{value}</dd>
     </div>
   );
 }

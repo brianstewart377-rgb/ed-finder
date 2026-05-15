@@ -67,31 +67,13 @@ export function ObservedEvidenceForm({
       await onSubmit(request);
     } catch {
       // The parent's mutation `onError` already captures the failure and
-      // surfaces it via the `serverError` prop. We swallow the re-thrown
-      // rejection here so React/jest don't see it as an unhandled
-      // rejection. The user-visible error message remains controlled by
-      // the panel's mutation state. We don't know here whether the
-      // submit succeeded — the parent panel is the source of truth. If
-      // it set serverError we keep the form so the user can fix and
-      // retry; if it cleared serverError, ObservedEvidencePanel
-      // remounts the form via a `key` change for a clean reset.
+      // surfaces it via the `serverError` prop. Swallowing the re-thrown
+      // rejection here keeps React/jest from flagging it as unhandled.
+      // On success, the parent panel remounts this form via a `key`
+      // change, so local form state resets cleanly without any
+      // imperative reset call from the child.
     }
   }
-
-  function resetAfterSuccess() {
-    setState(defaultCreateFormState(suggestedArchetype));
-    setLocalErrors([]);
-    setAdvancedOpen(false);
-  }
-
-  // The parent panel calls this via an imperative-ish pattern: it passes
-  // a ref through `formInstance` if needed. To keep the API simple here
-  // we expose resetAfterSuccess on the function itself via a side-channel:
-  // we attach it to the form's onSubmit lifecycle by re-running the reset
-  // when `submitting` flips from true to false and there is no server
-  // error. That side-effect lives in the panel; the form's local form
-  // state is reset there by remounting via `key` changes.
-  void resetAfterSuccess;
 
   return (
     <form onSubmit={handleSubmit} aria-label="Record observed evidence" className="space-y-3">
