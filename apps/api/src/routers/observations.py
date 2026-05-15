@@ -134,20 +134,41 @@ async def compare_prediction_against_observations(
 
     * **Mode A** — ``observed_facts`` omitted from the request. The
       router loads up to ``fact_load_limit`` persisted facts for
-      ``system_id64`` from the Stage 6A store and passes them to the
-      engine.
+      ``system_id64`` via ``store.list_observed_facts_for_comparison``
+      and passes them to the engine.
+
+      Fact-loading semantics (Stage 6C hardening):
+        * If ``target_archetype`` is omitted/null in the request, all
+          facts for the system are loaded.
+        * If ``target_archetype`` is supplied, facts are included when
+          their ``target_archetype`` matches the requested value **or**
+          is ``NULL`` — i.e. system-level general evidence (notes,
+          service evidence, economy evidence, CP observations not tied
+          to a specific target) is included alongside target-specific
+          evidence. Facts targeting a *different* explicit archetype
+          are excluded.
     * **Mode B** — ``observed_facts`` provided. The supplied list is
       converted to ``PersistedObservedFact`` objects and passed to the
       engine verbatim. The database is NOT queried for facts in this
       mode.
+
+      Source semantics (Stage 6C hardening): Mode B supplied facts may
+      carry any ``ObservationSource`` value including ``imported`` and
+      ``inferred``. This is deliberate — Mode B is read-only and the
+      supplied facts are never persisted, so Stage 6A's reserved-source
+      restriction (manual/test_fixture only on create/update) does not
+      apply. Persistence still goes exclusively through Stage 6A's
+      ``POST /api/observations/facts`` endpoint and remains restricted.
 
     The handler is **passive**: it never invokes simulation, optimiser,
     or ranking code, and never mutates persisted observations. It only
     reads observations (Mode A) and runs the pure comparison engine.
     """
     if body.observed_facts is None:
-        # Mode A — pull persisted facts from the Stage 6A store.
-        facts, _total = await store.list_observed_facts(
+        # Mode A — pull persisted facts using the comparison-specific
+        # helper that includes null-target evidence alongside any
+        # target-specific evidence when a target_archetype is supplied.
+        facts, _total = await store.list_observed_facts_for_comparison(
             pool,
             system_id64=body.system_id64,
             target_archetype=body.target_archetype,
@@ -157,6 +178,9 @@ async def compare_prediction_against_observations(
         observed = list(facts)
     else:
         # Mode B — use the caller-supplied facts and skip the DB hit.
+        # Supplied facts are read-only inputs to the comparison engine
+        # and are not persisted; any ObservationSource value (including
+        # the Stage 6A reserved imported/inferred sources) is accepted.
         observed = [fact_input.to_persisted() for fact_input in body.observed_facts]
 
     result = compare_prediction_to_observations_stage6c(

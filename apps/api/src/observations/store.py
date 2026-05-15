@@ -326,3 +326,66 @@ async def delete_observed_fact(pool: asyncpg.Pool, observation_id: str) -> bool:
 async def observed_fact_summary(pool: asyncpg.Pool, system_id64: int) -> dict[str, Any]:
     facts, _ = await list_observed_facts(pool, system_id64=system_id64, limit=1000, offset=0)
     return summarise_observed_facts(facts).to_dict()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Stage 6C — comparison-specific fact loader
+# ──────────────────────────────────────────────────────────────────────
+async def list_observed_facts_for_comparison(
+    pool: asyncpg.Pool,
+    *,
+    system_id64: int,
+    target_archetype: str | None,
+    limit: int = 500,
+    offset: int = 0,
+) -> tuple[list[PersistedObservedFact], int]:
+    """Load observed facts for a Stage 6C compare-endpoint Mode A call.
+
+    Filtering semantics (deliberately different from
+    ``list_observed_facts``):
+
+    * If ``target_archetype`` is ``None`` — load all facts for the
+      system (same shape as the Stage 6A list endpoint with no target
+      filter).
+    * If ``target_archetype`` is supplied — include facts whose
+      ``target_archetype`` matches the requested value **or** is
+      ``NULL``. System-level evidence (notes, service evidence, economy
+      evidence, CP observations) frequently has ``target_archetype IS
+      NULL`` and remains relevant regardless of the planner's currently
+      selected archetype. We do NOT want a per-target compare call to
+      hide that general evidence.
+
+    This helper exists specifically for Stage 6C; ``list_observed_facts``
+    still honours the strict ``target_archetype = $X`` filter so the
+    Stage 6A list endpoint contract is unchanged.
+    """
+    if target_archetype is None:
+        return await list_observed_facts(
+            pool,
+            system_id64=system_id64,
+            limit=limit,
+            offset=offset,
+        )
+
+    args: list[Any] = [system_id64, target_archetype]
+    where = 'system_id64 = $1 AND (target_archetype = $2 OR target_archetype IS NULL)'
+    args_for_count = list(args)
+    args.extend([limit, offset])
+    limit_pos = len(args) - 1
+    offset_pos = len(args)
+
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(
+            f'SELECT count(*) FROM observed_facts WHERE {where}',
+            *args_for_count,
+        )
+        rows = await conn.fetch(
+            f'''
+            SELECT * FROM observed_facts
+            WHERE {where}
+            ORDER BY created_at DESC, observation_id DESC
+            LIMIT ${limit_pos} OFFSET ${offset_pos}
+            ''',
+            *args,
+        )
+    return [row_to_observed_fact(row) for row in rows], int(total or 0)

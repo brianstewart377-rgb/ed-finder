@@ -29,8 +29,38 @@ FORBIDDEN_ROOTS = (
 )
 
 # Modules that simulation/optimiser/recommendations/mechanics MUST NOT import.
+#
+# Stage 6C hardening (PART G): the comparison engine has been split into
+# a package under ``observations.comparison_engine_pkg.*``. We list the
+# package root AND each sub-module explicitly so a reader can see at a
+# glance which engine modules are forbidden to pull into the
+# scoring/optimiser layers. The package root covers any future
+# sub-module additions via the ``startswith(forbidden + '.')`` check
+# below.
+#
+# Naming note: the package is intentionally ``comparison_engine_pkg``
+# (not ``comparison``) because ``observations/comparison.py`` already
+# exists as the Stage 4D in-pipeline comparison module — Stage 4D's
+# pre-existing import inside ``simulation/`` of ``observations.comparison``
+# is deliberately allowed and must NOT match this list.
 FORBIDDEN_MODULES = (
+    # Legacy / stable public compatibility wrapper for Stage 6C.
     'observations.comparison_engine',
+    # Stage 6C modular comparison engine package + every sub-module.
+    'observations.comparison_engine_pkg',
+    'observations.comparison_engine_pkg.engine',
+    'observations.comparison_engine_pkg.prediction_extractors',
+    'observations.comparison_engine_pkg.observation_index',
+    'observations.comparison_engine_pkg.service_rules',
+    'observations.comparison_engine_pkg.economy_rules',
+    'observations.comparison_engine_pkg.cp_rules',
+    'observations.comparison_engine_pkg.facility_rules',
+    'observations.comparison_engine_pkg.build_outcome_rules',
+    'observations.comparison_engine_pkg.prediction_claim_rules',
+    'observations.comparison_engine_pkg.note_rules',
+    'observations.comparison_engine_pkg.summary',
+    'observations.comparison_engine_pkg.shared',
+    # Shared Stage 6C / Stage 6A modules.
     'observations.comparison_models',
     'observations.store',
     'observations.api_models',

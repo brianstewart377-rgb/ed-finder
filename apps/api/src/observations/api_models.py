@@ -229,6 +229,24 @@ class _ObservedFactInputBase(BaseModel):
     model enforces Stage 6A write-side rules (e.g. ``stage_6a_sources_only``
     rejecting ``inferred``/``imported``). The compare endpoint is read-only
     over its inputs, so it accepts any of the Stage 6A enum values.
+
+    **Stage 6C Mode B source policy (deliberate):**
+
+    * The ``source`` field accepts any ``ObservationSource`` value,
+      including the Stage 6A reserved values ``imported`` and
+      ``inferred``.
+    * Mode B inputs are **never persisted**. They are passed straight
+      into the pure comparison engine and discarded after the response
+      is built. There is no path from this model to a database write.
+    * Stage 6A / 6B persisted creation (``POST /api/observations/facts``,
+      ``PATCH /api/observations/facts/{id}``) remains restricted to
+      ``manual`` / ``test_fixture`` via the existing
+      ``stage_6a_sources_only`` validator on
+      ``ObservedFactCreateRequest`` / ``ObservedFactUpdateRequest``.
+    * This split allows callers (tests, offline/dry-run flows, future
+      ingestion prototypes) to dry-run a compare against
+      imported/inferred-shaped evidence without weakening the
+      write-side trust rules.
     """
 
     model_config = ConfigDict(extra='forbid')
