@@ -15,7 +15,7 @@ name-keyed matching** here, by deliberate design:
 
 This is intentionally narrow. Two consequences:
 
-* Stage 6C never overclaims that the prediction is wrong based on
+* Stage 6C never overclaims that the prediction failed based on
   evidence for a sibling economy that is unrelated to the predicted one.
 * Mutual-exclusion rules between economies live in the mechanics layer,
   not here. Stage 6C is not allowed to invent them.

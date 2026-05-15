@@ -22,8 +22,8 @@ import type {
  *     without a network call.
  *
  * We only include fields the backend comparison engine reads. The
- * fingerprint must be stable across re-renders, so we extract just
- * those fields rather than hashing the whole response object.
+ * fingerprint must be stable across re-renders, so we extract those
+ * fields rather than hashing the whole response object.
  */
 export function previewResultFingerprint(result: SimulateBuildResponse | null): string | null {
   if (!result) return null;
@@ -35,12 +35,7 @@ export function previewResultFingerprint(result: SimulateBuildResponse | null): 
     composition_score: result.composition_score,
     buildability_score: result.buildability_score,
     confidence: result.confidence,
-    cp: {
-      yellow_cp_final: result.cp?.yellow_cp_final,
-      green_cp_final: result.cp?.green_cp_final,
-      t2_ports: result.cp?.t2_ports,
-      t3_ports: result.cp?.t3_ports,
-    },
+    cp: result.cp,
     economy_order: result.economy_order,
     economy_composition: result.economy_composition,
     services: result.services
@@ -48,6 +43,7 @@ export function previewResultFingerprint(result: SimulateBuildResponse | null): 
           Object.entries(result.services).map(([key, value]) => [key, value?.status ?? null]),
         )
       : null,
+    port_service_states: result.port_service_states,
     top_two_alignment: result.top_two_alignment,
   });
 }

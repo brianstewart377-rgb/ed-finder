@@ -3,13 +3,14 @@
  *
  * The backend talks about "observed facts" because that maps to the persisted
  * data contract. The user-facing product talks about "Observed Evidence" so
- * the UI does not overclaim correctness — observations are recorded evidence,
- * not proof. These labels keep both vocabularies aligned without leaking
+ * the UI does not overclaim certainty — observations are recorded evidence,
+ * not a final mechanics verdict. These labels keep both vocabularies aligned without leaking
  * absolute wording ("verified", "proven", "rule update") into the UI.
  *
  * Stage 6B is intentionally passive: nothing here implies that an observation
  * changes Simulation Preview scoring, optimiser ranking, or generated
- * candidates. Comparison comes in Stage 6C, validation display in Stage 6D.
+ * candidates. Comparison, validation display, and review guidance are
+ * separate read-only Stage 6 surfaces.
  */
 import type {
   ObservationSource,
@@ -27,7 +28,7 @@ export const PANEL_INTRO_COPY =
 
 export const EMPTY_STATE_TITLE = 'No observed evidence recorded yet.';
 export const EMPTY_STATE_BODY =
-  'Record what you actually saw in-game. Evidence is passive and will not change predictions until a later validation stage compares it.';
+  'Record what you actually saw in-game. Evidence is passive and does not change predictions, scoring, or mechanics.';
 
 export const DELETE_CONFIRM_TITLE = 'Delete this observed evidence record?';
 export const DELETE_CONFIRM_BODY =
@@ -35,8 +36,8 @@ export const DELETE_CONFIRM_BODY =
 
 /**
  * Fact types offered to manual users. The backend enum also includes
- * `prediction_match` / `prediction_mismatch` which are reserved for Stage
- * 6C predicted-vs-observed comparison; Stage 6B does not let the user
+ * `prediction_match` / `prediction_mismatch` which are handled by the
+ * predicted-vs-observed comparison engine; Stage 6B does not let the user
  * manually create them because they would imply a comparison verdict that
  * the Stage 6B UI does not produce.
  */

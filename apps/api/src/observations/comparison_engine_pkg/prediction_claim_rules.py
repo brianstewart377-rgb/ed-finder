@@ -4,14 +4,14 @@ Owns ``prediction_match`` and ``prediction_mismatch`` handling.
 
 These fact types are user claims about a subject:
 
-* ``prediction_match`` — "I checked and the prediction was right".
-* ``prediction_mismatch`` — "I checked and the prediction was wrong".
+* ``prediction_match`` — "I checked and this prediction aligned with what I saw".
+* ``prediction_mismatch`` — "I checked and this prediction diverged from what I saw".
 
 Stage 6C only elevates such a claim into ``confirmed`` /
 ``contradicted`` when we can locate the referenced subject in the
 current prediction. If the subject is not in the prediction the claim
 is surfaced as ``observed_only`` (for match) or ``unverified`` (for
-mismatch), so Stage 6C never echoes a user claim as truth without
+mismatch), so Stage 6C never echoes a user claim as a final verdict without
 supporting prediction context.
 """
 from __future__ import annotations

@@ -164,8 +164,8 @@ def observed_fact_from_any(value: Any) -> ObservedFact:
 class ObservationSource(str, Enum):
     # Stage 6A accepts ``manual`` and ``test_fixture`` sources through the
     # public API. ``imported`` and ``inferred`` are reserved enum values for
-    # later ingestion/comparison stages (e.g. EDMC/journal ingestion in 6B,
-    # automated inference in 6C) and are intentionally rejected by Stage 6A
+    # later ingestion/comparison stages (for example EDMC/journal ingestion
+    # or automated inference) and are intentionally rejected by Stage 6A
     # request validation so they cannot be silently introduced before those
     # stages define their own provenance rules.
     MANUAL = 'manual'

@@ -14,8 +14,8 @@ interface ValidationSummaryProps {
  * impact, per-bucket counts, and the human-readable summary string).
  *
  * Wording is conservative on purpose: the summary describes what the
- * engine measured; it never asserts that the prediction is correct or
- * incorrect. "Contradicted" rows are referred to with the user-facing
+ * engine measured; it never asserts a final prediction verdict.
+ * "Contradicted" rows are referred to with the user-facing
  * label "Needs review" via `comparisonStatusLabel`.
  */
 export function ValidationSummary({ summary }: ValidationSummaryProps) {

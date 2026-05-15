@@ -127,7 +127,7 @@ The Stage 6A public API accepts only:
 - `manual`
 - `test_fixture`
 
-`imported` and `inferred` are present in the `ObservationSource` enum vocabulary but are **reserved for later stages** (EDMC/journal ingestion in 6B, automated inference in 6C). Stage 6A request validation rejects them with HTTP 422. Future stages will define provenance and trust rules before lifting that restriction.
+`imported` and `inferred` are present in the `ObservationSource` enum vocabulary but are **reserved for future ingestion/inference flows**. Stage 6A/6B create and update validation rejects them with HTTP 422. Stage 6C/6E Mode B may accept them only as caller-supplied read-only comparison input; those supplied facts are never persisted by compare or review.
 
 ### Summary semantics
 
@@ -238,7 +238,7 @@ Stage 6B is a **passive** integration: the Observed Evidence panel does not feed
 
 ## Stage 6C Predicted-vs-Observed Comparison
 
-Stage 6C adds a **comparison-only** endpoint that compares a Simulation Preview prediction against persisted Stage 6A observed facts and returns a structured per-row comparison plus a top-level summary. Stage 6C is the engine; Stage 6D will render its output in the validation UI.
+Stage 6C adds a **comparison-only** endpoint that compares a Simulation Preview prediction against persisted Stage 6A observed facts and returns a structured per-row comparison plus a top-level summary. Stage 6D renders this output in the validation UI.
 
 Core principle: **prediction is what ED-Finder thinks should happen, observation is what a user actually saw, comparison is a structured diff between the two.** Stage 6C compares; it does not change predictions, scoring, ranking, candidate generation, or Simulation Preview output.
 
@@ -254,6 +254,8 @@ The endpoint supports two modes:
 - **Mode B** — caller supplies `observed_facts` in addition to the other fields. The backend uses the supplied list verbatim and does NOT query the database for facts.
 
 Validation: `system_id64` must be `> 0`, `prediction` must be a JSON object (lists / strings / numbers are rejected with HTTP 422), `observed_facts` (when supplied) must be a list of fact-shaped objects.
+
+Mode A target semantics: when `target_archetype` is omitted or null, the backend loads all persisted facts for the system. When `target_archetype` is supplied, the backend loads facts for that target plus general/null-target evidence; facts for a different explicit target are excluded. Mode B is read-only over the supplied list and may include `imported` or `inferred` sources without relaxing the Stage 6A/6B persistence rules.
 
 ### Response vocabulary
 
@@ -409,7 +411,7 @@ Stage 6D is advisory. The user-facing copy is intentionally conservative:
 
 ### Passivity guarantee
 
-Validation rendering does not call `simulateBuild`, does not call `fetchOptimiserCandidates`, does not invoke the optimiser ranking, does not mutate persisted observed evidence, and does not feed confidence impact back into Simulation Preview scoring or optimiser ranking. A future expansion may move large comparison sets into a drawer/popout while keeping the in-page placement as the default. Stage 6E will introduce the confidence/mechanics review loop on top of this display; Stage 6D itself is a display layer only.
+Validation rendering does not call `simulateBuild`, does not call `fetchOptimiserCandidates`, does not invoke the optimiser ranking, does not mutate persisted observed evidence, and does not feed confidence impact back into Simulation Preview scoring or optimiser ranking. A future expansion may move large comparison sets into a drawer/popout while keeping the in-page placement as the default. Stage 6D itself is a display layer only.
 
 ## Stage 6E Validation Review Guidance
 
@@ -470,3 +472,9 @@ Example response:
 Review statuses are `no_action`, `monitor`, `review_recommended`, `review_high_priority`, `insufficient_evidence`, and `mixed_evidence`. Review areas are `service_rules`, `economy_rules`, `cp_rules`, `facility_rules`, `build_outcome`, `prediction_claims`, `evidence_quality`, and `general`. Evidence strength is `none`, `weak`, `moderate`, `strong`, or `mixed`. High-priority review remains advisory: it identifies investigation priority and does not change predictions, scoring, ranking, or mechanics.
 
 Stage 6E is passive. It does not run Simulation Preview, change predictions, mutate observations, change CP/economy/service/buildability mechanics, alter scoring, alter optimiser candidate generation, alter optimiser ranking, persist changed confidence, ingest EDMC/journals, or derive mechanics changes from observations. Low-confidence evidence cannot trigger high-priority review. Contradicted comparisons are framed as "may need review", not final mechanics verdicts.
+
+## Stage 6F Final Hardening
+
+Stage 6F is a forensic hardening pass over Stages 6A-6E. It adds no new product surface. The final Stage 6 contract is: observations record evidence, comparison validates prediction against evidence, and review guidance suggests investigation areas. None of those steps changes predictions, scoring, optimiser ranking, candidate generation, CP/economy/service/buildability mechanics, saved builds, accounts, EDMC/journal ingestion, or Stage 7 search tuning.
+
+The hardened workflow keeps compare and review queries keyed by system, target archetype, and the backend-read preview fingerprint, including service state, economy state, CP state, and build-outcome fields. Observed Evidence create/update/delete invalidates compare and review queries. Manual **Refresh validation** refetches both compare and review. Review failures remain isolated so comparison rows stay visible.

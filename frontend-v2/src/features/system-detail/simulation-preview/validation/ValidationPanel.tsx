@@ -30,7 +30,7 @@ interface ValidationPanelProps {
  * Renders the Stage 6C `/api/observations/compare` response inside the
  * Colony Planner. The panel is intentionally passive:
  *
- *   * It never calls `simulateBuild` or `fetchOptimiserCandidates`.
+ *   * It never calls preview execution or optimiser candidate-generation helpers.
  *   * It never mutates persisted observed evidence.
  *   * It does not alter Simulation Preview scoring, optimiser ranking,
  *     candidate generation, or in-game state.

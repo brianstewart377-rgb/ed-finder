@@ -41,8 +41,9 @@ interface ObservedEvidencePanelProps {
  * for the current system. The panel is passive: nothing here calls
  * `simulateBuild` or `fetchOptimiserCandidates`, and the data fetched here
  * is NOT plumbed back into Simulation Preview scoring or optimiser ranking.
- * Stage 6C will introduce predicted-vs-observed comparison; Stage 6D will
- * render validation/comparison results.
+ * Stage 6C/6D/6E compare and review evidence in separate read-only
+ * validation queries; this panel remains the only Stage 6 surface that
+ * mutates observed evidence.
  *
  * The query key includes the current filter set so changing a filter
  * triggers a fresh backend list call with the filter applied (the

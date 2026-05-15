@@ -32,7 +32,7 @@ Design rules — DO NOT relax without an explicit stage decision:
    * Notes never contradict — they are observed-only context.
    * Economy evidence is matched by economy name — an observation for
      a *different* economy never auto-contradicts a predicted economy.
-   * One observation is evidence, not proof.
+   * One observation is evidence, not a final mechanics verdict.
 """
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   cleanup,
@@ -48,6 +51,16 @@ const mockedListObservedFacts = vi.mocked(listObservedFacts);
 const mockedCreateObservedFact = vi.mocked(createObservedFact);
 const mockedUpdateObservedFact = vi.mocked(updateObservedFact);
 const mockedDeleteObservedFact = vi.mocked(deleteObservedFact);
+const validationDir = dirname(fileURLToPath(import.meta.url));
+
+function validationSourceFiles(dir = validationDir): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return validationSourceFiles(path);
+    if (!entry.name.match(/\.(ts|tsx)$/) || entry.name.endsWith('.test.tsx')) return [];
+    return [path];
+  });
+}
 
 function previewResult(overrides: Partial<SimulateBuildResponse> = {}): SimulateBuildResponse {
   return {
@@ -368,6 +381,24 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     ).toBeTruthy();
   });
 
+  it('keeps validation source free of preview, optimiser, and observation mutation helpers', () => {
+    const forbidden = [
+      'simulateBuild',
+      'fetchOptimiserCandidates',
+      'createObservedFact',
+      'updateObservedFact',
+      'deleteObservedFact',
+    ];
+    const offenders = validationSourceFiles().flatMap((path) => {
+      const source = readFileSync(path, 'utf8');
+      return forbidden
+        .filter((token) => source.includes(token))
+        .map((token) => `${path.replace(`${validationDir}/`, '')}: ${token}`);
+    });
+
+    expect(offenders).toEqual([]);
+  });
+
   it('shows the no-preview empty state and does not call compare API when there is no preview result', async () => {
     renderPanel({ preview: null });
     expect(
@@ -597,6 +628,86 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     expect(mockedCompare).toHaveBeenCalledTimes(1);
     expect(mockedReview).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId('validation-refresh-button'));
+    await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(2));
+  });
+
+  it('refetches compare and review when a backend-read prediction field changes', async () => {
+    mockedCompare.mockResolvedValue(compareResponse());
+    mockedReview.mockResolvedValue(reviewResponse());
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const serviceEntry = {
+      service: 'market',
+      status: 'locked',
+      target_port_id: 'port-a',
+      target_port_name: 'Port A',
+      unlock_type: 'economy',
+      confidence: 'medium',
+      reason: 'test',
+      requirements: [],
+      caveats: [],
+    };
+    const firstPreview = previewResult({
+      services: {
+        market: { status: 'locked', reason: 'top-level status unchanged', requirements: [] },
+      },
+      port_service_states: [
+        {
+          port_id: 'port-a',
+          port_name: 'Port A',
+          location_type: 'surface',
+          effective_role: 'primary',
+          active_services: {},
+          locked_services: { market: serviceEntry },
+          unknown_services: {},
+          service_sources: [],
+          warnings: [],
+          recommendations: [],
+        },
+      ],
+    });
+    const secondPreview = previewResult({
+      services: {
+        market: { status: 'locked', reason: 'top-level status unchanged', requirements: [] },
+      },
+      port_service_states: [
+        {
+          port_id: 'port-a',
+          port_name: 'Port A',
+          location_type: 'surface',
+          effective_role: 'primary',
+          active_services: { market: { ...serviceEntry, status: 'active' } },
+          locked_services: {},
+          unknown_services: {},
+          service_sources: [],
+          warnings: [],
+          recommendations: [],
+        },
+      ],
+    });
+
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <ValidationPanel
+          systemId64={123}
+          targetArchetype="trade_logistics"
+          previewResult={firstPreview}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <QueryClientProvider client={client}>
+        <ValidationPanel
+          systemId64={123}
+          targetArchetype="trade_logistics"
+          previewResult={secondPreview}
+        />
+      </QueryClientProvider>,
+    );
+
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(2));
   });

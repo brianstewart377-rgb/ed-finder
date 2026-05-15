@@ -4,16 +4,15 @@
  * Stage 6D renders the Stage 6C `/api/observations/compare` response
  * inside Colony Planner. The labels here are intentionally conservative:
  *
- *   * "contradicted" is rendered as **Needs review**, never "wrong".
+ *   * "contradicted" is rendered as **Needs review**, never a final verdict.
  *   * "predicted_only" and "observed_only" use neutral wording that
- *     describes the asymmetry without implying the prediction is
- *     incorrect or that the observation is proof.
+ *     describes the asymmetry without implying a final mechanics verdict.
  *   * The advisory copy at the top makes the boundary explicit so users
  *     do not read Validation as a scoring/ranking input.
  *
- * No copy in this module classifies a prediction as proven, corrected,
- * or wrong. Stage 6D is a display layer only; mechanics/rule mutation
- * and any confidence-feedback loop are deferred to Stage 6E.
+ * No copy in this module classifies a prediction as a final verdict.
+ * Stage 6D/6E rendering is advisory only; mechanics/rule mutation and
+ * confidence-feedback loops remain out of scope.
  */
 import type {
   ComparisonConfidenceImpact,
@@ -63,9 +62,8 @@ export const CONFIDENCE_IMPACT_LABELS: Record<ComparisonConfidenceImpact, string
 
 /**
  * Per-row status labels. The "contradicted" mapping is deliberate: the
- * spec for Stage 6D forbids the word "wrong" and asks for **Needs
- * review** so users understand it as something to investigate, not a
- * verdict.
+ * spec asks for **Needs review** so users understand it as something to
+ * investigate, not a verdict.
  */
 export const COMPARISON_STATUS_LABELS: Record<ComparisonStatus, string> = {
   confirmed: 'Confirmed',

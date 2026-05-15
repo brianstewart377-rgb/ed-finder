@@ -445,9 +445,12 @@ def fake_store(monkeypatch) -> _FakeStore:
 
 @pytest.fixture
 def app(fake_store: _FakeStore) -> FastAPI:
+    async def fake_pool() -> object:
+        return object()
+
     test_app = FastAPI()
     test_app.include_router(observations_router.router)
-    test_app.dependency_overrides[get_pool] = lambda: object()
+    test_app.dependency_overrides[get_pool] = fake_pool
     return test_app
 
 

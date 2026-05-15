@@ -19,8 +19,7 @@ interface ValidationComparisonListProps {
  * Renders the comparison list with a status filter. The filter is
  * intentionally narrow (status only); severity filtering is left for a
  * later refinement. The empty state stays neutral so users do not read
- * "no rows" as "your prediction is wrong" or "your prediction is
- * proven".
+ * "no rows" as a final verdict on the prediction.
  */
 export function ValidationComparisonList({ comparisons }: ValidationComparisonListProps) {
   const [statusFilter, setStatusFilter] = useState<ComparisonStatus | ''>('');

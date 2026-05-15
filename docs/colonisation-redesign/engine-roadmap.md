@@ -139,9 +139,9 @@ Stage 6B adds the frontend Observed Evidence panel that lets a user manually rec
 | Passivity copy | The panel renders the Stage 6B passive-evidence notice near the top: *"Observed Evidence is passive. It does not change Simulation Preview scoring, optimiser ranking, or generated candidates."* No final-verdict or automatic mechanics-change wording is used. |
 | Integration | `SimulationPreview.tsx` renders `ObservedEvidencePanel` after `PreviewResultSection`, passes `system.id64` and `plan.targetArchetype`, and otherwise keeps the existing simulation/optimiser request payloads unchanged. `ColonyPlannerSectionNav.tsx` adds a neutral Observed Evidence section label. |
 | Tests | `ObservedEvidencePanel.test.tsx` covers passive copy, list/empty/loading/error states with retry, manual create for service/economy/facility/note evidence, 422 backend error display, client-side validation, edit save and cancel, delete confirm and cancel, fact-type/status filter calls, hidden imported/inferred sources, and absence of simulate/optimiser side effects during observation flows. `SimulationPreview.optimiser.test.tsx` adds Observed Evidence panel render checks and confirms the optimiser/simulation request paths remain unchanged. |
-| Boundaries | Stage 6B records evidence only. It does not classify predictions as correct/incorrect, run any comparison engine, change simulation/optimiser request payloads, alter scoring, ingest EDMC or journals, persist accounts/builds, or feed evidence back into mechanics. Stage 6C will add predicted-vs-observed comparison; Stage 6D will render validation results. |
+| Boundaries | Stage 6B records evidence only. It does not classify predictions, run any comparison engine, change simulation/optimiser request payloads, alter scoring, ingest EDMC or journals, persist accounts/builds, or feed evidence back into mechanics. Stage 6C handles predicted-vs-observed comparison; Stage 6D renders validation results. |
 
-Stage 6C remains responsible for the predicted-vs-observed comparison engine. Stage 6D will render the validation/comparison results. Imported and inferred sources remain reserved for later ingestion stages; Stage 6B never exposes them in any create-form option.
+Stage 6C is responsible for the predicted-vs-observed comparison engine. Stage 6D renders the validation/comparison results. Imported and inferred sources remain reserved for future ingestion/inference persistence paths; Stage 6B never exposes them in any create-form option.
 
 ### Stage 6C - Predicted vs Observed Comparison Engine
 
@@ -166,7 +166,7 @@ Core principle: **prediction is what ED-Finder thinks should happen, observation
 
 Stage 6D renders the Stage 6C `POST /api/observations/compare` response inside the Colony Planner. It is a **frontend integration stage**: the engine and the endpoint are unchanged. Validation is rendered as an in-page section inside Colony Planner, **after Observed Evidence**. No popout, modal, or top-level app tab is introduced. The Colony Planner section order is now: Build Plan → Optimiser Candidates → Preview Result → Observed Evidence → Validation.
 
-Core principle: **prediction is what ED-Finder thinks should happen, observation is what a user actually saw, validation displays the comparison between them.** Stage 6D shows; it does not change predictions, optimiser candidates, optimiser ranking, scoring, mechanics, persisted observations, or in-game state. Contradictions are labelled **Needs review** because one observation is evidence to compare, not a mechanics verdict. Missing observations do not mean a prediction is incorrect; they are reported as `predicted_only` with conservative copy.
+Core principle: **prediction is what ED-Finder thinks should happen, observation is what a user actually saw, validation displays the comparison between them.** Stage 6D shows; it does not change predictions, optimiser candidates, optimiser ranking, scoring, mechanics, persisted observations, or in-game state. Contradictions are labelled **Needs review** because one observation is evidence to compare, not a mechanics verdict. Missing observations are reported as `predicted_only` with conservative copy.
 
 | Stage 6D Concern | Current Outcome |
 |---|---|
@@ -178,9 +178,9 @@ Core principle: **prediction is what ED-Finder thinks should happen, observation
 | Refresh | A manual **Refresh validation** button calls `refetch()` on the compare query. The Observed Evidence panel additionally invalidates `observation-compare` queries on create/update/delete so new evidence is reflected on the next refresh. |
 | Summary rendering | `ValidationSummary` displays overall status (`no_observations`/`confirmed`/`mixed`/`needs_review`/`insufficient_evidence`), confidence impact (`none`/`strengthened`/`weakened`/`mixed`/`insufficient_evidence`), observed-facts count, compared-predictions count, and per-bucket counts using the conservative labels listed in `validationLabels.ts`. The backend `summary` text is rendered verbatim. |
 | Comparison rendering | `ValidationComparisonList` renders one `ValidationComparisonCard` per comparison row with a status filter (severity filter is optional and not in scope). Each card shows status, severity, confidence, area, subject type, subject id, predicted value, observed value, reason, recommended action (when present), evidence count, and per-evidence details (`observation_id`, `fact_type`, `status`, `confidence`, `observed_value`, `expected_value`, `notes`). Empty state and filter-empty state copy stay neutral. |
-| Conservative copy | `contradicted` rows render as **Needs review**; `predicted_only` and `observed_only` rows use neutral wording that describes the asymmetry without implying correctness. The advisory top banner makes the boundary explicit. |
+| Conservative copy | `contradicted` rows render as **Needs review**; `predicted_only` and `observed_only` rows use neutral wording that describes the asymmetry without implying a final verdict. The advisory top banner makes the boundary explicit. |
 | Tests | `frontend-v2/src/features/system-detail/simulation-preview/validation/ValidationPanel.test.tsx` covers advisory copy, no-preview empty state, compare API call shape, summary rendering, per-status labels (confirmed/contradicted/predicted_only/observed_only/unknown/unverified), evidence detail rendering, status filtering, loading state, error/retry, stale warning, refresh, and passivity (no `simulateBuild`, no `fetchOptimiserCandidates`, no observed-fact mutations). `SimulationPreview.optimiser.test.tsx` additionally asserts that Validation renders inside Colony Planner after Observed Evidence and that the compare API is called with the current preview result once a preview has been run. |
-| Boundaries | Stage 6D is a display layer only. It does not change predictions, simulation scoring, optimiser candidate generation, optimiser ranking, CP/economy/service/buildability mechanics, persisted observed evidence, or in-game state. Validation rendering never auto-runs Simulation Preview. Stage 6E will introduce the confidence/rule mutation review loop on top of this display; Stage 6D defers that work. A future expansion may move large comparison sets into a drawer or popout, but the default placement remains in-page. |
+| Boundaries | Stage 6D is a display layer only. It does not change predictions, simulation scoring, optimiser candidate generation, optimiser ranking, CP/economy/service/buildability mechanics, persisted observed evidence, or in-game state. Validation rendering never auto-runs Simulation Preview. A future expansion may move large comparison sets into a drawer or popout, but the default placement remains in-page. |
 
 ### Stage 5A - Deterministic Candidate Generation
 
@@ -310,4 +310,17 @@ Stage 6E adds a structured review layer on top of Stage 6C comparison output and
 
 The review implementation is split under `apps/api/src/observations/review/`: `engine.py` orchestrates, `rules.py` selects deterministic signals, `signals.py` constructs signal objects, `summary.py` owns top-line status precedence, `areas.py` maps comparison areas to review areas, `severity.py` owns severity/confidence helpers, and `shared.py` owns common buckets. The legacy `observations.review_engine` module remains a thin compatibility import.
 
-Stage 6F will harden the Stage 6 workflow around robustness, ergonomics, and contract edges. EDMC/journal ingestion remains unimplemented and out of scope for Stage 6E.
+### Stage 6F - Final Stage 6 Hardening
+
+Stage 6F is a forensic hardening pass over the observed-evidence -> validation -> review-guidance workflow. It does not add new product scope.
+
+| Stage 6F Concern | Current Outcome |
+| --- | --- |
+| Passivity | Static and component tests verify observations/comparison/review do not feed simulation scoring, optimiser generation, optimiser ranking, CP/economy/service/buildability mechanics, or automatic preview runs. |
+| Freshness | Validation and review queries are keyed by system, target archetype, and the backend-read preview fingerprint. Observed Evidence create/update/delete invalidates both query namespaces, and manual Refresh validation refetches both read-only endpoints. |
+| Failure isolation | Review guidance failures do not hide comparison rows. Missing preview results disable compare/review calls. Stale preview warnings remain visible with validation and review guidance. |
+| Contract clarity | Mode A loads persisted target-specific plus general evidence; Mode B uses supplied read-only facts and may include imported/inferred sources without making them persistable through Stage 6A/6B create/update. |
+| Language | User-facing copy stays conservative: observations are evidence, contradicted rows are Needs review, and review guidance is advisory. No Stage 6 UI claims automatic prediction changes or mechanics changes. |
+| Deferred scope | EDMC/journal ingestion, automatic ingestion, saved builds, account/profile persistence, global sync, automatic rule changes, mechanics mutation, scoring/ranking changes, and Stage 7 Search Tuning remain future work. |
+
+Stage 6 now records evidence, compares predictions, displays validation, and suggests review areas without changing the engine behind the user's back.

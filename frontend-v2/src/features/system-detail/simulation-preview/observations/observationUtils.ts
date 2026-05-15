@@ -3,7 +3,7 @@
  *
  * These helpers do NOT call the API. They format / parse strings that the
  * manual-evidence form needs, and provide a small validator the form uses
- * before POSTing to the backend. The backend remains the source of truth
+ * before POSTing to the backend. The backend remains authoritative
  * for validation; this validator only catches the most obvious mistakes so
  * the user doesn't have to wait for a network round-trip to spot them.
  */

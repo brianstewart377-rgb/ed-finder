@@ -95,7 +95,7 @@ Stage 6A is a **passive evidence shelf**: observations are recorded separately f
 
 The Stage 6A public API accepts only `manual` and `test_fixture` observation sources; `imported` and `inferred` are reserved enum values for later ingestion/comparison stages and are rejected by Stage 6A validation. The list endpoint's `summary` field describes the full filtered result set (matching `total`), not just the paginated page. `subject_id` may be null for system/build-level notes. Legacy Stage 4D columns on `observed_facts` (`area`, `source_type`, `observed_value`, `facility_id`, `body_id`) remain populated alongside the new Stage 6A columns until a later normalisation migration removes them.
 
-Stage 6A does **not** add frontend observation entry, automatic validation inside Simulation Preview, EDMC or journal ingestion, saved builds, account persistence, crowdsourcing, auto-learning, or mechanics mutation. Stage 6B can add manual observation entry UI, and Stage 6C can add predicted-vs-observed comparison on top of the stored facts.
+Stage 6A does **not** add frontend observation entry, automatic validation inside Simulation Preview, EDMC or journal ingestion, saved builds, account persistence, crowdsourcing, auto-learning, or mechanics mutation. Later Stage 6 work layers manual evidence entry, predicted-vs-observed comparison, validation display, and advisory review guidance on top of this passive store.
 
 ## Stage 6B Manual Observed Evidence UI
 
@@ -115,7 +115,7 @@ The Stage 6B panel is intentionally **passive**. It calls only the Stage 6A `/ap
 
 The create form intentionally never exposes `imported` or `inferred` as source options; both remain reserved enum values for later ingestion/comparison stages, and the Stage 6A request validation already rejects them server-side. Tests assert that no option element with those values exists in the form.
 
-Stage 6C will introduce the predicted-vs-observed comparison engine. Stage 6D will render validation/comparison results in the simulation surface. Stage 6B records evidence only; it does not decide what the evidence means.
+Stage 6C introduces the predicted-vs-observed comparison engine. Stage 6D renders validation/comparison results in the simulation surface. Stage 6B records evidence only; it does not decide what the evidence means.
 
 ## Stage 6C Predicted-vs-Observed Comparison Engine
 
@@ -135,12 +135,12 @@ Stage 6D adds an **in-page Validation section** inside Colony Planner that rende
 | `validation/ValidationSummary.tsx` | Renders overall status (`no_observations`/`confirmed`/`mixed`/`needs_review`/`insufficient_evidence`), confidence impact (`none`/`strengthened`/`weakened`/`mixed`/`insufficient_evidence`), per-bucket counts, and the backend `summary` text using conservative labels. |
 | `validation/ValidationComparisonList.tsx` | Renders the comparison rows with a status filter; surfaces empty-state and filter-empty-state copy. |
 | `validation/ValidationComparisonCard.tsx` | Renders a single comparison row including evidence details (`observation_id`, `fact_type`, `status`, `confidence`, `observed_value`, `expected_value`, `notes`). Contradicted rows are labelled **Needs review**; `predicted_only`/`observed_only` rows use neutral wording. |
-| `validation/validationLabels.ts` | Centralised user-facing copy and label maps. Enforces conservative wording: "Needs review", "Predicted only" / "Observed only" instead of correctness claims, top-of-panel advisory banner. |
+| `validation/validationLabels.ts` | Centralised user-facing copy and label maps. Enforces conservative wording: "Needs review", "Predicted only" / "Observed only" instead of final-verdict claims, top-of-panel advisory banner. |
 | `validation/validationUtils.ts` | Pure helpers: stable preview-result fingerprint for the compare query key, value formatter, status filter. |
 
-The Stage 6D panel is intentionally **passive**. It calls only `comparePredictionToObservations(...)` against `POST /api/observations/compare` in Mode A (no `observed_facts` in the request, so the backend serves authoritative persisted evidence). It never calls `simulateBuild`, never calls `fetchOptimiserCandidates`, never mutates persisted observations, never feeds confidence impact into Simulation Preview scoring or optimiser ranking, and never auto-runs Simulation Preview. The query key includes `systemId64`, `targetArchetype`, and a stable preview-result fingerprint so a new preview run triggers a fresh comparison while an unchanged preview reuses the cached compare response. When `runState.isResultStale` is true, the panel renders a stale warning; the user re-runs Preview themselves. The Observed Evidence panel invalidates `observation-compare` queries on create/update/delete so newly recorded evidence is reflected on the next refresh without changing the build plan or scoring.
+The Stage 6D panel is intentionally **passive**. It calls only `comparePredictionToObservations(...)` against `POST /api/observations/compare` in Mode A (no `observed_facts` in the request, so the backend serves authoritative persisted evidence). It never calls `simulateBuild`, never calls `fetchOptimiserCandidates`, never mutates persisted observations, never feeds confidence impact into Simulation Preview scoring or optimiser ranking, and never auto-runs Simulation Preview. The query key includes `systemId64`, `targetArchetype`, and a stable preview-result fingerprint covering backend-read prediction fields, including service state, economy state, CP state, and build-outcome fields. When `runState.isResultStale` is true, the panel renders a stale warning; the user re-runs Preview themselves. The Observed Evidence panel invalidates `observation-compare` queries on create/update/delete so newly recorded evidence is reflected on the next refresh without changing the build plan or scoring.
 
-Stage 6E will introduce the confidence/mechanics review loop on top of this display; Stage 6D itself is a display layer only. Tests under `validation/ValidationPanel.test.tsx` and the updated `SimulationPreview.optimiser.test.tsx` cover advisory copy, no-preview empty state, compare API call shape, summary rendering, per-status labels, evidence detail rendering, status filtering, loading state, error/retry, stale warning, refresh, in-page ordering after Observed Evidence, and passivity (no `simulateBuild`, no `fetchOptimiserCandidates`, no observation mutations during rendering).
+Stage 6D itself is a display layer only. Tests under `validation/ValidationPanel.test.tsx` and the updated `SimulationPreview.optimiser.test.tsx` cover advisory copy, no-preview empty state, compare API call shape, summary rendering, per-status labels, evidence detail rendering, status filtering, loading state, error/retry, stale warning, refresh, in-page ordering after Observed Evidence, query-key freshness, and passivity (no `simulateBuild`, no `fetchOptimiserCandidates`, no observation mutations during rendering).
 
 ## Stage 6E Validation Review Guidance
 
@@ -155,4 +155,10 @@ The review endpoint first produces the Stage 6C comparison result, then derives 
 
 The review block renders after the Stage 6C summary and before comparison rows. It shows overall review status, evidence strength, highest severity, primary areas, summary text, and signals. User-facing copy says: "Review guidance is advisory", "This does not change mechanics or scoring", and "Use this to decide what to investigate next." If review guidance fails to load, comparison rows remain visible.
 
-Observed evidence create/update/delete invalidates both compare and review query namespaces. Low-confidence evidence cannot trigger high-priority review, and contradicted rows remain framed as needs-review leads rather than final mechanics verdicts. Stage 6F will harden the Stage 6 workflow; EDMC/journal ingestion is still not implemented.
+Observed evidence create/update/delete invalidates both compare and review query namespaces. Low-confidence evidence cannot trigger high-priority review, and contradicted rows remain framed as needs-review leads rather than final mechanics verdicts. EDMC/journal ingestion is still not implemented.
+
+## Stage 6F Final Hardening
+
+Stage 6F is the final Stage 6 hardening pass. It does not add EDMC/journal ingestion, automatic ingestion, saved builds, account persistence, automatic prediction changes, scoring changes, optimiser generation/ranking changes, or Stage 7 Search Tuning work.
+
+The hardened Stage 6 workflow remains: Observed Evidence records passive evidence; Validation compares the current user-run preview with persisted evidence; Review guidance renders advisory investigation signals. Observations invalidate compare/review queries, manual **Refresh validation** refetches both read-only endpoints, stale preview warnings remain visible, review failures do not hide comparison rows, and no Stage 6 component auto-runs Simulation Preview or optimiser candidate generation.

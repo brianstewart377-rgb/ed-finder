@@ -15,7 +15,7 @@ interface ValidationComparisonCardProps {
  * Renders a single comparison row.
  *
  * Conservative wording rules (enforced by tests):
- *   * "contradicted" → labelled **Needs review**, never "wrong".
+ *   * "contradicted" → labelled **Needs review**, never a final verdict.
  *   * "predicted_only" → "Predicted, but no matching observation has
  *     been recorded yet."
  *   * "observed_only" → "Observed evidence exists, but the current

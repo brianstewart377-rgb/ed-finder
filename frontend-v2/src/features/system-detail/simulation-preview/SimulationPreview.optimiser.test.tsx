@@ -163,6 +163,30 @@ function emptyReviewResponse(): ValidationReviewResponse {
   };
 }
 
+function emptyCompareResponse(): PredictionObservationCompareResponse {
+  return {
+    system_id64: 123,
+    target_archetype: 'agriculture_terraforming',
+    generated_at: '2026-05-15T12:00:00+00:00',
+    summary: {
+      status: 'no_observations',
+      observed_facts_count: 0,
+      compared_predictions_count: 0,
+      confirmed_count: 0,
+      contradicted_count: 0,
+      observed_only_count: 0,
+      predicted_only_count: 0,
+      unknown_count: 0,
+      unverified_count: 0,
+      confidence_impact: 'none',
+      summary: 'No observations yet.',
+    },
+    comparisons: [],
+    warnings: [],
+    assumptions: [],
+  };
+}
+
 function mockNoRecommendedBuild() {
   mockedGetFacilityTemplates.mockResolvedValue(templates);
   mockedGetSimulationSummary.mockResolvedValue({
@@ -172,6 +196,7 @@ function mockNoRecommendedBuild() {
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
+  mockedCompare.mockResolvedValue(emptyCompareResponse());
   mockedReview.mockResolvedValue(emptyReviewResponse());
 }
 
@@ -189,6 +214,7 @@ function mockRecommendedBuild() {
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
+  mockedCompare.mockResolvedValue(emptyCompareResponse());
   mockedReview.mockResolvedValue(emptyReviewResponse());
 }
 
