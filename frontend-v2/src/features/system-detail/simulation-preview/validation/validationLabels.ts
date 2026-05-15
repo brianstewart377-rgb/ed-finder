@@ -29,7 +29,7 @@ export const NO_PREVIEW_COPY =
   'Run Preview to compare predictions with observed evidence. Validation needs a current Simulation Preview result and any observed evidence recorded for this system.';
 
 export const STALE_PREVIEW_COPY =
-  'Preview result is stale. The Build Plan has changed since this preview was run. Run Preview again before relying on validation.';
+  'Preview result is stale. The Build Plan has changed since this preview was run, so this validation may reflect the previous preview result. Run Preview again before relying on validation.';
 
 export const EMPTY_COMPARISONS_COPY =
   'No comparison rows yet. Run Preview and record observed evidence for this system to populate validation.';

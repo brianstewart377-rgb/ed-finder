@@ -423,6 +423,11 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     expect(
       screen.getByText(/The Build Plan has changed since this preview was run/),
     ).toBeTruthy();
+    // Stage 6D polish: the stale copy makes clear that the rendered
+    // validation may still reflect the previous preview result.
+    expect(
+      screen.getByText(/this validation may reflect the previous preview result/),
+    ).toBeTruthy();
   });
 
   it('does not render the stale preview warning when isPreviewResultStale is false', async () => {
