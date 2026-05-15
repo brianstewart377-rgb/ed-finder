@@ -102,6 +102,16 @@ def _signals_by_area(review):
     return {signal.area: signal for signal in review.signals}
 
 
+FORBIDDEN_REVIEW_WORDS = (
+    'proof',
+    'wrong',
+    'rule failure',
+    'corrected',
+    'learned',
+    'truth',
+)
+
+
 def test_no_observations_produce_insufficient_evidence_signal():
     review = _review({'services': {'market': {'status': 'active'}}}, [])
     assert review.summary.overall_review_status == ReviewStatus.INSUFFICIENT_EVIDENCE.value
@@ -141,8 +151,8 @@ def test_service_contradiction_produces_service_rules_signal():
     signal = _signals_by_area(review)[ReviewArea.SERVICE_RULES.value]
     assert signal.status == ReviewStatus.REVIEW_HIGH_PRIORITY.value
     assert signal.title == 'Service prediction rules may need review'
-    assert 'proof' in signal.message
-    assert 'wrong' not in signal.message.lower()
+    assert 'review lead' in signal.message
+    assert 'automatic rule change' in signal.message
 
 
 def test_economy_contradiction_produces_economy_rules_signal():
@@ -233,11 +243,75 @@ def test_mixed_confirmed_and_contradicted_produces_mixed_evidence():
                 subject_id='shipyard',
                 service_id='shipyard',
                 status=ObservedStatus.OBSERVED_ABSENT,
+                confidence=ObservedConfidence.MEDIUM,
             ),
         ],
     )
     assert review.summary.overall_review_status == ReviewStatus.MIXED_EVIDENCE.value
     assert any(signal.status == ReviewStatus.MIXED_EVIDENCE.value for signal in review.signals)
+
+
+def test_mixed_with_high_priority_contradiction_keeps_high_priority_top_line():
+    review = _review(
+        {
+            'services': {
+                'market': {'status': 'active'},
+                'shipyard': {'status': 'active'},
+            },
+        },
+        [
+            _fact(
+                observation_id='obs_market',
+                fact_type=ObservedFactType.SERVICE_PRESENCE,
+                subject_type=ObservedSubjectType.SERVICE,
+                subject_id='market',
+                service_id='market',
+                status=ObservedStatus.OBSERVED_PRESENT,
+            ),
+            _fact(
+                observation_id='obs_shipyard',
+                fact_type=ObservedFactType.SERVICE_PRESENCE,
+                subject_type=ObservedSubjectType.SERVICE,
+                subject_id='shipyard',
+                service_id='shipyard',
+                status=ObservedStatus.OBSERVED_ABSENT,
+                confidence=ObservedConfidence.HIGH,
+            ),
+        ],
+    )
+    assert review.summary.overall_review_status == ReviewStatus.REVIEW_HIGH_PRIORITY.value
+    assert any(signal.status == ReviewStatus.MIXED_EVIDENCE.value for signal in review.signals)
+
+
+def test_mixed_with_non_high_priority_contradiction_stays_mixed_evidence():
+    review = _review(
+        {
+            'services': {
+                'market': {'status': 'active'},
+                'repair': {'status': 'active'},
+            },
+        },
+        [
+            _fact(
+                observation_id='obs_market',
+                fact_type=ObservedFactType.SERVICE_PRESENCE,
+                subject_type=ObservedSubjectType.SERVICE,
+                subject_id='market',
+                service_id='market',
+                status=ObservedStatus.OBSERVED_PRESENT,
+            ),
+            _fact(
+                observation_id='obs_repair',
+                fact_type=ObservedFactType.SERVICE_PRESENCE,
+                subject_type=ObservedSubjectType.SERVICE,
+                subject_id='repair',
+                service_id='repair',
+                status=ObservedStatus.OBSERVED_ABSENT,
+                confidence=ObservedConfidence.LOW,
+            ),
+        ],
+    )
+    assert review.summary.overall_review_status == ReviewStatus.MIXED_EVIDENCE.value
 
 
 def test_predicted_only_heavy_is_insufficient_evidence_not_failure():
@@ -250,10 +324,9 @@ def test_predicted_only_heavy_is_insufficient_evidence_not_failure():
         [],
     )
     assert review.summary.overall_review_status == ReviewStatus.INSUFFICIENT_EVIDENCE.value
-    assert all('wrong' not in signal.message.lower() for signal in review.signals)
 
 
-def test_observed_only_heavy_is_monitor_not_proof():
+def test_observed_only_heavy_is_monitor_not_mechanics_verdict():
     facts = [
         _fact(
             observation_id=f'obs_{service}',
@@ -268,7 +341,59 @@ def test_observed_only_heavy_is_monitor_not_proof():
     review = _review({'services': {}}, facts)
     assert review.summary.overall_review_status == ReviewStatus.MONITOR.value
     assert any(signal.status == ReviewStatus.MONITOR.value for signal in review.signals)
-    assert all('proof' in signal.message or 'not yet matched' in signal.message for signal in review.signals)
+    assert any('mechanics verdict' in signal.message for signal in review.signals)
+
+
+def test_review_signal_messages_avoid_high_certainty_wording():
+    reviews = [
+        _review(
+            {'services': {'market': {'status': 'active'}}},
+            [_fact(
+                fact_type=ObservedFactType.SERVICE_PRESENCE,
+                subject_type=ObservedSubjectType.SERVICE,
+                subject_id='market',
+                service_id='market',
+                status=ObservedStatus.OBSERVED_ABSENT,
+            )],
+        ),
+        _review({'services': {}}, [
+            _fact(
+                observation_id='obs_market',
+                fact_type=ObservedFactType.SERVICE_PRESENCE,
+                subject_type=ObservedSubjectType.SERVICE,
+                subject_id='market',
+                service_id='market',
+                status=ObservedStatus.OBSERVED_PRESENT,
+            ),
+            _fact(
+                observation_id='obs_shipyard',
+                fact_type=ObservedFactType.SERVICE_PRESENCE,
+                subject_type=ObservedSubjectType.SERVICE,
+                subject_id='shipyard',
+                service_id='shipyard',
+                status=ObservedStatus.OBSERVED_PRESENT,
+            ),
+            _fact(
+                observation_id='obs_refuel',
+                fact_type=ObservedFactType.SERVICE_PRESENCE,
+                subject_type=ObservedSubjectType.SERVICE,
+                subject_id='refuel',
+                service_id='refuel',
+                status=ObservedStatus.OBSERVED_PRESENT,
+            ),
+        ]),
+        _review({'services': {'market': {'status': 'active'}}}, []),
+    ]
+    rendered = '\n'.join(
+        '\n'.join(
+            part
+            for part in (signal.title, signal.message, signal.recommended_action or '')
+        )
+        for review in reviews
+        for signal in review.signals
+    ).lower()
+    for word in FORBIDDEN_REVIEW_WORDS:
+        assert word not in rendered
 
 
 def test_review_result_serialization_is_json_safe():

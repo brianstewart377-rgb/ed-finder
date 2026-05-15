@@ -256,7 +256,7 @@ function reviewResponse(
         confidence: 'medium',
         status: 'review_recommended',
         title: 'Service prediction rules may need review',
-        message: 'Needs-review service rows point to this area. This is a review lead, not proof of a rule failure.',
+        message: 'Needs-review service rows point to this area. This is a review lead, not an automatic rule change.',
         recommended_action: 'Review service unlock assumptions and facility/service mapping.',
         comparison_ids: ['service:repair'],
       },
@@ -338,7 +338,7 @@ function renderPanel({
   return { ...utils, client };
 }
 
-describe('ValidationPanel — Stage 6D validation display', () => {
+describe('ValidationPanel - Stage 6D validation display', () => {
   beforeEach(() => {
     mockedCompare.mockReset();
     mockedReview.mockReset();
@@ -441,6 +441,7 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     expect(within(panel).getByText('Monitor')).toBeTruthy();
     expect(within(panel).getByText(/Confirm in-game before changing assumptions/)).toBeTruthy();
     expect(panel.textContent ?? '').not.toMatch(/wrong/i);
+    expect(panel.textContent ?? '').not.toMatch(/proof/i);
   });
 
   it('renders a confirmed row labelled "Confirmed"', async () => {
@@ -452,15 +453,15 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     expect(within(confirmedCard!).getByTestId('validation-card-status').textContent).toBe('Confirmed');
   });
 
-  it('renders a contradicted row as "Needs review" and never uses the word "wrong"', async () => {
+  it('renders a contradicted row as "Needs review" and avoids high-certainty wording', async () => {
     mockedCompare.mockResolvedValue(compareResponse());
     renderPanel();
     const cards = await screen.findAllByTestId('validation-comparison-card');
     const contradicted = cards.find((card) => card.getAttribute('data-status') === 'contradicted');
     expect(contradicted).toBeTruthy();
     expect(within(contradicted!).getByTestId('validation-card-status').textContent).toBe('Needs review');
-    // Hard guarantee: "wrong" never appears anywhere in the validation panel.
     expect(screen.getByTestId('validation-panel').textContent ?? '').not.toMatch(/wrong/i);
+    expect(screen.getByTestId('validation-panel').textContent ?? '').not.toMatch(/proof/i);
   });
 
   it('renders the conservative copy for predicted_only rows', async () => {
@@ -527,6 +528,23 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     await waitFor(() => expect(screen.queryByTestId('validation-loading')).toBeNull());
   });
 
+  it('uses the refresh label while review guidance is still fetching', async () => {
+    let resolveReview: (value: ValidationReviewResponse) => void = () => {};
+    mockedCompare.mockResolvedValue(compareResponse());
+    mockedReview.mockReturnValue(
+      new Promise<ValidationReviewResponse>((resolve) => {
+        resolveReview = resolve;
+      }),
+    );
+    renderPanel();
+    await screen.findByTestId('validation-summary');
+    const refresh = screen.getByTestId('validation-refresh-button');
+    expect(refresh.textContent).toBe('Refreshing...');
+    expect((refresh as HTMLButtonElement).disabled).toBe(true);
+    resolveReview(reviewResponse());
+    await waitFor(() => expect(refresh.textContent).toBe('Refresh validation'));
+  });
+
   it('shows an error state with a Retry control when compare fails, and retries on click', async () => {
     mockedCompare.mockRejectedValueOnce(new Error('boom'));
     mockedCompare.mockRejectedValueOnce(new Error('boom'));
@@ -573,7 +591,7 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     mockedReview.mockResolvedValue(reviewResponse());
     renderPanel();
     // Wait for the success state, not just the queryFn invocation, so
-    // the refresh button is no longer in its disabled "Refreshing…"
+    // the refresh button is no longer in its disabled "Refreshing..."
     // state when we click it.
     await screen.findByTestId('validation-summary');
     expect(mockedCompare).toHaveBeenCalledTimes(1);

@@ -36,15 +36,15 @@ interface ValidationPanelProps {
  *     candidate generation, or in-game state.
  *
  * Behaviour summary:
- *   * No preview result → empty/instructional state. No compare call.
- *   * Preview result present → compare against persisted observed
+ *   * No preview result -> empty/instructional state. No compare call.
+ *   * Preview result present -> compare against persisted observed
  *     evidence using Mode A (`observed_facts` omitted). The query key
  *     includes the preview fingerprint so a fresh preview triggers a
  *     fresh comparison.
- *   * Stale preview → render a warning. The compare query still uses
+ *   * Stale preview -> render a warning. The compare query still uses
  *     the *current* preview result; the user is informed to re-run
  *     Preview themselves. We never auto-run Simulation Preview here.
- *   * Refresh button → manual refetch of the compare query.
+ *   * Refresh button -> manual refetch of the compare and review queries.
  */
 export function ValidationPanel({
   systemId64,
@@ -57,7 +57,7 @@ export function ValidationPanel({
     [previewResult],
   );
 
-  // Stable query key — compares are tied to (system, archetype,
+  // Stable query key: compares are tied to (system, archetype,
   // preview-fingerprint). React Query caches per key, so the same
   // preview reuses the cached compare response on remount.
   const queryKey = useMemo(
@@ -111,10 +111,12 @@ export function ValidationPanel({
     retry: 1,
   });
 
+  const isRefreshingValidation = compareQuery.isFetching || reviewQuery.isFetching;
+
   function refreshValidation() {
     if (!previewResult) return;
     // Force a fresh comparison fetch for the current preview
-    // fingerprint. `refetch()` is sufficient — invalidating across
+    // fingerprint. `refetch()` is sufficient; invalidating across
     // (system, *, *) keys would also force every cached comparison to
     // refetch, which is wasteful when only the active one matters here.
     // The Observed Evidence panel separately invalidates the
@@ -139,11 +141,11 @@ export function ValidationPanel({
           <button
             type="button"
             onClick={refreshValidation}
-            disabled={!previewResult || compareQuery.isFetching || reviewQuery.isFetching}
+            disabled={!previewResult || isRefreshingValidation}
             className="rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan hover:bg-cyan/20 disabled:cursor-not-allowed disabled:opacity-40"
             data-testid="validation-refresh-button"
           >
-            {compareQuery.isFetching ? 'Refreshing…' : 'Refresh validation'}
+            {isRefreshingValidation ? 'Refreshing...' : 'Refresh validation'}
           </button>
         </div>
         <p

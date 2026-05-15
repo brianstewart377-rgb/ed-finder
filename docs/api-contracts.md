@@ -2,7 +2,7 @@
 
 ED-Finder keeps the backend, frontend, and EDDN worker as separate apps. They should stay separate. The shared contract between them is the HTTP API.
 
-## Source Of Truth
+## Authoritative Contracts
 
 The backend owns API response shapes through Pydantic models in `apps/api/src/models.py`.
 
@@ -402,7 +402,7 @@ When `isPreviewResultStale` is true, the panel renders a warning ("Preview resul
 Stage 6D is advisory. The user-facing copy is intentionally conservative:
 
 - Top-of-panel banner reads *"This validation is advisory. It compares the current preview result with recorded observed evidence. It does not change scoring, optimiser ranking, generated candidates, or in-game state."*
-- `contradicted` rows render as **Needs review**, never *wrong*.
+- `contradicted` rows render as **Needs review**, without verdict wording.
 - `predicted_only` rows render as *"Predicted, but no matching observation has been recorded yet."*
 - `observed_only` rows render as *"Observed evidence exists, but the current prediction has no matching item."*
 - The summary block surfaces overall status, confidence impact, observed-facts count, compared-predictions count, and per-bucket counts using the labels above.
@@ -415,7 +415,7 @@ Validation rendering does not call `simulateBuild`, does not call `fetchOptimise
 
 Stage 6E adds `POST /api/observations/review`, a structured review-guidance endpoint layered on top of the Stage 6C comparison result. It answers: "Based on validation results, what should I review next?"
 
-Core principle: prediction is what ED-Finder thinks should happen, observation is what a user/player actually saw, validation is the structured comparison, and review guidance is the conservative area that may need investigation. Stage 6E does not decide game truth.
+Core principle: prediction is what ED-Finder thinks should happen, observation is what a user/player actually saw, validation is the structured comparison, and review guidance is the conservative area that may need investigation. Stage 6E does not make final mechanics verdicts.
 
 | Endpoint | Purpose | Response |
 | --- | --- | --- |
@@ -457,7 +457,7 @@ Example response:
       "confidence": "medium",
       "status": "review_recommended",
       "title": "Service prediction rules may need review",
-      "message": "1 needs-review comparison row(s) point to this area. This is a review lead, not proof of a rule failure.",
+      "message": "1 needs-review comparison row(s) point to this area. This is a review lead, not an automatic rule change.",
       "recommended_action": "Review service unlock assumptions and facility/service mapping.",
       "comparison_ids": ["service:market"]
     }
@@ -467,6 +467,6 @@ Example response:
 }
 ```
 
-Review statuses are `no_action`, `monitor`, `review_recommended`, `review_high_priority`, `insufficient_evidence`, and `mixed_evidence`. Review areas are `service_rules`, `economy_rules`, `cp_rules`, `facility_rules`, `build_outcome`, `prediction_claims`, `evidence_quality`, and `general`. Evidence strength is `none`, `weak`, `moderate`, `strong`, or `mixed`.
+Review statuses are `no_action`, `monitor`, `review_recommended`, `review_high_priority`, `insufficient_evidence`, and `mixed_evidence`. Review areas are `service_rules`, `economy_rules`, `cp_rules`, `facility_rules`, `build_outcome`, `prediction_claims`, `evidence_quality`, and `general`. Evidence strength is `none`, `weak`, `moderate`, `strong`, or `mixed`. High-priority review remains advisory: it identifies investigation priority and does not change predictions, scoring, ranking, or mechanics.
 
-Stage 6E is passive. It does not run Simulation Preview, change predictions, mutate observations, change CP/economy/service/buildability mechanics, alter scoring, alter optimiser candidate generation, alter optimiser ranking, persist changed confidence, ingest EDMC/journals, or learn from observations. Low-confidence evidence cannot trigger high-priority review. Contradicted comparisons are framed as "may need review", not proof that a rule is wrong.
+Stage 6E is passive. It does not run Simulation Preview, change predictions, mutate observations, change CP/economy/service/buildability mechanics, alter scoring, alter optimiser candidate generation, alter optimiser ranking, persist changed confidence, ingest EDMC/journals, or derive mechanics changes from observations. Low-confidence evidence cannot trigger high-priority review. Contradicted comparisons are framed as "may need review", not final mechanics verdicts.
