@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  comparePredictionToObservations,
   createObservedFact,
   deleteObservedFact,
   fetchOptimiserCandidates,
@@ -11,7 +12,7 @@ import {
   simulateBuild,
   updateObservedFact,
 } from '@/lib/api';
-import type { FacilityTemplate, OptimiserCandidatesResponse, SimulateBuildResponse, SimulationSummary, SystemDetail } from '@/types/api';
+import type { FacilityTemplate, OptimiserCandidatesResponse, PredictionObservationCompareResponse, SimulateBuildResponse, SimulationSummary, SystemDetail } from '@/types/api';
 import { SimulationPreview } from './SimulationPreview';
 
 vi.mock('@/lib/api', () => ({
@@ -27,6 +28,9 @@ vi.mock('@/lib/api', () => ({
   createObservedFact: vi.fn(),
   updateObservedFact: vi.fn(),
   deleteObservedFact: vi.fn(),
+  // Stage 6D validation compare helper — SimulationPreview now renders
+  // the ValidationPanel which calls this once a preview result exists.
+  comparePredictionToObservations: vi.fn(),
 }));
 
 const mockedFetchOptimiserCandidates = vi.mocked(fetchOptimiserCandidates);
@@ -37,6 +41,7 @@ const mockedListObservedFacts = vi.mocked(listObservedFacts);
 const mockedCreateObservedFact = vi.mocked(createObservedFact);
 const mockedUpdateObservedFact = vi.mocked(updateObservedFact);
 const mockedDeleteObservedFact = vi.mocked(deleteObservedFact);
+const mockedCompare = vi.mocked(comparePredictionToObservations);
 
 const templates: FacilityTemplate[] = [
   {
@@ -235,6 +240,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedCreateObservedFact.mockReset();
     mockedUpdateObservedFact.mockReset();
     mockedDeleteObservedFact.mockReset();
+    mockedCompare.mockReset();
   });
 
   it('renders Observed Evidence panel and the passive evidence notice', async () => {
@@ -375,11 +381,16 @@ describe('SimulationPreview optimiser candidate loading', () => {
     await screen.findByText(/Loaded optimiser candidate:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
     await screen.findByText(/Final Score/i);
-    expect(screen.queryByText(/The Build Plan has changed since this preview was run/)).toBeNull();
+    expect(screen.queryAllByText(/The Build Plan has changed since this preview was run/)).toHaveLength(0);
 
     fireEvent.change(screen.getByLabelText(/Target archetype/i), { target: { value: 'trade_logistics' } });
 
-    expect(screen.getByText(/The Build Plan has changed since this preview was run/)).toBeTruthy();
+    // Stage 6D: the stale wording can now appear in BOTH PreviewResult
+    // and ValidationPanel (each with their own copy). Both are
+    // legitimate UX signals that a re-run is needed.
+    expect(
+      screen.getAllByText(/The Build Plan has changed since this preview was run/).length,
+    ).toBeGreaterThan(0);
     expect(mockedSimulateBuild).toHaveBeenCalledTimes(1);
   });
 
@@ -395,12 +406,14 @@ describe('SimulationPreview optimiser candidate loading', () => {
     await screen.findByText(/Final Score/i);
 
     fireEvent.click(screen.getAllByRole('button', { name: /Move down/i })[0]);
-    expect(screen.getByText(/The Build Plan has changed since this preview was run/)).toBeTruthy();
+    expect(
+      screen.getAllByText(/The Build Plan has changed since this preview was run/).length,
+    ).toBeGreaterThan(0);
     expect(mockedSimulateBuild).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
     await waitFor(() => expect(mockedSimulateBuild).toHaveBeenCalledTimes(2));
-    expect(screen.queryByText(/The Build Plan has changed since this preview was run/)).toBeNull();
+    expect(screen.queryAllByText(/The Build Plan has changed since this preview was run/)).toHaveLength(0);
   });
 
   it('supports generate compare load edit and run preview with current edited placements', async () => {
@@ -434,5 +447,74 @@ describe('SimulationPreview optimiser candidate loading', () => {
         { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 2 },
       ],
     });
+  });
+
+  // ── Stage 6D integration ────────────────────────────────────────────────
+  it('renders the Validation section after Observed Evidence and the section nav exposes a Validation label', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    // Validation chip appears in the section nav.
+    expect((await screen.findAllByText('Validation')).length).toBeGreaterThan(0);
+    // Validation panel renders as a separate aria region.
+    const validation = await screen.findByRole('region', { name: 'Validation' });
+    const observed = await screen.findByRole('region', { name: 'Observed Evidence' });
+
+    // The Validation region must appear *after* the Observed Evidence
+    // region in DOM order (Colony Planner section ordering rule).
+    const order = observed.compareDocumentPosition(validation);
+    expect(order & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the no-preview empty state in Validation when no preview has been run', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    await screen.findByRole('region', { name: 'Validation' });
+    expect(
+      screen.getByText(/Run Preview to compare predictions with observed evidence/),
+    ).toBeTruthy();
+    // No compare call should occur without a preview result.
+    expect(mockedCompare).not.toHaveBeenCalled();
+  });
+
+  it('calls compare API once a preview result exists, with system, target_archetype, and the SimulateBuildResponse as prediction', async () => {
+    mockNoRecommendedBuild();
+    mockedSimulateBuild.mockResolvedValue(simulationResult());
+    mockedCompare.mockResolvedValue({
+      system_id64: 123,
+      target_archetype: 'agriculture_terraforming',
+      generated_at: '2026-05-15T12:00:00+00:00',
+      summary: {
+        status: 'no_observations',
+        observed_facts_count: 0,
+        compared_predictions_count: 0,
+        confirmed_count: 0,
+        contradicted_count: 0,
+        observed_only_count: 0,
+        predicted_only_count: 0,
+        unknown_count: 0,
+        unverified_count: 0,
+        confidence_impact: 'none',
+        summary: 'No observations yet.',
+      },
+      comparisons: [],
+      warnings: [],
+      assumptions: [],
+    } satisfies PredictionObservationCompareResponse);
+
+    renderPreview();
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
+    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
+
+    await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(1));
+    const sent = mockedCompare.mock.calls[0][0];
+    expect(sent.system_id64).toBe(123);
+    expect(sent.target_archetype).toBe('agriculture_terraforming');
+    expect((sent.prediction as { target_archetype?: string }).target_archetype).toBe(
+      'agriculture_terraforming',
+    );
   });
 });

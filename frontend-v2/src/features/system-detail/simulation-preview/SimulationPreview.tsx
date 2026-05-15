@@ -14,6 +14,7 @@ import { ColonyPlannerSectionNav } from './ColonyPlannerSectionNav';
 import { PreviewResultSection } from './PreviewResultSection';
 import { ObservedEvidencePanel } from './observations';
 import { OptimiserCandidatePanel } from './optimiser';
+import { ValidationPanel } from './validation';
 import { useSimulationPreviewPlan } from './hooks/useSimulationPreviewPlan';
 import { useSimulationPreviewRun } from './hooks/useSimulationPreviewRun';
 import {
@@ -143,11 +144,25 @@ export function SimulationPreview({
         {/* Stage 6B: Observed Evidence panel renders after Preview Result.
             It is intentionally passive — see ObservedEvidencePanel for the
             contract. The simulation and optimiser data above are NOT
-            re-derived from observations; Stage 6C will add predicted-vs-
-            observed comparison and Stage 6D will render validation. */}
+            re-derived from observations; Stage 6C added the predicted-vs-
+            observed comparison engine and Stage 6D renders that result
+            below in the Validation section. */}
         <ObservedEvidencePanel
           systemId64={system.id64}
           suggestedArchetype={plan.targetArchetype}
+        />
+
+        {/* Stage 6D: Validation section renders the Stage 6C
+            `/api/observations/compare` response in-page (no popout, no
+            top-level tab). The panel is passive: it never runs
+            simulation, never invokes the optimiser, never mutates
+            observed evidence, and never feeds confidence back into
+            scoring or ranking. */}
+        <ValidationPanel
+          systemId64={system.id64}
+          targetArchetype={plan.targetArchetype}
+          previewResult={runState.result}
+          isPreviewResultStale={runState.isResultStale}
         />
       </div>
     </div>
