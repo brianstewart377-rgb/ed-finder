@@ -13,8 +13,8 @@ import { usePinned } from '@/features/pinned/usePinned';
 import { PinnedTab, toPinnedEntry } from '@/features/pinned/PinnedTab';
 import { useCompare } from '@/features/compare/useCompare';
 import { CompareTab } from '@/features/compare/CompareTab';
-import { useOptimizer } from '@/features/optimizer/useOptimizer';
-import { OptimizerTab } from '@/features/optimizer/OptimizerTab';
+import { useSearchTuning } from '@/features/search-tuning/useSearchTuning';
+import { AdvancedSearchTuningTab } from '@/features/search-tuning/AdvancedSearchTuningTab';
 import { useColony } from '@/features/colony/useColony';
 import { ColonyTab } from '@/features/colony/ColonyTab';
 import { useFcPlanner } from '@/features/fc-planner/useFcPlanner';
@@ -54,7 +54,7 @@ function AppInner() {
   const watchlist = useWatchlist();
   const pinned    = usePinned();
   const compare   = useCompare();
-  const optimizer = useOptimizer();
+  const searchTuning = useSearchTuning();
   const colony    = useColony();
   const fc        = useFcPlanner();
   const admin     = useAdmin();
@@ -120,9 +120,9 @@ function AppInner() {
         />
       )}
 
-      {(route === 'optimizer' || route === 'search-tuning') && (
-        <OptimizerTab
-          optimizer={optimizer}
+      {route === 'search-tuning' && (
+        <AdvancedSearchTuningTab
+          searchTuning={searchTuning}
           search={search}
           onOpenDetail={openSystem}
         />

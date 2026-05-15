@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { NavBar } from './NavBar';
 
 describe('NavBar', () => {
-  it('renders Advanced Search Tuning while keeping the optimizer nav test id', () => {
-    render(<NavBar current="optimizer" onNavigate={vi.fn()} />);
+  it('renders Advanced Search Tuning with the search-tuning nav test id', () => {
+    render(<NavBar current="search-tuning" onNavigate={vi.fn()} />);
 
-    expect(screen.getByTestId('nav-optimizer').textContent).toContain('Advanced Search Tuning');
+    expect(screen.getByTestId('nav-search-tuning').textContent).toContain('Advanced Search Tuning');
   });
 });

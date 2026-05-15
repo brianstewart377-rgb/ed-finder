@@ -103,6 +103,15 @@ async def test_ratings_rerank_default_weights(client, pool):
     assert len(body['results']) == 3
     for row in body['results']:
         assert 0 <= row['reranked_score'] <= 100
+        assert 'contributions' in row
+        assert set(row['contributions']) == {
+            'economy', 'slots', 'strategic', 'safety', 'terraforming', 'diversity'
+        }
+        assert 'signals' in row
+        assert set(row['signals']) == {
+            'economy_score', 'slots', 'body_quality', 'orbital_safety',
+            'terraforming_potential', 'body_diversity', 'confidence',
+        }
 
 
 async def test_ratings_rerank_extraction_economy(client, pool):
@@ -112,13 +121,41 @@ async def test_ratings_rerank_extraction_economy(client, pool):
         ids = [r['id64'] for r in await conn.fetch('SELECT id64 FROM systems LIMIT 5')]
     r = await client.post('/api/ratings/rerank', json={
         'id64s': ids,
-        'weights': {'economy': 1.0},   # only economy matters
+        'weights': {
+            'economy': 1.0,
+            'slots': 0,
+            'strategic': 0,
+            'safety': 0,
+            'terraforming': 0,
+            'diversity': 0,
+        },   # only economy matters
         'economy': 'Extraction',
     })
     assert r.status_code == 200
     body = r.json()
     assert body.get('economy_used') == 'Extraction'
     assert len(body['results']) == 5
+
+    rows_by_id = {row['id64']: row for row in body['results']}
+    async with pool.acquire() as conn:
+        db_rows = await conn.fetch(
+            """
+            SELECT system_id64, score_extraction, confidence
+            FROM ratings
+            WHERE system_id64 = ANY($1::bigint[])
+            """,
+            ids,
+        )
+
+    for db_row in db_rows:
+        row = rows_by_id[db_row['system_id64']]
+        score = float(db_row['score_extraction'] or 0)
+        confidence = db_row['confidence']
+        expected = score * (float(confidence) if confidence is not None else 1.0)
+        assert row['reranked_score'] == int(round(expected))
+        assert row['contributions']['economy'] == score
+        assert row['signals']['economy_score'] == score
+        assert row['signals']['confidence'] == (float(confidence) if confidence is not None else None)
 
 
 # --- Profile sync (rate limited per audit §S3) ----------------------------

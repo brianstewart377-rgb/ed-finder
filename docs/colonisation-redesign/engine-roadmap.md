@@ -336,4 +336,28 @@ Current Stage 7B status:
 - Slider copy says weights apply only to the current tuning run and are normalised for the temporary tuned score.
 - Result rows show original Finder rank, tuned rank, movement up/down/unchanged, temporary tuned score, original stored score, and stored rating rationale.
 - Original Finder rank is snapshotted when the tuning run starts; movement labels use that snapshot, not whatever Finder results are live later.
-- `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain backend/internal terminology. Internal `optimizer` route/component names remain compatibility debt deferred to a later cleanup. Stage 7C may add presets or deeper contribution explanations later.
+- `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain backend/internal terminology. Stage 7C resolves the deferred frontend `optimizer` naming debt; later follow-ups may add presets or deeper contribution explanations.
+
+## Stage 7C - Advanced Search Tuning Internal Rename
+
+Stage 7C removes the Stage 7B frontend compatibility debt around the old `optimizer` naming. The feature folder is now `frontend-v2/src/features/search-tuning/`, the tab component is `AdvancedSearchTuningTab`, the hook is `useSearchTuning`, and the state/snapshot types use Search Tuning names.
+
+Current Stage 7C status:
+
+- `#search-tuning` is the preferred route.
+- Legacy `#optimizer` direct links still work and normalize to the `search-tuning` route internally.
+- Test IDs for this feature use `search-tuning-*`.
+- Backend `/api/ratings/rerank`, `RerankRequest`, `RerankResponse`, and `RerankWeights` remain unchanged.
+- No backend scoring, normal search ordering, Colony Planner, Stage 5 optimiser, or Stage 6 validation/review behaviour changed.
+
+## Stage 7D - Advanced Search Tuning Explanation + Handoff
+
+Stage 7D makes tuned rows more understandable and easier to inspect without changing search or planner behaviour. `/api/ratings/rerank` now returns additive explanation fields on each row: pre-confidence weighted `contributions` and stored/raw `signals`. The existing `reranked_score` formula and sorting remain unchanged.
+
+Current Stage 7D status:
+
+- Tuned result rows show a deterministic "Why this tuned position?" explanation based on stored rating signals and selected weights.
+- Rows identify top contributors and weaker/held-back signals using conservative language.
+- Confidence is shown as an adjustment note when present; contribution values are documented as pre-confidence.
+- Rows provide explicit "Open system detail" and "Evaluate in Colony Planner" actions.
+- The handoff opens system detail only. It does not auto-run Simulation Preview, generate builds, mutate Colony Planner, persist tuning weights, alter Finder ordering, or use validation/review evidence.

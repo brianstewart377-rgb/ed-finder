@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
  *   #pinned                       → route='pinned',    selectedSystemId=null
  *   #pinned/system/12345678       → route='pinned',    selectedSystemId=12345678
  *   #search-tuning                → route='search-tuning', selectedSystemId=null
- *   #optimizer                    → route='optimizer', selectedSystemId=null (legacy alias)
+ *   #optimizer                    → route='search-tuning', selectedSystemId=null (legacy alias)
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
  *   <empty> or unknown            → route='finder',    selectedSystemId=null
  *
@@ -20,8 +20,8 @@ import { useEffect, useState } from 'react';
  * beats pulling in react-router. Re-evaluate that trade-off when v2 sprouts
  * its 6th sub-route.
  */
-export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'optimizer' | 'search-tuning' | 'fc' | 'colony' | 'admin';
-const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'optimizer', 'search-tuning', 'fc', 'colony', 'admin'];
+export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin';
+const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin'];
 
 export interface ParsedHash {
   route:            Route;
@@ -36,7 +36,10 @@ function parseHash(): ParsedHash {
 
   let route: Route = 'finder';
   let i = 0;
-  if ((VALID_ROUTES as string[]).includes(parts[0])) {
+  if (parts[0] === 'optimizer') {
+    route = 'search-tuning';
+    i = 1;
+  } else if ((VALID_ROUTES as string[]).includes(parts[0])) {
     route = parts[0] as Route;
     i = 1;
   }

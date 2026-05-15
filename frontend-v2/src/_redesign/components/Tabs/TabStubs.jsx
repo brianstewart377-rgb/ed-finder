@@ -1,4 +1,4 @@
-// All secondary-tab workspaces — Watchlist / Pinned / Compare / Optimizer / Admin
+// All secondary-tab workspaces — Watchlist / Pinned / Compare / Advanced Search Tuning / Admin
 // Brought up to iteration-3 aesthetic: chunky brushed-steel panels, SectionPanel
 // containers, orange-pill sliders, dismissible briefing pattern matching Finder.
 import React, { useState } from 'react';
@@ -251,7 +251,7 @@ const WEIGHT_DEFS = [
   { key: 'diversity',   label: 'Body diversity',    def: 10 },
 ];
 
-export function OptimizerTab() {
+export function SearchTuningTab() {
   const [weights, setWeights] = useState(
     Object.fromEntries(WEIGHT_DEFS.map((w) => [w.key, w.def]))
   );

@@ -7,7 +7,7 @@ import { MapWorkspace } from './components/Map/MapWorkspace';
 import { PlanWorkspace } from './components/Plan/PlanWorkspace';
 import { TrackWorkspace } from './components/Track/TrackWorkspace';
 import {
-  WatchlistTab, PinnedTab, CompareTab, OptimizerTab, AdminTab,
+  WatchlistTab, PinnedTab, CompareTab, SearchTuningTab, AdminTab,
 } from './components/Tabs/TabStubs';
 
 function App() {
@@ -29,7 +29,7 @@ function App() {
           {tab === 'watchlist' && <WatchlistTab />}
           {tab === 'pinned'    && <PinnedTab />}
           {tab === 'compare'   && <CompareTab />}
-          {tab === 'optimizer' && <OptimizerTab />}
+          {tab === 'search-tuning' && <SearchTuningTab />}
           {tab === 'fc'        && <PlanWorkspace />}
           {tab === 'colony'    && <TrackWorkspace />}
           {tab === 'map'       && <MapWorkspace />}

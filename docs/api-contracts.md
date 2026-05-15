@@ -70,9 +70,16 @@ Advanced Search Tuning is the Finder-result reranking helper. The user-facing la
 - `weights`: optional `RerankWeights` (`economy`, `slots`, `strategic`, `safety`, `terraforming`, `diversity`). Missing values use v3.1 defaults; supplied values are clamped and normalized server-side.
 - `economy`: optional economy scoring emphasis. When recognized, the economy dimension uses that per-economy rating column; when omitted, the backend uses the best available per-economy score/stored suggestion path.
 
-The endpoint returns `RerankResponse` with `weights_applied`, nullable top-level `economy_used`, and `results` containing `id64`, `reranked_score`, `original_score`, `confidence`, `rationale`, and per-row `economy_used`. Stage 7B adds original Finder rank, tuned rank, and movement labels in the frontend only by comparing the response order to a source-rank snapshot captured when the tuning run starts.
+The endpoint returns `RerankResponse` with `weights_applied`, nullable top-level `economy_used`, and `results` containing `id64`, `reranked_score`, `original_score`, `confidence`, `rationale`, per-row `economy_used`, and optional Stage 7D explanation fields:
 
-This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, mutate ratings, run Simulation Preview, alter Colony Planner, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/optimizer/` for compatibility, but presents as Advanced Search Tuning. `#search-tuning` is the preferred frontend route alias; `#optimizer` remains a legacy compatibility alias.
+- `contributions`: pre-confidence weighted contribution values for `economy`, `slots`, `strategic`, `safety`, `terraforming`, and `diversity`.
+- `signals`: stored/raw rating signals used by rerank (`economy_score`, `slots`, `body_quality`, `orbital_safety`, `terraforming_potential`, `body_diversity`, and `confidence`).
+
+Contribution values are pre-confidence so the UI can explain which stored signals helped or held back the temporary tuned score. The final `reranked_score` remains the existing weighted sum with the existing confidence multiplier applied afterward. Stage 7B adds original Finder rank, tuned rank, and movement labels in the frontend only by comparing the response order to a source-rank snapshot captured when the tuning run starts.
+
+This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, mutate ratings, run Simulation Preview, alter Colony Planner, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/search-tuning/` and presents as Advanced Search Tuning. `#search-tuning` is the preferred frontend route; `#optimizer` remains a legacy compatibility alias normalized to `search-tuning`.
+
+Stage 7D adds explicit row actions to open system detail and evaluate in Colony Planner. Those actions only open the existing system detail surface; they do not auto-run Simulation Preview, generate builds, mutate planner state, or pass search-tuning weights into Colony Planner.
 
 ## Canonical Field Names
 

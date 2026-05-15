@@ -499,6 +499,25 @@ class RerankWeights(BaseModel):
     diversity:    float = 0.02
 
 
+class RerankContributions(BaseModel):
+    economy:      float
+    slots:        float
+    strategic:    float
+    safety:       float
+    terraforming: float
+    diversity:    float
+
+
+class RerankSignals(BaseModel):
+    economy_score:              Optional[float] = None
+    slots:                      Optional[float] = None
+    body_quality:               Optional[float] = None
+    orbital_safety:             Optional[float] = None
+    terraforming_potential:     Optional[float] = None
+    body_diversity:             Optional[float] = None
+    confidence:                 Optional[float] = None
+
+
 class RerankRow(BaseModel):
     model_config = ConfigDict(extra='allow')
 
@@ -508,6 +527,8 @@ class RerankRow(BaseModel):
     confidence:     Optional[float] = None
     rationale:      Optional[str]   = None
     economy_used:   Optional[str]   = None
+    contributions:  Optional[RerankContributions] = None
+    signals:        Optional[RerankSignals] = None
 
 
 class RerankResponse(BaseModel):

@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useOptimizer } from './useOptimizer';
+import { useSearchTuning } from './useSearchTuning';
 import { api } from '@/lib/api';
 import type { RerankResponse, SystemResult } from '@/types/api';
 
@@ -27,14 +27,14 @@ const response: RerankResponse = {
   results: [],
 };
 
-describe('useOptimizer', () => {
+describe('useSearchTuning', () => {
   beforeEach(() => {
     vi.mocked(api.rerank).mockReset();
     vi.mocked(api.rerank).mockResolvedValue(response);
   });
 
   it('sends current Finder result IDs to /api/ratings/rerank through api.rerank', async () => {
-    const { result } = renderHook(() => useOptimizer());
+    const { result } = renderHook(() => useSearchTuning());
 
     await act(async () => {
       await result.current.run([makeSystem(101), makeSystem(202), makeSystem(303)]);
@@ -49,7 +49,7 @@ describe('useOptimizer', () => {
   });
 
   it('stores original Finder rank and names in the tuning-run source snapshot', async () => {
-    const { result } = renderHook(() => useOptimizer());
+    const { result } = renderHook(() => useSearchTuning());
 
     await act(async () => {
       await result.current.run([
