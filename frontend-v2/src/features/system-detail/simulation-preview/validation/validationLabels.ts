@@ -20,6 +20,8 @@ import type {
   ComparisonOverallStatus,
   ComparisonSeverity,
   ComparisonStatus,
+  ValidationReviewArea,
+  ValidationReviewStatus,
 } from '@/types/api';
 
 export const ADVISORY_COPY =
@@ -33,6 +35,9 @@ export const STALE_PREVIEW_COPY =
 
 export const EMPTY_COMPARISONS_COPY =
   'No comparison rows yet. Run Preview and record observed evidence for this system to populate validation.';
+
+export const REVIEW_ADVISORY_COPY =
+  'Review guidance is advisory. This does not change mechanics or scoring. Use this to decide what to investigate next.';
 
 export const PREDICTED_ONLY_COPY =
   'Predicted, but no matching observation has been recorded yet.';
@@ -87,6 +92,26 @@ export const COMPARISON_SEVERITY_LABELS: Record<ComparisonSeverity, string> = {
   high: 'High',
 };
 
+export const REVIEW_STATUS_LABELS: Record<ValidationReviewStatus, string> = {
+  no_action: 'No action',
+  monitor: 'Monitor',
+  review_recommended: 'Review recommended',
+  review_high_priority: 'High-priority review',
+  insufficient_evidence: 'Insufficient evidence',
+  mixed_evidence: 'Mixed evidence',
+};
+
+export const REVIEW_AREA_LABELS: Record<ValidationReviewArea, string> = {
+  service_rules: 'Service rules',
+  economy_rules: 'Economy rules',
+  cp_rules: 'CP rules',
+  facility_rules: 'Facility rules',
+  build_outcome: 'Build outcome',
+  prediction_claims: 'Prediction claims',
+  evidence_quality: 'Evidence quality',
+  general: 'General',
+};
+
 export function overallStatusLabel(value: string): string {
   return (OVERALL_STATUS_LABELS as Record<string, string>)[value] ?? value;
 }
@@ -101,4 +126,12 @@ export function comparisonStatusLabel(value: string): string {
 
 export function comparisonSeverityLabel(value: string): string {
   return (COMPARISON_SEVERITY_LABELS as Record<string, string>)[value] ?? value;
+}
+
+export function reviewStatusLabel(value: string): string {
+  return (REVIEW_STATUS_LABELS as Record<string, string>)[value] ?? value;
+}
+
+export function reviewAreaLabel(value: string): string {
+  return (REVIEW_AREA_LABELS as Record<string, string>)[value] ?? value;
 }

@@ -108,11 +108,12 @@ function listResponseWith(facts: ObservedFact[]): ObservedFactListResponse {
 
 function renderPanel(systemId64 = 123, suggestedArchetype: string | null = 'agriculture_terraforming') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={client}>
       <ObservedEvidencePanel systemId64={systemId64} suggestedArchetype={suggestedArchetype} />
     </QueryClientProvider>,
   );
+  return { ...utils, client };
 }
 
 describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () => {
@@ -303,6 +304,23 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
     expect(sentRequest.subject_type).toBe('system');
     expect(sentRequest.subject_id ?? null).toBeNull();
     expect(sentRequest.source).toBe('manual');
+  });
+
+  it('invalidates compare and review queries after observed evidence changes', async () => {
+    mockedList.mockResolvedValue(emptyResponse());
+    mockedCreate.mockResolvedValue(fact());
+    const { client } = renderPanel();
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+
+    await screen.findByRole('region', { name: 'Observed Evidence' });
+    fireEvent.change(screen.getByLabelText(/^Notes$/), {
+      target: { value: 'Evidence that should refresh validation.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Record observed evidence/i }));
+
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['observation-compare', 123] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['observation-review', 123] });
   });
 
   it('shows backend validation errors clearly when create fails with 422', async () => {

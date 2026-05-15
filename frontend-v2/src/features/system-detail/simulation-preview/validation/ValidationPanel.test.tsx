@@ -15,11 +15,13 @@ import {
   createObservedFact,
   deleteObservedFact,
   listObservedFacts,
+  reviewPredictionValidation,
   updateObservedFact,
 } from '@/lib/api';
 import type {
   PredictionObservationCompareResponse,
   SimulateBuildResponse,
+  ValidationReviewResponse,
 } from '@/types/api';
 import { ValidationPanel } from './ValidationPanel';
 
@@ -28,6 +30,7 @@ vi.mock('@/lib/api', async () => {
   return {
     ...actual,
     comparePredictionToObservations: vi.fn(),
+    reviewPredictionValidation: vi.fn(),
     fetchOptimiserCandidates: vi.fn(),
     simulateBuild: vi.fn(),
     listObservedFacts: vi.fn(),
@@ -38,6 +41,7 @@ vi.mock('@/lib/api', async () => {
 });
 
 const mockedCompare = vi.mocked(comparePredictionToObservations);
+const mockedReview = vi.mocked(reviewPredictionValidation);
 const mockedSimulateBuild = vi.mocked(simulateBuild);
 const mockedFetchOptimiser = vi.mocked(fetchOptimiserCandidates);
 const mockedListObservedFacts = vi.mocked(listObservedFacts);
@@ -228,6 +232,85 @@ function compareResponse(
   };
 }
 
+function reviewResponse(
+  overrides: Partial<ValidationReviewResponse> = {},
+): ValidationReviewResponse {
+  return {
+    system_id64: 123,
+    target_archetype: 'trade_logistics',
+    generated_at: '2026-05-15T12:00:00+00:00',
+    summary: {
+      overall_review_status: 'mixed_evidence',
+      confidence_impact: 'mixed',
+      highest_severity: 'medium',
+      review_needed_count: 3,
+      evidence_strength: 'mixed',
+      primary_review_areas: ['service_rules', 'economy_rules', 'cp_rules'],
+      summary: 'Evidence is mixed: some predictions are confirmed while others need review.',
+    },
+    signals: [
+      {
+        signal_id: 'service_rules:contradicted',
+        area: 'service_rules',
+        severity: 'medium',
+        confidence: 'medium',
+        status: 'review_recommended',
+        title: 'Service prediction rules may need review',
+        message: 'Needs-review service rows point to this area. This is a review lead, not an automatic rule change.',
+        recommended_action: 'Review service unlock assumptions and facility/service mapping.',
+        comparison_ids: ['service:repair'],
+      },
+      {
+        signal_id: 'economy_rules:contradicted',
+        area: 'economy_rules',
+        severity: 'medium',
+        confidence: 'medium',
+        status: 'review_recommended',
+        title: 'Economy prediction rules may need review',
+        message: 'Economy evidence may need review.',
+        recommended_action: 'Review economy inheritance, facility pressure, and economy composition assumptions.',
+        comparison_ids: ['economy:extraction'],
+      },
+      {
+        signal_id: 'cp_rules:contradicted',
+        area: 'cp_rules',
+        severity: 'medium',
+        confidence: 'medium',
+        status: 'review_recommended',
+        title: 'CP calculation may need review',
+        message: 'CP evidence may need review.',
+        recommended_action: 'Review CP source values and final CP calculation.',
+        comparison_ids: ['cp:yellow'],
+      },
+      {
+        signal_id: 'evidence:low_confidence_contradictions',
+        area: 'evidence_quality',
+        severity: 'low',
+        confidence: 'low',
+        status: 'monitor',
+        title: 'Contradiction is based on low-confidence evidence',
+        message: 'Some needs-review rows are based on low-confidence evidence.',
+        recommended_action: 'Confirm in-game before changing assumptions.',
+        comparison_ids: ['service:repair'],
+      },
+      {
+        signal_id: 'service_rules:high_priority',
+        area: 'service_rules',
+        severity: 'high',
+        confidence: 'high',
+        status: 'review_high_priority',
+        title: 'Service prediction rules may need review',
+        message: 'High-confidence service evidence may need review.',
+        recommended_action: 'Review service unlock assumptions and facility/service mapping.',
+        comparison_ids: ['service:shipyard'],
+      },
+    ],
+    warnings: [],
+    assumptions: [],
+    ...overrides,
+  };
+}
+
 interface RenderOptions {
   systemId64?: number;
   targetArchetype?: string | null;
@@ -255,9 +338,11 @@ function renderPanel({
   return { ...utils, client };
 }
 
-describe('ValidationPanel — Stage 6D validation display', () => {
+describe('ValidationPanel - Stage 6D validation display', () => {
   beforeEach(() => {
     mockedCompare.mockReset();
+    mockedReview.mockReset();
+    mockedReview.mockResolvedValue(reviewResponse());
     mockedSimulateBuild.mockReset();
     mockedFetchOptimiser.mockReset();
     mockedListObservedFacts.mockReset();
@@ -291,6 +376,7 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     // Wait a tick to be sure no async query was kicked off.
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(mockedCompare).not.toHaveBeenCalled();
+    expect(mockedReview).not.toHaveBeenCalled();
   });
 
   it('calls the compare API with system_id64, target_archetype, and the prediction when a preview is present', async () => {
@@ -301,6 +387,18 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     expect(sent.system_id64).toBe(123);
     expect(sent.target_archetype).toBe('trade_logistics');
     // The prediction passed to the compare API is the SimulateBuildResponse verbatim.
+    expect((sent.prediction as { mechanics_version?: string }).mechanics_version).toBe(
+      'colonisation-engine-v2.1',
+    );
+  });
+
+  it('calls the review endpoint with the same prediction when a preview is present', async () => {
+    mockedCompare.mockResolvedValue(compareResponse());
+    renderPanel();
+    await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(1));
+    const sent = mockedReview.mock.calls[0][0];
+    expect(sent.system_id64).toBe(123);
+    expect(sent.target_archetype).toBe('trade_logistics');
     expect((sent.prediction as { mechanics_version?: string }).mechanics_version).toBe(
       'colonisation-engine-v2.1',
     );
@@ -320,6 +418,32 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     expect(screen.getByTestId('validation-summary-observed-only').textContent).toBe('1');
   });
 
+  it('renders review guidance advisory copy and summary metrics', async () => {
+    mockedCompare.mockResolvedValue(compareResponse());
+    renderPanel();
+    expect(await screen.findByTestId('validation-review-panel')).toBeTruthy();
+    expect(screen.getByTestId('validation-review-advisory-copy').textContent).toMatch(/Review guidance is advisory/);
+    expect(screen.getByTestId('validation-review-advisory-copy').textContent).toMatch(/does not change mechanics or scoring/i);
+    expect(screen.getByTestId('validation-review-status').textContent).toBe('Mixed evidence');
+    expect(screen.getByTestId('validation-review-evidence-strength').textContent).toBe('mixed');
+    expect(screen.getByTestId('validation-review-highest-severity').textContent).toBe('Medium');
+    expect(screen.getByTestId('validation-review-primary-areas').textContent).toMatch(/Service rules/);
+  });
+
+  it('renders service, economy, CP, and evidence-quality review signals', async () => {
+    mockedCompare.mockResolvedValue(compareResponse());
+    renderPanel();
+    const panel = await screen.findByTestId('validation-review-panel');
+    expect(within(panel).getAllByText('Service rules').length).toBeGreaterThan(0);
+    expect(within(panel).getByText('Economy rules')).toBeTruthy();
+    expect(within(panel).getByText('CP rules')).toBeTruthy();
+    expect(within(panel).getByText('Evidence quality')).toBeTruthy();
+    expect(within(panel).getByText('Monitor')).toBeTruthy();
+    expect(within(panel).getByText(/Confirm in-game before changing assumptions/)).toBeTruthy();
+    expect(panel.textContent ?? '').not.toMatch(/wrong/i);
+    expect(panel.textContent ?? '').not.toMatch(/proof/i);
+  });
+
   it('renders a confirmed row labelled "Confirmed"', async () => {
     mockedCompare.mockResolvedValue(compareResponse());
     renderPanel();
@@ -329,15 +453,15 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     expect(within(confirmedCard!).getByTestId('validation-card-status').textContent).toBe('Confirmed');
   });
 
-  it('renders a contradicted row as "Needs review" and never uses the word "wrong"', async () => {
+  it('renders a contradicted row as "Needs review" and avoids high-certainty wording', async () => {
     mockedCompare.mockResolvedValue(compareResponse());
     renderPanel();
     const cards = await screen.findAllByTestId('validation-comparison-card');
     const contradicted = cards.find((card) => card.getAttribute('data-status') === 'contradicted');
     expect(contradicted).toBeTruthy();
     expect(within(contradicted!).getByTestId('validation-card-status').textContent).toBe('Needs review');
-    // Hard guarantee: "wrong" never appears anywhere in the validation panel.
     expect(screen.getByTestId('validation-panel').textContent ?? '').not.toMatch(/wrong/i);
+    expect(screen.getByTestId('validation-panel').textContent ?? '').not.toMatch(/proof/i);
   });
 
   it('renders the conservative copy for predicted_only rows', async () => {
@@ -404,6 +528,23 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     await waitFor(() => expect(screen.queryByTestId('validation-loading')).toBeNull());
   });
 
+  it('uses the refresh label while review guidance is still fetching', async () => {
+    let resolveReview: (value: ValidationReviewResponse) => void = () => {};
+    mockedCompare.mockResolvedValue(compareResponse());
+    mockedReview.mockReturnValue(
+      new Promise<ValidationReviewResponse>((resolve) => {
+        resolveReview = resolve;
+      }),
+    );
+    renderPanel();
+    await screen.findByTestId('validation-summary');
+    const refresh = screen.getByTestId('validation-refresh-button');
+    expect(refresh.textContent).toBe('Refreshing...');
+    expect((refresh as HTMLButtonElement).disabled).toBe(true);
+    resolveReview(reviewResponse());
+    await waitFor(() => expect(refresh.textContent).toBe('Refresh validation'));
+  });
+
   it('shows an error state with a Retry control when compare fails, and retries on click', async () => {
     mockedCompare.mockRejectedValueOnce(new Error('boom'));
     mockedCompare.mockRejectedValueOnce(new Error('boom'));
@@ -414,6 +555,15 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByTestId('validation-retry-button'));
     expect(await screen.findByTestId('validation-summary')).toBeTruthy();
+  });
+
+  it('shows review error while comparison rows still render', async () => {
+    mockedCompare.mockResolvedValue(compareResponse());
+    mockedReview.mockRejectedValueOnce(new Error('review boom'));
+    mockedReview.mockRejectedValueOnce(new Error('review boom'));
+    renderPanel();
+    expect(await screen.findByTestId('validation-review-error', undefined, { timeout: 3000 })).toBeTruthy();
+    expect((await screen.findAllByTestId('validation-comparison-card')).length).toBe(4);
   });
 
   it('shows the stale preview warning when isPreviewResultStale is true', () => {
@@ -436,16 +586,19 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     await waitFor(() => expect(screen.queryByTestId('validation-stale-warning')).toBeNull());
   });
 
-  it('refreshes the compare query when Refresh validation is clicked', async () => {
+  it('refreshes both compare and review queries when Refresh validation is clicked', async () => {
     mockedCompare.mockResolvedValue(compareResponse());
+    mockedReview.mockResolvedValue(reviewResponse());
     renderPanel();
     // Wait for the success state, not just the queryFn invocation, so
-    // the refresh button is no longer in its disabled "Refreshing…"
+    // the refresh button is no longer in its disabled "Refreshing..."
     // state when we click it.
     await screen.findByTestId('validation-summary');
     expect(mockedCompare).toHaveBeenCalledTimes(1);
+    expect(mockedReview).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId('validation-refresh-button'));
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(2));
   });
 
   it('does not call simulateBuild, fetchOptimiserCandidates, or observation mutation helpers during rendering', async () => {
@@ -454,6 +607,7 @@ describe('ValidationPanel — Stage 6D validation display', () => {
     await screen.findByTestId('validation-summary');
     fireEvent.click(screen.getByTestId('validation-refresh-button'));
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(2));
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiser).not.toHaveBeenCalled();
     expect(mockedCreateObservedFact).not.toHaveBeenCalled();

@@ -62,6 +62,16 @@ FORBIDDEN_MODULES = (
     'observations.comparison_engine_pkg.shared',
     # Shared Stage 6C / Stage 6A modules.
     'observations.comparison_models',
+    'observations.review',
+    'observations.review.engine',
+    'observations.review.rules',
+    'observations.review.summary',
+    'observations.review.areas',
+    'observations.review.severity',
+    'observations.review.signals',
+    'observations.review.shared',
+    'observations.review_engine',
+    'observations.review_models',
     'observations.store',
     'observations.api_models',
 )

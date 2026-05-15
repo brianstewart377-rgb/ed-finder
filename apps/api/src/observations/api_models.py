@@ -408,3 +408,62 @@ class PredictionObservationCompareResponse(BaseModel):
     comparisons: list[PredictionObservationComparisonResponse] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Stage 6E — validation review guidance request/response models
+# ─────────────────────────────────────────────────────────────────────
+# These models mirror the Stage 6C compare request for caller
+# convenience, then return the structured advisory review guidance built
+# from the comparison result. The endpoint is passive: it does not run
+# Simulation Preview, mutate observations, or feed anything back into
+# mechanics/scoring/ranking.
+
+
+class ValidationReviewRequest(PredictionObservationCompareRequest):
+    """Request payload for ``POST /api/observations/review``.
+
+    Shape intentionally matches ``PredictionObservationCompareRequest``:
+    callers supply a system, optional target archetype, and current
+    prediction object. ``observed_facts`` remains an optional Mode B
+    override for tests/offline tools; when omitted the router loads
+    persisted facts with the same semantics as Stage 6C compare.
+    """
+
+
+class ValidationReviewSignalResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    signal_id: str
+    area: str
+    severity: str
+    confidence: str
+    status: str
+    title: str
+    message: str
+    recommended_action: str | None = None
+    comparison_ids: list[str] = Field(default_factory=list)
+
+
+class ValidationReviewSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    overall_review_status: str
+    confidence_impact: str
+    highest_severity: str
+    review_needed_count: int
+    evidence_strength: str
+    primary_review_areas: list[str] = Field(default_factory=list)
+    summary: str
+
+
+class ValidationReviewResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64: int
+    target_archetype: str | None
+    generated_at: str
+    summary: ValidationReviewSummaryResponse
+    signals: list[ValidationReviewSignalResponse] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
