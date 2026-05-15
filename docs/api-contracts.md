@@ -60,6 +60,20 @@ Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidat
 
 Avoid scattered raw `fetch()` calls for these endpoints. The central client is the only place that should know endpoint paths.
 
+## Search Tuning / Ratings Rerank API
+
+Search Tuning is the legacy Finder-result reranking helper. It is distinct from the Stage 5 Colony Planner optimiser.
+
+`POST /api/ratings/rerank` accepts:
+
+- `id64s`: required list of current Finder result IDs, bounded to 1-500.
+- `weights`: optional `RerankWeights` (`economy`, `slots`, `strategic`, `safety`, `terraforming`, `diversity`). Missing values use v3.1 defaults; supplied values are clamped and normalized server-side.
+- `economy`: optional economy scoring emphasis. When recognized, the economy dimension uses that per-economy rating column; when omitted, the backend uses the best available per-economy score/stored suggestion path.
+
+The endpoint returns `RerankResponse` with `weights_applied`, nullable top-level `economy_used`, and `results` containing `id64`, `reranked_score`, `original_score`, `confidence`, `rationale`, and per-row `economy_used`.
+
+This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not change `/api/local/search` ordering, persist weights, mutate ratings, run Simulation Preview, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/optimizer/` for compatibility, but presents as Search Tuning.
+
 ## Canonical Field Names
 
 The frontend should consume the backend field names exactly:
