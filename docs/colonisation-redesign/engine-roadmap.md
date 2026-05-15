@@ -311,3 +311,15 @@ Stage 6E adds a structured review layer on top of Stage 6C comparison output and
 The review implementation is split under `apps/api/src/observations/review/`: `engine.py` orchestrates, `rules.py` selects deterministic signals, `signals.py` constructs signal objects, `summary.py` owns top-line status precedence, `areas.py` maps comparison areas to review areas, `severity.py` owns severity/confidence helpers, and `shared.py` owns common buckets. The legacy `observations.review_engine` module remains a thin compatibility import.
 
 Stage 6F will harden the Stage 6 workflow around robustness, ergonomics, and contract edges. EDMC/journal ingestion remains unimplemented and out of scope for Stage 6E.
+
+## Stage 7A - Search Tuning / Finder Rerank Forensic Review
+
+Stage 7A is the map-before-the-march review for the legacy Search Tuning / Finder-result rerank surface. It documents what the current feature actually does, where it is implemented, what endpoints and data it uses, how it differs from normal Finder search and Colony Planner, and what should happen next.
+
+Current Stage 7A status:
+
+- Search Tuning is a read-only rerank of the current Finder result IDs through `POST /api/ratings/rerank`.
+- It does not mutate ratings, persist tuning preferences, change `/api/local/search` ordering, generate colony build plans, call Colony Planner optimiser candidates, or consume Observed Evidence / Validation output.
+- The current user-facing copy is mostly accurate, but the top-level placement and internal `optimizer` naming still make the feature look more central than it is.
+- The recommended Stage 7B user-facing framing is **Advanced Search Tuning**: an advanced Finder tool that shows a tuned order, original rank, and rank movement for the current result set.
+- Stage 7B should implement UX/reframing and focused tests based on `docs/colonisation-redesign/search-tuning-forensic-review.md`; it should not change scoring formulas, backend search ranking, Colony Planner logic, validation logic, or observed-evidence passivity.
