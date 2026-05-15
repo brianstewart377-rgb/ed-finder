@@ -361,3 +361,22 @@ Current Stage 7D status:
 - Confidence is shown as an adjustment note when present; contribution values are documented as pre-confidence.
 - Rows provide explicit "Open system detail" and "Evaluate in Colony Planner" actions.
 - The handoff opens system detail only. It does not auto-run Simulation Preview, generate builds, mutate Colony Planner, persist tuning weights, alter Finder ordering, or use validation/review evidence.
+
+## Stage 7E - Advanced Search Tuning Final Hardening
+
+Stage 7E locks the Advanced Search Tuning arc before Stage 8A Colony Planner UX work. It is a verification and hardening pass, not a new feature stage.
+
+Current Stage 7E status:
+
+- Advanced Search Tuning naming is consistent in current user-facing UI; legacy `#optimizer` remains only as a route compatibility alias.
+- `#search-tuning` and legacy `#optimizer` both render Advanced Search Tuning; navigation writes the preferred `#search-tuning` hash.
+- Contribution explanations describe support rather than penalties: rows show top contributors and weaker signals that contributed less under the current weights.
+- All-zero contribution rows use neutral copy and do not claim that any signal helped most.
+- Backend tests cover the additive `/api/ratings/rerank` extension, including pre-confidence contributions, post-confidence final `reranked_score`, and final-score descending ordering.
+- Handoff actions open system detail only and remain explicit that they do not run Simulation Preview or generate builds.
+- API and Search Tuning docs describe the current contract: temporary tuned score, no new search, no saved preferences, no normal Finder ordering change, no Colony Planner mutation, and no validation/review evidence input.
+- Stage 8A Colony Planner UX risks and backlog are captured in `docs/colonisation-redesign/stage-8a-colony-planner-ux-backlog.md`.
+
+## Stage 8A - Colony Planner UX Backlog
+
+Stage 8A is queued as a Colony Planner UX pass. It should address discoverability, recommended-build-first flow, clearer Simulation Preview feedback, and next-step guidance without changing Search Tuning semantics. See `docs/colonisation-redesign/stage-8a-colony-planner-ux-backlog.md`.
