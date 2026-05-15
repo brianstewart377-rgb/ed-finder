@@ -21,7 +21,9 @@ The Stage 7B UI now states that Advanced Search Tuning:
 - does not change Colony Planner
 - does not use Observed Evidence / Validation output
 
-Stage 7B also clarifies that economy selection is a scoring emphasis, not a filter; weight sliders apply only to the current tuning run; tuned score is temporary; and stored rationale comes from existing rating data rather than a new tuned-score explanation. Result rows now show original Finder rank, tuned rank, and movement up/down/unchanged using a frontend-only lookup from the source Finder order. `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain valid backend/internal names.
+Stage 7B also clarifies that economy selection is a scoring emphasis, not a filter; weight sliders apply only to the current tuning run; tuned score is temporary; and stored rationale comes from existing rating data rather than a new tuned-score explanation. Result rows now show original Finder rank, tuned rank, and movement up/down/unchanged using a frontend-only source-rank snapshot captured when the tuning run starts. Rank movement does not read from live Finder results after the run, so a later Finder search cannot change the displayed original rank for existing tuned results. `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain valid backend/internal names.
+
+The preferred route alias is `#search-tuning`; legacy `#optimizer` remains supported for direct-link compatibility. Internal names such as `OptimizerTab`, `useOptimizer`, and the `optimizer` route are deferred compatibility debt for a later route-safe cleanup.
 
 Deferred Stage 7C candidates include small local/static presets and deeper contribution explanations. Those remain separate from persistence, automatic learning, LLM-driven reranking, Colony Planner changes, and validation-evidence ranking changes.
 

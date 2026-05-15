@@ -13,11 +13,16 @@ export const ECONOMIES: Economy[] = [
   'HighTech',    'Military', 'Tourism', 'Extraction',
 ];
 
+export type SourceRankSnapshot = Record<number, {
+  originalRank: number;
+  name?: string | null;
+}>;
+
 export type OptimizerState =
   | { kind: 'idle' }
-  | { kind: 'busy' }
+  | { kind: 'busy'; sourceSnapshot: SourceRankSnapshot }
   | { kind: 'err'; message: string }
-  | { kind: 'ok';  data: RerankResponse; queriedAt: number };
+  | { kind: 'ok';  data: RerankResponse; queriedAt: number; sourceSnapshot: SourceRankSnapshot };
 
 export interface UseOptimizer {
   weights:   RerankWeights;
@@ -36,8 +41,11 @@ export interface UseOptimizer {
 
 /**
  * Advanced Search Tuning state. The weights are local + reactive; the source list
- * (id64s) is supplied at run() time by the caller — usually the Finder's
+ * (id64s) is supplied at run() time by the caller - usually the Finder's
  * current results — so this feature doesn't have to know about /search.
+ *
+ * Internal `optimizer` names are compatibility debt from the original route
+ * and can be cleaned up in a later route-safe migration.
  */
 export function useOptimizer(): UseOptimizer {
   const [weights, setWeights] = useState<RerankWeights>(DEFAULT_WEIGHTS);
@@ -60,15 +68,27 @@ export function useOptimizer(): UseOptimizer {
       setState({ kind: 'err', message: 'No source systems — run a Finder search first.' });
       return;
     }
-    setState({ kind: 'busy' });
+    const sourceForRun = source.slice(0, 500);
+    const sourceSnapshot: SourceRankSnapshot = Object.fromEntries(
+      sourceForRun.map((system, index) => [
+        system.id64,
+        {
+          originalRank: index + 1,
+          name: system.name ?? null,
+        },
+      ]),
+    );
+
+    setState({ kind: 'busy', sourceSnapshot });
     try {
       const data = await api.rerank({
-        id64s:   source.map((s) => s.id64).slice(0, 500),
+        id64s:   sourceForRun.map((s) => s.id64),
         weights,
         economy: economy ?? null,
       });
-      setState({ kind: 'ok', data, queriedAt: Date.now() });
+      setState({ kind: 'ok', data, queriedAt: Date.now(), sourceSnapshot });
     } catch (e: unknown) {
+      // Keep errors simple for now; there is no tuned result list to annotate.
       setState({
         kind:    'err',
         message: e instanceof Error ? e.message : String(e),

@@ -10,8 +10,8 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-function makeSystem(id64: number): SystemResult {
-  return { id64, name: `System ${id64}` } as SystemResult;
+function makeSystem(id64: number, name = `System ${id64}`): SystemResult {
+  return { id64, name } as SystemResult;
 }
 
 const response: RerankResponse = {
@@ -46,5 +46,26 @@ describe('useOptimizer', () => {
       economy: null,
     });
     expect(result.current.state.kind).toBe('ok');
+  });
+
+  it('stores original Finder rank and names in the tuning-run source snapshot', async () => {
+    const { result } = renderHook(() => useOptimizer());
+
+    await act(async () => {
+      await result.current.run([
+        makeSystem(101, 'Alpha'),
+        makeSystem(202, 'Beta'),
+        makeSystem(303, 'Gamma'),
+      ]);
+    });
+
+    expect(result.current.state.kind).toBe('ok');
+    if (result.current.state.kind !== 'ok') return;
+
+    expect(result.current.state.sourceSnapshot).toEqual({
+      101: { originalRank: 1, name: 'Alpha' },
+      202: { originalRank: 2, name: 'Beta' },
+      303: { originalRank: 3, name: 'Gamma' },
+    });
   });
 });

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { OptimizerTab } from './OptimizerTab';
-import type { UseOptimizer } from './useOptimizer';
+import type { SourceRankSnapshot, UseOptimizer } from './useOptimizer';
 import type { RerankResponse, SystemResult } from '@/types/api';
 
 function makeOptimizer(overrides: Partial<UseOptimizer> = {}): UseOptimizer {
@@ -32,6 +32,15 @@ function makeSystem(id64: number, name: string): SystemResult {
 
 function makeSearch(results: SystemResult[] = []) {
   return { results } as never;
+}
+
+function makeSourceSnapshot(systems: SystemResult[]): SourceRankSnapshot {
+  return Object.fromEntries(
+    systems.map((system, index) => [
+      system.id64,
+      { originalRank: index + 1, name: system.name ?? null },
+    ]),
+  );
 }
 
 describe('OptimizerTab Advanced Search Tuning UX', () => {
@@ -84,7 +93,12 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
   });
 
   it('uses loading copy that does not imply a new search', () => {
-    render(<OptimizerTab optimizer={makeOptimizer({ state: { kind: 'busy' } })} search={makeSearch([makeSystem(123, 'Sol')])} />);
+    render(
+      <OptimizerTab
+        optimizer={makeOptimizer({ state: { kind: 'busy', sourceSnapshot: makeSourceSnapshot([makeSystem(123, 'Sol')]) } })}
+        search={makeSearch([makeSystem(123, 'Sol')])}
+      />,
+    );
 
     expect(screen.getAllByText('Building tuned order...').length).toBeGreaterThan(0);
     expect(screen.getByText(/re-prioritising a copy of the current Finder results/i)).toBeTruthy();
@@ -142,7 +156,18 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
 
     render(
       <OptimizerTab
-        optimizer={makeOptimizer({ state: { kind: 'ok', data, queriedAt: 123 } })}
+        optimizer={makeOptimizer({
+          state: {
+            kind: 'ok',
+            data,
+            queriedAt: 123,
+            sourceSnapshot: makeSourceSnapshot([
+              makeSystem(1, 'Alpha'),
+              makeSystem(2, 'Beta'),
+              makeSystem(3, 'Gamma'),
+            ]),
+          },
+        })}
         search={makeSearch([
           makeSystem(1, 'Alpha'),
           makeSystem(2, 'Beta'),
@@ -169,5 +194,55 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
 
     expect(screen.getAllByText(/The tuned score is temporary for this run/i).length).toBe(3);
     expect(screen.getAllByText(/Stored rating rationale comes from the existing rating data/i).length).toBe(3);
+  });
+
+  it('uses the tuning-run source snapshot for rank movement even when live Finder results changed', () => {
+    const data: RerankResponse = {
+      weights_applied: {
+        economy: 0.3,
+        slots: 0.2,
+        strategic: 0.15,
+        safety: 0.15,
+        terraforming: 0.1,
+        diversity: 0.1,
+      },
+      economy_used: null,
+      results: [
+        {
+          id64: 2,
+          reranked_score: 91,
+          original_score: 80,
+          confidence: null,
+          rationale: 'Snapshot rationale',
+          economy_used: 'Tourism',
+        },
+      ],
+    };
+
+    render(
+      <OptimizerTab
+        optimizer={makeOptimizer({
+          state: {
+            kind: 'ok',
+            data,
+            queriedAt: 123,
+            sourceSnapshot: {
+              2: { originalRank: 2, name: 'Beta from tuning run' },
+            },
+          },
+        })}
+        search={makeSearch([
+          makeSystem(2, 'Beta from later Finder search'),
+          makeSystem(9, 'Different live result'),
+        ])}
+      />,
+    );
+
+    const beta = screen.getByTestId('optimizer-row-2');
+    expect(within(beta).getByText('Beta from tuning run')).toBeTruthy();
+    expect(within(beta).getByText('Finder #2 -> Tuned #1')).toBeTruthy();
+    expect(within(beta).getByText('Moved up 1 place')).toBeTruthy();
+    expect(within(beta).queryByText('Finder #1 -> Tuned #1')).toBeNull();
+    expect(within(beta).queryByText('Beta from later Finder search')).toBeNull();
   });
 });

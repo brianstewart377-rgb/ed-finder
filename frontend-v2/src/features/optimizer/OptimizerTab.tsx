@@ -1,6 +1,6 @@
 import type { RerankRow, SystemResult } from '@/types/api';
 import { ratingTier } from '@/lib/format';
-import { ECONOMIES, type UseOptimizer } from './useOptimizer';
+import { ECONOMIES, type SourceRankSnapshot, type UseOptimizer } from './useOptimizer';
 import type { useSearch } from '@/features/search/useSearch';
 
 export interface OptimizerTabProps {
@@ -31,9 +31,9 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
   const sourceCount = search.results.length;
   const sumOk = Math.abs(weightSum - 1.0) < 0.01;
 
-  // Index source by id64 for cheap join with rerank results.
+  // Live Finder data is only a fallback for names. Tuned rank movement uses
+  // the source snapshot captured when the tuning run started.
   const sourceById = new Map(search.results.map((s) => [s.id64, s] as const));
-  const sourceRankById = new Map(search.results.map((s, idx) => [s.id64, idx + 1] as const));
 
   return (
     <section data-testid="optimizer-tab" className="space-y-5">
@@ -164,7 +164,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
             <ResultsList
               results={state.data.results}
               sourceById={sourceById}
-              sourceRankById={sourceRankById}
+              sourceSnapshot={state.sourceSnapshot}
               onOpenDetail={onOpenDetail}
             />
           )}
@@ -211,11 +211,11 @@ function WeightSlider({ label, hint, value, onChange, testid }: {
 }
 
 function ResultsList({
-  results, sourceById, sourceRankById, onOpenDetail,
+  results, sourceById, sourceSnapshot, onOpenDetail,
 }: {
   results:    RerankRow[];
   sourceById: Map<number, SystemResult>;
-  sourceRankById: Map<number, number>;
+  sourceSnapshot: SourceRankSnapshot;
   onOpenDetail?: (id64: number) => void;
 }) {
   if (results.length === 0) {
@@ -231,8 +231,10 @@ function ResultsList({
   return (
     <ul className="space-y-2">
       {results.map((r, idx) => {
-        const src     = sourceById.get(r.id64);
-        const originalRank = sourceRankById.get(r.id64);
+        const snapshot = sourceSnapshot[r.id64];
+        const src = sourceById.get(r.id64);
+        const displayName = snapshot?.name ?? src?.name ?? `id ${r.id64}`;
+        const originalRank = snapshot?.originalRank;
         const tunedRank = idx + 1;
         const movement = describeMovement(originalRank, tunedRank);
         const delta   = r.original_score != null ? r.reranked_score - r.original_score : null;
@@ -258,7 +260,7 @@ function ResultsList({
             </div>
             <div className="min-w-0">
               <div className="text-orange-lt font-bold truncate">
-                {src?.name ?? `id ${r.id64}`}
+                {displayName}
               </div>
               {r.rationale && (
                 <div className="text-[11px] text-silver-dk italic truncate">

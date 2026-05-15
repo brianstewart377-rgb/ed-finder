@@ -330,9 +330,10 @@ Stage 7B reframes the existing Search Tuning surface as **Advanced Search Tuning
 
 Current Stage 7B status:
 
-- The visible nav/page label is Advanced Search Tuning while the legacy `optimizer` route remains compatible. `#search-tuning` is also accepted as a route alias.
+- The visible nav/page label is Advanced Search Tuning. `#search-tuning` is the preferred route alias, while legacy `#optimizer` remains compatible.
 - The UI explains that it uses current Finder results, reranks a copy, leaves the original Finder results unchanged, and does not save preferences or change Colony Planner.
 - Economy selection is labelled as scoring emphasis rather than a filter, with explicit helper copy that systems are not filtered out.
 - Slider copy says weights apply only to the current tuning run and are normalised for the temporary tuned score.
 - Result rows show original Finder rank, tuned rank, movement up/down/unchanged, temporary tuned score, original stored score, and stored rating rationale.
-- `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain backend/internal terminology. Stage 7C may add presets or deeper contribution explanations later.
+- Original Finder rank is snapshotted when the tuning run starts; movement labels use that snapshot, not whatever Finder results are live later.
+- `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain backend/internal terminology. Internal `optimizer` route/component names remain compatibility debt deferred to a later cleanup. Stage 7C may add presets or deeper contribution explanations later.
