@@ -9,6 +9,12 @@ export function ColonyPlannerSectionNav() {
             Evidence shelf. The label is intentionally neutral (silver) so
             users do not read it as part of the predicted scoring chain. */}
         <span className="rounded border border-border bg-bg3 px-2 py-1 text-silver-dk">Observed Evidence</span>
+        {/* Stage 6D adds the in-page Validation section label. Cyan
+            matches the Validation panel chrome so users can connect the
+            label with the rendered comparison block, while the wording
+            stays neutral — "Validation" describes the panel, not a
+            verdict. */}
+        <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 text-cyan">Validation</span>
       </div>
     </div>
   );

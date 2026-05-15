@@ -23,6 +23,8 @@ import type {
   ObservedFactUpdateRequest,
   OptimiserCandidatesRequest,
   OptimiserCandidatesResponse,
+  PredictionObservationCompareRequest,
+  PredictionObservationCompareResponse,
   RecommendedBuildsResponse,
   RegionalAnalysisResponse,
   RerankRequest,
@@ -299,6 +301,23 @@ export const api = {
       method: 'DELETE',
     });
   },
+
+  // ── Stage 6C Predicted-vs-Observed Comparison ──────────────────────────
+  // Read-only comparison: takes a current prediction (a
+  // SimulateBuildResponse, in practice) and asks the backend to compare
+  // it against persisted observed evidence for the same system. Stage 6D
+  // renders the result inside Colony Planner. This call does NOT mutate
+  // any prediction, optimiser candidate, optimiser ranking, or persisted
+  // observation. The backend operates in Mode A by default (it loads
+  // persisted facts itself); Stage 6D never sends `observed_facts`.
+  comparePredictionToObservations(
+    request: PredictionObservationCompareRequest,
+  ): Promise<PredictionObservationCompareResponse> {
+    return jsonFetch('/observations/compare', {
+      method: 'POST',
+      body:   JSON.stringify(request),
+    });
+  },
 };
 
 export function getSlotPredictions(id64: number): Promise<SlotPredictionResponse> {
@@ -362,6 +381,20 @@ export function deleteObservedFact(
   observationId: string,
 ): Promise<ObservedFactDeleteResponse> {
   return api.deleteObservedFact(observationId);
+}
+
+// ── Stage 6C Predicted-vs-Observed Comparison helper ────────────────────
+//
+// Stage 6D renders the response of this call inside the Colony Planner
+// Validation section. The helper is intentionally narrow: it only calls
+// the compare endpoint and does NOT call `simulateBuild` or
+// `fetchOptimiserCandidates`. Predictions are passed in by the caller so
+// the Validation panel can compare against the *current* preview result
+// rather than re-running simulation.
+export function comparePredictionToObservations(
+  request: PredictionObservationCompareRequest,
+): Promise<PredictionObservationCompareResponse> {
+  return api.comparePredictionToObservations(request);
 }
 
 /** Shape of one row from /api/watchlist. */

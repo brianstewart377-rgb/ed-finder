@@ -353,3 +353,60 @@ Per-row `status` (`PredictionObservationComparisonResponse.status`):
 `POST /api/observations/compare` is read-only over its inputs. It does not import or invoke any simulation, optimiser, ranking, or candidate-generation code, and it does not mutate persisted observations. The comparison engine is pure and deterministic given its inputs (`generated_at` is the only time-dependent field and is injectable for tests). A static passivity test in the test suite asserts that simulation/optimiser/ranking source files do not import `observations.comparison_engine` or `observations.store`.
 
 Stage 6C tests live in `tests/test_stage6c_comparison.py`. The legacy Stage 4D in-pipeline comparison code in `apps/api/src/observations/comparison.py` and its tests in `tests/test_observation_comparison.py` remain untouched.
+
+## Stage 6D Validation Display in Colony Planner
+
+Stage 6D renders the Stage 6C `POST /api/observations/compare` response inside Colony Planner. It is a **frontend integration stage**: it does not change the backend compare contract, the simulation endpoint, the optimiser endpoint, or any persisted observed evidence. Stage 6D does not introduce a popout, modal, or new top-level app tab. The validation block lives in-page inside Colony Planner, **after** the Observed Evidence shelf, so the Colony Planner section order is now:
+
+1. Build Plan
+2. Optimiser Candidates
+3. Preview Result
+4. Observed Evidence
+5. Validation
+
+### Frontend types and helper
+
+Frontend types in `frontend-v2/src/types/api.ts` mirror the Stage 6C response:
+
+- `ComparisonStatus` — `confirmed` | `contradicted` | `predicted_only` | `observed_only` | `unknown` | `unverified`
+- `ComparisonSeverity` — `info` | `low` | `medium` | `high`
+- `ComparisonOverallStatus` — `no_observations` | `confirmed` | `mixed` | `needs_review` | `insufficient_evidence`
+- `ComparisonConfidenceImpact` — `none` | `strengthened` | `weakened` | `mixed` | `insufficient_evidence`
+- `ObservationEvidenceMatch`
+- `PredictionObservationComparison`
+- `PredictionObservationComparisonSummary`
+- `PredictionObservationCompareRequest`
+- `PredictionObservationCompareResponse`
+
+The API helper in `frontend-v2/src/lib/api.ts` is intentionally narrow:
+
+- `comparePredictionToObservations(request)` → `POST /api/observations/compare`
+
+It does not call `simulateBuild` or `fetchOptimiserCandidates`. Stage 6D always uses **Mode A**: the request omits `observed_facts` so the backend loads authoritative persisted evidence itself.
+
+### Panel behaviour
+
+`ValidationPanel` lives under `frontend-v2/src/features/system-detail/simulation-preview/validation/` and receives:
+
+- `systemId64: number`
+- `targetArchetype: string | null`
+- `previewResult: SimulateBuildResponse | null`
+- `isPreviewResultStale?: boolean`
+
+If `previewResult` is `null`, the panel renders the no-preview empty state and does **not** call the compare endpoint. When a preview result exists, it sends `{ system_id64, target_archetype, prediction: previewResult }` to `POST /api/observations/compare`. The query key includes a stable preview-result fingerprint so re-running Preview triggers a fresh comparison while an unchanged preview reuses the cached compare response.
+
+When `isPreviewResultStale` is true, the panel renders a warning ("Preview result is stale. The Build Plan has changed since this preview was run. Run Preview again before relying on validation."). Stage 6D never auto-runs Simulation Preview and never mutates the build plan. The user has a manual **Refresh validation** button that re-fetches the compare endpoint, and the Observed Evidence panel separately invalidates `observation-compare` queries on create/update/delete so newly recorded evidence is reflected on the next refresh.
+
+### Conservative copy rules
+
+Stage 6D is advisory. The user-facing copy is intentionally conservative:
+
+- Top-of-panel banner reads *"This validation is advisory. It compares the current preview result with recorded observed evidence. It does not change scoring, optimiser ranking, generated candidates, or in-game state."*
+- `contradicted` rows render as **Needs review**, never *wrong*.
+- `predicted_only` rows render as *"Predicted, but no matching observation has been recorded yet."*
+- `observed_only` rows render as *"Observed evidence exists, but the current prediction has no matching item."*
+- The summary block surfaces overall status, confidence impact, observed-facts count, compared-predictions count, and per-bucket counts using the labels above.
+
+### Passivity guarantee
+
+Validation rendering does not call `simulateBuild`, does not call `fetchOptimiserCandidates`, does not invoke the optimiser ranking, does not mutate persisted observed evidence, and does not feed confidence impact back into Simulation Preview scoring or optimiser ranking. A future expansion may move large comparison sets into a drawer/popout while keeping the in-page placement as the default. Stage 6E will introduce the confidence/mechanics review loop on top of this display; Stage 6D itself is a display layer only.

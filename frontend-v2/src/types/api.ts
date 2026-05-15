@@ -661,3 +661,107 @@ export interface ListObservedFactsParams {
   limit?: number;
   offset?: number;
 }
+
+// ─── Stage 6D Predicted-vs-Observed Validation (Stage 6C compare API) ─────
+//
+// Wire types matching the Stage 6C `POST /api/observations/compare`
+// response. Stage 6D renders these in the Colony Planner Validation
+// section. The compare API is read-only; nothing the Validation UI does
+// changes Simulation Preview scoring, optimiser ranking, generated
+// candidates, or persisted observed evidence. See
+// `apps/api/src/observations/comparison_models.py` for the backend
+// source of truth.
+export type ComparisonStatus =
+  | 'confirmed'
+  | 'contradicted'
+  | 'predicted_only'
+  | 'observed_only'
+  | 'unknown'
+  | 'unverified';
+
+export type ComparisonSeverity = 'info' | 'low' | 'medium' | 'high';
+
+export type ComparisonOverallStatus =
+  | 'no_observations'
+  | 'confirmed'
+  | 'mixed'
+  | 'needs_review'
+  | 'insufficient_evidence';
+
+export type ComparisonConfidenceImpact =
+  | 'none'
+  | 'strengthened'
+  | 'weakened'
+  | 'mixed'
+  | 'insufficient_evidence';
+
+export interface ObservationEvidenceMatch {
+  observation_id: string;
+  fact_type: string;
+  subject_type: string;
+  subject_id: string | null;
+  status: string;
+  confidence: string;
+  observed_value?: ObservedJsonValue | null;
+  expected_value?: ObservedJsonValue | null;
+  notes?: string | null;
+}
+
+export interface PredictionObservationComparison {
+  comparison_id: string;
+  area: string;
+  subject_type: string;
+  subject_id: string | null;
+  predicted_value: ObservedJsonValue | null;
+  observed_value: ObservedJsonValue | null;
+  status: ComparisonStatus | string;
+  severity: ComparisonSeverity | string;
+  confidence: string;
+  reason: string;
+  recommended_action?: string | null;
+  evidence: ObservationEvidenceMatch[];
+  prediction_source?: string | null;
+}
+
+export interface PredictionObservationComparisonSummary {
+  status: ComparisonOverallStatus | string;
+  observed_facts_count: number;
+  compared_predictions_count: number;
+  confirmed_count: number;
+  contradicted_count: number;
+  observed_only_count: number;
+  predicted_only_count: number;
+  unknown_count: number;
+  unverified_count: number;
+  confidence_impact: ComparisonConfidenceImpact | string;
+  summary: string;
+}
+
+export interface PredictionObservationCompareRequest {
+  system_id64: number;
+  target_archetype: string | null;
+  /**
+   * Current Simulation Preview prediction. Stage 6D passes the full
+   * `SimulateBuildResponse` verbatim — the backend treats `prediction`
+   * as an opaque JSON object and only requires it to be object-shaped.
+   */
+  prediction: Record<string, unknown>;
+  /**
+   * Mode B override: when supplied, the backend uses this list verbatim
+   * and skips loading persisted facts. Stage 6D never sets this; the
+   * Validation panel relies on Mode A so the backend can serve
+   * authoritative persisted evidence for the system.
+   */
+  observed_facts?: ObservedFactCreateRequest[];
+  fact_load_limit?: number;
+}
+
+export interface PredictionObservationCompareResponse {
+  system_id64: number;
+  target_archetype: string | null;
+  generated_at: string;
+  summary: PredictionObservationComparisonSummary;
+  comparisons: PredictionObservationComparison[];
+  warnings: string[];
+  assumptions: string[];
+}
