@@ -380,3 +380,13 @@ Current Stage 7E status:
 ## Stage 8A - Colony Planner UX Backlog
 
 Stage 8A is queued as a Colony Planner UX pass. It should address discoverability, recommended-build-first flow, clearer Simulation Preview feedback, and next-step guidance without changing Search Tuning semantics. See `docs/colonisation-redesign/stage-8a-colony-planner-ux-backlog.md`.
+
+Stage 8A prep is complete in `docs/colonisation-redesign/stage-8a-colony-planner-ux-prep.md`. The prep pass reviewed the DaftMav colonisation workbook, the Elite Dangerous Colonization Mega Guide, current Colony Planner frontend/backend/docs/tests, and the known user-raised friction around discoverability and unclear Preview output.
+
+Current Stage 8A prep status:
+
+- Source-informed Colony Planner UX audit is complete.
+- Recommended Stage 8A implementation direction is guided Colony Planner entry, suggested-builds-first first-run flow, manual blank planning as an advanced path, clearer Build Plan edit feedback, and interpreted Preview Result next steps.
+- Recommended entry/layout is to keep the planner embedded in system detail for now, add a prominent `Open Colony Planner` CTA/jump/focus near the top of system detail, and make result-row `Evaluate in Colony Planner` focus the existing planner without auto-running Preview or generating builds.
+- No Colony Planner behaviour, Simulation Preview scoring, optimiser candidate generation/ranking, validation/review behaviour, backend mechanics, API endpoints, Search Tuning semantics, or persistence changed in the prep pass.
+- Stage 8A implementation remains pending. The backlog remains in `docs/colonisation-redesign/stage-8a-colony-planner-ux-backlog.md`; the detailed implementation plan is in the Stage 8A prep report.
