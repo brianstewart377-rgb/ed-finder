@@ -225,7 +225,10 @@ export const api = {
     });
   },
 
-  // ── Optimizer / rerank ────────────────────────────────────────────────
+  // ── Advanced Search Tuning / ratings rerank ──────────────────────────
+  // Frontend route/folder names may still say "optimizer" for compatibility.
+  // This endpoint only reorders supplied Finder result IDs; it is separate
+  // from Colony Planner optimiser candidates.
   rerank(body: RerankRequest): Promise<RerankResponse> {
     return jsonFetch('/ratings/rerank', {
       method: 'POST',

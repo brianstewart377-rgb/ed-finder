@@ -35,9 +35,9 @@ export interface UseOptimizer {
 }
 
 /**
- * Optimizer state. The weights are local + reactive; the source list
+ * Advanced Search Tuning state. The weights are local + reactive; the source list
  * (id64s) is supplied at run() time by the caller — usually the Finder's
- * current results — so the optimizer doesn't have to know about /search.
+ * current results — so this feature doesn't have to know about /search.
  */
 export function useOptimizer(): UseOptimizer {
   const [weights, setWeights] = useState<RerankWeights>(DEFAULT_WEIGHTS);

@@ -60,9 +60,9 @@ Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidat
 
 Avoid scattered raw `fetch()` calls for these endpoints. The central client is the only place that should know endpoint paths.
 
-## Search Tuning / Ratings Rerank API
+## Advanced Search Tuning / Ratings Rerank API
 
-Search Tuning is the legacy Finder-result reranking helper. It is distinct from the Stage 5 Colony Planner optimiser.
+Advanced Search Tuning is the Finder-result reranking helper. The user-facing label was reframed in Stage 7B; backend/internal terminology remains ratings rerank. It is distinct from the Stage 5 Colony Planner optimiser.
 
 `POST /api/ratings/rerank` accepts:
 
@@ -70,9 +70,9 @@ Search Tuning is the legacy Finder-result reranking helper. It is distinct from 
 - `weights`: optional `RerankWeights` (`economy`, `slots`, `strategic`, `safety`, `terraforming`, `diversity`). Missing values use v3.1 defaults; supplied values are clamped and normalized server-side.
 - `economy`: optional economy scoring emphasis. When recognized, the economy dimension uses that per-economy rating column; when omitted, the backend uses the best available per-economy score/stored suggestion path.
 
-The endpoint returns `RerankResponse` with `weights_applied`, nullable top-level `economy_used`, and `results` containing `id64`, `reranked_score`, `original_score`, `confidence`, `rationale`, and per-row `economy_used`.
+The endpoint returns `RerankResponse` with `weights_applied`, nullable top-level `economy_used`, and `results` containing `id64`, `reranked_score`, `original_score`, `confidence`, `rationale`, and per-row `economy_used`. Stage 7B adds original Finder rank, tuned rank, and movement labels in the frontend only by comparing the response order to the supplied Finder result order.
 
-This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not change `/api/local/search` ordering, persist weights, mutate ratings, run Simulation Preview, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/optimizer/` for compatibility, but presents as Search Tuning.
+This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, mutate ratings, run Simulation Preview, alter Colony Planner, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/optimizer/` for compatibility, but presents as Advanced Search Tuning.
 
 ## Canonical Field Names
 

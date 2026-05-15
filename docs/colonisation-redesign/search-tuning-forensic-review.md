@@ -6,6 +6,25 @@ Search Tuning currently reranks the systems already returned by Finder. It does 
 
 The feature is useful as an advanced Finder-analysis tool, but it is still too prominent and internally named too close to the colony optimiser. Current UI copy is much clearer than the legacy "Optimizer" framing, but the route/folder/hook names still say `optimizer`, and the top-level tab can make a Finder-dependent helper look like a main workflow. Stage 7B should reframe it as **Advanced Search Tuning** inside or adjacent to Finder, improve before/after rank explanations and presets, and preserve `/api/ratings/rerank` as the internal/backend name.
 
+## Stage 7B Implementation Addendum
+
+Stage 7B reframed the user-facing surface as **Advanced Search Tuning** while preserving the backend/internal ratings rerank terminology and behaviour. The feature still sends current Finder result IDs to `POST /api/ratings/rerank`, receives a temporary sorted subset, and renders that tuned order separately from Finder.
+
+The Stage 7B UI now states that Advanced Search Tuning:
+
+- re-prioritises the current Finder results only
+- reranks a copy of those results
+- does not run a new search
+- does not save preferences or persist tuning weights
+- does not change stored ratings
+- does not alter normal `/api/local/search` ordering
+- does not change Colony Planner
+- does not use Observed Evidence / Validation output
+
+Stage 7B also clarifies that economy selection is a scoring emphasis, not a filter; weight sliders apply only to the current tuning run; tuned score is temporary; and stored rationale comes from existing rating data rather than a new tuned-score explanation. Result rows now show original Finder rank, tuned rank, and movement up/down/unchanged using a frontend-only lookup from the source Finder order. `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain valid backend/internal names.
+
+Deferred Stage 7C candidates include small local/static presets and deeper contribution explanations. Those remain separate from persistence, automatic learning, LLM-driven reranking, Colony Planner changes, and validation-evidence ranking changes.
+
 ## Current Implementation Map
 
 ### Backend
@@ -99,8 +118,8 @@ Error handling is thin: request validation handles empty/oversized ID lists; dat
 
 | Area | Files | Notes |
 |---|---|---|
-| Top-level entry | `frontend-v2/src/components/NavBar.tsx`, `frontend-v2/src/hooks/useHashRoute.ts`, `frontend-v2/src/App.tsx` | The visible tab label is "Search Tuning"; the route key remains `optimizer`. |
-| Search Tuning UI | `frontend-v2/src/features/optimizer/OptimizerTab.tsx` | Renders the heading, source badge, economy selector, six weight sliders, reset control, rerank button, loading/error/empty/results states, score deltas, and row click to system detail. |
+| Top-level entry | `frontend-v2/src/components/NavBar.tsx`, `frontend-v2/src/hooks/useHashRoute.ts`, `frontend-v2/src/App.tsx` | The visible tab label is "Advanced Search Tuning"; the legacy route key `optimizer` remains compatible and `search-tuning` is accepted as an alias. |
+| Advanced Search Tuning UI | `frontend-v2/src/features/optimizer/OptimizerTab.tsx` | Renders the heading, source badge, economy scoring emphasis selector, six weight sliders, reset control, tuned-order button, loading/error/empty/results states, original Finder rank, tuned rank, movement labels, temporary tuned score, stored score/rationale labels, and row click to system detail. |
 | Search Tuning state | `frontend-v2/src/features/optimizer/useOptimizer.ts` | Owns local weights/economy/state. `run(source)` slices current Finder results to 500 IDs and calls `api.rerank`. |
 | API helper | `frontend-v2/src/lib/api.ts` | `api.rerank(body)` posts to `/ratings/rerank`. The same file also contains `optimiserCandidates()`, which increases naming collision risk. |
 | Types/defaults | `frontend-v2/src/types/api.ts`, `frontend-v2/src/types/api.gen.ts` | Exposes `RerankRequest`, `RerankResponse`, `RerankRow`, `RerankWeights`, and `DEFAULT_WEIGHTS`. |
@@ -109,18 +128,18 @@ Error handling is thin: request validation handles empty/oversized ID lists; dat
 Current user inputs:
 
 - Finder result set from the last Finder search.
-- Economy preference: `Auto (per-row stored suggestion)`, `Agriculture`, `Refinery`, `Industrial`, `HighTech`, `Military`, `Tourism`, or `Extraction`.
+- Economy scoring emphasis: `Auto (per-row stored suggestion)`, `Agriculture`, `Refinery`, `Industrial`, `HighTech`, `Military`, `Tourism`, or `Extraction`.
 - Weight sliders: Economy, Slots, Strategic, Safety, Terraforming, Diversity.
 - Reset to v3.1 defaults.
-- Rerank results button.
+- Show tuned order button.
 
 Current user-visible outputs:
 
 - Source count: "Source: N systems from current Finder results".
 - Empty guidance when no Finder results exist.
-- Loading copy: "Reranking...".
+- Loading copy: "Building tuned order...".
 - Error message from the thrown API error.
-- Reranked rows showing order number, system name or fallback ID, stored rationale, economy used, confidence, reranked score, and original-to-reranked delta.
+- Tuned rows showing original Finder rank, tuned rank, movement, system name or fallback ID, stored rating rationale, economy used, confidence, temporary tuned score, original stored score, and original-to-tuned score delta.
 
 The UI now says "Re-weight and reorder your current Finder results" and "This tunes Finder search results only. It does not generate colony build plans." That wording is accurate. The remaining ambiguity is placement and naming, not the core explanatory sentence.
 

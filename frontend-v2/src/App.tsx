@@ -120,7 +120,7 @@ function AppInner() {
         />
       )}
 
-      {route === 'optimizer' && (
+      {(route === 'optimizer' || route === 'search-tuning') && (
         <OptimizerTab
           optimizer={optimizer}
           search={search}

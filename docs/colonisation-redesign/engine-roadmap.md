@@ -323,3 +323,16 @@ Current Stage 7A status:
 - The current user-facing copy is mostly accurate, but the top-level placement and internal `optimizer` naming still make the feature look more central than it is.
 - The recommended Stage 7B user-facing framing is **Advanced Search Tuning**: an advanced Finder tool that shows a tuned order, original rank, and rank movement for the current result set.
 - Stage 7B should implement UX/reframing and focused tests based on `docs/colonisation-redesign/search-tuning-forensic-review.md`; it should not change scoring formulas, backend search ranking, Colony Planner logic, validation logic, or observed-evidence passivity.
+
+## Stage 7B - Advanced Search Tuning UX Reframe
+
+Stage 7B reframes the existing Search Tuning surface as **Advanced Search Tuning**. It remains a temporary re-prioritisation of the current Finder result IDs through `POST /api/ratings/rerank`; it does not run a new search, persist preferences, alter normal `/api/local/search` ordering, alter Colony Planner, or use Observed Evidence / Validation output.
+
+Current Stage 7B status:
+
+- The visible nav/page label is Advanced Search Tuning while the legacy `optimizer` route remains compatible. `#search-tuning` is also accepted as a route alias.
+- The UI explains that it uses current Finder results, reranks a copy, leaves the original Finder results unchanged, and does not save preferences or change Colony Planner.
+- Economy selection is labelled as scoring emphasis rather than a filter, with explicit helper copy that systems are not filtered out.
+- Slider copy says weights apply only to the current tuning run and are normalised for the temporary tuned score.
+- Result rows show original Finder rank, tuned rank, movement up/down/unchanged, temporary tuned score, original stored score, and stored rating rationale.
+- `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain backend/internal terminology. Stage 7C may add presets or deeper contribution explanations later.
