@@ -15,6 +15,12 @@ import type {
   AutocompleteResponse,
   CacheStats,
   FacilityTemplate,
+  ListObservedFactsParams,
+  ObservedFact,
+  ObservedFactCreateRequest,
+  ObservedFactDeleteResponse,
+  ObservedFactListResponse,
+  ObservedFactUpdateRequest,
   OptimiserCandidatesRequest,
   OptimiserCandidatesResponse,
   RecommendedBuildsResponse,
@@ -253,6 +259,46 @@ export const api = {
       headers: { 'X-Admin-Token': token },
     });
   },
+
+  // ── Stage 6B Observed Evidence (Observed Facts) ────────────────────────
+  // Passive evidence: records what a user actually saw in-game for a system
+  // or build. These calls do NOT change Simulation Preview scoring, optimiser
+  // ranking, or generated candidates. They are also not consumed by the
+  // simulation/optimiser modules — see api-contracts.md "Stage 6A Observed
+  // Facts API" for the contract details.
+  listObservedFacts(params: ListObservedFactsParams): Promise<ObservedFactListResponse> {
+    const usp = new URLSearchParams();
+    usp.set('system_id64', String(params.system_id64));
+    if (params.fact_type)              usp.set('fact_type',              params.fact_type);
+    if (params.subject_type)           usp.set('subject_type',           params.subject_type);
+    if (params.status)                 usp.set('status',                 params.status);
+    if (params.target_archetype)       usp.set('target_archetype',       params.target_archetype);
+    if (params.build_fingerprint)      usp.set('build_fingerprint',      params.build_fingerprint);
+    if (params.simulation_fingerprint) usp.set('simulation_fingerprint', params.simulation_fingerprint);
+    if (params.limit  !== undefined)   usp.set('limit',  String(params.limit));
+    if (params.offset !== undefined)   usp.set('offset', String(params.offset));
+    return jsonFetch(`/observations/facts?${usp.toString()}`);
+  },
+
+  createObservedFact(request: ObservedFactCreateRequest): Promise<ObservedFact> {
+    return jsonFetch('/observations/facts', {
+      method: 'POST',
+      body:   JSON.stringify(request),
+    });
+  },
+
+  updateObservedFact(observationId: string, request: ObservedFactUpdateRequest): Promise<ObservedFact> {
+    return jsonFetch(`/observations/facts/${encodeURIComponent(observationId)}`, {
+      method: 'PATCH',
+      body:   JSON.stringify(request),
+    });
+  },
+
+  deleteObservedFact(observationId: string): Promise<ObservedFactDeleteResponse> {
+    return jsonFetch(`/observations/facts/${encodeURIComponent(observationId)}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 export function getSlotPredictions(id64: number): Promise<SlotPredictionResponse> {
@@ -285,6 +331,37 @@ export function getFacilityTemplates(): Promise<FacilityTemplate[]> {
 
 export function simulateBuild(request: SimulateBuildRequest): Promise<SimulateBuildResponse> {
   return api.simulateBuild(request);
+}
+
+// ── Stage 6B Observed Evidence helpers ──────────────────────────────────
+//
+// These are thin re-exports so feature modules can import named helpers
+// rather than passing the whole `api` object around. The same passivity
+// note applies: observed evidence does NOT affect predictions, optimiser
+// ranking, candidate generation, or Simulation Preview scoring.
+export function listObservedFacts(
+  params: ListObservedFactsParams,
+): Promise<ObservedFactListResponse> {
+  return api.listObservedFacts(params);
+}
+
+export function createObservedFact(
+  request: ObservedFactCreateRequest,
+): Promise<ObservedFact> {
+  return api.createObservedFact(request);
+}
+
+export function updateObservedFact(
+  observationId: string,
+  request: ObservedFactUpdateRequest,
+): Promise<ObservedFact> {
+  return api.updateObservedFact(observationId, request);
+}
+
+export function deleteObservedFact(
+  observationId: string,
+): Promise<ObservedFactDeleteResponse> {
+  return api.deleteObservedFact(observationId);
 }
 
 /** Shape of one row from /api/watchlist. */

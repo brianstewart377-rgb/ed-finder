@@ -96,3 +96,23 @@ Stage 6A is a **passive evidence shelf**: observations are recorded separately f
 The Stage 6A public API accepts only `manual` and `test_fixture` observation sources; `imported` and `inferred` are reserved enum values for later ingestion/comparison stages and are rejected by Stage 6A validation. The list endpoint's `summary` field describes the full filtered result set (matching `total`), not just the paginated page. `subject_id` may be null for system/build-level notes. Legacy Stage 4D columns on `observed_facts` (`area`, `source_type`, `observed_value`, `facility_id`, `body_id`) remain populated alongside the new Stage 6A columns until a later normalisation migration removes them.
 
 Stage 6A does **not** add frontend observation entry, automatic validation inside Simulation Preview, EDMC or journal ingestion, saved builds, account persistence, crowdsourcing, auto-learning, or mechanics mutation. Stage 6B can add manual observation entry UI, and Stage 6C can add predicted-vs-observed comparison on top of the stored facts.
+
+## Stage 6B Manual Observed Evidence UI
+
+Stage 6B adds a focused **Observed Evidence** panel inside Colony Planner. The panel lives under `frontend-v2/src/features/system-detail/simulation-preview/observations/` and is rendered by `SimulationPreview.tsx` after `PreviewResultSection`. `ColonyPlannerSectionNav.tsx` adds a neutral fourth section label so users can see Observed Evidence alongside Build Plan, Optimiser Candidates, and Preview Result without implying it feeds the predicted scoring chain.
+
+| Path | Responsibility |
+|---|---|
+| `observations/ObservedEvidencePanel.tsx` | Top-level panel: lists observed facts for the current `system_id64`, renders the create form, surfaces the backend summary, applies fact-type/status/confidence filters, and exposes loading/error/empty states with a retry control. |
+| `observations/ObservedEvidenceForm.tsx` | Manual create form with required Evidence type, Status, Confidence, and Notes inputs, conditional structured fields per fact type (`service_id`, `economy`, `facility_template_id`, observed value), and a collapsible advanced section for local body, target archetype, expected value, and tags. The form always sends `source: 'manual'`. |
+| `observations/ObservedEvidenceList.tsx` | Renders the list of cards or the Stage 6B empty-state copy when the backend returns no facts. |
+| `observations/ObservedEvidenceCard.tsx` | One evidence row with view, inline edit, and confirm-delete modes. Editable fields are status, confidence, notes, tags, and observed/expected values. |
+| `observations/observationLabels.ts` | User-facing labels, passive-evidence copy, empty-state copy, delete-confirm copy, and the curated `CREATABLE_FACT_TYPES` list. `prediction_match` and `prediction_mismatch` remain in the wire vocabulary but are not offered as create options. |
+| `observations/observationUtils.ts` | Pure helpers for tags parsing/formatting, observed-value JSON parsing, default form state, client-side validation, request building, and FastAPI Problem-Details error description. |
+| `observations/index.ts` | Barrel exports for the panel and its supporting helpers. |
+
+The Stage 6B panel is intentionally **passive**. It calls only the Stage 6A `/api/observations/facts` endpoints and never invokes `simulateBuild`, `fetchOptimiserCandidates`, or any prediction mechanics. Observed evidence created, edited, or deleted through the panel does not change `useSimulationPreviewRun`, `useSimulationPreviewPlan`, `OptimiserCandidatePanel`, optimiser ranking, candidate generation, or Preview Result scoring. The panel renders the visible safety copy *"Observed Evidence is passive. It does not change Simulation Preview scoring, optimiser ranking, or generated candidates."* near the top so users see the boundary without reading the docs.
+
+The create form intentionally never exposes `imported` or `inferred` as source options; both remain reserved enum values for later ingestion/comparison stages, and the Stage 6A request validation already rejects them server-side. Tests assert that no option element with those values exists in the form.
+
+Stage 6C will introduce the predicted-vs-observed comparison engine. Stage 6D will render validation/comparison results in the simulation surface. Stage 6B records evidence only; it does not decide what the evidence means.

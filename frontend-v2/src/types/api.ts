@@ -500,3 +500,164 @@ export interface OptimiserCandidatesResponse {
   assumptions: string[];
   ranking?: OptimiserRanking | null;
 }
+
+// ─── Stage 6B Observed Evidence (Observed Facts) ──────────────────────────
+//
+// Wire types matching the Stage 6A backend observed-facts CRUD API. These
+// model passive evidence — what a user actually saw in-game — and are
+// recorded entirely separately from predictions. They MUST NOT change
+// optimiser ranking, candidate generation, Simulation Preview scoring,
+// or any simulation mechanics. See `apps/api/src/observations/api_models.py`
+// for the source of truth.
+//
+// The full backend vocabulary for `ObservationSource` includes `imported`
+// and `inferred`, but they are reserved for later stages. The Stage 6B
+// manual-entry UI only creates observations with `source: 'manual'`.
+export type ObservationSource =
+  | 'manual'
+  | 'test_fixture'
+  | 'imported'
+  | 'inferred';
+
+export type ObservedFactType =
+  | 'service_presence'
+  | 'economy_presence'
+  | 'facility_state'
+  | 'cp_value'
+  | 'build_outcome'
+  | 'prediction_match'
+  | 'prediction_mismatch'
+  | 'note';
+
+export type ObservedSubjectType =
+  | 'system'
+  | 'body'
+  | 'facility'
+  | 'service'
+  | 'economy'
+  | 'build'
+  | 'simulation'
+  | 'cp';
+
+export type ObservedStatus =
+  | 'observed_present'
+  | 'observed_absent'
+  | 'confirmed'
+  | 'contradicted'
+  | 'unknown'
+  | 'unverified';
+
+export type ObservedConfidence = 'low' | 'medium' | 'high';
+
+/** Any JSON value (matches backend `JsonValue`). */
+export type ObservedJsonValue =
+  | string
+  | number
+  | boolean
+  | { [key: string]: ObservedJsonValue }
+  | ObservedJsonValue[]
+  | null;
+
+export interface ObservedFact {
+  observation_id: string;
+  system_id64: number;
+  created_at: string;
+  updated_at: string | null;
+  source: ObservationSource | string;
+  fact_type: ObservedFactType | string;
+  subject_type: ObservedSubjectType | string;
+  subject_id: string | null;
+  status: ObservedStatus | string;
+  observed_value?: ObservedJsonValue;
+  expected_value?: ObservedJsonValue;
+  confidence: ObservedConfidence | string;
+  notes?: string | null;
+  build_fingerprint?: string | null;
+  simulation_fingerprint?: string | null;
+  target_archetype?: string | null;
+  facility_template_id?: string | null;
+  local_body_id?: string | null;
+  service_id?: string | null;
+  economy?: string | null;
+  tags: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface ObservedFactCreateRequest {
+  system_id64: number;
+  // The UI only ever sends 'manual', but the backend accepts 'test_fixture'
+  // for tests. 'imported' and 'inferred' are intentionally not part of the
+  // create-form options exposed in Stage 6B.
+  source: 'manual' | 'test_fixture';
+  fact_type: ObservedFactType;
+  subject_type: ObservedSubjectType;
+  subject_id?: string | null;
+  status: ObservedStatus;
+  observed_value?: ObservedJsonValue;
+  expected_value?: ObservedJsonValue;
+  confidence?: ObservedConfidence;
+  notes?: string | null;
+  build_fingerprint?: string | null;
+  simulation_fingerprint?: string | null;
+  target_archetype?: string | null;
+  facility_template_id?: string | null;
+  local_body_id?: string | null;
+  service_id?: string | null;
+  economy?: string | null;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ObservedFactUpdateRequest {
+  source?: 'manual' | 'test_fixture';
+  fact_type?: ObservedFactType;
+  subject_type?: ObservedSubjectType;
+  subject_id?: string | null;
+  status?: ObservedStatus;
+  observed_value?: ObservedJsonValue;
+  expected_value?: ObservedJsonValue;
+  confidence?: ObservedConfidence;
+  notes?: string | null;
+  build_fingerprint?: string | null;
+  simulation_fingerprint?: string | null;
+  target_archetype?: string | null;
+  facility_template_id?: string | null;
+  local_body_id?: string | null;
+  service_id?: string | null;
+  economy?: string | null;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ObservationFactSummary {
+  total_count: number;
+  by_fact_type: Record<string, number>;
+  by_status: Record<string, number>;
+  by_confidence: Record<string, number>;
+  latest_observed_at: string | null;
+}
+
+export interface ObservedFactListResponse {
+  facts: ObservedFact[];
+  total: number;
+  limit: number;
+  offset: number;
+  summary: ObservationFactSummary;
+}
+
+export interface ObservedFactDeleteResponse {
+  observation_id: string;
+  deleted: boolean;
+}
+
+export interface ListObservedFactsParams {
+  system_id64: number;
+  fact_type?: ObservedFactType | string;
+  subject_type?: ObservedSubjectType | string;
+  status?: ObservedStatus | string;
+  target_archetype?: string;
+  build_fingerprint?: string;
+  simulation_fingerprint?: string;
+  limit?: number;
+  offset?: number;
+}

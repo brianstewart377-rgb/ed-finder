@@ -994,6 +994,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/optimiser/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Optimiser Candidates */
+        post: operations["post_optimiser_candidates_api_optimiser_candidates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/observations/facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Observed Facts */
+        get: operations["list_observed_facts_api_observations_facts_get"];
+        put?: never;
+        /** Create Observed Fact */
+        post: operations["create_observed_fact_api_observations_facts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/observations/facts/{observation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Observed Fact */
+        get: operations["get_observed_fact_api_observations_facts__observation_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Observed Fact */
+        delete: operations["delete_observed_fact_api_observations_facts__observation_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Observed Fact */
+        patch: operations["update_observed_fact_api_observations_facts__observation_id__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1803,6 +1857,393 @@ export interface components {
         NoteBody: {
             /** Note */
             note: string;
+        };
+        /** ObservationFactSummaryResponse */
+        ObservationFactSummaryResponse: {
+            /** Total Count */
+            total_count: number;
+            /** By Fact Type */
+            by_fact_type: {
+                [key: string]: number;
+            };
+            /** By Status */
+            by_status: {
+                [key: string]: number;
+            };
+            /** By Confidence */
+            by_confidence: {
+                [key: string]: number;
+            };
+            /** Latest Observed At */
+            latest_observed_at: string | null;
+        };
+        /**
+         * ObservationSource
+         * @enum {string}
+         */
+        ObservationSource: "manual" | "imported" | "inferred" | "test_fixture";
+        /**
+         * ObservedConfidence
+         * @enum {string}
+         */
+        ObservedConfidence: "low" | "medium" | "high";
+        /** ObservedFactCreateRequest */
+        ObservedFactCreateRequest: {
+            /** @default manual */
+            source: components["schemas"]["ObservationSource"];
+            fact_type: components["schemas"]["ObservedFactType"];
+            subject_type: components["schemas"]["ObservedSubjectType"];
+            /** Subject Id */
+            subject_id?: string | null;
+            status: components["schemas"]["ObservedStatus"];
+            /** Observed Value */
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Expected Value */
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** @default medium */
+            confidence: components["schemas"]["ObservedConfidence"];
+            /** Notes */
+            notes?: string | null;
+            /** Build Fingerprint */
+            build_fingerprint?: string | null;
+            /** Simulation Fingerprint */
+            simulation_fingerprint?: string | null;
+            /** Target Archetype */
+            target_archetype?: string | null;
+            /** Facility Template Id */
+            facility_template_id?: string | null;
+            /** Local Body Id */
+            local_body_id?: string | null;
+            /** Service Id */
+            service_id?: string | null;
+            /** Economy */
+            economy?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** Metadata */
+            metadata?: Record<string, never>;
+            /** System Id64 */
+            system_id64: number;
+        };
+        /** ObservedFactDeleteResponse */
+        ObservedFactDeleteResponse: {
+            /** Observation Id */
+            observation_id: string;
+            /** Deleted */
+            deleted: boolean;
+        };
+        /** ObservedFactListResponse */
+        ObservedFactListResponse: {
+            /** Facts */
+            facts: components["schemas"]["ObservedFactResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            summary: components["schemas"]["ObservationFactSummaryResponse"];
+        };
+        /** ObservedFactResponse */
+        ObservedFactResponse: {
+            /** Observation Id */
+            observation_id: string;
+            /** System Id64 */
+            system_id64: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string | null;
+            /** Source */
+            source: string;
+            /** Fact Type */
+            fact_type: string;
+            /** Subject Type */
+            subject_type: string;
+            /** Subject Id */
+            subject_id: string | null;
+            /** Status */
+            status: string;
+            /** Observed Value */
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Expected Value */
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Confidence */
+            confidence: string;
+            /** Notes */
+            notes?: string | null;
+            /** Build Fingerprint */
+            build_fingerprint?: string | null;
+            /** Simulation Fingerprint */
+            simulation_fingerprint?: string | null;
+            /** Target Archetype */
+            target_archetype?: string | null;
+            /** Facility Template Id */
+            facility_template_id?: string | null;
+            /** Local Body Id */
+            local_body_id?: string | null;
+            /** Service Id */
+            service_id?: string | null;
+            /** Economy */
+            economy?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** Metadata */
+            metadata?: Record<string, never>;
+        };
+        /**
+         * ObservedFactType
+         * @enum {string}
+         */
+        ObservedFactType: "service_presence" | "economy_presence" | "facility_state" | "cp_value" | "build_outcome" | "prediction_match" | "prediction_mismatch" | "note";
+        /** ObservedFactUpdateRequest */
+        ObservedFactUpdateRequest: {
+            source?: components["schemas"]["ObservationSource"] | null;
+            fact_type?: components["schemas"]["ObservedFactType"] | null;
+            subject_type?: components["schemas"]["ObservedSubjectType"] | null;
+            /** Subject Id */
+            subject_id?: string | null;
+            status?: components["schemas"]["ObservedStatus"] | null;
+            /** Observed Value */
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Expected Value */
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            confidence?: components["schemas"]["ObservedConfidence"] | null;
+            /** Notes */
+            notes?: string | null;
+            /** Build Fingerprint */
+            build_fingerprint?: string | null;
+            /** Simulation Fingerprint */
+            simulation_fingerprint?: string | null;
+            /** Target Archetype */
+            target_archetype?: string | null;
+            /** Facility Template Id */
+            facility_template_id?: string | null;
+            /** Local Body Id */
+            local_body_id?: string | null;
+            /** Service Id */
+            service_id?: string | null;
+            /** Economy */
+            economy?: string | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Metadata */
+            metadata?: Record<string, never> | null;
+        };
+        /**
+         * ObservedStatus
+         * @enum {string}
+         */
+        ObservedStatus: "observed_present" | "observed_absent" | "confirmed" | "contradicted" | "unknown" | "unverified";
+        /**
+         * ObservedSubjectType
+         * @enum {string}
+         */
+        ObservedSubjectType: "system" | "body" | "facility" | "service" | "economy" | "build" | "simulation" | "cp";
+        /**
+         * OptimiserCandidate
+         * @description A single bounded Stage 5A candidate plan.
+         */
+        OptimiserCandidate: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Label */
+            label: string;
+            /** Target Archetype */
+            target_archetype: string;
+            /** Strategy */
+            strategy: string;
+            /** Placements */
+            placements: components["schemas"]["OptimiserCandidatePlacement"][];
+            /** Rationale */
+            rationale?: string[];
+            /** Warnings */
+            warnings?: string[];
+            /** Assumptions */
+            assumptions?: string[];
+            /** Tags */
+            tags?: string[];
+            preview_summary?: components["schemas"]["OptimiserCandidatePreviewSummary"] | null;
+        };
+        /**
+         * OptimiserCandidatePlacement
+         * @description One facility placement in an optimiser candidate.
+         */
+        OptimiserCandidatePlacement: {
+            /** Facility Template Id */
+            facility_template_id: string;
+            /** Local Body Id */
+            local_body_id?: string | null;
+            /**
+             * Is Primary Port
+             * @default false
+             */
+            is_primary_port: boolean;
+            /**
+             * Build Order
+             * @default 1
+             */
+            build_order: number;
+        };
+        /**
+         * OptimiserCandidatePreviewSummary
+         * @description Lightweight optimiser-specific summary of Simulation Preview output.
+         */
+        OptimiserCandidatePreviewSummary: {
+            /** Final Score */
+            final_score?: number | null;
+            /** Composition Score */
+            composition_score?: number | null;
+            /** Buildability Score */
+            buildability_score?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Build Complexity */
+            build_complexity?: string | null;
+            /**
+             * Warnings Count
+             * @default 0
+             */
+            warnings_count: number;
+            /** Cp Negative */
+            cp_negative?: boolean | null;
+            /** Top Two Alignment */
+            top_two_alignment?: string | null;
+        };
+        /**
+         * OptimiserCandidatesRequest
+         * @description Request for bounded deterministic Stage 5A candidate generation.
+         */
+        OptimiserCandidatesRequest: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype?: string | null;
+            /** Target Archetype Key */
+            target_archetype_key?: string | null;
+            /**
+             * Max Candidates
+             * @default 5
+             */
+            max_candidates: number;
+            /** Preferred Body Ids */
+            preferred_body_ids?: string[];
+            /**
+             * Allow Estimated Data
+             * @default true
+             */
+            allow_estimated_data: boolean;
+            /**
+             * Run Preview
+             * @default true
+             */
+            run_preview: boolean;
+            /**
+             * Include Ranking
+             * @default false
+             */
+            include_ranking: boolean;
+        };
+        /**
+         * OptimiserCandidatesResponse
+         * @description Response envelope for bounded deterministic Stage 5A candidates.
+         */
+        OptimiserCandidatesResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype: string;
+            /** Candidate Count */
+            candidate_count: number;
+            /** Candidates */
+            candidates: components["schemas"]["OptimiserCandidate"][];
+            /** Warnings */
+            warnings?: string[];
+            /** Assumptions */
+            assumptions?: string[];
+            ranking?: components["schemas"]["OptimiserRankingResponse"] | null;
+        };
+        /**
+         * OptimiserRankBreakdown
+         * @description Structured explanation for a ranked optimiser candidate.
+         */
+        OptimiserRankBreakdown: {
+            /**
+             * Preview Score Component
+             * @default 0
+             */
+            preview_score_component: number;
+            /**
+             * Composition Component
+             * @default 0
+             */
+            composition_component: number;
+            /**
+             * Buildability Component
+             * @default 0
+             */
+            buildability_component: number;
+            /**
+             * Confidence Component
+             * @default 0
+             */
+            confidence_component: number;
+            /**
+             * Alignment Component
+             * @default 0
+             */
+            alignment_component: number;
+            /**
+             * Warning Penalty
+             * @default 0
+             */
+            warning_penalty: number;
+            /**
+             * Cp Penalty
+             * @default 0
+             */
+            cp_penalty: number;
+            /**
+             * Strategy Modifier
+             * @default 0
+             */
+            strategy_modifier: number;
+            /**
+             * Total Score
+             * @default 0
+             */
+            total_score: number;
+            /** Reasons */
+            reasons?: string[];
+        };
+        /**
+         * OptimiserRankedCandidate
+         * @description Ranking entry that references a candidate by ID without duplicating it.
+         */
+        OptimiserRankedCandidate: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Rank */
+            rank: number;
+            /** Rank Score */
+            rank_score: number;
+            /** Rank Tier */
+            rank_tier: string;
+            rank_breakdown: components["schemas"]["OptimiserRankBreakdown"];
+        };
+        /**
+         * OptimiserRankingResponse
+         * @description Top-level optional Stage 5B ranking result.
+         */
+        OptimiserRankingResponse: {
+            /** Target Archetype */
+            target_archetype: string;
+            /** Ranked Candidates */
+            ranked_candidates: components["schemas"]["OptimiserRankedCandidate"][];
+            /** Warnings */
+            warnings?: string[];
+            /** Assumptions */
+            assumptions?: string[];
         };
         /**
          * PlannedFacility
@@ -4596,6 +5037,208 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SimulationSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_optimiser_candidates_api_optimiser_candidates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OptimiserCandidatesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimiserCandidatesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_observed_facts_api_observations_facts_get: {
+        parameters: {
+            query: {
+                system_id64: number;
+                fact_type?: string | null;
+                subject_type?: string | null;
+                status?: string | null;
+                target_archetype?: string | null;
+                build_fingerprint?: string | null;
+                simulation_fingerprint?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedFactListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_observed_fact_api_observations_facts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObservedFactCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedFactResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_observed_fact_api_observations_facts__observation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                observation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedFactResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_observed_fact_api_observations_facts__observation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                observation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedFactDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_observed_fact_api_observations_facts__observation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                observation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObservedFactUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedFactResponse"];
                 };
             };
             /** @description Validation Error */
