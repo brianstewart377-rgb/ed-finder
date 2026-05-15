@@ -9,10 +9,11 @@ import {
   getFacilityTemplates,
   getSimulationSummary,
   listObservedFacts,
+  reviewPredictionValidation,
   simulateBuild,
   updateObservedFact,
 } from '@/lib/api';
-import type { FacilityTemplate, OptimiserCandidatesResponse, PredictionObservationCompareResponse, SimulateBuildResponse, SimulationSummary, SystemDetail } from '@/types/api';
+import type { FacilityTemplate, OptimiserCandidatesResponse, PredictionObservationCompareResponse, SimulateBuildResponse, SimulationSummary, SystemDetail, ValidationReviewResponse } from '@/types/api';
 import { SimulationPreview } from './SimulationPreview';
 
 vi.mock('@/lib/api', () => ({
@@ -31,6 +32,7 @@ vi.mock('@/lib/api', () => ({
   // Stage 6D validation compare helper — SimulationPreview now renders
   // the ValidationPanel which calls this once a preview result exists.
   comparePredictionToObservations: vi.fn(),
+  reviewPredictionValidation: vi.fn(),
 }));
 
 const mockedFetchOptimiserCandidates = vi.mocked(fetchOptimiserCandidates);
@@ -42,6 +44,7 @@ const mockedCreateObservedFact = vi.mocked(createObservedFact);
 const mockedUpdateObservedFact = vi.mocked(updateObservedFact);
 const mockedDeleteObservedFact = vi.mocked(deleteObservedFact);
 const mockedCompare = vi.mocked(comparePredictionToObservations);
+const mockedReview = vi.mocked(reviewPredictionValidation);
 
 const templates: FacilityTemplate[] = [
   {
@@ -140,6 +143,26 @@ function emptyObservedFactsResponse() {
   };
 }
 
+function emptyReviewResponse(): ValidationReviewResponse {
+  return {
+    system_id64: 123,
+    target_archetype: 'agriculture_terraforming',
+    generated_at: '2026-05-15T12:00:00+00:00',
+    summary: {
+      overall_review_status: 'insufficient_evidence',
+      confidence_impact: 'insufficient_evidence',
+      highest_severity: 'info',
+      review_needed_count: 0,
+      evidence_strength: 'none',
+      primary_review_areas: ['evidence_quality'],
+      summary: 'No observed evidence has been recorded yet. Record evidence before reviewing prediction quality.',
+    },
+    signals: [],
+    warnings: [],
+    assumptions: [],
+  };
+}
+
 function mockNoRecommendedBuild() {
   mockedGetFacilityTemplates.mockResolvedValue(templates);
   mockedGetSimulationSummary.mockResolvedValue({
@@ -149,6 +172,7 @@ function mockNoRecommendedBuild() {
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
+  mockedReview.mockResolvedValue(emptyReviewResponse());
 }
 
 function mockRecommendedBuild() {
@@ -165,6 +189,7 @@ function mockRecommendedBuild() {
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
+  mockedReview.mockResolvedValue(emptyReviewResponse());
 }
 
 function simulationResult(targetArchetype = 'agriculture_terraforming'): SimulateBuildResponse {
@@ -241,6 +266,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedUpdateObservedFact.mockReset();
     mockedDeleteObservedFact.mockReset();
     mockedCompare.mockReset();
+    mockedReview.mockReset();
   });
 
   it('renders Observed Evidence panel and the passive evidence notice', async () => {

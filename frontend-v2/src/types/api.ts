@@ -765,3 +765,68 @@ export interface PredictionObservationCompareResponse {
   warnings: string[];
   assumptions: string[];
 }
+
+// ─── Stage 6E Validation Review Guidance ───────────────────────────────
+//
+// Advisory review guidance built from the Stage 6C comparison result. It
+// identifies areas to investigate next and does not change mechanics,
+// scoring, optimiser ranking, generated candidates, predictions, or
+// persisted observations.
+export type ValidationReviewStatus =
+  | 'no_action'
+  | 'monitor'
+  | 'review_recommended'
+  | 'review_high_priority'
+  | 'insufficient_evidence'
+  | 'mixed_evidence';
+
+export type ValidationReviewArea =
+  | 'service_rules'
+  | 'economy_rules'
+  | 'cp_rules'
+  | 'facility_rules'
+  | 'build_outcome'
+  | 'prediction_claims'
+  | 'evidence_quality'
+  | 'general';
+
+export type ValidationEvidenceStrength =
+  | 'none'
+  | 'weak'
+  | 'moderate'
+  | 'strong'
+  | 'mixed';
+
+export interface ValidationReviewSignal {
+  signal_id: string;
+  area: ValidationReviewArea | string;
+  severity: ComparisonSeverity | 'none' | string;
+  confidence: string;
+  status: ValidationReviewStatus | string;
+  title: string;
+  message: string;
+  recommended_action?: string | null;
+  comparison_ids: string[];
+}
+
+export interface ValidationReviewSummary {
+  overall_review_status: ValidationReviewStatus | string;
+  confidence_impact: ComparisonConfidenceImpact | string;
+  highest_severity: ComparisonSeverity | 'none' | string;
+  review_needed_count: number;
+  evidence_strength: ValidationEvidenceStrength | string;
+  primary_review_areas: string[];
+  summary: string;
+}
+
+export interface ValidationReviewRequest extends PredictionObservationCompareRequest {}
+
+export interface ValidationReviewResponse {
+  system_id64: number;
+  target_archetype: string | null;
+  generated_at: string;
+  summary: ValidationReviewSummary;
+  signals: ValidationReviewSignal[];
+  warnings: string[];
+  assumptions: string[];
+}

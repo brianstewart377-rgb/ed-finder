@@ -293,3 +293,19 @@ Longer-term destination.
 ## Current Guardrail
 
 Do not add unsupported gameplay mechanics until the deterministic preview remains easy to test, explain, and debug. Stage 4 work should remain conservative: it explains existing topology, economy, service, CP, and observation-comparison rules while labelling inferred behaviour rather than inventing new mechanics.
+
+### Stage 6E - Validation Review Guidance
+
+Stage 6E adds a structured review layer on top of Stage 6C comparison output and Stage 6D rendering. The review layer answers: "Based on the validation results, what should I review next?" It is advisory and passive.
+
+| Stage 6E Concern | Current Outcome |
+| --- | --- |
+| Engine models | `apps/api/src/observations/review_models.py` defines `ValidationReviewSignal`, `ValidationReviewSummary`, `ValidationReviewResult`, review statuses, review areas, evidence strength, and JSON-safe serialisation helpers. |
+| Engine module | `apps/api/src/observations/review_engine.py` exposes `build_validation_review(comparison_result=...)`. It consumes a Stage 6C `PredictionObservationComparisonResult`, uses its `generated_at`, and performs no DB access, API calls, simulation calls, optimiser calls, or mutation. |
+| API endpoint | `POST /api/observations/review` mirrors the Stage 6C compare request, loads facts with the same comparison semantics, runs Stage 6C comparison, then runs Stage 6E review guidance. |
+| Frontend | `ValidationPanel` calls the review endpoint alongside compare when a preview result exists and renders `ValidationReviewPanel` below the comparison summary and above comparison rows. Review failure is isolated so comparison rows still render. |
+| Invalidation | Observed evidence create/update/delete invalidates both `observation-compare` and `observation-review` query namespaces. |
+| Rules | Contradicted service rows point to `service_rules`; economy rows to `economy_rules`; CP rows to `cp_rules`; facility observed-only rows to `facility_rules`; low-confidence contradictions produce `monitor`/`evidence_quality`; missing evidence produces `insufficient_evidence`; mixed confirmed plus contradicted evidence produces `mixed_evidence`. |
+| Boundaries | Stage 6E does not auto-correct predictions, mutate rule weights, change confidence values, alter scoring, alter optimiser generation/ranking, change CP/economy/service/buildability mechanics, ingest EDMC/journals, or create a learning system. Low-confidence evidence cannot produce high-priority review. Contradictions are "may need review", not proof. |
+
+Stage 6F will harden the Stage 6 workflow around robustness, ergonomics, and contract edges. EDMC/journal ingestion remains unimplemented and out of scope for Stage 6E.

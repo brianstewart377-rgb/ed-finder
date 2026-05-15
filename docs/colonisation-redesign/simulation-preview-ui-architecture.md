@@ -141,3 +141,18 @@ Stage 6D adds an **in-page Validation section** inside Colony Planner that rende
 The Stage 6D panel is intentionally **passive**. It calls only `comparePredictionToObservations(...)` against `POST /api/observations/compare` in Mode A (no `observed_facts` in the request, so the backend serves authoritative persisted evidence). It never calls `simulateBuild`, never calls `fetchOptimiserCandidates`, never mutates persisted observations, never feeds confidence impact into Simulation Preview scoring or optimiser ranking, and never auto-runs Simulation Preview. The query key includes `systemId64`, `targetArchetype`, and a stable preview-result fingerprint so a new preview run triggers a fresh comparison while an unchanged preview reuses the cached compare response. When `runState.isResultStale` is true, the panel renders a stale warning; the user re-runs Preview themselves. The Observed Evidence panel invalidates `observation-compare` queries on create/update/delete so newly recorded evidence is reflected on the next refresh without changing the build plan or scoring.
 
 Stage 6E will introduce the confidence/mechanics review loop on top of this display; Stage 6D itself is a display layer only. Tests under `validation/ValidationPanel.test.tsx` and the updated `SimulationPreview.optimiser.test.tsx` cover advisory copy, no-preview empty state, compare API call shape, summary rendering, per-status labels, evidence detail rendering, status filtering, loading state, error/retry, stale warning, refresh, in-page ordering after Observed Evidence, and passivity (no `simulateBuild`, no `fetchOptimiserCandidates`, no observation mutations during rendering).
+
+## Stage 6E Validation Review Guidance
+
+Stage 6E extends the Validation section with a structured advisory layer from `POST /api/observations/review`. The panel still starts from a user-run Simulation Preview result; it does not run preview itself, generate optimiser candidates, mutate the build plan, create/update/delete observations, or change mechanics.
+
+The review endpoint first produces the Stage 6C comparison result, then derives conservative review guidance: service contradictions may point to service unlock assumptions, economy contradictions may point to economy inheritance/composition, CP contradictions may point to CP source/final calculation, facility observed-only evidence points to validation coverage, and low-confidence contradictions remain monitor-level evidence-quality guidance. Missing evidence is insufficient evidence, not a prediction failure.
+
+`ValidationPanel` now issues two read-only queries keyed by system, target archetype, and preview fingerprint:
+
+- `observation-compare` for Stage 6C comparison rows.
+- `observation-review` for Stage 6E review summary/signals.
+
+The review block renders after the Stage 6C summary and before comparison rows. It shows overall review status, evidence strength, highest severity, primary areas, summary text, and signals. User-facing copy says: "Review guidance is advisory", "This does not change mechanics or scoring", and "Use this to decide what to investigate next." If review guidance fails to load, comparison rows remain visible.
+
+Observed evidence create/update/delete invalidates both compare and review query namespaces. Low-confidence evidence cannot trigger high-priority review, and contradicted rows remain framed as needs-review leads rather than proof that a rule is wrong. Stage 6F will harden the Stage 6 workflow; EDMC/journal ingestion is still not implemented.

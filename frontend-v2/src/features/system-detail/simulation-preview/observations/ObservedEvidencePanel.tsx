@@ -115,6 +115,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
       // the new evidence reflected after recording it. The Validation
       // panel still does NOT auto-run Simulation Preview.
       void queryClient.invalidateQueries({ queryKey: ['observation-compare', systemId64] });
+      void queryClient.invalidateQueries({ queryKey: ['observation-review', systemId64] });
     },
     onError: (error: unknown) => {
       setCreateError(describeApiError(error));
@@ -132,6 +133,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
       });
       void queryClient.invalidateQueries({ queryKey: ['observed-facts', systemId64] });
       void queryClient.invalidateQueries({ queryKey: ['observation-compare', systemId64] });
+      void queryClient.invalidateQueries({ queryKey: ['observation-review', systemId64] });
     },
     onError: (error: unknown, variables) => {
       setSaveErrorById((prev) => ({ ...prev, [variables.observationId]: describeApiError(error) }));
@@ -148,6 +150,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
       });
       void queryClient.invalidateQueries({ queryKey: ['observed-facts', systemId64] });
       void queryClient.invalidateQueries({ queryKey: ['observation-compare', systemId64] });
+      void queryClient.invalidateQueries({ queryKey: ['observation-review', systemId64] });
     },
     onError: (error: unknown, observationId) => {
       setDeleteErrorById((prev) => ({ ...prev, [observationId]: describeApiError(error) }));

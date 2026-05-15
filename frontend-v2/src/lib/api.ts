@@ -38,6 +38,8 @@ import type {
   SystemDetail,
   SystemDetailResponse,
   SystemResult,
+  ValidationReviewRequest,
+  ValidationReviewResponse,
 } from '@/types/api';
 
 type LocalSearchBody = {
@@ -318,6 +320,20 @@ export const api = {
       body:   JSON.stringify(request),
     });
   },
+
+  // ── Stage 6E Validation Review Guidance ─────────────────────────────
+  // Read-only advisory guidance built from the Stage 6C comparison
+  // result. This helper only calls the review endpoint; it does not run
+  // Simulation Preview, optimiser candidate generation, or observation
+  // mutations.
+  reviewPredictionValidation(
+    request: ValidationReviewRequest,
+  ): Promise<ValidationReviewResponse> {
+    return jsonFetch('/observations/review', {
+      method: 'POST',
+      body:   JSON.stringify(request),
+    });
+  },
 };
 
 export function getSlotPredictions(id64: number): Promise<SlotPredictionResponse> {
@@ -395,6 +411,17 @@ export function comparePredictionToObservations(
   request: PredictionObservationCompareRequest,
 ): Promise<PredictionObservationCompareResponse> {
   return api.comparePredictionToObservations(request);
+}
+
+// ── Stage 6E Validation Review helper ─────────────────────────────────
+//
+// The helper is intentionally narrow: it only calls the review endpoint
+// and does NOT call `simulateBuild`, `fetchOptimiserCandidates`, or any
+// observation mutation helper.
+export function reviewPredictionValidation(
+  request: ValidationReviewRequest,
+): Promise<ValidationReviewResponse> {
+  return api.reviewPredictionValidation(request);
 }
 
 /** Shape of one row from /api/watchlist. */

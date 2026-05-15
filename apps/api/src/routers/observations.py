@@ -14,6 +14,8 @@ from observations.api_models import (
     ObservationFactSummaryResponse,
     PredictionObservationCompareRequest,
     PredictionObservationCompareResponse,
+    ValidationReviewRequest,
+    ValidationReviewResponse,
 )
 # Stage 6C: import the comparison engine directly from its submodule so we
 # do NOT accidentally pick up the Stage 4D ``compare_prediction_to_observations``
@@ -23,8 +25,28 @@ from observations.comparison_engine import (
     compare_prediction_to_observations as compare_prediction_to_observations_stage6c,
 )
 from observations.comparison_models import comparison_result_to_dict
+from observations.review_engine import build_validation_review
+from observations.review_models import review_result_to_dict
 
 router = APIRouter(tags=['observations'])
+
+
+async def _load_or_convert_comparison_facts(
+    *,
+    body: PredictionObservationCompareRequest,
+    pool: asyncpg.Pool,
+):
+    """Shared Stage 6C/6E fact-loading semantics."""
+    if body.observed_facts is None:
+        facts, _total = await store.list_observed_facts_for_comparison(
+            pool,
+            system_id64=body.system_id64,
+            target_archetype=body.target_archetype,
+            limit=body.fact_load_limit,
+            offset=0,
+        )
+        return list(facts)
+    return [fact_input.to_persisted() for fact_input in body.observed_facts]
 
 
 @router.post('/api/observations/facts', response_model=ObservedFactResponse)
@@ -164,24 +186,7 @@ async def compare_prediction_against_observations(
     or ranking code, and never mutates persisted observations. It only
     reads observations (Mode A) and runs the pure comparison engine.
     """
-    if body.observed_facts is None:
-        # Mode A — pull persisted facts using the comparison-specific
-        # helper that includes null-target evidence alongside any
-        # target-specific evidence when a target_archetype is supplied.
-        facts, _total = await store.list_observed_facts_for_comparison(
-            pool,
-            system_id64=body.system_id64,
-            target_archetype=body.target_archetype,
-            limit=body.fact_load_limit,
-            offset=0,
-        )
-        observed = list(facts)
-    else:
-        # Mode B — use the caller-supplied facts and skip the DB hit.
-        # Supplied facts are read-only inputs to the comparison engine
-        # and are not persisted; any ObservationSource value (including
-        # the Stage 6A reserved imported/inferred sources) is accepted.
-        observed = [fact_input.to_persisted() for fact_input in body.observed_facts]
+    observed = await _load_or_convert_comparison_facts(body=body, pool=pool)
 
     result = compare_prediction_to_observations_stage6c(
         system_id64=body.system_id64,
@@ -195,3 +200,30 @@ async def compare_prediction_against_observations(
     return PredictionObservationCompareResponse.model_validate(
         comparison_result_to_dict(result),
     )
+
+
+@router.post(
+    '/api/observations/review',
+    response_model=ValidationReviewResponse,
+)
+async def review_prediction_validation(
+    body: ValidationReviewRequest,
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> ValidationReviewResponse:
+    """Run Stage 6C comparison and Stage 6E review guidance.
+
+    The handler mirrors compare-endpoint input semantics for caller
+    convenience, then passes the comparison result into the pure Stage
+    6E review engine. It does not run Simulation Preview, optimiser
+    generation, optimiser ranking, or any mechanics module, and it does
+    not mutate observations or predictions.
+    """
+    observed = await _load_or_convert_comparison_facts(body=body, pool=pool)
+    comparison_result = compare_prediction_to_observations_stage6c(
+        system_id64=body.system_id64,
+        target_archetype=body.target_archetype,
+        prediction=body.prediction,
+        observed_facts=observed,
+    )
+    review_result = build_validation_review(comparison_result=comparison_result)
+    return ValidationReviewResponse.model_validate(review_result_to_dict(review_result))
