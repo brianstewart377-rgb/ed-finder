@@ -357,7 +357,7 @@ Stage 7D makes tuned rows more understandable and easier to inspect without chan
 Current Stage 7D status:
 
 - Tuned result rows show a deterministic "Why this tuned position?" explanation based on stored rating signals and selected weights.
-- Rows identify top contributors and weaker/held-back signals using conservative language.
+- Rows identify top contributors and weaker signals that contributed less under the current weights using conservative language.
 - Confidence is shown as an adjustment note when present; contribution values are documented as pre-confidence.
 - Rows provide explicit "Open system detail" and "Evaluate in Colony Planner" actions.
 - The handoff opens system detail only. It does not auto-run Simulation Preview, generate builds, mutate Colony Planner, persist tuning weights, alter Finder ordering, or use validation/review evidence.

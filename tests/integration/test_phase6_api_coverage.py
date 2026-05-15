@@ -102,6 +102,7 @@ async def test_ratings_rerank_default_weights(client, pool):
     assert 'results' in body
     assert len(body['results']) == 3
     for row in body['results']:
+        assert {'id64', 'reranked_score', 'original_score', 'confidence', 'rationale', 'economy_used'} <= set(row)
         assert 0 <= row['reranked_score'] <= 100
         assert 'contributions' in row
         assert set(row['contributions']) == {
@@ -156,6 +157,57 @@ async def test_ratings_rerank_extraction_economy(client, pool):
         assert row['contributions']['economy'] == score
         assert row['signals']['economy_score'] == score
         assert row['signals']['confidence'] == (float(confidence) if confidence is not None else None)
+
+
+async def test_ratings_rerank_contributions_are_pre_confidence_and_order_is_unchanged(client, pool):
+    async with pool.acquire() as conn:
+        ids = [r['id64'] for r in await conn.fetch('SELECT id64 FROM systems LIMIT 5')]
+
+    weights = {
+        'economy': 0.5,
+        'slots': 0,
+        'strategic': 0,
+        'safety': 0.5,
+        'terraforming': 0,
+        'diversity': 0,
+    }
+    r = await client.post('/api/ratings/rerank', json={
+        'id64s': ids,
+        'weights': weights,
+        'economy': 'Extraction',
+    })
+    assert r.status_code == 200
+    body = r.json()
+    rows = body['results']
+    assert [row['reranked_score'] for row in rows] == sorted(
+        [row['reranked_score'] for row in rows],
+        reverse=True,
+    )
+
+    rows_by_id = {row['id64']: row for row in rows}
+    async with pool.acquire() as conn:
+        db_rows = await conn.fetch(
+            """
+            SELECT system_id64, score_extraction, orbital_safety, confidence
+            FROM ratings
+            WHERE system_id64 = ANY($1::bigint[])
+            """,
+            ids,
+        )
+
+    for db_row in db_rows:
+        row = rows_by_id[db_row['system_id64']]
+        economy = float(db_row['score_extraction'] or 0)
+        safety = float(db_row['orbital_safety'] or 0)
+        confidence = float(db_row['confidence']) if db_row['confidence'] is not None else 1.0
+        contribution_sum = economy * 0.5 + safety * 0.5
+
+        assert row['contributions']['economy'] == pytest.approx(round(economy * 0.5, 3))
+        assert row['contributions']['safety'] == pytest.approx(round(safety * 0.5, 3))
+        assert row['reranked_score'] == int(round(contribution_sum * confidence))
+        assert row['signals']['economy_score'] == economy
+        assert row['signals']['orbital_safety'] == safety
+        assert row['signals']['confidence'] == (confidence if db_row['confidence'] is not None else None)
 
 
 # --- Profile sync (rate limited per audit §S3) ----------------------------
