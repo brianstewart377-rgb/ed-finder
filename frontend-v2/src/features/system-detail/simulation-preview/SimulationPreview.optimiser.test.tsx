@@ -1,7 +1,16 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchOptimiserCandidates, getFacilityTemplates, getSimulationSummary, simulateBuild } from '@/lib/api';
+import {
+  createObservedFact,
+  deleteObservedFact,
+  fetchOptimiserCandidates,
+  getFacilityTemplates,
+  getSimulationSummary,
+  listObservedFacts,
+  simulateBuild,
+  updateObservedFact,
+} from '@/lib/api';
 import type { FacilityTemplate, OptimiserCandidatesResponse, SimulateBuildResponse, SimulationSummary, SystemDetail } from '@/types/api';
 import { SimulationPreview } from './SimulationPreview';
 
@@ -10,12 +19,24 @@ vi.mock('@/lib/api', () => ({
   getFacilityTemplates: vi.fn(),
   getSimulationSummary: vi.fn(),
   simulateBuild: vi.fn(),
+  // Stage 6B observation helpers — the optimiser test does not exercise
+  // observation flows, but it does render the panel as part of the
+  // composed SimulationPreview, so list/create/update/delete must be
+  // mock-resolvable to keep the test deterministic.
+  listObservedFacts: vi.fn(),
+  createObservedFact: vi.fn(),
+  updateObservedFact: vi.fn(),
+  deleteObservedFact: vi.fn(),
 }));
 
 const mockedFetchOptimiserCandidates = vi.mocked(fetchOptimiserCandidates);
 const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
 const mockedSimulateBuild = vi.mocked(simulateBuild);
+const mockedListObservedFacts = vi.mocked(listObservedFacts);
+const mockedCreateObservedFact = vi.mocked(createObservedFact);
+const mockedUpdateObservedFact = vi.mocked(updateObservedFact);
+const mockedDeleteObservedFact = vi.mocked(deleteObservedFact);
 
 const templates: FacilityTemplate[] = [
   {
@@ -98,6 +119,22 @@ function renderPreview() {
   );
 }
 
+function emptyObservedFactsResponse() {
+  return {
+    facts: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+    summary: {
+      total_count: 0,
+      by_fact_type: {},
+      by_status: {},
+      by_confidence: {},
+      latest_observed_at: null,
+    },
+  };
+}
+
 function mockNoRecommendedBuild() {
   mockedGetFacilityTemplates.mockResolvedValue(templates);
   mockedGetSimulationSummary.mockResolvedValue({
@@ -106,6 +143,7 @@ function mockNoRecommendedBuild() {
     regional_context: null,
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+  mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
 }
 
 function mockRecommendedBuild() {
@@ -121,6 +159,7 @@ function mockRecommendedBuild() {
     regional_context: null,
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+  mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
 }
 
 function simulationResult(targetArchetype = 'agriculture_terraforming'): SimulateBuildResponse {
@@ -192,6 +231,46 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedGetFacilityTemplates.mockReset();
     mockedGetSimulationSummary.mockReset();
     mockedSimulateBuild.mockReset();
+    mockedListObservedFacts.mockReset();
+    mockedCreateObservedFact.mockReset();
+    mockedUpdateObservedFact.mockReset();
+    mockedDeleteObservedFact.mockReset();
+  });
+
+  it('renders Observed Evidence panel and the passive evidence notice', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    // Observed Evidence label appears in both the section nav and the panel
+    // section region. getAllByText keeps this assertion robust.
+    const labels = await screen.findAllByText('Observed Evidence');
+    expect(labels.length).toBeGreaterThan(0);
+    // The region itself is exposed via aria-label so test code can scope
+    // assertions inside the Observed Evidence panel deterministically.
+    expect(screen.getByRole('region', { name: 'Observed Evidence' })).toBeTruthy();
+    // Passive copy is present so the user does not think evidence affects scoring.
+    expect(
+      screen.getByText(
+        /Observed Evidence is passive\. It does not change Simulation Preview scoring, optimiser ranking, or generated candidates\./,
+      ),
+    ).toBeTruthy();
+    // Section nav still renders predicted-side labels too.
+    expect(screen.getAllByText('Build Plan').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Optimiser Candidates').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Preview Result').length).toBeGreaterThan(0);
+  });
+
+  it('does not call simulateBuild or optimiser candidate generation when only the observed evidence panel renders', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    // Wait for the panel to settle.
+    await screen.findByRole('region', { name: 'Observed Evidence' });
+    await waitFor(() => expect(mockedListObservedFacts).toHaveBeenCalled());
+
+    // No simulation or optimiser side effects from observed evidence flows.
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
   });
 
   it('loads a selected optimiser candidate into the editable preview without auto-running simulation', async () => {

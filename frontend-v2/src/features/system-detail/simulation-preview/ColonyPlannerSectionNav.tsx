@@ -5,6 +5,10 @@ export function ColonyPlannerSectionNav() {
         <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 text-orange">Build Plan</span>
         <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 text-cyan">Optimiser Candidates</span>
         <span className="rounded border border-border bg-bg3 px-2 py-1 text-silver-dk">Preview Result</span>
+        {/* Stage 6B adds a fourth section label for the manual Observed
+            Evidence shelf. The label is intentionally neutral (silver) so
+            users do not read it as part of the predicted scoring chain. */}
+        <span className="rounded border border-border bg-bg3 px-2 py-1 text-silver-dk">Observed Evidence</span>
       </div>
     </div>
   );

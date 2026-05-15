@@ -123,6 +123,26 @@ Stage 6A begins the validation layer as a backend-only observed facts foundation
 
 Stage 6B should add manual observation entry UI on top of this API. Stage 6C should add the predicted-vs-observed comparison engine that interprets stored observations against simulation output. Until those stages exist, observed facts are a trustworthy evidence shelf only.
 
+### Stage 6B - Manual Observed Evidence UI
+
+Stage 6B adds the frontend Observed Evidence panel that lets a user manually record, list, update, and delete observed evidence for the current system. The user-facing label is **Observed Evidence**; the backend wire vocabulary remains observed facts. The panel lives inside Colony Planner, after Preview Result, and is exposed as a fourth section label alongside Build Plan, Optimiser Candidates, and Preview Result.
+
+| Stage 6B Concern | Current Outcome |
+|---|---|
+| Frontend types | `frontend-v2/src/types/api.ts` adds `ObservationSource`, `ObservedFactType`, `ObservedSubjectType`, `ObservedStatus`, `ObservedConfidence`, `ObservedFact`, `ObservedFactCreateRequest`, `ObservedFactUpdateRequest`, `ObservationFactSummary`, `ObservedFactListResponse`, `ObservedFactDeleteResponse`, and `ListObservedFactsParams` matching the Stage 6A wire contract. |
+| API client | `frontend-v2/src/lib/api.ts` adds `listObservedFacts`, `createObservedFact`, `updateObservedFact`, and `deleteObservedFact` helpers calling the Stage 6A endpoints. |
+| Panel | `frontend-v2/src/features/system-detail/simulation-preview/observations/ObservedEvidencePanel.tsx` lists facts for the current `system_id64`, renders create/edit/delete UI, surfaces backend summary counts, and shows loading/error/empty states with a retry control. |
+| Create flow | `ObservedEvidenceForm.tsx` lets users record manual evidence with required Evidence type, Status, Confidence, and Notes fields. Conditional inputs for `service_id`, `economy`, `facility_template_id`, and observed value appear per fact type. Advanced fields (local body, target archetype, expected value, tags) are collapsible. The form hardcodes `source: 'manual'` — imported and inferred remain reserved for later stages. |
+| Update flow | Each card has an inline Edit form for status, confidence, notes, tags, and observed/expected values. Cancel preserves the original card; save calls `PATCH /api/observations/facts/{id}` and invalidates the list query. |
+| Delete flow | Delete requires explicit confirmation via a separate confirm panel with the exact non-mutation copy ("This removes the manually recorded evidence only. It does not change predictions, builds, or in-game state."). Cancel preserves the record. |
+| Filters | Fact-type and status filters call the backend list endpoint as query params. Confidence filter is applied client-side to the returned facts. A Clear filters control is exposed when at least one filter is active. |
+| Passivity copy | The panel renders the Stage 6B passive-evidence notice near the top: *"Observed Evidence is passive. It does not change Simulation Preview scoring, optimiser ranking, or generated candidates."* No proof, learning, or auto-correction wording is used. |
+| Integration | `SimulationPreview.tsx` renders `ObservedEvidencePanel` after `PreviewResultSection`, passes `system.id64` and `plan.targetArchetype`, and otherwise keeps the existing simulation/optimiser request payloads unchanged. `ColonyPlannerSectionNav.tsx` adds a neutral Observed Evidence section label. |
+| Tests | `ObservedEvidencePanel.test.tsx` covers passive copy, list/empty/loading/error states with retry, manual create for service/economy/facility/note evidence, 422 backend error display, client-side validation, edit save and cancel, delete confirm and cancel, fact-type/status filter calls, hidden imported/inferred sources, and absence of simulate/optimiser side effects during observation flows. `SimulationPreview.optimiser.test.tsx` adds Observed Evidence panel render checks and confirms the optimiser/simulation request paths remain unchanged. |
+| Boundaries | Stage 6B records evidence only. It does not classify predictions as correct/incorrect, run any comparison engine, change simulation/optimiser request payloads, alter scoring, ingest EDMC or journals, persist accounts/builds, or feed evidence back into mechanics. Stage 6C will add predicted-vs-observed comparison; Stage 6D will render validation results. |
+
+Stage 6C remains responsible for the predicted-vs-observed comparison engine. Stage 6D will render the validation/comparison results. Imported and inferred sources remain reserved for later ingestion stages; Stage 6B never exposes them in any create-form option.
+
 ### Stage 5A - Deterministic Candidate Generation
 
 Stage 5A is implemented as a bounded backend candidate generator rather than a full search optimiser. The hardened implementation lives in `apps/api/src/optimiser/`, with internal dataclasses, central archetype metadata, catalogue-driven facility selection, placement-fingerprint dedupe, and lightweight preview-summary extraction separated from the older recommendations package.

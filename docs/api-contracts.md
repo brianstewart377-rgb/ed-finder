@@ -204,3 +204,34 @@ Example response:
 The write models validate enum values, require positive `system_id64`, normalise/dedupe/cap tags, require object-shaped metadata, and require structured identifiers for the most common typed facts: `service_presence` needs `service_id`, `economy_presence` needs `economy`, and `facility_state` needs `facility_template_id`. These checks keep observations structured without claiming that one observed fact proves or disproves a mechanics rule.
 
 Observations do **not** change optimiser ranking, candidate generation, Simulation Preview scoring, CP/economy/service/buildability mechanics, or existing simulation response fields. They are stored evidence for future manual-entry UI and predicted-vs-observed comparison stages.
+
+## Stage 6B Frontend Observed Evidence Integration
+
+Stage 6B adds the frontend integration on top of the Stage 6A API. It introduces frontend types, central API helpers, and an Observed Evidence panel inside Colony Planner. It does **not** change any backend contract.
+
+Frontend types are declared in `frontend-v2/src/types/api.ts` and mirror the Stage 6A wire shapes:
+
+- `ObservationSource`
+- `ObservedFactType`
+- `ObservedSubjectType`
+- `ObservedStatus`
+- `ObservedConfidence`
+- `ObservedJsonValue`
+- `ObservedFact`
+- `ObservedFactCreateRequest`
+- `ObservedFactUpdateRequest`
+- `ObservationFactSummary`
+- `ObservedFactListResponse`
+- `ObservedFactDeleteResponse`
+- `ListObservedFactsParams`
+
+Central API client helpers in `frontend-v2/src/lib/api.ts` follow the existing `jsonFetch` style and target the Stage 6A endpoints:
+
+- `listObservedFacts(params)` → `GET /api/observations/facts?system_id64=...&fact_type=...&status=...`
+- `createObservedFact(request)` → `POST /api/observations/facts`
+- `updateObservedFact(observationId, request)` → `PATCH /api/observations/facts/{observation_id}`
+- `deleteObservedFact(observationId)` → `DELETE /api/observations/facts/{observation_id}`
+
+The Stage 6B UI only ever sends `source: 'manual'` in create requests. `imported` and `inferred` remain reserved Stage 6A enum values and are intentionally not exposed as create-form source options; the manual UI does not provide any control that could pick them.
+
+Stage 6B is a **passive** integration: the Observed Evidence panel does not feed observed facts back into `simulateBuild`, `fetchOptimiserCandidates`, optimiser ranking, candidate generation, or Simulation Preview scoring. The simulation and optimiser request payloads remain unchanged. Predicted-vs-observed comparison is reserved for Stage 6C, and validation rendering for Stage 6D.

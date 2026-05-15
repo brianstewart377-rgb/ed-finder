@@ -12,6 +12,7 @@ import { BuildPlanSection } from './BuildPlanSection';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
 import { ColonyPlannerSectionNav } from './ColonyPlannerSectionNav';
 import { PreviewResultSection } from './PreviewResultSection';
+import { ObservedEvidencePanel } from './observations';
 import { OptimiserCandidatePanel } from './optimiser';
 import { useSimulationPreviewPlan } from './hooks/useSimulationPreviewPlan';
 import { useSimulationPreviewRun } from './hooks/useSimulationPreviewRun';
@@ -137,6 +138,16 @@ export function SimulationPreview({
           error={runState.error}
           result={runState.result}
           isResultStale={runState.isResultStale}
+        />
+
+        {/* Stage 6B: Observed Evidence panel renders after Preview Result.
+            It is intentionally passive — see ObservedEvidencePanel for the
+            contract. The simulation and optimiser data above are NOT
+            re-derived from observations; Stage 6C will add predicted-vs-
+            observed comparison and Stage 6D will render validation. */}
+        <ObservedEvidencePanel
+          systemId64={system.id64}
+          suggestedArchetype={plan.targetArchetype}
         />
       </div>
     </div>
