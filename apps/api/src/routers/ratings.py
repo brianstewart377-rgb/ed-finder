@@ -128,14 +128,16 @@ async def ratings_rerank(
     # ── Apply weights in Python (trivial math; keeps the SQL readable)
     result = []
     for r in rows:
-        reranked = (
-            r['eco_score']     * w['economy']      +
-            r['slots']         * w['slots']        +
-            r['strategic']     * w['strategic']    +
-            r['safety']        * w['safety']       +
-            r['terraforming']  * w['terraforming'] +
-            r['diversity']     * w['diversity'] * (100.0 / 30.0)  # diversity is 0-30
-        )
+        contributions = {
+            'economy':      float(r['eco_score'] or 0)    * w['economy'],
+            'slots':        float(r['slots'] or 0)        * w['slots'],
+            'strategic':    float(r['strategic'] or 0)    * w['strategic'],
+            'safety':       float(r['safety'] or 0)       * w['safety'],
+            'terraforming': float(r['terraforming'] or 0) * w['terraforming'],
+            # diversity is stored on a 0-30 scale; rerank normalises it to 0-100.
+            'diversity':    float(r['diversity'] or 0)    * w['diversity'] * (100.0 / 30.0),
+        }
+        reranked = sum(contributions.values())
         # Optional confidence multiplier: stale data nudges score down slightly.
         if r['confidence'] is not None:
             reranked *= r['confidence']
@@ -146,6 +148,18 @@ async def ratings_rerank(
             'confidence':     float(r['confidence']) if r['confidence'] is not None else None,
             'rationale':      r['rationale'],
             'economy_used':   body.economy or r['economy_suggestion'],
+            # Contributions are pre-confidence weighted values. This keeps the
+            # explanation additive while preserving the existing final score.
+            'contributions':  {k: round(v, 3) for k, v in contributions.items()},
+            'signals': {
+                'economy_score':              float(r['eco_score']) if r['eco_score'] is not None else None,
+                'slots':                      float(r['slots']) if r['slots'] is not None else None,
+                'body_quality':               float(r['strategic']) if r['strategic'] is not None else None,
+                'orbital_safety':             float(r['safety']) if r['safety'] is not None else None,
+                'terraforming_potential':     float(r['terraforming']) if r['terraforming'] is not None else None,
+                'body_diversity':             float(r['diversity']) if r['diversity'] is not None else None,
+                'confidence':                 float(r['confidence']) if r['confidence'] is not None else None,
+            },
         })
 
     # Return sorted descending by reranked_score

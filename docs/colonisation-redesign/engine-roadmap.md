@@ -349,3 +349,15 @@ Current Stage 7C status:
 - Test IDs for this feature use `search-tuning-*`.
 - Backend `/api/ratings/rerank`, `RerankRequest`, `RerankResponse`, and `RerankWeights` remain unchanged.
 - No backend scoring, normal search ordering, Colony Planner, Stage 5 optimiser, or Stage 6 validation/review behaviour changed.
+
+## Stage 7D - Advanced Search Tuning Explanation + Handoff
+
+Stage 7D makes tuned rows more understandable and easier to inspect without changing search or planner behaviour. `/api/ratings/rerank` now returns additive explanation fields on each row: pre-confidence weighted `contributions` and stored/raw `signals`. The existing `reranked_score` formula and sorting remain unchanged.
+
+Current Stage 7D status:
+
+- Tuned result rows show a deterministic "Why this tuned position?" explanation based on stored rating signals and selected weights.
+- Rows identify top contributors and weaker/held-back signals using conservative language.
+- Confidence is shown as an adjustment note when present; contribution values are documented as pre-confidence.
+- Rows provide explicit "Open system detail" and "Evaluate in Colony Planner" actions.
+- The handoff opens system detail only. It does not auto-run Simulation Preview, generate builds, mutate Colony Planner, persist tuning weights, alter Finder ordering, or use validation/review evidence.

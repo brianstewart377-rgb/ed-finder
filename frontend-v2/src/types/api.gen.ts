@@ -2511,8 +2511,29 @@ export interface components {
             rationale?: string | null;
             /** Economy Used */
             economy_used?: string | null;
+            contributions?: components["schemas"]["RerankContributions"] | null;
+            signals?: components["schemas"]["RerankSignals"] | null;
         } & {
             [key: string]: unknown;
+        };
+        /** RerankContributions */
+        RerankContributions: {
+            economy: number;
+            slots: number;
+            strategic: number;
+            safety: number;
+            terraforming: number;
+            diversity: number;
+        };
+        /** RerankSignals */
+        RerankSignals: {
+            economy_score?: number | null;
+            slots?: number | null;
+            body_quality?: number | null;
+            orbital_safety?: number | null;
+            terraforming_potential?: number | null;
+            body_diversity?: number | null;
+            confidence?: number | null;
         };
         /** RerankWeights */
         RerankWeights: {

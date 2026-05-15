@@ -1,6 +1,13 @@
 import type { RerankRow, SystemResult } from '@/types/api';
 import { ratingTier } from '@/lib/format';
 import { ECONOMIES, type SearchTuningSourceSnapshot, type UseSearchTuning } from './useSearchTuning';
+import {
+  buildTunedResultExplanation,
+  formatContributionValue,
+  getTopContributors,
+  getWeakestSignals,
+  hasContributionBreakdown,
+} from './searchTuningExplanation';
 import type { useSearch } from '@/features/search/useSearch';
 
 export interface AdvancedSearchTuningTabProps {
@@ -236,6 +243,7 @@ function ResultsList({
         const originalRank = snapshot?.originalRank;
         const tunedRank = idx + 1;
         const movement = describeMovement(originalRank, tunedRank);
+        const explanation = buildTunedResultExplanation(r, originalRank, tunedRank);
         const delta   = r.original_score != null ? r.reranked_score - r.original_score : null;
         const tier    = ratingTier(r.reranked_score);
         return (
@@ -269,6 +277,36 @@ function ResultsList({
               <div className="text-[10px] text-silver-dk">
                 The tuned score is temporary for this run. Stored rating rationale comes from the existing rating data.
               </div>
+              <TuningExplanation row={r} explanation={explanation} />
+              {onOpenDetail && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid={`search-tuning-open-detail-${r.id64}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenDetail(r.id64);
+                    }}
+                    className="rounded-chunk-sm border border-orange/45 bg-orange/10 px-2 py-1 text-[10px] font-bold text-orange hover:bg-orange/20"
+                  >
+                    Open system detail
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`search-tuning-evaluate-${r.id64}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenDetail(r.id64);
+                    }}
+                    className="rounded-chunk-sm border border-cyan/35 bg-cyan/10 px-2 py-1 text-[10px] font-bold text-cyan hover:bg-cyan/20"
+                  >
+                    Evaluate in Colony Planner
+                  </button>
+                  <span className="text-[10px] text-silver-dk">
+                    Opens system detail; it does not run Simulation Preview or generate builds.
+                  </span>
+                </div>
+              )}
             </div>
             <div className="text-[11px] text-silver-dk">
               {r.economy_used ? <span className="text-orange-lt">{r.economy_used}</span> : '—'}
@@ -311,6 +349,64 @@ function ResultsList({
         );
       })}
     </ul>
+  );
+}
+
+function TuningExplanation({ row, explanation }: { row: RerankRow; explanation: string[] }) {
+  const hasBreakdown = hasContributionBreakdown(row);
+  const helped = getTopContributors(row);
+  const heldBack = getWeakestSignals(row);
+
+  return (
+    <div className="mt-2 rounded-chunk-sm border border-border/70 bg-bg2/50 p-2 text-[10px] text-silver-dk">
+      <div className="mb-1 font-bold uppercase tracking-[0.14em] text-silver">
+        Why this tuned position?
+      </div>
+      <div className="space-y-1">
+        {explanation.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
+      {hasBreakdown ? (
+        <div className="mt-2 grid gap-1 sm:grid-cols-2">
+          <ContributionGroup title="Helped" items={helped} tone="text-green" />
+          <ContributionGroup title="Held back" items={heldBack} tone="text-gold" />
+        </div>
+      ) : (
+        <p className="mt-2 text-gold">Contribution breakdown unavailable for this row.</p>
+      )}
+      {row.confidence != null && (
+        <p className="mt-1 text-silver-dk">
+          Confidence adjustment: {Math.round(row.confidence * 100)}%.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ContributionGroup({
+  title,
+  items,
+  tone,
+}: {
+  title: string;
+  items: ReturnType<typeof getTopContributors>;
+  tone: string;
+}) {
+  return (
+    <div>
+      <div className="uppercase tracking-[0.12em] text-silver-dk">{title}</div>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {items.map((item) => (
+          <span
+            key={`${title}-${item.key}`}
+            className={`rounded border border-current/30 px-1.5 py-0.5 ${tone}`}
+          >
+            {item.label} {formatContributionValue(item.value)}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

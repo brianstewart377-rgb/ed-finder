@@ -35,6 +35,17 @@ The preferred route is `#search-tuning`. Legacy `#optimizer` direct links remain
 
 Backend rerank terminology remains unchanged: `/api/ratings/rerank`, `RerankRequest`, `RerankResponse`, and `RerankWeights` still describe the API contract. Stage 7C did not change backend scoring, normal Finder search ordering, Colony Planner, Stage 5 optimiser logic, Stage 6 validation/review logic, persistence, or evidence usage.
 
+## Stage 7D Implementation Addendum
+
+Stage 7D adds deterministic row explanations and a clearer Finder-to-planner handoff. `/api/ratings/rerank` now includes additive optional row fields:
+
+- `contributions`: pre-confidence weighted contributions for the six rerank dimensions.
+- `signals`: stored/raw rating signals used by the rerank row.
+
+The backend score formula, request shape, economy fallback behaviour, and result sorting are unchanged. Contributions are shown as pre-confidence values; final temporary tuned score may still reflect the existing confidence multiplier.
+
+The frontend renders "Why this tuned position?" with top contributors, weaker signals, and a confidence note when available. Rows now expose "Open system detail" and "Evaluate in Colony Planner" actions. Both actions only open system detail for inspection; they do not auto-run Simulation Preview, generate builds, mutate Colony Planner, persist preferences, change Finder ordering, or consume validation/review evidence.
+
 ## Current Implementation Map
 
 ### Backend

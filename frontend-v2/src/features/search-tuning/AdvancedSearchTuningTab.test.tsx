@@ -134,6 +134,14 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
           confidence: 0.9,
           rationale: 'Beta stored rationale',
           economy_used: 'Tourism',
+          contributions: {
+            economy: 30,
+            slots: 22,
+            strategic: 9,
+            safety: 7,
+            terraforming: 1,
+            diversity: 0.5,
+          },
         },
         {
           id64: 1,
@@ -183,6 +191,15 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(within(beta).getByText('Original stored score 80')).toBeTruthy();
     expect(within(beta).getByText(/Stored rating rationale:/)).toBeTruthy();
     expect(within(beta).getByText(/Beta stored rationale/)).toBeTruthy();
+    expect(within(beta).getByText('Why this tuned position?')).toBeTruthy();
+    expect(within(beta).getByText(/economy and slots helped most/i)).toBeTruthy();
+    expect(within(beta).getByText('Helped')).toBeTruthy();
+    expect(within(beta).getByText('Economy +30.0')).toBeTruthy();
+    expect(within(beta).getByText('Slots +22.0')).toBeTruthy();
+    expect(within(beta).getByText('Held back')).toBeTruthy();
+    expect(within(beta).getByText('Diversity +0.5')).toBeTruthy();
+    expect(within(beta).getByText('Terraforming +1.0')).toBeTruthy();
+    expect(within(beta).getByText('Confidence adjustment: 90%.')).toBeTruthy();
 
     const alpha = screen.getByTestId('search-tuning-row-1');
     expect(within(alpha).getByText('Finder #1 -> Tuned #2')).toBeTruthy();
@@ -244,5 +261,102 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(within(beta).getByText('Moved up 1 place')).toBeTruthy();
     expect(within(beta).queryByText('Finder #1 -> Tuned #1')).toBeNull();
     expect(within(beta).queryByText('Beta from later Finder search')).toBeNull();
+  });
+
+  it('renders a fallback when contribution breakdown is unavailable', () => {
+    const data: RerankResponse = {
+      weights_applied: {
+        economy: 0.3,
+        slots: 0.2,
+        strategic: 0.15,
+        safety: 0.15,
+        terraforming: 0.1,
+        diversity: 0.1,
+      },
+      economy_used: null,
+      results: [
+        {
+          id64: 7,
+          reranked_score: 60,
+          original_score: 60,
+          confidence: null,
+          rationale: 'Stored only',
+          economy_used: 'Industrial',
+        },
+      ],
+    };
+
+    render(
+      <AdvancedSearchTuningTab
+        searchTuning={makeSearchTuning({
+          state: {
+            kind: 'ok',
+            data,
+            queriedAt: 123,
+            sourceSnapshot: { 7: { originalRank: 1, name: 'Fallback' } },
+          },
+        })}
+        search={makeSearch([makeSystem(7, 'Fallback')])}
+      />,
+    );
+
+    const row = screen.getByTestId('search-tuning-row-7');
+    expect(within(row).getAllByText('Contribution breakdown unavailable for this row.').length).toBeGreaterThan(0);
+  });
+
+  it('opens system detail from explicit handoff actions and row click', () => {
+    const onOpenDetail = vi.fn();
+    const data: RerankResponse = {
+      weights_applied: {
+        economy: 0.3,
+        slots: 0.2,
+        strategic: 0.15,
+        safety: 0.15,
+        terraforming: 0.1,
+        diversity: 0.1,
+      },
+      economy_used: null,
+      results: [
+        {
+          id64: 42,
+          reranked_score: 80,
+          original_score: 75,
+          confidence: null,
+          rationale: 'Stored rationale',
+          economy_used: 'Tourism',
+          contributions: {
+            economy: 20,
+            slots: 15,
+            strategic: 10,
+            safety: 8,
+            terraforming: 2,
+            diversity: 1,
+          },
+        },
+      ],
+    };
+
+    render(
+      <AdvancedSearchTuningTab
+        searchTuning={makeSearchTuning({
+          state: {
+            kind: 'ok',
+            data,
+            queriedAt: 123,
+            sourceSnapshot: { 42: { originalRank: 2, name: 'Handoff' } },
+          },
+        })}
+        search={makeSearch([makeSystem(42, 'Handoff')])}
+        onOpenDetail={onOpenDetail}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('search-tuning-open-detail-42'));
+    fireEvent.click(screen.getByTestId('search-tuning-evaluate-42'));
+    fireEvent.click(screen.getByTestId('search-tuning-row-42'));
+
+    expect(onOpenDetail).toHaveBeenCalledTimes(3);
+    expect(onOpenDetail).toHaveBeenCalledWith(42);
+    expect(screen.getByText(/does not run Simulation Preview or generate builds/i)).toBeTruthy();
   });
 });
