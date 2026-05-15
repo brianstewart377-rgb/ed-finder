@@ -1,4 +1,4 @@
-// Lightweight system table used by Watchlist / Pinned / Optimizer stubs.
+// Lightweight system table used by Watchlist / Pinned / Advanced Search Tuning stubs.
 import React from 'react';
 import { ratingTier, fmtPop } from '../../lib/mockData';
 import { TierPill } from '../UI/Hud';

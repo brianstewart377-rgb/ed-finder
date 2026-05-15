@@ -16,12 +16,12 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
     expect(result.current.selectedSystemId).toBeNull();
   });
 
-  it('keeps #optimizer working as the legacy Advanced Search Tuning alias', () => {
+  it('normalizes #optimizer as the legacy Advanced Search Tuning alias', () => {
     window.location.hash = '#optimizer';
 
     const { result } = renderHook(() => useHashRoute());
 
-    expect(result.current.route).toBe('optimizer');
+    expect(result.current.route).toBe('search-tuning');
     expect(result.current.selectedSystemId).toBeNull();
   });
 

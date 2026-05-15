@@ -1,15 +1,15 @@
 import type { RerankRow, SystemResult } from '@/types/api';
 import { ratingTier } from '@/lib/format';
-import { ECONOMIES, type SourceRankSnapshot, type UseOptimizer } from './useOptimizer';
+import { ECONOMIES, type SearchTuningSourceSnapshot, type UseSearchTuning } from './useSearchTuning';
 import type { useSearch } from '@/features/search/useSearch';
 
-export interface OptimizerTabProps {
-  optimizer:    UseOptimizer;
+export interface AdvancedSearchTuningTabProps {
+  searchTuning:    UseSearchTuning;
   search:       ReturnType<typeof useSearch>;
   onOpenDetail?: (id64: number) => void;
 }
 
-const WEIGHT_LABELS: Array<{ key: keyof UseOptimizer['weights']; label: string; hint: string }> = [
+const WEIGHT_LABELS: Array<{ key: keyof UseSearchTuning['weights']; label: string; hint: string }> = [
   { key: 'economy',      label: 'Economy',      hint: 'Economy-score emphasis' },
   { key: 'slots',        label: 'Slots',        hint: 'Available/buildable capacity signal' },
   { key: 'strategic',    label: 'Strategic',    hint: 'Body quality / strategic value signal' },
@@ -21,13 +21,12 @@ const WEIGHT_LABELS: Array<{ key: keyof UseOptimizer['weights']; label: string; 
 /**
  * Advanced Search Tuning = re-weight a copy of the current Finder results.
  *
- * The internal `optimizer` route/folder name is kept for compatibility. The
- * user-facing surface is now an advanced Finder tool, not Colony Planner.
+ * This is an advanced Finder tool, not Colony Planner.
  * The "source" is whatever Finder last returned - no separate search here.
  * If Finder has no results, the Run button is disabled with a clear hint.
  */
-export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabProps) {
-  const { weights, setWeight, resetWeights, weightSum, economy, setEconomy, state, run, resetState } = optimizer;
+export function AdvancedSearchTuningTab({ searchTuning, search, onOpenDetail }: AdvancedSearchTuningTabProps) {
+  const { weights, setWeight, resetWeights, weightSum, economy, setEconomy, state, run, resetState } = searchTuning;
   const sourceCount = search.results.length;
   const sumOk = Math.abs(weightSum - 1.0) < 0.01;
 
@@ -36,7 +35,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
   const sourceById = new Map(search.results.map((s) => [s.id64, s] as const));
 
   return (
-    <section data-testid="optimizer-tab" className="space-y-5">
+    <section data-testid="search-tuning-tab" className="space-y-5">
       <header className="panel flex flex-wrap items-start justify-between gap-3 px-5 py-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -66,7 +65,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
             <select
               value={economy ?? ''}
               onChange={(e) => setEconomy((e.target.value || null) as never)}
-              data-testid="optimizer-economy"
+              data-testid="search-tuning-economy"
               className="w-full font-mono text-xs"
             >
               <option value="">Auto (per-row stored suggestion)</option>
@@ -86,7 +85,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
               <button
                 type="button"
                 onClick={resetWeights}
-                data-testid="optimizer-weights-reset"
+                data-testid="search-tuning-weights-reset"
                 className="normal-case tracking-normal text-silver-dk hover:text-orange-lt"
               >
                 ↺ Reset to v3.1 defaults
@@ -102,7 +101,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
                 hint={hint}
                 value={weights[key]}
                 onChange={(v) => setWeight(key, v)}
-                testid={`optimizer-weight-${key}`}
+                testid={`search-tuning-weight-${key}`}
               />
             ))}
             <div className={[
@@ -121,7 +120,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
             type="button"
             disabled={sourceCount === 0 || state.kind === 'busy'}
             onClick={() => void run(search.results)}
-            data-testid="optimizer-run"
+            data-testid="search-tuning-run"
             className={[
               'w-full',
               sourceCount === 0 || state.kind === 'busy'
@@ -141,7 +140,7 @@ export function OptimizerTab({ optimizer, search, onOpenDetail }: OptimizerTabPr
         </aside>
 
         {/* ─── Results ───────────────────────────────────────────────── */}
-        <section data-testid="optimizer-results">
+        <section data-testid="search-tuning-results">
           {state.kind === 'idle' && (
             <EmptyState
               icon="🎚️"
@@ -215,7 +214,7 @@ function ResultsList({
 }: {
   results:    RerankRow[];
   sourceById: Map<number, SystemResult>;
-  sourceSnapshot: SourceRankSnapshot;
+  sourceSnapshot: SearchTuningSourceSnapshot;
   onOpenDetail?: (id64: number) => void;
 }) {
   if (results.length === 0) {
@@ -242,7 +241,7 @@ function ResultsList({
         return (
           <li
             key={r.id64}
-            data-testid={`optimizer-row-${r.id64}`}
+            data-testid={`search-tuning-row-${r.id64}`}
             onClick={onOpenDetail ? () => onOpenDetail(r.id64) : undefined}
             className={[
               'panel-thin p-3 grid gap-3 items-center text-sm font-mono md:grid-cols-[150px_minmax(0,1fr)_120px_170px]',
@@ -252,7 +251,7 @@ function ResultsList({
             <div className="text-[11px] text-silver-dk tabular-nums">
               <div className="text-silver">Finder #{originalRank ?? '?'} -&gt; Tuned #{tunedRank}</div>
               <div
-                data-testid={`optimizer-movement-${r.id64}`}
+                data-testid={`search-tuning-movement-${r.id64}`}
                 className={movement.tone}
               >
                 {movement.label}
@@ -297,7 +296,7 @@ function ResultsList({
               </span>
               {delta !== null && delta !== 0 && (
                 <span
-                  data-testid={`optimizer-delta-${r.id64}`}
+                  data-testid={`search-tuning-delta-${r.id64}`}
                   className={[
                     'text-[10px] tabular-nums',
                     delta > 0 ? 'text-green' : 'text-red',

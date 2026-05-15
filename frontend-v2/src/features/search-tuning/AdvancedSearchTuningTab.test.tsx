@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { OptimizerTab } from './OptimizerTab';
-import type { SourceRankSnapshot, UseOptimizer } from './useOptimizer';
+import { AdvancedSearchTuningTab } from './AdvancedSearchTuningTab';
+import type { SearchTuningSourceSnapshot, UseSearchTuning } from './useSearchTuning';
 import type { RerankResponse, SystemResult } from '@/types/api';
 
-function makeOptimizer(overrides: Partial<UseOptimizer> = {}): UseOptimizer {
+function makeSearchTuning(overrides: Partial<UseSearchTuning> = {}): UseSearchTuning {
   return {
     weights: {
       economy: 0.3,
@@ -23,7 +23,7 @@ function makeOptimizer(overrides: Partial<UseOptimizer> = {}): UseOptimizer {
     run: vi.fn().mockResolvedValue(undefined),
     resetState: vi.fn(),
     ...overrides,
-  } as UseOptimizer;
+  } as UseSearchTuning;
 }
 
 function makeSystem(id64: number, name: string): SystemResult {
@@ -34,7 +34,7 @@ function makeSearch(results: SystemResult[] = []) {
   return { results } as never;
 }
 
-function makeSourceSnapshot(systems: SystemResult[]): SourceRankSnapshot {
+function makeSourceSnapshot(systems: SystemResult[]): SearchTuningSourceSnapshot {
   return Object.fromEntries(
     systems.map((system, index) => [
       system.id64,
@@ -43,9 +43,9 @@ function makeSourceSnapshot(systems: SystemResult[]): SourceRankSnapshot {
   );
 }
 
-describe('OptimizerTab Advanced Search Tuning UX', () => {
+describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
   it('renders Advanced Search Tuning and explains current Finder-result scope', () => {
-    render(<OptimizerTab optimizer={makeOptimizer()} search={makeSearch()} />);
+    render(<AdvancedSearchTuningTab searchTuning={makeSearchTuning()} search={makeSearch()} />);
 
     expect(screen.getByRole('heading', { name: 'Advanced Search Tuning' })).toBeTruthy();
     expect(screen.getAllByText('Uses current Finder results').length).toBeGreaterThan(0);
@@ -56,16 +56,16 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
   });
 
   it('directs users to run Finder first when there are no current results', () => {
-    render(<OptimizerTab optimizer={makeOptimizer()} search={makeSearch()} />);
+    render(<AdvancedSearchTuningTab searchTuning={makeSearchTuning()} search={makeSearch()} />);
 
     expect(screen.getByText('Run a Finder search first.')).toBeTruthy();
     expect(screen.getByText(/works on the current Finder results/i)).toBeTruthy();
     expect(screen.getByText(/cannot tune systems that have not been searched yet/i)).toBeTruthy();
-    expect((screen.getByTestId('optimizer-run') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('search-tuning-run') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('explains economy scoring emphasis and weight scope', () => {
-    render(<OptimizerTab optimizer={makeOptimizer()} search={makeSearch([makeSystem(123, 'Sol')])} />);
+    render(<AdvancedSearchTuningTab searchTuning={makeSearchTuning()} search={makeSearch([makeSystem(123, 'Sol')])} />);
 
     expect(screen.getByText('Economy scoring emphasis')).toBeTruthy();
     expect(screen.getByText(/It does not filter systems out/i)).toBeTruthy();
@@ -82,11 +82,11 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
 
   it('keeps the run control wired to the current Finder result objects', () => {
     const run = vi.fn().mockResolvedValue(undefined);
-    const optimizer = makeOptimizer({ run });
+    const searchTuning = makeSearchTuning({ run });
     const source = [makeSystem(123, 'Sol')];
 
-    render(<OptimizerTab optimizer={optimizer} search={makeSearch(source)} />);
-    fireEvent.click(screen.getByTestId('optimizer-run'));
+    render(<AdvancedSearchTuningTab searchTuning={searchTuning} search={makeSearch(source)} />);
+    fireEvent.click(screen.getByTestId('search-tuning-run'));
 
     expect(screen.getByText('Show tuned order')).toBeTruthy();
     expect(run).toHaveBeenCalledWith(source);
@@ -94,8 +94,8 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
 
   it('uses loading copy that does not imply a new search', () => {
     render(
-      <OptimizerTab
-        optimizer={makeOptimizer({ state: { kind: 'busy', sourceSnapshot: makeSourceSnapshot([makeSystem(123, 'Sol')]) } })}
+      <AdvancedSearchTuningTab
+        searchTuning={makeSearchTuning({ state: { kind: 'busy', sourceSnapshot: makeSourceSnapshot([makeSystem(123, 'Sol')]) } })}
         search={makeSearch([makeSystem(123, 'Sol')])}
       />,
     );
@@ -106,8 +106,8 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
 
   it('renders API failures clearly', () => {
     render(
-      <OptimizerTab
-        optimizer={makeOptimizer({ state: { kind: 'err', message: 'API 500 on /ratings/rerank: exploded' } })}
+      <AdvancedSearchTuningTab
+        searchTuning={makeSearchTuning({ state: { kind: 'err', message: 'API 500 on /ratings/rerank: exploded' } })}
         search={makeSearch([makeSystem(123, 'Sol')])}
       />,
     );
@@ -155,8 +155,8 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
     };
 
     render(
-      <OptimizerTab
-        optimizer={makeOptimizer({
+      <AdvancedSearchTuningTab
+        searchTuning={makeSearchTuning({
           state: {
             kind: 'ok',
             data,
@@ -176,7 +176,7 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
       />,
     );
 
-    const beta = screen.getByTestId('optimizer-row-2');
+    const beta = screen.getByTestId('search-tuning-row-2');
     expect(within(beta).getByText('Finder #2 -> Tuned #1')).toBeTruthy();
     expect(within(beta).getByText('Moved up 1 place')).toBeTruthy();
     expect(within(beta).getByText('Temporary tuned score')).toBeTruthy();
@@ -184,11 +184,11 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
     expect(within(beta).getByText(/Stored rating rationale:/)).toBeTruthy();
     expect(within(beta).getByText(/Beta stored rationale/)).toBeTruthy();
 
-    const alpha = screen.getByTestId('optimizer-row-1');
+    const alpha = screen.getByTestId('search-tuning-row-1');
     expect(within(alpha).getByText('Finder #1 -> Tuned #2')).toBeTruthy();
     expect(within(alpha).getByText('Moved down 1 place')).toBeTruthy();
 
-    const gamma = screen.getByTestId('optimizer-row-3');
+    const gamma = screen.getByTestId('search-tuning-row-3');
     expect(within(gamma).getByText('Finder #3 -> Tuned #3')).toBeTruthy();
     expect(within(gamma).getByText('Unchanged')).toBeTruthy();
 
@@ -220,8 +220,8 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
     };
 
     render(
-      <OptimizerTab
-        optimizer={makeOptimizer({
+      <AdvancedSearchTuningTab
+        searchTuning={makeSearchTuning({
           state: {
             kind: 'ok',
             data,
@@ -238,7 +238,7 @@ describe('OptimizerTab Advanced Search Tuning UX', () => {
       />,
     );
 
-    const beta = screen.getByTestId('optimizer-row-2');
+    const beta = screen.getByTestId('search-tuning-row-2');
     expect(within(beta).getByText('Beta from tuning run')).toBeTruthy();
     expect(within(beta).getByText('Finder #2 -> Tuned #1')).toBeTruthy();
     expect(within(beta).getByText('Moved up 1 place')).toBeTruthy();

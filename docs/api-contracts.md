@@ -72,7 +72,7 @@ Advanced Search Tuning is the Finder-result reranking helper. The user-facing la
 
 The endpoint returns `RerankResponse` with `weights_applied`, nullable top-level `economy_used`, and `results` containing `id64`, `reranked_score`, `original_score`, `confidence`, `rationale`, and per-row `economy_used`. Stage 7B adds original Finder rank, tuned rank, and movement labels in the frontend only by comparing the response order to a source-rank snapshot captured when the tuning run starts.
 
-This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, mutate ratings, run Simulation Preview, alter Colony Planner, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/optimizer/` for compatibility, but presents as Advanced Search Tuning. `#search-tuning` is the preferred frontend route alias; `#optimizer` remains a legacy compatibility alias.
+This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, mutate ratings, run Simulation Preview, alter Colony Planner, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/search-tuning/` and presents as Advanced Search Tuning. `#search-tuning` is the preferred frontend route; `#optimizer` remains a legacy compatibility alias normalized to `search-tuning`.
 
 ## Canonical Field Names
 

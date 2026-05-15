@@ -13,18 +13,18 @@ export const ECONOMIES: Economy[] = [
   'HighTech',    'Military', 'Tourism', 'Extraction',
 ];
 
-export type SourceRankSnapshot = Record<number, {
+export type SearchTuningSourceSnapshot = Record<number, {
   originalRank: number;
   name?: string | null;
 }>;
 
-export type OptimizerState =
+export type SearchTuningState =
   | { kind: 'idle' }
-  | { kind: 'busy'; sourceSnapshot: SourceRankSnapshot }
+  | { kind: 'busy'; sourceSnapshot: SearchTuningSourceSnapshot }
   | { kind: 'err'; message: string }
-  | { kind: 'ok';  data: RerankResponse; queriedAt: number; sourceSnapshot: SourceRankSnapshot };
+  | { kind: 'ok';  data: RerankResponse; queriedAt: number; sourceSnapshot: SearchTuningSourceSnapshot };
 
-export interface UseOptimizer {
+export interface UseSearchTuning {
   weights:   RerankWeights;
   setWeight: (k: keyof RerankWeights, v: number) => void;
   resetWeights: () => void;
@@ -33,7 +33,7 @@ export interface UseOptimizer {
   economy:   Economy | null;
   setEconomy: (e: Economy | null) => void;
 
-  state:     OptimizerState;
+  state:     SearchTuningState;
   /** Run /api/ratings/rerank against the given source list. */
   run:       (source: SystemResult[]) => Promise<void>;
   resetState: () => void;
@@ -42,15 +42,12 @@ export interface UseOptimizer {
 /**
  * Advanced Search Tuning state. The weights are local + reactive; the source list
  * (id64s) is supplied at run() time by the caller - usually the Finder's
- * current results — so this feature doesn't have to know about /search.
- *
- * Internal `optimizer` names are compatibility debt from the original route
- * and can be cleaned up in a later route-safe migration.
+ * current results - so this feature doesn't have to know about /search.
  */
-export function useOptimizer(): UseOptimizer {
+export function useSearchTuning(): UseSearchTuning {
   const [weights, setWeights] = useState<RerankWeights>(DEFAULT_WEIGHTS);
   const [economy, setEconomy] = useState<Economy | null>(null);
-  const [state,   setState]   = useState<OptimizerState>({ kind: 'idle' });
+  const [state,   setState]   = useState<SearchTuningState>({ kind: 'idle' });
 
   const setWeight = useCallback((k: keyof RerankWeights, v: number) => {
     setWeights((prev) => ({
@@ -69,7 +66,7 @@ export function useOptimizer(): UseOptimizer {
       return;
     }
     const sourceForRun = source.slice(0, 500);
-    const sourceSnapshot: SourceRankSnapshot = Object.fromEntries(
+    const sourceSnapshot: SearchTuningSourceSnapshot = Object.fromEntries(
       sourceForRun.map((system, index) => [
         system.id64,
         {
