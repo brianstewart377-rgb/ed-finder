@@ -355,7 +355,7 @@ function ResultsList({
 function TuningExplanation({ row, explanation }: { row: RerankRow; explanation: string[] }) {
   const hasBreakdown = hasContributionBreakdown(row);
   const helped = getTopContributors(row);
-  const heldBack = getWeakestSignals(row);
+  const weakerSignals = getWeakestSignals(row);
 
   return (
     <div className="mt-2 rounded-chunk-sm border border-border/70 bg-bg2/50 p-2 text-[10px] text-silver-dk">
@@ -370,7 +370,7 @@ function TuningExplanation({ row, explanation }: { row: RerankRow; explanation: 
       {hasBreakdown ? (
         <div className="mt-2 grid gap-1 sm:grid-cols-2">
           <ContributionGroup title="Helped" items={helped} tone="text-green" />
-          <ContributionGroup title="Held back" items={heldBack} tone="text-gold" />
+          <ContributionGroup title="Weaker signals" items={weakerSignals} tone="text-gold" />
         </div>
       ) : (
         <p className="mt-2 text-gold">Contribution breakdown unavailable for this row.</p>

@@ -16,9 +16,13 @@ const LABELS: Record<ContributionLabel['key'], string> = {
 };
 
 const CONTRIBUTION_KEYS = Object.keys(LABELS) as ContributionLabel['key'][];
+const EFFECTIVELY_ZERO = 0.05;
 
 export function getTopContributors(row: RerankRow, limit = 2): ContributionLabel[] {
-  return contributionLabels(row)
+  const labels = contributionLabels(row);
+  const positiveLabels = labels.filter((item) => item.value >= EFFECTIVELY_ZERO);
+
+  return (positiveLabels.length > 0 ? positiveLabels : labels)
     .sort((a, b) => b.value - a.value)
     .slice(0, limit);
 }
@@ -58,6 +62,20 @@ export function buildTunedResultExplanation(
     return [movement];
   }
 
+  const hasPositiveContribution = top.some((item) => item.value >= EFFECTIVELY_ZERO);
+  if (!hasPositiveContribution) {
+    const lines = [
+      movement,
+      'Contribution values are available, but all tracked signals contributed 0.0 under the current weights.',
+    ];
+
+    if (row.confidence != null) {
+      lines.push('Final tuned score may also reflect the stored confidence adjustment.');
+    }
+
+    return lines;
+  }
+
   const topLabels = top.map((item) => item.label.toLowerCase()).join(' and ');
   const weakLabels = weakest.map((item) => item.label.toLowerCase()).join(' and ');
 
@@ -66,7 +84,7 @@ export function buildTunedResultExplanation(
   ];
 
   if (weakLabels) {
-    lines.push(`${weakLabels} contributed less and may have held this tuned position back.`);
+    lines.push(`${weakLabels} contributed less under the current weights.`);
   }
 
   if (row.confidence != null) {

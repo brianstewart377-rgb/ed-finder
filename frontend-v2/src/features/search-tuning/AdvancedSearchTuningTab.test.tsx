@@ -196,10 +196,13 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(within(beta).getByText('Helped')).toBeTruthy();
     expect(within(beta).getByText('Economy +30.0')).toBeTruthy();
     expect(within(beta).getByText('Slots +22.0')).toBeTruthy();
-    expect(within(beta).getByText('Held back')).toBeTruthy();
+    expect(within(beta).getByText('Weaker signals')).toBeTruthy();
     expect(within(beta).getByText('Diversity +0.5')).toBeTruthy();
     expect(within(beta).getByText('Terraforming +1.0')).toBeTruthy();
     expect(within(beta).getByText('Confidence adjustment: 90%.')).toBeTruthy();
+    expect(within(beta).queryByText('Held back')).toBeNull();
+    expect(within(beta).queryByText(/held this tuned position back/i)).toBeNull();
+    expect(within(beta).queryByText(/optimal|guaranteed/i)).toBeNull();
 
     const alpha = screen.getByTestId('search-tuning-row-1');
     expect(within(alpha).getByText('Finder #1 -> Tuned #2')).toBeTruthy();
@@ -302,6 +305,58 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
 
     const row = screen.getByTestId('search-tuning-row-7');
     expect(within(row).getAllByText('Contribution breakdown unavailable for this row.').length).toBeGreaterThan(0);
+  });
+
+  it('renders neutral copy for all-zero contribution rows', () => {
+    const data: RerankResponse = {
+      weights_applied: {
+        economy: 0.3,
+        slots: 0.2,
+        strategic: 0.15,
+        safety: 0.15,
+        terraforming: 0.1,
+        diversity: 0.1,
+      },
+      economy_used: null,
+      results: [
+        {
+          id64: 8,
+          reranked_score: 0,
+          original_score: 0,
+          confidence: null,
+          rationale: 'No tracked support',
+          economy_used: 'Industrial',
+          contributions: {
+            economy: 0,
+            slots: 0,
+            strategic: 0,
+            safety: 0,
+            terraforming: 0,
+            diversity: 0,
+          },
+        },
+      ],
+    };
+
+    render(
+      <AdvancedSearchTuningTab
+        searchTuning={makeSearchTuning({
+          state: {
+            kind: 'ok',
+            data,
+            queriedAt: 123,
+            sourceSnapshot: { 8: { originalRank: 1, name: 'Zero support' } },
+          },
+        })}
+        search={makeSearch([makeSystem(8, 'Zero support')])}
+      />,
+    );
+
+    const row = screen.getByTestId('search-tuning-row-8');
+    expect(within(row).getByText('Contribution values are available, but all tracked signals contributed 0.0 under the current weights.')).toBeTruthy();
+    expect(within(row).queryByText(/helped most/i)).toBeNull();
+    expect(within(row).getByText('Weaker signals')).toBeTruthy();
+    expect(within(row).queryByText('Held back')).toBeNull();
   });
 
   it('opens system detail from explicit handoff actions and row click', () => {

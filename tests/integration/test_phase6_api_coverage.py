@@ -102,6 +102,7 @@ async def test_ratings_rerank_default_weights(client, pool):
     assert 'results' in body
     assert len(body['results']) == 3
     for row in body['results']:
+        assert {'id64', 'reranked_score', 'original_score', 'confidence', 'rationale', 'economy_used'} <= set(row)
         assert 0 <= row['reranked_score'] <= 100
         assert 'contributions' in row
         assert set(row['contributions']) == {
@@ -156,7 +157,6 @@ async def test_ratings_rerank_extraction_economy(client, pool):
         assert row['contributions']['economy'] == score
         assert row['signals']['economy_score'] == score
         assert row['signals']['confidence'] == (float(confidence) if confidence is not None else None)
-
 
 # --- Profile sync (rate limited per audit §S3) ----------------------------
 
