@@ -12,7 +12,17 @@ from observations.api_models import (
     ObservedFactResponse,
     ObservedFactUpdateRequest,
     ObservationFactSummaryResponse,
+    PredictionObservationCompareRequest,
+    PredictionObservationCompareResponse,
 )
+# Stage 6C: import the comparison engine directly from its submodule so we
+# do NOT accidentally pick up the Stage 4D ``compare_prediction_to_observations``
+# re-exported by ``observations/__init__.py``. The Stage 6C engine has a
+# different signature and a different result shape.
+from observations.comparison_engine import (
+    compare_prediction_to_observations as compare_prediction_to_observations_stage6c,
+)
+from observations.comparison_models import comparison_result_to_dict
 
 router = APIRouter(tags=['observations'])
 
@@ -105,3 +115,59 @@ async def delete_observed_fact(
     if not deleted:
         raise HTTPException(404, f'Observed fact {observation_id} not found')
     return ObservedFactDeleteResponse(observation_id=observation_id, deleted=True)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Stage 6C — predicted-vs-observed comparison endpoint
+# ──────────────────────────────────────────────────────────────────────
+@router.post(
+    '/api/observations/compare',
+    response_model=PredictionObservationCompareResponse,
+)
+async def compare_prediction_against_observations(
+    body: PredictionObservationCompareRequest,
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> PredictionObservationCompareResponse:
+    """Run the Stage 6C deterministic comparison engine.
+
+    Two modes:
+
+    * **Mode A** — ``observed_facts`` omitted from the request. The
+      router loads up to ``fact_load_limit`` persisted facts for
+      ``system_id64`` from the Stage 6A store and passes them to the
+      engine.
+    * **Mode B** — ``observed_facts`` provided. The supplied list is
+      converted to ``PersistedObservedFact`` objects and passed to the
+      engine verbatim. The database is NOT queried for facts in this
+      mode.
+
+    The handler is **passive**: it never invokes simulation, optimiser,
+    or ranking code, and never mutates persisted observations. It only
+    reads observations (Mode A) and runs the pure comparison engine.
+    """
+    if body.observed_facts is None:
+        # Mode A — pull persisted facts from the Stage 6A store.
+        facts, _total = await store.list_observed_facts(
+            pool,
+            system_id64=body.system_id64,
+            target_archetype=body.target_archetype,
+            limit=body.fact_load_limit,
+            offset=0,
+        )
+        observed = list(facts)
+    else:
+        # Mode B — use the caller-supplied facts and skip the DB hit.
+        observed = [fact_input.to_persisted() for fact_input in body.observed_facts]
+
+    result = compare_prediction_to_observations_stage6c(
+        system_id64=body.system_id64,
+        target_archetype=body.target_archetype,
+        prediction=body.prediction,
+        observed_facts=observed,
+    )
+
+    # ``comparison_result_to_dict`` produces JSON-safe primitives that
+    # round-trip directly into the response Pydantic model.
+    return PredictionObservationCompareResponse.model_validate(
+        comparison_result_to_dict(result),
+    )
