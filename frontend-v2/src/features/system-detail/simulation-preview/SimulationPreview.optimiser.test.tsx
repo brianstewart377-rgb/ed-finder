@@ -483,6 +483,36 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
   });
 
+  it('browses and selects structures without preview or suggested-build side effects', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    await screen.findByText(/0 placements in Build Plan/);
+    fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Browse structures/i }));
+
+    expect(screen.getByRole('region', { name: 'Structure picker' })).toBeTruthy();
+    expect(screen.getByText('Evaluating against: Test Body')).toBeTruthy();
+    expect(screen.getByText('Generic Port Alpha')).toBeTruthy();
+    expect(screen.getByText('Agriculture Support A')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Surface' }));
+    fireEvent.change(screen.getByLabelText('Search structures'), { target: { value: 'Agriculture' } });
+
+    expect(screen.getByText('Agriculture Support A')).toBeTruthy();
+    expect(screen.queryByText('Generic Port Alpha')).toBeNull();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select structure' }));
+
+    expect(screen.getByDisplayValue('T1 - Agriculture Support A - Agriculture')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
   it('manually imports system layout and shows success status without planner side effects', async () => {
     mockNoRecommendedBuild();
     let resolveImport: (value: LayoutImportResponse) => void = () => {};

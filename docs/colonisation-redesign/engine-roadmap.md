@@ -598,10 +598,44 @@ Current Stage 10E.1 status:
 
 No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, hauling/material feature, auto-run, auto-generate, or auto-load behaviour changed in Stage 10E.1.
 
-Deferred to Stage 10E.2 or later:
+Deferred beyond Stage 10E.1:
 
 - Real Spansh provider fetches, timeout tuning, and remote response parsing.
 - Database upsert policy and cache invalidation/reload workflow for imported bodies/stations.
 - Review UI for changed imported rows before using refreshed layout data.
 - Automatic Build Plan reassignment, which remains out of scope unless a later stage defines an explicit user-confirmed workflow.
 - Material, commodity, carrier, hauling, and trip planning.
+
+## Stage 10E.2 - Structure Picker / Variant Table Foundation
+
+Stage 10E.2 begins the RavenColonial-inspired structure picker/table path while keeping the implementation safe and grounded in current ED-Finder data. It also starts with a small forensic hardening pass so picker-adjacent silent failures are visible before adding the new UI.
+
+Forensic hardening status:
+
+- CI now runs root-level pytest tests outside `tests/integration`, so tests such as `tests/test_colony_layout_import.py` cannot silently sit outside the backend test path.
+- Empty facility-catalogue state is visible in the Build Plan area, and Add Facility cannot silently do nothing.
+- List view shows missing `facility_template_id` references and preserves the missing ID as a labelled disabled dropdown option.
+- Layout import result/error/running state resets on system change without making an import, Preview, or Suggested Build call.
+- EDDN SSE error state clears when a valid recovered event arrives.
+- Redis cache failures and optimiser catalogue DB fallback remain graceful but are counted/logged instead of disappearing completely.
+
+Picker foundation status:
+
+- `BuildPlanEditor` keeps the existing facility select as the canonical editor and adds an inline `Browse structures` / `Compare structures` panel per placement.
+- `StructurePickerTable` renders the current facility catalogue with All / Orbital / Surface / Both filters, search, selected-body context, explicit row selection, and table columns for structure, location, tier, pad, economy, role/category, port/support type, CP gives, CP needs, confidence, and conservative validity/review hints.
+- `structurePickerUtils` provides pure helper logic for template location kind, filtering, search, body context, CP labels, and cautious warnings.
+- The picker uses only existing frontend `FacilityTemplate`, `SystemBody`, and `SimulateBuildPlacement` fields. It does not invent material effort, population/stat impacts, prerequisites, suitability score, or construction progress.
+- Selecting a structure is explicit and reuses the existing placement update callback. Rendering, filtering, and searching do not run Preview, generate Suggested Builds, load builds, persist preferences, mutate Layout view, or alter Observed Evidence / Validation.
+- Tests cover picker rendering, filters, search, selection, body/no-body/unknown-body context, water-world and non-landable warnings, missing-field safety, List editor preservation, empty catalogue visibility, missing template visibility, and no Preview/Suggested Build side effects.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, hauling/material feature, auto-run, auto-generate, auto-load, RavenColonial API integration, or Spansh refresh workflow changed in Stage 10E.2.
+
+Deferred beyond Stage 10E.2:
+
+- Richer facility family and variant taxonomy.
+- Structured prerequisites and body/facility validity reasons from catalogue/backend data.
+- Population, max population, security, wealth, technology, standard-of-living, development, and suitability-score columns.
+- Facility selection from Layout view and selected-placement detail integration.
+- Real Spansh provider fetch/upsert workflow and import review UI.
+- RavenColonial/SrvSurvey handoff/export feasibility.
+- Material, commodity, carrier, hauling, delivery, and trip planning.

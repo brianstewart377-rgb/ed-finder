@@ -24,8 +24,9 @@ Stage 10B implementation note:
 - No backend mechanics, scoring, optimiser generation/ranking, validation/review behaviour, Search Tuning behaviour, persistence, auto-run, auto-generate, auto-load, or hauling/material tracking changed.
 - Stage 10C evolved the body readout into Layout view with a compact plan summary, body-level layout cards, primary-port status, warning chips, and visible CP generated/needed totals.
 - Stage 10D made Layout view locally interactive with read-only selected-body and selected-placement details. Users can inspect a body or placement, see warnings and next-action guidance, and then use List view for any edits.
-- Spansh import was investigated in Stage 10C and remains a backend-supported/manual-refresh follow-up, not a frontend direct import or silent overwrite workflow.
-- The full structure picker/table remains deferred beyond Stage 10D.
+- Stage 10E.1 added a manual layout-import foundation and kept imported layout status read-only. It does not silently refresh or overwrite Build Plan placements.
+- Stage 10E.2 added the first structure picker/table foundation inside List view. The existing select remains canonical, while an inline `Browse structures` panel lets users compare templates with location filters, search, body-context hints, CP/economy/tier/pad/confidence fields, and conservative review warnings.
+- The richer variant/family picker, structured prerequisites, stat-impact columns, and RavenColonial/SrvSurvey handoff/export work remain deferred.
 
 ## Reference Materials
 
@@ -491,4 +492,4 @@ ED-Finder should move visually closer to RavenColonial's planning clarity withou
 
 This gives users a clearer spatial understanding of the Build Plan while keeping ED-Finder as the planning/intelligence layer and leaving hauling/material execution to RavenColonial or a later handoff.
 
-Stage 10C confirms the next safe step after 10B: strengthen the body-grouped readout into a graphical Layout view and document Spansh import as a backend/manual-refresh follow-up. The structure picker/table, variant comparison, and external system-layout import workflow remain separate future stages.
+Stage 10C confirmed the next safe step after 10B: strengthen the body-grouped readout into a graphical Layout view and document Spansh import as a backend/manual-refresh follow-up. Stage 10D added read-only selection details, Stage 10E.1 added manual import status plumbing, and Stage 10E.2 began the structure picker/table path without replacing the existing editor. Richer variant comparison, catalogue enrichment, and external handoff/export remain separate future stages.

@@ -166,3 +166,20 @@ Stage 10D follows the selected-detail path. Layout view now supports local, read
 Stage 10D remains frontend UX/layout work only. Selection does not mutate the Build Plan, does not run Preview, does not generate or load Suggested Builds, does not fetch new layout data, and does not change backend scoring, CP formulas, economy/service/buildability mechanics, optimiser generation/ranking, Search Tuning, Observed Evidence, Validation/Review, persistence, or hauling/material workflows.
 
 The structure picker/table, variant comparison, add/replace workflow, facility selection from Layout view, Spansh refresh workflow, saved builds, external ingestion, and material/commodity/carrier/trip planning remain deferred.
+
+## Stage 10E.1 Follow-Up
+
+Stage 10E.1 added a manual `Import / refresh system layout` foundation. The UI can show local read-only import status, imported body/station counts, warnings, errors, and mismatches between current body data and assigned placement body IDs. It remains an explicit user action and does not auto-fetch, poll, reassign placements, overwrite user plans, or change Preview/Suggested Build behaviour.
+
+## Stage 10E.2 Follow-Up
+
+Stage 10E.2 begins the structure picker/table path while keeping List view as the editing surface:
+
+- `BuildPlanEditor` keeps the existing facility dropdown and adds an inline `Browse structures` / `Compare structures` picker for each placement.
+- `StructurePickerTable` renders the current facility catalogue as a comparison table with All / Orbital / Surface / Both filters, search, body context, select buttons, and columns for structure, location, tier, pad, economy, role, port/support type, CP gives, CP needs, confidence, and validity/review hints.
+- `structurePickerUtils` owns pure location parsing, filtering, search, body-context lookup, CP formatting, and conservative warning helpers.
+- Picker selection is explicit and reuses the existing placement update callback. Filtering and searching do not mutate the Build Plan.
+- Body-specific hints use existing `SystemBody` data only. Warnings use cautious wording such as body needed, unknown body, template uses estimated data, water-world surface placement may need review, non-landable surface placement may need review, sparse body metadata, and unclear orbital suitability.
+- The picker does not fetch data, run Preview, generate Suggested Builds, load builds, mutate Layout view, persist preferences, or add hauling/material workflow.
+
+Richer variant/family grouping, structured prerequisites, population/stat impact columns, suitability scoring, facility selection from Layout view, and any RavenColonial/SrvSurvey handoff/export remain deferred.

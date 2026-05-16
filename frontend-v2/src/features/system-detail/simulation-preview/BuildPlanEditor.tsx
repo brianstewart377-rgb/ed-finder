@@ -1,6 +1,8 @@
-import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowDown, ArrowUp, Search, Trash2 } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
 import { Chip, IconButton } from './components';
+import { StructurePickerTable } from './StructurePickerTable';
 import { formatLocation } from './utils/formatters';
 
 export function BuildPlanEditor({
@@ -18,6 +20,8 @@ export function BuildPlanEditor({
   onRemove: (index: number) => void;
   onMove: (index: number, direction: -1 | 1) => void;
 }) {
+  const [openPickerIndex, setOpenPickerIndex] = useState<number | null>(null);
+
   return (
     <div className="space-y-2">
       {placements.map((placement, index) => {
@@ -51,6 +55,15 @@ export function BuildPlanEditor({
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                aria-expanded={openPickerIndex === index}
+                onClick={() => setOpenPickerIndex((current) => current === index ? null : index)}
+                className="inline-flex items-center gap-1.5 rounded border border-border bg-bg3 px-2.5 py-2 font-mono text-[10px] text-silver hover:border-cyan/60 hover:text-cyan"
+              >
+                <Search size={13} />
+                {openPickerIndex === index ? 'Close picker' : 'Browse structures'}
+              </button>
               <IconButton label="Move up" onClick={() => onMove(index, -1)} disabled={index === 0}>
                 <ArrowUp size={14} />
               </IconButton>
@@ -103,6 +116,26 @@ export function BuildPlanEditor({
                 <Chip>{formatLocation(template.allowed_location)}</Chip>
                 <Chip>Y+{template.yellow_cp_generated} G+{template.green_cp_generated}</Chip>
                 {template.confidence === 'estimated' && <Chip tone="warn">Estimated data</Chip>}
+              </div>
+            )}
+
+            {openPickerIndex === index && (
+              <div className="mt-3">
+                <StructurePickerTable
+                  templates={templates}
+                  bodies={bodies}
+                  selectedBodyId={placement.local_body_id}
+                  selectedTemplateId={placement.facility_template_id}
+                  placement={placement}
+                  onSelectTemplate={(templateId) => {
+                    const nextTemplate = templates.find((item) => item.id === templateId);
+                    onUpdate(index, {
+                      facility_template_id: templateId,
+                      is_primary_port: Boolean(placement.is_primary_port && nextTemplate?.is_port),
+                    });
+                    setOpenPickerIndex(null);
+                  }}
+                />
               </div>
             )}
           </div>

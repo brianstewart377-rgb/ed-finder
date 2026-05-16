@@ -21,6 +21,23 @@ const templates: FacilityTemplate[] = [
     yellow_cp_cost: 0,
     green_cp_cost: 0,
   },
+  {
+    id: 'surface_lab',
+    name: 'Surface Lab',
+    category: 'support',
+    tier: 2,
+    economy: 'HighTech',
+    is_port: false,
+    is_support_facility: true,
+    allowed_location: 'surface',
+    pad_size: 'small',
+    confidence: 'estimated',
+    notes: null,
+    yellow_cp_generated: 4,
+    green_cp_generated: 1,
+    yellow_cp_cost: 0,
+    green_cp_cost: 0,
+  },
 ];
 
 const bodies = [
@@ -55,5 +72,62 @@ describe('BuildPlanEditor', () => {
       facility_template_id: 'known_port',
       is_primary_port: true,
     });
+  });
+
+  it('keeps the dropdown editor and lets the structure picker update through the existing callback', () => {
+    const onUpdate = vi.fn();
+    const placements: SimulateBuildPlacement[] = [
+      { facility_template_id: 'known_port', local_body_id: 'body1', build_order: 1, is_primary_port: true },
+    ];
+
+    render(
+      <BuildPlanEditor
+        placements={placements}
+        templates={templates}
+        bodies={bodies}
+        onUpdate={onUpdate}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByDisplayValue('T1 - Known Port - Industrial')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Browse structures/i }));
+
+    expect(screen.getByRole('region', { name: 'Structure picker' })).toBeTruthy();
+    expect(screen.getByText('Evaluating against: Known Body')).toBeTruthy();
+    expect(screen.getByText('Surface Lab')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select structure' }));
+
+    expect(onUpdate).toHaveBeenCalledWith(0, {
+      facility_template_id: 'surface_lab',
+      is_primary_port: false,
+    });
+  });
+
+  it('does not mutate placement state when filtering or searching the structure picker', () => {
+    const onUpdate = vi.fn();
+    const placements: SimulateBuildPlacement[] = [
+      { facility_template_id: 'known_port', local_body_id: 'body1', build_order: 1, is_primary_port: true },
+    ];
+
+    render(
+      <BuildPlanEditor
+        placements={placements}
+        templates={templates}
+        bodies={bodies}
+        onUpdate={onUpdate}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Browse structures/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Surface' }));
+    fireEvent.change(screen.getByLabelText('Search structures'), { target: { value: 'Lab' } });
+
+    expect(screen.getByText('Surface Lab')).toBeTruthy();
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 });
