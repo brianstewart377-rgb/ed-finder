@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { Columns3, ListChecks, Plus } from 'lucide-react';
-import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
+import { Columns3, DownloadCloud, ListChecks, Plus } from 'lucide-react';
+import { importSystemLayout } from '@/lib/api';
+import type { FacilityTemplate, LayoutImportResponse, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
 import { BuildPlanBodyView } from './BuildPlanBodyView';
 import { BuildPlanEditor } from './BuildPlanEditor';
 import { ModeIntro, StartModes } from './StartModes';
@@ -10,6 +11,7 @@ import { ARCHETYPES, type StartMode } from './types';
 type BuildPlanViewMode = 'list' | 'body';
 
 export function BuildPlanSection({
+  systemId64,
   systemName,
   startMode,
   hasRecommendedBuild,
@@ -35,6 +37,7 @@ export function BuildPlanSection({
   onRemovePlacement,
   onMovePlacement,
 }: {
+  systemId64: number;
   systemName: string;
   startMode: StartMode;
   hasRecommendedBuild: boolean;
@@ -61,6 +64,24 @@ export function BuildPlanSection({
   onMovePlacement: (index: number, direction: -1 | 1) => void;
 }) {
   const [viewMode, setViewMode] = useState<BuildPlanViewMode>('list');
+  const [layoutImportResult, setLayoutImportResult] = useState<LayoutImportResponse | null>(null);
+  const [layoutImportError, setLayoutImportError] = useState<string | null>(null);
+  const [layoutImportRunning, setLayoutImportRunning] = useState(false);
+  const assignedUnknownBodyIds = getAssignedUnknownBodyIds(placements, bodies);
+
+  const handleImportLayout = async () => {
+    setLayoutImportRunning(true);
+    setLayoutImportError(null);
+    try {
+      const result = await importSystemLayout(systemId64, { source: 'spansh' });
+      setLayoutImportResult(result);
+    } catch (error) {
+      setLayoutImportResult(null);
+      setLayoutImportError(error instanceof Error ? error.message : 'Layout import failed.');
+    } finally {
+      setLayoutImportRunning(false);
+    }
+  };
 
   return (
     <section aria-label="Build Plan" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
@@ -75,6 +96,13 @@ export function BuildPlanSection({
         previewResult={previewResult}
         isPreviewResultStale={isPreviewResultStale}
         runningPreview={runningPreview}
+      />
+      <LayoutImportControl
+        running={layoutImportRunning}
+        result={layoutImportResult}
+        errorMessage={layoutImportError}
+        assignedUnknownBodyIds={assignedUnknownBodyIds}
+        onImport={() => void handleImportLayout()}
       />
       <StartModes
         mode={startMode}
@@ -218,6 +246,126 @@ export function BuildPlanSection({
       </div>
     </section>
   );
+}
+
+function LayoutImportControl({
+  running,
+  result,
+  errorMessage,
+  assignedUnknownBodyIds,
+  onImport,
+}: {
+  running: boolean;
+  result: LayoutImportResponse | null;
+  errorMessage: string | null;
+  assignedUnknownBodyIds: string[];
+  onImport: () => void;
+}) {
+  const status = errorMessage ? 'failed' : result?.status ?? null;
+  const tone = status === 'failed' || status === 'partial' || assignedUnknownBodyIds.length > 0 ? 'warn' : 'default';
+
+  return (
+    <div className={[
+      'mb-3 rounded border px-3 py-2',
+      tone === 'warn' ? 'border-gold/35 bg-gold/5' : 'border-cyan/30 bg-cyan/5',
+    ].join(' ')}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className={['font-mono text-[10px] uppercase tracking-[0.16em]', tone === 'warn' ? 'text-gold' : 'text-cyan'].join(' ')}>
+            System layout import
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-silver-dk">
+            Manual refresh only. Imported layout status never changes the current Build Plan placements automatically.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onImport}
+          disabled={running}
+          className="inline-flex items-center gap-2 rounded-chunk-sm border border-border bg-bg3 px-3 py-2 text-xs font-mono text-silver hover:border-cyan/60 hover:text-cyan disabled:opacity-45"
+        >
+          <DownloadCloud size={14} />
+          {running ? 'Importing layout...' : 'Import / refresh system layout'}
+        </button>
+      </div>
+
+      {running && (
+        <p className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-2 py-1 font-mono text-[10px] text-cyan">
+          Import request is running...
+        </p>
+      )}
+
+      {(result || errorMessage) && (
+        <div className="mt-2 grid gap-2 font-mono text-[10px] text-silver-dk md:grid-cols-2">
+          <ImportMetric label="Status" value={status ?? 'unknown'} warn={status === 'failed' || status === 'partial'} />
+          <ImportMetric label="Source" value={result?.source ?? 'spansh'} />
+          <ImportMetric label="Fetched at" value={result ? formatImportTimestamp(result.fetched_at) : 'Not available'} warn={!result} />
+          <ImportMetric label="Bodies imported" value={String(result?.summary.bodies_upserted ?? 0)} />
+          <ImportMetric label="Stations imported" value={String(result?.summary.stations_upserted ?? 0)} />
+          <ImportMetric label="Warnings" value={String((result?.summary.warnings_count ?? 0) + assignedUnknownBodyIds.length)} warn={(result?.summary.warnings_count ?? 0) + assignedUnknownBodyIds.length > 0} />
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
+          <span className="rounded border border-border/55 bg-bg3/40 px-2 py-0.5">Bodies found: {result.summary.bodies_found}</span>
+          <span className="rounded border border-border/55 bg-bg3/40 px-2 py-0.5">Stations found: {result.summary.stations_found}</span>
+        </div>
+      )}
+
+      {errorMessage && (
+        <p className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+          Layout import failed: {errorMessage}
+        </p>
+      )}
+
+      {result?.errors.map((error) => (
+        <p key={error} className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+          Layout import failed: {error}
+        </p>
+      ))}
+
+      {result?.warnings.map((warning) => (
+        <p key={warning} className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+          Layout import warning: {warning}
+        </p>
+      ))}
+
+      {assignedUnknownBodyIds.length > 0 && (
+        <p className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+          Needs review: imported/current body data does not match assigned placement body IDs ({assignedUnknownBodyIds.join(', ')}). No placements were reassigned.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ImportMetric({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className={['rounded border px-2 py-1', warn ? 'border-gold/35 bg-gold/5' : 'border-border/55 bg-bg3/35'].join(' ')}>
+      <div className={warn ? 'uppercase tracking-[0.14em] text-gold' : 'uppercase tracking-[0.14em] text-cyan'}>{label}</div>
+      <div className="mt-0.5 break-words text-silver">{value}</div>
+    </div>
+  );
+}
+
+function formatImportTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function getAssignedUnknownBodyIds(placements: SimulateBuildPlacement[], bodies: SystemBody[]): string[] {
+  const knownBodyIds = new Set(
+    bodies
+      .filter((body) => body.id != null)
+      .map((body) => String(body.id)),
+  );
+  const unknownIds = placements
+    .map((placement) => placement.local_body_id)
+    .filter((bodyId): bodyId is string => Boolean(bodyId))
+    .filter((bodyId) => !knownBodyIds.has(String(bodyId)));
+  return Array.from(new Set(unknownIds));
 }
 
 function BuildPlanViewButton({

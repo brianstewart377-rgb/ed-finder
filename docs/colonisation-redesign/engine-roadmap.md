@@ -582,3 +582,26 @@ Deferred beyond Stage 10D:
 - Spansh refresh endpoint, cache workflow, and import review UI.
 - Saved builds, account/profile persistence, EDMC/journal ingestion, and automatic learning.
 - Material, commodity, carrier, hauling, and trip planning.
+
+## Stage 10E.1 - Spansh Layout Import Foundation
+
+Stage 10E.1 adds the safe foundation for manually importing or refreshing system layout data from a Spansh-style source. It is a contract and UX foundation only; live provider ingestion/upsert policy remains deferred.
+
+Current Stage 10E.1 status:
+
+- Added `POST /api/colony-planner/system/{id64}/import-layout` with a typed request/response contract for `source`, `status`, `fetched_at`, import summary counts, warnings, and errors.
+- Added a `LayoutImportProvider` interface and `SpanshLayoutImportProvider` stub path. The Stage 10E.1 stub is intentionally bounded and non-destructive; it does not fetch remote Spansh data or overwrite planner state.
+- Added minimal structured logs for import attempt, outcome, and provider failure.
+- Added a manual `Import / refresh system layout` button in the Colony Planner Build Plan area.
+- Added local read-only import status UI for loading, success, partial, failed, source, fetched timestamp, bodies/stations imported, found counts, warnings, and errors.
+- If current imported/body data does not match assigned placement body IDs, the UI shows a `Needs review` warning and does not reassign placements.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, hauling/material feature, auto-run, auto-generate, or auto-load behaviour changed in Stage 10E.1.
+
+Deferred to Stage 10E.2 or later:
+
+- Real Spansh provider fetches, timeout tuning, and remote response parsing.
+- Database upsert policy and cache invalidation/reload workflow for imported bodies/stations.
+- Review UI for changed imported rows before using refreshed layout data.
+- Automatic Build Plan reassignment, which remains out of scope unless a later stage defines an explicit user-confirmed workflow.
+- Material, commodity, carrier, hauling, and trip planning.

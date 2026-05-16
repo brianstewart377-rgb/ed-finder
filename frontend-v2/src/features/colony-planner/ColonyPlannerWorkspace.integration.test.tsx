@@ -9,6 +9,7 @@ import {
   fetchOptimiserCandidates,
   getFacilityTemplates,
   getSimulationSummary,
+  importSystemLayout,
   reviewPredictionValidation,
   simulateBuild,
   updateObservedFact,
@@ -23,6 +24,7 @@ vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
   getFacilityTemplates: vi.fn(),
   getSimulationSummary: vi.fn(),
+  importSystemLayout: vi.fn(),
   simulateBuild: vi.fn(),
   listObservedFacts: vi.fn().mockResolvedValue({
     facts: [],
@@ -47,6 +49,7 @@ vi.mock('@/lib/api', () => ({
 const mockedApiSystem = vi.mocked(api.system);
 const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
+const mockedImportSystemLayout = vi.mocked(importSystemLayout);
 const mockedFetchOptimiserCandidates = vi.mocked(fetchOptimiserCandidates);
 const mockedSimulateBuild = vi.mocked(simulateBuild);
 const mockedCreateObservedFact = vi.mocked(createObservedFact);
@@ -107,6 +110,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     mockedApiSystem.mockReset();
     mockedGetFacilityTemplates.mockReset();
     mockedGetSimulationSummary.mockReset();
+    mockedImportSystemLayout.mockReset();
     mockedFetchOptimiserCandidates.mockReset();
     mockedSimulateBuild.mockReset();
     mockedCreateObservedFact.mockReset();
@@ -124,6 +128,21 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       buildability: { recommended_build_order: [] },
       regional_context: null,
     } as unknown as SimulationSummary);
+    mockedImportSystemLayout.mockResolvedValue({
+      system_id64: 123,
+      source: 'spansh',
+      status: 'success',
+      fetched_at: '2026-05-16T00:00:00Z',
+      summary: {
+        bodies_found: 0,
+        stations_found: 0,
+        bodies_upserted: 0,
+        stations_upserted: 0,
+        warnings_count: 0,
+      },
+      warnings: [],
+      errors: [],
+    });
 
     renderWorkspace();
 
@@ -139,6 +158,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+    expect(mockedImportSystemLayout).not.toHaveBeenCalled();
     expect(mockedCreateObservedFact).not.toHaveBeenCalled();
     expect(mockedUpdateObservedFact).not.toHaveBeenCalled();
     expect(mockedDeleteObservedFact).not.toHaveBeenCalled();

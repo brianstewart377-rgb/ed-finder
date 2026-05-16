@@ -98,6 +98,28 @@ export interface SimulateBuildRequest {
   placements: SimulateBuildPlacement[];
 }
 
+export interface LayoutImportRequest {
+  source?: 'spansh';
+}
+
+export interface LayoutImportSummary {
+  bodies_found: number;
+  stations_found: number;
+  bodies_upserted: number;
+  stations_upserted: number;
+  warnings_count: number;
+}
+
+export interface LayoutImportResponse {
+  system_id64: number;
+  source: 'spansh';
+  status: 'success' | 'partial' | 'failed';
+  fetched_at: string;
+  summary: LayoutImportSummary;
+  warnings: string[];
+  errors: string[];
+}
+
 export interface SimulationCPResult {
   yellow_cp_final: number;
   green_cp_final: number;

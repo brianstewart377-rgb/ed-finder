@@ -8,18 +8,20 @@ import {
   fetchOptimiserCandidates,
   getFacilityTemplates,
   getSimulationSummary,
+  importSystemLayout,
   listObservedFacts,
   reviewPredictionValidation,
   simulateBuild,
   updateObservedFact,
 } from '@/lib/api';
-import type { FacilityTemplate, OptimiserCandidatesResponse, PredictionObservationCompareResponse, SimulateBuildResponse, SimulationSummary, SystemDetail, ValidationReviewResponse } from '@/types/api';
+import type { FacilityTemplate, LayoutImportResponse, OptimiserCandidatesResponse, PredictionObservationCompareResponse, SimulateBuildRequest, SimulateBuildResponse, SimulationSummary, SystemDetail, ValidationReviewResponse } from '@/types/api';
 import { SimulationPreview } from './SimulationPreview';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
   getFacilityTemplates: vi.fn(),
   getSimulationSummary: vi.fn(),
+  importSystemLayout: vi.fn(),
   simulateBuild: vi.fn(),
   // Stage 6B observation helpers — the optimiser test does not exercise
   // observation flows, but it does render the panel as part of the
@@ -38,6 +40,7 @@ vi.mock('@/lib/api', () => ({
 const mockedFetchOptimiserCandidates = vi.mocked(fetchOptimiserCandidates);
 const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
+const mockedImportSystemLayout = vi.mocked(importSystemLayout);
 const mockedSimulateBuild = vi.mocked(simulateBuild);
 const mockedListObservedFacts = vi.mocked(listObservedFacts);
 const mockedCreateObservedFact = vi.mocked(createObservedFact);
@@ -118,11 +121,27 @@ const system = {
   ],
 } as unknown as SystemDetail;
 
-function renderPreview() {
+const layoutImportSuccess: LayoutImportResponse = {
+  system_id64: 123,
+  source: 'spansh',
+  status: 'success',
+  fetched_at: '2026-05-16T00:00:00Z',
+  summary: {
+    bodies_found: 4,
+    stations_found: 2,
+    bodies_upserted: 4,
+    stations_upserted: 2,
+    warnings_count: 0,
+  },
+  warnings: [],
+  errors: [],
+};
+
+function renderPreview(options: { system?: SystemDetail; initialRequest?: SimulateBuildRequest } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SimulationPreview system={system} />
+      <SimulationPreview system={options.system ?? system} initialRequest={options.initialRequest} />
     </QueryClientProvider>,
   );
 }
@@ -195,6 +214,7 @@ function mockNoRecommendedBuild() {
     regional_context: null,
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+  mockedImportSystemLayout.mockResolvedValue(layoutImportSuccess);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
   mockedCompare.mockResolvedValue(emptyCompareResponse());
   mockedReview.mockResolvedValue(emptyReviewResponse());
@@ -213,6 +233,7 @@ function mockRecommendedBuild() {
     regional_context: null,
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+  mockedImportSystemLayout.mockResolvedValue(layoutImportSuccess);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
   mockedCompare.mockResolvedValue(emptyCompareResponse());
   mockedReview.mockResolvedValue(emptyReviewResponse());
@@ -286,6 +307,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedFetchOptimiserCandidates.mockReset();
     mockedGetFacilityTemplates.mockReset();
     mockedGetSimulationSummary.mockReset();
+    mockedImportSystemLayout.mockReset();
     mockedSimulateBuild.mockReset();
     mockedListObservedFacts.mockReset();
     mockedCreateObservedFact.mockReset();
@@ -433,6 +455,78 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     expect(screen.getByRole('button', { name: /List view/i }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
+  it('manually imports system layout and shows success status without planner side effects', async () => {
+    mockNoRecommendedBuild();
+    let resolveImport: (value: LayoutImportResponse) => void = () => {};
+    mockedImportSystemLayout.mockReturnValue(new Promise((resolve) => {
+      resolveImport = resolve;
+    }));
+    renderPreview();
+
+    await screen.findByText(/0 placements in Build Plan/);
+    fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+    expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Import \/ refresh system layout/i }));
+
+    expect(mockedImportSystemLayout).toHaveBeenCalledTimes(1);
+    expect(mockedImportSystemLayout).toHaveBeenCalledWith(123, { source: 'spansh' });
+    expect(screen.getByText(/Import request is running/)).toBeTruthy();
+
+    resolveImport(layoutImportSuccess);
+
+    await waitFor(() => expect(screen.getByText('success')).toBeTruthy());
+    expect(screen.getByText('spansh')).toBeTruthy();
+    expect(screen.getByText('Bodies imported')).toBeTruthy();
+    expect(screen.getByText('Stations imported')).toBeTruthy();
+    expect(screen.getAllByText('4').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Copied suggested build:/)).toBeNull();
+  });
+
+  it('shows failed layout import status and keeps the current Build Plan untouched', async () => {
+    mockNoRecommendedBuild();
+    mockedImportSystemLayout.mockRejectedValue(new Error('network unavailable'));
+    renderPreview();
+
+    await screen.findByText(/0 placements in Build Plan/);
+    fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Import \/ refresh system layout/i }));
+
+    await screen.findByText(/Layout import failed: network unavailable/);
+    expect(screen.getByText('failed')).toBeTruthy();
+    expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
+  it('surfaces body-assignment review warnings after manual layout import without reassigning placements', async () => {
+    mockNoRecommendedBuild();
+    const initialRequest: SimulateBuildRequest = {
+      system_id64: 123,
+      target_archetype: 'refinery_industrial',
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: 'missing-body', is_primary_port: true, build_order: 1 },
+      ],
+    };
+    renderPreview({ initialRequest });
+
+    await screen.findByDisplayValue('T1 - Generic Port Alpha');
+    expect(screen.getByDisplayValue('System-wide / undecided body')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Import \/ refresh system layout/i }));
+
+    await screen.findByText(/Needs review: imported\/current body data does not match assigned placement body IDs/);
+    expect(screen.getByText(/missing-body/)).toBeTruthy();
+    expect(screen.getByDisplayValue('System-wide / undecided body')).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
   });

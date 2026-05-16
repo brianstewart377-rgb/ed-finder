@@ -15,6 +15,8 @@ import type {
   AutocompleteResponse,
   CacheStats,
   FacilityTemplate,
+  LayoutImportRequest,
+  LayoutImportResponse,
   ListObservedFactsParams,
   ObservedFact,
   ObservedFactCreateRequest,
@@ -196,6 +198,13 @@ export const api = {
     });
   },
 
+  importSystemLayout(id64: number, body: LayoutImportRequest = { source: 'spansh' }): Promise<LayoutImportResponse> {
+    return jsonFetch(`/colony-planner/system/${id64}/import-layout`, {
+      method: 'POST',
+      body:   JSON.stringify(body),
+    });
+  },
+
   optimiserCandidates(body: OptimiserCandidatesRequest): Promise<OptimiserCandidatesResponse> {
     return jsonFetch('/optimiser/candidates', {
       method: 'POST',
@@ -368,6 +377,18 @@ export function getFacilityTemplates(): Promise<FacilityTemplate[]> {
 
 export function simulateBuild(request: SimulateBuildRequest): Promise<SimulateBuildResponse> {
   return api.simulateBuild(request);
+}
+
+// ── Stage 10E.1 Layout Import helper ─────────────────────────────────
+//
+// Manual refresh only. This helper only calls the layout-import endpoint;
+// it does NOT run Simulation Preview, generate/load Suggested Builds, or
+// mutate the in-memory Build Plan.
+export function importSystemLayout(
+  id64: number,
+  request: LayoutImportRequest = { source: 'spansh' },
+): Promise<LayoutImportResponse> {
+  return api.importSystemLayout(id64, request);
 }
 
 // ── Stage 6B Observed Evidence helpers ──────────────────────────────────
