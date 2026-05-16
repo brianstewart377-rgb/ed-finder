@@ -486,3 +486,23 @@ Current Stage 9D status:
 - Docs now clarify that hauling/material planning is deferred and should not duplicate RavenColonial-style specialist tooling unless a later stage defines a distinct ED-Finder value-add.
 
 No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, hauling/material feature, auto-run, auto-generate, or auto-load behaviour changed in Stage 9D.
+
+## Stage 10A - Build Plan Structure Picker / Body Layout UX Feasibility
+
+Stage 10A is a feasibility/design stage for making manual Build Plan editing more visual and easier to understand. It reviews the dedicated Colony Planner workspace, the current Build Plan editor, available facility/body/Preview data, and the ED-Finder UI / UX Discussion Tracker based on RavenColonial screenshots.
+
+Current Stage 10A status:
+
+- The feasibility report is documented in `docs/colonisation-redesign/stage-10a-build-plan-structure-picker-body-layout-feasibility.md`.
+- The report recommends moving ED-Finder closer to RavenColonial's planning clarity: body-based build layout, compact badges, inline warnings, a future structure picker/table, and a later planner summary.
+- The product boundary remains explicit: ED-Finder is the planning/intelligence layer, while RavenColonial remains the stronger hauling/material execution layer.
+- Stage 10A does not implement UI behaviour. It does not change Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability, optimiser generation/ranking, Search Tuning, Observed Evidence, Validation/Review, persistence, auto-run, auto-generate, or auto-load behaviour.
+- Hauling/material planning, commodity requirements, carrier stock, progress tracking, and trip estimates remain deferred and should not be cloned from RavenColonial.
+
+Recommended Stage 10B:
+
+- Add a low-risk frontend-only body-grouped Build Plan visual view using existing placements, facility templates, and body data.
+- Keep the current flat `BuildPlanEditor` as the detailed editing surface.
+- Add a local List/Body view toggle with no persistence.
+- Show unassigned placements and compact badges for primary port, allowed location, tier, economy, CP, confidence, and missing-data warnings.
+- Defer the full structure picker/table and variant-aware selection to Stage 10C.
