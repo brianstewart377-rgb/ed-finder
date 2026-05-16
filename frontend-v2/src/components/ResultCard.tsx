@@ -17,7 +17,8 @@ import {
  * collapsible body.
  *
  * Stateless: parents pass action callbacks (onPin / onWatch / onCompare /
- * onOpenDetail / onShowOnMap). The card only owns the open/closed toggle.
+ * onOpenDetail / onOpenColonyPlanner / onShowOnMap). The card only owns the
+ * open/closed toggle.
  */
 export interface ResultCardProps {
   system: SystemResult;
@@ -29,11 +30,12 @@ export interface ResultCardProps {
   onWatch?:   (id64: number) => void;
   onShowOnMap?:  (id64: number) => void;
   onOpenDetail?: (id64: number, options?: { focus?: 'colony-planner' }) => void;
+  onOpenColonyPlanner?: (id64: number) => void;
 }
 
 export function ResultCard({
   system, index, isPinned = false, isCompared = false,
-  onPin, onCompare, onWatch, onShowOnMap, onOpenDetail,
+  onPin, onCompare, onWatch, onShowOnMap, onOpenDetail, onOpenColonyPlanner,
 }: ResultCardProps) {
   const [open, setOpen] = useState(false);
 
@@ -215,8 +217,16 @@ export function ResultCard({
                 <Search size={13} className="mr-1.5" /> Details
               </ActionButton>
             )}
-            {onOpenDetail && (
-              <ActionButton onClick={() => onOpenDetail(system.id64, { focus: 'colony-planner' })}>
+            {(onOpenColonyPlanner || onOpenDetail) && (
+              <ActionButton
+                onClick={() => {
+                  if (onOpenColonyPlanner) {
+                    onOpenColonyPlanner(system.id64);
+                  } else {
+                    onOpenDetail?.(system.id64, { focus: 'colony-planner' });
+                  }
+                }}
+              >
                 <Rocket size={13} className="mr-1.5" /> Evaluate in Colony Planner
               </ActionButton>
             )}

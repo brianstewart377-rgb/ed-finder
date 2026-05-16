@@ -158,6 +158,20 @@ Stage 8B hardens that path for real use. Focus-highlight timers are cleaned up o
 
 Stage 8C is the final forensic pass over the guided workflow. It keeps the older Recommended Builds bridge aligned with Colony Planner terminology, keeps blank/manual planning framed as an editable Build Plan path, and preserves the rule that Evaluate/Open/Show actions focus or navigate only. Suggested Builds generation, Build Plan copying, and Preview execution remain explicit user actions. This remains frontend UX/test/docs work only; no scoring, generation, ranking, validation, or backend mechanics changed.
 
+## Stage 9C Dedicated Colony Planner Workspace
+
+Stage 9C adds a dedicated Colony Planner workspace route while keeping the existing planner implementation reusable:
+
+- `#colony-planner/system/{id64}` renders `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`.
+- The route parser keeps `plannerSystemId` separate from System Detail modal `selectedSystemId`.
+- `ColonyPlannerWorkspace` uses `useSystemDetail(id64)` for data loading and renders `SimulationPreviewPanel` in the loaded state.
+- Finder and Advanced Search Tuning `Evaluate in Colony Planner` actions navigate to the workspace.
+- Details/Open system detail actions continue to open `SystemDetailModal`.
+- The System Detail top CTA opens the workspace when the app provides `onOpenColonyPlanner`; without that prop it still falls back to the Stage 8 embedded focus/highlight behaviour.
+- The embedded planner remains inside System Detail for compatibility.
+
+The workspace wrapper owns no Simulation Preview mechanics. It does not call `simulateBuild`, does not call `fetchOptimiserCandidates`, does not copy or load Suggested Builds, and does not change scoring, generation, ranking, Observed Evidence, or Validation behaviour. It provides only no-system/loading/error/loaded shell states, compact system context, Back to Finder, and Open full system detail actions around the existing planner panel.
+
 ## Stage 6E Validation Review Guidance
 
 Stage 6E extends the Validation section with a structured advisory layer from `POST /api/observations/review`. The panel still starts from a user-run Simulation Preview result; it does not run preview itself, generate optimiser candidates, mutate the build plan, create/update/delete observations, or change mechanics.

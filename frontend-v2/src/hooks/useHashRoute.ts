@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Hash-based router with optional `system/{id64}` sub-route.
+ * Hash-based router with optional `system/{id64}` sub-routes.
  *
  * Supported hash formats (in priority order):
  *   #finder                       → route='finder',    selectedSystemId=null
@@ -10,28 +10,43 @@ import { useEffect, useState } from 'react';
  *   #search-tuning                → route='search-tuning', selectedSystemId=null
  *   #optimizer                    → route='search-tuning', selectedSystemId=null (legacy alias)
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
+ *   #colony-planner/system/123    → route='colony-planner', plannerSystemId=123
+ *   #colony-planner               → route='colony-planner', plannerSystemId=null
  *   <empty> or unknown            → route='finder',    selectedSystemId=null
  *
- * The system sub-route is intentionally a **child** of each tab so closing
- * the modal restores the user to the same tab they were on. External links
- * (#system/N alone) default to the Finder tab as a sensible landing.
+ * Modal system sub-routes are intentionally a **child** of each tab so
+ * closing the modal restores the user to the same tab they were on. External
+ * links (#system/N alone) default to the Finder tab as a sensible landing.
+ *
+ * Colony Planner is a dedicated workspace route, not a modal child. Its
+ * `plannerSystemId` must stay separate from `selectedSystemId` so rendering
+ * the workspace does not accidentally open System Detail over it.
  *
  * The route set is still simple enough that this hand-rolled parser beats
  * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
  */
-export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin';
-const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin'];
+export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'colony-planner';
+const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'colony-planner'];
 
 export interface ParsedHash {
   route:            Route;
   selectedSystemId: number | null;
+  plannerSystemId:  number | null;
+}
+
+function parsePositiveId(value: string | undefined): number | null {
+  if (!value) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function parseHash(): ParsedHash {
   const raw   = window.location.hash.replace(/^#\/?/, '');
   const parts = raw.split('/').filter(Boolean);
 
-  if (parts.length === 0) return { route: 'finder', selectedSystemId: null };
+  if (parts.length === 0) {
+    return { route: 'finder', selectedSystemId: null, plannerSystemId: null };
+  }
 
   let route: Route = 'finder';
   let i = 0;
@@ -44,26 +59,40 @@ function parseHash(): ParsedHash {
   }
 
   let selectedSystemId: number | null = null;
-  if (parts[i] === 'system' && parts[i + 1]) {
-    const n = Number(parts[i + 1]);
-    if (Number.isFinite(n) && n > 0) selectedSystemId = n;
+  let plannerSystemId: number | null = null;
+  if (parts[i] === 'system') {
+    const id64 = parsePositiveId(parts[i + 1]);
+    if (route === 'colony-planner') {
+      plannerSystemId = id64;
+    } else {
+      selectedSystemId = id64;
+    }
   }
 
-  return { route, selectedSystemId };
+  return { route, selectedSystemId, plannerSystemId };
 }
 
 function buildHash(route: Route, selectedSystemId: number | null): string {
-  const base = `#${route}`;
+  const modalRoute = route === 'colony-planner' ? 'finder' : route;
+  const base = `#${modalRoute}`;
   return selectedSystemId != null ? `${base}/system/${selectedSystemId}` : base;
+}
+
+function buildPlannerHash(plannerSystemId: number | null): string {
+  const base = '#colony-planner';
+  return plannerSystemId != null ? `${base}/system/${plannerSystemId}` : base;
 }
 
 export interface HashRoute {
   route:            Route;
   selectedSystemId: number | null;
+  plannerSystemId:  number | null;
   /** Navigate to a tab. Preserves any open system modal. */
   navigate:    (r: Route) => void;
   /** Open the system detail modal on top of the current tab. */
   openSystem:  (id64: number) => void;
+  /** Open the dedicated Colony Planner workspace for a system. */
+  openColonyPlanner: (id64: number) => void;
   /** Close the modal — pops back to the current tab. */
   closeSystem: () => void;
 }
@@ -78,20 +107,29 @@ export function useHashRoute(): HashRoute {
   }, []);
 
   const navigate = (r: Route) => {
-    window.location.hash = buildHash(r, parsed.selectedSystemId);
+    window.location.hash = r === 'colony-planner'
+      ? buildPlannerHash(parsed.plannerSystemId)
+      : buildHash(r, parsed.selectedSystemId);
   };
 
   const openSystem = (id64: number) => {
     window.location.hash = buildHash(parsed.route, id64);
   };
 
+  const openColonyPlanner = (id64: number) => {
+    window.location.hash = buildPlannerHash(id64);
+  };
+
   const closeSystem = () => {
-    window.location.hash = buildHash(parsed.route, null);
+    window.location.hash = parsed.route === 'colony-planner'
+      ? buildPlannerHash(parsed.plannerSystemId)
+      : buildHash(parsed.route, null);
   };
 
   return {
     route:            parsed.route,
     selectedSystemId: parsed.selectedSystemId,
-    navigate, openSystem, closeSystem,
+    plannerSystemId:  parsed.plannerSystemId,
+    navigate, openSystem, openColonyPlanner, closeSystem,
   };
 }

@@ -15,6 +15,7 @@ export interface SystemDetailModalProps {
   id64:    number;
   onClose: () => void;
   focusIntent?: 'colony-planner' | null;
+  onOpenColonyPlanner?: (id64: number) => void;
   /** Renders alongside Spansh / Inara / EDSM so callers can wire up
    *  Watchlist / Pin / Compare / Show-on-map without this component knowing
    *  about those features. Receives the loaded SystemDetail or null while
@@ -32,7 +33,13 @@ export interface SystemDetailModalProps {
  * Body scroll is locked while the modal is open so the page underneath
  * doesn't scroll when you wheel the modal content.
  */
-export function SystemDetailModal({ id64, onClose, focusIntent = null, renderActions }: SystemDetailModalProps) {
+export function SystemDetailModal({
+  id64,
+  onClose,
+  focusIntent = null,
+  onOpenColonyPlanner,
+  renderActions,
+}: SystemDetailModalProps) {
   const { data, loading, error, refetch } = useSystemDetail(id64);
   const [selectedBuild, setSelectedBuild] = useState<RecommendedBuildPlan | null>(null);
   const colonyPlannerRef = useRef<HTMLDivElement | null>(null);
@@ -124,7 +131,16 @@ export function SystemDetailModal({ id64, onClose, focusIntent = null, renderAct
 
           {data && (
             <>
-              <ColonyPlannerEntryPoint onOpen={focusColonyPlanner} />
+              <ColonyPlannerEntryPoint
+                onOpen={() => {
+                  if (onOpenColonyPlanner) {
+                    onOpenColonyPlanner(id64);
+                  } else {
+                    focusColonyPlanner();
+                  }
+                }}
+                opensWorkspace={!!onOpenColonyPlanner}
+              />
               <Section title="Rating profile">
                 <RatingRadar sys={data} />
               </Section>
@@ -173,7 +189,13 @@ export function SystemDetailModal({ id64, onClose, focusIntent = null, renderAct
   );
 }
 
-function ColonyPlannerEntryPoint({ onOpen }: { onOpen: () => void }) {
+function ColonyPlannerEntryPoint({
+  onOpen,
+  opensWorkspace,
+}: {
+  onOpen: () => void;
+  opensWorkspace: boolean;
+}) {
   return (
     <section className="rounded-chunk-lg border border-orange/35 bg-orange/10 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -182,7 +204,9 @@ function ColonyPlannerEntryPoint({ onOpen }: { onOpen: () => void }) {
             Colony Planner
           </h3>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-            Build a plan for this system, start from Suggested Builds if you are unsure, then run Preview when you are ready to evaluate it.
+            {opensWorkspace
+              ? 'Open the dedicated Colony Planner workspace for this system. Start from Suggested Builds if you are unsure, then run Preview when you are ready to evaluate it.'
+              : 'Build a plan for this system, start from Suggested Builds if you are unsure, then run Preview when you are ready to evaluate it.'}
           </p>
         </div>
         <button

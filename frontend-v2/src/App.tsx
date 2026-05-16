@@ -23,6 +23,7 @@ import { useAdmin } from '@/features/admin/useAdmin';
 import { AdminTab } from '@/features/admin/AdminTab';
 import { MapTab } from '@/features/map/MapTab';
 import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
+import { ColonyPlannerWorkspace } from '@/features/colony-planner/ColonyPlannerWorkspace';
 import { EddnTicker } from '@/features/eddn/EddnTicker';
 import { useHashRoute } from '@/hooks/useHashRoute';
 import './index.css';
@@ -49,7 +50,7 @@ export default function App() {
 }
 
 function AppInner() {
-  const { route, selectedSystemId, navigate, openSystem, closeSystem } = useHashRoute();
+  const { route, selectedSystemId, plannerSystemId, navigate, openSystem, openColonyPlanner, closeSystem } = useHashRoute();
   const search    = useSearch();
   const watchlist = useWatchlist();
   const pinned    = usePinned();
@@ -64,6 +65,11 @@ function AppInner() {
   const openSystemDetail = (id64: number, options?: { focus?: 'colony-planner' }) => {
     setDetailFocus(options?.focus ?? null);
     openSystem(id64);
+  };
+
+  const openColonyPlannerWorkspace = (id64: number) => {
+    setDetailFocus(null);
+    openColonyPlanner(id64);
   };
 
   const closeSystemDetail = () => {
@@ -101,6 +107,7 @@ function AppInner() {
           compare={compare}
           onShowOnMap={() => navigate('map')}
           onOpenDetail={openSystemDetail}
+          onOpenColonyPlanner={openColonyPlannerWorkspace}
         />
       )}
 
@@ -136,6 +143,15 @@ function AppInner() {
           searchTuning={searchTuning}
           search={search}
           onOpenDetail={openSystemDetail}
+          onOpenColonyPlanner={openColonyPlannerWorkspace}
+        />
+      )}
+
+      {route === 'colony-planner' && (
+        <ColonyPlannerWorkspace
+          id64={plannerSystemId}
+          onBackToFinder={() => navigate('finder')}
+          onOpenSystemDetail={openSystemDetail}
         />
       )}
 
@@ -171,6 +187,7 @@ function AppInner() {
           id64={selectedSystemId}
           focusIntent={detailFocus}
           onClose={closeSystemDetail}
+          onOpenColonyPlanner={openColonyPlannerWorkspace}
           renderActions={(sys) => (
             <>
               <button
@@ -312,7 +329,7 @@ function toCompareSnapshot(sys: import('@/types/api').SystemDetail): import('@/t
 // ─────────────────────────────────────────────────────────────────────────
 
 function FinderView({
-  search, watchlist, pinned, compare, onShowOnMap, onOpenDetail,
+  search, watchlist, pinned, compare, onShowOnMap, onOpenDetail, onOpenColonyPlanner,
 }: {
   search:    ReturnType<typeof useSearch>;
   watchlist: ReturnType<typeof useWatchlist>;
@@ -320,6 +337,7 @@ function FinderView({
   compare:   ReturnType<typeof useCompare>;
   onShowOnMap:  () => void;
   onOpenDetail: (id64: number, options?: { focus?: 'colony-planner' }) => void;
+  onOpenColonyPlanner: (id64: number) => void;
 }) {
   const { filters, setFilters, reset, run, state, results } = search;
 
@@ -394,6 +412,7 @@ function FinderView({
                       onPin={() => pinned.toggle(toPinnedEntry(sys))}
                       onCompare={() => compare.toggle(sys)}
                       onOpenDetail={onOpenDetail}
+                      onOpenColonyPlanner={onOpenColonyPlanner}
                     />
                   </li>
                 ))}

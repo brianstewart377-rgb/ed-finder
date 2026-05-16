@@ -55,6 +55,34 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(document.activeElement).toBe(target);
   });
 
+  it('opens the dedicated Colony Planner workspace when a workspace handler is provided', () => {
+    const onOpenColonyPlanner = vi.fn();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onOpenColonyPlanner={onOpenColonyPlanner}
+      />,
+    );
+
+    expect(screen.getByText(/dedicated Colony Planner workspace/i)).toBeTruthy();
+    fireEvent.click(screen.getByTestId('open-colony-planner'));
+
+    expect(onOpenColonyPlanner).toHaveBeenCalledTimes(1);
+    expect(onOpenColonyPlanner).toHaveBeenCalledWith(123);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(screen.getByTestId('colony-planner-focus-target')).toBeTruthy();
+  });
+
   it('honours Search Tuning focus intent when the modal opens', async () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;

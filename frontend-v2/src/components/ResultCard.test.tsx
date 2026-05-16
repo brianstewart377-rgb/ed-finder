@@ -19,8 +19,9 @@ const system = {
 } as unknown as SystemResult;
 
 describe('ResultCard Colony Planner action', () => {
-  it('opens normal detail and focused Colony Planner without double-calling or collapsing the card', () => {
+  it('opens normal detail and dedicated Colony Planner without double-calling or collapsing the card', () => {
     const onOpenDetail = vi.fn();
+    const onOpenColonyPlanner = vi.fn();
     const onPin = vi.fn();
     const onCompare = vi.fn();
     const onWatch = vi.fn();
@@ -34,6 +35,7 @@ describe('ResultCard Colony Planner action', () => {
         onWatch={onWatch}
         onShowOnMap={onShowOnMap}
         onOpenDetail={onOpenDetail}
+        onOpenColonyPlanner={onOpenColonyPlanner}
       />,
     );
 
@@ -45,14 +47,33 @@ describe('ResultCard Colony Planner action', () => {
     fireEvent.click(screen.getByTestId('result-card-pin-42'));
     fireEvent.click(screen.getByTestId('result-card-compare-42'));
 
-    expect(onOpenDetail).toHaveBeenCalledTimes(2);
+    expect(onOpenDetail).toHaveBeenCalledTimes(1);
     expect(onOpenDetail.mock.calls[0]).toEqual([42]);
-    expect(onOpenDetail.mock.calls[1]).toEqual([42, { focus: 'colony-planner' }]);
+    expect(onOpenColonyPlanner).toHaveBeenCalledTimes(1);
+    expect(onOpenColonyPlanner).toHaveBeenCalledWith(42);
     expect(onWatch).toHaveBeenCalledWith(42);
     expect(onShowOnMap).toHaveBeenCalledWith(42);
     expect(onPin).toHaveBeenCalledWith(42);
     expect(onCompare).toHaveBeenCalledWith(42);
     expect(screen.getByRole('button', { name: /Evaluate in Colony Planner/i })).toBeTruthy();
+  });
+
+  it('falls back to focused detail handoff when no Colony Planner workspace callback is provided', () => {
+    const onOpenDetail = vi.fn();
+
+    render(
+      <ResultCard
+        system={system}
+        index={0}
+        onOpenDetail={onOpenDetail}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Handoff'));
+    fireEvent.click(screen.getByRole('button', { name: /Evaluate in Colony Planner/i }));
+
+    expect(onOpenDetail).toHaveBeenCalledTimes(1);
+    expect(onOpenDetail).toHaveBeenCalledWith(42, { focus: 'colony-planner' });
   });
 
   it('copies the system name without toggling the expanded card', () => {

@@ -14,6 +14,7 @@ export interface AdvancedSearchTuningTabProps {
   searchTuning:    UseSearchTuning;
   search:       ReturnType<typeof useSearch>;
   onOpenDetail?: (id64: number, options?: { focus?: 'colony-planner' }) => void;
+  onOpenColonyPlanner?: (id64: number) => void;
 }
 
 const WEIGHT_LABELS: Array<{ key: keyof UseSearchTuning['weights']; label: string; hint: string }> = [
@@ -32,7 +33,12 @@ const WEIGHT_LABELS: Array<{ key: keyof UseSearchTuning['weights']; label: strin
  * The "source" is whatever Finder last returned - no separate search here.
  * If Finder has no results, the Run button is disabled with a clear hint.
  */
-export function AdvancedSearchTuningTab({ searchTuning, search, onOpenDetail }: AdvancedSearchTuningTabProps) {
+export function AdvancedSearchTuningTab({
+  searchTuning,
+  search,
+  onOpenDetail,
+  onOpenColonyPlanner,
+}: AdvancedSearchTuningTabProps) {
   const { weights, setWeight, resetWeights, weightSum, economy, setEconomy, state, run, resetState } = searchTuning;
   const sourceCount = search.results.length;
   const sumOk = Math.abs(weightSum - 1.0) < 0.01;
@@ -172,6 +178,7 @@ export function AdvancedSearchTuningTab({ searchTuning, search, onOpenDetail }: 
               sourceById={sourceById}
               sourceSnapshot={state.sourceSnapshot}
               onOpenDetail={onOpenDetail}
+              onOpenColonyPlanner={onOpenColonyPlanner}
             />
           )}
         </section>
@@ -217,12 +224,13 @@ function WeightSlider({ label, hint, value, onChange, testid }: {
 }
 
 function ResultsList({
-  results, sourceById, sourceSnapshot, onOpenDetail,
+  results, sourceById, sourceSnapshot, onOpenDetail, onOpenColonyPlanner,
 }: {
   results:    RerankRow[];
   sourceById: Map<number, SystemResult>;
   sourceSnapshot: SearchTuningSourceSnapshot;
   onOpenDetail?: (id64: number, options?: { focus?: 'colony-planner' }) => void;
+  onOpenColonyPlanner?: (id64: number) => void;
 }) {
   if (results.length === 0) {
     return (
@@ -278,32 +286,40 @@ function ResultsList({
                 The tuned score is temporary for this run. Stored rating rationale comes from the existing rating data.
               </div>
               <TuningExplanation row={r} explanation={explanation} />
-              {onOpenDetail && (
+              {(onOpenDetail || onOpenColonyPlanner) && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    data-testid={`search-tuning-open-detail-${r.id64}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenDetail(r.id64);
-                    }}
-                    className="rounded-chunk-sm border border-orange/45 bg-orange/10 px-2 py-1 text-[10px] font-bold text-orange hover:bg-orange/20"
-                  >
-                    Open system detail
-                  </button>
+                  {onOpenDetail && (
+                    <button
+                      type="button"
+                      data-testid={`search-tuning-open-detail-${r.id64}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenDetail(r.id64);
+                      }}
+                      className="rounded-chunk-sm border border-orange/45 bg-orange/10 px-2 py-1 text-[10px] font-bold text-orange hover:bg-orange/20"
+                    >
+                      Open system detail
+                    </button>
+                  )}
                   <button
                     type="button"
                     data-testid={`search-tuning-evaluate-${r.id64}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onOpenDetail(r.id64, { focus: 'colony-planner' });
+                      if (onOpenColonyPlanner) {
+                        onOpenColonyPlanner(r.id64);
+                      } else {
+                        onOpenDetail?.(r.id64, { focus: 'colony-planner' });
+                      }
                     }}
                     className="rounded-chunk-sm border border-cyan/35 bg-cyan/10 px-2 py-1 text-[10px] font-bold text-cyan hover:bg-cyan/20"
                   >
                     Evaluate in Colony Planner
                   </button>
                   <span className="text-[10px] text-silver-dk">
-                    Opens system detail focused on Colony Planner; it does not run Preview or generate builds.
+                    {onOpenColonyPlanner
+                      ? 'Opens the dedicated Colony Planner workspace; it does not run Preview or generate builds.'
+                      : 'Opens system detail focused on Colony Planner; it does not run Preview or generate builds.'}
                   </span>
                 </div>
               )}

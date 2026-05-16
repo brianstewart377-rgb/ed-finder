@@ -359,8 +359,9 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(within(row).queryByText('Held back')).toBeNull();
   });
 
-  it('opens system detail from explicit handoff actions and row click', () => {
+  it('opens system detail from detail actions and routes Evaluate to the dedicated Colony Planner callback', () => {
     const onOpenDetail = vi.fn();
+    const onOpenColonyPlanner = vi.fn();
     const data: RerankResponse = {
       weights_applied: {
         economy: 0.3,
@@ -403,6 +404,7 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
         })}
         search={makeSearch([makeSystem(42, 'Handoff')])}
         onOpenDetail={onOpenDetail}
+        onOpenColonyPlanner={onOpenColonyPlanner}
       />,
     );
 
@@ -410,17 +412,17 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     fireEvent.click(screen.getByTestId('search-tuning-evaluate-42'));
     fireEvent.click(screen.getByTestId('search-tuning-row-42'));
 
-    expect(onOpenDetail).toHaveBeenCalledTimes(3);
+    expect(onOpenDetail).toHaveBeenCalledTimes(2);
     expect(onOpenDetail).toHaveBeenCalledWith(42);
-    expect(onOpenDetail).toHaveBeenCalledWith(42, { focus: 'colony-planner' });
     expect(onOpenDetail.mock.calls[0]).toEqual([42]);
-    expect(onOpenDetail.mock.calls[1]).toEqual([42, { focus: 'colony-planner' }]);
-    expect(onOpenDetail.mock.calls[2]).toEqual([42]);
-    expect(screen.getByText(/focused on Colony Planner/i)).toBeTruthy();
+    expect(onOpenDetail.mock.calls[1]).toEqual([42]);
+    expect(onOpenColonyPlanner).toHaveBeenCalledTimes(1);
+    expect(onOpenColonyPlanner).toHaveBeenCalledWith(42);
+    expect(screen.getByText(/dedicated Colony Planner workspace/i)).toBeTruthy();
     expect(screen.getByText(/does not run Preview or generate builds/i)).toBeTruthy();
   });
 
-  it('does not double-call detail open when Evaluate in Colony Planner is clicked', () => {
+  it('falls back to focused detail handoff when no workspace callback is provided', () => {
     const onOpenDetail = vi.fn();
     const data: RerankResponse = {
       weights_applied: {

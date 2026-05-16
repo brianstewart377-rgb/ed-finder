@@ -4,9 +4,11 @@
 
 Stage 9B recommends making Colony Planner a dedicated focused workspace in Stage 9C, without removing the embedded planner from System Detail during the first implementation.
 
-The recommended route is `#colony-planner/system/{id64}`. It is explicit, bookmarkable, and avoids overloading the existing `#colony` route, which now means Colony Tracker. Finder result cards and Advanced Search Tuning should eventually send `Evaluate in Colony Planner` directly to this workspace. Normal `Details` actions should continue to open System Detail.
+The recommended route is `#colony-planner/system/{id64}`. It is explicit, bookmarkable, and avoids overloading the existing `#colony` route, which now means Colony Tracker. As of Stage 9C, Finder result cards and Advanced Search Tuning send `Evaluate in Colony Planner` directly to this workspace. Normal `Details` actions continue to open System Detail.
 
 Stage 9B does not implement the workspace. It maps the current structure and defines the safest implementation plan for Stage 9C.
+
+Stage 9C implementation note: the recommended route has now been implemented as `#colony-planner/system/{id64}`. The workspace uses separate `plannerSystemId` route state, reuses `useSystemDetail(id64)` plus `SimulationPreviewPanel`, moves Finder/Search Tuning/System Detail Evaluate handoffs to the workspace, and keeps the embedded System Detail planner for compatibility. No backend mechanics, scoring, generation, auto-run, auto-generate, or auto-load behaviour changed.
 
 ## Current Structure
 
@@ -19,9 +21,9 @@ Stage 9B does not implement the workspace. It maps the current structure and def
 | System data loading | System Detail uses `useSystemDetail(id64)`, a TanStack Query wrapper around `api.system(id64)`. Query keys are system-id scoped and already suitable for reuse by a workspace. | `frontend-v2/src/features/system-detail/useSystemDetail.ts` |
 | Embedded Colony Planner | System Detail renders a `Colony Planning` section containing buildability, regional context, recommended builds, the focused `SimulationPreviewPanel`, and slots. The planner focus target has `tabIndex={-1}` and highlight/focus timer cleanup. | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`, `frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx` |
 | Planner internals | `SimulationPreview` owns the guided planner composition: header, section nav, Build Plan, Suggested Builds, Preview Result, Observed Evidence, and Validation. Preview, generation, and copy-to-plan actions remain explicit. | `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx` |
-| Finder handoff | Expanded result cards show `Details` and `Evaluate in Colony Planner`. Details opens System Detail normally. Evaluate opens System Detail with `{ focus: 'colony-planner' }`. | `frontend-v2/src/components/ResultCard.tsx` |
-| Search Tuning handoff | Row/open-detail actions open System Detail normally. `Evaluate in Colony Planner` opens System Detail with planner focus intent and states that it does not run Preview or generate builds. | `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx` |
-| Current focus intent | `App` stores `detailFocus`, clears it on close, and passes `focusIntent="colony-planner"` into `SystemDetailModal`. The modal scrolls/focuses/highlights the embedded planner after data loads. | `frontend-v2/src/App.tsx`, `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` |
+| Finder handoff | Expanded result cards show `Details` and `Evaluate in Colony Planner`. Details opens System Detail normally. As of Stage 9C, Evaluate routes to `#colony-planner/system/{id64}` when the app provides `onOpenColonyPlanner`, with the old focus-intent handoff retained as a component fallback. | `frontend-v2/src/components/ResultCard.tsx` |
+| Search Tuning handoff | Row/open-detail actions open System Detail normally. As of Stage 9C, `Evaluate in Colony Planner` routes to the dedicated workspace when the app provides `onOpenColonyPlanner`; the old focused-detail handoff remains a fallback. | `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx` |
+| Current focus intent | `App` still clears/passes `detailFocus` for compatibility. `SystemDetailModal` scrolls/focuses/highlights the embedded planner when no workspace handler is provided; the app-provided Stage 9C handler routes the top CTA to the dedicated workspace. | `frontend-v2/src/App.tsx`, `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` |
 
 The current architecture is intentionally modal-centric: any parsed `selectedSystemId` means "render System Detail modal". A dedicated workspace should not reuse that same field for planner pages, or the app will risk rendering the modal over the new workspace.
 
@@ -226,3 +228,5 @@ Explicitly not now:
 Implement a dedicated Colony Planner workspace in Stage 9C using `#colony-planner/system/{id64}`. Make it a full-page app-shell workspace that reuses the existing system-detail query and planner components. Move primary Evaluate/Open Colony Planner handoffs to the workspace, keep Details actions on System Detail, and keep the embedded planner until the new route has proven stable.
 
 This gives Colony Planner the focused surface it now deserves without changing mechanics, scoring, generation, validation, or the working modal inspection path.
+
+Stage 9C followed this recommendation. Deferred work remains: replacing the embedded planner with a summary/CTA, adding a top-level planner chooser or recent-plans concept, source-aware back labels, saved builds, material/hauling planning, and richer workspace side-rail context.

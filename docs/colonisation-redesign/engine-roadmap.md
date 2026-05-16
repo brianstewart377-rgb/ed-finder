@@ -452,3 +452,23 @@ Current Stage 9B status:
 Deferred beyond Stage 9B: the actual workspace implementation, embedded-planner removal, source-aware back labels, a static top-level planner tab, saved builds, material/hauling estimates, EDMC/journal ingestion, account persistence, automatic learning, and broader app navigation redesign.
 
 No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, auto-run, auto-generate, route behaviour, or route-framework migration changed in Stage 9B.
+
+## Stage 9C - Dedicated Colony Planner Workspace
+
+Stage 9C implements the Stage 9B recommendation as a focused frontend routing/workspace pass. Colony Planner now has a dedicated full-page app-shell workspace at `#colony-planner/system/{id64}` while the embedded planner remains inside System Detail for compatibility.
+
+Current Stage 9C status:
+
+- `useHashRoute` now separates modal `selectedSystemId` from dedicated workspace `plannerSystemId`.
+- `#colony-planner/system/{id64}` renders the dedicated Colony Planner workspace and does not accidentally open `SystemDetailModal`.
+- `#colony-planner` and invalid planner IDs render a safe no-system workspace state instead of crashing.
+- `ColonyPlannerWorkspace` reuses `useSystemDetail(id64)` and `SimulationPreviewPanel`; planner logic is not duplicated.
+- Finder result cards and Advanced Search Tuning `Evaluate in Colony Planner` route directly to the workspace.
+- Details / Open system detail actions still open System Detail modal routes.
+- System Detail `Open Colony Planner` now opens the dedicated workspace when the app provides the workspace handler; the component keeps its embedded-focus fallback for isolated compatibility.
+- No static top-level `Colony Planner` nav tab was added because the workspace is system-specific.
+- Tests cover route parsing, workspace states, handoffs, modal/workspace separation, Search Tuning fallback behaviour, ResultCard fallback behaviour, and System Detail CTA fallback behaviour.
+
+Deferred beyond Stage 9C: removing or replacing the embedded planner, top-level planner chooser/recent plans, source-aware back labels, saved builds, material/hauling estimates, workspace side rails, EDMC/journal ingestion, account persistence, automatic learning, and broader navigation redesign.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, auto-run, auto-generate, or auto-load behaviour changed in Stage 9C.
