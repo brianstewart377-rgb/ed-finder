@@ -154,3 +154,15 @@ Stage 10C adds/updates tests for:
 ## Next Recommended Stage
 
 Stage 10D should either add a richer selected-body/selected-placement details panel or begin the structure picker/table work if the catalogue data is ready. Spansh import should remain a separate backend-supported stage because it has data ownership, caching, and overwrite-safety implications.
+
+## Stage 10D Follow-Up
+
+Stage 10D follows the selected-detail path. Layout view now supports local, read-only selection of body groups and placement cards:
+
+- Selecting a body highlights that body group and opens a detail panel with body tags, placement count, primary-port-on-body state, CP generated/needed from visible templates, body-level warnings, and a compact placement list.
+- Selecting a placement highlights that placement card and opens a detail panel with facility/template name, build order, assigned/unassigned/unknown body state, primary-port flag, allowed location, tier, pad, economy, role/category, CP generated/needed, confidence, placement warnings, and the guidance to use List view for editing.
+- The default summary state invites users to select a body or placement and repeats plan-level counts, primary-port status, warning count, Preview status, and next safe action.
+
+Stage 10D remains frontend UX/layout work only. Selection does not mutate the Build Plan, does not run Preview, does not generate or load Suggested Builds, does not fetch new layout data, and does not change backend scoring, CP formulas, economy/service/buildability mechanics, optimiser generation/ranking, Search Tuning, Observed Evidence, Validation/Review, persistence, or hauling/material workflows.
+
+The structure picker/table, variant comparison, add/replace workflow, facility selection from Layout view, Spansh refresh workflow, saved builds, external ingestion, and material/commodity/carrier/trip planning remain deferred.

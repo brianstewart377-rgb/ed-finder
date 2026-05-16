@@ -23,8 +23,9 @@ Stage 10B implementation note:
 - The List/Body toggle is local UI state only and is not persisted.
 - No backend mechanics, scoring, optimiser generation/ranking, validation/review behaviour, Search Tuning behaviour, persistence, auto-run, auto-generate, auto-load, or hauling/material tracking changed.
 - Stage 10C evolved the body readout into Layout view with a compact plan summary, body-level layout cards, primary-port status, warning chips, and visible CP generated/needed totals.
+- Stage 10D made Layout view locally interactive with read-only selected-body and selected-placement details. Users can inspect a body or placement, see warnings and next-action guidance, and then use List view for any edits.
 - Spansh import was investigated in Stage 10C and remains a backend-supported/manual-refresh follow-up, not a frontend direct import or silent overwrite workflow.
-- The full structure picker/table remains deferred beyond Stage 10C.
+- The full structure picker/table remains deferred beyond Stage 10D.
 
 ## Reference Materials
 

@@ -418,9 +418,14 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getByRole('button', { name: /Layout view/i }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText(/Use List view for detailed editing/)).toBeTruthy();
     expect(screen.getByRole('region', { name: /Layout plan summary/i })).toBeTruthy();
-    expect(screen.getByRole('region', { name: /Body group Test Body/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Body group Test Body/i })).toBeTruthy();
     expect(screen.getByText('Generic Port Alpha')).toBeTruthy();
-    expect(screen.getByText('Primary port')).toBeTruthy();
+    expect(screen.getAllByText('Primary port').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: /Body group Test Body/i }));
+    expect(screen.getByRole('button', { name: /Body group Test Body/i }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: /Placement 1: Generic Port Alpha/i }));
+    expect(screen.getByRole('button', { name: /Placement 1: Generic Port Alpha/i }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(/Use List view to edit this placement/)).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
 

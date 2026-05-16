@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
 import {
@@ -123,7 +123,7 @@ describe('BuildPlanBodyView', () => {
     expect(within(summary).getByText('Primary port set')).toBeTruthy();
     expect(within(summary).getByText('Preview: not run')).toBeTruthy();
 
-    const firstBody = screen.getByRole('region', { name: 'Body group A 1' });
+    const firstBody = screen.getByRole('button', { name: 'Body group A 1' });
     expect(within(firstBody).getByText('Dodec Starport')).toBeTruthy();
     expect(within(firstBody).getByText('Primary port')).toBeTruthy();
     expect(within(firstBody).getByText('Primary port body')).toBeTruthy();
@@ -135,14 +135,14 @@ describe('BuildPlanBodyView', () => {
     expect(within(firstBody).getByText('Landable')).toBeTruthy();
     expect(within(firstBody).getByText('Terraformable')).toBeTruthy();
 
-    const secondBody = screen.getByRole('region', { name: 'Body group A 2' });
+    const secondBody = screen.getByRole('button', { name: 'Body group A 2' });
     expect(within(secondBody).getByText('Extraction Hub')).toBeTruthy();
     expect(within(secondBody).getByText('surface')).toBeTruthy();
     expect(within(secondBody).getByText('Confidence: estimated')).toBeTruthy();
     expect(within(secondBody).getByText('Needs review: template uses estimated data')).toBeTruthy();
     expect(within(secondBody).getAllByText('May be invalid: surface facility on water world').length).toBeGreaterThan(0);
 
-    const unassigned = screen.getByRole('region', { name: 'Unassigned / needs body' });
+    const unassigned = screen.getByRole('button', { name: 'Unassigned / needs body' });
     expect(within(unassigned).getAllByText('Unassigned / needs body').length).toBeGreaterThan(0);
     expect(within(unassigned).getByText('missing_template')).toBeTruthy();
     expect(within(unassigned).getByText('Needs review: facility template missing')).toBeTruthy();
@@ -174,7 +174,7 @@ describe('BuildPlanBodyView', () => {
     expect(screen.getByText((content) => content.includes('Unknown body 404'))).toBeTruthy();
     expect(screen.getByText('Check placement: body ID does not match known body')).toBeTruthy();
     expect(screen.getAllByText('May be invalid: surface facility on non-landable body').length).toBeGreaterThan(0);
-    expect(screen.getByRole('region', { name: 'Body group Body 9' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Body group Body 9' })).toBeTruthy();
     expect(screen.getAllByText('Data incomplete: body metadata is sparse').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Data incomplete: orbital suitability unclear').length).toBeGreaterThan(0);
   });
@@ -191,6 +191,119 @@ describe('BuildPlanBodyView', () => {
     expect(groups[0].key).toBe('unassigned');
     expect(bodyDisplayName(sparseBody)).toBe('Body 9');
     expect(bodyTags({} as SystemBody)).toEqual(['Unknown body data']);
+  });
+
+  it('shows a default summary detail panel with counts, preview status, and next action', () => {
+    renderLayout();
+
+    const panel = screen.getByTestId('layout-detail-panel');
+    expect(within(panel).getByText('Select a body or placement')).toBeTruthy();
+    expect(within(panel).getByText(/Pick a body group or placement card/)).toBeTruthy();
+    expect(within(panel).getByText('Total placements')).toBeTruthy();
+    expect(within(panel).getByText('3')).toBeTruthy();
+    expect(within(panel).getByText('Primary port')).toBeTruthy();
+    expect(within(panel).getByText('Primary port set')).toBeTruthy();
+    expect(within(panel).getByText('Preview')).toBeTruthy();
+    expect(within(panel).getByText('not run')).toBeTruthy();
+    expect(within(panel).getByText('Assign bodies in List view before relying on Preview.')).toBeTruthy();
+  });
+
+  it('selects a body group and shows body details, tags, warnings, and placement list', () => {
+    renderLayout();
+
+    const body = screen.getByRole('button', { name: 'Body group A 2' });
+    fireEvent.click(body);
+
+    expect(body.getAttribute('aria-pressed')).toBe('true');
+    const panel = screen.getByTestId('layout-detail-panel');
+    expect(within(panel).getAllByText('A 2').length).toBeGreaterThan(0);
+    expect(within(panel).getByText('Water world')).toBeTruthy();
+    expect(within(panel).getByText('Placements')).toBeTruthy();
+    expect(within(panel).getByText('1')).toBeTruthy();
+    expect(within(panel).getByText('Primary port here')).toBeTruthy();
+    expect(within(panel).getByText('No')).toBeTruthy();
+    expect(within(panel).getByText((content) => content.includes('#2') && content.includes('Extraction Hub'))).toBeTruthy();
+    expect(within(panel).getByText('May be invalid: surface facility on water world')).toBeTruthy();
+  });
+
+  it('selects a placement and shows read-only placement details', () => {
+    renderLayout();
+
+    const placement = screen.getByRole('button', { name: 'Placement 1: Dodec Starport' });
+    fireEvent.click(placement);
+
+    expect(placement.getAttribute('aria-pressed')).toBe('true');
+    const panel = screen.getByTestId('layout-detail-panel');
+    expect(within(panel).getAllByText('Dodec Starport').length).toBeGreaterThan(0);
+    expect(within(panel).getByText('Build order')).toBeTruthy();
+    expect(within(panel).getByText('A 1')).toBeTruthy();
+    expect(within(panel).getByText('planned')).toBeTruthy();
+    expect(within(panel).getByText('Yes')).toBeTruthy();
+    expect(within(panel).getByText('orbital')).toBeTruthy();
+    expect(within(panel).getByText('Industrial')).toBeTruthy();
+    expect(within(panel).getByText('port')).toBeTruthy();
+    expect(within(panel).getByText('Y+0/20 G+0/40')).toBeTruthy();
+    expect(within(panel).getByText('observed')).toBeTruthy();
+    expect(within(panel).getByText('Use List view to edit this placement.')).toBeTruthy();
+  });
+
+  it('handles missing templates, unassigned placements, and summary reset safely', () => {
+    renderLayout();
+
+    const placement = screen.getByRole('button', { name: 'Placement 3: missing_template' });
+    fireEvent.click(placement);
+
+    const panel = screen.getByTestId('layout-detail-panel');
+    expect(within(panel).getAllByText('missing_template').length).toBeGreaterThan(0);
+    expect(within(panel).getByText('Unassigned')).toBeTruthy();
+    expect(within(panel).getByText('missing template')).toBeTruthy();
+    expect(within(panel).getAllByText('Unknown').length).toBeGreaterThan(0);
+    expect(within(panel).getByText('Needs review: facility template missing')).toBeTruthy();
+    expect(within(panel).getByText('Needs review: placement has no body')).toBeTruthy();
+    expect(within(panel).getByText('Assign bodies in List view before relying on Preview.')).toBeTruthy();
+
+    fireEvent.click(within(panel).getByRole('button', { name: /Summary/i }));
+    expect(within(panel).getByText('Select a body or placement')).toBeTruthy();
+  });
+
+  it('shows unknown body placement fallback and stale preview guidance', () => {
+    renderLayout({
+      placements: [
+        { facility_template_id: 'surface_hab', local_body_id: '404', build_order: 1 },
+        { facility_template_id: 'dodec_starport', local_body_id: '1', is_primary_port: true, build_order: 2 },
+      ],
+      previewResult: {} as SimulateBuildResponse,
+      isPreviewResultStale: true,
+    });
+
+    const placement = screen.getByRole('button', { name: 'Placement 1: Surface Hab' });
+    fireEvent.click(placement);
+
+    const panel = screen.getByTestId('layout-detail-panel');
+    expect(within(panel).getByText('Unknown body 404')).toBeTruthy();
+    expect(within(panel).getByText('Check placement: body ID does not match known body')).toBeTruthy();
+    expect(within(panel).getByText('Build Plan changed. Run Preview again before relying on this result.')).toBeTruthy();
+  });
+
+  it('supports keyboard selection for body and placement cards', () => {
+    renderLayout();
+
+    const body = screen.getByRole('button', { name: 'Body group A 1' });
+    fireEvent.keyDown(body, { key: 'Enter' });
+    expect(body.getAttribute('aria-pressed')).toBe('true');
+
+    const placement = screen.getByRole('button', { name: 'Placement 2: Extraction Hub' });
+    fireEvent.keyDown(placement, { key: ' ' });
+    expect(placement.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('layout-body-group-2').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('handles zero placements in the detail panel without crashing', () => {
+    renderLayout({ placements: [] });
+
+    const panel = screen.getByTestId('layout-detail-panel');
+    expect(within(panel).getByText('Select a body or placement')).toBeTruthy();
+    expect(within(panel).getByText('Copy a Suggested Build or add facilities in List view.')).toBeTruthy();
   });
 });
 

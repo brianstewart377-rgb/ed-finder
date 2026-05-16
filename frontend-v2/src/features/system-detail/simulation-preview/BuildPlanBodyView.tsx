@@ -1,3 +1,4 @@
+import { useState, type KeyboardEvent } from 'react';
 import { AlertTriangle, CircleDotDashed, LayoutPanelTop } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
 import {
@@ -13,6 +14,7 @@ import {
   type GroupedPlacement,
   type PlanSummary,
 } from './buildPlanLayoutUtils';
+import { BuildPlanLayoutDetailPanel, type LayoutSelection } from './BuildPlanLayoutDetailPanel';
 import { Chip } from './components';
 import { formatLocation } from './utils/formatters';
 
@@ -37,6 +39,7 @@ export function BuildPlanBodyView({
   isPreviewResultStale,
   runningPreview,
 }: BuildPlanBodyViewProps) {
+  const [selection, setSelection] = useState<LayoutSelection>({ kind: 'summary' });
   const groups = groupPlacementsByBody(placements, templates, bodies);
   const summary = getPlanSummary({
     systemName,
@@ -49,6 +52,11 @@ export function BuildPlanBodyView({
     runningPreview,
     groups,
   });
+  const selectSummary = () => setSelection({ kind: 'summary' });
+  const selectBody = (groupKey: string) => setSelection({ kind: 'body', groupKey });
+  const selectPlacement = (groupKey: string, placementIndex: number) => {
+    setSelection({ kind: 'placement', groupKey, placementIndex });
+  };
 
   return (
     <div className="space-y-3">
@@ -76,9 +84,27 @@ export function BuildPlanBodyView({
         </div>
       )}
 
-      {groups.map((group) => (
-        <BodyGroupCard key={group.key} group={group} placements={placements} />
-      ))}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="space-y-3">
+          {groups.map((group) => (
+            <BodyGroupCard
+              key={group.key}
+              group={group}
+              placements={placements}
+              selected={selection.kind === 'body' && selection.groupKey === group.key}
+              selectedPlacementIndex={selection.kind === 'placement' && selection.groupKey === group.key ? selection.placementIndex : null}
+              onSelectBody={() => selectBody(group.key)}
+              onSelectPlacement={(placementIndex) => selectPlacement(group.key, placementIndex)}
+            />
+          ))}
+        </div>
+        <BuildPlanLayoutDetailPanel
+          summary={summary}
+          groups={groups}
+          selection={selection}
+          onSelectSummary={selectSummary}
+        />
+      </div>
     </div>
   );
 }
@@ -136,17 +162,44 @@ function SummaryMetric({ label, value, warn }: { label: string; value: string; w
   );
 }
 
-function BodyGroupCard({ group, placements }: { group: BodyGroup; placements: SimulateBuildPlacement[] }) {
+function BodyGroupCard({
+  group,
+  placements,
+  selected,
+  selectedPlacementIndex,
+  onSelectBody,
+  onSelectPlacement,
+}: {
+  group: BodyGroup;
+  placements: SimulateBuildPlacement[];
+  selected: boolean;
+  selectedPlacementIndex: number | null;
+  onSelectBody: () => void;
+  onSelectPlacement: (placementIndex: number) => void;
+}) {
   const bodyWarnings = getBodyGroupWarnings(group);
   const summary = getBodyGroupSummary(group);
   const isUnassigned = group.body === null;
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onSelectBody();
+    }
+  };
 
   return (
     <section
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
       aria-label={group.body ? `Body group ${bodyDisplayName(group.body)}` : 'Unassigned / needs body'}
+      data-testid={`layout-body-group-${group.key}`}
+      onClick={onSelectBody}
+      onKeyDown={handleKeyDown}
       className={[
-        'rounded-chunk-lg border p-3',
+        'rounded-chunk-lg border p-3 text-left transition-[border-color,background-color,box-shadow]',
         isUnassigned ? 'border-gold/45 bg-gold/5' : 'border-border/70 bg-bg2/65',
+        selected ? 'border-cyan/80 bg-cyan/10 shadow-brand-glow' : 'hover:border-cyan/45',
       ].join(' ')}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -185,6 +238,8 @@ function BodyGroupCard({ group, placements }: { group: BodyGroup; placements: Si
             item={placement}
             body={group.body}
             totalPlacements={placements.length}
+            selected={selectedPlacementIndex === placement.index}
+            onSelect={() => onSelectPlacement(placement.index)}
           />
         ))}
       </div>
@@ -196,18 +251,44 @@ function PlacementCard({
   item,
   body,
   totalPlacements,
+  selected,
+  onSelect,
 }: {
   item: GroupedPlacement;
   body: SystemBody | null;
   totalPlacements: number;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   const { placement, template, index } = item;
   const warnings = getPlacementWarnings(item, body);
   const status = getPlacementStatus(item, body);
   const confidence = template?.confidence ?? 'missing';
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      onSelect();
+    }
+  };
 
   return (
-    <article className="rounded border border-border/65 bg-bg3/45 p-3">
+    <article
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`Placement ${placement.build_order || index + 1}: ${template?.name ?? placement.facility_template_id ?? 'Unknown facility'}`}
+      data-testid={`layout-placement-${index}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+      onKeyDown={handleKeyDown}
+      className={[
+        'rounded border p-3 text-left transition-[border-color,background-color,box-shadow]',
+        selected ? 'border-orange/80 bg-orange/10 shadow-brand-glow' : 'border-border/65 bg-bg3/45 hover:border-orange/50',
+      ].join(' ')}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

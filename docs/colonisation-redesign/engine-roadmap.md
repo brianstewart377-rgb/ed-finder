@@ -558,3 +558,27 @@ Deferred beyond Stage 10C:
 - Spansh refresh endpoint, cache workflow, and import review UI.
 - Saved builds and external ingestion.
 - Material, commodity, carrier, hauling, and trip planning.
+
+## Stage 10D - Layout View Selected Body / Placement Detail Panel
+
+Stage 10D makes Layout view locally interactive while keeping it read-only and safe. Users can select a body group or placement card and inspect what the selection means without changing the Build Plan.
+
+Current Stage 10D status:
+
+- `BuildPlanBodyView` owns local selection state for summary, selected body, and selected placement.
+- Body groups and placement cards expose visible selected styling and `aria-pressed` state, and support keyboard activation.
+- `BuildPlanLayoutDetailPanel` renders the default summary state, selected-body detail state, and selected-placement detail state.
+- The detail panel shows only existing frontend data: plan counts, primary-port status, Preview status, warning count, body tags, placement count, body/placement warnings, facility/template fields, CP generated/needed, confidence, body assignment state, and conservative next-action guidance.
+- Detail copy points users back to List view for edits. Layout view still has no add, replace, picker, move, remove, body assignment, or facility selection workflow.
+- Tests cover selection, detail panel states, missing template fallback, unassigned/unknown body fallback, stale Preview guidance, selected state, keyboard selection, and no Preview/Suggested Builds side effects.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, hauling/material feature, auto-run, auto-generate, or auto-load behaviour changed in Stage 10D.
+
+Deferred beyond Stage 10D:
+
+- Structure picker/table and variant comparison.
+- Facility selection, add, or replace workflows from Layout view.
+- Actual orbital/body map rendering.
+- Spansh refresh endpoint, cache workflow, and import review UI.
+- Saved builds, account/profile persistence, EDMC/journal ingestion, and automatic learning.
+- Material, commodity, carrier, hauling, and trip planning.
