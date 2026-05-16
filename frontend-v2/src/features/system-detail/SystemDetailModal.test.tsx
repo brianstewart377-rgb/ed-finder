@@ -71,6 +71,28 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(document.activeElement).toBe(screen.getByTestId('colony-planner-focus-target'));
   });
 
+  it('cleans up planner highlight timers across repeated focus and unmount', () => {
+    const scrollIntoView = vi.fn();
+    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
+    Element.prototype.scrollIntoView = scrollIntoView;
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    const { unmount } = render(<SystemDetailModal id64={123} onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByTestId('open-colony-planner'));
+    fireEvent.click(screen.getByTestId('open-colony-planner'));
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+
+    unmount();
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
   it('keeps normal modal close behaviours working with the planner focus target present', () => {
     const onClose = vi.fn();
     mockedUseSystemDetail.mockReturnValue({

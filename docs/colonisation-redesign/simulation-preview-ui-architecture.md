@@ -142,6 +142,20 @@ The Stage 6D panel is intentionally **passive**. It calls only `comparePredictio
 
 Stage 6E will introduce the confidence/mechanics review loop on top of this display; Stage 6D itself is a display layer only. Tests under `validation/ValidationPanel.test.tsx` and the updated `SimulationPreview.optimiser.test.tsx` cover advisory copy, no-preview empty state, compare API call shape, summary rendering, per-status labels, evidence detail rendering, status filtering, loading state, error/retry, stale warning, refresh, in-page ordering after Observed Evidence, and passivity (no `simulateBuild`, no `fetchOptimiserCandidates`, no observation mutations during rendering).
 
+## Stage 8A/8B Colony Planner UX Hardening
+
+Stage 8A reframed the embedded Simulation Preview surface as the user-facing **Colony Planner** path:
+
+- System detail exposes an `Open Colony Planner` CTA near the top of the modal.
+- Finder result cards and Advanced Search Tuning can open system detail focused on Colony Planner.
+- The generated-plan panel is labelled **Suggested Builds** in user-facing UI while backend/API/type names keep optimiser/candidate vocabulary.
+- The first-run `Show Suggested Builds` card focuses the Suggested Builds panel; users still explicitly click `Generate Suggested Builds`.
+- Build Plan status shows placement count, Preview not-run/stale/running/current-match state, and next-step copy.
+- Preview Result starts with cautious verdict guidance before detailed mechanics panels.
+- Observed Evidence and Validation remain later-step panels after planning and in-game checking.
+
+Stage 8B hardens that path for real use. Focus-highlight timers are cleaned up on repeated clicks and unmount. Result-card action tests cover propagation and double-call risks. Suggested Builds focus tests cover the no-auto-generation boundary. Preview guidance uses estimate/comparison wording and avoids optimality or truth claims. This remains frontend UX/test/docs work only; no scoring, generation, ranking, validation, or backend mechanics changed.
+
 ## Stage 6E Validation Review Guidance
 
 Stage 6E extends the Validation section with a structured advisory layer from `POST /api/observations/review`. The panel still starts from a user-run Simulation Preview result; it does not run preview itself, generate optimiser candidates, mutate the build plan, create/update/delete observations, or change mechanics.

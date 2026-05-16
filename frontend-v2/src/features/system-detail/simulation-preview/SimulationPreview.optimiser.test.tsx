@@ -363,18 +363,24 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
   it('focuses Suggested Builds from the start card without generating or loading anything', async () => {
     const scrollIntoView = vi.fn();
+    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
     Element.prototype.scrollIntoView = scrollIntoView;
     mockNoRecommendedBuild();
-    renderPreview();
+    const { unmount } = renderPreview();
 
     const target = await screen.findByTestId('suggested-builds-focus-target');
     fireEvent.click(screen.getByRole('button', { name: /Show Suggested Builds/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Show Suggested Builds/i }));
 
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
     expect(document.activeElement).toBe(target);
+    expect(clearTimeoutSpy).toHaveBeenCalled();
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(screen.queryByText(/Copied suggested build:/)).toBeNull();
+    unmount();
+    expect(clearTimeoutSpy).toHaveBeenCalled();
   });
 
   it('shows Build Plan placement count and helper copy for manual planning', async () => {
@@ -391,6 +397,9 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getByText(/Yellow CP supports Tier 2 construction/)).toBeTruthy();
     expect(screen.getByText(/Green CP supports Tier 3 construction/)).toBeTruthy();
     expect(screen.getByText(/Build order can affect CP timing and port escalation/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+    expect(screen.getByText(/2 placements in Build Plan/)).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
   });
 
   it('marks an optimiser-origin plan as edited after manual add', async () => {

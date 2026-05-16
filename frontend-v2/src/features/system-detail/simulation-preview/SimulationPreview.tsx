@@ -60,6 +60,7 @@ export function SimulationPreview({
   );
   const hasRecommendedBuild = recommendedPlacements.length > 0;
   const suggestedBuildsRef = useRef<HTMLDivElement | null>(null);
+  const suggestedBuildsHighlightTimeoutRef = useRef<number | null>(null);
   const [highlightSuggestedBuilds, setHighlightSuggestedBuilds] = useState(false);
 
   const plan = useSimulationPreviewPlan({
@@ -81,13 +82,26 @@ export function SimulationPreview({
     runState.clearPreviewState();
   }, [plan.planReplacementVersion, runState.clearPreviewState]);
 
+  useEffect(() => () => {
+    if (suggestedBuildsHighlightTimeoutRef.current !== null) {
+      window.clearTimeout(suggestedBuildsHighlightTimeoutRef.current);
+      suggestedBuildsHighlightTimeoutRef.current = null;
+    }
+  }, []);
+
   const focusSuggestedBuilds = () => {
     const node = suggestedBuildsRef.current;
     if (!node) return;
     node.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
     node.focus({ preventScroll: true });
     setHighlightSuggestedBuilds(true);
-    window.setTimeout(() => setHighlightSuggestedBuilds(false), 1800);
+    if (suggestedBuildsHighlightTimeoutRef.current !== null) {
+      window.clearTimeout(suggestedBuildsHighlightTimeoutRef.current);
+    }
+    suggestedBuildsHighlightTimeoutRef.current = window.setTimeout(() => {
+      setHighlightSuggestedBuilds(false);
+      suggestedBuildsHighlightTimeoutRef.current = null;
+    }, 1800);
   };
 
   return (
@@ -144,17 +158,17 @@ export function SimulationPreview({
             highlightSuggestedBuilds ? 'ring-2 ring-cyan/70 shadow-brand-glow' : '',
           ].join(' ')}
         >
-        <section aria-label="Suggested Builds">
-          <OptimiserCandidatePanel
-            systemId64={system.id64}
-            targetArchetype={plan.targetArchetype}
-            hasExistingPreviewPlan={plan.placements.length > 0}
-            onLoadCandidate={plan.loadOptimiserCandidateIntoPreview}
-            currentPreviewPlacements={plan.placements}
-            currentTargetArchetype={plan.targetArchetype}
-            currentPreviewLabel="Current editable Build Plan"
-          />
-        </section>
+          <section aria-label="Suggested Builds">
+            <OptimiserCandidatePanel
+              systemId64={system.id64}
+              targetArchetype={plan.targetArchetype}
+              hasExistingPreviewPlan={plan.placements.length > 0}
+              onLoadCandidate={plan.loadOptimiserCandidateIntoPreview}
+              currentPreviewPlacements={plan.placements}
+              currentTargetArchetype={plan.targetArchetype}
+              currentPreviewLabel="Current editable Build Plan"
+            />
+          </section>
         </div>
 
         <PreviewResultSection

@@ -52,7 +52,7 @@ export function buildPreviewResultGuidance(
       items: [
         `This plan needs review: ${reasons.join(' ')}`,
         'Adjust the Build Plan or generate Suggested Builds, then run Preview again.',
-        'After checking in-game, record Observed Evidence and use Validation if you want to compare prediction with reality.',
+        'After checking in-game, record Observed Evidence and use Validation if you want to compare prediction with what you saw.',
       ],
     };
   }
