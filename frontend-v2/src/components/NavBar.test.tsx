@@ -7,5 +7,7 @@ describe('NavBar', () => {
     render(<NavBar current="search-tuning" onNavigate={vi.fn()} />);
 
     expect(screen.getByTestId('nav-search-tuning').textContent).toContain('Advanced Search Tuning');
+    expect(screen.getByTestId('nav-fc').textContent).toContain('FC Planner');
+    expect(screen.getByTestId('nav-colony').textContent).toContain('Colony Tracker');
   });
 });

@@ -163,7 +163,7 @@ function AppInner() {
       )}
 
       <footer className="mt-16 text-center text-[11px] font-mono text-text-dim">
-        Vite {import.meta.env.MODE} build · proof of concept · not yet production
+        Vite {import.meta.env.MODE} build · prototype · not yet production
       </footer>
 
       {selectedSystemId !== null && (

@@ -51,7 +51,7 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(screen.getAllByText('Uses current Finder results').length).toBeGreaterThan(0);
     expect(screen.getByText(/re-prioritises the current Finder results/i)).toBeTruthy();
     expect(screen.getByText(/It does not run a new search, save preferences, or change Colony Planner/i)).toBeTruthy();
-    expect(screen.getByText(/reranks a copy of those results into a temporary tuned order/i)).toBeTruthy();
+    expect(screen.getByText(/builds a temporary tuned order from a copy of those results/i)).toBeTruthy();
     expect(screen.queryByText(/Optimizer/i)).toBeNull();
   });
 
@@ -417,7 +417,7 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(onOpenDetail.mock.calls[1]).toEqual([42, { focus: 'colony-planner' }]);
     expect(onOpenDetail.mock.calls[2]).toEqual([42]);
     expect(screen.getByText(/focused on Colony Planner/i)).toBeTruthy();
-    expect(screen.getByText(/does not run Simulation Preview or generate builds/i)).toBeTruthy();
+    expect(screen.getByText(/does not run Preview or generate builds/i)).toBeTruthy();
   });
 
   it('does not double-call detail open when Evaluate in Colony Planner is clicked', () => {
@@ -464,6 +464,6 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(onOpenDetail).toHaveBeenCalledTimes(1);
     expect(onOpenDetail).toHaveBeenCalledWith(42, { focus: 'colony-planner' });
     expect(screen.getByText(/focused on Colony Planner/i)).toBeTruthy();
-    expect(screen.getByText(/does not run Simulation Preview or generate builds/i)).toBeTruthy();
+    expect(screen.getByText(/does not run Preview or generate builds/i)).toBeTruthy();
   });
 });

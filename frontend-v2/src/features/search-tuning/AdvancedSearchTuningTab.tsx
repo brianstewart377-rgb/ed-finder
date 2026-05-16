@@ -55,7 +55,7 @@ export function AdvancedSearchTuningTab({ searchTuning, search, onOpenDetail }: 
             Advanced Search Tuning re-prioritises the current Finder results. It does not run a new search, save preferences, or change Colony Planner.
           </p>
           <p className="font-mono text-[11px] text-silver-dk max-w-4xl">
-            It reranks a copy of those results into a temporary tuned order; the original Finder results are not mutated.
+            It builds a temporary tuned order from a copy of those results; the original Finder results are not mutated.
           </p>
         </div>
       </header>
@@ -303,7 +303,7 @@ function ResultsList({
                     Evaluate in Colony Planner
                   </button>
                   <span className="text-[10px] text-silver-dk">
-                    Opens system detail focused on Colony Planner; it does not run Simulation Preview or generate builds.
+                    Opens system detail focused on Colony Planner; it does not run Preview or generate builds.
                   </span>
                 </div>
               )}

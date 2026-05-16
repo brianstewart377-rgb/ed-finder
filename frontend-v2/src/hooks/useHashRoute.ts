@@ -16,9 +16,8 @@ import { useEffect, useState } from 'react';
  * the modal restores the user to the same tab they were on. External links
  * (#system/N alone) default to the Finder tab as a sensible landing.
  *
- * 4-tab + sub-route is still simple enough that this hand-rolled parser
- * beats pulling in react-router. Re-evaluate that trade-off when v2 sprouts
- * its 6th sub-route.
+ * The route set is still simple enough that this hand-rolled parser beats
+ * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
  */
 export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin';
 const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin'];

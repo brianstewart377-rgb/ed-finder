@@ -74,7 +74,7 @@ export function BuildPlanCard({
       <div className="mt-3 rounded border border-cyan/25 bg-cyan/5 px-2 py-2">
         <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-cyan">Selected body</div>
         <div className="mt-1 font-mono text-[11px] text-silver">
-          {plan.selected_body_name || (plan.selected_body_id ? `Body ${plan.selected_body_id}` : 'Estimated body candidate')}
+          {plan.selected_body_name || (plan.selected_body_id ? `Body ${plan.selected_body_id}` : 'Estimated body option')}
         </div>
         {plan.body_selection_reason && (
           <p className="mt-1 text-[11px] leading-snug text-silver-dk">{plan.body_selection_reason}</p>

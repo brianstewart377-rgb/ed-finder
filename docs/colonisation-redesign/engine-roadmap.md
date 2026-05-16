@@ -339,7 +339,7 @@ Stage 7B reframes the existing Search Tuning surface as **Advanced Search Tuning
 Current Stage 7B status:
 
 - The visible nav/page label is Advanced Search Tuning. `#search-tuning` is the preferred route alias, while legacy `#optimizer` remains compatible.
-- The UI explains that it uses current Finder results, reranks a copy, leaves the original Finder results unchanged, and does not save preferences or change Colony Planner.
+- The UI explains that it uses current Finder results, builds a temporary tuned order from a copy, leaves the original Finder results unchanged, and does not save preferences or change Colony Planner.
 - Economy selection is labelled as scoring emphasis rather than a filter, with explicit helper copy that systems are not filtered out.
 - Slider copy says weights apply only to the current tuning run and are normalised for the temporary tuned score.
 - Result rows show original Finder rank, tuned rank, movement up/down/unchanged, temporary tuned score, original stored score, and stored rating rationale.
@@ -419,3 +419,18 @@ Stage 8B implementation status:
 - Larger work remains deferred: a dedicated Colony Planner route/workspace, hauling/material estimates, saved builds, EDMC/journal ingestion, automatic learning, and deeper planner route migration.
 
 No backend files, API contracts, scoring, CP/economy/service/buildability mechanics, optimiser generation/ranking, Search Tuning scoring, or Stage 6 validation/review behavior changed in Stage 8B.
+
+## Stage 9A - Full App UX / Navigation Forensic Review
+
+Stage 9A steps back from the Colony Planner and Search Tuning feature work to review whether ED-Finder now reads as one coherent app. It is a forensic UX/navigation review, not a feature stage.
+
+Current Stage 9A status:
+
+- The full frontend route map is documented in `docs/colonisation-redesign/stage-9a-full-app-ux-navigation-forensic-review.md`.
+- Main journeys are mapped across Finder, result cards, System Detail, Colony Planner, Suggested Builds, Preview Result, Observed Evidence, Validation/Review Guidance, Advanced Search Tuning, Pinned, Watchlist, Compare, Map, FC Planner, EDDN ticker, and Admin.
+- Top-level navigation terminology received tiny safe fixes: `FC` is now `FC Planner`, and `Colony` is now `Colony Tracker` to distinguish the local tracker from the embedded Colony Planner.
+- Advanced Search Tuning user-facing copy now says it builds a temporary tuned order and does not run Preview, keeping backend `/api/ratings/rerank` terminology internal.
+- Hash-route tests cover all top-level tabs, modal child routes, legacy `#optimizer` compatibility including `#optimizer/system/{id64}`, external `#system/{id64}` links, unknown-route fallback, and modal close.
+- Stage 9B is recommended as an information-architecture decision point: decide Admin visibility, consider grouping advanced/secondary tools, evaluate whether Advanced Search Tuning belongs under Finder, and decide whether Colony Planner needs a dedicated workspace.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, auto-run, auto-generate, or route-framework migration changed in Stage 9A.
