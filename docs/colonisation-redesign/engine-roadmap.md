@@ -434,3 +434,21 @@ Current Stage 9A status:
 - Stage 9B is recommended as an information-architecture decision point: decide Admin visibility, consider grouping advanced/secondary tools, evaluate whether Advanced Search Tuning belongs under Finder, and decide whether Colony Planner needs a dedicated workspace.
 
 No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, auto-run, auto-generate, or route-framework migration changed in Stage 9A.
+
+## Stage 9B - Dedicated Colony Planner Workspace Feasibility
+
+Stage 9B answers the Stage 9A information-architecture question for Colony Planner. It is a feasibility and design stage only: no workspace route, component move, routing behaviour change, backend mechanic, scoring change, generation change, or validation behaviour change is implemented.
+
+Current Stage 9B status:
+
+- The dedicated workspace design is documented in `docs/colonisation-redesign/stage-9b-dedicated-colony-planner-workspace-feasibility.md`.
+- The recommended route for Stage 9C is `#colony-planner/system/{id64}`.
+- The recommended router shape keeps the future planner workspace system id separate from the existing System Detail modal `selectedSystemId`, avoiding modal/workspace state conflicts.
+- The recommended implementation strategy is to add a light `ColonyPlannerWorkspace` wrapper that reuses `useSystemDetail(id64)` and the existing `SimulationPreviewPanel` / `SimulationPreview` planner components.
+- Finder and Advanced Search Tuning `Evaluate in Colony Planner` should route directly to the workspace in Stage 9C, while normal `Details` / `Open system detail` actions continue to open System Detail.
+- The embedded planner should remain in System Detail during the first workspace implementation for compatibility, with a later stage deciding whether to replace it with a summary/CTA.
+- Stage 9C should add route parsing, workspace rendering, handoff, and no-auto-run/no-auto-generate tests before changing the primary entry points.
+
+Deferred beyond Stage 9B: the actual workspace implementation, embedded-planner removal, source-aware back labels, a static top-level planner tab, saved builds, material/hauling estimates, EDMC/journal ingestion, account persistence, automatic learning, and broader app navigation redesign.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, auto-run, auto-generate, route behaviour, or route-framework migration changed in Stage 9B.
