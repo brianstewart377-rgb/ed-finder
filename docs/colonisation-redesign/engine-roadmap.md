@@ -125,7 +125,7 @@ Stage 6B should add manual observation entry UI on top of this API. Stage 6C sho
 
 ### Stage 6B - Manual Observed Evidence UI
 
-Stage 6B adds the frontend Observed Evidence panel that lets a user manually record, list, update, and delete observed evidence for the current system. The user-facing label is **Observed Evidence**; the backend wire vocabulary remains observed facts. The panel lives inside Colony Planner, after Preview Result, and is exposed as a fourth section label alongside Build Plan, Optimiser Candidates, and Preview Result.
+Stage 6B adds the frontend Observed Evidence panel that lets a user manually record, list, update, and delete observed evidence for the current system. The user-facing label is **Observed Evidence**; the backend wire vocabulary remains observed facts. The panel lives inside Colony Planner, after Preview Result, and is exposed as a fourth section label alongside Build Plan, Suggested Builds, and Preview Result.
 
 | Stage 6B Concern | Current Outcome |
 |---|---|
@@ -164,7 +164,7 @@ Core principle: **prediction is what ED-Finder thinks should happen, observation
 
 ### Stage 6D - Validation Display in Colony Planner
 
-Stage 6D renders the Stage 6C `POST /api/observations/compare` response inside the Colony Planner. It is a **frontend integration stage**: the engine and the endpoint are unchanged. Validation is rendered as an in-page section inside Colony Planner, **after Observed Evidence**. No popout, modal, or top-level app tab is introduced. The Colony Planner section order is now: Build Plan → Optimiser Candidates → Preview Result → Observed Evidence → Validation.
+Stage 6D renders the Stage 6C `POST /api/observations/compare` response inside the Colony Planner. It is a **frontend integration stage**: the engine and the endpoint are unchanged. Validation is rendered as an in-page section inside Colony Planner, **after Observed Evidence**. No popout, modal, or top-level app tab is introduced. The current user-facing Colony Planner section order is: Build Plan -> Suggested Builds -> Preview Result -> Observed Evidence -> Validation.
 
 Core principle: **prediction is what ED-Finder thinks should happen, observation is what a user actually saw, validation displays the comparison between them.** Stage 6D shows; it does not change predictions, optimiser candidates, optimiser ranking, scoring, mechanics, persisted observations, or in-game state. Contradictions are labelled **Needs review** because one observation is evidence to compare, not a mechanics verdict. Missing observations do not mean a prediction is incorrect; they are reported as `predicted_only` with conservative copy.
 
@@ -389,8 +389,9 @@ Stage 8A implementation status:
 - System detail keeps the embedded planner but now exposes a prominent `Open Colony Planner` CTA near the top of the modal. The CTA scrolls/focuses and briefly highlights the embedded Colony Planner section.
 - Advanced Search Tuning `Evaluate in Colony Planner` now opens system detail with planner focus intent. It still does not run Preview, generate Suggested Builds, mutate the Build Plan, persist preferences, or feed tuning weights into Colony Planner.
 - User-facing planner copy now presents optimiser candidates as **Suggested Builds**. Backend/API/type names remain optimiser/candidate-oriented to avoid risky contract churn.
-- First-run guidance leads with `Generate Suggested Builds`, offers `Use recommended baseline`, and keeps `Start blank` visible as advanced manual control.
-- Build Plan feedback now shows placement count and Preview state (`Preview not run yet`, stale, running, or up to date), plus concise next-step guidance after edits.
+- First-run guidance leads with an actionable `Show Suggested Builds` start card that scrolls/focuses the Suggested Builds panel where the explicit `Generate Suggested Builds` button lives. It does not auto-generate candidates, auto-run Preview, or auto-load a build.
+- Normal Finder result cards now expose `Evaluate in Colony Planner` when expanded. The action opens system detail with Colony Planner focus only; it does not auto-run Preview, generate Suggested Builds, or alter the existing `Details` action.
+- Build Plan feedback now shows placement count and Preview state (`Preview not run yet`, stale, running, or `Preview matches current Build Plan`), plus concise next-step guidance after edits.
 - Build Plan helper copy now covers target archetype impact, primary-port commitment, yellow/green CP, build-order timing, and orbital/planetary placement tradeoffs.
 - Preview Result now starts with an interpreted verdict/next-step block built from existing response fields only.
 - Observed Evidence and Validation remain accessible but are framed as later checking steps after in-game evidence is available.

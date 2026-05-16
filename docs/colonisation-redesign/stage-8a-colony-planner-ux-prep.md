@@ -793,8 +793,11 @@ Frontend tests:
 - Clicking `Open Colony Planner` focuses or scrolls to the Colony Planner section without running preview or generating builds.
 - Search Tuning `Evaluate in Colony Planner` opens system detail with planner focus intent and still does not run preview or generate builds.
 - First-run planner shows Suggested Builds as the primary path and blank as advanced/secondary.
+- First-run `Show Suggested Builds` scrolls/focuses the Suggested Builds panel without auto-generating candidates or loading a build.
+- Normal Finder result cards expose `Evaluate in Colony Planner` as a focused system-detail handoff only.
 - User-facing `Suggested Builds` label replaces `Optimiser Candidates` in visible planner copy while API helpers remain unchanged.
 - Empty Build Plan shows "Preview not run yet" and disabled/available next-step guidance.
+- Current Preview status says "Preview matches current Build Plan" and avoids overclaiming that the result is up to date.
 - Editing a placement after preview marks the result stale and highlights Run Preview.
 - Loading a suggested build into a non-empty plan requires confirmation.
 - Preview Result renders a headline verdict and next-step block from existing result fields.
@@ -826,6 +829,7 @@ Docs/API tests:
 - Do not remove manual planning.
 - Do not auto-run preview.
 - Do not auto-load suggested builds.
+- Do not auto-generate suggested builds.
 
 ## Deferred Work
 

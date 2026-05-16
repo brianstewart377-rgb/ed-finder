@@ -359,7 +359,7 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     renderPanel({ preview: null });
     expect(screen.getByRole('region', { name: 'Validation' })).toBeTruthy();
     expect(
-      screen.getByText(/Later step: Validation compares the current Preview Result with recorded Observed Evidence/),
+      screen.getByText(/Later step: Validation compares prediction with recorded Observed Evidence/),
     ).toBeTruthy();
     expect(
       screen.getByText(

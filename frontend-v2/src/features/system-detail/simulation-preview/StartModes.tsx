@@ -9,12 +9,14 @@ export function StartModes({
   loadingRecommended,
   onUseRecommended,
   onBlank,
+  onShowSuggestedBuilds,
 }: {
   mode: StartMode;
   hasRecommendedBuild: boolean;
   loadingRecommended: boolean;
   onUseRecommended: () => void;
   onBlank: () => void;
+  onShowSuggestedBuilds?: () => void;
 }) {
   return (
     <div className="space-y-2">
@@ -25,11 +27,13 @@ export function StartModes({
         </p>
       </div>
       <div className="grid gap-2 md:grid-cols-3">
-        <ModeInfo
+        <ModeButton
+          active={false}
           icon={<Wand2 size={15} />}
-          title="Generate Suggested Builds"
-          body="Let ED-Finder suggest possible build plans for this system and goal. Use the Suggested Builds section below."
-          tone="primary"
+          title="Show Suggested Builds"
+          body="Jump to the Suggested Builds section below, where you can generate possible build plans when you are ready."
+          onClick={onShowSuggestedBuilds ?? (() => undefined)}
+          primary
         />
       <ModeButton
         active={mode === 'recommended'}
@@ -52,31 +56,6 @@ export function StartModes({
   );
 }
 
-function ModeInfo({
-  icon,
-  title,
-  body,
-  tone,
-}: {
-  icon: ReactNode;
-  title: string;
-  body: string;
-  tone?: 'primary';
-}) {
-  return (
-    <div className={[
-      'rounded-chunk-lg border p-3 text-left',
-      tone === 'primary' ? 'border-cyan/45 bg-cyan/10' : 'border-border/70 bg-bg2/70',
-    ].join(' ')}>
-      <div className="flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-cyan">
-        {icon}
-        <span>{title}</span>
-      </div>
-      <p className="mt-1 text-[11px] leading-snug text-silver-dk">{body}</p>
-    </div>
-  );
-}
-
 function ModeButton({
   active,
   disabled,
@@ -84,6 +63,7 @@ function ModeButton({
   title,
   body,
   onClick,
+  primary,
   secondary,
 }: {
   active: boolean;
@@ -92,6 +72,7 @@ function ModeButton({
   title: string;
   body: string;
   onClick: () => void;
+  primary?: boolean;
   secondary?: boolean;
 }) {
   return (
@@ -103,13 +84,18 @@ function ModeButton({
         'rounded-chunk-lg border p-3 text-left transition-colors',
         active
           ? 'border-orange/65 bg-orange/12 shadow-brand-glow'
+          : primary
+            ? 'border-cyan/45 bg-cyan/10 hover:border-cyan/70 hover:bg-cyan/15'
           : secondary
             ? 'border-border/60 bg-bg2/45 hover:border-gold/45 hover:bg-gold/5'
             : 'border-border/70 bg-bg2/70 hover:border-orange/45 hover:bg-orange/5',
         disabled ? 'cursor-not-allowed opacity-50' : '',
       ].join(' ')}
     >
-      <div className="flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-orange">
+      <div className={[
+        'flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.12em]',
+        primary ? 'text-cyan' : 'text-orange',
+      ].join(' ')}>
         {icon}
         <span>{title}</span>
       </div>

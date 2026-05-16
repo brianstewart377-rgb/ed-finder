@@ -340,6 +340,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getAllByText('Preview Result').length).toBeGreaterThan(0);
     expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
     expect(screen.getAllByText('Generate Suggested Builds').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /Show Suggested Builds/i })).toBeTruthy();
     expect(screen.getByText(/Start blank/)).toBeTruthy();
     expect(screen.getByText(/Advanced manual control/)).toBeTruthy();
     expect(screen.getByText(/0 placements in Build Plan/)).toBeTruthy();
@@ -358,6 +359,38 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getByText(/2 placements in Build Plan/)).toBeTruthy();
     expect(screen.getByText(/Preview has not been run for this plan yet/)).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
+  });
+
+  it('focuses Suggested Builds from the start card without generating or loading anything', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    const target = await screen.findByTestId('suggested-builds-focus-target');
+    fireEvent.click(screen.getByRole('button', { name: /Show Suggested Builds/i }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+    expect(document.activeElement).toBe(target);
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Copied suggested build:/)).toBeNull();
+  });
+
+  it('shows Build Plan placement count and helper copy for manual planning', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    await screen.findByText(/0 placements in Build Plan/);
+    fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+
+    expect(screen.getByText(/1 placement in Build Plan/)).toBeTruthy();
+    expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
+    expect(screen.getByText(/Primary port is a major planning choice/)).toBeTruthy();
+    expect(screen.getByText(/Yellow CP supports Tier 2 construction/)).toBeTruthy();
+    expect(screen.getByText(/Green CP supports Tier 3 construction/)).toBeTruthy();
+    expect(screen.getByText(/Build order can affect CP timing and port escalation/)).toBeTruthy();
   });
 
   it('marks an optimiser-origin plan as edited after manual add', async () => {
@@ -498,6 +531,8 @@ describe('SimulationPreview optimiser candidate loading', () => {
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
 
     await waitFor(() => expect(mockedSimulateBuild).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/Preview is running/)).toBeTruthy();
+    expect(screen.getByText(/ED-Finder is evaluating the current Build Plan/)).toBeTruthy();
     expect(mockedSimulateBuild).toHaveBeenCalledWith({
       system_id64: 123,
       target_archetype: 'agriculture_terraforming',
@@ -506,6 +541,22 @@ describe('SimulationPreview optimiser candidate loading', () => {
         { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 2 },
       ],
     });
+  });
+
+  it('uses cautious current-preview status copy after an explicit successful run', async () => {
+    mockNoRecommendedBuild();
+    mockedSimulateBuild.mockResolvedValue(simulationResult());
+    renderPreview();
+
+    fireEvent.click(await screen.findByTestId('generate-suggested-builds'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    await screen.findByText(/Copied suggested build:/);
+    fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
+
+    await screen.findByText(/Final Score/i);
+    expect(screen.getByText(/Preview matches current Build Plan/)).toBeTruthy();
+    expect(screen.getByText(/This Preview Result was generated for the current Build Plan/)).toBeTruthy();
+    expect(screen.queryByText(/Preview is up to date/)).toBeNull();
   });
 
   // ── Stage 6D integration ────────────────────────────────────────────────

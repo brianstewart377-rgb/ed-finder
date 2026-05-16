@@ -24,6 +24,7 @@ export function BuildPlanSection({
   runningPreview,
   onUseRecommended,
   onBlank,
+  onShowSuggestedBuilds,
   onAddPlacement,
   onUpdatePlacement,
   onRemovePlacement,
@@ -47,6 +48,7 @@ export function BuildPlanSection({
   runningPreview: boolean;
   onUseRecommended: () => void;
   onBlank: () => void;
+  onShowSuggestedBuilds?: () => void;
   onAddPlacement: () => void;
   onUpdatePlacement: (index: number, patch: Partial<SimulateBuildPlacement>) => void;
   onRemovePlacement: (index: number) => void;
@@ -72,6 +74,7 @@ export function BuildPlanSection({
         loadingRecommended={loadingRecommended}
         onUseRecommended={onUseRecommended}
         onBlank={onBlank}
+        onShowSuggestedBuilds={onShowSuggestedBuilds}
       />
       {optimiserCandidateOriginLabel && (
         <div className="mt-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2">
@@ -193,14 +196,14 @@ function BuildPlanStatus({
       ? 'Preview not run yet'
       : isPreviewResultStale
         ? 'Preview is stale - run Preview again'
-        : 'Preview is up to date';
+        : 'Preview matches current Build Plan';
   const guidance = runningPreview
     ? 'ED-Finder is evaluating the current Build Plan.'
     : !previewResult
       ? 'Preview has not been run for this plan yet. Run Preview to estimate the outcome.'
       : isPreviewResultStale
         ? 'Build Plan changed. Run Preview to update the prediction.'
-        : 'This Preview Result matches the current Build Plan.';
+        : 'This Preview Result was generated for the current Build Plan.';
 
   return (
     <div className="mb-3 rounded border border-cyan/30 bg-cyan/5 px-3 py-2 font-mono text-[11px] leading-snug">

@@ -75,11 +75,35 @@ describe('preview result guidance', () => {
     }), false);
     expect(guidance.title).toBe('Needs work');
     expect(guidance.items.join(' ')).toMatch(/generate Suggested Builds/);
+    expect(guidance.items.join(' ')).not.toMatch(/viable/i);
+  });
+
+  it('produces needs-work guidance for a low final score', () => {
+    const guidance = buildPreviewResultGuidance(result({ final_score: 40 }), false);
+    expect(guidance.title).toBe('Needs work');
+    expect(guidance.items.join(' ')).toMatch(/Final score is low/);
+    expect(guidance.items.join(' ')).not.toMatch(/looks viable/i);
+  });
+
+  it('does not call a warning result viable', () => {
+    const guidance = buildPreviewResultGuidance(result({ warnings: ['Service risk'] }), false);
+    expect(guidance.title).toBe('Needs work');
+    expect(guidance.items.join(' ')).toMatch(/warning/);
+    expect(guidance.items.join(' ')).not.toMatch(/looks viable/i);
+  });
+
+  it('uses estimate wording for low-confidence-only results', () => {
+    const guidance = buildPreviewResultGuidance(result({ confidence: 0.4 }), false);
+    expect(guidance.title).toBe('Viable estimate with limited confidence');
+    expect(guidance.items.join(' ')).toMatch(/estimate/);
+    expect(guidance.items.join(' ')).not.toMatch(/optimal|guaranteed|correct/i);
   });
 
   it('produces viable guidance for strong results', () => {
     const guidance = buildPreviewResultGuidance(result(), false);
     expect(guidance.title).toBe('Looks viable');
     expect(guidance.items.join(' ')).toMatch(/Compare Suggested Builds/);
+    expect(guidance.items.join(' ')).toMatch(/based on the current Preview Result/);
+    expect(guidance.items.join(' ')).not.toMatch(/optimal|guaranteed|correct/i);
   });
 });

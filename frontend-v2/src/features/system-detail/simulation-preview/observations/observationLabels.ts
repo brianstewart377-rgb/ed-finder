@@ -27,7 +27,7 @@ export const PANEL_INTRO_COPY =
 
 export const EMPTY_STATE_TITLE = 'No observed evidence recorded yet.';
 export const EMPTY_STATE_BODY =
-  'Record what you actually saw in-game. Evidence is passive and will not change predictions until a later validation stage compares it.';
+  'Record what you actually saw in-game. Evidence is passive; Validation can compare it with predictions without changing scoring or mechanics.';
 
 export const DELETE_CONFIRM_TITLE = 'Delete this observed evidence record?';
 export const DELETE_CONFIRM_BODY =

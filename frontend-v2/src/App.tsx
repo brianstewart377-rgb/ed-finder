@@ -319,7 +319,7 @@ function FinderView({
   pinned:    ReturnType<typeof usePinned>;
   compare:   ReturnType<typeof useCompare>;
   onShowOnMap:  () => void;
-  onOpenDetail: (id64: number) => void;
+  onOpenDetail: (id64: number, options?: { focus?: 'colony-planner' }) => void;
 }) {
   const { filters, setFilters, reset, run, state, results } = search;
 

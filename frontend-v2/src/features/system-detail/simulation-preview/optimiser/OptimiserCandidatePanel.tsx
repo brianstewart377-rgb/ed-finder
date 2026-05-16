@@ -109,6 +109,7 @@ export function OptimiserCandidatePanel({
             type="button"
             onClick={() => void generateCandidates()}
             disabled={loading}
+            data-testid="generate-suggested-builds"
             className="rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 font-mono text-xs font-bold text-orange hover:bg-orange/25 disabled:opacity-45"
           >
             {loading ? 'Generating' : 'Generate Suggested Builds'}

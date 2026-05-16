@@ -169,7 +169,7 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
     expect(await screen.findByText('No observed evidence recorded yet.')).toBeTruthy();
     expect(
       screen.getByText(
-        /Record what you actually saw in-game\. Evidence is passive and will not change predictions/,
+        /Record what you actually saw in-game\. Evidence is passive; Validation can compare it with predictions without changing scoring or mechanics/,
       ),
     ).toBeTruthy();
   });

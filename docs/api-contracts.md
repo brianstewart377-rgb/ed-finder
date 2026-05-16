@@ -380,10 +380,12 @@ Stage 6C tests live in `tests/test_stage6c_comparison.py`. The legacy Stage 4D i
 Stage 6D renders the Stage 6C `POST /api/observations/compare` response inside Colony Planner. It is a **frontend integration stage**: it does not change the backend compare contract, the simulation endpoint, the optimiser endpoint, or any persisted observed evidence. Stage 6D does not introduce a popout, modal, or new top-level app tab. The validation block lives in-page inside Colony Planner, **after** the Observed Evidence shelf, so the Colony Planner section order is now:
 
 1. Build Plan
-2. Optimiser Candidates
+2. Suggested Builds
 3. Preview Result
 4. Observed Evidence
 5. Validation
+
+The frontend uses **Suggested Builds** as the user-facing planner label. Backend endpoints and generated types still use optimiser/candidate vocabulary for API compatibility.
 
 ### Frontend types and helper
 

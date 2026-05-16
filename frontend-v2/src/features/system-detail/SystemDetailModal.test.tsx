@@ -70,4 +70,26 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
     expect(document.activeElement).toBe(screen.getByTestId('colony-planner-focus-target'));
   });
+
+  it('keeps normal modal close behaviours working with the planner focus target present', () => {
+    const onClose = vi.fn();
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(<SystemDetailModal id64={123} onClose={onClose} />);
+
+    expect(screen.getByTestId('colony-planner-focus-target')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('system-detail-close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByTestId('system-detail-modal'));
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
 });

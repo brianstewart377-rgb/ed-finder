@@ -9,6 +9,7 @@ import {
 import { displayRationale } from '@/lib/rationale';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
+  Rocket,
 } from 'lucide-react';
 
 /**
@@ -27,7 +28,7 @@ export interface ResultCardProps {
   onCompare?: (id64: number) => void;
   onWatch?:   (id64: number) => void;
   onShowOnMap?:  (id64: number) => void;
-  onOpenDetail?: (id64: number) => void;
+  onOpenDetail?: (id64: number, options?: { focus?: 'colony-planner' }) => void;
 }
 
 export function ResultCard({
@@ -212,6 +213,11 @@ export function ResultCard({
             {onOpenDetail && (
               <ActionButton onClick={() => onOpenDetail(system.id64)} primary>
                 <Search size={13} className="mr-1.5" /> Details
+              </ActionButton>
+            )}
+            {onOpenDetail && (
+              <ActionButton onClick={() => onOpenDetail(system.id64, { focus: 'colony-planner' })}>
+                <Rocket size={13} className="mr-1.5" /> Evaluate in Colony Planner
               </ActionButton>
             )}
             <ActionButton onClick={() => onWatch?.(system.id64)}>

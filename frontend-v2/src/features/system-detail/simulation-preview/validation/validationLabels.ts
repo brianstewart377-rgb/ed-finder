@@ -25,7 +25,7 @@ import type {
 } from '@/types/api';
 
 export const ADVISORY_COPY =
-  'Later step: Validation compares the current Preview Result with recorded Observed Evidence. It does not change scoring, Suggested Builds, generated plans, or in-game state.';
+  'Later step: Validation compares prediction with recorded Observed Evidence. It does not change scoring, Suggested Builds, generated plans, or in-game state.';
 
 export const NO_PREVIEW_COPY =
   'Run Preview first, then record Observed Evidence after checking in-game. Validation compares that evidence with the current Preview Result.';
