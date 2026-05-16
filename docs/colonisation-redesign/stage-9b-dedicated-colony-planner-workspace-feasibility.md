@@ -229,4 +229,4 @@ Implement a dedicated Colony Planner workspace in Stage 9C using `#colony-planne
 
 This gives Colony Planner the focused surface it now deserves without changing mechanics, scoring, generation, validation, or the working modal inspection path.
 
-Stage 9C followed this recommendation. Deferred work remains: replacing the embedded planner with a summary/CTA, adding a top-level planner chooser or recent-plans concept, source-aware back labels, saved builds, material/hauling planning, and richer workspace side-rail context.
+Stage 9C followed this recommendation, and Stage 9D hardens the route/workspace passivity tests. Deferred work remains: replacing the embedded planner with a summary/CTA, adding a top-level planner chooser or recent-plans concept, source-aware back labels, saved builds, and richer workspace side-rail context. Material/hauling planning remains explicitly deferred; ED-Finder should not duplicate RavenColonial-style hauling/material tooling unless a later product stage identifies a distinct value-add.

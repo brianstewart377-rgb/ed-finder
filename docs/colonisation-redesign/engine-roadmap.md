@@ -294,8 +294,8 @@ Longer-term destination.
 - Multi-system expansion plans.
 - Player goals and preferences.
 - Build sequence optimiser.
-- Logistics planning.
-- Commodity hauling requirements.
+- Logistics planning only where ED-Finder has a distinct value-add beyond existing specialist tools.
+- Commodity hauling requirements remain deferred; do not duplicate RavenColonial-style hauling/material planning without a later scoped product reason.
 - Construction progress tracking.
 
 ## Current Guardrail
@@ -472,3 +472,17 @@ Current Stage 9C status:
 Deferred beyond Stage 9C: removing or replacing the embedded planner, top-level planner chooser/recent plans, source-aware back labels, saved builds, material/hauling estimates, workspace side rails, EDMC/journal ingestion, account persistence, automatic learning, and broader navigation redesign.
 
 No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, auto-run, auto-generate, or auto-load behaviour changed in Stage 9C.
+
+## Stage 9D - Colony Planner Workspace Final Hardening
+
+Stage 9D is the real-use QA hardening pass for the dedicated Colony Planner workspace. It does not add new product surfaces or backend behaviour.
+
+Current Stage 9D status:
+
+- Route tests now cover `navigate('colony-planner')` with and without an active planner system, plus `closeSystem()` safety while on the workspace route.
+- Workspace passivity tests render the real `SimulationPreviewPanel` inside `ColonyPlannerWorkspace` and assert that loading the workspace may fetch passive support data but does not call `simulateBuild`, `fetchOptimiserCandidates`, observed-evidence mutations, validation compare, or review endpoints.
+- Existing no-system/loading/error/loaded workspace tests continue to cover Back to Finder, Retry, Open full system detail, and planner reuse.
+- Existing handoff tests continue to protect Finder, Advanced Search Tuning, and System Detail entry behaviour.
+- Docs now clarify that hauling/material planning is deferred and should not duplicate RavenColonial-style specialist tooling unless a later stage defines a distinct ED-Finder value-add.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, hauling/material feature, auto-run, auto-generate, or auto-load behaviour changed in Stage 9D.

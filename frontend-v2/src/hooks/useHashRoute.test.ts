@@ -112,6 +112,29 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
     expect(window.location.hash).toBe('#colony-planner/system/123456');
   });
 
+  it('navigates to an empty Colony Planner workspace when no planner system is selected', () => {
+    window.location.hash = '#finder';
+    const { result } = renderHook(() => useHashRoute());
+
+    act(() => {
+      result.current.navigate('colony-planner');
+    });
+
+    expect(window.location.hash).toBe('#colony-planner');
+  });
+
+  it('preserves the active planner system when navigating back to Colony Planner', () => {
+    window.location.hash = '#colony-planner/system/123456';
+    const { result } = renderHook(() => useHashRoute());
+
+    act(() => {
+      result.current.navigate('colony-planner');
+    });
+
+    expect(window.location.hash).toBe('#colony-planner/system/123456');
+    expect(result.current.selectedSystemId).toBeNull();
+  });
+
   it('falls back to Finder for unknown routes', () => {
     window.location.hash = '#does-not-exist';
 
@@ -142,6 +165,17 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
     });
 
     expect(window.location.hash).toBe('#finder/system/123456');
+  });
+
+  it('keeps closeSystem from mutating the Colony Planner workspace route', () => {
+    window.location.hash = '#colony-planner/system/123456';
+    const { result } = renderHook(() => useHashRoute());
+
+    act(() => {
+      result.current.closeSystem();
+    });
+
+    expect(window.location.hash).toBe('#colony-planner/system/123456');
   });
 
   it('navigates to the preferred #search-tuning route', () => {

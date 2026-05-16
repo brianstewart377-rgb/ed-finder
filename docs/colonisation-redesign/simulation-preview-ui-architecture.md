@@ -172,6 +172,8 @@ Stage 9C adds a dedicated Colony Planner workspace route while keeping the exist
 
 The workspace wrapper owns no Simulation Preview mechanics. It does not call `simulateBuild`, does not call `fetchOptimiserCandidates`, does not copy or load Suggested Builds, and does not change scoring, generation, ranking, Observed Evidence, or Validation behaviour. It provides only no-system/loading/error/loaded shell states, compact system context, Back to Finder, and Open full system detail actions around the existing planner panel.
 
+Stage 9D adds final route/workspace passivity hardening around this boundary. Workspace load may fetch system detail, facility templates, simulation summary, and observed-evidence list data through existing passive planner queries. It still does not run Preview, generate Suggested Builds, copy/load builds, mutate evidence, or call validation compare/review before the user runs Preview.
+
 ## Stage 6E Validation Review Guidance
 
 Stage 6E extends the Validation section with a structured advisory layer from `POST /api/observations/review`. The panel still starts from a user-run Simulation Preview result; it does not run preview itself, generate optimiser candidates, mutate the build plan, create/update/delete observations, or change mechanics.
