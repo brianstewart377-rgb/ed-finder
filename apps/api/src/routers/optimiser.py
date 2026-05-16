@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import asyncpg
 from fastapi import APIRouter, Depends
 
@@ -9,9 +11,11 @@ from models import OptimiserCandidatesRequest, OptimiserCandidatesResponse
 from optimiser.candidate_generator import generate_candidates
 from optimiser.models import CandidateGenerationRequest, candidate_result_to_dict, ranking_result_to_dict
 from optimiser.ranker import rank_candidates
+from state import metrics
 
 
 router = APIRouter(tags=['optimiser'])
+log = logging.getLogger('ed_finder')
 
 
 @router.post('/api/optimiser/candidates', response_model=OptimiserCandidatesResponse)
@@ -49,5 +53,7 @@ async def _catalogue_or_db(pool: asyncpg.Pool) -> dict[str, FacilityTemplate]:
         async with pool.acquire() as conn:
             rows = await conn.fetch('SELECT * FROM facility_templates')
         return load_catalogue_from_rows(rows)
-    except Exception:
+    except Exception as exc:
+        metrics['catalogue_fallbacks'] = metrics.get('catalogue_fallbacks', 0) + 1
+        log.warning('Facility catalogue DB load failed; falling back to bundled catalogue: %s', exc)
         return load_bundled_catalogue()

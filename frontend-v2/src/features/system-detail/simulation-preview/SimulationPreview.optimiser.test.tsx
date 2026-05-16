@@ -424,6 +424,30 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
   });
 
+  it('shows an empty facility catalogue state and keeps Add Facility disabled', async () => {
+    mockedGetFacilityTemplates.mockResolvedValue([]);
+    mockedGetSimulationSummary.mockResolvedValue({
+      classification: { primary_archetype: 'refinery_industrial' },
+      buildability: { recommended_build_order: [] },
+      regional_context: null,
+    } as unknown as SimulationSummary);
+    mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+    mockedImportSystemLayout.mockResolvedValue(layoutImportSuccess);
+    mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
+    mockedCompare.mockResolvedValue(emptyCompareResponse());
+    mockedReview.mockResolvedValue(emptyReviewResponse());
+
+    renderPreview();
+
+    expect(await screen.findByText(/Facility catalogue is empty. Structures cannot be added until templates load./)).toBeTruthy();
+    const addButton = screen.getByRole('button', { name: /Add Facility/i }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(true);
+    fireEvent.click(addButton);
+    expect(screen.getByText(/0 placements in Build Plan/)).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
   it('toggles between List view and Layout view without preview or suggested-build side effects', async () => {
     mockNoRecommendedBuild();
     renderPreview();
@@ -505,6 +529,39 @@ describe('SimulationPreview optimiser candidate loading', () => {
     await screen.findByText(/Layout import failed: network unavailable/);
     expect(screen.getByText('failed')).toBeTruthy();
     expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
+  it('clears layout import status when the planner system changes', async () => {
+    mockNoRecommendedBuild();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const nextSystem = {
+      ...system,
+      id64: 456,
+      name: 'Next System',
+      bodies: [{ id: 'body2', name: 'Next Body', body_type: 'Planet', is_landable: true }],
+    } as unknown as SystemDetail;
+
+    const view = render(
+      <QueryClientProvider client={client}>
+        <SimulationPreview system={system} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText(/0 placements in Build Plan/);
+    fireEvent.click(screen.getByRole('button', { name: /Import \/ refresh system layout/i }));
+    await screen.findByText('success');
+
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <SimulationPreview system={nextSystem} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.queryByText('success')).toBeNull());
+    expect(screen.queryByText(/Bodies imported/)).toBeNull();
+    expect(mockedImportSystemLayout).toHaveBeenCalledTimes(1);
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
   });

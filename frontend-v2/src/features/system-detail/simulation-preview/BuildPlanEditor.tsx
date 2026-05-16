@@ -22,6 +22,7 @@ export function BuildPlanEditor({
     <div className="space-y-2">
       {placements.map((placement, index) => {
         const template = templates.find((item) => item.id === placement.facility_template_id);
+        const missingTemplate = !template;
         return (
           <div key={`${placement.build_order}-${index}`} className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
             <div className="flex items-center gap-2">
@@ -39,6 +40,11 @@ export function BuildPlanEditor({
                 }}
                 className="min-w-0 flex-1"
               >
+                {missingTemplate && (
+                  <option value={placement.facility_template_id} disabled>
+                    Missing template: {placement.facility_template_id}
+                  </option>
+                )}
                 {templates.map((item) => (
                   <option key={item.id} value={item.id}>
                     T{item.tier} - {item.name}{item.economy ? ` - ${item.economy}` : ''}
@@ -83,6 +89,12 @@ export function BuildPlanEditor({
                 Primary port
               </label>
             </div>
+
+            {missingTemplate && (
+              <div className="mt-2 rounded border border-gold/35 bg-gold/5 px-3 py-2 font-mono text-[11px] text-gold">
+                Needs review: facility template missing. Missing template: {placement.facility_template_id}
+              </div>
+            )}
 
             {template && (
               <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono">

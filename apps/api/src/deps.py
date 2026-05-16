@@ -69,7 +69,8 @@ async def cache_get(
             metrics['cache_hits'] += 1
             return json.loads(v)
     except Exception:
-        pass
+        metrics['cache_errors'] = metrics.get('cache_errors', 0) + 1
+        metrics['cache_get_errors'] = metrics.get('cache_get_errors', 0) + 1
     metrics['cache_misses'] += 1
     return None
 
@@ -86,7 +87,8 @@ async def cache_set(
     try:
         await r.setex(key, ttl, json.dumps(value, default=str))
     except Exception:
-        pass
+        metrics['cache_errors'] = metrics.get('cache_errors', 0) + 1
+        metrics['cache_set_errors'] = metrics.get('cache_set_errors', 0) + 1
 
 
 # ── Small metric / slow-query helpers. ──────────────────────────────────

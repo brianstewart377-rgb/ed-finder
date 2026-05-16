@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Columns3, DownloadCloud, ListChecks, Plus } from 'lucide-react';
 import { importSystemLayout } from '@/lib/api';
 import type { FacilityTemplate, LayoutImportResponse, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
@@ -67,19 +67,34 @@ export function BuildPlanSection({
   const [layoutImportResult, setLayoutImportResult] = useState<LayoutImportResponse | null>(null);
   const [layoutImportError, setLayoutImportError] = useState<string | null>(null);
   const [layoutImportRunning, setLayoutImportRunning] = useState(false);
+  const layoutImportRequestId = useRef(0);
   const assignedUnknownBodyIds = getAssignedUnknownBodyIds(placements, bodies);
+  const showEmptyCatalogue = !templatesLoading && !templatesErrorMessage && templates.length === 0;
+
+  useEffect(() => {
+    layoutImportRequestId.current += 1;
+    setLayoutImportResult(null);
+    setLayoutImportError(null);
+    setLayoutImportRunning(false);
+  }, [systemId64]);
 
   const handleImportLayout = async () => {
+    const requestId = layoutImportRequestId.current + 1;
+    layoutImportRequestId.current = requestId;
     setLayoutImportRunning(true);
     setLayoutImportError(null);
     try {
       const result = await importSystemLayout(systemId64, { source: 'spansh' });
+      if (layoutImportRequestId.current !== requestId) return;
       setLayoutImportResult(result);
     } catch (error) {
+      if (layoutImportRequestId.current !== requestId) return;
       setLayoutImportResult(null);
       setLayoutImportError(error instanceof Error ? error.message : 'Layout import failed.');
     } finally {
-      setLayoutImportRunning(false);
+      if (layoutImportRequestId.current === requestId) {
+        setLayoutImportRunning(false);
+      }
     }
   };
 
@@ -159,6 +174,7 @@ export function BuildPlanSection({
           type="button"
           onClick={onAddPlacement}
           disabled={templates.length === 0}
+          title={templates.length === 0 ? 'Facility catalogue is empty. Structures cannot be added until templates load.' : undefined}
           className="self-end inline-flex items-center justify-center gap-2 rounded-chunk-sm border border-border bg-bg3 px-3 py-2 text-xs font-mono text-silver hover:border-orange/60 hover:text-orange disabled:opacity-45"
         >
           <Plus size={14} />
@@ -174,6 +190,10 @@ export function BuildPlanSection({
 
       {templatesErrorMessage && (
         <div className="mt-3"><Message tone="warn" items={[templatesErrorMessage]} /></div>
+      )}
+
+      {showEmptyCatalogue && (
+        <div className="mt-3"><Message tone="warn" items={['Facility catalogue is empty. Structures cannot be added until templates load.']} /></div>
       )}
 
       <div className="mt-3">

@@ -24,6 +24,7 @@ const KEY = (e: EddnEvent) => `${e.id64}|${e.type}|${e.timestamp}`;
 export function useEddnFeed({
   intervalMs = 4000,
   keep       = 30,
+  useSse     = import.meta.env.PROD,
   // Batch-flush window — at the production EDDN rate (~19 events/sec)
   // calling setState on every SSE message makes React re-render the
   // marquee 19 times per second, which restarts the CSS animation
@@ -33,7 +34,7 @@ export function useEddnFeed({
   // can actually play through. 1500 ms = roughly 1 visual cycle of
   // updates per visible system on screen.
   flushMs    = 1500,
-}: { intervalMs?: number; keep?: number; flushMs?: number } = {}) {
+}: { intervalMs?: number; keep?: number; flushMs?: number; useSse?: boolean } = {}) {
   const [events, setEvents] = useState<EddnEvent[]>([]);
   const [error,  setError]  = useState<string | null>(null);
   const seen    = useRef<Set<string>>(new Set());
@@ -70,13 +71,16 @@ export function useEddnFeed({
     };
 
     // ── PROD / preview: SSE ──────────────────────────────────────────────
-    if (import.meta.env.PROD && typeof EventSource !== 'undefined') {
+    if (useSse && typeof EventSource !== 'undefined') {
       try {
         es = new EventSource('/api/events/live');
         es.onmessage = (ev) => {
           try {
             const data = JSON.parse(ev.data) as EddnEvent;
-            if (data && data.id64) push([data]);
+            if (data && data.id64) {
+              setError(null);
+              push([data]);
+            }
           } catch { /* heartbeat / non-JSON — ignore */ }
         };
         es.onerror = () => {
@@ -115,7 +119,7 @@ export function useEddnFeed({
         flushT.current = null;
       }
     };
-  }, [intervalMs, keep, flushMs]);
+  }, [intervalMs, keep, flushMs, useSse]);
 
   return { events, error };
 }

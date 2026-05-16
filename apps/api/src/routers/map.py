@@ -15,6 +15,12 @@ from state   import metrics as _metrics
 router = APIRouter(tags=['map'])
 
 
+def _record_map_cache_error(operation: str, cache_key: str, exc: Exception) -> None:
+    _metrics['cache_errors'] = _metrics.get('cache_errors', 0) + 1
+    metric = 'cache_get_errors' if operation == 'get' else 'cache_set_errors'
+    _metrics[metric] = _metrics.get(metric, 0) + 1
+    log.debug('Map cache %s failed for %s: %s', operation, cache_key, exc)
+
 
 
 
@@ -45,8 +51,8 @@ async def map_regions(
             if cached:
                 _metrics['cache_hits'] += 1
                 return JSONResponse(content=json.loads(cached))
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_map_cache_error('get', cache_key, exc)
     _metrics['cache_misses'] += 1
 
     async with pool.acquire() as conn:
@@ -92,8 +98,8 @@ async def map_regions(
     if redis:
         try:
             await redis.set(cache_key, json.dumps(result, default=str), ex=settings.ttl_cluster)
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_map_cache_error('set', cache_key, exc)
     return result
 
 
@@ -124,8 +130,8 @@ async def map_cluster_hulls(
             if cached:
                 _metrics['cache_hits'] += 1
                 return JSONResponse(content=json.loads(cached))
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_map_cache_error('get', cache_key, exc)
     _metrics['cache_misses'] += 1
 
     async with pool.acquire() as conn:
@@ -170,8 +176,8 @@ async def map_cluster_hulls(
     if redis:
         try:
             await redis.set(cache_key, json.dumps(result, default=str), ex=settings.ttl_cluster)
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_map_cache_error('set', cache_key, exc)
     return result
 
 
@@ -208,8 +214,8 @@ async def map_heatmap(
             if cached:
                 _metrics['cache_hits'] += 1
                 return JSONResponse(content=json.loads(cached))
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_map_cache_error('get', cache_key, exc)
     _metrics['cache_misses'] += 1
 
     # Audit §C4 / Phase 5: pick the closest pre-aggregated MV resolution
@@ -271,8 +277,8 @@ async def map_heatmap(
     if redis:
         try:
             await redis.set(cache_key, json.dumps(result, default=str), ex=settings.ttl_cluster)
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_map_cache_error('set', cache_key, exc)
     return result
 
 
@@ -305,8 +311,8 @@ async def map_timeline(
             if cached:
                 _metrics['cache_hits'] += 1
                 return JSONResponse(content=json.loads(cached))
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_map_cache_error('get', cache_key, exc)
     _metrics['cache_misses'] += 1
 
     async with pool.acquire() as conn:
@@ -364,6 +370,6 @@ async def map_timeline(
     if redis:
         try:
             await redis.set(cache_key, json.dumps(result, default=str), ex=settings.ttl_cluster)
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_map_cache_error('set', cache_key, exc)
     return result

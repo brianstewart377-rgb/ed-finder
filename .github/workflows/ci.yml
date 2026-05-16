@@ -37,12 +37,16 @@ jobs:
           pip install -r apps/api/requirements.txt
           pip install -r apps/eddn/requirements.txt
           pip install -r apps/importer/requirements.txt
+          pip install pytest pytest-asyncio httpx
 
       - name: Python syntax check (py_compile, all .py under apps/)
         run: python -m compileall -q apps
 
       - name: Run unit tests (no DB required)
         run: python -m unittest discover -s tests -p "test_smoke.py"
+
+      - name: Run root pytest suite (excluding DB integration)
+        run: python -m pytest tests -q --ignore=tests/integration
 
       - name: Set up Docker buildx (for compose validate)
         uses: docker/setup-buildx-action@v3
