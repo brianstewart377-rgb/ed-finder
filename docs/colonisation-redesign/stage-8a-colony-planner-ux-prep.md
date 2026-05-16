@@ -843,6 +843,10 @@ Docs/API tests:
 - Candidate-vs-candidate comparison selector UI.
 - Rich visual graph rendering for economy/link topology.
 
+## Stage 8B QA Follow-up
+
+Stage 8B used this prep report as the Stage 8A baseline and performed a real-use QA hardening pass rather than a new feature stage. It tightened focus/highlight cleanup, result-card handoff tests, Suggested Builds focus tests, and conservative Preview Result wording. The larger deferred work above remains deferred.
+
 ## Final Recommendation
 
 Stage 8A should be a focused frontend UX implementation based on this audit:

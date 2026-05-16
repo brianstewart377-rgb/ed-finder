@@ -36,6 +36,7 @@ export function SystemDetailModal({ id64, onClose, focusIntent = null, renderAct
   const { data, loading, error, refetch } = useSystemDetail(id64);
   const [selectedBuild, setSelectedBuild] = useState<RecommendedBuildPlan | null>(null);
   const colonyPlannerRef = useRef<HTMLDivElement | null>(null);
+  const highlightTimeoutRef = useRef<number | null>(null);
   const [highlightPlanner, setHighlightPlanner] = useState(false);
 
   // Esc closes the modal. Body scroll lock only fires if we're actually
@@ -48,6 +49,10 @@ export function SystemDetailModal({ id64, onClose, focusIntent = null, renderAct
     return () => {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
+      if (highlightTimeoutRef.current !== null) {
+        window.clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = null;
+      }
     };
   }, [onClose]);
 
@@ -61,7 +66,13 @@ export function SystemDetailModal({ id64, onClose, focusIntent = null, renderAct
     node.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
     node.focus({ preventScroll: true });
     setHighlightPlanner(true);
-    window.setTimeout(() => setHighlightPlanner(false), 1800);
+    if (highlightTimeoutRef.current !== null) {
+      window.clearTimeout(highlightTimeoutRef.current);
+    }
+    highlightTimeoutRef.current = window.setTimeout(() => {
+      setHighlightPlanner(false);
+      highlightTimeoutRef.current = null;
+    }, 1800);
   };
 
   useEffect(() => {

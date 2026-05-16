@@ -396,3 +396,18 @@ Stage 8A implementation status:
 - Preview Result now starts with an interpreted verdict/next-step block built from existing response fields only.
 - Observed Evidence and Validation remain accessible but are framed as later checking steps after in-game evidence is available.
 - No Colony Planner behaviour, Simulation Preview scoring, optimiser candidate generation/ranking, validation/review behaviour, backend mechanics, API endpoints, Search Tuning scoring, persistence, auto-run, auto-generate, or auto-load behaviour changed in Stage 8A.
+
+## Stage 8B - Colony Planner Real-Use QA Hardening
+
+Stage 8B is a ruthless real-user QA pass over the Stage 8A workflow. It does not add new mechanics or a dedicated planner workspace. The focus is making the existing entry points, focus behavior, copy, and tests match what a user sees when moving from Finder or Search Tuning into Colony Planner.
+
+Stage 8B implementation status:
+
+- Finder result `Evaluate in Colony Planner`, Search Tuning `Evaluate in Colony Planner`, and system-detail `Open Colony Planner` remain focus-only handoffs. They do not run Preview, generate Suggested Builds, copy a build, or mutate Search Tuning state.
+- Colony Planner and Suggested Builds focus highlights now clear pending timers on repeated clicks and unmount, avoiding stale timer callbacks during modal close or system changes.
+- Result-card tests now assert that Details, Evaluate, Watch, Map, Pin, and Compare actions stop propagation, do not collapse the card, and do not double-call detail open.
+- Suggested Builds first-run tests assert repeated `Show Suggested Builds` clicks focus the panel without auto-generation or auto-loading.
+- Preview guidance keeps conservative wording: low scores/warnings are **Needs work**, low confidence is an estimate, and validation compares predictions with what the user saw rather than claiming truth.
+- Larger work remains deferred: a dedicated Colony Planner route/workspace, hauling/material estimates, saved builds, EDMC/journal ingestion, automatic learning, and deeper planner route migration.
+
+No backend files, API contracts, scoring, CP/economy/service/buildability mechanics, optimiser generation/ranking, Search Tuning scoring, or Stage 6 validation/review behavior changed in Stage 8B.
