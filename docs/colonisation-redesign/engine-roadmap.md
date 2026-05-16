@@ -528,3 +528,33 @@ Deferred beyond Stage 10B:
 - Pre-preview body/facility validity explanations.
 - Right-side planner summary.
 - Material/hauling/trip tracking, which remains outside ED-Finder's planning scope unless a later handoff/export stage is explicitly defined.
+
+## Stage 10C - Graphical Body Layout Planner Foundation
+
+Stage 10C builds on the Stage 10B body readout and makes it feel more like a graphical colony planning layout while staying low risk. It keeps the existing List view as the default editor and renames the visual readout to Layout view.
+
+Current Stage 10C status:
+
+- `BuildPlanBodyView` now renders a compact system-layout summary for system name, target archetype, placement counts, assigned/unassigned counts, bodies used, primary-port status, warning count, visible CP generated/needed, and Preview status.
+- Body groups now act as compact layout cards with body tags, primary-port-body badge, warning counts, and body-level CP generated/needed.
+- Placement rows now include conservative status/confidence/warning chips for missing templates, unknown bodies, unassigned bodies, estimated data, sparse body metadata, surface-on-water-world risk, surface-on-non-landable-body risk, unclear orbital suitability, stale Preview, and CP pressure.
+- Layout view is a readout, not the destructive editing surface. Move/remove/edit actions remain in List view.
+- Tests cover summary counts, primary-port states, warning chips, sparse body metadata safety, unassigned visibility, and no Preview/Suggested Builds side effects when toggling.
+
+Spansh import feasibility:
+
+- Spansh currently exposes documented API endpoints for system, dump, body, and station lookup by IDs, and a search endpoint can find systems by name.
+- ED-Finder already has backend Spansh dump import infrastructure and a `/api/system/{id64}` detail endpoint with imported bodies/stations.
+- A manual "Import / refresh system layout from Spansh" action is possible but should be backend-side, cached in Postgres, explicitly user-triggered, and protected from silently overwriting Build Plans.
+- Direct frontend import, silent background refresh, and automatic planner mutation are not safe for Stage 10C.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, hauling/material feature, auto-run, auto-generate, or auto-load behaviour changed in Stage 10C.
+
+Deferred beyond Stage 10C:
+
+- Structure picker/table and variant comparison.
+- Selected body/site detail panel.
+- Actual orbital/body map rendering.
+- Spansh refresh endpoint, cache workflow, and import review UI.
+- Saved builds and external ingestion.
+- Material, commodity, carrier, hauling, and trip planning.

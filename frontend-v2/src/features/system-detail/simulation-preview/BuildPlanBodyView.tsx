@@ -1,206 +1,245 @@
-import { ArrowDown, ArrowUp, AlertTriangle, Trash2 } from 'lucide-react';
-import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
-import { Chip, IconButton } from './components';
+import { AlertTriangle, CircleDotDashed, LayoutPanelTop } from 'lucide-react';
+import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
+import {
+  bodyDisplayName,
+  bodyTags,
+  getBodyGroupSummary,
+  getBodyGroupWarnings,
+  getPlacementStatus,
+  getPlacementWarnings,
+  getPlanSummary,
+  groupPlacementsByBody,
+  type BodyGroup,
+  type GroupedPlacement,
+  type PlanSummary,
+} from './buildPlanLayoutUtils';
+import { Chip } from './components';
 import { formatLocation } from './utils/formatters';
 
 interface BuildPlanBodyViewProps {
+  systemName: string;
+  targetArchetype: string;
   placements: SimulateBuildPlacement[];
   templates: FacilityTemplate[];
   bodies: SystemBody[];
-  onRemove: (index: number) => void;
-  onMove: (index: number, direction: -1 | 1) => void;
-}
-
-interface GroupedPlacement {
-  placement: SimulateBuildPlacement;
-  index: number;
-  template?: FacilityTemplate;
-}
-
-interface BodyGroup {
-  key: string;
-  body: SystemBody | null;
-  placements: GroupedPlacement[];
+  previewResult: SimulateBuildResponse | null;
+  isPreviewResultStale: boolean;
+  runningPreview: boolean;
 }
 
 export function BuildPlanBodyView({
+  systemName,
+  targetArchetype,
   placements,
   templates,
   bodies,
-  onRemove,
-  onMove,
+  previewResult,
+  isPreviewResultStale,
+  runningPreview,
 }: BuildPlanBodyViewProps) {
   const groups = groupPlacementsByBody(placements, templates, bodies);
+  const summary = getPlanSummary({
+    systemName,
+    targetArchetype,
+    placements,
+    templates,
+    bodies,
+    previewResult,
+    isPreviewResultStale,
+    runningPreview,
+    groups,
+  });
 
   return (
     <div className="space-y-3">
       <div className="rounded border border-cyan/30 bg-cyan/5 px-3 py-2 text-[11px] text-silver-dk">
-        <span className="font-mono uppercase tracking-[0.14em] text-cyan">Body view</span>
-        <span className="ml-2">Use List view for detailed editing. This view shows where the current Build Plan is placed.</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <LayoutPanelTop size={14} className="text-cyan" />
+          <span className="font-mono uppercase tracking-[0.14em] text-cyan">Layout view</span>
+          <span>Use List view for detailed editing. This view is a planning readout of the same Build Plan.</span>
+        </div>
       </div>
 
-      {groups.map((group) => (
-        <section
-          key={group.key}
-          aria-label={group.body ? `Body group ${bodyDisplayName(group.body)}` : 'Unassigned / needs body'}
-          className={[
-            'rounded-chunk-lg border p-3',
-            group.body ? 'border-border/70 bg-bg2/65' : 'border-gold/45 bg-gold/5',
-          ].join(' ')}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h5 className={group.body ? 'text-sm font-bold text-silver' : 'text-sm font-bold text-gold'}>
-                  {group.body ? bodyDisplayName(group.body) : 'Unassigned / needs body'}
-                </h5>
-                {group.body ? (
-                  <Chip>{group.placements.length} placement{group.placements.length === 1 ? '' : 's'}</Chip>
-                ) : (
-                  <Chip tone="warn">{group.placements.length} placement{group.placements.length === 1 ? '' : 's'}</Chip>
-                )}
-              </div>
-              <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-[10px]">
-                {group.body ? (
-                  bodyTags(group.body).map((tag) => <Chip key={tag}>{tag}</Chip>)
-                ) : (
-                  <Chip tone="warn">Needs assignment</Chip>
-                )}
-              </div>
-            </div>
-            {!group.body && (
-              <div className="flex max-w-md items-start gap-2 rounded border border-gold/30 bg-bg2/40 px-2 py-1.5 text-[10px] text-gold">
-                <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                <span>Assign these placements to bodies before trusting Preview.</span>
-              </div>
-            )}
-          </div>
+      <PlanSummaryPanel summary={summary} />
 
-          <div className="mt-3 grid gap-2">
-            {group.placements.map(({ placement, index, template }) => (
-              <article
-                key={`${placement.build_order}-${index}-${placement.facility_template_id}`}
-                className="rounded border border-border/65 bg-bg3/45 p-3"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="grid h-7 w-7 place-items-center rounded-full border border-orange/40 bg-orange/10 text-[11px] font-mono font-bold text-orange">
-                        {placement.build_order || index + 1}
-                      </span>
-                      <h6 className="min-w-0 text-sm font-semibold text-silver">
-                        {template?.name ?? placement.facility_template_id ?? 'Unknown facility'}
-                      </h6>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
-                      {placement.is_primary_port && <Chip tone="good">Primary port</Chip>}
-                      <Chip>{template ? formatLocation(template.allowed_location) : 'Unknown location'}</Chip>
-                      {template?.tier != null && <Chip>Tier {template.tier}</Chip>}
-                      {template?.pad_size && <Chip>Pad: {template.pad_size}</Chip>}
-                      {template?.economy && <Chip>Economy: {template.economy}</Chip>}
-                      {template?.category && <Chip>Role: {template.category}</Chip>}
-                      {template && (
-                        <Chip>
-                          CP: Y+{template.yellow_cp_generated} G+{template.green_cp_generated}
-                        </Chip>
-                      )}
-                      {template && (
-                        <Chip>
-                          Needs: Y{template.yellow_cp_cost} G{template.green_cp_cost}
-                        </Chip>
-                      )}
-                      {template?.confidence === 'estimated' && <Chip tone="warn">Estimated data</Chip>}
-                      {!template && <Chip tone="warn">Missing template</Chip>}
-                      {!group.body && <Chip tone="warn">No body</Chip>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <IconButton label="Move up" onClick={() => onMove(index, -1)} disabled={index === 0}>
-                      <ArrowUp size={14} />
-                    </IconButton>
-                    <IconButton label="Move down" onClick={() => onMove(index, 1)} disabled={index === placements.length - 1}>
-                      <ArrowDown size={14} />
-                    </IconButton>
-                    <IconButton label="Remove" onClick={() => onRemove(index)}>
-                      <Trash2 size={14} />
-                    </IconButton>
-                  </div>
-                </div>
-                <p className="mt-2 font-mono text-[10px] text-silver-dk">
-                  Body assignment: {group.body ? bodyDisplayName(group.body) : 'Unassigned'}
-                </p>
-              </article>
+      {summary.planWarnings.length > 0 && (
+        <div className="rounded border border-gold/35 bg-gold/5 px-3 py-2">
+          <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-gold">
+            <AlertTriangle size={13} />
+            Plan needs review
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
+            {summary.planWarnings.map((warning) => (
+              <Chip key={warning.key} tone="warn">{warning.text}</Chip>
             ))}
           </div>
-        </section>
+        </div>
+      )}
+
+      {groups.map((group) => (
+        <BodyGroupCard key={group.key} group={group} placements={placements} />
       ))}
     </div>
   );
 }
 
-export function groupPlacementsByBody(
-  placements: SimulateBuildPlacement[],
-  templates: FacilityTemplate[],
-  bodies: SystemBody[],
-): BodyGroup[] {
-  const templatesById = new Map(templates.map((template) => [template.id, template]));
-  const bodiesById = new Map(
-    bodies
-      .filter((body) => body.id != null)
-      .map((body) => [String(body.id), body]),
+function PlanSummaryPanel({ summary }: { summary: PlanSummary }) {
+  const primaryTone = summary.primaryPortStatus === 'one' ? 'good' : 'warn';
+  const previewTone = summary.previewStatus === 'current' ? 'good' : summary.previewStatus === 'running' ? 'default' : 'warn';
+
+  return (
+    <section aria-label="Layout plan summary" className="rounded-chunk-lg border border-border/70 bg-bg2/65 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">System layout planner</div>
+          <h5 className="mt-1 text-sm font-bold text-silver">{summary.systemName || 'Unknown system'}</h5>
+          <p className="mt-1 font-mono text-[10px] text-silver-dk">Target: {summary.targetArchetypeLabel}</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
+          <Chip>{summary.totalPlacements} total</Chip>
+          <Chip>{summary.assignedPlacements} assigned</Chip>
+          <Chip tone={summary.unassignedPlacements > 0 ? 'warn' : 'good'}>{summary.unassignedPlacements} unassigned</Chip>
+          <Chip>{summary.bodiesUsed} bodies used</Chip>
+          <Chip tone={primaryTone}>{summary.primaryPortLabel}</Chip>
+          <Chip tone={summary.warningCount > 0 ? 'warn' : 'good'}>{summary.warningCount} warnings</Chip>
+          <Chip tone={previewTone}>Preview: {summary.previewStatus}</Chip>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <SummaryMetric
+          label="Yellow CP"
+          value={`+${summary.yellowGenerated} / needs ${summary.yellowNeeded}`}
+          warn={summary.yellowNeeded > summary.yellowGenerated}
+        />
+        <SummaryMetric
+          label="Green CP"
+          value={`+${summary.greenGenerated} / needs ${summary.greenNeeded}`}
+          warn={summary.greenNeeded > summary.greenGenerated}
+        />
+      </div>
+    </section>
   );
-  const bodyOrder = bodies
-    .filter((body) => body.id != null)
-    .map((body) => String(body.id));
-  const groupsByKey = new Map<string, BodyGroup>();
-
-  const ensureGroup = (key: string, body: SystemBody | null): BodyGroup => {
-    const existing = groupsByKey.get(key);
-    if (existing) return existing;
-    const next = { key, body, placements: [] };
-    groupsByKey.set(key, next);
-    return next;
-  };
-
-  placements.forEach((placement, index) => {
-    const bodyId = placement.local_body_id != null ? String(placement.local_body_id) : '';
-    const body = bodyId ? bodiesById.get(bodyId) ?? null : null;
-    const key = body ? bodyId : 'unassigned';
-    ensureGroup(key, body).placements.push({
-      placement,
-      index,
-      template: templatesById.get(placement.facility_template_id),
-    });
-  });
-
-  return Array.from(groupsByKey.values()).sort((a, b) => {
-    if (a.key === 'unassigned') return 1;
-    if (b.key === 'unassigned') return -1;
-    const aIndex = bodyOrder.indexOf(a.key);
-    const bIndex = bodyOrder.indexOf(b.key);
-    if (aIndex !== -1 || bIndex !== -1) {
-      return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex)
-        - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
-    }
-    return a.key.localeCompare(b.key);
-  });
 }
 
-export function bodyDisplayName(body: SystemBody): string {
-  return body.name || (body.id != null ? `Body ${body.id}` : 'Unknown body');
+function SummaryMetric({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className={[
+      'rounded border px-3 py-2 font-mono',
+      warn ? 'border-gold/35 bg-gold/5' : 'border-border/55 bg-bg3/35',
+    ].join(' ')}>
+      <div className={warn ? 'text-[10px] uppercase tracking-[0.16em] text-gold' : 'text-[10px] uppercase tracking-[0.16em] text-cyan'}>
+        {label}
+      </div>
+      <div className="mt-1 text-xs text-silver">{value}</div>
+    </div>
+  );
 }
 
-export function bodyTags(body: SystemBody): string[] {
-  const tags = [
-    body.body_type,
-    body.subtype,
-    body.is_landable ? 'Landable' : null,
-    body.is_water_world ? 'Water world' : null,
-    body.is_earth_like ? 'Earth-like' : null,
-    body.is_ammonia_world ? 'Ammonia world' : null,
-    body.is_terraformable ? 'Terraformable' : null,
-  ].filter((value): value is string => Boolean(value));
+function BodyGroupCard({ group, placements }: { group: BodyGroup; placements: SimulateBuildPlacement[] }) {
+  const bodyWarnings = getBodyGroupWarnings(group);
+  const summary = getBodyGroupSummary(group);
+  const isUnassigned = group.body === null;
 
-  const uniqueTags = Array.from(new Set(tags));
-  return uniqueTags.length > 0 ? uniqueTags : ['Unknown body data'];
+  return (
+    <section
+      aria-label={group.body ? `Body group ${bodyDisplayName(group.body)}` : 'Unassigned / needs body'}
+      className={[
+        'rounded-chunk-lg border p-3',
+        isUnassigned ? 'border-gold/45 bg-gold/5' : 'border-border/70 bg-bg2/65',
+      ].join(' ')}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h5 className={isUnassigned ? 'text-sm font-bold text-gold' : 'text-sm font-bold text-silver'}>
+              {group.body ? bodyDisplayName(group.body) : 'Unassigned / needs body'}
+            </h5>
+            <Chip tone={isUnassigned ? 'warn' : 'default'}>
+              {group.placements.length} placement{group.placements.length === 1 ? '' : 's'}
+            </Chip>
+            {summary.hasPrimaryPort && <Chip tone="good">Primary port body</Chip>}
+            {bodyWarnings.length > 0 && <Chip tone="warn">{bodyWarnings.length} body warning{bodyWarnings.length === 1 ? '' : 's'}</Chip>}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-[10px]">
+            {group.body ? (
+              bodyTags(group.body).map((tag) => <Chip key={tag}>{tag}</Chip>)
+            ) : (
+              <Chip tone="warn">Needs assignment</Chip>
+            )}
+            <Chip>CP: Y+{summary.yellowGenerated} G+{summary.greenGenerated}</Chip>
+            <Chip>Needs: Y{summary.yellowNeeded} G{summary.greenNeeded}</Chip>
+          </div>
+        </div>
+        {bodyWarnings.length > 0 && (
+          <div className="flex max-w-md flex-wrap gap-1.5 font-mono text-[10px]">
+            {bodyWarnings.map((warning) => <Chip key={warning} tone="warn">{warning}</Chip>)}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        {group.placements.map((placement) => (
+          <PlacementCard
+            key={`${placement.placement.build_order}-${placement.index}-${placement.placement.facility_template_id}`}
+            item={placement}
+            body={group.body}
+            totalPlacements={placements.length}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PlacementCard({
+  item,
+  body,
+  totalPlacements,
+}: {
+  item: GroupedPlacement;
+  body: SystemBody | null;
+  totalPlacements: number;
+}) {
+  const { placement, template, index } = item;
+  const warnings = getPlacementWarnings(item, body);
+  const status = getPlacementStatus(item, body);
+  const confidence = template?.confidence ?? 'missing';
+
+  return (
+    <article className="rounded border border-border/65 bg-bg3/45 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="grid h-7 w-7 place-items-center rounded-full border border-orange/40 bg-orange/10 text-[11px] font-mono font-bold text-orange">
+              {placement.build_order || index + 1}
+            </span>
+            <h6 className="min-w-0 text-sm font-semibold text-silver">
+              {template?.name ?? placement.facility_template_id ?? 'Unknown facility'}
+            </h6>
+            <Chip tone={status === 'planned' ? 'good' : 'warn'}>Status: {status}</Chip>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
+            {placement.is_primary_port && <Chip tone="good">Primary port</Chip>}
+            <Chip>{template ? formatLocation(template.allowed_location) : 'Unknown location'}</Chip>
+            {template?.tier != null && <Chip>Tier {template.tier}</Chip>}
+            {template?.pad_size && <Chip>Pad: {template.pad_size}</Chip>}
+            {template?.economy && <Chip>Economy: {template.economy}</Chip>}
+            {template?.category && <Chip>Role: {template.category}</Chip>}
+            {template && <Chip>CP: Y+{template.yellow_cp_generated} G+{template.green_cp_generated}</Chip>}
+            {template && <Chip>Needs: Y{template.yellow_cp_cost} G{template.green_cp_cost}</Chip>}
+            <Chip tone={confidence === 'estimated' || confidence === 'missing' ? 'warn' : 'default'}>Confidence: {confidence}</Chip>
+            {warnings.map((warning) => <Chip key={warning} tone="warn">{warning}</Chip>)}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 rounded border border-border/55 bg-bg2/55 px-2 py-1 font-mono text-[10px] text-silver-dk">
+          <CircleDotDashed size={12} />
+          {index + 1} of {totalPlacements}
+        </div>
+      </div>
+      <p className="mt-2 font-mono text-[10px] text-silver-dk">
+        Body assignment: {body ? bodyDisplayName(body) : item.hasUnknownBody ? `Unknown body ${item.bodyId}` : 'Unassigned'}
+      </p>
+    </article>
+  );
 }

@@ -10,6 +10,7 @@ import { ARCHETYPES, type StartMode } from './types';
 type BuildPlanViewMode = 'list' | 'body';
 
 export function BuildPlanSection({
+  systemName,
   startMode,
   hasRecommendedBuild,
   loadingRecommended,
@@ -34,6 +35,7 @@ export function BuildPlanSection({
   onRemovePlacement,
   onMovePlacement,
 }: {
+  systemName: string;
   startMode: StartMode;
   hasRecommendedBuild: boolean;
   loadingRecommended: boolean;
@@ -159,13 +161,13 @@ export function BuildPlanSection({
             <BuildPlanViewButton
               active={viewMode === 'body'}
               icon={<Columns3 size={14} />}
-              label="Body view"
-              helper="See the plan grouped by body."
+              label="Layout view"
+              helper="Graphical body layout."
               onClick={() => setViewMode('body')}
             />
           </div>
           <p className="max-w-md text-[10px] font-mono text-silver-dk">
-            List view remains the detailed editor. Body view is a visual planning readout of the same Build Plan.
+            List view remains the detailed editor. Layout view is a visual planning readout of the same Build Plan.
           </p>
         </div>
         <div className="mb-3 grid gap-2 font-mono text-[10px] text-silver-dk md:grid-cols-2">
@@ -193,11 +195,14 @@ export function BuildPlanSection({
         ) : (
           viewMode === 'body' ? (
             <BuildPlanBodyView
+              systemName={systemName}
+              targetArchetype={targetArchetype}
               placements={placements}
               templates={templates}
               bodies={bodies}
-              onRemove={onRemovePlacement}
-              onMove={onMovePlacement}
+              previewResult={previewResult}
+              isPreviewResultStale={isPreviewResultStale}
+              runningPreview={runningPreview}
             />
           ) : (
             <BuildPlanEditor

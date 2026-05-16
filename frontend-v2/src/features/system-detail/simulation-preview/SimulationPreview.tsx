@@ -124,6 +124,7 @@ export function SimulationPreview({
 
       <div className="space-y-4 p-4">
         <BuildPlanSection
+          systemName={system.name}
           startMode={plan.startMode}
           hasRecommendedBuild={hasRecommendedBuild}
           loadingRecommended={summaryQuery.isLoading || templatesQuery.isLoading}

@@ -22,7 +22,9 @@ Stage 10B implementation note:
 - The existing flat/list `BuildPlanEditor` remains the detailed editing surface.
 - The List/Body toggle is local UI state only and is not persisted.
 - No backend mechanics, scoring, optimiser generation/ranking, validation/review behaviour, Search Tuning behaviour, persistence, auto-run, auto-generate, auto-load, or hauling/material tracking changed.
-- The full structure picker/table remains deferred to Stage 10C.
+- Stage 10C evolved the body readout into Layout view with a compact plan summary, body-level layout cards, primary-port status, warning chips, and visible CP generated/needed totals.
+- Spansh import was investigated in Stage 10C and remains a backend-supported/manual-refresh follow-up, not a frontend direct import or silent overwrite workflow.
+- The full structure picker/table remains deferred beyond Stage 10C.
 
 ## Reference Materials
 
@@ -487,3 +489,5 @@ Do not use brittle full snapshots.
 ED-Finder should move visually closer to RavenColonial's planning clarity without cloning RavenColonial's execution/logistics product. The safest next step is a Stage 10B body-grouped Build Plan view: bodies as containers, placements as visual cards, compact badges for known impacts, explicit unassigned warnings, and the existing list editor preserved for detailed edits.
 
 This gives users a clearer spatial understanding of the Build Plan while keeping ED-Finder as the planning/intelligence layer and leaving hauling/material execution to RavenColonial or a later handoff.
+
+Stage 10C confirms the next safe step after 10B: strengthen the body-grouped readout into a graphical Layout view and document Spansh import as a backend/manual-refresh follow-up. The structure picker/table, variant comparison, and external system-layout import workflow remain separate future stages.
