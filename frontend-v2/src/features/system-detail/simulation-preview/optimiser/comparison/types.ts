@@ -152,7 +152,7 @@ export function sourceFromOptimiserCandidate(
 
 export function sourceFromCurrentPreview({
   id = 'current-preview',
-  label = 'Current preview plan',
+  label = 'Current Build Plan',
   targetArchetype,
   placements,
   previewSummary = null,

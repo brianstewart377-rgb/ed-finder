@@ -359,11 +359,11 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     renderPanel({ preview: null });
     expect(screen.getByRole('region', { name: 'Validation' })).toBeTruthy();
     expect(
-      screen.getByText(/This validation is advisory\. It compares the current preview result/),
+      screen.getByText(/Later step: Validation compares the current Preview Result with recorded Observed Evidence/),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /does not change scoring, optimiser ranking, generated candidates, or in-game state/,
+        /does not change scoring, Suggested Builds, generated plans, or in-game state/,
       ),
     ).toBeTruthy();
   });
@@ -371,7 +371,7 @@ describe('ValidationPanel - Stage 6D validation display', () => {
   it('shows the no-preview empty state and does not call compare API when there is no preview result', async () => {
     renderPanel({ preview: null });
     expect(
-      screen.getByText(/Run Preview to compare predictions with observed evidence/),
+      screen.getByText(/Run Preview first, then record Observed Evidence after checking in-game/),
     ).toBeTruthy();
     // Wait a tick to be sure no async query was kicked off.
     await new Promise((resolve) => setTimeout(resolve, 10));

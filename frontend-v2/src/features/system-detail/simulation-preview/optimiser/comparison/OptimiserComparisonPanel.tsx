@@ -8,9 +8,9 @@ export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonR
   if (!result) {
     return (
       <section className="rounded border border-border/45 bg-bg3/20 px-3 py-2" aria-label="Optimiser comparison">
-        <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Compare with current preview</h5>
+        <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Compare with current plan</h5>
         <p className="mt-1 text-[11px] text-silver-dk">
-          Comparison needs a current preview plan. Add placements or load a candidate to compare changes.
+          Comparison needs a current Build Plan. Add placements or copy a Suggested Build to compare changes.
         </p>
       </section>
     );
@@ -22,7 +22,7 @@ export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonR
     <section className="rounded-chunk-lg border border-cyan/30 bg-cyan/5" aria-label="Optimiser comparison">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan/20 px-3 py-2">
         <div className="min-w-0">
-          <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Compare with current preview</h5>
+          <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Compare with current plan</h5>
           <div className="mt-1 text-sm font-semibold text-silver">{verdictLabel}</div>
         </div>
         <button
@@ -116,7 +116,7 @@ function PreviewDeltaSection({ result }: { result: BuildComparisonResult }) {
 function RankingDeltaSection({ result }: { result: BuildComparisonResult }) {
   const ranking = result.ranking_delta;
   if (!ranking || ranking.direction === 'unknown') {
-    return <ListSection title="Ranking delta" items={[]} empty="Ranking delta is unavailable for the current manual preview plan." />;
+    return <ListSection title="Ranking delta" items={[]} empty="Ranking delta is unavailable for the current manual Build Plan." />;
   }
   return (
     <ListSection
@@ -126,7 +126,7 @@ function RankingDeltaSection({ result }: { result: BuildComparisonResult }) {
         `Rank score: ${ranking.before_rank_score ?? 'unknown'} → ${ranking.after_rank_score ?? 'unknown'} (${ranking.rank_score_delta != null && ranking.rank_score_delta > 0 ? '+' : ''}${ranking.rank_score_delta ?? 'unknown'})`,
         `Tier: ${ranking.before_rank_tier ?? 'unknown'} → ${ranking.after_rank_tier ?? 'unknown'}`,
       ]}
-      empty="Ranking delta is unavailable for the current manual preview plan."
+      empty="Ranking delta is unavailable for the current manual Build Plan."
     />
   );
 }

@@ -13,7 +13,7 @@ export function OptimiserCandidateDetails({
   onLoadCandidate,
   currentPreviewPlacements,
   currentTargetArchetype,
-  currentPreviewLabel = 'Current preview plan',
+  currentPreviewLabel = 'Current Build Plan',
   controlsChangedSinceGeneration = false,
   generatedTargetArchetype,
   currentControlTargetArchetype,
@@ -48,7 +48,7 @@ export function OptimiserCandidateDetails({
   if (!candidate) {
     return (
       <div className="rounded-chunk-lg border border-border/60 bg-bg3/25 p-4 text-sm text-silver-dk">
-        Select a generated candidate to inspect its rationale, placements, and ranking explanation.
+        Select a suggested build to inspect its rationale, placements, and ranking explanation.
       </div>
     );
   }
@@ -106,14 +106,14 @@ export function OptimiserCandidateDetails({
         </div>
       )}
 
-      <Section title="Rationale" items={candidate.rationale} empty="No rationale was returned for this candidate." />
+      <Section title="Rationale" items={candidate.rationale} empty="No rationale was returned for this suggested build." />
       <Section
         title="Warnings"
         items={[
           ...candidate.warnings,
           ...(candidate.preview_summary?.warnings_count ? [`Preview summary reported ${candidate.preview_summary.warnings_count} warning(s).`] : []),
         ]}
-        empty="No candidate warnings."
+        empty="No suggested-build warnings."
       />
       <Section
         title="Ranking reasons"
@@ -133,10 +133,10 @@ export function OptimiserCandidateDetails({
 
       {controlsChangedSinceGeneration && (
         <div className="rounded-chunk-lg border border-gold/45 bg-gold/10 p-3 font-mono text-[11px] leading-snug text-gold">
-          These candidates may not match the current Build Plan target/settings. Loading is still possible, but requires confirmation because the candidate was generated from older controls.
+          These suggested builds may not match the current Build Plan target/settings. Copying is still possible, but requires confirmation because the suggested build was generated from older controls.
           {generatedTargetArchetype && currentControlTargetArchetype && generatedTargetArchetype !== currentControlTargetArchetype && (
             <div className="mt-1 text-[10px] text-silver-dk">
-              Generated target differs from the current Build Plan target. Generate again for the current target before relying on comparison.
+              Generated target differs from the current Build Plan target. Generate Suggested Builds again for the current target before relying on comparison.
             </div>
           )}
         </div>
@@ -144,13 +144,13 @@ export function OptimiserCandidateDetails({
 
       {onLoadCandidate && (
         <div className="rounded-chunk-lg border border-orange/30 bg-orange/8 p-3">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Load candidate</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Copy to Build Plan</div>
           <p className="mt-1 text-[11px] text-silver-dk">
-            Copies this candidate into the editable Simulation Preview. Nothing is committed in-game.
+            Copies this suggested build into the editable Build Plan. Nothing is committed in-game.
           </p>
           {controlsChangedSinceGeneration && (
             <p className="mt-2 text-[11px] text-gold">
-              These candidates may not match the current Build Plan target/settings. Loading is still possible, but requires confirmation because the candidate was generated from older controls.
+              These suggested builds may not match the current Build Plan target/settings. Copying is still possible, but requires confirmation because the suggested build was generated from older controls.
             </p>
           )}
           {loadConfirmation ? (
@@ -165,7 +165,7 @@ export function OptimiserCandidateDetails({
               onClick={requestLoad}
               className="mt-3 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 font-mono text-xs font-bold text-orange hover:bg-orange/25"
             >
-              Load into preview
+              Copy to Build Plan
             </button>
           )}
         </div>
@@ -189,20 +189,20 @@ function LoadConfirmation({
 }) {
   const isStale = mode === 'stale' || mode === 'stale_replace';
   const title = mode === 'stale_replace'
-    ? 'Replace current preview plan with older generated candidate?'
+    ? 'Replace current Build Plan with older suggested build?'
     : mode === 'stale'
-      ? 'These candidates were generated with older controls'
-      : 'Replace current preview plan with this optimiser candidate?';
+      ? 'These suggested builds were generated with older controls'
+      : 'Replace current Build Plan with this suggested build?';
   const body = mode === 'stale_replace'
-    ? 'These candidates were generated with older controls and may not match the current Build Plan target/settings. This only replaces the editable preview placements. It does not save anything or affect in-game state.'
+    ? 'These suggested builds were generated with older controls and may not match the current Build Plan target/settings. This will replace your current Build Plan with this suggested build. It does not save anything or affect in-game state.'
     : mode === 'stale'
-      ? 'The current target/settings differ from the values used to generate this candidate. Generate again for the safest comparison, or deliberately load this older candidate into the editable Build Plan.'
-      : 'This only replaces the editable preview placements. It does not save anything or affect in-game state.';
+      ? 'The current target/settings differ from the values used to generate this suggested build. Generate again for the safest comparison, or deliberately copy this older suggested build into the editable Build Plan.'
+      : 'This will replace your current Build Plan with this suggested build. It does not save anything or affect in-game state.';
   const confirmLabel = mode === 'stale_replace'
-    ? 'Replace with older candidate'
+    ? 'Replace with older suggested build'
     : isStale
-      ? 'Load older candidate anyway'
-      : 'Replace preview plan';
+      ? 'Copy older suggested build anyway'
+      : 'Replace Build Plan';
 
   return (
     <div className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2">

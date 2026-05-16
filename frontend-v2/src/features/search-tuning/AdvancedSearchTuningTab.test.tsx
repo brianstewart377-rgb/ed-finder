@@ -412,6 +412,11 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
 
     expect(onOpenDetail).toHaveBeenCalledTimes(3);
     expect(onOpenDetail).toHaveBeenCalledWith(42);
+    expect(onOpenDetail).toHaveBeenCalledWith(42, { focus: 'colony-planner' });
+    expect(onOpenDetail.mock.calls[0]).toEqual([42]);
+    expect(onOpenDetail.mock.calls[1]).toEqual([42, { focus: 'colony-planner' }]);
+    expect(onOpenDetail.mock.calls[2]).toEqual([42]);
+    expect(screen.getByText(/focused on Colony Planner/i)).toBeTruthy();
     expect(screen.getByText(/does not run Simulation Preview or generate builds/i)).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, Edit3, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Sparkles, Wand2 } from 'lucide-react';
 import { Message } from './components';
 import type { StartMode } from './types';
 
@@ -8,41 +8,71 @@ export function StartModes({
   hasRecommendedBuild,
   loadingRecommended,
   onUseRecommended,
-  onEditRecommended,
   onBlank,
 }: {
   mode: StartMode;
   hasRecommendedBuild: boolean;
   loadingRecommended: boolean;
   onUseRecommended: () => void;
-  onEditRecommended: () => void;
   onBlank: () => void;
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-3">
+    <div className="space-y-2">
+      <div>
+        <h5 className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver">How do you want to start?</h5>
+        <p className="mt-1 text-[11px] text-silver-dk">
+          Start with Suggested Builds if you are unsure, copy one to the Build Plan, tweak it, then run Preview.
+        </p>
+      </div>
+      <div className="grid gap-2 md:grid-cols-3">
+        <ModeInfo
+          icon={<Wand2 size={15} />}
+          title="Generate Suggested Builds"
+          body="Let ED-Finder suggest possible build plans for this system and goal. Use the Suggested Builds section below."
+          tone="primary"
+        />
       <ModeButton
         active={mode === 'recommended'}
         disabled={!hasRecommendedBuild}
         icon={<Sparkles size={15} />}
-        title="Use recommended build"
-        body={hasRecommendedBuild ? 'Load ED-Finder\'s suggested plan and preview it directly.' : loadingRecommended ? 'Looking for a suggested plan...' : 'No suggested plan is available yet.'}
+        title="Use recommended baseline"
+        body={hasRecommendedBuild ? 'Start from a simple recommended plan, then tweak it before running Preview.' : loadingRecommended ? 'Looking for a recommended baseline...' : 'No recommended baseline is available yet.'}
         onClick={onUseRecommended}
-      />
-      <ModeButton
-        active={mode === 'edit_recommended'}
-        disabled={!hasRecommendedBuild}
-        icon={<Edit3 size={15} />}
-        title="Edit selected recommended build"
-        body="Start from the suggested plan, then adjust facilities, bodies, and order."
-        onClick={onEditRecommended}
       />
       <ModeButton
         active={mode === 'blank_advanced'}
         icon={<AlertTriangle size={15} />}
-        title="Start blank advanced simulation"
+        title="Start blank"
         body="Begin with an empty plan when you already know what you want to test."
         onClick={onBlank}
+        secondary
       />
+      </div>
+    </div>
+  );
+}
+
+function ModeInfo({
+  icon,
+  title,
+  body,
+  tone,
+}: {
+  icon: ReactNode;
+  title: string;
+  body: string;
+  tone?: 'primary';
+}) {
+  return (
+    <div className={[
+      'rounded-chunk-lg border p-3 text-left',
+      tone === 'primary' ? 'border-cyan/45 bg-cyan/10' : 'border-border/70 bg-bg2/70',
+    ].join(' ')}>
+      <div className="flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-cyan">
+        {icon}
+        <span>{title}</span>
+      </div>
+      <p className="mt-1 text-[11px] leading-snug text-silver-dk">{body}</p>
     </div>
   );
 }
@@ -54,6 +84,7 @@ function ModeButton({
   title,
   body,
   onClick,
+  secondary,
 }: {
   active: boolean;
   disabled?: boolean;
@@ -61,6 +92,7 @@ function ModeButton({
   title: string;
   body: string;
   onClick: () => void;
+  secondary?: boolean;
 }) {
   return (
     <button
@@ -71,7 +103,9 @@ function ModeButton({
         'rounded-chunk-lg border p-3 text-left transition-colors',
         active
           ? 'border-orange/65 bg-orange/12 shadow-brand-glow'
-          : 'border-border/70 bg-bg2/70 hover:border-orange/45 hover:bg-orange/5',
+          : secondary
+            ? 'border-border/60 bg-bg2/45 hover:border-gold/45 hover:bg-gold/5'
+            : 'border-border/70 bg-bg2/70 hover:border-orange/45 hover:bg-orange/5',
         disabled ? 'cursor-not-allowed opacity-50' : '',
       ].join(' ')}
     >
@@ -80,6 +114,9 @@ function ModeButton({
         <span>{title}</span>
       </div>
       <p className="mt-1 text-[11px] leading-snug text-silver-dk">{body}</p>
+      {secondary && (
+        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-gold">Advanced manual control</p>
+      )}
     </button>
   );
 }
@@ -99,8 +136,8 @@ export function ModeIntro({
       }
     : mode === 'optimiser_candidate'
       ? {
-          title: 'Optimiser candidate loaded',
-          body: 'An optimiser candidate is loaded into the editable preview plan. Adjust facilities or run the normal preview when ready.',
+          title: 'Suggested build copied',
+          body: 'A suggested build is loaded into the editable Build Plan. Adjust facilities or run Preview when ready.',
           tone: 'info' as const,
         }
     : mode === 'edit_recommended'
@@ -110,10 +147,10 @@ export function ModeIntro({
           tone: 'info' as const,
         }
       : {
-          title: hasRecommendedBuild ? 'Recommended build loaded' : 'Waiting for recommended build',
+          title: hasRecommendedBuild ? 'Recommended baseline loaded' : 'Waiting for recommended baseline',
           body: hasRecommendedBuild
-            ? 'Start here: this is the safest first view. Run the preview as-is, then edit if you want to experiment.'
-            : 'ED-Finder will load a recommended plan here when buildability data is available.',
+            ? 'Use this as a simple baseline. You can still compare Suggested Builds, edit the Build Plan, then run Preview.'
+            : 'ED-Finder will load a recommended baseline here when buildability data is available.',
           tone: hasRecommendedBuild ? 'good' as const : 'info' as const,
         };
 
@@ -130,10 +167,10 @@ export function PlanBadge({
   const label = mode === 'blank_advanced'
     ? 'Advanced blank'
     : mode === 'optimiser_candidate'
-      ? 'Optimiser candidate'
+      ? 'Suggested build'
       : mode === 'edit_recommended'
         ? 'Editing recommendation'
-        : hasRecommendedBuild ? 'Recommended plan' : 'Recommendation pending';
+        : hasRecommendedBuild ? 'Recommended baseline' : 'Baseline pending';
   return (
     <span className="inline-flex items-center gap-1.5 rounded-chunk-sm border border-orange/40 bg-orange/10 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-orange">
       <CheckCircle2 size={13} />

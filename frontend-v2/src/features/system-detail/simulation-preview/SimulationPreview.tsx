@@ -112,8 +112,10 @@ export function SimulationPreview({
           optimiserCandidateOriginLabel={plan.optimiserCandidateOriginLabel}
           optimiserCandidateWasEdited={plan.optimiserCandidateWasEdited}
           initialAssumptions={initialAssumptions}
+          previewResult={runState.result}
+          isPreviewResultStale={runState.isResultStale}
+          runningPreview={runState.running}
           onUseRecommended={() => plan.loadRecommendedPlan('recommended')}
-          onEditRecommended={() => plan.loadRecommendedPlan('edit_recommended')}
           onBlank={plan.startBlankAdvanced}
           onAddPlacement={plan.addPlacement}
           onUpdatePlacement={plan.updatePlacement}
@@ -121,7 +123,7 @@ export function SimulationPreview({
           onMovePlacement={plan.movePlacement}
         />
 
-        <section aria-label="Optimiser Candidates">
+        <section aria-label="Suggested Builds">
           <OptimiserCandidatePanel
             systemId64={system.id64}
             targetArchetype={plan.targetArchetype}

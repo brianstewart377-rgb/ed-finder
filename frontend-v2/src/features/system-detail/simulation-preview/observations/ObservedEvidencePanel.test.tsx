@@ -136,12 +136,10 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
 
     expect(await screen.findByRole('region', { name: 'Observed Evidence' })).toBeTruthy();
     expect(
-      screen.getByText(
-        /Observed Evidence is passive\. It does not change Simulation Preview scoring, optimiser ranking, or generated candidates\./,
-      ),
+      screen.getByText(/Later step: Observed Evidence records what you see in-game after planning/),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Observed Evidence records what you actually saw in-game/),
+      screen.getByText(/Observed Evidence is for later, after checking in-game/),
     ).toBeTruthy();
   });
 

@@ -19,7 +19,7 @@ export function OptimiserRankingBreakdown({ breakdown }: { breakdown?: Optimiser
   if (!breakdown) {
     return (
       <div className="rounded border border-border/60 bg-bg3/25 px-3 py-2 text-[11px] text-silver-dk">
-        No ranking breakdown is available for this candidate.
+        No ranking breakdown is available for this suggested build.
       </div>
     );
   }

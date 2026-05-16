@@ -75,17 +75,17 @@ export function OptimiserCandidatePanel({
   };
 
   return (
-    <section className="rounded-chunk-lg border border-orange/20 bg-bg1/55 p-4" aria-label="Optimiser candidates">
+    <section className="rounded-chunk-lg border border-orange/20 bg-bg1/55 p-4" aria-label="Suggested Builds">
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Optimiser Candidates</h3>
+          <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Suggested Builds</h3>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-            Optimiser Candidates generates a small set of build-plan suggestions for this system using the current target archetype. Candidates are ranked and compared against your editable Build Plan. Nothing is saved or committed in-game.
+            Generate Suggested Builds to get possible build plans for this system and goal. Suggested builds are ranked and compared against your editable Build Plan. Nothing is saved or committed in-game.
           </p>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
             {onLoadCandidate
-              ? 'Load a selected candidate deliberately when you want to copy it into the editable Build Plan.'
-              : 'Read-only for now — applying a candidate comes in a later stage.'}
+              ? 'Copy a suggested build deliberately when you want to use it as the editable Build Plan.'
+              : 'Read-only for now - copying a suggested build comes in a later stage.'}
           </p>
         </div>
       </div>
@@ -111,10 +111,10 @@ export function OptimiserCandidatePanel({
             disabled={loading}
             className="rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 font-mono text-xs font-bold text-orange hover:bg-orange/25 disabled:opacity-45"
           >
-            {loading ? 'Generating' : 'Generate candidates'}
+            {loading ? 'Generating' : 'Generate Suggested Builds'}
           </button>
           <p className="max-w-xs font-mono text-[10px] leading-snug text-silver-dk">
-            Generates bounded candidate build plans and lightweight preview summaries. It does not run the main Simulation Preview or change your current Build Plan.
+            Generates bounded suggested build plans and lightweight preview summaries. It does not run the main Simulation Preview or change your current Build Plan.
           </p>
         </div>
       </div>
@@ -128,7 +128,7 @@ export function OptimiserCandidatePanel({
         Include estimated data
       </label>
       <p className="mb-3 max-w-2xl font-mono text-[10px] leading-snug text-silver-dk">
-        Allows candidate generation to use inferred or incomplete data when exact data is unavailable. This can produce more suggestions, but confidence and warnings should be reviewed.
+        Allows Suggested Builds to use inferred or incomplete data when exact data is unavailable. This can produce more suggestions, but confidence and warnings should be reviewed.
       </p>
 
       {generatedParams && (
@@ -136,7 +136,7 @@ export function OptimiserCandidatePanel({
           <div className="uppercase tracking-[0.16em] text-cyan">Generated for</div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
             <span>Target archetype: <span className="text-silver">{generatedParams.targetArchetype}</span></span>
-            <span>Max candidates: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
+            <span>Max suggested builds: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
             <span>Estimated data: <span className="text-silver">{generatedParams.allowEstimatedData ? 'on' : 'off'}</span></span>
           </div>
         </div>
@@ -144,7 +144,7 @@ export function OptimiserCandidatePanel({
 
       {controlsChangedSinceGeneration && generatedParams && (
         <div className="mb-3 rounded border border-gold/55 bg-gold/12 px-3 py-2 font-mono text-[11px] leading-snug text-gold">
-          <div className="font-bold">Controls have changed since these candidates were generated. Generate again to refresh candidates before comparing or loading.</div>
+          <div className="font-bold">Controls have changed since these suggested builds were generated. Generate again to refresh suggested builds before comparing or copying.</div>
           <div className="mt-2 grid gap-1 text-[10px] text-silver-dk sm:grid-cols-3">
             <span>Generated target: <span className="text-silver">{generatedParams.targetArchetype}</span></span>
             <span>Generated max: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
@@ -158,7 +158,7 @@ export function OptimiserCandidatePanel({
 
       {loading && (
         <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
-          Generating ranked optimiser candidates...
+          Generating ranked Suggested Builds...
         </div>
       )}
 

@@ -8,8 +8,8 @@
  * absolute wording ("verified", "proven", "rule update") into the UI.
  *
  * Stage 6B is intentionally passive: nothing here implies that an observation
- * changes Simulation Preview scoring, optimiser ranking, or generated
- * candidates. Comparison comes in Stage 6C, validation display in Stage 6D.
+ * changes Simulation Preview scoring, Suggested Builds, or generated plans.
+ * Comparison comes in Stage 6C, validation display in Stage 6D.
  */
 import type {
   ObservationSource,
@@ -20,10 +20,10 @@ import type {
 } from '@/types/api';
 
 export const PASSIVE_EVIDENCE_COPY =
-  'Observed Evidence is passive. It does not change Simulation Preview scoring, optimiser ranking, or generated candidates.';
+  'Later step: Observed Evidence records what you see in-game after planning. It does not change Simulation Preview scoring, Suggested Builds, or generated plans.';
 
 export const PANEL_INTRO_COPY =
-  'Observed Evidence records what you actually saw in-game for this system or build. It is passive evidence: it does not change Simulation Preview scoring, optimiser ranking, or generated candidates.';
+  'Observed Evidence is for later, after checking in-game. Record what you actually saw for this system or build; it does not change Simulation Preview scoring, Suggested Builds, or generated plans.';
 
 export const EMPTY_STATE_TITLE = 'No observed evidence recorded yet.';
 export const EMPTY_STATE_BODY =
