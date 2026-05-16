@@ -54,4 +54,20 @@ describe('ResultCard Colony Planner action', () => {
     expect(onCompare).toHaveBeenCalledWith(42);
     expect(screen.getByRole('button', { name: /Evaluate in Colony Planner/i })).toBeTruthy();
   });
+
+  it('copies the system name without toggling the expanded card', () => {
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+
+    render(<ResultCard system={system} index={0} />);
+
+    fireEvent.click(screen.getByText('Handoff'));
+    fireEvent.click(screen.getByRole('button', { name: /Copy name/i }));
+
+    expect(writeText).toHaveBeenCalledWith('Handoff');
+    expect(screen.getByRole('button', { name: /Copy name/i })).toBeTruthy();
+  });
 });

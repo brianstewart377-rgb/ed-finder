@@ -144,7 +144,7 @@ export function BuildPlanCard({
           )}
           {serviceScoringReserved && (
             <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
-              Service unlocks are shown in Simulation Preview, but service-aware ranking is reserved for a later pass.
+              Service unlocks are shown in the Preview Result, but service-aware ranking is reserved for a later pass.
             </p>
           )}
         </details>
@@ -156,7 +156,7 @@ export function BuildPlanCard({
         className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 font-mono text-xs font-bold text-orange hover:bg-orange/25"
       >
         <Play size={14} />
-        Preview & edit this build
+        Open in Colony Planner
       </button>
     </article>
   );

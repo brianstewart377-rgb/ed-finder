@@ -847,6 +847,12 @@ Docs/API tests:
 
 Stage 8B used this prep report as the Stage 8A baseline and performed a real-use QA hardening pass rather than a new feature stage. It tightened focus/highlight cleanup, result-card handoff tests, Suggested Builds focus tests, and conservative Preview Result wording. The larger deferred work above remains deferred.
 
+## Stage 8C Final Forensic Follow-up
+
+Stage 8C locks the Stage 8 guided workflow before new feature work. It keeps Recommended Builds as a small bridge into Colony Planner, aligns copy around Colony Planner / Build Plan / Preview Result, and preserves the explicit-action boundary: Evaluate/Open/Show actions only focus or navigate, Generate Suggested Builds is the only Suggested Builds generation action, Copy to Build Plan is deliberate, and Run Preview remains the only Preview execution action. No backend mechanics, scoring, generation, ranking, validation, Search Tuning scoring, persistence, or route/workspace migration changed.
+
+Deferred work remains unchanged: a dedicated planner route/workspace, saved builds, material/hauling estimates, deeper primary-port/CP strategy logic, EDMC/journal ingestion, and automatic learning are later-stage work.
+
 ## Final Recommendation
 
 Stage 8A should be a focused frontend UX implementation based on this audit:

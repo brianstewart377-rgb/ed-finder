@@ -76,7 +76,8 @@ describe('BuildPlanCard explainability', () => {
     expect(screen.getByText('Regional Fit Score')).toBeTruthy();
     expect(screen.queryByText('Service Score')).toBeNull();
     expect(screen.queryByText(/Service Score\s*0/i)).toBeNull();
-    expect(screen.getByText(/Service unlocks are shown in Simulation Preview/)).toBeTruthy();
+    expect(screen.getByText(/Service unlocks are shown in the Preview Result/)).toBeTruthy();
     expect(screen.getByText(/Regional fit is a light adjustment/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Open in Colony Planner/i })).toBeTruthy();
   });
 });

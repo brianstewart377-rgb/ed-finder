@@ -35,22 +35,22 @@ export function StartModes({
           onClick={onShowSuggestedBuilds ?? (() => undefined)}
           primary
         />
-      <ModeButton
-        active={mode === 'recommended'}
-        disabled={!hasRecommendedBuild}
-        icon={<Sparkles size={15} />}
-        title="Use recommended baseline"
-        body={hasRecommendedBuild ? 'Start from a simple recommended plan, then tweak it before running Preview.' : loadingRecommended ? 'Looking for a recommended baseline...' : 'No recommended baseline is available yet.'}
-        onClick={onUseRecommended}
-      />
-      <ModeButton
-        active={mode === 'blank_advanced'}
-        icon={<AlertTriangle size={15} />}
-        title="Start blank"
-        body="Begin with an empty plan when you already know what you want to test."
-        onClick={onBlank}
-        secondary
-      />
+        <ModeButton
+          active={mode === 'recommended'}
+          disabled={!hasRecommendedBuild}
+          icon={<Sparkles size={15} />}
+          title="Use recommended baseline"
+          body={hasRecommendedBuild ? 'Start from a simple recommended plan, then tweak it before running Preview.' : loadingRecommended ? 'Looking for a recommended baseline...' : 'No recommended baseline is available yet.'}
+          onClick={onUseRecommended}
+        />
+        <ModeButton
+          active={mode === 'blank_advanced'}
+          icon={<AlertTriangle size={15} />}
+          title="Start blank"
+          body="Begin with an empty plan when you already know what you want to test."
+          onClick={onBlank}
+          secondary
+        />
       </div>
     </div>
   );
@@ -117,7 +117,7 @@ export function ModeIntro({
   const copy = mode === 'blank_advanced'
     ? {
         title: 'Advanced blank plan',
-        body: 'You are building from scratch. Add every facility yourself, then run the preview to check CP, economy order, and risks.',
+        body: 'You are building from scratch. Add every facility yourself, then run Preview to check CP, economy order, and risks.',
         tone: 'warn' as const,
       }
     : mode === 'optimiser_candidate'
@@ -129,7 +129,7 @@ export function ModeIntro({
     : mode === 'edit_recommended'
       ? {
           title: 'Recommended plan editor',
-          body: 'A suggested build is loaded. Adjust the sequence or facilities before previewing the in-game outcome.',
+          body: 'A recommended plan is loaded into the editable Build Plan. Adjust the sequence or facilities before running Preview.',
           tone: 'info' as const,
         }
       : {

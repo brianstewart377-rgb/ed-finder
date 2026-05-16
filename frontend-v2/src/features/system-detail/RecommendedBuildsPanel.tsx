@@ -26,7 +26,7 @@ export function RecommendedBuildsPanel({
         <div className="min-w-0 flex-1">
           <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Recommended Builds</h3>
           <p className="mt-1 text-[11px] text-silver-dk font-mono">
-            Choose a suggested plan, then open it in Simulation Preview before committing in-game.
+            Choose a recommended plan, then open it in Colony Planner to review the editable Build Plan before committing in-game.
           </p>
         </div>
       </div>
@@ -54,7 +54,7 @@ export function RecommendedBuildsPanel({
         <div className="rounded-chunk-lg border border-dashed border-border bg-bg3/25 px-4 py-5 text-center">
           <div className="font-mono text-xs text-silver">No recommended builds yet.</div>
           <div className="mt-1 text-[11px] text-silver-dk">
-            Try Simulation Preview manually, or scan more bodies to improve topology confidence.
+            Start blank in Colony Planner, or scan more bodies to improve topology confidence.
           </div>
         </div>
       )}

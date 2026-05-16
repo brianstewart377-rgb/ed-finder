@@ -142,7 +142,7 @@ The Stage 6D panel is intentionally **passive**. It calls only `comparePredictio
 
 Stage 6E will introduce the confidence/mechanics review loop on top of this display; Stage 6D itself is a display layer only. Tests under `validation/ValidationPanel.test.tsx` and the updated `SimulationPreview.optimiser.test.tsx` cover advisory copy, no-preview empty state, compare API call shape, summary rendering, per-status labels, evidence detail rendering, status filtering, loading state, error/retry, stale warning, refresh, in-page ordering after Observed Evidence, and passivity (no `simulateBuild`, no `fetchOptimiserCandidates`, no observation mutations during rendering).
 
-## Stage 8A/8B Colony Planner UX Hardening
+## Stage 8A/8B/8C Colony Planner UX Hardening
 
 Stage 8A reframed the embedded Simulation Preview surface as the user-facing **Colony Planner** path:
 
@@ -154,7 +154,9 @@ Stage 8A reframed the embedded Simulation Preview surface as the user-facing **C
 - Preview Result starts with cautious verdict guidance before detailed mechanics panels.
 - Observed Evidence and Validation remain later-step panels after planning and in-game checking.
 
-Stage 8B hardens that path for real use. Focus-highlight timers are cleaned up on repeated clicks and unmount. Result-card action tests cover propagation and double-call risks. Suggested Builds focus tests cover the no-auto-generation boundary. Preview guidance uses estimate/comparison wording and avoids optimality or truth claims. This remains frontend UX/test/docs work only; no scoring, generation, ranking, validation, or backend mechanics changed.
+Stage 8B hardens that path for real use. Focus-highlight timers are cleaned up on repeated clicks and unmount. Result-card action tests cover propagation and double-call risks. Suggested Builds focus tests cover the no-auto-generation boundary. Preview guidance uses estimate/comparison wording and avoids optimality or truth claims.
+
+Stage 8C is the final forensic pass over the guided workflow. It keeps the older Recommended Builds bridge aligned with Colony Planner terminology, keeps blank/manual planning framed as an editable Build Plan path, and preserves the rule that Evaluate/Open/Show actions focus or navigate only. Suggested Builds generation, Build Plan copying, and Preview execution remain explicit user actions. This remains frontend UX/test/docs work only; no scoring, generation, ranking, validation, or backend mechanics changed.
 
 ## Stage 6E Validation Review Guidance
 

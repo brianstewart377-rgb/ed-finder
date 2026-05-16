@@ -226,7 +226,7 @@ export function ResultCard({
             <ActionButton onClick={() => onShowOnMap?.(system.id64)}>
               <Map size={13} className="mr-1.5" /> Map
             </ActionButton>
-            <ActionButton onClick={() => navigator.clipboard.writeText(system.name)}>
+            <ActionButton onClick={() => { void navigator.clipboard?.writeText?.(system.name || 'Unknown System'); }}>
               <Copy size={13} className="mr-1.5" /> Copy name
             </ActionButton>
           </div>

@@ -106,6 +106,14 @@ Stage 5.9E hardens the full Colony Planner workflow before Stage 6. Generated ca
 
 Future Search Tuning work should add clearer presets, before/after rank movement, and better explanations, but that rework is separate from the Stage 5 colony optimiser and is not implemented in this pass.
 
+### Stage 8A-8C Colony Planner Guided Workflow
+
+Stage 8A-8C harden the existing embedded Simulation Preview surface into a guided **Colony Planner** workflow without changing backend mechanics. Users can now enter the planner from system detail, Finder result cards, or Advanced Search Tuning; those handoffs scroll/focus the embedded planner only and do not run Preview, generate Suggested Builds, or copy builds automatically.
+
+User-facing planner terms are **Suggested Builds**, **Build Plan**, and **Preview Result**. Backend/API/type names still use optimiser/candidate vocabulary where compatibility requires it. Build Plan feedback shows placement count and Preview not-run/running/stale/current-match state. Preview Result starts with cautious verdict/next-step guidance. Observed Evidence and Validation remain passive later steps for after in-game checking.
+
+Stage 8C also aligns the older Recommended Builds cards with the Colony Planner path: recommended plans open into the editable Build Plan, and service unlock detail points to the Preview Result. Dedicated planner routes/workspaces, saved builds, material/hauling estimates, deeper primary-port/CP strategy logic, EDMC/journal ingestion, and automatic learning remain deferred.
+
 ## Stage 6 - Observed vs Predicted Validation
 
 Stage 6A begins the validation layer as a backend-only observed facts foundation. It adds a passive `observed_facts` persistence contract, manual/test-fixture source support, CRUD API endpoints, and descriptive summaries. Observations record evidence; they do not mutate predictions, optimiser generation, ranking, Simulation Preview scoring, or CP/economy/service/buildability mechanics.

@@ -387,7 +387,7 @@ Stage 6D renders the Stage 6C `POST /api/observations/compare` response inside C
 
 The frontend uses **Suggested Builds** as the user-facing planner label. Backend endpoints and generated types still use optimiser/candidate vocabulary for API compatibility.
 
-Stage 8A/8B are frontend UX hardening passes over this existing contract. Finder, Search Tuning, and System Detail can focus the embedded Colony Planner, but those handoffs do not call simulation, generate Suggested Builds, copy a build, mutate validation/review data, or alter any API request/response shape. No backend contract changed for Stage 8B.
+Stage 8A/8B/8C are frontend UX hardening passes over this existing contract. Finder, Search Tuning, and System Detail can focus the embedded Colony Planner, but those handoffs do not call simulation, generate Suggested Builds, copy a build, mutate validation/review data, or alter any API request/response shape. Stage 8C also keeps Recommended Builds as a frontend bridge into Colony Planner rather than a separate API concept. No backend contract changed for Stage 8C.
 
 ### Frontend types and helper
 

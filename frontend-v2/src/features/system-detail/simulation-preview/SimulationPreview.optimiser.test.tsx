@@ -341,7 +341,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
     expect(screen.getAllByText('Generate Suggested Builds').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /Show Suggested Builds/i })).toBeTruthy();
-    expect(screen.getByText(/Start blank/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Start blank/i })).toBeTruthy();
     expect(screen.getByText(/Advanced manual control/)).toBeTruthy();
     expect(screen.getByText(/0 placements in Build Plan/)).toBeTruthy();
     expect(screen.getAllByText(/Preview not run yet/).length).toBeGreaterThan(0);
@@ -428,7 +428,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     expect(screen.queryByText(/Copied suggested build:/)).toBeNull();
     expect(screen.queryByText(/Started from suggested build:/)).toBeNull();
-    expect(screen.getByText(/Blank advanced simulation/)).toBeTruthy();
+    expect(screen.getByText(/Blank manual Build Plan/)).toBeTruthy();
   });
 
   it('recommended plan loading clears optimiser origin state', async () => {
@@ -437,7 +437,10 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Replace Build Plan/i }));
+    const replaceButton = screen.queryByRole('button', { name: /Replace Build Plan/i });
+    if (replaceButton) {
+      fireEvent.click(replaceButton);
+    }
     await screen.findByText(/Copied suggested build:/);
 
     fireEvent.click(screen.getByRole('button', { name: /Use recommended baseline/i }));

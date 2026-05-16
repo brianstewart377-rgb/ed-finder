@@ -155,12 +155,12 @@ export function BuildPlanSection({
         {placements.length === 0 ? (
           <div className="rounded-chunk-lg border border-dashed border-gold/45 bg-gold/5 px-4 py-6 text-center">
             <div className="font-mono text-xs text-gold">
-              {startMode === 'blank_advanced' ? 'Blank advanced simulation' : 'No recommended build loaded yet'}
+              {startMode === 'blank_advanced' ? 'Blank manual Build Plan' : 'No recommended build loaded yet'}
             </div>
             <div className="mt-1 text-[11px] text-silver-dk">
               {startMode === 'blank_advanced'
-                ? 'Start with a primary port, then add support facilities and run the preview.'
-                : 'Use a recommended build when available, or choose the advanced blank mode.'}
+                ? 'Start with a primary port, then add support facilities and run Preview.'
+                : 'Use Suggested Builds below, use a recommended baseline when available, or choose Start blank.'}
             </div>
           </div>
         ) : (
