@@ -1,9 +1,13 @@
-import { Plus } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { Columns3, ListChecks, Plus } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
+import { BuildPlanBodyView } from './BuildPlanBodyView';
 import { BuildPlanEditor } from './BuildPlanEditor';
 import { ModeIntro, StartModes } from './StartModes';
 import { Message } from './components';
 import { ARCHETYPES, type StartMode } from './types';
+
+type BuildPlanViewMode = 'list' | 'body';
 
 export function BuildPlanSection({
   startMode,
@@ -54,6 +58,8 @@ export function BuildPlanSection({
   onRemovePlacement: (index: number) => void;
   onMovePlacement: (index: number, direction: -1 | 1) => void;
 }) {
+  const [viewMode, setViewMode] = useState<BuildPlanViewMode>('list');
+
   return (
     <section aria-label="Build Plan" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
       <div className="mb-3">
@@ -141,6 +147,27 @@ export function BuildPlanSection({
       )}
 
       <div className="mt-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="inline-flex rounded-chunk-sm border border-border/70 bg-bg3/40 p-1">
+            <BuildPlanViewButton
+              active={viewMode === 'list'}
+              icon={<ListChecks size={14} />}
+              label="List view"
+              helper="Edit placements in order."
+              onClick={() => setViewMode('list')}
+            />
+            <BuildPlanViewButton
+              active={viewMode === 'body'}
+              icon={<Columns3 size={14} />}
+              label="Body view"
+              helper="See the plan grouped by body."
+              onClick={() => setViewMode('body')}
+            />
+          </div>
+          <p className="max-w-md text-[10px] font-mono text-silver-dk">
+            List view remains the detailed editor. Body view is a visual planning readout of the same Build Plan.
+          </p>
+        </div>
         <div className="mb-3 grid gap-2 font-mono text-[10px] text-silver-dk md:grid-cols-2">
           <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2">
             Primary port is a major planning choice. Choose carefully before committing in-game.
@@ -164,17 +191,59 @@ export function BuildPlanSection({
             </div>
           </div>
         ) : (
-          <BuildPlanEditor
-            placements={placements}
-            templates={templates}
-            bodies={bodies}
-            onUpdate={onUpdatePlacement}
-            onRemove={onRemovePlacement}
-            onMove={onMovePlacement}
-          />
+          viewMode === 'body' ? (
+            <BuildPlanBodyView
+              placements={placements}
+              templates={templates}
+              bodies={bodies}
+              onRemove={onRemovePlacement}
+              onMove={onMovePlacement}
+            />
+          ) : (
+            <BuildPlanEditor
+              placements={placements}
+              templates={templates}
+              bodies={bodies}
+              onUpdate={onUpdatePlacement}
+              onRemove={onRemovePlacement}
+              onMove={onMovePlacement}
+            />
+          )
         )}
       </div>
     </section>
+  );
+}
+
+function BuildPlanViewButton({
+  active,
+  icon,
+  label,
+  helper,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  helper: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'inline-flex min-w-[8.5rem] items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors',
+        active ? 'bg-orange/15 text-orange' : 'text-silver-dk hover:bg-bg2 hover:text-silver',
+      ].join(' ')}
+      aria-pressed={active}
+    >
+      {icon}
+      <span>
+        <span className="block font-mono text-[10px] font-bold uppercase tracking-[0.12em]">{label}</span>
+        <span className="block text-[10px] normal-case tracking-normal">{helper}</span>
+      </span>
+    </button>
   );
 }
 

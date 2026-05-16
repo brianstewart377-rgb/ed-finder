@@ -506,3 +506,25 @@ Recommended Stage 10B:
 - Add a local List/Body view toggle with no persistence.
 - Show unassigned placements and compact badges for primary port, allowed location, tier, economy, CP, confidence, and missing-data warnings.
 - Defer the full structure picker/table and variant-aware selection to Stage 10C.
+
+## Stage 10B - Body-Grouped Build Plan Visual Layout
+
+Stage 10B implements the low-risk visual planning improvement recommended by Stage 10A. It adds a body-grouped Build Plan readout while preserving the existing flat/list editor for detailed editing compatibility.
+
+Current Stage 10B status:
+
+- `BuildPlanSection` now exposes a local List view / Body view toggle.
+- List view remains the default and continues to render the existing `BuildPlanEditor`.
+- Body view renders the current Build Plan grouped by assigned body, with an explicit `Unassigned / needs body` group for placements without a known body.
+- Placement cards show build order, facility name, primary-port badge, allowed location, tier, pad size, economy, category/role, CP gives/needs, confidence, missing-template warnings, and body assignment using existing data only.
+- The toggle does not persist state, run Preview, generate Suggested Builds, copy/load builds, mutate Observed Evidence, or call Validation/Review endpoints.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, hauling/material feature, auto-run, auto-generate, or auto-load behaviour changed in Stage 10B.
+
+Deferred beyond Stage 10B:
+
+- Full structure picker/table.
+- Variant-aware structure selection.
+- Pre-preview body/facility validity explanations.
+- Right-side planner summary.
+- Material/hauling/trip tracking, which remains outside ED-Finder's planning scope unless a later handoff/export stage is explicitly defined.

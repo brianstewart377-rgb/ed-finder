@@ -28,6 +28,8 @@ The Simulation Preview UI now lives under `frontend-v2/src/features/system-detai
 | `utils/` | Formatting, tone, and placement helper functions shared by preview components. |
 | `optimiser/` | Stage 5 optimiser candidate UI, including candidate cards, details, ranking breakdown, placement list, generated-parameter stamps, stale-control warnings, and comparison utilities. |
 
+Stage 10B adds `BuildPlanBodyView.tsx` as a focused presentational readout for the current Build Plan grouped by body. `BuildPlanSection.tsx` owns the local List/Body view toggle; List view remains the default and continues to render `BuildPlanEditor`. Body view uses only existing placements, facility templates, and system body data. It does not fetch, run Preview, generate Suggested Builds, copy/load builds, mutate observations, or call validation/review endpoints.
+
 ## Shared UI Atoms
 
 Shared visual atoms are intentionally small and boring. Each atom lives in its own file so future optimiser components can reuse them without importing an unrelated grouped implementation file.

@@ -402,6 +402,35 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
   });
 
+  it('toggles between List view and Body view without preview or suggested-build side effects', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    await screen.findByText(/0 placements in Build Plan/);
+    fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+
+    expect(screen.getByRole('button', { name: /List view/i }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Body view/i }));
+
+    expect(screen.getByRole('button', { name: /Body view/i }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(/Use List view for detailed editing/)).toBeTruthy();
+    expect(screen.getByRole('region', { name: /Body group Test Body/i })).toBeTruthy();
+    expect(screen.getByText('Generic Port Alpha')).toBeTruthy();
+    expect(screen.getByText('Primary port')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /List view/i }));
+
+    expect(screen.getByRole('button', { name: /List view/i }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
   it('marks an optimiser-origin plan as edited after manual add', async () => {
     mockNoRecommendedBuild();
     renderPreview();

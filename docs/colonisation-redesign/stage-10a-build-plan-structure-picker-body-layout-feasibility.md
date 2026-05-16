@@ -16,6 +16,14 @@ Recommendation:
 
 Stage 10A is a feasibility/design/report stage only. It does not implement UI behaviour.
 
+Stage 10B implementation note:
+
+- Stage 10B followed this recommendation by adding a body-grouped Build Plan visual view.
+- The existing flat/list `BuildPlanEditor` remains the detailed editing surface.
+- The List/Body toggle is local UI state only and is not persisted.
+- No backend mechanics, scoring, optimiser generation/ranking, validation/review behaviour, Search Tuning behaviour, persistence, auto-run, auto-generate, auto-load, or hauling/material tracking changed.
+- The full structure picker/table remains deferred to Stage 10C.
+
 ## Reference Materials
 
 - ED-Finder UI / UX Discussion Tracker maintained from user discussion.
