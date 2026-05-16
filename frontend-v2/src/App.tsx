@@ -59,6 +59,17 @@ function AppInner() {
   const fc        = useFcPlanner();
   const admin     = useAdmin();
   const [health, setHealth] = useState<string>('checking…');
+  const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
+
+  const openSystemDetail = (id64: number, options?: { focus?: 'colony-planner' }) => {
+    setDetailFocus(options?.focus ?? null);
+    openSystem(id64);
+  };
+
+  const closeSystemDetail = () => {
+    setDetailFocus(null);
+    closeSystem();
+  };
 
   // First-paint: health + default search.
   useEffect(() => {
@@ -89,7 +100,7 @@ function AppInner() {
           pinned={pinned}
           compare={compare}
           onShowOnMap={() => navigate('map')}
-          onOpenDetail={openSystem}
+          onOpenDetail={openSystemDetail}
         />
       )}
 
@@ -101,7 +112,7 @@ function AppInner() {
           onRefresh={watchlist.refresh}
           onRemove={watchlist.remove}
           onShowOnMap={() => navigate('map')}
-          onOpenDetail={openSystem}
+          onOpenDetail={openSystemDetail}
         />
       )}
 
@@ -109,14 +120,14 @@ function AppInner() {
         <PinnedTab
           pinned={pinned}
           onShowOnMap={() => navigate('map')}
-          onOpenDetail={openSystem}
+          onOpenDetail={openSystemDetail}
         />
       )}
 
       {route === 'compare' && (
         <CompareTab
           compare={compare}
-          onOpenDetail={openSystem}
+          onOpenDetail={openSystemDetail}
         />
       )}
 
@@ -124,16 +135,16 @@ function AppInner() {
         <AdvancedSearchTuningTab
           searchTuning={searchTuning}
           search={search}
-          onOpenDetail={openSystem}
+          onOpenDetail={openSystemDetail}
         />
       )}
 
       {route === 'fc' && (
-        <FcPlannerTab fc={fc} onOpenDetail={openSystem} />
+        <FcPlannerTab fc={fc} onOpenDetail={openSystemDetail} />
       )}
 
       {route === 'colony' && (
-        <ColonyTab colony={colony} onOpenDetail={openSystem} />
+        <ColonyTab colony={colony} onOpenDetail={openSystemDetail} />
       )}
 
       {route === 'admin' && (
@@ -158,7 +169,8 @@ function AppInner() {
       {selectedSystemId !== null && (
         <SystemDetailModal
           id64={selectedSystemId}
-          onClose={closeSystem}
+          focusIntent={detailFocus}
+          onClose={closeSystemDetail}
           renderActions={(sys) => (
             <>
               <button
@@ -240,7 +252,7 @@ function AppInner() {
         />
       )}
 
-      <EddnTicker onOpenSystem={openSystem} />
+      <EddnTicker onOpenSystem={openSystemDetail} />
     </main>
   );
 }
@@ -307,7 +319,7 @@ function FinderView({
   pinned:    ReturnType<typeof usePinned>;
   compare:   ReturnType<typeof useCompare>;
   onShowOnMap:  () => void;
-  onOpenDetail: (id64: number) => void;
+  onOpenDetail: (id64: number, options?: { focus?: 'colony-planner' }) => void;
 }) {
   const { filters, setFilters, reset, run, state, results } = search;
 

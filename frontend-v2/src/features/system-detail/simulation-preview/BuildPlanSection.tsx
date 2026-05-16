@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react';
-import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
+import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
 import { BuildPlanEditor } from './BuildPlanEditor';
 import { ModeIntro, StartModes } from './StartModes';
 import { Message } from './components';
@@ -19,9 +19,12 @@ export function BuildPlanSection({
   optimiserCandidateOriginLabel,
   optimiserCandidateWasEdited,
   initialAssumptions,
+  previewResult,
+  isPreviewResultStale,
+  runningPreview,
   onUseRecommended,
-  onEditRecommended,
   onBlank,
+  onShowSuggestedBuilds,
   onAddPlacement,
   onUpdatePlacement,
   onRemovePlacement,
@@ -40,9 +43,12 @@ export function BuildPlanSection({
   optimiserCandidateOriginLabel: string | null;
   optimiserCandidateWasEdited: boolean;
   initialAssumptions: string[];
+  previewResult: SimulateBuildResponse | null;
+  isPreviewResultStale: boolean;
+  runningPreview: boolean;
   onUseRecommended: () => void;
-  onEditRecommended: () => void;
   onBlank: () => void;
+  onShowSuggestedBuilds?: () => void;
   onAddPlacement: () => void;
   onUpdatePlacement: (index: number, patch: Partial<SimulateBuildPlacement>) => void;
   onRemovePlacement: (index: number) => void;
@@ -53,25 +59,31 @@ export function BuildPlanSection({
       <div className="mb-3">
         <h4 className="font-mono text-[11px] uppercase tracking-[0.18em] text-orange">Build Plan</h4>
         <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-          Edit the facility list, body assignments, and target archetype before running the Simulation Preview.
+          Edit the facility list, body assignments, and target archetype before running Preview. Suggested Builds are a starting point; you can copy one here, tweak it, then run Preview explicitly.
         </p>
       </div>
+      <BuildPlanStatus
+        placementCount={placements.length}
+        previewResult={previewResult}
+        isPreviewResultStale={isPreviewResultStale}
+        runningPreview={runningPreview}
+      />
       <StartModes
         mode={startMode}
         hasRecommendedBuild={hasRecommendedBuild}
         loadingRecommended={loadingRecommended}
         onUseRecommended={onUseRecommended}
-        onEditRecommended={onEditRecommended}
         onBlank={onBlank}
+        onShowSuggestedBuilds={onShowSuggestedBuilds}
       />
       {optimiserCandidateOriginLabel && (
         <div className="mt-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Optimiser candidate origin</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Suggested build origin</div>
           <div className="mt-1 text-[11px] text-silver-dk">
             {optimiserCandidateWasEdited ? (
-              <>Started from optimiser candidate: <span className="text-silver">{optimiserCandidateOriginLabel}</span>. This preview plan has been edited since loading.</>
+              <>Started from suggested build: <span className="text-silver">{optimiserCandidateOriginLabel}</span>. This Build Plan has been edited since loading.</>
             ) : (
-              <>Loaded optimiser candidate: <span className="text-silver">{optimiserCandidateOriginLabel}</span>. You can edit the build and run the normal preview.</>
+              <>Copied suggested build: <span className="text-silver">{optimiserCandidateOriginLabel}</span>. You can edit the Build Plan and run Preview when ready.</>
             )}
           </div>
         </div>
@@ -104,7 +116,7 @@ export function BuildPlanSection({
             ))}
           </select>
           <span className="block text-[10px] text-silver-dk font-mono leading-snug">
-            Target archetype guides candidate generation, ranking, and preview scoring. Changing it does not change anything in-game.
+            Target archetype affects predicted economy, service, and buildability outcomes. Changing it does not change anything in-game.
           </span>
         </label>
         <button
@@ -129,6 +141,17 @@ export function BuildPlanSection({
       )}
 
       <div className="mt-3">
+        <div className="mb-3 grid gap-2 font-mono text-[10px] text-silver-dk md:grid-cols-2">
+          <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2">
+            Primary port is a major planning choice. Choose carefully before committing in-game.
+          </p>
+          <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2">
+            Yellow CP supports Tier 2 construction. Green CP supports Tier 3 construction. Build order can affect CP timing and port escalation.
+          </p>
+          <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2 md:col-span-2">
+            Orbital and planetary placements have different tradeoffs; Suggested Builds try to balance available slots and expected roles.
+          </p>
+        </div>
         {placements.length === 0 ? (
           <div className="rounded-chunk-lg border border-dashed border-gold/45 bg-gold/5 px-4 py-6 text-center">
             <div className="font-mono text-xs text-gold">
@@ -152,5 +175,43 @@ export function BuildPlanSection({
         )}
       </div>
     </section>
+  );
+}
+
+function BuildPlanStatus({
+  placementCount,
+  previewResult,
+  isPreviewResultStale,
+  runningPreview,
+}: {
+  placementCount: number;
+  previewResult: SimulateBuildResponse | null;
+  isPreviewResultStale: boolean;
+  runningPreview: boolean;
+}) {
+  const placementLabel = `${placementCount} placement${placementCount === 1 ? '' : 's'} in Build Plan`;
+  const status = runningPreview
+    ? 'Preview is running'
+    : !previewResult
+      ? 'Preview not run yet'
+      : isPreviewResultStale
+        ? 'Preview is stale - run Preview again'
+        : 'Preview matches current Build Plan';
+  const guidance = runningPreview
+    ? 'ED-Finder is evaluating the current Build Plan.'
+    : !previewResult
+      ? 'Preview has not been run for this plan yet. Run Preview to estimate the outcome.'
+      : isPreviewResultStale
+        ? 'Build Plan changed. Run Preview to update the prediction.'
+        : 'This Preview Result was generated for the current Build Plan.';
+
+  return (
+    <div className="mb-3 rounded border border-cyan/30 bg-cyan/5 px-3 py-2 font-mono text-[11px] leading-snug">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-0.5 text-cyan">{placementLabel}</span>
+        <span className={isPreviewResultStale ? 'text-gold' : 'text-silver'}>{status}</span>
+      </div>
+      <p className="mt-1 text-silver-dk">{guidance}</p>
+    </div>
   );
 }

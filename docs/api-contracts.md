@@ -79,7 +79,7 @@ Contribution values are pre-confidence so the UI can explain which stored signal
 
 This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, mutate ratings, run Simulation Preview, alter Colony Planner, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/search-tuning/` and presents as Advanced Search Tuning. `#search-tuning` is the preferred frontend route; `#optimizer` remains a legacy compatibility alias normalized to `search-tuning`.
 
-Stage 7D adds explicit row actions to open system detail and evaluate in Colony Planner. Those actions only open the existing system detail surface; they do not auto-run Simulation Preview, generate builds, mutate planner state, or pass search-tuning weights into Colony Planner.
+Stage 7D added explicit row actions to open system detail and evaluate in Colony Planner. Stage 8A keeps those actions on the existing system detail surface but lets `Evaluate in Colony Planner` pass a frontend-only focus intent so the embedded Colony Planner is scrolled/focused after the modal opens. The handoff still does not auto-run Simulation Preview, generate Suggested Builds, mutate planner state, persist preferences, or pass search-tuning weights into Colony Planner.
 
 ## Canonical Field Names
 
@@ -380,10 +380,12 @@ Stage 6C tests live in `tests/test_stage6c_comparison.py`. The legacy Stage 4D i
 Stage 6D renders the Stage 6C `POST /api/observations/compare` response inside Colony Planner. It is a **frontend integration stage**: it does not change the backend compare contract, the simulation endpoint, the optimiser endpoint, or any persisted observed evidence. Stage 6D does not introduce a popout, modal, or new top-level app tab. The validation block lives in-page inside Colony Planner, **after** the Observed Evidence shelf, so the Colony Planner section order is now:
 
 1. Build Plan
-2. Optimiser Candidates
+2. Suggested Builds
 3. Preview Result
 4. Observed Evidence
 5. Validation
+
+The frontend uses **Suggested Builds** as the user-facing planner label. Backend endpoints and generated types still use optimiser/candidate vocabulary for API compatibility.
 
 ### Frontend types and helper
 

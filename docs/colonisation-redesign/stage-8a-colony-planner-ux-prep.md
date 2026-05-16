@@ -1,5 +1,23 @@
 # Stage 8A Prep - Colony Planner Guided Workflow / Suggested-Builds UX Audit
 
+## Stage 8A Implementation Note
+
+Stage 8A has now been implemented as a frontend UX/copy/state-clarity pass based on this prep report. The historical audit below is retained as source-informed planning context.
+
+Implemented outcomes:
+
+- System detail now renders a prominent `Open Colony Planner` entry point near the top of the modal.
+- `Open Colony Planner` scrolls/focuses the existing embedded Colony Planner section and briefly highlights it.
+- Advanced Search Tuning `Evaluate in Colony Planner` now opens system detail with a Colony Planner focus intent. It still does not run Preview, generate Suggested Builds, or mutate planner state.
+- User-facing planner copy reframes `Optimiser Candidates` as `Suggested Builds`; backend/API/type names remain optimiser/candidate-oriented.
+- First-run planner guidance leads with `Generate Suggested Builds`, offers `Use recommended baseline`, and keeps `Start blank` as advanced manual control.
+- Build Plan status now shows placement count plus `Preview not run yet`, stale, running, or up-to-date status using the existing explicit preview state.
+- Build Plan helper copy now calls out target archetype impact, primary port commitment, yellow/green CP, build-order timing, and orbital/planetary tradeoffs.
+- Preview Result now starts with an interpreted verdict and next steps derived from existing response fields only.
+- Observed Evidence and Validation copy now frames them as later checking steps after in-game evidence is available.
+
+No backend mechanics, scoring formulas, CP formulas, optimiser generation/ranking, Search Tuning scoring, observed-evidence behaviour, validation/review mechanics, persistence, auto-run, auto-generate, or auto-load behaviour changed in Stage 8A.
+
 ## Executive Summary
 
 Stage 8A should reframe Colony Planner around a guided, suggested-builds-first workflow. The current implementation already has the main mechanics: recommended builds, editable build plans, optimiser candidates, explicit preview execution, stale-preview detection, observed evidence, validation, and review guidance. The problem is not missing simulation depth; it is that the player path is buried, split across several adjacent panels, and still uses some implementation-first language.
@@ -775,8 +793,11 @@ Frontend tests:
 - Clicking `Open Colony Planner` focuses or scrolls to the Colony Planner section without running preview or generating builds.
 - Search Tuning `Evaluate in Colony Planner` opens system detail with planner focus intent and still does not run preview or generate builds.
 - First-run planner shows Suggested Builds as the primary path and blank as advanced/secondary.
+- First-run `Show Suggested Builds` scrolls/focuses the Suggested Builds panel without auto-generating candidates or loading a build.
+- Normal Finder result cards expose `Evaluate in Colony Planner` as a focused system-detail handoff only.
 - User-facing `Suggested Builds` label replaces `Optimiser Candidates` in visible planner copy while API helpers remain unchanged.
 - Empty Build Plan shows "Preview not run yet" and disabled/available next-step guidance.
+- Current Preview status says "Preview matches current Build Plan" and avoids overclaiming that the result is up to date.
 - Editing a placement after preview marks the result stale and highlights Run Preview.
 - Loading a suggested build into a non-empty plan requires confirmation.
 - Preview Result renders a headline verdict and next-step block from existing result fields.
@@ -808,6 +829,7 @@ Docs/API tests:
 - Do not remove manual planning.
 - Do not auto-run preview.
 - Do not auto-load suggested builds.
+- Do not auto-generate suggested builds.
 
 ## Deferred Work
 

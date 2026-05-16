@@ -15,7 +15,7 @@ The Simulation Preview UI now lives under `frontend-v2/src/features/system-detai
 | `BuildPlanEditor.tsx` | Placement editor for facility template, body, primary-port flag, sequence movement, and removal controls. |
 | `StartModes.tsx` | Start-mode cards, mode intro copy, and current plan badge. |
 | `ColonyPlannerHeader.tsx` | Colony Planner heading, explanatory copy, current plan badge, and explicit Run Preview button. |
-| `ColonyPlannerSectionNav.tsx` | Lightweight visible labels for Build Plan, Optimiser Candidates, and Preview Result. |
+| `ColonyPlannerSectionNav.tsx` | Lightweight visible labels for Build Plan, Suggested Builds, Preview Result, Observed Evidence, and Validation. Backend/internal optimiser names remain unchanged. |
 | `BuildPlanSection.tsx` | Presentational Build Plan section for start modes, optimiser-origin messaging, assumptions, target archetype selector, add button, catalogue status, empty state, and `BuildPlanEditor`. |
 | `PreviewResultSection.tsx` | Presentational Preview Result section for regional context, preview errors, `SimulationResult`, and awaiting-preview ghost state. |
 | `hooks/useSimulationPreviewPlan.ts` | Public plan-orchestration hook for target archetype, start mode, auto-load state, plan replacement version, initial/recommended/blank plan loading, and optimiser-candidate loading. It delegates placement editing and optimiser-origin state to focused hooks. |
@@ -99,7 +99,7 @@ Stage 6A does **not** add frontend observation entry, automatic validation insid
 
 ## Stage 6B Manual Observed Evidence UI
 
-Stage 6B adds a focused **Observed Evidence** panel inside Colony Planner. The panel lives under `frontend-v2/src/features/system-detail/simulation-preview/observations/` and is rendered by `SimulationPreview.tsx` after `PreviewResultSection`. `ColonyPlannerSectionNav.tsx` adds a neutral fourth section label so users can see Observed Evidence alongside Build Plan, Optimiser Candidates, and Preview Result without implying it feeds the predicted scoring chain.
+Stage 6B adds a focused **Observed Evidence** panel inside Colony Planner. The panel lives under `frontend-v2/src/features/system-detail/simulation-preview/observations/` and is rendered by `SimulationPreview.tsx` after `PreviewResultSection`. `ColonyPlannerSectionNav.tsx` adds a neutral fourth section label so users can see Observed Evidence alongside Build Plan, Suggested Builds, and Preview Result without implying it feeds the predicted scoring chain.
 
 | Path | Responsibility |
 |---|---|
@@ -127,7 +127,7 @@ Stage 6C does **not** touch the frontend. The Stage 6B Observed Evidence panel, 
 
 ## Stage 6D Validation Display in Colony Planner
 
-Stage 6D adds an **in-page Validation section** inside Colony Planner that renders the Stage 6C `/api/observations/compare` response. The section lives directly under `frontend-v2/src/features/system-detail/simulation-preview/validation/` and is rendered by `SimulationPreview.tsx` **after** `ObservedEvidencePanel`. `ColonyPlannerSectionNav.tsx` adds a fifth chip ("Validation") so users can see the section alongside Build Plan, Optimiser Candidates, Preview Result, and Observed Evidence. There is no popout, no modal, and no new top-level app tab — the placement decision is deliberate so validation reads as part of the Colony Planner flow rather than a separate experience. A future expansion may move large comparison sets into a drawer/popout while keeping the in-page placement as the default.
+Stage 6D adds an **in-page Validation section** inside Colony Planner that renders the Stage 6C `/api/observations/compare` response. The section lives directly under `frontend-v2/src/features/system-detail/simulation-preview/validation/` and is rendered by `SimulationPreview.tsx` **after** `ObservedEvidencePanel`. `ColonyPlannerSectionNav.tsx` adds a fifth chip ("Validation") so users can see the section alongside Build Plan, Suggested Builds, Preview Result, and Observed Evidence. There is no popout, no modal, and no new top-level app tab - the placement decision is deliberate so validation reads as part of the Colony Planner flow rather than a separate experience. A future expansion may move large comparison sets into a drawer/popout while keeping the in-page placement as the default.
 
 | Stage 6D module | Responsibility |
 |---|---|

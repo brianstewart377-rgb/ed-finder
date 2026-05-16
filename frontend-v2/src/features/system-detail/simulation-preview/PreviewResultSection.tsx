@@ -2,6 +2,7 @@ import type { SimulateBuildResponse, SimulationSummary } from '@/types/api';
 import { SimulationResult } from './SimulationResult';
 import { GhostMetric, Message } from './components';
 import { RegionalContextMini } from './panels';
+import { buildPreviewResultGuidance } from './previewResultGuidance';
 
 export function PreviewResultSection({
   regional,
@@ -16,6 +17,8 @@ export function PreviewResultSection({
   result: SimulateBuildResponse | null;
   isResultStale: boolean;
 }) {
+  const guidance = buildPreviewResultGuidance(result, isResultStale);
+
   return (
     <section aria-label="Preview Result" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -27,6 +30,7 @@ export function PreviewResultSection({
         </div>
       </div>
       <div className="space-y-3">
+        <Message tone={guidance.tone} title={guidance.title} items={guidance.items} />
         <RegionalContextMini regional={regional} loading={loadingRegional} />
         {error && <Message tone="danger" items={[error]} />}
         {result && isResultStale && (

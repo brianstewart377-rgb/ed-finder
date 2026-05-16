@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getFacilityTemplates, getSimulationSummary } from '@/lib/api';
 import type {
@@ -59,6 +59,8 @@ export function SimulationPreview({
     [recommendedSteps, templates, bodies],
   );
   const hasRecommendedBuild = recommendedPlacements.length > 0;
+  const suggestedBuildsRef = useRef<HTMLDivElement | null>(null);
+  const [highlightSuggestedBuilds, setHighlightSuggestedBuilds] = useState(false);
 
   const plan = useSimulationPreviewPlan({
     initialRequest,
@@ -78,6 +80,15 @@ export function SimulationPreview({
   useEffect(() => {
     runState.clearPreviewState();
   }, [plan.planReplacementVersion, runState.clearPreviewState]);
+
+  const focusSuggestedBuilds = () => {
+    const node = suggestedBuildsRef.current;
+    if (!node) return;
+    node.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    node.focus({ preventScroll: true });
+    setHighlightSuggestedBuilds(true);
+    window.setTimeout(() => setHighlightSuggestedBuilds(false), 1800);
+  };
 
   return (
     <div
@@ -112,16 +123,28 @@ export function SimulationPreview({
           optimiserCandidateOriginLabel={plan.optimiserCandidateOriginLabel}
           optimiserCandidateWasEdited={plan.optimiserCandidateWasEdited}
           initialAssumptions={initialAssumptions}
+          previewResult={runState.result}
+          isPreviewResultStale={runState.isResultStale}
+          runningPreview={runState.running}
           onUseRecommended={() => plan.loadRecommendedPlan('recommended')}
-          onEditRecommended={() => plan.loadRecommendedPlan('edit_recommended')}
           onBlank={plan.startBlankAdvanced}
+          onShowSuggestedBuilds={focusSuggestedBuilds}
           onAddPlacement={plan.addPlacement}
           onUpdatePlacement={plan.updatePlacement}
           onRemovePlacement={plan.removePlacement}
           onMovePlacement={plan.movePlacement}
         />
 
-        <section aria-label="Optimiser Candidates">
+        <div
+          ref={suggestedBuildsRef}
+          tabIndex={-1}
+          data-testid="suggested-builds-focus-target"
+          className={[
+            'rounded-chunk-lg outline-none transition-[box-shadow,border-color] duration-300',
+            highlightSuggestedBuilds ? 'ring-2 ring-cyan/70 shadow-brand-glow' : '',
+          ].join(' ')}
+        >
+        <section aria-label="Suggested Builds">
           <OptimiserCandidatePanel
             systemId64={system.id64}
             targetArchetype={plan.targetArchetype}
@@ -132,6 +155,7 @@ export function SimulationPreview({
             currentPreviewLabel="Current editable Build Plan"
           />
         </section>
+        </div>
 
         <PreviewResultSection
           regional={regionalContext}

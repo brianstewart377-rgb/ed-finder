@@ -412,6 +412,58 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
 
     expect(onOpenDetail).toHaveBeenCalledTimes(3);
     expect(onOpenDetail).toHaveBeenCalledWith(42);
+    expect(onOpenDetail).toHaveBeenCalledWith(42, { focus: 'colony-planner' });
+    expect(onOpenDetail.mock.calls[0]).toEqual([42]);
+    expect(onOpenDetail.mock.calls[1]).toEqual([42, { focus: 'colony-planner' }]);
+    expect(onOpenDetail.mock.calls[2]).toEqual([42]);
+    expect(screen.getByText(/focused on Colony Planner/i)).toBeTruthy();
+    expect(screen.getByText(/does not run Simulation Preview or generate builds/i)).toBeTruthy();
+  });
+
+  it('does not double-call detail open when Evaluate in Colony Planner is clicked', () => {
+    const onOpenDetail = vi.fn();
+    const data: RerankResponse = {
+      weights_applied: {
+        economy: 0.3,
+        slots: 0.2,
+        strategic: 0.15,
+        safety: 0.15,
+        terraforming: 0.1,
+        diversity: 0.1,
+      },
+      economy_used: null,
+      results: [
+        {
+          id64: 42,
+          reranked_score: 80,
+          original_score: 75,
+          confidence: null,
+          rationale: 'Stored rationale',
+          economy_used: 'Tourism',
+        },
+      ],
+    };
+
+    render(
+      <AdvancedSearchTuningTab
+        searchTuning={makeSearchTuning({
+          state: {
+            kind: 'ok',
+            data,
+            queriedAt: 123,
+            sourceSnapshot: { 42: { originalRank: 1, name: 'Handoff' } },
+          },
+        })}
+        search={makeSearch([makeSystem(42, 'Handoff')])}
+        onOpenDetail={onOpenDetail}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('search-tuning-evaluate-42'));
+
+    expect(onOpenDetail).toHaveBeenCalledTimes(1);
+    expect(onOpenDetail).toHaveBeenCalledWith(42, { focus: 'colony-planner' });
+    expect(screen.getByText(/focused on Colony Planner/i)).toBeTruthy();
     expect(screen.getByText(/does not run Simulation Preview or generate builds/i)).toBeTruthy();
   });
 });

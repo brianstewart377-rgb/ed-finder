@@ -4,7 +4,7 @@ export function OptimiserPlacementList({ placements }: { placements: OptimiserCa
   if (placements.length === 0) {
     return (
       <div className="rounded border border-border/60 bg-bg3/25 px-3 py-2 text-[11px] text-silver-dk">
-        No placements are listed for this candidate.
+        No placements are listed for this suggested build.
       </div>
     );
   }

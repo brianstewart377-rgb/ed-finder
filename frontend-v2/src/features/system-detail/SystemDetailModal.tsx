@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Rocket, X } from 'lucide-react';
 import type { RecommendedBuildPlan, SystemDetail, SystemBody, SystemStation } from '@/types/api';
 import { formatPopulation } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
@@ -14,6 +14,7 @@ import { RegionalPositionPanel } from './RegionalPositionPanel';
 export interface SystemDetailModalProps {
   id64:    number;
   onClose: () => void;
+  focusIntent?: 'colony-planner' | null;
   /** Renders alongside Spansh / Inara / EDSM so callers can wire up
    *  Watchlist / Pin / Compare / Show-on-map without this component knowing
    *  about those features. Receives the loaded SystemDetail or null while
@@ -31,9 +32,11 @@ export interface SystemDetailModalProps {
  * Body scroll is locked while the modal is open so the page underneath
  * doesn't scroll when you wheel the modal content.
  */
-export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetailModalProps) {
+export function SystemDetailModal({ id64, onClose, focusIntent = null, renderActions }: SystemDetailModalProps) {
   const { data, loading, error, refetch } = useSystemDetail(id64);
   const [selectedBuild, setSelectedBuild] = useState<RecommendedBuildPlan | null>(null);
+  const colonyPlannerRef = useRef<HTMLDivElement | null>(null);
+  const [highlightPlanner, setHighlightPlanner] = useState(false);
 
   // Esc closes the modal. Body scroll lock only fires if we're actually
   // mounted (id64 changes between mounts so this is per-open).
@@ -51,6 +54,21 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
   useEffect(() => {
     setSelectedBuild(null);
   }, [id64]);
+
+  const focusColonyPlanner = () => {
+    const node = colonyPlannerRef.current;
+    if (!node) return;
+    node.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    node.focus({ preventScroll: true });
+    setHighlightPlanner(true);
+    window.setTimeout(() => setHighlightPlanner(false), 1800);
+  };
+
+  useEffect(() => {
+    if (!data || focusIntent !== 'colony-planner') return;
+    const handle = window.setTimeout(focusColonyPlanner, 0);
+    return () => window.clearTimeout(handle);
+  }, [data, focusIntent]);
 
   return (
     <div
@@ -95,6 +113,7 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
 
           {data && (
             <>
+              <ColonyPlannerEntryPoint onOpen={focusColonyPlanner} />
               <Section title="Rating profile">
                 <RatingRadar sys={data} />
               </Section>
@@ -113,7 +132,17 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
                   <RecommendedBuildsPanel system={data} onPreviewBuild={setSelectedBuild} />
                 </div>
                 <div className="mt-4">
-                  <SimulationPreviewPanel system={data} selectedPlan={selectedBuild} />
+                  <div
+                    ref={colonyPlannerRef}
+                    tabIndex={-1}
+                    data-testid="colony-planner-focus-target"
+                    className={[
+                      'rounded-chunk-lg outline-none transition-[box-shadow,border-color] duration-300',
+                      highlightPlanner ? 'ring-2 ring-orange/70 shadow-brand-glow' : '',
+                    ].join(' ')}
+                  >
+                    <SimulationPreviewPanel system={data} selectedPlan={selectedBuild} />
+                  </div>
                 </div>
                 <div className="mt-4">
                   <SlotPredictionPanel id64={id64} />
@@ -130,6 +159,32 @@ export function SystemDetailModal({ id64, onClose, renderActions }: SystemDetail
         </div>
       </article>
     </div>
+  );
+}
+
+function ColonyPlannerEntryPoint({ onOpen }: { onOpen: () => void }) {
+  return (
+    <section className="rounded-chunk-lg border border-orange/35 bg-orange/10 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 max-w-3xl">
+          <h3 className="font-mono text-[12px] uppercase tracking-[0.18em] text-orange">
+            Colony Planner
+          </h3>
+          <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
+            Build a plan for this system, start from Suggested Builds if you are unsure, then run Preview when you are ready to evaluate it.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onOpen}
+          data-testid="open-colony-planner"
+          className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25"
+        >
+          <Rocket size={14} />
+          Open Colony Planner
+        </button>
+      </div>
+    </section>
   );
 }
 

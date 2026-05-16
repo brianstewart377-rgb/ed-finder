@@ -13,7 +13,7 @@ import type { useSearch } from '@/features/search/useSearch';
 export interface AdvancedSearchTuningTabProps {
   searchTuning:    UseSearchTuning;
   search:       ReturnType<typeof useSearch>;
-  onOpenDetail?: (id64: number) => void;
+  onOpenDetail?: (id64: number, options?: { focus?: 'colony-planner' }) => void;
 }
 
 const WEIGHT_LABELS: Array<{ key: keyof UseSearchTuning['weights']; label: string; hint: string }> = [
@@ -222,7 +222,7 @@ function ResultsList({
   results:    RerankRow[];
   sourceById: Map<number, SystemResult>;
   sourceSnapshot: SearchTuningSourceSnapshot;
-  onOpenDetail?: (id64: number) => void;
+  onOpenDetail?: (id64: number, options?: { focus?: 'colony-planner' }) => void;
 }) {
   if (results.length === 0) {
     return (
@@ -296,14 +296,14 @@ function ResultsList({
                     data-testid={`search-tuning-evaluate-${r.id64}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onOpenDetail(r.id64);
+                      onOpenDetail(r.id64, { focus: 'colony-planner' });
                     }}
                     className="rounded-chunk-sm border border-cyan/35 bg-cyan/10 px-2 py-1 text-[10px] font-bold text-cyan hover:bg-cyan/20"
                   >
                     Evaluate in Colony Planner
                   </button>
                   <span className="text-[10px] text-silver-dk">
-                    Opens system detail; it does not run Simulation Preview or generate builds.
+                    Opens system detail focused on Colony Planner; it does not run Simulation Preview or generate builds.
                   </span>
                 </div>
               )}

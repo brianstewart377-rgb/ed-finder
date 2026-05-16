@@ -132,7 +132,7 @@ describe('optimiser candidate comparison UI', () => {
     expect(sorted).not.toBe(original);
   });
 
-  it('renders selected candidate comparison against current preview plan and supports hide/show', () => {
+  it('renders selected suggested build comparison against current Build Plan and supports hide/show', () => {
     const load = vi.fn();
     const currentPlacements: SimulateBuildPlacement[] = [
       { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
@@ -150,7 +150,7 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    expect(screen.getByText('Compare with current preview')).toBeTruthy();
+    expect(screen.getByText('Compare with current plan')).toBeTruthy();
     expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
     expect(screen.getAllByText('Prefer before').length).toBeGreaterThan(0);
     expect(screen.getByText('Tradeoff summary')).toBeTruthy();
@@ -161,7 +161,7 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getByText(/legacy_support: removed/)).toBeTruthy();
     expect(screen.getByText('Preview summary deltas')).toBeTruthy();
     expect(screen.getByText('Ranking delta')).toBeTruthy();
-    expect(screen.getByText(/Ranking delta is unavailable for the current manual preview plan/)).toBeTruthy();
+    expect(screen.getByText(/Ranking delta is unavailable for the current manual Build Plan/)).toBeTruthy();
     expect(screen.getByText('Risk changes')).toBeTruthy();
     expect(screen.getByText('Warning changes')).toBeTruthy();
     expect(screen.getByText('Assumption changes')).toBeTruthy();
@@ -173,7 +173,7 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
   });
 
-  it('renders comparison empty copy when no current preview plan exists', () => {
+  it('renders comparison empty copy when no current Build Plan exists', () => {
     render(
       <OptimiserCandidateDetails
         candidate={candidate('candidate-a', 'Candidate A')}
@@ -184,8 +184,8 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    expect(screen.getByText('Compare with current preview')).toBeTruthy();
-    expect(screen.getByText(/Comparison needs a current preview plan/)).toBeTruthy();
+    expect(screen.getByText('Compare with current plan')).toBeTruthy();
+    expect(screen.getByText(/Comparison needs a current Build Plan/)).toBeTruthy();
   });
 
   it('updates comparison when current preview placements change and does not mutate inputs', () => {
@@ -241,7 +241,7 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Load into preview' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy to Build Plan' })).toBeTruthy();
     expect(screen.getByText(/Nothing is committed in-game/)).toBeTruthy();
     expect(screen.getByText(/does not run Simulation Preview, save a build, or commit anything in-game/)).toBeTruthy();
     expect(container.textContent).not.toMatch(/\bApply candidate\b/i);
@@ -285,24 +285,24 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getByText('No preview summary')).toBeTruthy();
   });
 
-  it('does not render Load into preview when no load callback is provided', () => {
+  it('does not render Copy to Build Plan when no load callback is provided', () => {
     render(<OptimiserCandidateDetails candidate={candidate('candidate-a', 'Candidate A')} />);
-    expect(screen.queryByRole('button', { name: 'Load into preview' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Copy to Build Plan' })).toBeNull();
   });
 
-  it('renders Load into preview with callback and loads immediately when no preview plan exists', () => {
+  it('renders Copy to Build Plan with callback and loads immediately when no Build Plan exists', () => {
     const onLoadCandidate = vi.fn();
     const selected = candidate('candidate-a', 'Candidate A');
     render(<OptimiserCandidateDetails candidate={selected} onLoadCandidate={onLoadCandidate} />);
 
     expect(screen.getByText(/Nothing is committed in-game/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
 
     expect(onLoadCandidate).toHaveBeenCalledTimes(1);
     expect(onLoadCandidate).toHaveBeenCalledWith(selected);
   });
 
-  it('requires confirmation before replacing an existing preview plan', () => {
+  it('requires confirmation before replacing an existing Build Plan', () => {
     const onLoadCandidate = vi.fn();
     const selected = candidate('candidate-a', 'Candidate A');
     render(
@@ -313,16 +313,17 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
-    expect(screen.getByText('Replace current preview plan with this optimiser candidate?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    expect(screen.getByText('Replace current Build Plan with this suggested build?')).toBeTruthy();
+    expect(screen.getByText(/This will replace your current Build Plan with this suggested build/)).toBeTruthy();
     expect(onLoadCandidate).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByText('Replace current preview plan with this optimiser candidate?')).toBeNull();
+    expect(screen.queryByText('Replace current Build Plan with this suggested build?')).toBeNull();
     expect(onLoadCandidate).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Replace preview plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replace Build Plan' }));
     expect(onLoadCandidate).toHaveBeenCalledTimes(1);
     expect(onLoadCandidate).toHaveBeenCalledWith(selected);
   });
@@ -340,13 +341,13 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    expect(screen.getAllByText(/Loading is still possible, but requires confirmation/).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+    expect(screen.getAllByText(/Copying is still possible, but requires confirmation/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
     expect(onLoadCandidate).not.toHaveBeenCalled();
-    expect(screen.getByText('These candidates were generated with older controls')).toBeTruthy();
+    expect(screen.getByText('These suggested builds were generated with older controls')).toBeTruthy();
     expect(screen.getByText(/Generate again for the safest comparison/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load older candidate anyway' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy older suggested build anyway' }));
     expect(onLoadCandidate).toHaveBeenCalledTimes(1);
     expect(onLoadCandidate).toHaveBeenCalledWith(selected);
   });
@@ -365,18 +366,18 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
     expect(onLoadCandidate).not.toHaveBeenCalled();
-    expect(screen.getByText('Replace current preview plan with older generated candidate?')).toBeTruthy();
+    expect(screen.getByText('Replace current Build Plan with older suggested build?')).toBeTruthy();
     expect(screen.getByText(/generated with older controls/)).toBeTruthy();
     expect(screen.getByText(/does not save anything or affect in-game state/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onLoadCandidate).not.toHaveBeenCalled();
-    expect(screen.queryByText('Replace current preview plan with older generated candidate?')).toBeNull();
+    expect(screen.queryByText('Replace current Build Plan with older suggested build?')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Replace with older candidate' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replace with older suggested build' }));
     expect(onLoadCandidate).toHaveBeenCalledTimes(1);
     expect(onLoadCandidate).toHaveBeenCalledWith(selected);
   });
@@ -421,19 +422,20 @@ describe('optimiser candidate comparison UI', () => {
 
   it('renders initial read-only panel state with clear purpose copy and no apply button', () => {
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    expect(screen.getByText('Optimiser Candidates')).toBeTruthy();
-    expect(screen.getByText(/generates a small set of build-plan suggestions/i)).toBeTruthy();
+    expect(screen.getByText('Suggested Builds')).toBeTruthy();
+    expect(screen.getByText(/Generate Suggested Builds to get possible build plans/i)).toBeTruthy();
     expect(screen.getByText(/ranked and compared against your editable Build Plan/i)).toBeTruthy();
     expect(screen.getByText(/Nothing is saved or committed in-game/i)).toBeTruthy();
-    expect(screen.getByText(/Generates bounded candidate build plans and lightweight preview summaries/i)).toBeTruthy();
+    expect(screen.getByText(/Generates bounded suggested build plans and lightweight preview summaries/i)).toBeTruthy();
     expect(screen.getByText(/does not run the main Simulation Preview or change your current Build Plan/i)).toBeTruthy();
-    expect(screen.getByText(/Allows candidate generation to use inferred or incomplete data/i)).toBeTruthy();
+    expect(screen.getByText(/Allows Suggested Builds to use inferred or incomplete data/i)).toBeTruthy();
     expect(screen.getByText(/confidence and warnings should be reviewed/i)).toBeTruthy();
     expect(screen.getByText(/Read-only for now/i)).toBeTruthy();
-    expect(screen.getByText('Generate candidates')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /load into preview/i })).toBeNull();
+    expect(screen.getByText('Generate Suggested Builds')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Copy to Build Plan/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /apply/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /use this build/i })).toBeNull();
+    expect(screen.queryByText('Optimiser Candidates')).toBeNull();
   });
 
   it('renders load-enabled panel copy when a load callback is provided', () => {
@@ -444,15 +446,15 @@ describe('optimiser candidate comparison UI', () => {
         onLoadCandidate={() => undefined}
       />,
     );
-    expect(screen.getByText(/copy it into the editable Build Plan/i)).toBeTruthy();
+    expect(screen.getByText(/use it as the editable Build Plan/i)).toBeTruthy();
     expect(screen.getByText(/Nothing is saved or committed in-game/i)).toBeTruthy();
     expect(screen.queryByText(/Read-only for now/i)).toBeNull();
   });
 
-  it('clicking Generate candidates calls API with ranking and preview enabled', async () => {
+  it('clicking Generate Suggested Builds calls API with ranking and preview enabled', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response());
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
     await waitFor(() => expect(mockedFetchOptimiserCandidates).toHaveBeenCalledTimes(1));
     expect(mockedFetchOptimiserCandidates).toHaveBeenCalledWith(expect.objectContaining({
       system_id64: 123,
@@ -467,12 +469,12 @@ describe('optimiser candidate comparison UI', () => {
   it('renders generated-parameter stamp after successful generation', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response());
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
 
     expect(await screen.findByText('Generated for')).toBeTruthy();
     expect(screen.getByText(/Target archetype:/)).toBeTruthy();
     expect(screen.getAllByText(/agriculture_terraforming/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Max candidates:/)).toBeTruthy();
+    expect(screen.getByText(/Max suggested builds:/)).toBeTruthy();
     expect(screen.getAllByText('5').length).toBeGreaterThan(0);
     expect(screen.getByText(/Estimated data:/)).toBeTruthy();
     expect(screen.getByText('on')).toBeTruthy();
@@ -481,47 +483,47 @@ describe('optimiser candidate comparison UI', () => {
   it('warns when target archetype changes after generation', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response());
     const { rerender } = render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
     await screen.findByText('Generated for');
 
     rerender(<OptimiserCandidatePanel systemId64={123} targetArchetype="refinery_industrial" />);
 
-    expect(screen.getByText(/Controls have changed since these candidates were generated/)).toBeTruthy();
+    expect(screen.getByText(/Controls have changed since these suggested builds were generated/)).toBeTruthy();
   });
 
   it('warns when max candidates changes after generation', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response());
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
     await screen.findByText('Generated for');
 
     fireEvent.change(screen.getByDisplayValue('5'), { target: { value: '8' } });
 
-    expect(screen.getByText(/Controls have changed since these candidates were generated/)).toBeTruthy();
+    expect(screen.getByText(/Controls have changed since these suggested builds were generated/)).toBeTruthy();
   });
 
   it('warns when estimated-data toggle changes after generation', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response());
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
     await screen.findByText('Generated for');
 
     fireEvent.click(screen.getByLabelText(/Include estimated data/i));
 
-    expect(screen.getByText(/Controls have changed since these candidates were generated/)).toBeTruthy();
+    expect(screen.getByText(/Controls have changed since these suggested builds were generated/)).toBeTruthy();
   });
 
   it('renders loading state while candidates are being fetched', () => {
     mockedFetchOptimiserCandidates.mockReturnValue(new Promise(() => {}));
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
-    expect(screen.getByText('Generating ranked optimiser candidates...')).toBeTruthy();
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
+    expect(screen.getByText('Generating ranked Suggested Builds...')).toBeTruthy();
   });
 
   it('renders error state with retry', async () => {
     mockedFetchOptimiserCandidates.mockRejectedValue(new Error('backend down'));
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
     expect(await screen.findByText(/backend down/)).toBeTruthy();
     expect(screen.getByText('retry')).toBeTruthy();
   });
@@ -535,8 +537,8 @@ describe('optimiser candidate comparison UI', () => {
       ranking: null,
     }));
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
-    expect(await screen.findByText('No optimiser candidates generated yet.')).toBeTruthy();
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
+    expect(await screen.findByText('No Suggested Builds generated yet.')).toBeTruthy();
     expect(screen.getByText('Warning: No candidate anchors found.')).toBeTruthy();
     expect(screen.getByText('Assumption: Generated no plans.')).toBeTruthy();
   });
@@ -544,7 +546,7 @@ describe('optimiser candidate comparison UI', () => {
   it('displays ranked candidates in ranking order and details for the selected candidate', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response());
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
     await screen.findAllByText('Candidate B');
     const cards = screen.getAllByRole('button');
     const cardB = cards.find((item) => item.textContent?.includes('Candidate B'));
@@ -559,8 +561,8 @@ describe('optimiser candidate comparison UI', () => {
   it('renders candidates without ranking gracefully', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response({ ranking: null }));
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
-    fireEvent.click(screen.getByText('Generate candidates'));
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
     expect((await screen.findAllByText('Candidate A')).length).toBeGreaterThan(0);
-    expect(screen.getByText('No ranking breakdown is available for this candidate.')).toBeTruthy();
+    expect(screen.getByText('No ranking breakdown is available for this suggested build.')).toBeTruthy();
   });
 });

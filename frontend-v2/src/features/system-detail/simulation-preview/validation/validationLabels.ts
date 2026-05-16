@@ -25,10 +25,10 @@ import type {
 } from '@/types/api';
 
 export const ADVISORY_COPY =
-  'This validation is advisory. It compares the current preview result with recorded observed evidence. It does not change scoring, optimiser ranking, generated candidates, or in-game state.';
+  'Later step: Validation compares prediction with recorded Observed Evidence. It does not change scoring, Suggested Builds, generated plans, or in-game state.';
 
 export const NO_PREVIEW_COPY =
-  'Run Preview to compare predictions with observed evidence. Validation needs a current Simulation Preview result and any observed evidence recorded for this system.';
+  'Run Preview first, then record Observed Evidence after checking in-game. Validation compares that evidence with the current Preview Result.';
 
 export const STALE_PREVIEW_COPY =
   'Preview result is stale. The Build Plan has changed since this preview was run, so this validation may reflect the previous preview result. Run Preview again before relying on validation.';

@@ -244,7 +244,7 @@ Stage 7B should use **Advanced Search Tuning** for the UI section and "tuned ord
 
 ## Relationship to Colony Planner
 
-Search Tuning helps inspect and reorder candidate systems that Finder already found. It may help a user decide which systems to open next, but Colony Planner does not consume Search Tuning output directly. Colony Planner evaluates a specific selected system through Build Plan, Optimiser Candidates, Preview Result, Observed Evidence, Validation, and Review Guidance.
+Search Tuning helps inspect and reorder candidate systems that Finder already found. It may help a user decide which systems to open next, but Colony Planner does not consume Search Tuning output directly. Colony Planner evaluates a specific selected system through Build Plan, Suggested Builds, Preview Result, Observed Evidence, Validation, and Review Guidance.
 
 Recommended boundaries:
 

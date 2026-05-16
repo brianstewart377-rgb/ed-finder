@@ -163,6 +163,30 @@ function emptyReviewResponse(): ValidationReviewResponse {
   };
 }
 
+function emptyCompareResponse(): PredictionObservationCompareResponse {
+  return {
+    system_id64: 123,
+    target_archetype: 'agriculture_terraforming',
+    generated_at: '2026-05-15T12:00:00+00:00',
+    summary: {
+      status: 'no_observations',
+      observed_facts_count: 0,
+      compared_predictions_count: 0,
+      confirmed_count: 0,
+      contradicted_count: 0,
+      observed_only_count: 0,
+      predicted_only_count: 0,
+      unknown_count: 0,
+      unverified_count: 0,
+      confidence_impact: 'none',
+      summary: 'No observations yet.',
+    },
+    comparisons: [],
+    warnings: [],
+    assumptions: [],
+  };
+}
+
 function mockNoRecommendedBuild() {
   mockedGetFacilityTemplates.mockResolvedValue(templates);
   mockedGetSimulationSummary.mockResolvedValue({
@@ -172,6 +196,7 @@ function mockNoRecommendedBuild() {
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
+  mockedCompare.mockResolvedValue(emptyCompareResponse());
   mockedReview.mockResolvedValue(emptyReviewResponse());
 }
 
@@ -189,6 +214,7 @@ function mockRecommendedBuild() {
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
+  mockedCompare.mockResolvedValue(emptyCompareResponse());
   mockedReview.mockResolvedValue(emptyReviewResponse());
 }
 
@@ -282,13 +308,11 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getByRole('region', { name: 'Observed Evidence' })).toBeTruthy();
     // Passive copy is present so the user does not think evidence affects scoring.
     expect(
-      screen.getByText(
-        /Observed Evidence is passive\. It does not change Simulation Preview scoring, optimiser ranking, or generated candidates\./,
-      ),
+      screen.getByText(/Later step: Observed Evidence records what you see in-game after planning/),
     ).toBeTruthy();
     // Section nav still renders predicted-side labels too.
     expect(screen.getAllByText('Build Plan').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Optimiser Candidates').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Suggested Builds').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Preview Result').length).toBeGreaterThan(0);
   });
 
@@ -305,41 +329,81 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
   });
 
-  it('loads a selected optimiser candidate into the editable preview without auto-running simulation', async () => {
+  it('copies a selected suggested build into the editable Build Plan without auto-running simulation', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
     expect(await screen.findByText('Colony Planner')).toBeTruthy();
     expect(screen.getByText(/Plan a colony build for this system/)).toBeTruthy();
     expect(screen.getAllByText('Build Plan').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Optimiser Candidates').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Suggested Builds').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Preview Result').length).toBeGreaterThan(0);
-    expect(screen.getByText(/Target archetype guides candidate generation, ranking, and preview scoring/)).toBeTruthy();
+    expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
+    expect(screen.getAllByText('Generate Suggested Builds').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /Show Suggested Builds/i })).toBeTruthy();
+    expect(screen.getByText(/Start blank/)).toBeTruthy();
+    expect(screen.getByText(/Advanced manual control/)).toBeTruthy();
+    expect(screen.getByText(/0 placements in Build Plan/)).toBeTruthy();
+    expect(screen.getAllByText(/Preview not run yet/).length).toBeGreaterThan(0);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
 
-    await waitFor(() => expect(screen.getByText(/Loaded optimiser candidate:/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Copied suggested build:/)).toBeTruthy());
     expect(screen.getAllByText(/Balanced Agriculture candidate/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/You can edit the build and run the normal preview/)).toBeTruthy();
+    expect(screen.getByText(/You can edit the Build Plan and run Preview when ready/)).toBeTruthy();
     expect((screen.getByLabelText(/Target archetype/i) as HTMLSelectElement).value).toBe('agriculture_terraforming');
     expect(screen.getAllByText('generic_port_alpha').length).toBeGreaterThan(0);
     expect(screen.getAllByText('agri_support_a').length).toBeGreaterThan(0);
-    expect(screen.getByText('Optimiser candidate')).toBeTruthy();
+    expect(screen.getByText('Suggested build')).toBeTruthy();
+    expect(screen.getByText(/2 placements in Build Plan/)).toBeTruthy();
+    expect(screen.getByText(/Preview has not been run for this plan yet/)).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
+  });
+
+  it('focuses Suggested Builds from the start card without generating or loading anything', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    const target = await screen.findByTestId('suggested-builds-focus-target');
+    fireEvent.click(screen.getByRole('button', { name: /Show Suggested Builds/i }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+    expect(document.activeElement).toBe(target);
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Copied suggested build:/)).toBeNull();
+  });
+
+  it('shows Build Plan placement count and helper copy for manual planning', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    await screen.findByText(/0 placements in Build Plan/);
+    fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+
+    expect(screen.getByText(/1 placement in Build Plan/)).toBeTruthy();
+    expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
+    expect(screen.getByText(/Primary port is a major planning choice/)).toBeTruthy();
+    expect(screen.getByText(/Yellow CP supports Tier 2 construction/)).toBeTruthy();
+    expect(screen.getByText(/Green CP supports Tier 3 construction/)).toBeTruthy();
+    expect(screen.getByText(/Build order can affect CP timing and port escalation/)).toBeTruthy();
   });
 
   it('marks an optimiser-origin plan as edited after manual add', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
-    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    await screen.findByText(/Copied suggested build:/);
 
     fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
 
-    expect(screen.getByText(/Started from optimiser candidate:/)).toBeTruthy();
+    expect(screen.getByText(/Started from suggested build:/)).toBeTruthy();
     expect(screen.getByText(/has been edited since loading/)).toBeTruthy();
   });
 
@@ -347,14 +411,14 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockNoRecommendedBuild();
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
-    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    await screen.findByText(/Copied suggested build:/);
 
-    fireEvent.click(screen.getByRole('button', { name: /Start blank advanced simulation/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
 
-    expect(screen.queryByText(/Loaded optimiser candidate:/)).toBeNull();
-    expect(screen.queryByText(/Started from optimiser candidate:/)).toBeNull();
+    expect(screen.queryByText(/Copied suggested build:/)).toBeNull();
+    expect(screen.queryByText(/Started from suggested build:/)).toBeNull();
     expect(screen.getByText(/Blank advanced simulation/)).toBeTruthy();
   });
 
@@ -362,16 +426,16 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockRecommendedBuild();
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Replace preview plan/i }));
-    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Replace Build Plan/i }));
+    await screen.findByText(/Copied suggested build:/);
 
-    fireEvent.click(screen.getByRole('button', { name: /Use recommended build/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Use recommended baseline/i }));
 
-    expect(screen.queryByText(/Loaded optimiser candidate:/)).toBeNull();
-    expect(screen.queryByText(/Started from optimiser candidate:/)).toBeNull();
-    expect(screen.getByText(/Recommended build loaded/)).toBeTruthy();
+    expect(screen.queryByText(/Copied suggested build:/)).toBeNull();
+    expect(screen.queryByText(/Started from suggested build:/)).toBeNull();
+    expect(screen.getByText(/Recommended baseline loaded/)).toBeTruthy();
   });
 
   it('run preview remains explicit and sends resequenced current placements', async () => {
@@ -379,9 +443,9 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockReturnValue(new Promise(() => {}) as never);
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
-    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getAllByRole('button', { name: /Move down/i })[0]);
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
@@ -402,9 +466,9 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockResolvedValue(simulationResult());
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
-    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
     await screen.findByText(/Final Score/i);
     expect(screen.queryAllByText(/The Build Plan has changed since this preview was run/)).toHaveLength(0);
@@ -417,6 +481,8 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(
       screen.getAllByText(/The Build Plan has changed since this preview was run/).length,
     ).toBeGreaterThan(0);
+    expect(screen.getByText(/Preview is stale - run Preview again/)).toBeTruthy();
+    expect(screen.getByText(/Build Plan changed\. Run Preview to update the prediction/)).toBeTruthy();
     expect(mockedSimulateBuild).toHaveBeenCalledTimes(1);
   });
 
@@ -425,9 +491,9 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockResolvedValue(simulationResult());
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
-    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
     await screen.findByText(/Final Score/i);
 
@@ -447,24 +513,26 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockReturnValue(new Promise(() => {}) as never);
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
-    expect(await screen.findByText(/Compare with current preview/i)).toBeTruthy();
+    expect(await screen.findByText(/Compare with current plan/i)).toBeTruthy();
     expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load into preview' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Replace preview plan/i }));
-    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Replace Build Plan/i }));
+    await screen.findByText(/Copied suggested build:/);
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getAllByRole('button', { name: /Move down/i })[0]);
-    expect(screen.getByText(/Started from optimiser candidate:/)).toBeTruthy();
+    expect(screen.getByText(/Started from suggested build:/)).toBeTruthy();
     expect(screen.getByText(/edited since loading/)).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
 
     await waitFor(() => expect(mockedSimulateBuild).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/Preview is running/)).toBeTruthy();
+    expect(screen.getByText(/ED-Finder is evaluating the current Build Plan/)).toBeTruthy();
     expect(mockedSimulateBuild).toHaveBeenCalledWith({
       system_id64: 123,
       target_archetype: 'agriculture_terraforming',
@@ -473,6 +541,22 @@ describe('SimulationPreview optimiser candidate loading', () => {
         { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 2 },
       ],
     });
+  });
+
+  it('uses cautious current-preview status copy after an explicit successful run', async () => {
+    mockNoRecommendedBuild();
+    mockedSimulateBuild.mockResolvedValue(simulationResult());
+    renderPreview();
+
+    fireEvent.click(await screen.findByTestId('generate-suggested-builds'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    await screen.findByText(/Copied suggested build:/);
+    fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
+
+    await screen.findByText(/Final Score/i);
+    expect(screen.getByText(/Preview matches current Build Plan/)).toBeTruthy();
+    expect(screen.getByText(/This Preview Result was generated for the current Build Plan/)).toBeTruthy();
+    expect(screen.queryByText(/Preview is up to date/)).toBeNull();
   });
 
   // ── Stage 6D integration ────────────────────────────────────────────────
@@ -498,7 +582,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     await screen.findByRole('region', { name: 'Validation' });
     expect(
-      screen.getByText(/Run Preview to compare predictions with observed evidence/),
+      screen.getByText(/Run Preview first, then record Observed Evidence after checking in-game/),
     ).toBeTruthy();
     // No compare call should occur without a preview result.
     expect(mockedCompare).not.toHaveBeenCalled();
@@ -530,9 +614,9 @@ describe('SimulationPreview optimiser candidate loading', () => {
     } satisfies PredictionObservationCompareResponse);
 
     renderPreview();
-    fireEvent.click(await screen.findByRole('button', { name: 'Generate candidates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load into preview' }));
-    await screen.findByText(/Loaded optimiser candidate:/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
 
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(1));
