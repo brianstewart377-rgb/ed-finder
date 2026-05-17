@@ -24,6 +24,7 @@ Stage 10B implementation note:
 - No backend mechanics, scoring, optimiser generation/ranking, validation/review behaviour, Search Tuning behaviour, persistence, auto-run, auto-generate, auto-load, or hauling/material tracking changed.
 - Stage 10C evolved the body readout into Layout view with a compact plan summary, body-level layout cards, primary-port status, warning chips, and visible CP generated/needed totals.
 - Stage 10D made Layout view locally interactive with read-only selected-body and selected-placement details. Users can inspect a body or placement, see warnings and next-action guidance, and then use List view for any edits.
+- Stage 11B deepened this visual readout with card-level readability, stronger selection emphasis, clearer detail grouping, and clearer workflow hierarchy between planning steps and later-step panels.
 - Stage 11A began the Colony Planner visual redesign foundation with stronger planning hierarchy, cleaner planner copy, improved workflow signposting, and clearer later-step framing for Observed Evidence and Validation.
 - Spansh import was investigated in Stage 10C and remains a backend-supported/manual-refresh follow-up, not a frontend direct import or silent overwrite workflow.
 - The full structure picker/table remains deferred beyond Stage 10D.
@@ -493,3 +494,21 @@ ED-Finder should move visually closer to RavenColonial's planning clarity withou
 This gives users a clearer spatial understanding of the Build Plan while keeping ED-Finder as the planning/intelligence layer and leaving hauling/material execution to RavenColonial or a later handoff.
 
 Stage 10C confirms the next safe step after 10B: strengthen the body-grouped readout into a graphical Layout view and document Spansh import as a backend/manual-refresh follow-up. The structure picker/table, variant comparison, and external system-layout import workflow remain separate future stages.
+
+## Stage 11B - Layout Cards, Detail Panel, and Workflow Hierarchy Polish
+
+Stage 11B implemented the first deep visual polish for the Colony Planner readout surface only.
+
+Implemented outcomes:
+
+- Continued focus on Stage 11A foundations: dedicated planner path, List view as editing surface, Layout view as read-only planning surface.
+- Added stronger card-level clarity in `BuildPlanBodyView.tsx` for body groups and placement cards (including concise grouping headers, clearer title/metadata separation, and stronger selected-state indicators).
+- Improved `BuildPlanLayoutDetailPanel.tsx` detail grouping, summary/body/placement hierarchy, and read-only guidance.
+- Improved `ColonyPlannerSectionNav.tsx` so Suggested Builds → Build Plan → Preview Result is visually primary and Observed Evidence / Validation are clearly secondary later-step context.
+- Left all mechanics untouched: no scoring changes, no mechanics mutation, no auto-preview/generation behaviour.
+
+Deferred beyond Stage 11B:
+
+- Further map-like planning visualisation and deeper body/structure spatialization.
+- Structure picker/table interaction polish beyond the current layout-readout baseline.
+- New execution/logistics features (hauling, carrier stock, trip estimates, commodity requirements).

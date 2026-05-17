@@ -177,3 +177,29 @@ Stage 11A keeps the Stage 10C/10D planner mechanics intact and starts a visual r
 - visual polish for workspace/header/readout cards while preserving List view as the editing surface and Layout view as read-only planning output
 
 Stage 11A does not add hauling/material execution tracking and does not change simulation scoring, optimiser generation/ranking, Search Tuning, or backend mechanics.
+
+## Stage 11B - Layout Cards, Detail Panel, and Workflow Hierarchy Polish
+
+Stage 11B deepens Layout readout clarity without altering planner behavior:
+
+- Added further card-level polish to `BuildPlanBodyView.tsx`:
+  - clearer body group headers and metadata rows
+  - stronger selected-state contrast for selected groups and placements
+  - tighter warning and metadata chip rhythm
+  - improved unassigned/needs-body presentation
+- Expanded `BuildPlanLayoutDetailPanel.tsx` grouping:
+  - explicit planning-readout section headers for summary/body/placement context
+  - compact metric and warning sections
+  - stronger “use List view to edit” guidance
+- Improved section hierarchy in `ColonyPlannerSectionNav.tsx` so primary planning steps are visually emphasized and Observed Evidence / Validation are clearly later steps.
+- Preserved all Stage 11A safeguards:
+  - List view remains canonical for edits
+  - Layout view remains read-only planning readout
+  - no Preview auto-run, no Suggested Builds generation/load side effects, no backend mechanics changes.
+
+Deferred beyond Stage 11B:
+
+- deeper body-map visualizations
+- structure picker/table interaction enhancements
+- saved plans/project persistence
+- hauling/material execution workflow

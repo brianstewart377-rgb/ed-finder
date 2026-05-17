@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { KeyboardEvent, useState } from 'react';
 import { AlertTriangle, CircleDotDashed, LayoutPanelTop } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
 import {
@@ -180,7 +180,11 @@ function BodyGroupCard({
   const bodyWarnings = getBodyGroupWarnings(group);
   const summary = getBodyGroupSummary(group);
   const isUnassigned = group.body === null;
-  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+  const body = group.body;
+  const title = isUnassigned || !body ? 'Unassigned / needs body' : bodyDisplayName(body);
+  const placementLabel = `${group.placements.length} placement${group.placements.length === 1 ? '' : 's'}`;
+  const selectLabel = isUnassigned ? 'Select body Unassigned / needs body' : `Select body ${title}`;
+  const handleBodyKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       onSelectBody();
@@ -189,40 +193,49 @@ function BodyGroupCard({
 
   return (
     <section
-      role="button"
-      tabIndex={0}
-      aria-pressed={selected}
-      aria-label={group.body ? `Body group ${bodyDisplayName(group.body)}` : 'Unassigned / needs body'}
+      aria-label={isUnassigned ? 'Unassigned / needs body' : `Body group ${title}`}
       data-testid={`layout-body-group-${group.key}`}
-      onClick={onSelectBody}
-      onKeyDown={handleKeyDown}
       className={[
-        'rounded-chunk-lg border p-3 text-left transition-[border-color,background-color,box-shadow]',
-        isUnassigned ? 'border-gold/45 bg-gold/5' : 'border-border/70 bg-bg2/65',
-        selected ? 'border-cyan/80 bg-cyan/10 shadow-brand-glow' : 'hover:border-cyan/45',
+        'rounded-chunk-lg border p-3 text-left transition-[border-color,background-color,box-shadow,transform]',
+        isUnassigned
+          ? 'border-gold/40 bg-gold/5 text-gold'
+          : 'border-border/70 bg-bg2/65 text-silver',
+        selected ? 'border-cyan/80 bg-cyan/12 shadow-brand-glow' : 'hover:border-cyan/45',
       ].join(' ')}
     >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h5 className={isUnassigned ? 'text-sm font-bold text-gold' : 'text-sm font-bold text-silver'}>
-              {group.body ? bodyDisplayName(group.body) : 'Unassigned / needs body'}
-            </h5>
-            <Chip tone={isUnassigned ? 'warn' : 'default'}>
-              {group.placements.length} placement{group.placements.length === 1 ? '' : 's'}
-            </Chip>
-            {summary.hasPrimaryPort && <Chip tone="good">Primary port body</Chip>}
-            {bodyWarnings.length > 0 && <Chip tone="warn">{bodyWarnings.length} body warning{bodyWarnings.length === 1 ? '' : 's'}</Chip>}
-          </div>
-          <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-[10px]">
-            {group.body ? (
-              bodyTags(group.body).map((tag) => <Chip key={tag}>{tag}</Chip>)
-            ) : (
-              <Chip tone="warn">Needs assignment</Chip>
-            )}
-            <Chip>CP: Y+{summary.yellowGenerated} G+{summary.greenGenerated}</Chip>
-            <Chip>Needs: Y{summary.yellowNeeded} G{summary.greenNeeded}</Chip>
-          </div>
+      <div className="space-y-2">
+        <div className="rounded-chunk-sm border border-border/50 bg-bg3/35 px-2 py-2">
+          <button
+            type="button"
+            className="focus-visible:ring-cyan/80 flex w-full flex-col gap-2 rounded border border-transparent px-2 py-1 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+            aria-label={selectLabel}
+            aria-pressed={selected}
+            onClick={onSelectBody}
+            onKeyDown={handleBodyKeyDown}
+            data-testid={`layout-body-select-${group.key}`}
+          >
+            <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-silver-dk">Body group</div>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h5 className="text-sm font-bold">{title}</h5>
+              <Chip tone={isUnassigned ? 'warn' : 'default'}>{placementLabel}</Chip>
+              {summary.hasPrimaryPort && <Chip tone="good">Primary port body</Chip>}
+              {bodyWarnings.length > 0 && <Chip tone="warn">{bodyWarnings.length} body warning{bodyWarnings.length === 1 ? '' : 's'}</Chip>}
+              <Chip tone={selected ? 'good' : 'default'}>
+                {selected ? 'Selected' : 'Body summary'}
+              </Chip>
+            </div>
+            <p className="mt-1 flex flex-wrap gap-1.5 font-mono text-[10px] text-silver-dk">
+              {group.body ? (
+                bodyTags(group.body).map((tag) => <Chip key={tag}>{tag}</Chip>)
+              ) : (
+                <Chip tone="warn">Needs assignment</Chip>
+              )}
+            </p>
+          </button>
+        </div>
+        <div className="rounded border border-border/45 bg-bg3/30 px-2 py-1 font-mono text-[10px]">
+          <span className="text-silver-dk">Body CP</span>
+          <span className="ml-1 text-silver">Y+{summary.yellowGenerated}/{summary.yellowNeeded} G+{summary.greenGenerated}/{summary.greenNeeded}</span>
         </div>
         {bodyWarnings.length > 0 && (
           <div className="flex max-w-md flex-wrap gap-1.5 font-mono text-[10px]">
@@ -264,30 +277,28 @@ function PlacementCard({
   const warnings = getPlacementWarnings(item, body);
   const status = getPlacementStatus(item, body);
   const confidence = template?.confidence ?? 'missing';
-  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+  const hasNotes = template?.notes != null && template.notes.trim().length > 0;
+  const handlePlacementKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      event.stopPropagation();
       onSelect();
     }
   };
 
   return (
-    <article
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
+      className={[
+        'w-full rounded border p-3 text-left transition-[border-color,background-color,box-shadow,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
+        selected
+          ? 'border-cyan/80 bg-cyan/10 shadow-brand-glow'
+          : 'border-border/65 bg-bg3/45 hover:border-cyan/45',
+      ].join(' ')}
       aria-pressed={selected}
       aria-label={`Placement ${placement.build_order || index + 1}: ${template?.name ?? placement.facility_template_id ?? 'Unknown facility'}`}
       data-testid={`layout-placement-${index}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        onSelect();
-      }}
-      onKeyDown={handleKeyDown}
-      className={[
-        'rounded border p-3 text-left transition-[border-color,background-color,box-shadow]',
-        selected ? 'border-orange/80 bg-orange/10 shadow-brand-glow' : 'border-border/65 bg-bg3/45 hover:border-orange/50',
-      ].join(' ')}
+      onClick={onSelect}
+      onKeyDown={handlePlacementKeyDown}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
@@ -295,14 +306,24 @@ function PlacementCard({
             <span className="grid h-7 w-7 place-items-center rounded-full border border-orange/40 bg-orange/10 text-[11px] font-mono font-bold text-orange">
               {placement.build_order || index + 1}
             </span>
-            <h6 className="min-w-0 text-sm font-semibold text-silver">
-              {template?.name ?? placement.facility_template_id ?? 'Unknown facility'}
-            </h6>
+            <div className="min-w-0">
+              <h6 className="text-sm font-semibold text-silver">
+                {template?.name ?? placement.facility_template_id ?? 'Unknown facility'}
+              </h6>
+              <p className="mt-1 text-[10px] font-mono text-silver-dk">
+                {template?.category ? `Role: ${template.category}` : 'Role: unknown'}
+              </p>
+            </div>
             <Chip tone={status === 'planned' ? 'good' : 'warn'}>Status: {status}</Chip>
           </div>
+          {hasNotes && (
+            <p className="mt-2 border-l-2 border-border/45 pl-2 text-[11px] italic text-silver-dk">
+              {template?.notes}
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
             {placement.is_primary_port && <Chip tone="good">Primary port</Chip>}
-            <Chip>{template ? formatLocation(template.allowed_location) : 'Unknown location'}</Chip>
+            {template ? <Chip>{formatLocation(template.allowed_location)}</Chip> : 'Unknown location'}
             {template?.tier != null && <Chip>Tier {template.tier}</Chip>}
             {template?.pad_size && <Chip>Pad: {template.pad_size}</Chip>}
             {template?.economy && <Chip>Economy: {template.economy}</Chip>}
@@ -321,6 +342,6 @@ function PlacementCard({
       <p className="mt-2 font-mono text-[10px] text-silver-dk">
         Body assignment: {body ? bodyDisplayName(body) : item.hasUnknownBody ? `Unknown body ${item.bodyId}` : 'Unassigned'}
       </p>
-    </article>
+    </button>
   );
 }

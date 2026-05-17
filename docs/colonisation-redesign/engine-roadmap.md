@@ -627,3 +627,25 @@ Deferred beyond Stage 11A:
 - Saved-build lifecycle and project persistence.
 - EDMC/journal ingestion and automatic data-learning loops.
 - Commodity/material/carrier/hauling execution tracking, which remains outside ED-Finder's planning scope.
+
+## Stage 11B - Layout Cards, Detail Panel, and Workflow Hierarchy Polish
+
+Stage 11B deepens the visual readability of the Layout view and surrounding planner workflow without changing any planning mechanics.
+
+Current Stage 11B status:
+
+- Refined Layout view body cards with stronger grouping headers, clearer placement chip grouping, and stronger selected-state emphasis for bodies and placements.
+- Added compact body summary/badge rhythm and grouped summary/detail sections in `BuildPlanLayoutDetailPanel`.
+- Updated Layout detail panel copy to emphasize read-only planning intent and keep edit direction toward List view.
+- Added clearer section hierarchy in `ColonyPlannerSectionNav` with primary-step separators and subdued later-step grouping for Observed Evidence and Validation.
+- Preserved keyboard-friendly card interactions and avoided destructive actions from Layout view.
+
+No backend mechanics, backend scoring, optimiser generation/ranking, candidate comparison logic, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, Search Tuning behaviour, Observed Evidence behavior, Validation behavior, saved-build persistence, auto-run, auto-generate, auto-load behavior, or hauling/material workflow changed in Stage 11B.
+
+Deferred beyond Stage 11B:
+
+- Richer planner map rendering (e.g., deeper orbit/body visual topology).
+- Further structure picker polish and variant affordance work when a Stage 11C plan is ready.
+- Saved-build persistence and account/profile persistence.
+- EDMC/journal ingestion and automatic planning model updates.
+- Commodity/material/carrier/hauling execution tracking.
