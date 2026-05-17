@@ -200,13 +200,13 @@ Keep the existing flat list as the detailed editor and add a visual body-grouped
 
 Recommended first implementation:
 
-- Add a local, non-persisted view toggle in `BuildPlanSection`: `List view` and `Body view`.
+- Add a local, non-persisted view toggle in `BuildPlanSection`: `List view` and `Layout view` (the historical label used during planning in this report was `Body view`).
 - Default to List view in Stage 10B to avoid surprising existing tests and users.
-- Body view groups placements by `local_body_id`.
+- Layout view groups placements by `local_body_id`.
 - Placements with `null`, empty, or unknown body IDs appear in `Unassigned / needs body`.
 - Each body group shows body name, body type/subtype, landable/terraformable/water-world tags, and placement count.
 - Each placement card shows order, facility/template name, primary-port badge, allowed-location badge, tier, economy, category/role, CP gives/needs, confidence, and missing-template/body warnings.
-- Body view can expose low-risk move/remove actions, but detailed edits remain in List view.
+- Layout view can expose low-risk move/remove actions, but detailed edits remain in List view.
 - Add clear copy: `Use List view for detailed editing.`
 
 Unassigned placements:
@@ -224,7 +224,7 @@ Primary port:
 Preview/stale state:
 
 - Reuse existing Build Plan status copy.
-- Body view toggle must not run Preview, generate Suggested Builds, load a build, or mutate evidence/validation.
+- Layout view toggle must not run Preview, generate Suggested Builds, load a build, or mutate evidence/validation.
 
 Migration path:
 
@@ -456,15 +456,15 @@ Stage 10B should not:
 
 Frontend tests should cover:
 
-- Body view groups placements by assigned body.
+- Layout view groups placements by assigned body.
 - Unassigned placements render in `Unassigned / needs body`.
 - Placement cards show build order and facility name.
 - Primary port badge appears.
 - Body tags/metadata render when available.
 - Missing body/template data does not crash.
-- Toggle switches between List view and Body view.
+- Toggle switches between List view and Layout view.
 - List view still renders the existing `BuildPlanEditor`.
-- Body view shows `Use List view for detailed editing` or equivalent.
+- Layout view shows `Use List view for detailed editing` or equivalent.
 - Zero placements still show the existing empty state.
 - Toggling views does not call `simulateBuild`.
 - Toggling views does not call `fetchOptimiserCandidates`.

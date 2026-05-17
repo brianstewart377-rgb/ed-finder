@@ -1,6 +1,7 @@
 # Stage 5A/5B Optimiser Candidate Generation And Ranking
 
-Stage 5A is a **bounded deterministic candidate-generation foundation** for ED-Finder colony planning. Stage 5B adds **deterministic candidate ranking** over those existing Stage 5A candidates. Stages 5C–5F added candidate inspection, loading into the editable preview, and advisory comparison UI. Stage 5.9C now frames this surface as the **Colony Planner** workspace with **Build Plan**, **Optimiser Candidates**, and **Preview Result** sections. It is still not a full optimiser, not an exhaustive search engine, and not an in-game apply/save workflow. **Simulation Preview remains the explicit preview action/result for the editable Build Plan.**
+Stage 5A is a **bounded deterministic candidate-generation foundation** for ED-Finder colony planning. Stage 5B adds **deterministic candidate ranking** over those existing Stage 5A candidates. Stages 5C–5F added candidate inspection, copy-to-plan actions, and advisory comparison UI. Stage 5.9C now frames this surface as the **Colony Planner** workspace with **Build Plan**, **Suggested Builds**, and **Preview Result** sections. It is still not a full optimiser, not an exhaustive search engine, and not an in-game apply/save workflow. **Simulation Preview remains the explicit preview action/result for the editable Build Plan.**
+Backend/API/type names still use candidate/optimiser wording where compatibility requires it.
 
 The optimiser package lives in `apps/api/src/optimiser/`. Core candidate generation is implemented in `candidate_generator.py`, ranking is implemented in `ranker.py`, optimiser dataclasses and serialization helpers live in `models.py`, archetype guidance lives in `archetype_rules.py`, and placement fingerprint deduplication lives in `dedupe.py`. No Stage 5A or Stage 5B optimiser logic lives under `apps/api/src/recommendations/`.
 
@@ -13,7 +14,7 @@ The optimiser package lives in `apps/api/src/optimiser/`. Core candidate generat
 | Candidate strategies | `balanced`, `pure`, `services_aware`, `low_cp`, and `flexible_multirole`. |
 | Preview execution | `run_preview` controls whether a lightweight `preview_summary` is attached; full Simulation Preview responses are never embedded in candidates. |
 | Ranking execution | `include_ranking=true` adds a top-level ranking object that references candidates by `candidate_id`. |
-| Stage 5.9C UI framing | The frontend presents candidate generation under Colony Planner → Optimiser Candidates, stamps generated candidates with target archetype, max candidate count, and estimated-data setting, and warns when controls become stale. |
+| Stage 5.9C UI framing | The frontend presents candidate generation under Colony Planner → Suggested Builds, stamps generated candidates with target archetype, max candidate count, and estimated-data setting, and warns when controls become stale. |
 | Candidate immutability | Ranking does not mutate candidate objects, add rank fields to candidates, reorder the `candidates` array, or duplicate full candidate payloads inside ranking. |
 | Failure handling | Preview failures are captured on the affected candidate and do not abort generation. |
 | Deduplication | Duplicate ordered placement fingerprints are deduped before returning results; the fingerprint is order-sensitive because build order affects CP timing and repair suggestions. |
@@ -131,11 +132,11 @@ Stage 5C exposes generated and ranked candidates in the frontend under `frontend
 
 The comparison UI remains non-destructive. Candidate selection only changes the highlighted candidate and details pane.
 
-## Stage 5D Load into Preview
+## Stage 5D Copy to Build Plan
 
-Stage 5D adds the explicit `Load into preview` action in candidate details when Simulation Preview provides a load callback. Without that callback, the panel keeps the Stage 5C read-only copy and does not show the load button. With the callback, the panel explains that the user can load a selected candidate into the editable preview and that nothing is committed in-game.
+Stage 5D adds the explicit `Copy to Build Plan` action in candidate details when Simulation Preview provides a copy callback. Without that callback, the panel keeps the Stage 5C read-only copy and does not show the copy button. With the callback, the panel explains that the user can copy a selected candidate into the editable Build Plan and that nothing is committed in-game.
 
-The action copies candidate placements into the editable preview plan, updates the preview target archetype, clears stale result/error state, and leaves the user to run the normal preview manually. Existing non-empty preview plans require confirmation before replacement. Cancelling preserves the current plan. If the user edits, moves, removes, or adds placements after loading, the origin message changes from a loaded-candidate message to an edited-from-candidate message. Loading a candidate does **not** commit anything in-game, save a build, auto-run Simulation Preview, or change backend generation, ranking, scoring, CP, economy, or service mechanics.
+The action copies candidate placements into the editable plan, updates the preview target archetype, clears stale result/error state, and leaves the user to run the normal preview manually. Existing non-empty preview plans require confirmation before replacement. Cancelling preserves the current plan. If the user edits, moves, removes, or adds placements after copying, the origin message changes from a loaded-candidate message to an edited-from-candidate message. Copying a candidate does **not** commit anything in-game, save a build, auto-run Simulation Preview, or change backend generation, ranking, scoring, CP, economy, or service mechanics.
 
 ## Stage 5E Comparison Engine
 

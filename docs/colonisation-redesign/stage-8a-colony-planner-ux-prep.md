@@ -20,7 +20,7 @@ No backend mechanics, scoring formulas, CP formulas, optimiser generation/rankin
 
 ## Executive Summary
 
-Stage 8A should reframe Colony Planner around a guided, suggested-builds-first workflow. The current implementation already has the main mechanics: recommended builds, editable build plans, optimiser candidates, explicit preview execution, stale-preview detection, observed evidence, validation, and review guidance. The problem is not missing simulation depth; it is that the player path is buried, split across several adjacent panels, and still uses some implementation-first language.
+Stage 8A should reframe Colony Planner around a guided, suggested-builds-first workflow. The current implementation already has the main mechanics: recommended builds, editable build plans, Suggested Builds, explicit preview execution, stale-preview detection, observed evidence, validation, and review guidance. The problem is not missing simulation depth; it is that the player path is buried, split across several adjacent panels, and still uses some implementation-first language.
 
 Recommended Stage 8A direction:
 
@@ -222,7 +222,7 @@ Feedback:
 Unclear:
 
 - "Colony Planning" is a section heading, not a prominent entry point. The actual `Colony Planner` header lives inside `SimulationPreviewPanel`, which is below Recommended Builds.
-- The flow has both `Recommended Builds` and `Optimiser Candidates`, so users may not know which suggestions are the main path.
+- The flow has both `Recommended Builds` and `Suggested Builds`, so users may not know which suggestions are the main path.
 
 Player-friendly language:
 
@@ -336,7 +336,7 @@ Player-friendly language:
 - Some panel titles are friendly (`Why this works`, `Warnings`, `Next steps`).
 - Some titles are mechanics-first (`Port Economy`, `Inherited Economy`, `Mechanics Trace`).
 
-### 8. User may generate optimiser candidates
+### 8. User may generate Suggested Builds
 
 Where it appears:
 
@@ -344,7 +344,7 @@ Where it appears:
 
 Action:
 
-- User selects max candidates, estimated-data option, and clicks `Generate candidates`.
+- User selects max candidates, estimated-data option, and clicks `Generate Suggested Builds`.
 
 Feedback:
 
@@ -370,7 +370,7 @@ Where it appears:
 
 Action:
 
-- User clicks `Load into preview`.
+- User clicks `Copy to Build Plan`.
 - If the current plan is non-empty or candidates are stale, user confirms replacement.
 
 Feedback:
@@ -381,7 +381,7 @@ Feedback:
 
 Unclear:
 
-- "Load into preview" does not clearly say "copy this into your editable Build Plan".
+- "Copy to Build Plan" does not clearly say "copy this into your editable Build Plan".
 - After loading, the next step should be louder: tweak if needed, then Run Preview.
 
 Player-friendly language:
@@ -447,7 +447,7 @@ Player-friendly language:
 - Prerequisites are visible per row. `Stats.Prereq` and formula-derived `Prerequisites` columns appear on Colony rows. ED-Finder already models services/buildability, but the Build Plan editor does not show prerequisite/dependency status per placement.
 - Economy is not one field. `Stats.Economy`, `Stats.Stats`, `List.Influence`, and `List.Type` show economy and influence as derived planning dimensions. ED-Finder has economy stack/port economy panels, but the first-run flow should explain top-two economy focus and contamination risk.
 - Hauling is a first-class workflow. `Cargo Hauling` turns active builds into commodity totals, then lets users track carrier stock, ship stock, delivered cargo, and still-needed amounts. ED-Finder does not currently surface build material totals or trip estimates in the Colony Planner UI. Stage 8A should note this as deferred unless existing response data already supports it.
-- Suggested variants are normal. `Lists` includes structure-layout variants and warnings. ED-Finder already has recommended builds and optimiser candidates, but it should present suggestions as the primary route rather than an optional technical panel.
+- Suggested variants are normal. `Lists` includes structure-layout variants and warnings. ED-Finder already has recommended builds and Suggested Builds, but it should present suggestions as the primary route rather than an optional technical panel.
 
 ### Mega Guide-derived lessons
 
@@ -471,7 +471,7 @@ The user-raised concerns are valid after repo inspection, with nuance:
 - Simulation Preview is clearer than earlier stages, but the first-run purpose is still spread across header copy, Build Plan copy, Preview Result copy, and downstream panels.
 - Adding facilities does update rows, but there is no explicit feedback/status that the Build Plan changed and needs preview.
 - Running Preview produces many panels, but not a headline verdict or a clear "what changed / what next" interpretation.
-- Suggested builds are present, but there are two suggestion concepts: `Recommended Builds` above the planner and `Optimiser Candidates` inside the planner.
+- Suggested builds are present, but there are two suggestion concepts: `Recommended Builds` above the planner and `Suggested Builds` inside the planner.
 - Blank planning is available and visually peer-level with recommended options.
 - Observed Evidence and Validation are correctly passive, but they can feel advanced if shown before the user has a basic preview workflow.
 
@@ -481,7 +481,7 @@ The user-raised concerns are valid after repo inspection, with nuance:
 |---|---|---|---|---|---|
 | High | Colony Planner is too buried in system detail. | `SystemDetailModal.tsx` renders Colony Planning after Rating profile, System info, Bodies, Stations, and Exploration value. User concern matches current layout. | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` | Add prominent top-of-modal CTA/jump link: `Open Colony Planner`. Keep embedded section for Stage 8A; jump/focus it from the CTA. | No |
 | High | `Evaluate in Colony Planner` does not actually land in the planner. | `AdvancedSearchTuningTab.tsx` calls `onOpenDetail(r.id64)` for both `Open system detail` and `Evaluate in Colony Planner`. Docs say it only opens system detail. | `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx`, `frontend-v2/src/App.tsx`, `SystemDetailModal.tsx` | Preserve no-auto-run semantics, but pass intent/focus so system detail opens scrolled to Colony Planner or with planner highlighted. | No |
-| High | Suggested-build path is split between Recommended Builds and Optimiser Candidates. | `RecommendedBuildsPanel.tsx` exists before `SimulationPreviewPanel`; `OptimiserCandidatePanel.tsx` exists inside the planner with technical label. | `RecommendedBuildsPanel.tsx`, `SimulationPreview.tsx`, `OptimiserCandidatePanel.tsx`, `ColonyPlannerSectionNav.tsx` | Reframe user-facing candidate UI as `Suggested Builds`; make initial planner choice "Generate Suggested Builds" / "Use recommended plan" / "Start blank". Keep backend optimiser names. | No |
+| High | Suggested-build path is split between Recommended Builds and Suggested Builds. | `RecommendedBuildsPanel.tsx` exists before `SimulationPreviewPanel`; `OptimiserCandidatePanel.tsx` exists inside the planner with technical label. | `RecommendedBuildsPanel.tsx`, `SimulationPreview.tsx`, `OptimiserCandidatePanel.tsx`, `ColonyPlannerSectionNav.tsx` | Reframe user-facing candidate UI as `Suggested Builds`; make initial planner choice "Generate Suggested Builds" / "Use recommended plan" / "Start blank". Keep backend optimiser names. | No |
 | High | Preview Result lacks a headline interpretation. | `SimulationResult.tsx` renders many panels but starts with metrics rather than a verdict and next-step summary. | `PreviewResultSection.tsx`, `SimulationResult.tsx`, panels under `simulation-preview/panels/` | Add top summary block: verdict, risk level, why, and next recommended action. Reuse existing result fields: score, buildability, confidence, strengths, warnings, recommendations, CP summary. | No |
 | High | Build Plan edits do not loudly indicate "needs preview". | `usePlacementEditor.ts` mutates placements; `useSimulationPreviewRun.ts` can mark stale result, but the editor itself does not show placement count/update/stale state. | `BuildPlanSection.tsx`, `BuildPlanEditor.tsx`, `usePlacementEditor.ts`, `useSimulationPreviewRun.ts` | Add visible status near Build Plan: placement count, "Preview not run yet", "Build Plan updated", and "Preview is stale - run again". | No |
 | High | Primary port risk is under-translated. | Build rows have a `Primary port` checkbox; guide says the primary port is irreversible and selection should consider intent, body, distance, slots, solo/community scale, and hauling effort. | `BuildPlanEditor.tsx`, `StartModes.tsx`, `SimulationResult.tsx`, `CpSummary.tsx` | Add primary-port hint and warning copy around the first/primary placement. Recommended builds should explain why their primary port is safe or risky. | Mostly no; deeper effort estimates may need later backend data |
@@ -740,7 +740,7 @@ No scoring changes are required. The UI can use existing fields:
 Audit result:
 
 - `RecommendedBuildsPanel.tsx` already provides a recommended-build path above the planner.
-- `OptimiserCandidatePanel.tsx` already generates bounded candidates, ranks them, compares them to the editable Build Plan, and supports deliberate load into preview.
+- `OptimiserCandidatePanel.tsx` already generates bounded candidates, ranks them, compares them to the editable Build Plan, and supports deliberate Copy to Build Plan.
 - Current UI has two suggestion surfaces and one uses technical naming.
 
 Stage 8A plan:
@@ -748,7 +748,7 @@ Stage 8A plan:
 - Use `Suggested Builds` as the user-facing name for optimiser candidate generation.
 - Keep `Recommended Builds` only if it clearly means precomputed/default recommendations; otherwise fold the experience into a unified "Suggested Builds" entry inside Colony Planner.
 - Place Suggested Builds above manual Build Plan for first-time users.
-- Do not auto-generate candidates on page load unless performance and API cost are confirmed safe in a later implementation review.
+- Do not auto-Generate Suggested Builds on page load unless performance and API cost are confirmed safe in a later implementation review.
 - Do not auto-load a suggestion.
 - Keep confirmation before replacing a non-empty Build Plan.
 - Explain ranking as "why ED-Finder suggests this", not as an opaque optimiser score.

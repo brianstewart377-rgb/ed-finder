@@ -68,7 +68,7 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 | Observed facts | API/docs/internal comments | Backend contract term. User-facing UI uses Observed Evidence. | Observed Evidence. | Deferred internal rename; docs explicitly distinguish. |
 | Mechanics trace | System detail detailed panels and docs | Advanced detail panel is technical but appropriate after Preview Result. | Keep as advanced mechanics detail. | Deferred; no user-facing top-level nav issue. |
 | proof / wrong / guaranteed / optimal | Tests/comments/historical docs and old footer | Validation copy deliberately avoids these as verdicts. Footer `proof of concept` created a user-facing grep hit. | prototype, needs review, estimate, likely. | Footer changed; remaining hits are comments/tests/historical/developer docs. |
-| Load into preview / Optimiser Candidates | Historical docs and internal docs | Historical docs preserve old stage context. Current UI uses Copy to Build Plan / Suggested Builds. | Copy to Build Plan / Suggested Builds. | Deferred historical docs rewrite; current UI is clean. |
+| Copy to Build Plan / Optimiser Candidates | Historical docs and internal docs | Historical docs preserve old stage context. Current UI uses Copy to Build Plan / Suggested Builds. | Copy to Build Plan / Suggested Builds. | Deferred historical docs rewrite; current UI is clean. |
 
 ## Routing Findings
 
