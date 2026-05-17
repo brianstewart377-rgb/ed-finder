@@ -512,3 +512,20 @@ Deferred beyond Stage 11B:
 - Further map-like planning visualisation and deeper body/structure spatialization.
 - Structure picker/table interaction polish beyond the current layout-readout baseline.
 - New execution/logistics features (hauling, carrier stock, trip estimates, commodity requirements).
+
+## Stage 11D - Reviewer-Driven Visual Hierarchy Refinement
+
+Stage 11D continues the low-risk visual pass by consolidating planner-copy hierarchy for the Colony Planner path:
+
+- Confirmed `Suggested Builds -> Build Plan -> Preview Result` as the visible primary flow.
+- Kept `Observed Evidence` and `Validation` explicitly as later steps.
+- Preserved `List view` as the canonical editing surface and `Layout view` as readout-only.
+- No simulator/optimiser/validation side effects introduced through layout interactions.
+
+## Stage 11E - Colony Planner Micro-Polish and Copy Hardening
+
+Stage 11E hardens interaction clarity and terminology across the Planner workflow surface without mechanics changes.
+
+- Added final copy normalization for workspace/header/nav sections and layout guidance (`Use List view to edit`, `Planing workspace` path visibility).
+- Reconfirmed no-preview and no-suggested-build mutation behavior for layout selection, view toggles, and copy-driven state.
+- Preserved separate keyboard-accessible body and placement controls in Layout view.

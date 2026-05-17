@@ -79,7 +79,8 @@ export function ColonyPlannerWorkspace({
               Colony Planner Workspace
             </h2>
             <p className="mt-1 max-w-3xl text-xs font-mono leading-snug text-silver-dk">
-              Evaluate this system with Suggested Builds, an editable Build Plan, and an explicit Preview Result. Nothing runs or loads automatically.
+              Evaluate this system as a planning workspace: Suggested Builds, Build Plan, then Preview Result.
+              Nothing runs or loads automatically.
             </p>
           </div>
           <PlannerWorkflowStrip />
@@ -244,14 +245,13 @@ function HeaderFact({
 function PlannerWorkflowStrip() {
   return (
     <div className="rounded-chunk-lg border border-cyan/25 bg-cyan/5 px-3 py-2">
-      <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
-        Planning flow
-      </div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Colony Planner flow</div>
       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono">
         <FlowChip step="1" label="Suggested Builds" tone="primary" />
         <FlowChip step="2" label="Build Plan" tone="primary" />
         <FlowChip step="3" label="Preview Result" tone="primary" />
-        <FlowChip step="4" label="Evidence / Validation" tone="later" />
+        <FlowChip step="4" label="Observed Evidence" tone="later" />
+        <FlowChip step="5" label="Validation" tone="later" />
       </div>
       <p className="mt-2 text-[10px] font-mono leading-snug text-silver-dk">
         Observed Evidence and Validation are later-step checks after planning and in-game verification.

@@ -438,7 +438,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     fireEvent.click(screen.getByRole('button', { name: /Layout view/i }));
 
     expect(screen.getByRole('button', { name: /Layout view/i }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByText(/Use List view for detailed editing/)).toBeTruthy();
+    expect(screen.getByText(/Layout view is a readout\.? Use List view to edit\./i)).toBeTruthy();
     expect(screen.getByRole('region', { name: /Layout plan summary/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Select body Test Body/i })).toBeTruthy();
     expect(screen.getByText('Generic Port Alpha')).toBeTruthy();

@@ -196,7 +196,7 @@ export function BuildPlanSection({
           <div>
             <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Planner views</div>
             <p className="mt-0.5 text-[10px] font-mono text-silver-dk">
-              Layout view is a readout. Use List view for full edits.
+              Layout view is a readout. Use List view to edit.
             </p>
           </div>
           <div className="inline-flex rounded-chunk-sm border border-border/70 bg-bg3/40 p-1">

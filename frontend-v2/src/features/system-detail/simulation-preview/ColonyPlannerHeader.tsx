@@ -25,7 +25,7 @@ export function ColonyPlannerHeader({
             Colony Planner
           </h3>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-            Plan a colony build for this system. Start with Suggested Builds if you are unsure, compare them with your editable Build Plan, and run Preview before doing anything in-game.
+            Plan a colony build for this system in a dedicated planning workflow. Start with Suggested Builds if you are unsure, compare them with your editable Build Plan, and run Preview before doing anything in-game.
           </p>
           {initialPlanLabel && (
             <p className="mt-1 text-[11px] text-orange font-mono">

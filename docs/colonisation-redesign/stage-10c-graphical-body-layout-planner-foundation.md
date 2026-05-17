@@ -220,3 +220,29 @@ Stage 11C performs final UX QA on the dedicated planner before Stage 12:
   - no automatic Suggested Builds generation/load
   - no backend scoring or optimiser ranking changes
   - no hauling/material execution flow added
+
+## Stage 11D - Reviewer-Driven Visual Hierarchy Refinement
+
+Stage 11D keeps the 11C planning surface intact and applies reviewer-driven copy and hierarchy nudges:
+
+- Strengthened workflow labeling around `Suggested Builds -> Build Plan -> Preview Result`.
+- Kept `Observed Evidence` and `Validation` as clearly marked later steps.
+- Preserved the separate interactive controls model (`Layout view` body selection and placement selection).
+- Reaffirmed no backend or mechanics changes from this polish.
+
+## Stage 11E - Interaction & Copy Hardening
+
+Stage 11E is a focused micro-polish to harden interaction clarity, copy consistency, and spacing on top of the 11D baseline:
+
+- Tightened planner copy in workspace header and section nav so planning intent and workflow are explicit.
+- Kept `List view` as the canonical edit path and `Layout view` as the readout path, with explicit read-only guidance.
+- Confirmed layout interaction safety remains unchanged (no nested interactive regions, no preview/candidate side effects on selection).
+- Updated test focus for nav wording, `List` / `Layout` framing copy, and selection behavior.
+- No new mechanics, backend API, scoring, or planning simulation changes were made.
+
+## Deferments after Stage 11E
+
+- Facility variant workflows and deeper table-based picker enhancements.
+- Body map / orbital visualization beyond current card layout.
+- Execution/logistics features (carrier stock, hauling, commodity planning).
+- Build persistence/account/state products and automatic learning.

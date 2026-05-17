@@ -64,7 +64,7 @@ export function BuildPlanBodyView({
         <div className="flex flex-wrap items-center gap-2">
           <LayoutPanelTop size={14} className="text-cyan" />
           <span className="font-mono uppercase tracking-[0.14em] text-cyan">Layout view</span>
-          <span>Use List view for detailed editing. This view is a planning readout of the same Build Plan.</span>
+          <span>This is a planning readout. Use List view to edit.</span>
         </div>
       </div>
 

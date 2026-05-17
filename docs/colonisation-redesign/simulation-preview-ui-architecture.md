@@ -53,6 +53,14 @@ Stage 11D is a reviewer-driven visual hierarchy refinement pass:
 - Preserve separate interactive targets for body and placement selection with visible and keyboard-accessible selected state.
 - Reaffirm no side-effect expansion: layout interactions should not trigger preview execution, suggested-build generation, candidate load, validation compare, or automatic persistence.
 
+Stage 11E is a micro-polish and interaction hardening pass:
+
+- Tighten Planner context copy in `ColonyPlannerWorkspace.tsx`, `ColonyPlannerHeader.tsx`, and `ColonyPlannerSectionNav.tsx` so `Suggested Builds -> Build Plan -> Preview Result` is the clearly visible path and `Observed Evidence`, `Validation` are explicitly secondary.
+- Keep `BuildPlanSection` and `BuildPlanBodyView` framing unchanged: `List view` stays canonical editing, `Layout view` stays a planning readout.
+- Maintain separate interactive controls for body selection and placement selection and preserve keyboard access while avoiding nested interactive elements.
+- Confirm user-visible copy avoids non-goal logistics wording and unsafe claims while remaining planning/conservative.
+- Reinforce no interaction side effects: no `simulateBuild` auto-run, no Suggested Build mutation, and no automatic persistence from layout interactions.
+
 ## Shared UI Atoms
 
 Shared visual atoms are intentionally small and boring. Each atom lives in its own file so future optimiser components can reuse them without importing an unrelated grouped implementation file.

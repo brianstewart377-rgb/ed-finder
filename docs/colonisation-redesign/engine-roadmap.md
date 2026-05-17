@@ -692,3 +692,26 @@ Deferred beyond Stage 11D:
 - Deeper planner topology and body-map rendering.
 - Material/commodity/carrier/hauling execution tracking.
 - Saved-build lifecycle and external ingestion loops.
+
+## Stage 11E - Colony Planner Interaction Polish and Copy Hardening
+
+Stage 11E is a micro-polish and accessibility pass that hardens the Planner workflow signalling, keeps the existing read/write boundaries obvious, and tightens interaction clarity for `Build Plan` and `Layout view`.
+
+Current Stage 11E status:
+
+- Reinforced Planner workflow copy and ordering on both the workspace header and planner nav.
+- Confirmed Planner identity as a dedicated visual planning workspace with explicit `Suggested Builds -> Build Plan -> Preview Result` path and clearly secondary `Observed Evidence` and `Validation`.
+- Kept `List view` as the canonical editing path and `Layout view` as a planning readout.
+- Added explicit Layout read-only / edit guidance in Planner copy, including `Use List view to edit`.
+- Preserved accessibility-focused interaction structure in Layout cards: dedicated body selection control plus separate placement selection and keyboard access.
+- Added/updated focused regression tests for nav wording, layout guidance copy, selection behavior, and no accidental side-effect triggering from view interactions.
+- Ran copy-safety checks to avoid user-facing non-goal wording.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, auto-run, auto-generate, auto-load behaviour, or hauling/material workflow changed in Stage 11E.
+
+Deferred beyond Stage 11E:
+
+- Full structure picker/table expansion and variant-aware placement comparison.
+- Additional body-map style spatial rendering beyond the current card layout.
+- Saved build persistence and external ingestion loops.
+- Commodity/material/commodity/trip planning features, which remain outside ED-Finder's planning layer.
