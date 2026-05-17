@@ -224,7 +224,7 @@ export function BuildPlanSection({
         </div>
         <div className="mb-3 grid gap-2 font-mono text-[10px] text-silver-dk md:grid-cols-2">
           <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2">
-            Primary port is a major planning choice. Choose carefully before committing in-game.
+            Architect primary-port location should be checked before final station placement; it is planning context, not a Build Point source.
           </p>
           <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2">
             Yellow CP supports Tier 2 construction. Green CP supports Tier 3 construction. Build order can affect CP timing and port escalation.
@@ -240,7 +240,7 @@ export function BuildPlanSection({
             </div>
             <div className="mt-1 text-[11px] text-silver-dk">
               {startMode === 'blank_advanced'
-                ? 'Start with a primary port, then add support facilities and run Preview.'
+                ? 'Start with a facility placement, then add support facilities and run Preview.'
                 : 'Use Suggested Builds below, use a recommended baseline when available, or choose Start blank.'}
             </div>
           </div>

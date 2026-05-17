@@ -415,7 +415,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     expect(screen.getByText(/1 placement in Build Plan/)).toBeTruthy();
     expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
-    expect(screen.getByText(/Primary port is a major planning choice/)).toBeTruthy();
+    expect(screen.getAllByText(/Architect primary-port location should be checked before final station placement/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Yellow CP supports Tier 2 construction/)).toBeTruthy();
     expect(screen.getByText(/Green CP supports Tier 3 construction/)).toBeTruthy();
     expect(screen.getByText(/Build order can affect CP timing and port escalation/)).toBeTruthy();
@@ -477,6 +477,13 @@ describe('SimulationPreview optimiser candidate loading', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Surface' }));
     fireEvent.change(screen.getByRole('searchbox', { name: /Search structures/i }), { target: { value: 'Agriculture' } });
     fireEvent.click(screen.getByRole('button', { name: /Select structure Agriculture Support A/i }));
+
+    expect(screen.getByTestId('structure-replacement-comparison')).toBeTruthy();
+    expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Apply replacement/i }));
 
     expect(screen.getByDisplayValue('T1 - Agriculture Support A - Agriculture')).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();

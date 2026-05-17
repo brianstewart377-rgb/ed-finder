@@ -282,3 +282,31 @@ Deferred to Stage 12B:
 - Variant/family grouping, richer compare layouts, and broader replacement flows.
 - Any layout-view-side picker action (Layout remains read-only).
 - Backend catalogue enrichment and non-frontend planner mechanics work.
+
+## Stage 12B - Replacement Review and Architect Context
+
+Stage 12B keeps List view as the editing surface while making picker-driven replacements explicit and reversible until confirmed.
+
+- `StructureReplacementComparison.tsx` provides a focused current/proposed comparison panel for structure replacement.
+- Selecting a row in `StructurePickerTable` now opens replacement review. It does not mutate the placement until the user chooses `Apply replacement`.
+- `Apply replacement` calls the existing Build Plan `onUpdate` path with the proposed facility template only. `Cancel replacement` closes the panel with no placement change.
+- The comparison is read-only and includes structure name, tier, allowed location, pad size, economy, role/category, CP gives/needs, confidence, compatibility labels, warning chips, and body context.
+- List view shows read-only Architect primary-port planning context. The copy frames Architect Mode as something to check before final station placement, notes that an inconvenient flagged slot can be used for a lighter outpost, and states that primary-port location is not a Build Point source.
+- Existing primary-port flags are displayed as read-only state. Stage 12B does not add `make primary`, `remove primary`, arbitrary slot assignment, or predicted-slot logic.
+
+Safety boundaries in Stage 12B:
+
+- Layout view remains read-only.
+- No automatic preview execution, Suggested Build generation/load, validation, persistence, import, or backend mutation is introduced by comparison or apply/cancel.
+- No scoring, CP formulas, economy logic, buildability rules, service unlock rules, optimiser ranking/generation, Search Tuning, Observed Evidence, or Validation behavior changes are introduced.
+
+Test coverage added in Stage 12B:
+
+- `BuildPlanEditor.test.tsx` for replacement review opening, rendered comparison values, cancel/apply behavior, and read-only primary-port wording.
+- `SimulationPreview.optimiser.test.tsx` coverage updated so picker selection opens comparison first and still avoids preview/optimiser side effects.
+
+Deferred to Stage 12C:
+
+- Variant/family grouping and richer catalogue compare layouts.
+- Architect Slot Survey data entry/import and confirmed primary-port slot evidence handling.
+- Any Layout-view action surface beyond read-only planning explanation.
