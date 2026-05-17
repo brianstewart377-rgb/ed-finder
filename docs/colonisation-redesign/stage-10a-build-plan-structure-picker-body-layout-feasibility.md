@@ -526,6 +526,35 @@ Stage 11D continues the low-risk visual pass by consolidating planner-copy hiera
 
 Stage 11E hardens interaction clarity and terminology across the Planner workflow surface without mechanics changes.
 
-- Added final copy normalization for workspace/header/nav sections and layout guidance (`Use List view to edit`, `Planing workspace` path visibility).
+- Added final copy normalization for workspace/header/nav sections and layout guidance (`Use List view to edit`, `Planning workspace` path visibility).
 - Reconfirmed no-preview and no-suggested-build mutation behavior for layout selection, view toggles, and copy-driven state.
 - Preserved separate keyboard-accessible body and placement controls in Layout view.
+
+## Stage 11F - Micro-Polish and QA Guardrails
+
+Stage 11F is a narrow follow-up to the interaction/accessibility hardening in Stage 11E.
+
+- Reaffirmed the existing `List view` as the canonical editing surface and `Layout view` as a read-only planning readout.
+- Kept the primary workflow visible as `Suggested Builds -> Build Plan -> Preview Result` and kept later-step framing for `Observed Evidence` and `Validation`.
+- Preserved all existing interaction constraints: no preview auto-run and no Suggested Builds auto-generation/load from layout interactions.
+- Kept keyboard/accessibility behavior for body and placement interactions intact.
+
+## Stage 11G - Workflow Label Consistency and Header Micro-Polish
+
+Stage 11G is a small mechanics-safe polish pass focused on planner-label consistency.
+
+- Synchronized planner header and section labels to avoid mismatched terminology.
+- Reduced redundant phrase variants so users see a single, predictable set of workflow labels.
+- Preserved no-side-effect boundaries and read-only/read-write separation.
+
+## Stage 11H - Layout Import State Reset Guardrail
+
+Stage 11H addresses a residual quality-of-life issue in the planning surface.
+
+- Added a system-scoped reset so stale layout-import status messages (running/error/result) are cleared when switching systems.
+- Kept the behavior passive: no layout-import side effects are introduced beyond the existing manual layout import action.
+- Preserved strict separation between layout-import status and planner build/editing behavior.
+
+Chronology note:
+
+- Stage 11F happened before Stage 11G, and Stage 11H follows Stage 11G.

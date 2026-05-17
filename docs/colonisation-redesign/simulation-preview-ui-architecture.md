@@ -237,3 +237,16 @@ The review endpoint first produces the Stage 6C comparison result, then derives 
 The review block renders after the Stage 6C summary and before comparison rows. It shows overall review status, evidence strength, highest severity, primary areas, summary text, and signals. User-facing copy says: "Review guidance is advisory", "This does not change mechanics or scoring", and "Use this to decide what to investigate next." If review guidance fails to load, comparison rows remain visible.
 
 Observed evidence create/update/delete invalidates both compare and review query namespaces. Low-confidence evidence cannot trigger high-priority review, and contradicted rows remain framed as needs-review leads rather than final mechanics verdicts. Stage 6F will harden the Stage 6 workflow; EDMC/journal ingestion is still not implemented.
+
+## Stage 11H - Layout Import Staleness Guardrail
+
+Stage 11H is a narrow follow-up to keep the planner readout state coherent during system changes.
+
+- `BuildPlanSection` now clears layout-import status/result/error state when `systemId64` changes.
+- This prevents stale `Import / refresh system layout` banners from carrying over when users move between systems.
+- It is a passive UX guardrail only: import remains manual and side-effectful only when explicitly triggered.
+- No simulator/execution/mechanics behavior is changed.
+
+Chronology note:
+
+- Stage 11F happened before Stage 11G, and Stage 11H follows Stage 11G on this branch.
