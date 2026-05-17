@@ -1,13 +1,17 @@
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
 import { bodyDisplayName } from './buildPlanLayoutUtils';
 import { Chip } from './components';
-import { formatLocation } from './utils/formatters';
 import {
   getStructurePickerValidityLabel,
   getStructurePickerWarnings,
   resolveBodyContext,
   type StructurePickerBodyContext,
 } from './structurePickerUtils';
+import {
+  buildReplacementFieldDeltas,
+  buildWarningDeltas,
+  type ReplacementFieldDelta,
+} from './structureReplacementDeltaUtils';
 
 export function StructureReplacementComparison({
   placement,
@@ -29,6 +33,8 @@ export function StructureReplacementComparison({
   const proposedWarnings = getStructurePickerWarnings(proposedTemplate, bodyContext);
   const currentValidity = currentTemplate ? getStructurePickerValidityLabel(currentTemplate, bodyContext) : 'Missing template';
   const proposedValidity = getStructurePickerValidityLabel(proposedTemplate, bodyContext);
+  const fieldDeltas = buildReplacementFieldDeltas(currentTemplate, proposedTemplate);
+  const warningDeltas = buildWarningDeltas(currentWarnings, proposedWarnings);
 
   return (
     <section
@@ -63,6 +69,9 @@ export function StructureReplacementComparison({
           warnings={proposedWarnings}
         />
       </div>
+
+      <ReplacementDeltaTable deltas={fieldDeltas} />
+      <WarningDeltaList deltas={warningDeltas} />
 
       <ArchitectPrimaryPortContext isPrimaryPort={Boolean(placement.is_primary_port)} />
 
@@ -109,16 +118,6 @@ function StructureColumn({
     <div className="rounded border border-border/60 bg-bg2/70 p-3">
       <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">{title}</div>
       <h6 className="mt-1 text-sm font-bold text-silver">{template?.name ?? fallbackName ?? 'Unknown structure'}</h6>
-      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-        <ComparisonMetric label="Tier" value={template?.tier != null ? String(template.tier) : 'Unknown'} warn={!template} />
-        <ComparisonMetric label="Allowed location" value={template ? formatLocation(template.allowed_location) : 'Unknown'} warn={!template} />
-        <ComparisonMetric label="Pad size" value={template?.pad_size ?? 'Unknown'} warn={!template?.pad_size} />
-        <ComparisonMetric label="Economy" value={template?.economy ?? 'Unknown'} warn={!template?.economy} />
-        <ComparisonMetric label="Role" value={template?.category ?? 'Unknown'} warn={!template?.category} />
-        <ComparisonMetric label="CP gives" value={template ? `Y+${template.yellow_cp_generated} G+${template.green_cp_generated}` : 'Unknown'} warn={!template} />
-        <ComparisonMetric label="CP needs" value={template ? `Y${template.yellow_cp_cost} G${template.green_cp_cost}` : 'Unknown'} warn={!template} />
-        <ComparisonMetric label="Confidence" value={template?.confidence ?? 'missing'} warn={!template || template.confidence === 'estimated'} />
-      </dl>
       <div className="mt-3 flex flex-wrap gap-1.5 font-mono text-[10px]">
         <Chip tone={validityTone}>{validity}</Chip>
         {warnings.map((warning) => <Chip key={`${title}-${warning}`} tone="warn">{warning}</Chip>)}
@@ -127,11 +126,82 @@ function StructureColumn({
   );
 }
 
-function ComparisonMetric({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
+function ReplacementDeltaTable({ deltas }: { deltas: ReplacementFieldDelta[] }) {
   return (
-    <div className={['rounded border px-2 py-1.5', warn ? 'border-gold/35 bg-gold/5' : 'border-border/50 bg-bg3/35'].join(' ')}>
-      <dt className={['font-mono text-[9px] uppercase tracking-[0.14em]', warn ? 'text-gold' : 'text-silver-dk'].join(' ')}>{label}</dt>
-      <dd className="mt-0.5 break-words text-[11px] text-silver">{value}</dd>
+    <div className="mt-3 overflow-x-auto rounded border border-border/60 bg-bg2/55" data-testid="structure-replacement-deltas">
+      <table className="min-w-full border-collapse text-left font-mono text-[10px]">
+        <thead>
+          <tr className="border-b border-border/55 text-silver-dk">
+            <th className="px-2 py-1 uppercase tracking-[0.14em]">Field</th>
+            <th className="px-2 py-1 uppercase tracking-[0.14em]">Current</th>
+            <th className="px-2 py-1 uppercase tracking-[0.14em]">Proposed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {deltas.map((delta) => (
+            <tr
+              key={delta.label}
+              data-testid={`structure-replacement-delta-${delta.label.toLowerCase().replace(/\s+/g, '-')}`}
+              data-changed={delta.changed ? 'true' : 'false'}
+              className={[
+                'border-b border-border/35 align-top',
+                delta.changed ? 'bg-orange/10' : 'bg-transparent',
+              ].join(' ')}
+            >
+              <th className={['px-2 py-2 text-left uppercase tracking-[0.12em]', delta.changed ? 'text-orange' : 'text-silver-dk'].join(' ')}>
+                {delta.label}
+              </th>
+              <DeltaValue value={delta.currentValue} warn={delta.warnCurrent} changed={delta.changed} />
+              <DeltaValue value={delta.proposedValue} warn={delta.warnProposed} changed={delta.changed} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DeltaValue({ value, warn, changed }: { value: string; warn: boolean; changed: boolean }) {
+  return (
+    <td className={['px-2 py-2', changed ? 'text-silver' : 'text-silver-dk'].join(' ')}>
+      <span className={['break-words', warn ? 'text-gold' : ''].join(' ')}>
+        {value}
+      </span>
+    </td>
+  );
+}
+
+function WarningDeltaList({ deltas }: { deltas: ReturnType<typeof buildWarningDeltas> }) {
+  return (
+    <div className="mt-3 grid gap-2 md:grid-cols-3" data-testid="structure-replacement-warning-deltas">
+      <WarningDeltaBucket title="Warnings added" warnings={deltas.added} tone="warn" emptyLabel="No new warnings" />
+      <WarningDeltaBucket title="Warnings removed" warnings={deltas.removed} tone="good" emptyLabel="No warnings removed" />
+      <WarningDeltaBucket title="Warnings unchanged" warnings={deltas.unchanged} tone="default" emptyLabel="No unchanged warnings" subdued />
+    </div>
+  );
+}
+
+function WarningDeltaBucket({
+  title,
+  warnings,
+  tone,
+  emptyLabel,
+  subdued = false,
+}: {
+  title: string;
+  warnings: string[];
+  tone: 'default' | 'good' | 'warn';
+  emptyLabel: string;
+  subdued?: boolean;
+}) {
+  return (
+    <div className="rounded border border-border/55 bg-bg2/55 p-2">
+      <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-silver-dk">{title}</div>
+      <div className={['mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]', subdued ? 'opacity-75' : ''].join(' ')}>
+        {warnings.length > 0
+          ? warnings.map((warning) => <Chip key={`${title}-${warning}`} tone={tone}>{warning}</Chip>)
+          : <Chip>{emptyLabel}</Chip>}
+      </div>
     </div>
   );
 }
@@ -141,7 +211,7 @@ function ArchitectPrimaryPortContext({ isPrimaryPort }: { isPrimaryPort: boolean
     <div className="mt-3 rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Architect primary-port context</div>
       <p className="mt-1 text-[11px] leading-snug text-silver-dk">
-        Architect primary-port location should be checked before final station placement. Primary-port location is planning context, not a Build Point source.
+        Check the primary-port location in-game through System Map and Architect Mode before final major station placement. Primary-port location is placement guidance, not a Build Point source.
       </p>
       {isPrimaryPort && (
         <p className="mt-1 text-[11px] leading-snug text-silver-dk">

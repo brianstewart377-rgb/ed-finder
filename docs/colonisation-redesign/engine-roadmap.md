@@ -830,8 +830,38 @@ No backend mechanics, backend scoring, normal search scoring, Simulation Preview
 
 Deferred to Stage 12C:
 
-- Variant/family grouping and richer catalogue comparison modes.
 - Architect Slot Survey data entry/import surfaces for confirmed in-game primary-port slot evidence.
 - Better body/orbit recommendation context once confirmed Architect-slot data exists.
 - Layout-view-side explanatory affordances remain read-only unless a later stage explicitly scopes safe actions.
 - Backend catalogue enrichment and persistence workflows remain separate.
+
+## Stage 12C - Picker Grouping / Replacement Delta Polish
+
+Stage 12C keeps the Structure Picker and replacement workflow frontend-only while making the catalogue easier to browse and replacement consequences easier to read.
+
+Current Stage 12C status:
+
+- Added conservative frontend grouping for structure templates. Group labels are derived only from existing catalogue fields such as port/support status, allowed location, economy, category/role, and tier-visible row data; no backend taxonomy or mechanics field is introduced.
+- `StructurePickerTable` now renders grouped sections such as orbital ports, surface settlements, economy-specific support, military/security, support facilities, and unknown/other while preserving search, location filters, warning chips, validity labels, and explicit `Select structure` actions.
+- The picker highlights both the current structure and the proposed replacement when a replacement review is open. Highlighting is visual planning state only and does not mutate the Build Plan.
+- Replacement review now shows a field-delta table for current vs proposed values. Changed fields are emphasized; unchanged fields remain readable but subdued.
+- Warning movement is split into warnings added, warnings removed, and warnings unchanged so users can see whether a replacement reduces, preserves, or introduces planning risk.
+- Architect primary-port guidance remains read-only and conservative. The List view reminds users to confirm the primary-port location in-game through System Map and Architect Mode before final major station placement, frames primary-port location as placement guidance rather than a Build Point source, and suggests using an inconvenient flagged slot for an outpost while placing the main station elsewhere.
+
+Safety boundaries in Stage 12C:
+
+- No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behavior, Validation behavior, saved-build persistence, import behavior, EDMC ingestion, auto-run, auto-generate, auto-load behavior, map topology rendering, or hauling/material workflow changed.
+- Stage 12C does not add primary-port setting/unsetting controls, make-primary/remove-primary actions, arbitrary Architect slot assignment, confirmed-slot storage, backend import/storage, full Architect Slot Survey, auto-preview, auto-save, polling, or silent mutation.
+- Layout view remains read-only planning output. List view remains the canonical editable surface.
+
+Test coverage added in Stage 12C:
+
+- Group-label derivation and stable grouped ordering.
+- Grouped picker rendering, grouped search/filter behavior, current/proposed row highlighting, and explicit selection behavior.
+- Replacement comparison changed/unchanged field rendering, warning added/removed/unchanged deltas, apply/cancel behavior, no preview/optimiser side effects, and continued absence of primary-port editing controls.
+
+Deferred to Stage 12D:
+
+- Architect Slot Survey data entry/import surfaces for confirmed in-game primary-port slot evidence.
+- Better body/orbit recommendation context once confirmed Architect-slot data exists.
+- Any backend catalogue enrichment, saved-build persistence, logistics/material planning, or layout-view action surface.

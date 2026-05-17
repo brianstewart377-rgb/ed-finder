@@ -67,6 +67,8 @@ describe('StructurePickerTable', () => {
     const panel = screen.getByTestId('structure-picker');
     expect(within(panel).getByText('Compare structures')).toBeTruthy();
     expect(within(panel).getByText('Evaluating against: A 1')).toBeTruthy();
+    expect(screen.getByTestId('structure-picker-group-Orbital ports')).toBeTruthy();
+    expect(screen.getByTestId('structure-picker-group-Extraction support')).toBeTruthy();
     expect(screen.getByTestId('structure-picker-row-orbital_port')).toBeTruthy();
     expect(screen.getByTestId('structure-picker-row-surface_hub')).toBeTruthy();
     expect(screen.getAllByText('Orbital Port').length).toBeGreaterThan(0);
@@ -82,6 +84,7 @@ describe('StructurePickerTable', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search structures' }), { target: { value: 'Surface' } });
     expect(screen.queryByTestId('structure-picker-row-orbital_port')).toBeNull();
     expect(screen.getByTestId('structure-picker-row-surface_hub')).toBeTruthy();
+    expect(screen.getByTestId('structure-picker-group-Extraction support')).toBeTruthy();
 
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search structures' }), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Orbital' }));
@@ -132,5 +135,18 @@ describe('StructurePickerTable', () => {
     renderPicker();
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search structures' }), { target: { value: 'zzzz' } });
     expect(screen.getByText('No structures match the current filters.')).toBeTruthy();
+  });
+
+  it('highlights current and proposed replacement templates without applying selection', () => {
+    renderPicker({ proposedTemplateId: 'surface_hub' });
+
+    const currentRow = screen.getByTestId('structure-picker-row-orbital_port');
+    const proposedRow = screen.getByTestId('structure-picker-row-surface_hub');
+
+    expect(currentRow.getAttribute('data-highlight')).toBe('selected');
+    expect(proposedRow.getAttribute('data-highlight')).toBe('proposed');
+    expect(within(currentRow).getByText('Current')).toBeTruthy();
+    expect(within(proposedRow).getByText('Proposed')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Select structure Surface Hub' })).toBeTruthy();
   });
 });

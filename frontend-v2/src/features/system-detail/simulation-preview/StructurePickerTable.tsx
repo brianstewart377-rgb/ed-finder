@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import type { FacilityTemplate, SystemBody } from '@/types/api';
 import { bodyDisplayName } from './buildPlanLayoutUtils';
@@ -11,18 +11,24 @@ import {
   resolveBodyContext,
   type StructurePickerLocationFilter,
 } from './structurePickerUtils';
+import {
+  deriveStructurePickerGroupLabel,
+  groupStructurePickerTemplates,
+} from './structurePickerGroupingUtils';
 
 export function StructurePickerTable({
   templates,
   bodies,
   selectedBodyId,
   selectedTemplateId,
+  proposedTemplateId,
   onSelectTemplate,
 }: {
   templates: FacilityTemplate[];
   bodies: SystemBody[];
   selectedBodyId?: string | null;
   selectedTemplateId?: string | null;
+  proposedTemplateId?: string | null;
   onSelectTemplate: (templateId: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -36,9 +42,19 @@ export function StructurePickerTable({
     return templates.filter((template) => {
       if (!locationMatchesFilter(template, locationFilter)) return false;
       if (!normalizedQuery) return true;
-      return `${template.name} ${template.category} ${template.economy ?? ''}`.toLowerCase().includes(normalizedQuery);
+      return [
+        template.name,
+        template.category,
+        template.economy ?? '',
+        template.allowed_location,
+        deriveStructurePickerGroupLabel(template),
+      ].join(' ').toLowerCase().includes(normalizedQuery);
     });
   }, [templates, query, locationFilter]);
+  const groupedTemplates = useMemo(
+    () => groupStructurePickerTemplates(filteredTemplates),
+    [filteredTemplates],
+  );
 
   return (
     <section
@@ -122,60 +138,80 @@ export function StructurePickerTable({
               </tr>
             </thead>
             <tbody>
-              {filteredTemplates.map((template) => {
-                const warnings = getStructurePickerWarnings(template, bodyContext);
-                const validity = getStructurePickerValidityLabel(template, bodyContext);
-                const isSelected = selectedTemplateId === template.id;
-                const validityTone = validity === 'Looks valid' ? 'good' : validity === 'Needs body' || validity === 'Unknown body' ? 'default' : 'warn';
-                return (
-                  <tr
-                    key={template.id}
-                    data-testid={`structure-picker-row-${template.id}`}
-                    className={[
-                      'border-b border-border/35 align-top',
-                      isSelected ? 'bg-cyan/10' : 'bg-transparent',
-                    ].join(' ')}
-                  >
-                    <td className="px-2 py-2 text-silver">
-                      <div className="font-semibold">{template.name}</div>
-                      {template.is_port ? (
-                        <div className="mt-1"><Chip>Port</Chip></div>
-                      ) : null}
-                    </td>
-                    <td className="px-2 py-2 text-silver-dk">{formatLocation(template.allowed_location)}</td>
-                    <td className="px-2 py-2 text-silver-dk">{template.tier}</td>
-                    <td className="px-2 py-2 text-silver-dk">{template.pad_size ?? 'Unknown'}</td>
-                    <td className="px-2 py-2 text-silver-dk">{template.economy ?? 'Unknown'}</td>
-                    <td className="px-2 py-2 text-silver-dk">{template.category}</td>
-                    <td className="px-2 py-2 text-silver-dk">Y+{template.yellow_cp_generated} G+{template.green_cp_generated}</td>
-                    <td className="px-2 py-2 text-silver-dk">Y{template.yellow_cp_cost} G{template.green_cp_cost}</td>
-                    <td className="px-2 py-2 text-silver-dk">{template.confidence ?? 'missing'}</td>
-                    <td className="px-2 py-2">
-                      <div className="flex max-w-[14rem] flex-wrap gap-1">
-                        <Chip tone={validityTone}>{validity}</Chip>
-                        {warnings.map((warning) => (
-                          <Chip key={`${template.id}-${warning}`} tone="warn">{warning}</Chip>
-                        ))}
+              {groupedTemplates.map((group) => (
+                <Fragment key={group.label}>
+                  <tr key={`${group.label}-heading`} data-testid={`structure-picker-group-${group.label}`} className="border-y border-border/55 bg-bg3/70">
+                    <th colSpan={11} className="px-2 py-2 text-left">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">{group.label}</span>
+                        <span className="rounded border border-border/60 bg-bg2/70 px-1.5 py-0.5 font-mono text-[9px] text-silver-dk">
+                          {group.templates.length} option{group.templates.length === 1 ? '' : 's'}
+                        </span>
                       </div>
-                    </td>
-                    <td className="px-2 py-2">
-                      <button
-                        type="button"
-                        aria-label={`Select structure ${template.name}`}
-                        onClick={() => onSelectTemplate(template.id)}
+                    </th>
+                  </tr>
+                  {group.templates.map((template) => {
+                    const warnings = getStructurePickerWarnings(template, bodyContext);
+                    const validity = getStructurePickerValidityLabel(template, bodyContext);
+                    const isSelected = selectedTemplateId === template.id;
+                    const isProposed = proposedTemplateId === template.id && !isSelected;
+                    const validityTone = validity === 'Looks valid' ? 'good' : validity === 'Needs body' || validity === 'Unknown body' ? 'default' : 'warn';
+                    return (
+                      <tr
+                        key={template.id}
+                        data-testid={`structure-picker-row-${template.id}`}
+                        data-highlight={isSelected ? 'selected' : isProposed ? 'proposed' : 'none'}
                         className={[
-                          'rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] transition',
-                          isSelected
-                            ? 'border-cyan/65 bg-cyan/15 text-cyan'
-                            : 'border-border/60 bg-bg2 text-silver-dk hover:border-cyan/55 hover:text-cyan',
+                          'border-b border-border/35 align-top',
+                          isSelected ? 'bg-cyan/10' : isProposed ? 'bg-orange/10' : 'bg-transparent',
                         ].join(' ')}
                       >
-                        {isSelected ? 'Selected' : 'Select structure'}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                        <td className="px-2 py-2 text-silver">
+                          <div className="font-semibold">{template.name}</div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {template.is_port ? <Chip>Port</Chip> : null}
+                            {isSelected ? <Chip tone="good">Current</Chip> : null}
+                            {isProposed ? <Chip tone="warn">Proposed</Chip> : null}
+                          </div>
+                        </td>
+                        <td className="px-2 py-2 text-silver-dk">{formatLocation(template.allowed_location)}</td>
+                        <td className="px-2 py-2 text-silver-dk">{template.tier}</td>
+                        <td className="px-2 py-2 text-silver-dk">{template.pad_size ?? 'Unknown'}</td>
+                        <td className="px-2 py-2 text-silver-dk">{template.economy ?? 'Unknown'}</td>
+                        <td className="px-2 py-2 text-silver-dk">{template.category}</td>
+                        <td className="px-2 py-2 text-silver-dk">Y+{template.yellow_cp_generated} G+{template.green_cp_generated}</td>
+                        <td className="px-2 py-2 text-silver-dk">Y{template.yellow_cp_cost} G{template.green_cp_cost}</td>
+                        <td className="px-2 py-2 text-silver-dk">{template.confidence ?? 'missing'}</td>
+                        <td className="px-2 py-2">
+                          <div className="flex max-w-[14rem] flex-wrap gap-1">
+                            <Chip tone={validityTone}>{validity}</Chip>
+                            {warnings.map((warning) => (
+                              <Chip key={`${template.id}-${warning}`} tone="warn">{warning}</Chip>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-2 py-2">
+                          <button
+                            type="button"
+                            aria-label={`Select structure ${template.name}`}
+                            onClick={() => onSelectTemplate(template.id)}
+                            className={[
+                              'rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] transition',
+                              isSelected
+                                ? 'border-cyan/65 bg-cyan/15 text-cyan'
+                                : isProposed
+                                  ? 'border-orange/65 bg-orange/15 text-orange hover:bg-orange/20'
+                                  : 'border-border/60 bg-bg2 text-silver-dk hover:border-cyan/55 hover:text-cyan',
+                            ].join(' ')}
+                          >
+                            {isSelected ? 'Selected' : 'Select structure'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
             </tbody>
           </table>
         </div>

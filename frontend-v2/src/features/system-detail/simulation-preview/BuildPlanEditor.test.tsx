@@ -72,14 +72,15 @@ describe('BuildPlanEditor structure replacement review', () => {
 
     expect(onUpdate).not.toHaveBeenCalled();
     const comparison = screen.getByTestId('structure-replacement-comparison');
+    expect(screen.getByTestId('structure-picker-row-surface_outpost').getAttribute('data-highlight')).toBe('proposed');
     expect(within(comparison).getByText('Review replacement')).toBeTruthy();
-    expect(within(comparison).getByText('Current')).toBeTruthy();
-    expect(within(comparison).getByText('Proposed')).toBeTruthy();
+    expect(within(comparison).getAllByText('Current').length).toBeGreaterThan(0);
+    expect(within(comparison).getAllByText('Proposed').length).toBeGreaterThan(0);
     expect(within(comparison).getAllByText('Orbital Port').length).toBeGreaterThan(0);
     expect(within(comparison).getAllByText('Surface Outpost').length).toBeGreaterThan(0);
     expect(within(comparison).getAllByText('CP gives').length).toBeGreaterThan(0);
     expect(within(comparison).getAllByText('CP needs').length).toBeGreaterThan(0);
-    expect(within(comparison).getByText('Needs review: template uses estimated data')).toBeTruthy();
+    expect(within(comparison).getAllByText('Needs review: template uses estimated data').length).toBeGreaterThan(0);
     expect(within(comparison).getByText('Body context: Body 1')).toBeTruthy();
   });
 
@@ -109,8 +110,8 @@ describe('BuildPlanEditor structure replacement review', () => {
   it('shows read-only Architect primary-port context without primary controls', () => {
     renderEditor();
 
-    expect(screen.getAllByText(/Architect primary-port location should be checked before final station placement/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Primary-port location is planning context, not a Build Point source/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Check the primary-port location in-game through System Map and Architect Mode/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Primary-port location is placement guidance, not a Build Point source/).length).toBeGreaterThan(0);
     expect(screen.getByText(/If the flagged slot is inconvenient, consider placing an outpost there/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /make primary/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /remove primary/i })).toBeNull();

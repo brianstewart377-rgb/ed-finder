@@ -124,7 +124,7 @@ export function BuildPlanEditor({
             <div className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-3 py-2 text-[11px] leading-snug text-silver-dk">
               <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Architect planning context</div>
               <p className="mt-1">
-                Architect primary-port location should be checked before final station placement. Primary-port location is planning context, not a Build Point source.
+                Check the primary-port location in-game through System Map and Architect Mode before final major station placement. Primary-port location is placement guidance, not a Build Point source.
               </p>
               {placement.is_primary_port && (
                 <p className="mt-1">
@@ -150,6 +150,7 @@ export function BuildPlanEditor({
                   bodies={bodies}
                   selectedBodyId={placement.local_body_id ?? null}
                   selectedTemplateId={placement.facility_template_id}
+                  proposedTemplateId={pendingReplacement?.index === index ? pendingReplacement.templateId : null}
                   onSelectTemplate={(templateId) => {
                     if (templateId !== placement.facility_template_id) {
                       setPendingReplacement({ index, templateId });

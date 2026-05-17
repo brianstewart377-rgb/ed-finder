@@ -307,6 +307,37 @@ Test coverage added in Stage 12B:
 
 Deferred to Stage 12C:
 
-- Variant/family grouping and richer catalogue compare layouts.
 - Architect Slot Survey data entry/import and confirmed primary-port slot evidence handling.
 - Any Layout-view action surface beyond read-only planning explanation.
+
+## Stage 12C - Picker Grouping and Replacement Delta Polish
+
+Stage 12C improves the List-view picker and replacement review without changing planner mechanics.
+
+- `structurePickerGroupingUtils.ts` derives frontend-only group labels from existing facility-template fields. The grouping is conservative: ports are separated by allowed location when possible, support facilities use existing economy/category hints, and anything uncertain falls back to support facilities or unknown/other.
+- `StructurePickerTable.tsx` renders grouped catalogue sections while retaining search, location filtering, validity chips, body-context warnings, and explicit `Select structure` controls.
+- Picker rows now distinguish the current structure from the proposed replacement while replacement review is open. This is display state only.
+- `structureReplacementDeltaUtils.ts` builds replacement field deltas and warning deltas for the review panel.
+- `StructureReplacementComparison.tsx` now emphasizes changed fields, keeps unchanged fields subdued but readable, and separates warnings into added, removed, and unchanged buckets.
+- Architect primary-port copy remains read-only and points users back to System Map and Architect Mode for confirmation before final major station placement. It states that primary-port location is placement guidance, not a Build Point source, and still suggests an outpost on an inconvenient flagged slot with the main station placed elsewhere.
+
+Safety boundaries in Stage 12C:
+
+- List view remains the canonical editable surface; Layout view remains read-only planning output.
+- Apply and cancel remain explicit. No replacement is applied until `Apply replacement` calls the existing placement update callback.
+- No backend mutation, import/storage, persistence, automatic preview, Suggested Build generation/load, validation call, polling, or silent mutation is introduced.
+- No scoring, CP formulas, economy logic, buildability rules, service unlock logic, optimiser ranking/generation, Search Tuning, Observed Evidence, or Validation behavior changes are introduced.
+- No primary-port editing controls, make/remove primary actions, arbitrary slot assignment, or full Architect Slot Survey are introduced.
+
+Test coverage added in Stage 12C:
+
+- `structurePickerGroupingUtils.test.ts` for group-label derivation and stable grouped ordering.
+- `StructurePickerTable.test.tsx` for grouped headings, search/filter behavior across grouped data, current/proposed highlighting, and explicit selection behavior.
+- `StructureReplacementComparison.test.tsx` for changed vs unchanged field display and warning added/removed/unchanged deltas.
+- Existing `BuildPlanEditor.test.tsx` and `SimulationPreview.optimiser.test.tsx` continue to cover apply/cancel behavior, no preview/optimiser side effects, and absence of primary-port editing controls.
+
+Deferred to Stage 12D:
+
+- Architect Slot Survey data entry/import and confirmed primary-port slot evidence handling.
+- Better body/orbit recommendation context once confirmed Architect-slot data exists.
+- Backend catalogue enrichment, saved-build persistence, logistics/material planning, and any Layout-view action surface.
