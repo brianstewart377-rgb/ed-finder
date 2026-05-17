@@ -123,8 +123,9 @@ describe('BuildPlanBodyView', () => {
     expect(within(summary).getByText('Primary port set')).toBeTruthy();
     expect(within(summary).getByText('Preview: not run')).toBeTruthy();
 
-    const firstBody = screen.getByRole('button', { name: 'Body group A 1' });
+    const firstBody = screen.getByTestId('layout-body-group-1');
     expect(within(firstBody).getByText('Dodec Starport')).toBeTruthy();
+    expect(screen.getByTestId('layout-body-select-1')).toBeTruthy();
     expect(within(firstBody).getByText('Primary port')).toBeTruthy();
     expect(within(firstBody).getByText('Primary port body')).toBeTruthy();
     expect(within(firstBody).getByText('orbital')).toBeTruthy();
@@ -135,15 +136,17 @@ describe('BuildPlanBodyView', () => {
     expect(within(firstBody).getByText('Landable')).toBeTruthy();
     expect(within(firstBody).getByText('Terraformable')).toBeTruthy();
 
-    const secondBody = screen.getByRole('button', { name: 'Body group A 2' });
+    const secondBody = screen.getByTestId('layout-body-group-2');
     expect(within(secondBody).getByText('Extraction Hub')).toBeTruthy();
+    expect(screen.getByTestId('layout-body-select-2')).toBeTruthy();
     expect(within(secondBody).getByText('surface')).toBeTruthy();
     expect(within(secondBody).getByText('Confidence: estimated')).toBeTruthy();
     expect(within(secondBody).getByText('Needs review: template uses estimated data')).toBeTruthy();
     expect(within(secondBody).getAllByText('May be invalid: surface facility on water world').length).toBeGreaterThan(0);
 
-    const unassigned = screen.getByRole('button', { name: 'Unassigned / needs body' });
+    const unassigned = screen.getByTestId('layout-body-group-unassigned');
     expect(within(unassigned).getAllByText('Unassigned / needs body').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('layout-body-select-unassigned')).toBeTruthy();
     expect(within(unassigned).getByText('missing_template')).toBeTruthy();
     expect(within(unassigned).getByText('Needs review: facility template missing')).toBeTruthy();
     expect(within(unassigned).getByText('Needs review: placement has no body')).toBeTruthy();
@@ -174,7 +177,7 @@ describe('BuildPlanBodyView', () => {
     expect(screen.getByText((content) => content.includes('Unknown body 404'))).toBeTruthy();
     expect(screen.getByText('Check placement: body ID does not match known body')).toBeTruthy();
     expect(screen.getAllByText('May be invalid: surface facility on non-landable body').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Body group Body 9' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Select body Body 9' })).toBeTruthy();
     expect(screen.getAllByText('Data incomplete: body metadata is sparse').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Data incomplete: orbital suitability unclear').length).toBeGreaterThan(0);
   });
@@ -211,7 +214,7 @@ describe('BuildPlanBodyView', () => {
   it('selects a body group and shows body details, tags, warnings, and placement list', () => {
     renderLayout();
 
-    const body = screen.getByRole('button', { name: 'Body group A 2' });
+    const body = screen.getByRole('button', { name: 'Select body A 2' });
     fireEvent.click(body);
 
     expect(body.getAttribute('aria-pressed')).toBe('true');
@@ -288,14 +291,20 @@ describe('BuildPlanBodyView', () => {
   it('supports keyboard selection for body and placement cards', () => {
     renderLayout();
 
-    const body = screen.getByRole('button', { name: 'Body group A 1' });
+    const body = screen.getByRole('button', { name: 'Select body A 1' });
+    const placement = screen.getByRole('button', { name: 'Placement 2: Extraction Hub' });
+    const bodySelect = screen.getByTestId('layout-body-select-2');
+
     fireEvent.keyDown(body, { key: 'Enter' });
     expect(body.getAttribute('aria-pressed')).toBe('true');
 
-    const placement = screen.getByRole('button', { name: 'Placement 2: Extraction Hub' });
+    fireEvent.click(placement);
+    expect(placement.getAttribute('aria-pressed')).toBe('true');
+    expect(bodySelect.getAttribute('aria-pressed')).toBe('false');
+
     fireEvent.keyDown(placement, { key: ' ' });
     expect(placement.getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByTestId('layout-body-group-2').getAttribute('aria-pressed')).toBe('false');
+    expect(bodySelect.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('handles zero placements in the detail panel without crashing', () => {
