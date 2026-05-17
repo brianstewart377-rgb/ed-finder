@@ -46,6 +46,13 @@ Stage 11C is the final pre-Stage-12 polish pass for visual readability and inter
 - Make accessibility refinements where practical (focus-visible support for summary reset and clearer detail layout for selected states).
 - Make sure layout polish changes do not introduce `simulateBuild`, optimiser-load, or validation compare side effects.
 
+Stage 11D is a reviewer-driven visual hierarchy refinement pass:
+
+- Keep `ColonyPlannerSectionNav` path and spacing readable so `Suggested Builds`, `Build Plan`, and `Preview Result` remain clear primary steps and `Observed Evidence` / `Validation` remain later steps.
+- Keep `BuildPlanLayoutDetailPanel` and `BuildPlanBodyView` selection mechanics unchanged (`List view` remains editing, `Layout view` remains read-only).
+- Preserve separate interactive targets for body and placement selection with visible and keyboard-accessible selected state.
+- Reaffirm no side-effect expansion: layout interactions should not trigger preview execution, suggested-build generation, candidate load, validation compare, or automatic persistence.
+
 ## Shared UI Atoms
 
 Shared visual atoms are intentionally small and boring. Each atom lives in its own file so future optimiser components can reuse them without importing an unrelated grouped implementation file.

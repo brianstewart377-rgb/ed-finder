@@ -18,6 +18,6 @@ describe('ColonyPlannerSectionNav', () => {
     render(<ColonyPlannerSectionNav />);
 
     expect(screen.getAllByText('Later step', { selector: 'span' })).toHaveLength(2);
-    expect(screen.getByText('Planner reads left to right')).toBeTruthy();
+    expect(screen.getByText('Primary planning path / later checks')).toBeTruthy();
   });
 });

@@ -3,36 +3,33 @@ import type { ReactNode } from 'react';
 export function ColonyPlannerSectionNav() {
   return (
     <nav aria-label="Colony planner workflow" className="border-b border-border/60 bg-bg2/35 px-4 py-2">
-      <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.16em] text-silver-dk">
-        Planner workflow
+      <div className="mb-2 flex items-center justify-between gap-2 font-mono text-[9px] uppercase tracking-[0.16em] text-silver-dk">
+        <span>Planner workflow</span>
+        <span className="text-[9px] normal-case tracking-normal text-silver/75">Primary planning path / later checks</span>
       </div>
-      <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em]">
+
+      <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.12em]">
         <WorkflowChip step="1" tone="primary">
           Suggested Builds
         </WorkflowChip>
-        <NavPathSeparator />
+        <FlowDivider />
         <WorkflowChip step="2" tone="primary">
           Build Plan
         </WorkflowChip>
-        <NavPathSeparator />
+        <FlowDivider />
         <WorkflowChip step="3" tone="primary">
           Preview Result
         </WorkflowChip>
-        <span className="text-silver/65" aria-hidden="true">
-          |
-        </span>
+        <span className="mx-1 h-3 w-0.5 rounded bg-border/55" aria-hidden="true" />
         <NavChip step="4" tone="later">
           <span>Observed Evidence</span>
           <span className="normal-case text-[9px] font-normal tracking-normal text-silver-dk">Later step</span>
         </NavChip>
-        <span className="text-silver/50" aria-hidden="true">
-          |
-        </span>
+        <FlowDivider muted />
         <NavChip step="5" tone="later">
           <span>Validation</span>
           <span className="normal-case text-[9px] font-normal tracking-normal text-silver-dk">Later step</span>
         </NavChip>
-        <span className="ml-auto text-[9px] uppercase tracking-[0.16em] text-silver/55">Planner reads left to right</span>
       </div>
     </nav>
   );
@@ -84,10 +81,13 @@ function NavChip({
   );
 }
 
-function NavPathSeparator() {
+function FlowDivider({ muted = false }: { muted?: boolean }) {
   return (
-    <span className="px-1 text-[9px] uppercase tracking-[0.16em] text-silver/55" aria-hidden="true">
-      →
+    <span
+      className={['px-1 text-[10px] uppercase tracking-[0.14em]', muted ? 'text-silver/45' : 'text-silver/70'].join(' ')}
+      aria-hidden="true"
+    >
+      /
     </span>
   );
 }

@@ -671,3 +671,24 @@ Deferred beyond Stage 11C:
 - Facility variant workflows and layout/body-specific comparison UX beyond the current readout.
 - Saved builds, account persistence, and external ingestion loops.
 - Commodity/material/carrier/hauling execution tracking.
+
+## Stage 11D - Reviewer-Driven Visual Hierarchy Refinement
+
+Stage 11D addresses a final narrow polish pass on reviewer feedback for the dedicated Colony Planner visual surface.
+
+Current Stage 11D status:
+
+- Fixed small visual/navigation copy regressions in the workflow nav strip and normalized workflow separators so planner path text and spacing are stable across encodings and smaller viewports.
+- Updated workflow nav wording so `Suggested Builds`, `Build Plan`, and `Preview Result` stay visually primary while `Observed Evidence` and `Validation` remain clearly marked as later steps.
+- Preserved the accessibility-safe interaction model from Stage 11C so body selection and placement selection remain separate controls with visible selection and keyboard support.
+- Kept all existing section-copy and interaction contracts unchanged (`List view` remains the canonical editable surface, `Layout view` remains read-only).
+- Reaffirmed no passive/side-effect regressions: no automatic Preview run, no suggested-build auto generation/load, no mutation of planner state from layout interactions.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, hauling/material workflow, auto-run, auto-generate, or auto-load behaviour changed in Stage 11D.
+
+Deferred beyond Stage 11D:
+
+- Full structure picker/table enhancement and facility variant workflows.
+- Deeper planner topology and body-map rendering.
+- Material/commodity/carrier/hauling execution tracking.
+- Saved-build lifecycle and external ingestion loops.
