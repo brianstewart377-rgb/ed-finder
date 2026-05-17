@@ -19,7 +19,7 @@ The application now has two distinct concepts that are no longer both called “
 | Does the app distinguish Finder, Search Tuning, System Detail, Simulation Preview, and the colony optimiser/planner? | **Partly.** Top-level Finder and Search Tuning are now distinct. System Detail and Simulation Preview are distinct in code. The colony optimiser is still visually nested under Simulation Preview, so the product distinction is not strong enough. |
 | Is Stage 5 buried too far down? | **Yes.** The route is Finder/Search Tuning/etc.; Stage 5 is only reached after opening a system, scrolling into Colony Planning, opening/using Simulation Preview, and then reaching the optimiser section at the bottom. |
 | Should Stage 5 get its own dedicated internal space? | **Yes.** It should become a System Detail-level or Colony Planner-level internal space, not a bottom section inside Simulation Preview. |
-| What should the user-facing term be? | **Colony Planner** for the broad workspace; **Optimiser Candidates** for the candidate-generation sub-panel; **Simulation Preview** for the explicit preview run/result sub-mode. |
+| What should the user-facing term be? | **Colony Planner** for the broad workspace; **Suggested Builds** for the candidate-generation sub-panel; **Simulation Preview** for the explicit preview run/result sub-mode. |
 | Does the current Stage 5 UI explain generate/rank/compare/load semantics? | **Mostly.** The safety copy is good, especially “nothing is committed in-game” and comparison is advisory. The target-archetype and estimated-data controls still need stronger context. |
 | Are there stale optimizer references? | **Internally, yes, intentionally.** `frontend-v2/src/features/optimizer/` and route `optimizer` remain as low-risk compatibility names for Search Tuning. User-facing stale top-level “Optimizer” wording appears addressed. |
 | Does `SimulationPreview.tsx` own too much orchestration/state? | **Yes, next-stage concern.** It is not broken, but it is now the main frontend refactor candidate. |
@@ -84,33 +84,33 @@ The main user journeys are now understandable in isolation. Finder is the search
 
 The ED orange/brushed steel style is consistent. The UI feels visually coherent, but it now feels like a pile of panels because the System Detail modal has no internal information architecture. The strongest immediate UX improvement would be to convert Colony Planning from a vertical stack into an internal workspace with modes.
 
-Suggested user-facing copy changes are small and safe. “Optimiser candidates” should become **Plan Candidates** or **Optimiser Candidates** under a larger **Colony Planner** heading. The “Generate candidates” button should gain helper text such as: “Creates a few bounded build-plan candidates for this system using the selected archetype. It does not save or run anything in-game.” The “Target archetype” label should explain that it guides generation/ranking and may differ from the current preview target until a candidate is loaded.
+Suggested user-facing copy changes are small and safe. Candidate-generation surfaces should stay under the **Colony Planner** heading as **Suggested Builds**, and the generation button should be labeled **Generate Suggested Builds**. Add helper text such as: “Creates a few bounded build-plan suggestions for this system using the selected archetype. It does not save or run anything in-game.” The “Target archetype” label should explain that it guides generation/ranking and may differ from the current preview target until a selected suggestion is loaded.
 
 ## 6. Stage 5 Layout Recommendation
 
-**Firm recommendation:** Do **Option 5** in product framing and **Option 3** in implementation sequence. Reframe the broader workspace as **Colony Planner**, then implement internal tabs/modes inside that workspace: **Build Plan**, **Optimiser Candidates**, and **Preview / Comparison**. Do not add another top-level app nav item yet. Do not leave the optimiser permanently at the bottom of Simulation Preview.
+**Firm recommendation:** Do **Option 5** in product framing and **Option 3** in implementation sequence. Reframe the broader workspace as **Colony Planner**, then implement internal tabs/modes inside that workspace: **Build Plan**, **Suggested Builds**, and **Preview / Comparison**. Do not add another top-level app nav item yet. Do not leave the candidate-generator permanently at the bottom of Simulation Preview.
 
 | Option | Pros | Cons | Complexity | UX Clarity | Risk | Recommendation |
 |---|---|---|---|---|---|---|
 | 1. Keep optimiser at bottom of Simulation Preview | No code movement. Lowest risk. | Stage 5 remains buried; Simulation Preview name becomes misleading. | Low | Low | Low | Do not choose beyond short-term. |
 | 2. Move optimiser into collapsible section near top of Simulation Preview | Improves discoverability with modest change. | Still frames planner generation as a Simulation Preview sub-feature. | Low-Medium | Medium | Low | Acceptable quick win only. |
-| 3. Add internal tabs inside Simulation Preview: Build Plan, Optimiser Candidates, Results/Comparison | Clearer task separation; contained refactor. | “Simulation Preview” still names the whole workspace unless renamed. | Medium | High | Medium | Recommended implementation step. |
+| 3. Add internal tabs inside Simulation Preview: Build Plan, Suggested Builds, Results/Comparison | Clearer task separation; contained refactor. | “Simulation Preview” still names the whole workspace unless renamed. | Medium | High | Medium | Recommended implementation step. |
 | 4. Add System Detail-level tabs: Overview, Bodies, Simulation Preview, Colony Planner, Regional Context, Dependencies | Best long-term modal IA. | Larger refactor; touches more of System Detail. | High | Very high | Medium-High | Good later target after internal planner modes. |
 | 5. Rename/reframe Simulation Preview as broader Colony Planner workspace with internal modes | Best product language. Fits current capability. | Requires careful migration of headings/tests/docs. | Medium | Very high | Medium | **Firm recommendation.** |
 
-Stage 5.9C implemented the first low-risk version of this recommendation by reframing the existing planning surface as **Colony Planner**, adding visible **Build Plan**, **Optimiser Candidates**, and **Preview Result** structure, and moving the optimiser candidate area above the preview-result block without a broad state refactor. Stage 5.9D then reduced the main composition pressure by extracting plan state into `hooks/useSimulationPreviewPlan.ts`, preview execution into `hooks/useSimulationPreviewRun.ts`, and the header, Build Plan, section labels, and Preview Result into focused presentational components. A deeper System Detail tab/workspace refactor remains deferred.
+Stage 5.9C implemented the first low-risk version of this recommendation by reframing the existing planning surface as **Colony Planner**, adding visible **Build Plan**, **Suggested Builds**, and **Preview Result** structure, and moving the candidate-generation area above the preview-result block without a broad state refactor. Stage 5.9D then reduced the main composition pressure by extracting plan state into `hooks/useSimulationPreviewPlan.ts`, preview execution into `hooks/useSimulationPreviewRun.ts`, and the header, Build Plan, section labels, and Preview Result into focused presentational components. A deeper System Detail tab/workspace refactor remains deferred.
 
 ## 7. Naming Findings
 
 Search Tuning is the right name for the old Finder-result reranker. It is precise, low-drama, and does not imply build-plan generation. It should remain top-level temporarily because it already has a route and recent tests, but its best long-term home is under Finder as an **Advanced Search Tuning** panel.
 
-For Stage 5, the best broad user-facing name is **Colony Planner**. “Build Optimiser” is accurate but sounds more algorithmic and risks overclaiming optimality. “Colony Optimiser” is acceptable but carries the same overclaim risk. “Optimiser Candidates” is a good sub-section name, not a workspace name. “Candidate Planner” is less natural.
+For Stage 5, the best broad user-facing name is **Colony Planner**. “Build Optimiser” is accurate but sounds more algorithmic and risks overclaiming optimality. “Colony Optimiser” is acceptable but carries the same overclaim risk. “Suggested Builds” is a stronger sub-section name for player-facing UI than “Optimiser Candidates.” “Candidate Planner” is less natural.
 
 | Name | Recommendation | Reason |
 |---|---|---|
 | Search Tuning | Keep for legacy reranker. | It accurately describes weighting/reordering Finder results. |
 | Colony Planner | Use as broad workspace name. | Covers manual plans, generated candidates, preview, comparison, and later validation. |
-| Optimiser Candidates | Use as sub-section. | Good for the generated-candidate panel. |
+| Suggested Builds | Use as sub-section. | Good for the generated-candidate panel. |
 | Simulation Preview | Keep as an action/result mode. | It should mean the explicit simulation run/result, not the whole planner workspace. |
 | Build Optimiser / Colony Optimiser | Avoid as top-level label for now. | It implies stronger optimality than bounded heuristic candidates provide. |
 
@@ -138,7 +138,7 @@ Current test coverage is strong for many critical pieces. Backend `tests/test_op
 | Backend generation | Strong. `tests/test_optimiser.py` covers deterministic generator contracts. | No full database-backed integration test with real fixture DB. | Medium |
 | Backend ranking | Good heuristic coverage through backend tests. | Add explicit test that ranking IDs always refer to returned candidate IDs after all filters/dedupe. | Medium |
 | Frontend candidate panel | Strong component coverage. | Add stale-generated-target warning/reset test after implementing that UI. | High |
-| Load into preview | Good no-auto-run test. | Add load → edit → run preview test asserting edited placements are sent to `simulateBuild`. | High |
+| Copy to Build Plan | Good no-auto-run test. | Add load → edit → run preview test asserting edited placements are sent to `simulateBuild`. | High |
 | Comparison engine | Strong pure-function tests. | Add UI-level accessibility checks for show/hide comparison and keyboard navigation. | Medium |
 | Search Tuning | Rename tests exist. | Add nav-label test if a navigation test harness exists. | Medium |
 | Full happy path | Partial. | Add integration-style test: recommended/manual plan → generate → compare → load → edit → run. | High |
@@ -160,7 +160,7 @@ The docs are better than average for a fast-moving feature, but they now need a 
 
 | Stage | Goal | Why It Matters | Scope | Non-goals | Rough File Areas | Risk | Dependencies |
 |---|---|---|---|---|---|---|---|
-| Stage 5.9C — Navigation / Naming / Layout Cleanup | Reframe System Detail planning as **Colony Planner** with visible Build Plan, Optimiser Candidates, and Preview Result sections. | Solves immediate discoverability and terminology issues before Stage 6 adds validation complexity. | Product copy, headings, lightweight planner structure, generated-parameter stamp, stale-control warning, docs. | No generation/ranking/scoring changes. | `simulation-preview/SimulationPreview.tsx`, `OptimiserCandidatePanel.tsx`, docs. | Medium | Current Stage 5F + Search Tuning rename. |
+| Stage 5.9C — Navigation / Naming / Layout Cleanup | Reframe System Detail planning as **Colony Planner** with visible Build Plan, Suggested Builds, and Preview Result sections. | Solves immediate discoverability and terminology issues before Stage 6 adds validation complexity. | Product copy, headings, lightweight planner structure, generated-parameter stamp, stale-control warning, docs. | No generation/ranking/scoring changes. | `simulation-preview/SimulationPreview.tsx`, `OptimiserCandidatePanel.tsx`, docs. | Medium | Current Stage 5F + Search Tuning rename. |
 | Stage 5.9D — Simulation Preview / Colony Planner Workspace Refactor | Extract state ownership from `SimulationPreview.tsx`. | Reduces risk before saved builds or observed validation. | Implemented hooks for plan state and preview execution plus focused presentational sections. | No backend or scoring changes. | `simulation-preview/SimulationPreview.tsx`, `hooks/`, `BuildPlanSection.tsx`, `PreviewResultSection.tsx`, `ColonyPlannerHeader.tsx`. | Medium | 5.9C layout decision. |
 | Stage 5.9E — Stage 5 Workflow and Stale-State Hardening | Add end-to-end-ish frontend tests for generate → compare → load → edit → run and make stale generated candidates / stale preview results explicit. | Protects the highest-risk user workflow before Stage 6. | Workflow tests, generated/current parameter copy, explicit older-candidate confirmation before stale loads, system/target/placement preview fingerprinting, stale Preview Result warning, and no-auto-run assertions. | No backend, scoring, routing, Search Tuning, or Stage 6 changes. | `SimulationPreview.optimiser.test.tsx`, `OptimiserCandidatePanel.tsx`, `OptimiserCandidateDetails.tsx`, `useSimulationPreviewRun.ts`, `PreviewResultSection.tsx`. | Low-Medium | Stable UI copy from 5.9C and hook boundaries from 5.9D. |
 | Stage 5.9F — Candidate Parameter Staleness Guard | Make generated candidates visibly tied to request parameters. | Prevents users comparing/loading stale target-archetype results. | Generated request stamp, stale warning/reset behavior, tests. | No backend formula changes. | `OptimiserCandidatePanel.tsx`, tests. | Low-Medium | Can run before or after 5.9D. |
@@ -169,7 +169,7 @@ The docs are better than average for a fast-moving feature, but they now need a 
 
 ## 12. Quick Wins
 
-The fastest safe improvement is a copy-only Stage 5.9C-lite change: rename the visible “Optimiser candidates” heading to “Plan Candidates” or “Optimiser Candidates” under a new “Colony Planner” wrapper, add helper text under Target Archetype, and add a generated-parameter summary in the candidate panel. These changes would improve user comprehension without touching backend logic.
+The fastest safe improvement is a copy-only Stage 5.9C-lite change: rename the visible candidate heading to “Suggested Builds” under a new “Colony Planner” wrapper, add helper text under Target Archetype, and add a generated-parameter summary in the candidate panel. These changes would improve user comprehension without touching backend logic.
 
 | Quick Win | File(s) | Benefit | Risk |
 |---|---|---|---|

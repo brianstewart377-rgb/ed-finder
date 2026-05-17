@@ -98,7 +98,8 @@ The preview pipeline is now documented as a sequence of internal stages: user pl
 
 Generate candidate plans rather than only previewing selected plans. This Stage 5 colony optimiser is separate from **Search Tuning**, the legacy Finder-result reranking tool that only adjusts weights and reorders the current Finder search results via the ratings rerank endpoint.
 
-Stage 5.9C reframes the frontend planning surface as **Colony Planner**, with visible **Build Plan**, **Optimiser Candidates**, and **Preview Result** sections. Simulation Preview is now treated as the explicit preview action/result inside that workspace. Optimiser candidates show the generation parameters they were created with and warn when target archetype, max candidate count, or estimated-data controls have changed since generation.
+Stage 5.9C reframes the frontend planning surface as **Colony Planner**, with visible **Build Plan**, **Suggested Builds**, and **Preview Result** sections. Simulation Preview is now treated as the explicit preview action/result inside that workspace. Suggested-build generation shows the creation parameters and warns when target archetype, max candidate count, or estimated-data controls have changed since generation.
+Backend and API names in this area still use `optimiser`/`candidate` wording for compatibility.
 
 Stage 5.9D keeps that UX intact while reducing `SimulationPreview.tsx` from an all-in-one state/layout component into a composition component. Plan ownership now lives in `hooks/useSimulationPreviewPlan.ts`, explicit preview execution lives in `hooks/useSimulationPreviewRun.ts`, and Colony Planner header, Build Plan, section labels, and Preview Result rendering live in focused presentational components. No backend optimiser generation, ranking, scoring, CP/economy/service mechanics, Search Tuning behaviour, route structure, or Stage 6 validation work changed.
 
@@ -233,7 +234,7 @@ Stage 5D lets the user deliberately load a selected optimiser candidate into the
 
 | Stage 5D Concern | Current Outcome |
 |---|---|
-| Load action | Candidate details expose `Load into preview` only when Simulation Preview passes an explicit load callback; otherwise the panel keeps the Stage 5C read-only copy. |
+| Load action | Candidate details expose `Copy to Build Plan` only when Simulation Preview passes an explicit load callback; otherwise the panel keeps the Stage 5C read-only copy. |
 | Conversion | Candidate placements are copied into preview placements, resequenced, and defensively normalised to one primary port. |
 | Overwrite protection | Non-empty preview plans require confirmation before replacement; cancel preserves the current plan. |
 | Preview execution | Loading a candidate clears stale result/error state but does not call `simulateBuild`; the existing Run Preview button remains the execution path. |
@@ -503,7 +504,7 @@ Recommended Stage 10B:
 
 - Add a low-risk frontend-only body-grouped Build Plan visual view using existing placements, facility templates, and body data.
 - Keep the current flat `BuildPlanEditor` as the detailed editing surface.
-- Add a local List/Body view toggle with no persistence.
+- Add a local List/Layout toggle with no persistence.
 - Show unassigned placements and compact badges for primary port, allowed location, tier, economy, CP, confidence, and missing-data warnings.
 - Defer the full structure picker/table and variant-aware selection to Stage 10C.
 
@@ -513,9 +514,9 @@ Stage 10B implements the low-risk visual planning improvement recommended by Sta
 
 Current Stage 10B status:
 
-- `BuildPlanSection` now exposes a local List view / Body view toggle.
+- `BuildPlanSection` now exposes a local List view / Layout view toggle.
 - List view remains the default and continues to render the existing `BuildPlanEditor`.
-- Body view renders the current Build Plan grouped by assigned body, with an explicit `Unassigned / needs body` group for placements without a known body.
+- Layout view renders the current Build Plan grouped by assigned body, with an explicit `Unassigned / needs body` group for placements without a known body.
 - Placement cards show build order, facility name, primary-port badge, allowed location, tier, pad size, economy, category/role, CP gives/needs, confidence, missing-template warnings, and body assignment using existing data only.
 - The toggle does not persist state, run Preview, generate Suggested Builds, copy/load builds, mutate Observed Evidence, or call Validation/Review endpoints.
 
@@ -757,4 +758,27 @@ Deferred beyond Stage 11G:
 - Full structure picker/table enhancements and facility variant workflows.
 - Deeper planner map topology and import-review UX beyond current layout cards.
 - Saved build lifecycle and external ingestion loops.
+- Commodity/material/commodity/trip planning features.
+
+## Stage 11H - Layout Import Staleness Guardrail
+
+Stage 11H is a narrow mechanics-safe polishing pass that addresses remaining QA consistency: when users switch systems, stale layout-import banners/messages in the Build Plan section should be cleared so the next system starts from a clean planner layout-import state.
+
+Current Stage 11H status:
+
+- Added system-scoped reset for layout import status in `BuildPlanSection`.
+- Cleared stale `layoutImportResult`, `layoutImportError`, and `layoutImportRunning` when `systemId64` changes.
+- Added focused regression coverage for stale layout-import status and success-state rendering after import.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behavior, Validation behavior, saved-build persistence, auto-run, auto-generate, auto-load behavior, or hauling/material workflow changed in Stage 11H.
+
+Chronology clarification:
+
+- Stage 11F preceded 11G; Stage 11H follows 11G on this branch.
+
+Deferred beyond Stage 11H:
+
+- Full structure picker/table enhancements and variant-aware placement comparison.
+- Additional layout-import UX refinements (history, retry queueing, conflict messaging).
+- Saved build persistence and external ingestion loops.
 - Commodity/material/commodity/trip planning features.

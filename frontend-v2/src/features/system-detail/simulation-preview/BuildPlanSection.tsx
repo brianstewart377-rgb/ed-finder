@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Columns3, DownloadCloud, ListChecks, Plus } from 'lucide-react';
 import { importSystemLayout } from '@/lib/api';
 import type { FacilityTemplate, LayoutImportResponse, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
@@ -67,6 +67,11 @@ export function BuildPlanSection({
   const [layoutImportResult, setLayoutImportResult] = useState<LayoutImportResponse | null>(null);
   const [layoutImportError, setLayoutImportError] = useState<string | null>(null);
   const [layoutImportRunning, setLayoutImportRunning] = useState(false);
+  useEffect(() => {
+    setLayoutImportResult(null);
+    setLayoutImportError(null);
+    setLayoutImportRunning(false);
+  }, [systemId64]);
   const assignedUnknownBodyIds = getAssignedUnknownBodyIds(placements, bodies);
   const templateCatalogueEmpty = !templatesLoading && !templatesErrorMessage && templates.length === 0;
 

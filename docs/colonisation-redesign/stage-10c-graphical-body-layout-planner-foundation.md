@@ -247,3 +247,31 @@ Stage 11E is a focused micro-polish to harden interaction clarity, copy consiste
 - Execution/logistics features (carrier stock, hauling, commodity planning).
 - Build persistence/account/state products and automatic learning.
 - Legacy `ratings.rationale` text may remain from older imports; no frontend scoring rule changes are being made in this stage. If stale `Strong Refinery; via ...` phrasing appears, rebuild that system’s rating through the importer or maintenance path that writes `rationale` (not UI-only text stripping) before relying on it as an authoritative explanation.
+
+## Stage 11F - Micro-Polish and QA Guardrails
+
+Stage 11F is a narrow UX polish and wording alignment pass over the existing Colony Planner visual workflow before deeper planning interaction work resumes.
+
+- Preserved the established boundaries: `List view` remains the canonical edit surface; `Layout view` remains a read-only planning readout.
+- Reconfirmed primary flow clarity (`Suggested Builds -> Build Plan -> Preview Result`) and later-step framing for `Observed Evidence` and `Validation`.
+- Preserved safe selection and keyboard behavior for body/placement interactions.
+- Kept all mechanical surfaces unchanged (no scoring, no optimiser behavior changes, no backend mechanics edits, no hauling/logistics features).
+
+## Stage 11G - Workflow Label Consistency and Header Micro-Polish
+
+Stage 11G is a mechanics-safe cleanup for label and header consistency after 11F wording alignment.
+
+- Normalized planner and header workflow labels to the same planner naming and reduced redundant / inconsistent phrasing.
+- Added explicit checks to keep `Observed Evidence` and `Validation` visually secondary and non-primary in flow copy.
+- Preserved all interaction constraints: no auto-preview triggers, no suggested-build side effects, and no backend behavior changes.
+
+## Stage 11H - Layout Import Staleness Guardrail
+
+Stage 11H is a narrow follow-up to clear stale layout-import UI state when switching systems.
+
+- Reset layout-import status in `BuildPlanSection` on system ID changes so old import errors/results do not persist into a new system view.
+- Maintained mechanics safety: no simulation/mechanics/autoload behavior changes.
+
+Chronology note:
+
+- Stage 11F happened before Stage 11G, and Stage 11H follows Stage 11G.

@@ -200,13 +200,13 @@ Keep the existing flat list as the detailed editor and add a visual body-grouped
 
 Recommended first implementation:
 
-- Add a local, non-persisted view toggle in `BuildPlanSection`: `List view` and `Body view`.
+- Add a local, non-persisted view toggle in `BuildPlanSection`: `List view` and `Layout view` (the historical label used during planning in this report was `Body view`).
 - Default to List view in Stage 10B to avoid surprising existing tests and users.
-- Body view groups placements by `local_body_id`.
+- Layout view groups placements by `local_body_id`.
 - Placements with `null`, empty, or unknown body IDs appear in `Unassigned / needs body`.
 - Each body group shows body name, body type/subtype, landable/terraformable/water-world tags, and placement count.
 - Each placement card shows order, facility/template name, primary-port badge, allowed-location badge, tier, economy, category/role, CP gives/needs, confidence, and missing-template/body warnings.
-- Body view can expose low-risk move/remove actions, but detailed edits remain in List view.
+- Layout view can expose low-risk move/remove actions, but detailed edits remain in List view.
 - Add clear copy: `Use List view for detailed editing.`
 
 Unassigned placements:
@@ -224,7 +224,7 @@ Primary port:
 Preview/stale state:
 
 - Reuse existing Build Plan status copy.
-- Body view toggle must not run Preview, generate Suggested Builds, load a build, or mutate evidence/validation.
+- Layout view toggle must not run Preview, generate Suggested Builds, load a build, or mutate evidence/validation.
 
 Migration path:
 
@@ -456,15 +456,15 @@ Stage 10B should not:
 
 Frontend tests should cover:
 
-- Body view groups placements by assigned body.
+- Layout view groups placements by assigned body.
 - Unassigned placements render in `Unassigned / needs body`.
 - Placement cards show build order and facility name.
 - Primary port badge appears.
 - Body tags/metadata render when available.
 - Missing body/template data does not crash.
-- Toggle switches between List view and Body view.
+- Toggle switches between List view and Layout view.
 - List view still renders the existing `BuildPlanEditor`.
-- Body view shows `Use List view for detailed editing` or equivalent.
+- Layout view shows `Use List view for detailed editing` or equivalent.
 - Zero placements still show the existing empty state.
 - Toggling views does not call `simulateBuild`.
 - Toggling views does not call `fetchOptimiserCandidates`.
@@ -526,6 +526,35 @@ Stage 11D continues the low-risk visual pass by consolidating planner-copy hiera
 
 Stage 11E hardens interaction clarity and terminology across the Planner workflow surface without mechanics changes.
 
-- Added final copy normalization for workspace/header/nav sections and layout guidance (`Use List view to edit`, `Planing workspace` path visibility).
+- Added final copy normalization for workspace/header/nav sections and layout guidance (`Use List view to edit`, `Planning workspace` path visibility).
 - Reconfirmed no-preview and no-suggested-build mutation behavior for layout selection, view toggles, and copy-driven state.
 - Preserved separate keyboard-accessible body and placement controls in Layout view.
+
+## Stage 11F - Micro-Polish and QA Guardrails
+
+Stage 11F is a narrow follow-up to the interaction/accessibility hardening in Stage 11E.
+
+- Reaffirmed the existing `List view` as the canonical editing surface and `Layout view` as a read-only planning readout.
+- Kept the primary workflow visible as `Suggested Builds -> Build Plan -> Preview Result` and kept later-step framing for `Observed Evidence` and `Validation`.
+- Preserved all existing interaction constraints: no preview auto-run and no Suggested Builds auto-generation/load from layout interactions.
+- Kept keyboard/accessibility behavior for body and placement interactions intact.
+
+## Stage 11G - Workflow Label Consistency and Header Micro-Polish
+
+Stage 11G is a small mechanics-safe polish pass focused on planner-label consistency.
+
+- Synchronized planner header and section labels to avoid mismatched terminology.
+- Reduced redundant phrase variants so users see a single, predictable set of workflow labels.
+- Preserved no-side-effect boundaries and read-only/read-write separation.
+
+## Stage 11H - Layout Import State Reset Guardrail
+
+Stage 11H addresses a residual quality-of-life issue in the planning surface.
+
+- Added a system-scoped reset so stale layout-import status messages (running/error/result) are cleared when switching systems.
+- Kept the behavior passive: no layout-import side effects are introduced beyond the existing manual layout import action.
+- Preserved strict separation between layout-import status and planner build/editing behavior.
+
+Chronology note:
+
+- Stage 11F happened before Stage 11G, and Stage 11H follows Stage 11G.
