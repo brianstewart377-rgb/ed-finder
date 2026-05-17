@@ -38,6 +38,14 @@ Stage 11B continues this sequence with card-level and nav-level visual polish wh
 - List view remains the canonical editing surface.
 - All edits remain in `BuildPlanEditor` and existing hooks; no simulator/optimiser/validation side effects are introduced.
 
+Stage 11C is the final pre-Stage-12 polish pass for visual readability and interaction confidence across the dedicated workspace:
+
+- Keep `BuildPlanSection` list/layout behavior unchanged (`List view` remains default and explicit, `Layout view` remains readout-only), while tightening copy and spacing for low-noise clarity.
+- Make Planner workflow hierarchy in `ColonyPlannerSectionNav` consistently easy to scan (`Suggested Builds → Build Plan → Preview Result`) with subdued later steps for Observed Evidence and Validation.
+- Preserve and test keyboard-visible selected-state behaviour in `BuildPlanBodyView` and `BuildPlanLayoutDetailPanel`.
+- Make accessibility refinements where practical (focus-visible support for summary reset and clearer detail layout for selected states).
+- Make sure layout polish changes do not introduce `simulateBuild`, optimiser-load, or validation compare side effects.
+
 ## Shared UI Atoms
 
 Shared visual atoms are intentionally small and boring. Each atom lives in its own file so future optimiser components can reuse them without importing an unrelated grouped implementation file.

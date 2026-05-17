@@ -61,14 +61,14 @@ export function BuildPlanLayoutDetailPanel({
                   : 'Unassigned / needs body'}
           </h5>
         </div>
-      <button
-        type="button"
-        onClick={onSelectSummary}
-        className="inline-flex items-center gap-1 rounded border border-border/70 bg-bg3/50 px-2 py-1 font-mono text-[10px] text-silver-dk hover:border-cyan/60 hover:text-cyan"
-      >
-        <RotateCcw size={12} />
-        Summary
-      </button>
+        <button
+          type="button"
+          onClick={onSelectSummary}
+          className="inline-flex items-center gap-1 rounded border border-border/70 bg-bg3/50 px-2 py-1 font-mono text-[10px] text-silver-dk hover:border-cyan/60 hover:text-cyan focus-visible:ring-cyan/80 focus-visible:outline-none focus-visible:ring-2"
+        >
+          <RotateCcw size={12} />
+          Summary
+        </button>
       </div>
 
       {selection.kind === 'summary' && <SummaryDetail summary={summary} />}
