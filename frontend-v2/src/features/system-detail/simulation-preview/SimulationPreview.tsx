@@ -183,7 +183,7 @@ export function SimulationPreview({
 
         <section className="rounded-chunk-lg border border-border/60 bg-bg2/25 p-3">
           <div className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
-            Later step: Evidence and Validation
+            Later step: Observed Evidence and Validation
           </div>
           {/* Stage 6B: Observed Evidence panel renders after Preview Result.
               It is intentionally passive - see ObservedEvidencePanel for the

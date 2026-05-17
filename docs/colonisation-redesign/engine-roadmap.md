@@ -715,3 +715,25 @@ Deferred beyond Stage 11E:
 - Additional body-map style spatial rendering beyond the current card layout.
 - Saved build persistence and external ingestion loops.
 - Commodity/material/commodity/trip planning features, which remain outside ED-Finder's planning layer.
+
+## Stage 11F - Micro-Polish and QA Guardrails
+
+Stage 11F is a narrow UX polish and wording alignment pass over the existing Colony Planner visual workflow before deeper planning interaction work resumes.
+
+Current Stage 11F status:
+
+- Clarified the Build Plan workflow chips in `BuildPlanSection` so the primary flow remains `Suggested Builds -> Build Plan -> Preview Result` and later sections are clearly separated as `Observed Evidence` and `Validation`.
+- Updated workflow labeling in the plan section to avoid abbreviated "Evidence / Validation later" phrasing, while retaining existing non-side-effect behavior.
+- Kept `List view` as the canonical editable surface and `Layout view` as planning readout-only.
+- Preserved keyboard/accessibility behavior for body and placement selection controls introduced in Stage 11D/11E.
+- Reaffirmed no automatic preview execution, no Suggested Build auto-generation, and no automatic build mutation during navigation, view toggling, or layout interactions.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behavior, Validation behavior, saved-build persistence, auto-run, auto-generate, auto-load behavior, or hauling/material workflow changed in Stage 11F.
+
+Deferred beyond Stage 11F:
+
+- Full structure picker/table enhancements.
+- Variant-aware placement comparison workflows.
+- Deeper planner map topology and import-review UX beyond the current layout cards.
+- Saved build lifecycle and external ingestion loops.
+- Commodity/material/commodity/trip planning features.

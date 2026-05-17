@@ -61,6 +61,15 @@ Stage 11E is a micro-polish and interaction hardening pass:
 - Confirm user-visible copy avoids non-goal logistics wording and unsafe claims while remaining planning/conservative.
 - Reinforce no interaction side effects: no `simulateBuild` auto-run, no Suggested Build mutation, and no automatic persistence from layout interactions.
 
+Stage 11F is the Stage 11E follow-up micro-polish:
+
+- `BuildPlanSection` workflow chips now surface `Suggested Builds`, `Build Plan`, `Preview Result`, `Observed Evidence`, and `Validation` with explicit step numbering and no abbreviated later-step label.
+- Keep `List view` as the canonical editable surface and `Layout view` as read-only planning readout; all layout interactions remain non-mutating for preview execution and suggested-build generation.
+- Copy across the planner workflow remains conservative (`Use List view to edit`, `Read-only planning readout` framing), with `Observed Evidence` and `Validation` consistently represented as later planning steps.
+- Preserve separate interactive targets for body and placement selection in `BuildPlanBodyView` / `BuildPlanLayoutDetailPanel`, including keyboard-friendly selection state.
+- Keep explicit no-side-effect behavior for planning interactions and no mechanics changes.
+- This pass remains frontend visual/copy/accessibility hardening for planner clarity before broader picker/table work resumes.
+
 ## Shared UI Atoms
 
 Shared visual atoms are intentionally small and boring. Each atom lives in its own file so future optimiser components can reuse them without importing an unrelated grouped implementation file.

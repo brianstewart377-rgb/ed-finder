@@ -95,7 +95,8 @@ export function BuildPlanSection({
           <BuildFlowChip step="1" label="Suggested Builds" tone="primary" />
           <BuildFlowChip step="2" label="Build Plan" tone="primary" />
           <BuildFlowChip step="3" label="Preview Result" tone="primary" />
-          <BuildFlowChip step="4" label="Evidence / Validation later" tone="later" />
+          <BuildFlowChip step="4" label="Observed Evidence" tone="later" />
+          <BuildFlowChip step="5" label="Validation" tone="later" />
         </div>
       </div>
       <BuildPlanStatus
