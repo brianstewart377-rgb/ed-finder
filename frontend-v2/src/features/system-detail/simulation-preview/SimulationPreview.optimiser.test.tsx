@@ -459,6 +459,30 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
   });
 
+  it('opens structure picker, filters/selects templates, and keeps preview/generation explicit', async () => {
+    mockNoRecommendedBuild();
+    renderPreview();
+
+    await screen.findByText(/0 placements in Build Plan/);
+    fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+    expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Browse structures/i }));
+    await screen.findByTestId('structure-picker');
+    expect(screen.getByText(/Uses current facility catalogue/)).toBeTruthy();
+    expect(screen.getByText(/Evaluating against: Test Body/)).toBeTruthy();
+    expect(screen.getByRole('searchbox', { name: /Search structures/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Surface' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: /Search structures/i }), { target: { value: 'Agriculture' } });
+    fireEvent.click(screen.getByRole('button', { name: /Select structure Agriculture Support A/i }));
+
+    expect(screen.getByDisplayValue('T1 - Agriculture Support A - Agriculture')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
   it('manually imports system layout and shows success status without planner side effects', async () => {
     mockNoRecommendedBuild();
     let resolveImport: (value: LayoutImportResponse) => void = () => {};

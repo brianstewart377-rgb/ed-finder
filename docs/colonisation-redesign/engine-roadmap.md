@@ -782,3 +782,32 @@ Deferred beyond Stage 11H:
 - Additional layout-import UX refinements (history, retry queueing, conflict messaging).
 - Saved build persistence and external ingestion loops.
 - Commodity/material/commodity/trip planning features.
+
+## Stage 12A - Structure Picker / Table Foundation
+
+Stage 12A adds the first safe structure-picker surface in the Colony Planner List view so users can compare facility templates before selecting one for a placement.
+
+Current Stage 12A status:
+
+- Added a dedicated `StructurePickerTable` component integrated into `BuildPlanEditor` via an explicit `Browse structures` control per placement.
+- Preserved List view as the canonical edit path. The existing template `<select>` remains available and authoritative.
+- Added conservative search/filter controls (`All`, `Orbital`, `Surface`, `Both`) and facility comparison columns: structure, location, tier, pad, economy, role, CP gives/needs, confidence, validity, and explicit select action.
+- Added body-context-aware planning hints: selected body context, no-body state, unknown-body state, and conservative warnings for likely risky combinations.
+- Reused existing planning warning semantics for high-signal checks:
+  - surface facility on water world
+  - surface facility on non-landable body
+  - sparse body metadata
+  - orbital suitability unclear
+  - estimated template data
+- Kept selection explicit and local. Choosing `Select structure` only updates the current placement template via existing `onUpdate`; no preview/generation/load side effects are introduced.
+- Added focused tests for picker rendering, search/filter behavior, warning/validity labels, explicit selection callback behavior, and composed no-side-effect behavior from `SimulationPreview`.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behavior, Validation behavior, saved-build persistence, auto-run, auto-generate, auto-load behavior, or hauling/material workflow changed in Stage 12A.
+
+Deferred to Stage 12B:
+
+- Variant/family grouping and richer picker presentation modes.
+- Placement replacement workflows beyond explicit per-row template selection.
+- Layout-view-side picker actions (Layout remains read-only).
+- Any backend catalogue enrichment or new mechanics fields.
+- Saved-build and logistics workflows.

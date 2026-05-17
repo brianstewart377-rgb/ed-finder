@@ -250,3 +250,35 @@ Stage 11H is a narrow follow-up to keep the planner readout state coherent durin
 Chronology note:
 
 - Stage 11F happened before Stage 11G, and Stage 11H follows Stage 11G on this branch.
+
+## Stage 12A - Structure Picker / Table Foundation
+
+Stage 12A introduces a focused picker surface in List view without changing planner mechanics or introducing automatic actions.
+
+- `BuildPlanEditor.tsx` now exposes an explicit `Browse structures` control per placement.
+- `StructurePickerTable.tsx` is a dedicated presentational component for template comparison, search, location filtering, conservative validity hints, and explicit row selection.
+- `structurePickerUtils.ts` owns pure helper logic for:
+  - location-kind normalization (`orbital`, `surface`, `both`, `unknown`)
+  - filter matching
+  - selected/no-body/unknown-body context resolution
+  - conservative warning and validity-label derivation
+
+Safety boundaries in Stage 12A:
+
+- List view remains the canonical editable path.
+- Layout view remains read-only planning output.
+- Picker selection updates only the current placement template through the existing `onUpdate` callback.
+- No automatic preview execution, no Suggested Build generation/load, no persistence, and no backend mutation are introduced.
+- No scoring, mechanics, optimiser ranking/generation, Search Tuning, Observed Evidence, or Validation behavior changes are introduced.
+
+Test coverage added in Stage 12A:
+
+- `StructurePickerTable.test.tsx` for rendering, search/filter behavior, context/warning labels, and explicit selection callback behavior.
+- `structurePickerUtils.test.ts` for deterministic helper behavior and conservative warning labels.
+- `SimulationPreview.optimiser.test.tsx` coverage for opening/using picker controls without preview or suggested-build side effects.
+
+Deferred to Stage 12B:
+
+- Variant/family grouping, richer compare layouts, and broader replacement flows.
+- Any layout-view-side picker action (Layout remains read-only).
+- Backend catalogue enrichment and non-frontend planner mechanics work.
