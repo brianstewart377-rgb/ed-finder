@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
 import { Chip, IconButton } from './components';
+import { StructurePickerTable } from './StructurePickerTable';
 import { formatLocation } from './utils/formatters';
 
 export function BuildPlanEditor({
@@ -18,10 +20,14 @@ export function BuildPlanEditor({
   onRemove: (index: number) => void;
   onMove: (index: number, direction: -1 | 1) => void;
 }) {
+  const [pickerIndex, setPickerIndex] = useState<number | null>(null);
+
   return (
     <div className="space-y-2">
       {placements.map((placement, index) => {
         const template = templates.find((item) => item.id === placement.facility_template_id);
+        const hasMissingTemplate = !template && Boolean(placement.facility_template_id);
+        const pickerOpen = pickerIndex === index;
         return (
           <div key={`${placement.build_order}-${index}`} className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -45,6 +51,11 @@ export function BuildPlanEditor({
                 }}
                 className="min-w-0 flex-1"
               >
+                {hasMissingTemplate && (
+                  <option value={placement.facility_template_id} disabled>
+                    Missing template - {placement.facility_template_id}
+                  </option>
+                )}
                 {templates.map((item) => (
                   <option key={item.id} value={item.id}>
                     T{item.tier} - {item.name}{item.economy ? ` - ${item.economy}` : ''}
@@ -60,6 +71,24 @@ export function BuildPlanEditor({
               <IconButton label="Remove" onClick={() => onRemove(index)}>
                 <Trash2 size={14} />
               </IconButton>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="font-mono text-[10px] text-silver-dk">Use List view to edit. Compare options with Browse structures.</p>
+              <button
+                type="button"
+                onClick={() => setPickerIndex((current) => current === index ? null : index)}
+                className={[
+                  'rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition',
+                  pickerOpen
+                    ? 'border-cyan/60 bg-cyan/10 text-cyan'
+                    : 'border-border/65 bg-bg3/45 text-silver-dk hover:border-cyan/60 hover:text-cyan',
+                ].join(' ')}
+                aria-expanded={pickerOpen}
+                aria-controls={`structure-picker-panel-${index}`}
+              >
+                Browse structures
+              </button>
             </div>
 
             {!template && (
@@ -103,6 +132,24 @@ export function BuildPlanEditor({
                 <Chip>{formatLocation(template.allowed_location)}</Chip>
                 <Chip>Y+{template.yellow_cp_generated} G+{template.green_cp_generated}</Chip>
                 {template.confidence === 'estimated' && <Chip tone="warn">Estimated data</Chip>}
+              </div>
+            )}
+
+            {pickerOpen && (
+              <div id={`structure-picker-panel-${index}`}>
+                <StructurePickerTable
+                  templates={templates}
+                  bodies={bodies}
+                  selectedBodyId={placement.local_body_id ?? null}
+                  selectedTemplateId={placement.facility_template_id}
+                  onSelectTemplate={(templateId) => {
+                    const nextTemplate = templates.find((item) => item.id === templateId);
+                    onUpdate(index, {
+                      facility_template_id: templateId,
+                      is_primary_port: Boolean(placement.is_primary_port && nextTemplate?.is_port),
+                    });
+                  }}
+                />
               </div>
             )}
           </div>
