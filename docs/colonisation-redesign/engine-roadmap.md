@@ -605,3 +605,25 @@ Deferred to Stage 10E.2 or later:
 - Review UI for changed imported rows before using refreshed layout data.
 - Automatic Build Plan reassignment, which remains out of scope unless a later stage defines an explicit user-confirmed workflow.
 - Material, commodity, carrier, hauling, and trip planning.
+
+## Stage 11A - Colony Planner Visual Redesign Foundation
+
+Stage 11A begins the visual redesign pass for the dedicated Colony Planner workspace. It is a frontend layout and copy polish stage that makes the planning path easier to scan while keeping all existing simulation and optimiser mechanics unchanged.
+
+Current Stage 11A status:
+
+- Strengthened workspace and planner identity with clearer planning-flow framing in the dedicated Colony Planner workspace and planner header.
+- Polished section hierarchy so Suggested Builds, Build Plan, and Preview Result read as the primary workflow, while Observed Evidence and Validation are visually framed as later steps.
+- Updated Build Plan presentation copy and view framing so List view stays the canonical editor and Layout view stays a read-only planning readout.
+- Improved visual card hierarchy and badge/readout styling in the existing Layout view and selection-detail surfaces without changing grouping logic or planner data contracts.
+- Applied copy cleanup for conservative planning language across planner sections.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, hauling/material feature, auto-run, auto-generate, or auto-load behaviour changed in Stage 11A.
+
+Deferred beyond Stage 11A:
+
+- Rich structure picker / variant comparison workflow (if/when a stage branch with picker foundation is merged).
+- Deeper body-map visualisation beyond the current card/tree layout.
+- Saved-build lifecycle and project persistence.
+- EDMC/journal ingestion and automatic data-learning loops.
+- Commodity/material/carrier/hauling execution tracking, which remains outside ED-Finder's planning scope.

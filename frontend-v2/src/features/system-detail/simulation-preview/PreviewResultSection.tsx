@@ -25,7 +25,7 @@ export function PreviewResultSection({
         <div>
           <h4 className="font-mono text-[11px] uppercase tracking-[0.18em] text-silver">Preview Result</h4>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-            Simulation Preview is the explicit action/result that scores the current editable Build Plan.
+            Preview Result is the explicit outcome of running Simulation Preview for the current Build Plan.
           </p>
         </div>
       </div>

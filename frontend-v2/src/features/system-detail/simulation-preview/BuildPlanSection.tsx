@@ -68,6 +68,7 @@ export function BuildPlanSection({
   const [layoutImportError, setLayoutImportError] = useState<string | null>(null);
   const [layoutImportRunning, setLayoutImportRunning] = useState(false);
   const assignedUnknownBodyIds = getAssignedUnknownBodyIds(placements, bodies);
+  const templateCatalogueEmpty = !templatesLoading && !templatesErrorMessage && templates.length === 0;
 
   const handleImportLayout = async () => {
     setLayoutImportRunning(true);
@@ -88,8 +89,14 @@ export function BuildPlanSection({
       <div className="mb-3">
         <h4 className="font-mono text-[11px] uppercase tracking-[0.18em] text-orange">Build Plan</h4>
         <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-          Edit the facility list, body assignments, and target archetype before running Preview. Suggested Builds are a starting point; you can copy one here, tweak it, then run Preview explicitly.
+          Build your plan here, then run Preview when ready. Suggested Builds are a starting point; copy one into this editable plan, adjust placements, and run Preview explicitly.
         </p>
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono">
+          <BuildFlowChip step="1" label="Suggested Builds" tone="primary" />
+          <BuildFlowChip step="2" label="Build Plan" tone="primary" />
+          <BuildFlowChip step="3" label="Preview Result" tone="primary" />
+          <BuildFlowChip step="4" label="Evidence / Validation later" tone="later" />
+        </div>
       </div>
       <BuildPlanStatus
         placementCount={placements.length}
@@ -137,33 +144,35 @@ export function BuildPlanSection({
         <ModeIntro mode={startMode} hasRecommendedBuild={hasRecommendedBuild} />
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-        <label className="space-y-1">
-          <span className="block text-[10px] font-mono uppercase tracking-[0.16em] text-silver-dk">
-            Target archetype
-          </span>
-          <select
-            value={targetArchetype}
-            onChange={(e) => onTargetArchetypeChange(e.target.value)}
-            className="w-full"
+      <div className="mt-3 rounded-chunk-lg border border-border/60 bg-bg3/25 p-3">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <label className="space-y-1">
+            <span className="block text-[10px] font-mono uppercase tracking-[0.16em] text-silver-dk">
+              Target archetype
+            </span>
+            <select
+              value={targetArchetype}
+              onChange={(e) => onTargetArchetypeChange(e.target.value)}
+              className="w-full"
+            >
+              {ARCHETYPES.map((archetype) => (
+                <option key={archetype.id} value={archetype.id}>{archetype.label}</option>
+              ))}
+            </select>
+            <span className="block text-[10px] text-silver-dk font-mono leading-snug">
+              Target archetype affects predicted economy, service, and buildability outcomes. Changing it does not change anything in-game.
+            </span>
+          </label>
+          <button
+            type="button"
+            onClick={onAddPlacement}
+            disabled={templates.length === 0}
+            className="self-end inline-flex items-center justify-center gap-2 rounded-chunk-sm border border-border bg-bg3 px-3 py-2 text-xs font-mono text-silver hover:border-orange/60 hover:text-orange disabled:opacity-45"
           >
-            {ARCHETYPES.map((archetype) => (
-              <option key={archetype.id} value={archetype.id}>{archetype.label}</option>
-            ))}
-          </select>
-          <span className="block text-[10px] text-silver-dk font-mono leading-snug">
-            Target archetype affects predicted economy, service, and buildability outcomes. Changing it does not change anything in-game.
-          </span>
-        </label>
-        <button
-          type="button"
-          onClick={onAddPlacement}
-          disabled={templates.length === 0}
-          className="self-end inline-flex items-center justify-center gap-2 rounded-chunk-sm border border-border bg-bg3 px-3 py-2 text-xs font-mono text-silver hover:border-orange/60 hover:text-orange disabled:opacity-45"
-        >
-          <Plus size={14} />
-          Add Facility
-        </button>
+            <Plus size={14} />
+            Add Facility
+          </button>
+        </div>
       </div>
 
       {templatesLoading && (
@@ -176,8 +185,20 @@ export function BuildPlanSection({
         <div className="mt-3"><Message tone="warn" items={[templatesErrorMessage]} /></div>
       )}
 
+      {templateCatalogueEmpty && (
+        <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2 text-[11px] font-mono text-gold">
+          Facility catalogue is empty. Structures cannot be added until templates load.
+        </div>
+      )}
+
       <div className="mt-3">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Planner views</div>
+            <p className="mt-0.5 text-[10px] font-mono text-silver-dk">
+              Layout view is a readout. Use List view for full edits.
+            </p>
+          </div>
           <div className="inline-flex rounded-chunk-sm border border-border/70 bg-bg3/40 p-1">
             <BuildPlanViewButton
               active={viewMode === 'list'}
@@ -190,13 +211,10 @@ export function BuildPlanSection({
               active={viewMode === 'body'}
               icon={<Columns3 size={14} />}
               label="Layout view"
-              helper="Graphical body layout."
+              helper="Body-grouped planning readout."
               onClick={() => setViewMode('body')}
             />
           </div>
-          <p className="max-w-md text-[10px] font-mono text-silver-dk">
-            List view remains the detailed editor. Layout view is a visual planning readout of the same Build Plan.
-          </p>
         </div>
         <div className="mb-3 grid gap-2 font-mono text-[10px] text-silver-dk md:grid-cols-2">
           <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2">
@@ -206,7 +224,7 @@ export function BuildPlanSection({
             Yellow CP supports Tier 2 construction. Green CP supports Tier 3 construction. Build order can affect CP timing and port escalation.
           </p>
           <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2 md:col-span-2">
-            Orbital and planetary placements have different tradeoffs; Suggested Builds try to balance available slots and expected roles.
+            Orbital and planetary placements have different tradeoffs; Suggested Builds help with a safe starting point, then you can tune in List view.
           </p>
         </div>
         {placements.length === 0 ? (
@@ -397,6 +415,28 @@ function BuildPlanViewButton({
         <span className="block text-[10px] normal-case tracking-normal">{helper}</span>
       </span>
     </button>
+  );
+}
+
+function BuildFlowChip({
+  step,
+  label,
+  tone,
+}: {
+  step: string;
+  label: string;
+  tone: 'primary' | 'later';
+}) {
+  return (
+    <span className={[
+      'inline-flex items-center gap-1 rounded border px-1.5 py-0.5',
+      tone === 'primary'
+        ? 'border-orange/35 bg-orange/10 text-orange'
+        : 'border-border/70 bg-bg3/35 text-silver-dk',
+    ].join(' ')}>
+      <span className="text-[9px] tracking-[0.08em] text-silver-dk">{step}</span>
+      <span>{label}</span>
+    </span>
   );
 }
 

@@ -59,8 +59,8 @@ export function BuildPlanBodyView({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="rounded border border-cyan/30 bg-cyan/5 px-3 py-2 text-[11px] text-silver-dk">
+    <div className="space-y-4">
+      <div className="rounded-chunk-lg border border-cyan/30 bg-cyan/5 px-3 py-2 text-[11px] text-silver-dk">
         <div className="flex flex-wrap items-center gap-2">
           <LayoutPanelTop size={14} className="text-cyan" />
           <span className="font-mono uppercase tracking-[0.14em] text-cyan">Layout view</span>
@@ -71,7 +71,7 @@ export function BuildPlanBodyView({
       <PlanSummaryPanel summary={summary} />
 
       {summary.planWarnings.length > 0 && (
-        <div className="rounded border border-gold/35 bg-gold/5 px-3 py-2">
+        <div className="rounded-chunk-lg border border-gold/35 bg-gold/5 px-3 py-2">
           <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-gold">
             <AlertTriangle size={13} />
             Plan needs review
@@ -114,7 +114,7 @@ function PlanSummaryPanel({ summary }: { summary: PlanSummary }) {
   const previewTone = summary.previewStatus === 'current' ? 'good' : summary.previewStatus === 'running' ? 'default' : 'warn';
 
   return (
-    <section aria-label="Layout plan summary" className="rounded-chunk-lg border border-border/70 bg-bg2/65 p-3">
+    <section aria-label="Layout plan summary" className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">System layout planner</div>

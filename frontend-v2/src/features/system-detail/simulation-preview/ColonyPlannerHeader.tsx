@@ -44,6 +44,35 @@ export function ColonyPlannerHeader({
           {running ? 'Running' : 'Run Preview'}
         </button>
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px] font-mono">
+        <WorkflowChip step="1" label="Suggested Builds" tone="primary" />
+        <WorkflowChip step="2" label="Build Plan" tone="primary" />
+        <WorkflowChip step="3" label="Preview Result" tone="primary" />
+        <WorkflowChip step="4" label="Observed Evidence - Later step" tone="later" />
+        <WorkflowChip step="5" label="Validation - Later step" tone="later" />
+      </div>
     </div>
+  );
+}
+
+function WorkflowChip({
+  step,
+  label,
+  tone,
+}: {
+  step: string;
+  label: string;
+  tone: 'primary' | 'later';
+}) {
+  return (
+    <span className={[
+      'inline-flex items-center gap-1 rounded border px-1.5 py-0.5',
+      tone === 'primary'
+        ? 'border-orange/35 bg-orange/10 text-orange'
+        : 'border-border/70 bg-bg3/40 text-silver-dk',
+    ].join(' ')}>
+      <span className="text-[9px] uppercase tracking-[0.08em]">{step}</span>
+      <span>{label}</span>
+    </span>
   );
 }

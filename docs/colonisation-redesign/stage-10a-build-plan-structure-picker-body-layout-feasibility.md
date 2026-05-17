@@ -24,6 +24,7 @@ Stage 10B implementation note:
 - No backend mechanics, scoring, optimiser generation/ranking, validation/review behaviour, Search Tuning behaviour, persistence, auto-run, auto-generate, auto-load, or hauling/material tracking changed.
 - Stage 10C evolved the body readout into Layout view with a compact plan summary, body-level layout cards, primary-port status, warning chips, and visible CP generated/needed totals.
 - Stage 10D made Layout view locally interactive with read-only selected-body and selected-placement details. Users can inspect a body or placement, see warnings and next-action guidance, and then use List view for any edits.
+- Stage 11A began the Colony Planner visual redesign foundation with stronger planning hierarchy, cleaner planner copy, improved workflow signposting, and clearer later-step framing for Observed Evidence and Validation.
 - Spansh import was investigated in Stage 10C and remains a backend-supported/manual-refresh follow-up, not a frontend direct import or silent overwrite workflow.
 - The full structure picker/table remains deferred beyond Stage 10D.
 
