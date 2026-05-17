@@ -649,3 +649,25 @@ Deferred beyond Stage 11B:
 - Saved-build persistence and account/profile persistence.
 - EDMC/journal ingestion and automatic planning model updates.
 - Commodity/material/carrier/hauling execution tracking.
+
+## Stage 11C - Colony Planner Visual Redesign QA / Final Polish
+
+Stage 11C performs a final visual/readability QA pass across the dedicated Colony Planner workspace before Stage 12 starts deeper picker/table work.
+
+Current Stage 11C status:
+
+- Tightened workflow hierarchy clarity in `ColonyPlannerSectionNav` so the planner path is easier to read at a glance (`Suggested Builds → Build Plan → Preview Result`) and later steps remain visually muted.
+- Cleaned the ASCII/Unicode artefact in workflow separators and improved responsive wrapping in the flow strip for long viewports.
+- Kept read-only Layout view semantics explicit and preserved placement/body selection keyboard behavior and visible selected state.
+- Improved detail-panel focus affordance and polishing so selected summary/body/placement context remains easy to locate on read-only layout.
+- Reaffirmed and tests reinforced the same non-side-effect boundary: no automatic Preview run, no auto-generated candidate load, and no automatic suggestion refresh from Layout interactions.
+
+No backend mechanics, backend scoring, Simulation Preview mechanics, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behavior, Validation behavior, saved-build persistence, auto-run, auto-generate, auto-load behavior, or hauling/material workflow changed in Stage 11C.
+
+Deferred beyond Stage 11C:
+
+- Full structure picker/table interaction and richer placement replacement flows.
+- Deeper body map/plan topology rendering.
+- Facility variant workflows and layout/body-specific comparison UX beyond the current readout.
+- Saved builds, account persistence, and external ingestion loops.
+- Commodity/material/carrier/hauling execution tracking.

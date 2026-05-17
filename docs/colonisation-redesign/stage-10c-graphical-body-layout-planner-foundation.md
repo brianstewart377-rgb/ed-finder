@@ -203,3 +203,20 @@ Deferred beyond Stage 11B:
 - structure picker/table interaction enhancements
 - saved plans/project persistence
 - hauling/material execution workflow
+
+## Stage 11C - Colony Planner Visual Redesign QA / Final Polish
+
+Stage 11C performs final UX QA on the dedicated planner before Stage 12:
+
+- Polished Planner workflow signalling in `ColonyPlannerSectionNav.tsx` so `Suggested Builds → Build Plan → Preview Result` reads as the active path while Observed Evidence and Validation remain visually later.
+- Fixed visual separator/encoding issues in the workflow path and improved layout wrapping around chips on medium and narrow widths.
+- Kept Selection and keyboard interaction boundaries:
+  - List view is still the default and editable surface.
+  - Layout view remains a read-only planning readout.
+  - body/placement selection still works in Layout view without side effects.
+- Applied small readability/accessibility tweaks in `BuildPlanLayoutDetailPanel.tsx` (focus treatment and clearer selected-state framing).
+- Preserved all mechanical boundaries:
+  - no automatic Preview run
+  - no automatic Suggested Builds generation/load
+  - no backend scoring or optimiser ranking changes
+  - no hauling/material execution flow added
