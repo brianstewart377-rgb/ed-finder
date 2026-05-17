@@ -748,6 +748,7 @@ Current Stage 11G status:
 - Kept a11y intention (`Observed Evidence` and `Validation` remain secondary by styling/semantic context) while avoiding visual redundancy in chip labels.
 - Added a focused regression test for header workflow labels and Run Preview button enabled-state behavior.
 - Updated docs to record this micro-polish as a separate consistency pass.
+- Clarified a legacy rating-rationale caveat: if stored `ratings.rationale` still includes old phrases like "Strong Refinery; via ...", UI now labels them as stale-format and advises a refresh. This is a presentation hardening only; scoring is not changed. Systems with legacy rationale should be refreshed through existing importer-backed rating rebuild paths (not via UI auto-recompute).
 
 No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, auto-run, auto-generate, auto-load behaviour, or hauling/material workflow changed in Stage 11G.
 

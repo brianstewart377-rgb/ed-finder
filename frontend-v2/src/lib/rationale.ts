@@ -2,6 +2,10 @@ export function displayRationale(rationale?: string | null): string | null {
   if (!rationale) return null;
   let text = rationale;
   text = text.replace(
+    /Strong Refinery;\s*via\s*([^;]*?)(?=(?:;|$))/i,
+    'Strong Refinery; rationale uses an older format and may cite legacy contributors; rebuild this system rating to refresh this rationale',
+  );
+  text = text.replace(
     /Industrial\s+via\s+[^;]*ELW[^;]*/gi,
     'Industrial factors should come from icy, rocky-ice, gas giant, geological, or support-facility signals',
   );
