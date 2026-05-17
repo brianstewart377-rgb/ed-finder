@@ -55,7 +55,9 @@ describe('ResultCard Colony Planner action', () => {
     expect(onShowOnMap).toHaveBeenCalledWith(42);
     expect(onPin).toHaveBeenCalledWith(42);
     expect(onCompare).toHaveBeenCalledWith(42);
-    expect(screen.getByRole('button', { name: /Evaluate in Colony Planner/i })).toBeTruthy();
+    const scoreBar = screen.getByLabelText('Rating score: 82/100');
+    expect(scoreBar).toBeTruthy();
+    expect(scoreBar.getAttribute('title')).toBe('Rating score: 82/100');
   });
 
   it('falls back to focused detail handoff when no Colony Planner workspace callback is provided', () => {

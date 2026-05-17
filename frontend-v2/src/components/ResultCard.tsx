@@ -42,6 +42,7 @@ export function ResultCard({
   const rating     = system._rating;
   const score      = rating?.score ?? null;
   const tier       = ratingTier(score);
+  const scoreLabel = `Rating score: ${score ?? '—'}/100`;
   const conf       = formatConfidence(rating?.confidence);
   const inhabited  = isInhabited(system);
   const dist       = system.distance != null ? system.distance.toFixed(2) : '?';
@@ -155,6 +156,9 @@ export function ResultCard({
         {/* Score fill bar */}
         <span
           className="block w-20 h-2 rounded-full overflow-hidden"
+          role="img"
+          aria-label={scoreLabel}
+          title={scoreLabel}
           style={{
             background: 'linear-gradient(180deg, hsl(216 10% 12%), hsl(218 11% 8%))',
             border: '1px solid hsl(216 10% 26%)',
@@ -163,6 +167,7 @@ export function ResultCard({
         >
           <span
             className="block h-full transition-all duration-500"
+            aria-hidden="true"
             style={{
               width: `${Math.max(0, Math.min(100, score ?? 0))}%`,
               background: `linear-gradient(90deg, ${tier.fillColor}, ${tier.fillColor}cc)`,

@@ -737,3 +737,24 @@ Deferred beyond Stage 11F:
 - Deeper planner map topology and import-review UX beyond the current layout cards.
 - Saved build lifecycle and external ingestion loops.
 - Commodity/material/commodity/trip planning features.
+
+## Stage 11G - Workflow Label Consistency and Header Micro-Polish
+
+Stage 11G is a small, mechanics-safe cleanup pass to keep workflow labeling consistent across planner surfaces after the Stage 11F wording pass.
+
+Current Stage 11G status:
+
+- Normalized `ColonyPlannerHeader` workflow chip labels to match the rest of the planner surface (`Suggested Builds`, `Build Plan`, `Preview Result`, `Observed Evidence`, `Validation`) without suffix duplication.
+- Kept a11y intention (`Observed Evidence` and `Validation` remain secondary by styling/semantic context) while avoiding visual redundancy in chip labels.
+- Added a focused regression test for header workflow labels and Run Preview button enabled-state behavior.
+- Updated docs to record this micro-polish as a separate consistency pass.
+- Clarified a legacy rating-rationale caveat: if stored `ratings.rationale` still includes old phrases like "Strong Refinery; via ...", UI now labels them as stale-format and advises a refresh. This is a presentation hardening only; scoring is not changed. Systems with legacy rationale should be refreshed through existing importer-backed rating rebuild paths (not via UI auto-recompute).
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, saved-build persistence, auto-run, auto-generate, auto-load behaviour, or hauling/material workflow changed in Stage 11G.
+
+Deferred beyond Stage 11G:
+
+- Full structure picker/table enhancements and facility variant workflows.
+- Deeper planner map topology and import-review UX beyond current layout cards.
+- Saved build lifecycle and external ingestion loops.
+- Commodity/material/commodity/trip planning features.

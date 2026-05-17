@@ -246,3 +246,4 @@ Stage 11E is a focused micro-polish to harden interaction clarity, copy consiste
 - Body map / orbital visualization beyond current card layout.
 - Execution/logistics features (carrier stock, hauling, commodity planning).
 - Build persistence/account/state products and automatic learning.
+- Legacy `ratings.rationale` text may remain from older imports; no frontend scoring rule changes are being made in this stage. If stale `Strong Refinery; via ...` phrasing appears, rebuild that system’s rating through the importer or maintenance path that writes `rationale` (not UI-only text stripping) before relying on it as an authoritative explanation.

@@ -48,8 +48,8 @@ export function ColonyPlannerHeader({
         <WorkflowChip step="1" label="Suggested Builds" tone="primary" />
         <WorkflowChip step="2" label="Build Plan" tone="primary" />
         <WorkflowChip step="3" label="Preview Result" tone="primary" />
-        <WorkflowChip step="4" label="Observed Evidence - Later step" tone="later" />
-        <WorkflowChip step="5" label="Validation - Later step" tone="later" />
+        <WorkflowChip step="4" label="Observed Evidence" tone="later" />
+        <WorkflowChip step="5" label="Validation" tone="later" />
       </div>
     </div>
   );
@@ -73,6 +73,7 @@ function WorkflowChip({
     ].join(' ')}>
       <span className="text-[9px] uppercase tracking-[0.08em]">{step}</span>
       <span>{label}</span>
+      {tone === 'later' && <span className="sr-only">Later step</span>}
     </span>
   );
 }
