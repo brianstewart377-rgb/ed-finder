@@ -42,7 +42,7 @@ export function BuildPlanLayoutDetailPanel({
     <aside
       aria-label="Layout selection detail"
       data-testid="layout-detail-panel"
-      className="rounded-chunk-lg border border-cyan/30 bg-bg2/75 p-3 lg:sticky lg:top-3 lg:self-start"
+      className="rounded-chunk-lg border border-cyan/30 bg-bg2/75 p-3 xl:sticky xl:top-3 xl:self-start"
     >
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -50,6 +50,7 @@ export function BuildPlanLayoutDetailPanel({
             <Info size={13} />
             Layout detail
           </div>
+          <div className="mt-1 font-mono text-[11px] text-silver-dk">Read-only planning readout</div>
           <h5 className="mt-1 text-sm font-bold text-silver">
             {selection.kind === 'summary'
               ? 'Select a body or placement'
@@ -60,14 +61,14 @@ export function BuildPlanLayoutDetailPanel({
                   : 'Unassigned / needs body'}
           </h5>
         </div>
-        <button
-          type="button"
-          onClick={onSelectSummary}
-          className="inline-flex items-center gap-1 rounded border border-border/70 bg-bg3/50 px-2 py-1 font-mono text-[10px] text-silver-dk hover:border-cyan/60 hover:text-cyan"
-        >
-          <RotateCcw size={12} />
-          Summary
-        </button>
+      <button
+        type="button"
+        onClick={onSelectSummary}
+        className="inline-flex items-center gap-1 rounded border border-border/70 bg-bg3/50 px-2 py-1 font-mono text-[10px] text-silver-dk hover:border-cyan/60 hover:text-cyan"
+      >
+        <RotateCcw size={12} />
+        Summary
+      </button>
       </div>
 
       {selection.kind === 'summary' && <SummaryDetail summary={summary} />}
@@ -87,9 +88,14 @@ export function BuildPlanLayoutDetailPanel({
 function SummaryDetail({ summary }: { summary: PlanSummary }) {
   return (
     <div className="mt-3 space-y-3">
-      <p className="font-mono text-[11px] leading-snug text-silver-dk">
+      <p className="rounded border border-cyan/20 bg-cyan/5 px-2 py-1 font-mono text-[11px] leading-snug text-silver-dk">
         Pick a body group or placement card to inspect what it contributes. Detailed edits stay in List view.
       </p>
+      <DetailSection title="Placement counts">
+        <p className="text-[11px] text-silver-dk">
+          Totals, assignment status, and warning totals for the current plan.
+        </p>
+      </DetailSection>
       <DetailGrid>
         <DetailItem label="Total placements" value={String(summary.totalPlacements)} />
         <DetailItem label="Assigned" value={String(summary.assignedPlacements)} />
@@ -112,6 +118,11 @@ function BodyDetail({ group, summary }: { group: BodyGroup; summary: PlanSummary
 
   return (
     <div className="mt-3 space-y-3">
+      <DetailSection title="Selected body">
+        <p className="text-[11px] text-silver-dk">
+          This panel explains current body-level placement impact and warnings.
+        </p>
+      </DetailSection>
       <DetailGrid>
         <DetailItem label="Body" value={name} tone={group.body ? 'default' : 'warn'} />
         <DetailItem label="Placements" value={String(group.placements.length)} />
@@ -144,6 +155,11 @@ function PlacementDetail({ group, item, summary }: { group: BodyGroup; item: Gro
 
   return (
     <div className="mt-3 space-y-3">
+      <DetailSection title="Selected placement">
+        <p className="text-[11px] text-silver-dk">
+          Placement info is read-only in Layout view; switch back to List view for edits.
+        </p>
+      </DetailSection>
       <DetailGrid>
         <DetailItem label="Facility" value={template?.name ?? placement.facility_template_id ?? 'Unknown facility'} tone={template ? 'default' : 'warn'} />
         <DetailItem label="Build order" value={String(placement.build_order || item.index + 1)} />
@@ -248,4 +264,19 @@ function placementBodyLabel(body: SystemBody | null, item: GroupedPlacement): st
   if (body) return bodyDisplayName(body);
   if (item.hasUnknownBody) return `Unknown body ${item.bodyId}`;
   return 'Unassigned';
+}
+
+function DetailSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">{title}</div>
+      <div className="mt-1">{children}</div>
+    </div>
+  );
 }
