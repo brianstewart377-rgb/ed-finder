@@ -811,3 +811,27 @@ Deferred to Stage 12B:
 - Layout-view-side picker actions (Layout remains read-only).
 - Any backend catalogue enrichment or new mechanics fields.
 - Saved-build and logistics workflows.
+
+## Stage 12B - Structure Replacement Comparison / Architect Context
+
+Stage 12B makes structure replacement more deliberate by inserting a read-only comparison step before a picker selection changes a placement.
+
+Current Stage 12B status:
+
+- Added a focused replacement review panel in the Colony Planner List view. Selecting a structure from the picker now opens a current-vs-proposed comparison instead of applying immediately.
+- Comparison fields include structure name, tier, allowed location, pad size, economy, role/category, CP generated, CP needed, confidence, validity labels, warning chips, and body context.
+- Added explicit `Apply replacement` and `Cancel replacement` actions. Apply uses the existing placement `onUpdate` path and updates only the selected placement template; cancel closes the review without mutation.
+- Kept replacement review local and manual. It does not run Preview, generate or load Suggested Builds, run validation, persist builds, or mutate primary-port state.
+- Added conservative read-only Architect primary-port context: users should check Architect Mode before final station placement, inconvenient flagged slots can be treated as outpost candidates, and primary-port location is planning context rather than a Build Point source.
+- Removed the primary-port checkbox from the List view editor surface. Existing primary-port flags are shown as read-only state; ED-Finder does not offer arbitrary `make primary` or `remove primary` controls.
+- Updated focused tests for replacement review, cancellation, apply behavior, no preview/optimiser side effects, and read-only primary-port wording.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behavior, Validation behavior, saved-build persistence, import behavior, auto-run, auto-generate, auto-load behavior, map topology rendering, or hauling/material workflow changed in Stage 12B.
+
+Deferred to Stage 12C:
+
+- Variant/family grouping and richer catalogue comparison modes.
+- Architect Slot Survey data entry/import surfaces for confirmed in-game primary-port slot evidence.
+- Better body/orbit recommendation context once confirmed Architect-slot data exists.
+- Layout-view-side explanatory affordances remain read-only unless a later stage explicitly scopes safe actions.
+- Backend catalogue enrichment and persistence workflows remain separate.

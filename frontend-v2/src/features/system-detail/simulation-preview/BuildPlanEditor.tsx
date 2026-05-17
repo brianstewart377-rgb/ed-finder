@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
 import { Chip, IconButton } from './components';
+import { StructureReplacementComparison } from './StructureReplacementComparison';
 import { StructurePickerTable } from './StructurePickerTable';
 import { formatLocation } from './utils/formatters';
 
@@ -21,6 +22,7 @@ export function BuildPlanEditor({
   onMove: (index: number, direction: -1 | 1) => void;
 }) {
   const [pickerIndex, setPickerIndex] = useState<number | null>(null);
+  const [pendingReplacement, setPendingReplacement] = useState<{ index: number; templateId: string } | null>(null);
 
   return (
     <div className="space-y-2">
@@ -28,6 +30,9 @@ export function BuildPlanEditor({
         const template = templates.find((item) => item.id === placement.facility_template_id);
         const hasMissingTemplate = !template && Boolean(placement.facility_template_id);
         const pickerOpen = pickerIndex === index;
+        const proposedTemplate = pendingReplacement?.index === index
+          ? templates.find((item) => item.id === pendingReplacement.templateId)
+          : undefined;
         return (
           <div key={`${placement.build_order}-${index}`} className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -43,11 +48,9 @@ export function BuildPlanEditor({
               <select
                 value={placement.facility_template_id}
                 onChange={(e) => {
-                  const nextTemplate = templates.find((item) => item.id === e.target.value);
-                  onUpdate(index, {
-                    facility_template_id: e.target.value,
-                    is_primary_port: Boolean(placement.is_primary_port && nextTemplate?.is_port),
-                  });
+                  if (e.target.value !== placement.facility_template_id) {
+                    setPendingReplacement({ index, templateId: e.target.value });
+                  }
                 }}
                 className="min-w-0 flex-1"
               >
@@ -110,19 +113,24 @@ export function BuildPlanEditor({
                   </option>
                 ))}
               </select>
-              <label className={[
+              <div className={[
                 'inline-flex items-center gap-2 rounded-chunk-sm border px-3 py-2 text-[11px] font-mono',
-                template?.is_port ? 'border-border bg-bg3 text-silver' : 'border-border/50 bg-bg3/40 text-silver-dk',
+                placement.is_primary_port ? 'border-cyan/35 bg-cyan/10 text-cyan' : 'border-border/50 bg-bg3/40 text-silver-dk',
               ].join(' ')}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(placement.is_primary_port)}
-                  disabled={!template?.is_port}
-                  onChange={(e) => onUpdate(index, { is_primary_port: e.target.checked })}
-                  className="accent-orange"
-                />
-                Primary port
-              </label>
+                {placement.is_primary_port ? 'Primary port flag present' : 'No primary-port flag'}
+              </div>
+            </div>
+
+            <div className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-3 py-2 text-[11px] leading-snug text-silver-dk">
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Architect planning context</div>
+              <p className="mt-1">
+                Architect primary-port location should be checked before final station placement. Primary-port location is planning context, not a Build Point source.
+              </p>
+              {placement.is_primary_port && (
+                <p className="mt-1">
+                  If the flagged slot is inconvenient, consider placing an outpost there and using a better body/orbit for the main station.
+                </p>
+              )}
             </div>
 
             {template && (
@@ -143,14 +151,27 @@ export function BuildPlanEditor({
                   selectedBodyId={placement.local_body_id ?? null}
                   selectedTemplateId={placement.facility_template_id}
                   onSelectTemplate={(templateId) => {
-                    const nextTemplate = templates.find((item) => item.id === templateId);
-                    onUpdate(index, {
-                      facility_template_id: templateId,
-                      is_primary_port: Boolean(placement.is_primary_port && nextTemplate?.is_port),
-                    });
+                    if (templateId !== placement.facility_template_id) {
+                      setPendingReplacement({ index, templateId });
+                    }
                   }}
                 />
               </div>
+            )}
+
+            {proposedTemplate && (
+              <StructureReplacementComparison
+                placement={placement}
+                currentTemplate={template}
+                proposedTemplate={proposedTemplate}
+                bodies={bodies}
+                onCancel={() => setPendingReplacement(null)}
+                onApply={() => {
+                  onUpdate(index, { facility_template_id: proposedTemplate.id });
+                  setPendingReplacement(null);
+                  setPickerIndex(null);
+                }}
+              />
             )}
           </div>
         );
