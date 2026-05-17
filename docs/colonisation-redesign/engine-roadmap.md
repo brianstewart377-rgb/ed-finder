@@ -758,3 +758,26 @@ Deferred beyond Stage 11G:
 - Deeper planner map topology and import-review UX beyond current layout cards.
 - Saved build lifecycle and external ingestion loops.
 - Commodity/material/commodity/trip planning features.
+
+## Stage 11H - Layout Import Staleness Guardrail
+
+Stage 11H is a narrow mechanics-safe polishing pass that addresses remaining QA consistency: when users switch systems, stale layout-import banners/messages in the Build Plan section should be cleared so the next system starts from a clean planner layout-import state.
+
+Current Stage 11H status:
+
+- Added system-scoped reset for layout import status in `BuildPlanSection`.
+- Cleared stale `layoutImportResult`, `layoutImportError`, and `layoutImportRunning` when `systemId64` changes.
+- Added focused regression coverage for stale layout-import status and success-state rendering after import.
+
+No backend mechanics, backend scoring, normal search scoring, Simulation Preview scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, candidate comparison logic, Search Tuning behaviour, Observed Evidence behavior, Validation behavior, saved-build persistence, auto-run, auto-generate, auto-load behavior, or hauling/material workflow changed in Stage 11H.
+
+Chronology clarification:
+
+- Stage 11F preceded 11G; Stage 11H follows 11G on this branch.
+
+Deferred beyond Stage 11H:
+
+- Full structure picker/table enhancements and variant-aware placement comparison.
+- Additional layout-import UX refinements (history, retry queueing, conflict messaging).
+- Saved build persistence and external ingestion loops.
+- Commodity/material/commodity/trip planning features.
