@@ -42,13 +42,13 @@ export function BuildPlanLayoutDetailPanel({
     <aside
       aria-label="Layout selection detail"
       data-testid="layout-detail-panel"
-      className="rounded-chunk-lg border border-cyan/30 bg-bg2/70 p-3 lg:sticky lg:top-3 lg:self-start"
+      className="rounded-chunk-lg border border-cyan/30 bg-bg2/75 p-3 lg:sticky lg:top-3 lg:self-start"
     >
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
             <Info size={13} />
-            Selection detail
+            Layout detail
           </div>
           <h5 className="mt-1 text-sm font-bold text-silver">
             {selection.kind === 'summary'

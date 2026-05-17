@@ -181,29 +181,36 @@ export function SimulationPreview({
           isResultStale={runState.isResultStale}
         />
 
-        {/* Stage 6B: Observed Evidence panel renders after Preview Result.
-            It is intentionally passive — see ObservedEvidencePanel for the
-            contract. The simulation and optimiser data above are NOT
-            re-derived from observations; Stage 6C added the predicted-vs-
-            observed comparison engine and Stage 6D renders that result
-            below in the Validation section. */}
-        <ObservedEvidencePanel
-          systemId64={system.id64}
-          suggestedArchetype={plan.targetArchetype}
-        />
+        <section className="rounded-chunk-lg border border-border/60 bg-bg2/25 p-3">
+          <div className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
+            Later step: Evidence and Validation
+          </div>
+          {/* Stage 6B: Observed Evidence panel renders after Preview Result.
+              It is intentionally passive - see ObservedEvidencePanel for the
+              contract. The simulation and optimiser data above are NOT
+              re-derived from observations; Stage 6C added the predicted-vs-
+              observed comparison engine and Stage 6D renders that result
+              below in the Validation section. */}
+          <ObservedEvidencePanel
+            systemId64={system.id64}
+            suggestedArchetype={plan.targetArchetype}
+          />
 
-        {/* Stage 6D: Validation section renders the Stage 6C
-            `/api/observations/compare` response in-page (no popout, no
-            top-level tab). The panel is passive: it never runs
-            simulation, never invokes the optimiser, never mutates
-            observed evidence, and never feeds confidence back into
-            scoring or ranking. */}
-        <ValidationPanel
-          systemId64={system.id64}
-          targetArchetype={plan.targetArchetype}
-          previewResult={runState.result}
-          isPreviewResultStale={runState.isResultStale}
-        />
+          {/* Stage 6D: Validation section renders the Stage 6C
+              `/api/observations/compare` response in-page (no popout, no
+              top-level tab). The panel is passive: it never runs
+              simulation, never invokes the optimiser, never mutates
+              observed evidence, and never feeds confidence back into
+              scoring or ranking. */}
+          <div className="mt-4">
+            <ValidationPanel
+              systemId64={system.id64}
+              targetArchetype={plan.targetArchetype}
+              previewResult={runState.result}
+              isPreviewResultStale={runState.isResultStale}
+            />
+          </div>
+        </section>
       </div>
     </div>
   );

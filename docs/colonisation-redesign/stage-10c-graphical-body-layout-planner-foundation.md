@@ -166,3 +166,14 @@ Stage 10D follows the selected-detail path. Layout view now supports local, read
 Stage 10D remains frontend UX/layout work only. Selection does not mutate the Build Plan, does not run Preview, does not generate or load Suggested Builds, does not fetch new layout data, and does not change backend scoring, CP formulas, economy/service/buildability mechanics, optimiser generation/ranking, Search Tuning, Observed Evidence, Validation/Review, persistence, or hauling/material workflows.
 
 The structure picker/table, variant comparison, add/replace workflow, facility selection from Layout view, Spansh refresh workflow, saved builds, external ingestion, and material/commodity/carrier/trip planning remain deferred.
+
+## Stage 11A Follow-Up
+
+Stage 11A keeps the Stage 10C/10D planner mechanics intact and starts a visual redesign foundation pass:
+
+- stronger workflow hierarchy across Suggested Builds, Build Plan, and Preview Result
+- clearer later-step framing for Observed Evidence and Validation
+- cleaner planner copy and section signposting
+- visual polish for workspace/header/readout cards while preserving List view as the editing surface and Layout view as read-only planning output
+
+Stage 11A does not add hauling/material execution tracking and does not change simulation scoring, optimiser generation/ranking, Search Tuning, or backend mechanics.

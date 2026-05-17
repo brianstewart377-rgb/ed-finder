@@ -24,8 +24,14 @@ export function BuildPlanEditor({
         const template = templates.find((item) => item.id === placement.facility_template_id);
         return (
           <div key={`${placement.build_order}-${index}`} className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Placement</span>
+              <span className="rounded border border-border/60 bg-bg3/45 px-2 py-0.5 font-mono text-[10px] text-silver-dk">
+                List view editor
+              </span>
+            </div>
             <div className="flex items-center gap-2">
-              <span className="grid h-7 w-7 place-items-center rounded-full border border-orange/40 bg-orange/10 text-[11px] font-mono font-bold text-orange">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-orange/40 bg-orange/10 text-[11px] font-mono font-bold text-orange">
                 {index + 1}
               </span>
               <select
@@ -55,6 +61,12 @@ export function BuildPlanEditor({
                 <Trash2 size={14} />
               </IconButton>
             </div>
+
+            {!template && (
+              <p className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[11px] text-gold">
+                Needs review: facility template missing ({placement.facility_template_id})
+              </p>
+            )}
 
             <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
               <select

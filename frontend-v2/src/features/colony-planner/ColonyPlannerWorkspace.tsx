@@ -73,15 +73,16 @@ export function ColonyPlannerWorkspace({
         onOpenSystemDetail={onOpenSystemDetail}
       />
       <section className="panel p-4 sm:p-5">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+        <div className="mb-4 grid gap-3 border-b border-border pb-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0">
             <h2 className="font-mono text-[13px] uppercase tracking-[0.18em] text-orange">
-              Colony Planner
+              Colony Planner Workspace
             </h2>
             <p className="mt-1 max-w-3xl text-xs font-mono leading-snug text-silver-dk">
               Evaluate this system with Suggested Builds, an editable Build Plan, and an explicit Preview Result. Nothing runs or loads automatically.
             </p>
           </div>
+          <PlannerWorkflowStrip />
         </div>
         <SimulationPreviewPanel system={data} selectedPlan={null} />
       </section>
@@ -237,5 +238,46 @@ function HeaderFact({
       <dt className="text-[10px] uppercase tracking-[0.16em] text-silver-dk">{label}</dt>
       <dd className={['mt-1 truncate text-silver', toneClass].join(' ')}>{value}</dd>
     </div>
+  );
+}
+
+function PlannerWorkflowStrip() {
+  return (
+    <div className="rounded-chunk-lg border border-cyan/25 bg-cyan/5 px-3 py-2">
+      <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+        Planning flow
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono">
+        <FlowChip step="1" label="Suggested Builds" tone="primary" />
+        <FlowChip step="2" label="Build Plan" tone="primary" />
+        <FlowChip step="3" label="Preview Result" tone="primary" />
+        <FlowChip step="4" label="Evidence / Validation" tone="later" />
+      </div>
+      <p className="mt-2 text-[10px] font-mono leading-snug text-silver-dk">
+        Observed Evidence and Validation are later-step checks after planning and in-game verification.
+      </p>
+    </div>
+  );
+}
+
+function FlowChip({
+  step,
+  label,
+  tone,
+}: {
+  step: string;
+  label: string;
+  tone: 'primary' | 'later';
+}) {
+  return (
+    <span className={[
+      'inline-flex items-center gap-1 rounded border px-1.5 py-0.5',
+      tone === 'primary'
+        ? 'border-orange/35 bg-orange/10 text-orange'
+        : 'border-border/70 bg-bg3/40 text-silver-dk',
+    ].join(' ')}>
+      <span className="text-[9px] uppercase tracking-[0.08em]">{step}</span>
+      <span>{label}</span>
+    </span>
   );
 }
