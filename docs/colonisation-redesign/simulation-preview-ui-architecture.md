@@ -70,6 +70,13 @@ Stage 11F is the Stage 11E follow-up micro-polish:
 - Keep explicit no-side-effect behavior for planning interactions and no mechanics changes.
 - This pass remains frontend visual/copy/accessibility hardening for planner clarity before broader picker/table work resumes.
 
+Stage 11G is a focused label and header consistency pass after Stage 11F.
+
+- `ColonyPlannerHeader.tsx` workflow chip labels are normalized to match the same user-facing terms used in `ColonyPlannerSectionNav` and `BuildPlanSection` (`Observed Evidence`, `Validation` without inline “Later step” suffix in chip labels).
+- Accessibility intent remains explicit via screen-reader semantics on later-step chips while avoiding visual duplication in labels.
+- Added a focused regression test for `ColonyPlannerHeader` to guard label consistency and ensure the Run Preview button remains an explicit, opt-in action.
+- No new planner mechanics introduced; selection/edit boundaries remain unchanged (`List view` editable, `Layout view` readout-only).
+
 ## Shared UI Atoms
 
 Shared visual atoms are intentionally small and boring. Each atom lives in its own file so future optimiser components can reuse them without importing an unrelated grouped implementation file.
