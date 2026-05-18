@@ -142,6 +142,9 @@ describe('BuildPlanBodyView', () => {
     expect(within(firstBody).getByText('Ground capability: landable')).toBeTruthy();
     expect(within(firstBody).getByText('Architect survey: not observed')).toBeTruthy();
     expect(within(firstBody).getByText('Orbital slots: unknown')).toBeTruthy();
+    expect(within(firstBody).getByText('Strategic topology')).toBeTruthy();
+    expect(within(firstBody).getByText('Main station candidate: current plan places a primary or major port here.')).toBeTruthy();
+    expect(within(firstBody).getByText('Primary-port flag unknown: check Architect Mode before final station placement.')).toBeTruthy();
 
     const secondBody = screen.getByTestId('layout-body-group-2');
     expect(within(secondBody).getByText('Extraction Hub')).toBeTruthy();
@@ -152,6 +155,7 @@ describe('BuildPlanBodyView', () => {
     expect(within(secondBody).getAllByText('May be invalid: surface facility on water world').length).toBeGreaterThan(0);
     expect(within(secondBody).getAllByText('Surface structure may be invalid on this body.').length).toBeGreaterThan(0);
     expect(within(secondBody).getAllByText('Estimated template data: review before relying on the plan.').length).toBeGreaterThan(0);
+    expect(within(secondBody).getByText('Good support body: current plan keeps this body support-focused away from the main station candidate.')).toBeTruthy();
 
     const unassigned = screen.getByTestId('layout-body-group-unassigned');
     expect(within(unassigned).getAllByText('Unassigned / needs body').length).toBeGreaterThan(0);
@@ -243,6 +247,8 @@ describe('BuildPlanBodyView', () => {
     expect(within(panel).getByText('Topology readout')).toBeTruthy();
     expect(within(panel).getByText('Ground capability: review water world')).toBeTruthy();
     expect(within(panel).getByText('Ground planned: 1')).toBeTruthy();
+    expect(within(panel).getByText('Strategic topology')).toBeTruthy();
+    expect(within(panel).getByText('Good support body: current plan keeps this body support-focused away from the main station candidate.')).toBeTruthy();
     expect(within(panel).getByText(/Slot counts stay unknown until Architect Mode observations are recorded/)).toBeTruthy();
   });
 
