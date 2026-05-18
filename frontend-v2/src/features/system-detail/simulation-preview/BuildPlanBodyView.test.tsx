@@ -135,6 +135,13 @@ describe('BuildPlanBodyView', () => {
     expect(within(firstBody).getAllByText('Needs: Y20 G40').length).toBeGreaterThan(0);
     expect(within(firstBody).getByText('Landable')).toBeTruthy();
     expect(within(firstBody).getByText('Terraformable')).toBeTruthy();
+    expect(within(firstBody).getByText('Topology readout')).toBeTruthy();
+    expect(within(firstBody).getByText('Body: known')).toBeTruthy();
+    expect(within(firstBody).getByText('Orbital planned: 1')).toBeTruthy();
+    expect(within(firstBody).getByText('Ground planned: 0')).toBeTruthy();
+    expect(within(firstBody).getByText('Ground capability: landable')).toBeTruthy();
+    expect(within(firstBody).getByText('Architect survey: not observed')).toBeTruthy();
+    expect(within(firstBody).getByText('Orbital slots: unknown')).toBeTruthy();
 
     const secondBody = screen.getByTestId('layout-body-group-2');
     expect(within(secondBody).getByText('Extraction Hub')).toBeTruthy();
@@ -152,6 +159,8 @@ describe('BuildPlanBodyView', () => {
     expect(within(unassigned).getByText('missing_template')).toBeTruthy();
     expect(within(unassigned).getByText('Needs review: facility template missing')).toBeTruthy();
     expect(within(unassigned).getByText('Needs review: placement has no body')).toBeTruthy();
+    expect(within(unassigned).getByText('Body: unassigned')).toBeTruthy();
+    expect(within(unassigned).getByText('Location unknown: 1')).toBeTruthy();
   });
 
   it('reports primary port states for none, one, and multiple primary ports', () => {
@@ -231,6 +240,10 @@ describe('BuildPlanBodyView', () => {
     expect(within(panel).getByText('No')).toBeTruthy();
     expect(within(panel).getByText((content) => content.includes('#2') && content.includes('Extraction Hub'))).toBeTruthy();
     expect(within(panel).getByText('May be invalid: surface facility on water world')).toBeTruthy();
+    expect(within(panel).getByText('Topology readout')).toBeTruthy();
+    expect(within(panel).getByText('Ground capability: review water world')).toBeTruthy();
+    expect(within(panel).getByText('Ground planned: 1')).toBeTruthy();
+    expect(within(panel).getByText(/Slot counts stay unknown until Architect Mode observations are recorded/)).toBeTruthy();
   });
 
   it('selects a placement and shows read-only placement details', () => {
@@ -246,7 +259,8 @@ describe('BuildPlanBodyView', () => {
     expect(within(panel).getByText('A 1')).toBeTruthy();
     expect(within(panel).getByText('planned')).toBeTruthy();
     expect(within(panel).getByText('Yes')).toBeTruthy();
-    expect(within(panel).getByText('orbital')).toBeTruthy();
+    expect(within(panel).getAllByText('orbital').length).toBeGreaterThan(0);
+    expect(within(panel).getByText('Topology')).toBeTruthy();
     expect(within(panel).getByText('Industrial')).toBeTruthy();
     expect(within(panel).getByText('port')).toBeTruthy();
     expect(within(panel).getByText('Y+0/20 G+0/40')).toBeTruthy();

@@ -396,3 +396,23 @@ Deferred to later Stage 13 work:
 - Storage/import decisions for Architect surveys.
 - Full Architect Slot Survey UI and exact topology capture.
 - Topology-aware Layout grouping beyond the current read-only observation panel.
+
+## Stage 13B - Layout Topology Readout
+
+Stage 13B adds read-only topology readouts to Layout view without turning Layout into an editor or map engine.
+
+- `layoutTopologyUtils.ts` derives per-body topology context from existing Build Plan placements, facility templates, body metadata, and optional frontend Architect observation context. It counts planned orbital, ground, and unknown-location structures without inventing slot capacity.
+- `LayoutTopologyReadout.tsx` renders compact chips for body state, planned orbital/ground counts, conservative ground capability, Architect survey status, unknown/observed slot counts, and primary-port context.
+- `BuildPlanBodyView.tsx` shows compact topology context on each body group. `BuildPlanLayoutDetailPanel.tsx` shows the fuller readout for a selected body and keeps placement detail read-only.
+
+Safety boundaries in Stage 13B:
+
+- Layout view remains read-only. No placement mutation, primary-port setting/unsetting, slot editing, import/storage, polling, auto-preview, auto-generation, or silent mutation is introduced.
+- Unknown Architect slot counts stay unknown by default. Observed slot labels render only when explicit frontend observation context is supplied to helpers/components.
+- The readout does not change Simulation Preview scoring, optimiser ranking/generation, CP formulas, economy mechanics, service unlock logic, buildability rules, Observed Evidence behavior, Validation behavior, or persistence.
+
+Deferred to later Stage 13 work:
+
+- Strategic body relationship guidance and candidate labels.
+- Persistent Architect survey capture and import/storage decisions.
+- Full Architect Slot Survey UI and exact map/topology rendering.

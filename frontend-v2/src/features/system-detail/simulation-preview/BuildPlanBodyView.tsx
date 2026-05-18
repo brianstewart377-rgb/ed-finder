@@ -16,6 +16,8 @@ import {
 } from './buildPlanLayoutUtils';
 import { BuildPlanLayoutDetailPanel, type LayoutSelection } from './BuildPlanLayoutDetailPanel';
 import { Chip } from './components';
+import { LayoutTopologyReadout } from './LayoutTopologyReadout';
+import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from './layoutTopologyUtils';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
 import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
 import { formatLocation } from './utils/formatters';
@@ -188,6 +190,7 @@ function BodyGroupCard({
     warnings: getPlacementWarnings(item, group.body),
   })));
   const summary = getBodyGroupSummary(group);
+  const topology = buildLayoutTopologyReadout(group);
   const isUnassigned = group.body === null;
   const body = group.body;
   const title = isUnassigned || !body ? 'Unassigned / needs body' : bodyDisplayName(body);
@@ -246,6 +249,7 @@ function BodyGroupCard({
           <span className="text-silver-dk">Body CP</span>
           <span className="ml-1 text-silver">Y+{summary.yellowGenerated}/{summary.yellowNeeded} G+{summary.greenGenerated}/{summary.greenNeeded}</span>
         </div>
+        <LayoutTopologyReadout readout={topology} compact />
         {bodyWarnings.length > 0 && (
           <div className="flex max-w-md flex-wrap gap-1.5 font-mono text-[10px]">
             {bodyWarnings.map((warning) => <Chip key={warning} tone="warn">{warning}</Chip>)}
@@ -341,6 +345,7 @@ function PlacementCard({
           <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
             {placement.is_primary_port && <Chip tone="good">Primary port</Chip>}
             {template ? <Chip>{formatLocation(template.allowed_location)}</Chip> : 'Unknown location'}
+            <Chip>{topologyPlacementLocationLabel(template)}</Chip>
             {template?.tier != null && <Chip>Tier {template.tier}</Chip>}
             {template?.pad_size && <Chip>Pad: {template.pad_size}</Chip>}
             {template?.economy && <Chip>Economy: {template.economy}</Chip>}
