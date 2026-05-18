@@ -1181,3 +1181,30 @@ Deferred after Stage 15F:
 
 - Stage 15G should add saved Colony Project persistence.
 - Stage 15H should move Evidence and Validation into drawers/modes.
+
+### Stage 15G - Saved Colony Project Persistence MVP
+
+Stage 15G adds a local-only saved Colony Project MVP so users can return to a plan later without committing to backend schema too early.
+
+Current Stage 15G status:
+
+- Added a Zustand/localStorage project store under `ed_colony_projects_v1`.
+- The minimum project model includes project id, system id64/name, project name, build plan placements, selected body assignments derived from placements, notes, status, created/updated timestamps, and archive timestamp.
+- The workspace summary rail now includes local project controls: save, rename, load, duplicate, and delete/archive with confirmation.
+- The summary rail shows `Unsaved changes` / `Saved` and a `Last saved` timestamp.
+- Reloading the planner workspace for a system restores the latest active local project into the editable Build Plan through the existing `initialRequest` path.
+
+Safety boundaries in Stage 15G:
+
+- Persistence is local-only. No backend schema, account sync, collaboration, cloud sync, imports, EDMC ingestion, hauling/material execution, scoring, CP/economy/buildability/service mechanics, optimiser behavior, Search Tuning, Observed Evidence, Validation, or primary-port truth handling changed.
+- Saving/loading projects does not auto-run Preview, auto-generate Suggested Builds, auto-import layout, mutate evidence, or run validation.
+
+Test coverage added/updated in Stage 15G:
+
+- Store tests cover save/load shape, rename, duplicate, archive, active project filtering, selected body assignments, and unsaved snapshot matching.
+- Workspace tests cover save, rename, duplicate, archive confirmation, unsaved/saved indicator, and reload restoring a saved plan through the planner adapter.
+
+Deferred after Stage 15G:
+
+- Backend persistence and migration remain future work after the project model stabilises.
+- Stage 15H should move Evidence and Validation into drawers/modes.

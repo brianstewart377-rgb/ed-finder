@@ -532,3 +532,11 @@ Stage 15F implementation note:
 - `OptimiserCandidateCard` and `OptimiserCandidateDetails` now present a player-facing category, purpose, reason, tradeoff, and next action for each visible candidate.
 - Raw optimiser tags are translated before display. Internal tags remain available in the response/comparison data, but the UI avoids exposing raw labels like `body_diversity`.
 - Loading a suggested build remains an explicit workspace action through the existing candidate load path. It still does not run the main Preview, save, import, validate, or mutate observed evidence.
+
+Stage 15G implementation note:
+
+- Saved Colony Projects use localStorage through `features/colony-planner/colonyProjectStore.ts`. This matches existing frontend persistence patterns while avoiding premature backend schema work.
+- `ColonyPlannerWorkspace` owns project selection and notes state in the workspace shell. It passes a saved project into `SimulationPreviewPanel` as an `initialRequest`, reusing the existing plan replacement path rather than adding a second editor.
+- Project save captures the current one-way planner snapshot: placements, selected body assignments derived from placement body IDs, target archetype, notes, and local status.
+- Project load/restore does not run Preview, generation, import, evidence, or validation. It only replaces the editable Build Plan through the same request shape already used for selected recommended plans.
+- Delete is implemented as local archive with confirmation so the MVP can hide projects without destructive backend semantics.
