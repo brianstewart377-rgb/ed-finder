@@ -6,6 +6,7 @@ import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserEmptyState } from './OptimiserEmptyState';
 import { OptimiserErrorState } from './OptimiserErrorState';
 import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
+import { filterUsefulSuggestedBuilds } from './optimiserQualityUtils';
 
 type GeneratedCandidateParams = {
   targetArchetype: string;
@@ -40,7 +41,7 @@ export function OptimiserCandidatePanel({
 
   const rankLookup = useMemo(() => buildRankLookup(response?.ranking), [response]);
   const candidates = useMemo(
-    () => sortCandidatesForDisplay(response?.candidates ?? [], response?.ranking),
+    () => filterUsefulSuggestedBuilds(sortCandidatesForDisplay(response?.candidates ?? [], response?.ranking)),
     [response],
   );
   const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selectedId) ?? candidates[0];
@@ -84,8 +85,8 @@ export function OptimiserCandidatePanel({
           </p>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
             {onLoadCandidate
-              ? 'Copy a suggested build deliberately when you want to use it as the editable Build Plan.'
-              : 'Read-only for now - copying a suggested build comes in a later stage.'}
+              ? 'Load a useful suggested build deliberately when you want to review it as the editable Build Plan.'
+              : 'Read-only for now - workspace loading comes in a later stage.'}
           </p>
         </div>
       </div>
@@ -169,8 +170,13 @@ export function OptimiserCandidatePanel({
       {!loading && !error && response && response.candidates.length === 0 && (
         <OptimiserEmptyState warnings={response.warnings} assumptions={response.assumptions} />
       )}
+      {!loading && !error && response && response.candidates.length > 0 && candidates.length === 0 && (
+        <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
+          No useful suggested builds are available yet. Add more system data or start a manual Build Plan.
+        </div>
+      )}
 
-      {!loading && !error && response && response.candidates.length > 0 && (
+      {!loading && !error && response && response.candidates.length > 0 && candidates.length > 0 && (
         <div className="grid gap-3 xl:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.15fr)]">
           <div className="space-y-2">
             {candidates.map((candidate) => (

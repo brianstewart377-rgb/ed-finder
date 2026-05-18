@@ -8,6 +8,7 @@ import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { candidatePlacementsToPreviewPlacements, sortCandidatesForDisplay } from './optimiserUtils';
+import { filterUsefulSuggestedBuilds, suggestedBuildPresentation } from './optimiserQualityUtils';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
@@ -91,7 +92,16 @@ function response(overrides: Partial<OptimiserCandidatesResponse> = {}): Optimis
     system_id64: 123,
     target_archetype: 'agriculture_terraforming',
     candidate_count: 2,
-    candidates: [candidate('candidate-a', 'Candidate A'), candidate('candidate-b', 'Candidate B')],
+    candidates: [
+      {
+        ...candidate('candidate-a', 'Candidate A'),
+        placements: [
+          { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+          { facility_template_id: 'agri_support_b', local_body_id: 'body2', is_primary_port: false, build_order: 2 },
+        ],
+      },
+      candidate('candidate-b', 'Candidate B'),
+    ],
     warnings: [],
     assumptions: ['Stage 5C is read-only.'],
     ranking,
@@ -132,6 +142,35 @@ describe('optimiser candidate comparison UI', () => {
     expect(sorted).not.toBe(original);
   });
 
+  it('filters trivial and duplicate suggested builds without mutating optimiser results', () => {
+    const useful = candidate('useful', 'Useful plan');
+    const duplicate = { ...candidate('duplicate', 'Duplicate plan'), placements: structuredClone(useful.placements) };
+    const portOnly = {
+      ...candidate('port-only', 'Port only'),
+      placements: [{ facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 }],
+    };
+    const original = [portOnly, useful, duplicate];
+    const before = structuredClone(original);
+
+    expect(filterUsefulSuggestedBuilds(original).map((item) => item.candidate_id)).toEqual(['useful']);
+    expect(original).toEqual(before);
+  });
+
+  it('translates raw optimiser tags into player-facing suggested build language', () => {
+    const presentation = suggestedBuildPresentation({
+      ...candidate('tagged', 'Tagged plan'),
+      tags: ['body_diversity', 'refinery'],
+    });
+
+    expect(presentation.tags).toContain('Uses multiple bodies');
+    expect(presentation.tags).toContain('Refinery pressure');
+    expect(presentation.tags).not.toContain('body_diversity');
+    expect(presentation.purpose).toBeTruthy();
+    expect(presentation.reason).toBeTruthy();
+    expect(presentation.tradeoff).toBeTruthy();
+    expect(presentation.nextAction).toMatch(/Review in Workspace/i);
+  });
+
   it('renders selected suggested build comparison against current Build Plan and supports hide/show', () => {
     const load = vi.fn();
     const currentPlacements: SimulateBuildPlacement[] = [
@@ -151,6 +190,10 @@ describe('optimiser candidate comparison UI', () => {
     );
 
     expect(screen.getByText('Compare with current plan')).toBeTruthy();
+    expect(screen.getByText('What this build is for')).toBeTruthy();
+    expect(screen.getByText('Why suggested')).toBeTruthy();
+    expect(screen.getByText('Tradeoff')).toBeTruthy();
+    expect(screen.getByText('Next action')).toBeTruthy();
     expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
     expect(screen.getAllByText('Prefer before').length).toBeGreaterThan(0);
     expect(screen.getByText('Tradeoff summary')).toBeTruthy();
@@ -241,7 +284,7 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Copy to Build Plan' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Load into Planner Workspace' })).toBeTruthy();
     expect(screen.getByText(/Nothing is committed in-game/)).toBeTruthy();
     expect(screen.getByText(/does not run Simulation Preview, save a build, or commit anything in-game/)).toBeTruthy();
     expect(container.textContent).not.toMatch(/\bApply candidate\b/i);
@@ -285,18 +328,18 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getByText('No preview summary')).toBeTruthy();
   });
 
-  it('does not render Copy to Build Plan when no load callback is provided', () => {
+  it('does not render Load into Planner Workspace when no load callback is provided', () => {
     render(<OptimiserCandidateDetails candidate={candidate('candidate-a', 'Candidate A')} />);
-    expect(screen.queryByRole('button', { name: 'Copy to Build Plan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Load into Planner Workspace' })).toBeNull();
   });
 
-  it('renders Copy to Build Plan with callback and loads immediately when no Build Plan exists', () => {
+  it('renders Load into Planner Workspace with callback and loads immediately when no Build Plan exists', () => {
     const onLoadCandidate = vi.fn();
     const selected = candidate('candidate-a', 'Candidate A');
     render(<OptimiserCandidateDetails candidate={selected} onLoadCandidate={onLoadCandidate} />);
 
     expect(screen.getByText(/Nothing is committed in-game/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
 
     expect(onLoadCandidate).toHaveBeenCalledTimes(1);
     expect(onLoadCandidate).toHaveBeenCalledWith(selected);
@@ -313,7 +356,7 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
     expect(screen.getByText('Replace current Build Plan with this suggested build?')).toBeTruthy();
     expect(screen.getByText(/This will replace your current Build Plan with this suggested build/)).toBeTruthy();
     expect(onLoadCandidate).not.toHaveBeenCalled();
@@ -322,7 +365,7 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.queryByText('Replace current Build Plan with this suggested build?')).toBeNull();
     expect(onLoadCandidate).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
     fireEvent.click(screen.getByRole('button', { name: 'Replace Build Plan' }));
     expect(onLoadCandidate).toHaveBeenCalledTimes(1);
     expect(onLoadCandidate).toHaveBeenCalledWith(selected);
@@ -342,7 +385,7 @@ describe('optimiser candidate comparison UI', () => {
     );
 
     expect(screen.getAllByText(/Copying is still possible, but requires confirmation/).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
     expect(onLoadCandidate).not.toHaveBeenCalled();
     expect(screen.getByText('These suggested builds were generated with older controls')).toBeTruthy();
     expect(screen.getByText(/Generate again for the safest comparison/)).toBeTruthy();
@@ -366,7 +409,7 @@ describe('optimiser candidate comparison UI', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
     expect(onLoadCandidate).not.toHaveBeenCalled();
     expect(screen.getByText('Replace current Build Plan with older suggested build?')).toBeTruthy();
     expect(screen.getByText(/generated with older controls/)).toBeTruthy();
@@ -376,7 +419,7 @@ describe('optimiser candidate comparison UI', () => {
     expect(onLoadCandidate).not.toHaveBeenCalled();
     expect(screen.queryByText('Replace current Build Plan with older suggested build?')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
     fireEvent.click(screen.getByRole('button', { name: 'Replace with older suggested build' }));
     expect(onLoadCandidate).toHaveBeenCalledTimes(1);
     expect(onLoadCandidate).toHaveBeenCalledWith(selected);
@@ -432,7 +475,7 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getByText(/confidence and warnings should be reviewed/i)).toBeTruthy();
     expect(screen.getByText(/Read-only for now/i)).toBeTruthy();
     expect(screen.getByText('Generate Suggested Builds')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Copy to Build Plan/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Load into Planner Workspace/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /apply/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /use this build/i })).toBeNull();
     expect(screen.queryByText('Optimiser Candidates')).toBeNull();
@@ -446,7 +489,7 @@ describe('optimiser candidate comparison UI', () => {
         onLoadCandidate={() => undefined}
       />,
     );
-    expect(screen.getByText(/use it as the editable Build Plan/i)).toBeTruthy();
+    expect(screen.getByText(/review it as the editable Build Plan/i)).toBeTruthy();
     expect(screen.getByText(/Nothing is saved or committed in-game/i)).toBeTruthy();
     expect(screen.queryByText(/Read-only for now/i)).toBeNull();
   });
@@ -541,6 +584,23 @@ describe('optimiser candidate comparison UI', () => {
     expect(await screen.findByText('No Suggested Builds generated yet.')).toBeTruthy();
     expect(screen.getByText('Warning: No candidate anchors found.')).toBeTruthy();
     expect(screen.getByText('Assumption: Generated no plans.')).toBeTruthy();
+  });
+
+  it('replaces trivial generated builds with the useful-build empty state', async () => {
+    mockedFetchOptimiserCandidates.mockResolvedValue(response({
+      candidate_count: 1,
+      candidates: [{
+        ...candidate('port-only', 'Port only'),
+        placements: [{ facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 }],
+      }],
+      ranking: null,
+    }));
+
+    render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
+
+    expect(await screen.findByText('No useful suggested builds are available yet. Add more system data or start a manual Build Plan.')).toBeTruthy();
+    expect(screen.queryByText('Port only')).toBeNull();
   });
 
   it('displays ranked candidates in ranking order and details for the selected candidate', async () => {

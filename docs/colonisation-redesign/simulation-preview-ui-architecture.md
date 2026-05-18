@@ -524,3 +524,11 @@ Stage 15E implementation note:
 - `BuildPlanSection` renders compact `Currently viewing` context for selected topology bodies/placements and adds an explicit `Add to selected body` control when the selected body exists in the loaded body list.
 - `BuildPlanEditor` highlights placement rows related to the selected topology body and focuses/highlights a selected topology placement. Structure picker receives selected topology body context for unassigned rows so warnings can be evaluated without changing the placement.
 - The ownership line remains unchanged: topology rail selection is navigation/context only, while placement mutation still happens through central planner buttons/selects and the existing placement editor hook.
+
+Stage 15F implementation note:
+
+- `optimiserQualityUtils.ts` adds a frontend display gate for Suggested Builds. It filters trivial and duplicate candidates after the existing optimiser response is sorted for display, so backend generation/ranking remains unchanged.
+- `OptimiserCandidatePanel` renders the useful-build empty state when all returned candidates are filtered out.
+- `OptimiserCandidateCard` and `OptimiserCandidateDetails` now present a player-facing category, purpose, reason, tradeoff, and next action for each visible candidate.
+- Raw optimiser tags are translated before display. Internal tags remain available in the response/comparison data, but the UI avoids exposing raw labels like `body_diversity`.
+- Loading a suggested build remains an explicit workspace action through the existing candidate load path. It still does not run the main Preview, save, import, validate, or mutate observed evidence.

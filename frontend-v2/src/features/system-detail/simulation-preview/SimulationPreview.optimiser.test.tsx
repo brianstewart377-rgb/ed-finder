@@ -369,7 +369,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getAllByText(/Preview not run yet/).length).toBeGreaterThan(0);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
 
     await waitFor(() => expect(screen.getByText(/Copied suggested build:/)).toBeTruthy());
     expect(screen.getAllByText(/Balanced Agriculture candidate/).length).toBeGreaterThan(0);
@@ -569,7 +569,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     renderPreview();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
 
     fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
@@ -583,7 +583,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     renderPreview();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
 
     fireEvent.click(screen.getByRole('button', { name: /Start blank/i }));
@@ -598,7 +598,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     renderPreview();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     const replaceButton = screen.queryByRole('button', { name: /Replace Build Plan/i });
     if (replaceButton) {
       fireEvent.click(replaceButton);
@@ -618,7 +618,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     renderPreview();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getAllByRole('button', { name: /Move down/i })[0]);
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
@@ -641,7 +641,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     renderPreview();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
     await screen.findByText(/Final Score/i);
@@ -666,7 +666,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     renderPreview();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
     await screen.findByText(/Final Score/i);
@@ -692,7 +692,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(await screen.findByText(/Compare with current plan/i)).toBeTruthy();
     expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
     fireEvent.click(await screen.findByRole('button', { name: /Replace Build Plan/i }));
     await screen.findByText(/Copied suggested build:/);
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
@@ -723,7 +723,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     renderPreview();
 
     fireEvent.click(await screen.findByTestId('generate-suggested-builds'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
 
@@ -789,7 +789,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     renderPreview();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy to Build Plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
 
