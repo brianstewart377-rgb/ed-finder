@@ -7,6 +7,7 @@ import { OptimiserEmptyState } from './OptimiserEmptyState';
 import { OptimiserErrorState } from './OptimiserErrorState';
 import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
 import { filterUsefulSuggestedBuilds } from './optimiserQualityUtils';
+import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
 
 type GeneratedCandidateParams = {
   targetArchetype: string;
@@ -81,19 +82,19 @@ export function OptimiserCandidatePanel({
         <div className="min-w-0 flex-1">
           <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Suggested Builds</h3>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-            Generate Suggested Builds to get possible build plans for this system and goal. Suggested builds are ranked and compared against your editable Build Plan. Nothing is saved or committed in-game.
+            Generate Suggested Builds to get possible build plans for this system and goal. The workspace filters generated candidates for usefulness before display, so trivial backend candidates may be hidden. Nothing is saved or committed in-game.
           </p>
           <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
             {onLoadCandidate
               ? 'Load a useful suggested build deliberately when you want to review it as the editable Build Plan.'
-              : 'Read-only for now - workspace loading comes in a later stage.'}
+              : 'Review suggested builds here without changing the editable Build Plan.'}
           </p>
         </div>
       </div>
 
       <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
         <div className="rounded border border-border/50 bg-bg3/20 px-3 py-2 font-mono text-[11px] text-silver-dk">
-          Target: <span className="text-silver">{targetArchetype}</span>
+          Target: <span className="text-silver">{humanizeArchetype(targetArchetype)}</span>
         </div>
         <label className="flex items-center gap-2 rounded border border-border/50 bg-bg3/20 px-3 py-2 font-mono text-[11px] text-silver-dk">
           Max
@@ -137,7 +138,7 @@ export function OptimiserCandidatePanel({
         <div className="mb-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2 font-mono text-[10px] leading-snug text-silver-dk">
           <div className="uppercase tracking-[0.16em] text-cyan">Generated for</div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-            <span>Target archetype: <span className="text-silver">{generatedParams.targetArchetype}</span></span>
+            <span>Target: <span className="text-silver">{humanizeArchetype(generatedParams.targetArchetype)}</span></span>
             <span>Max suggested builds: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
             <span>Estimated data: <span className="text-silver">{generatedParams.allowEstimatedData ? 'on' : 'off'}</span></span>
           </div>
@@ -148,10 +149,10 @@ export function OptimiserCandidatePanel({
         <div className="mb-3 rounded border border-gold/55 bg-gold/12 px-3 py-2 font-mono text-[11px] leading-snug text-gold">
           <div className="font-bold">Controls have changed since these suggested builds were generated. Generate again to refresh suggested builds before comparing or copying.</div>
           <div className="mt-2 grid gap-1 text-[10px] text-silver-dk sm:grid-cols-3">
-            <span>Generated target: <span className="text-silver">{generatedParams.targetArchetype}</span></span>
+            <span>Generated target: <span className="text-silver">{humanizeArchetype(generatedParams.targetArchetype)}</span></span>
             <span>Generated max: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
             <span>Generated estimated data: <span className="text-silver">{generatedParams.allowEstimatedData ? 'on' : 'off'}</span></span>
-            <span>Current target: <span className="text-silver">{currentParams.targetArchetype}</span></span>
+            <span>Current target: <span className="text-silver">{humanizeArchetype(currentParams.targetArchetype)}</span></span>
             <span>Current max: <span className="text-silver">{currentParams.maxCandidates}</span></span>
             <span>Current estimated data: <span className="text-silver">{currentParams.allowEstimatedData ? 'on' : 'off'}</span></span>
           </div>

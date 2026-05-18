@@ -37,12 +37,13 @@ export function OptimiserCandidateCard({
               </span>
             )}
           </div>
+          <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
+            {presentation.category}
+          </div>
+          <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-silver-dk">{presentation.purpose}</p>
           <div className="mt-2 truncate text-sm font-semibold text-silver">{candidate.label}</div>
           <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
             {strategyLabel(candidate.strategy)}
-          </div>
-          <div className="mt-1 font-mono text-[10px] text-cyan">
-            {presentation.category}
           </div>
         </div>
         {ranking && (
@@ -64,8 +65,6 @@ export function OptimiserCandidateCard({
         {summary?.cp_negative && <span className="rounded border border-red/35 bg-red/10 px-1.5 py-0.5 text-red">CP risk</span>}
         {!summary && <span className="rounded border border-border bg-bg3 px-1.5 py-0.5 text-silver-dk">No preview summary</span>}
       </div>
-
-      <p className="mt-3 line-clamp-2 text-[11px] leading-snug text-silver-dk">{presentation.purpose}</p>
     </button>
   );
 }

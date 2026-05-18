@@ -587,8 +587,9 @@ Stage 16A:
 
 Stage 16B:
 
-- role data model and local project migration design
-- no UI mutation beyond internal types/tests
+- workspace cleanup and decomposition before role implementation
+- local-only project UX clarification
+- no role editing, backend persistence, or mechanics changes
 
 Stage 16C:
 
@@ -610,6 +611,15 @@ Stage 16G:
 
 - Suggested Build role explanation and explicit load-time role acceptance
 
+Late Stage 16 or Stage 17:
+
+- durable Colony Project persistence
+- backend/cloud storage design
+- export/import JSON
+- migration from localStorage
+- optional account/device sync if the product later supports accounts
+- saved preview, observed evidence, and validation snapshots
+
 ## Acceptance Criteria For Future Implementation
 
 - Roles are body-level planning intent, not mechanics truth.
@@ -618,3 +628,28 @@ Stage 16G:
 - No auto-preview, auto-generation, auto-validation, auto-import, or autosave is introduced.
 - Existing saved projects load without data loss.
 - Role UI improves guidance without making unsupported claims.
+
+## Stage 16B Cleanup Addendum
+
+Stage 16B completed the pre-role workspace cleanup.
+
+Delivered:
+
+- `ColonyPlannerWorkspace.tsx` now acts as a route container instead of owning the full workspace.
+- `WorkspaceGrid.tsx` owns workspace layout, topology selection, review drawer mode, and planner mounting.
+- `WorkspaceHeader.tsx`, `WorkspaceSummaryRail.tsx`, and `ProjectControlsCard.tsx` isolate header and summary rail presentation.
+- `useWorkspaceProjectState.ts` isolates local-only project lifecycle state.
+- The right summary rail is split into compact Project, Plan Health, Selection, Architect, Workspace Modes, and save-state cards.
+- The central workspace has a compact planning-focus banner for selected bodies and a short first-run start panel for empty plans.
+- User-facing stage/roadmap copy was removed from the workspace UI.
+- Architect status now says `Architect flag not recorded` unless the current local plan indicates only a planned primary-port placement; it does not claim observation.
+- Suggested Build filtering remains frontend-only, with clearer user-facing copy and more defensive trivial-plan detection.
+
+Still deferred:
+
+- full colony role editing
+- role badges
+- role persistence/migration
+- backend/cloud saved project persistence
+- Architect Slot Survey storage
+- export/import JSON

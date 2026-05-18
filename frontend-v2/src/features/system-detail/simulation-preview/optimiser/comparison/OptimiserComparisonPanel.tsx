@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
 import type { BuildComparisonResult, FacilityCountDelta, NumericDelta, PlacementChange, StringSetChanges } from './types';
 import { formatChangeType, formatDeltaValue, formatRiskDirection, formatVerdictLabel } from './comparisonFormatters';
 
@@ -56,7 +57,7 @@ export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonR
           {result.target_archetype_changed && (
             <ListSection
               title="Target archetype"
-              items={[`Changes from ${result.before_target_archetype ?? 'unknown'} to ${result.after_target_archetype ?? 'unknown'}.`]}
+              items={[`Changes from ${humanizeArchetype(result.before_target_archetype)} to ${humanizeArchetype(result.after_target_archetype)}.`]}
               empty="Target archetype is unchanged."
             />
           )}

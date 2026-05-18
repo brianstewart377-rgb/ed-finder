@@ -1293,3 +1293,70 @@ Deferred after Stage 16A:
 - Role conflict/overlap guidance.
 - Evidence/Validation role review integration.
 - Suggested Build role explanations and explicit load-time role acceptance.
+
+### Stage 16B - Workspace Cleanup Before Role Implementation
+
+Stage 16B is a cleanup and hardening stage before full colony-role implementation. It does not add role editing, backend persistence, or mechanics changes.
+
+Current Stage 16B status:
+
+- `ColonyPlannerWorkspace.tsx` is reduced to the route/loading/error container.
+- Workspace layout and planner mounting moved to `WorkspaceGrid.tsx`.
+- Header rendering moved to `WorkspaceHeader.tsx`.
+- Saved project lifecycle state moved to `useWorkspaceProjectState.ts`.
+- The right rail is split into compact Project, Plan Health, Selection, Architect, Workspace Modes, and current save-state cards.
+- Saved project copy now clearly states that projects are stored locally in this browser, are not cloud-synced, and may be removed by clearing browser storage.
+- Architect copy is derived from the current local plan snapshot and says `Architect flag not recorded` when no supported observation exists.
+- Evidence and Validation drawer controls are available from the persistent summary rail while the drawer content remains in the central planner.
+- A compact `What next?` strip and first-run start panel give the central workspace clearer next actions without rewriting `SimulationPreview`.
+- Target archetype labels are humanized for user-facing planner copy.
+- Suggested Builds copy now explains that frontend usefulness filtering may hide trivial backend candidates.
+- Frontend trivial Suggested Build detection now considers labels, tags, rationale, assumptions, and placement/template ids more defensively while keeping clear-role starters visible.
+
+Safety boundaries in Stage 16B:
+
+- No full colony role editing.
+- No backend/cloud persistence.
+- No Architect Slot Survey storage.
+- No primary-port editing or arbitrary primary-port truth.
+- No backend mechanics, scoring, CP/economy/buildability/service logic, optimiser generation/ranking, Search Tuning, Simulation Preview scoring, Observed Evidence semantics, Validation behavior, imports, EDMC ingestion, hauling/material workflows, or automatic Preview/Suggested Build generation changed.
+
+Test coverage added/updated in Stage 16B:
+
+- Workspace still renders through the route container.
+- Summary rail cards render separately.
+- User-facing workspace UI avoids internal stage/roadmap language.
+- Local-only persistence warning appears.
+- Plan health counts and humanized archetype labels are covered.
+- Selected body shows the central planning focus banner.
+- Summary rail Evidence/Validation mode controls update drawer state without running planner side effects.
+- Suggested Build filtering covers colony-ship-only, colony ship plus generic outpost/station, duplicate plans, and useful single-placement role starters.
+
+Deferred after Stage 16B:
+
+- Full colony role data model and migration.
+- Role badges and explicit user-declared role controls.
+- Durable/backend saved project persistence.
+- Project export/import and migration from localStorage.
+
+## Stage 17 - Durable Colony Project Persistence
+
+Stage 17 is pencilled in for durable saved Colony Project persistence after the role model stabilises.
+
+Scope to cover:
+
+- backend/cloud project persistence
+- explicit project export/import JSON
+- migration from `localStorage` saved projects
+- account/device sync if the product later supports accounts
+- preview snapshot persistence
+- observed evidence snapshot persistence
+- validation snapshot persistence
+- migration safeguards for role assignments and primary-port evidence
+
+Safety boundaries for Stage 17:
+
+- No silent autosave without clear UX.
+- No primary-port truth editing.
+- No loss of local-only projects during migration.
+- No mechanics/scoring changes bundled with persistence work.

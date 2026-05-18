@@ -143,7 +143,7 @@ export function ColonyTopologyRail({
       )}
 
       <div className="mt-3 rounded border border-gold/30 bg-gold/5 px-2 py-2 font-mono text-[10px] leading-snug text-silver-dk">
-        <span className="text-gold">Architect:</span> primary-port flag not observed in this workspace yet.
+        <span className="text-gold">Architect:</span> primary-port flag not recorded in this workspace yet.
       </div>
     </aside>
   );
@@ -299,7 +299,7 @@ export function describeTopologySelection(
       kind: body?.subtype ?? body?.body_type ?? 'Body',
       placementCount: placements.length,
       warningCount: warnings.length,
-      architectStatus: 'Primary-port flag not observed',
+      architectStatus: 'Architect flag not recorded',
       detail: 'Read-only topology selection. Build Plan editing stays in the central planner.',
     };
   }
@@ -313,7 +313,7 @@ export function describeTopologySelection(
       kind: item?.placement.is_primary_port ? 'Primary-port placement' : 'Planned placement',
       placementCount: item ? 1 : 0,
       warningCount: warnings.length,
-      architectStatus: item?.placement.is_primary_port ? 'Primary-port is planned, Architect flag not observed' : 'Primary-port flag not observed',
+      architectStatus: item?.placement.is_primary_port ? 'Primary-port placement planned; Architect flag not recorded' : 'Architect flag not recorded',
       detail: body ? `Assigned to ${bodyDisplayName(body)}.` : item?.hasUnknownBody ? 'Assigned body is not in the loaded body list.' : 'No body assigned yet.',
     };
   }
@@ -325,7 +325,7 @@ export function describeTopologySelection(
       kind: selection.groupKey === 'unknown' ? 'Needs body match' : 'Needs assignment',
       placementCount: placements.length,
       warningCount: placements.length,
-      architectStatus: 'Primary-port flag not observed',
+      architectStatus: 'Architect flag not recorded',
       detail: selection.groupKey === 'unknown'
         ? 'Placement body references do not match the loaded system bodies.'
         : 'Placements are not assigned to a body yet.',
@@ -337,7 +337,7 @@ export function describeTopologySelection(
     kind: 'System root',
     placementCount: snapshot.placements.length,
     warningCount: countWorkspaceWarnings(snapshot, bodies),
-    architectStatus: 'Primary-port flag not observed',
+    architectStatus: 'Architect flag not recorded',
     detail: 'Read-only topology selection. Select a body or placement for local context.',
   };
 }

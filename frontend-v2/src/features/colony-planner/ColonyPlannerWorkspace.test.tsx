@@ -171,7 +171,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 
-  it('renders the Stage 15D workspace shell, topology rail, and reused SimulationPreviewPanel', async () => {
+  it('renders the workspace shell, summary cards, topology rail, and reused SimulationPreviewPanel', async () => {
     const onOpenSystemDetail = vi.fn();
     mockedUseSystemDetail.mockReturnValue({
       data: system,
@@ -199,13 +199,25 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
     expect(screen.getByText('Planning Workspace')).toBeTruthy();
     expect(screen.getByText('Planner summary')).toBeTruthy();
+    expect(screen.getByTestId('project-card')).toBeTruthy();
+    expect(screen.getByTestId('plan-health-card')).toBeTruthy();
+    expect(screen.getByTestId('selection-card')).toBeTruthy();
+    expect(screen.getByTestId('architect-card')).toBeTruthy();
+    expect(screen.getByTestId('workspace-modes-card')).toBeTruthy();
     expect(screen.getByText('Workspace System A 1')).toBeTruthy();
     expect(screen.getByText('Reused Colony Planner panel')).toBeTruthy();
     expect(await screen.findByText('Unknown / unmatched body')).toBeTruthy();
     expect(screen.getByText('Unassigned placements')).toBeTruthy();
+    expect(screen.getByText(/Saved projects are stored locally in this browser/i)).toBeTruthy();
+    expect(screen.getByText(/They are not cloud-synced/i)).toBeTruthy();
+    expect(screen.getByText(/Architect flag not recorded/)).toBeTruthy();
     const summaryPanel = screen.getByTestId('planner-summary-panel');
-    expect(within(summaryPanel).getByText('Plan placements')).toBeTruthy();
+    expect(within(screen.getByTestId('plan-health-card')).getByText('Placements')).toBeTruthy();
     expect(within(summaryPanel).getAllByText('3').length).toBeGreaterThan(0);
+    expect(within(screen.getByTestId('plan-health-card')).getByText('Unassigned')).toBeTruthy();
+    expect(within(screen.getByTestId('plan-health-card')).getByText('Warnings')).toBeTruthy();
+    expect(within(screen.getByTestId('plan-health-card')).getByText('Refinery / Industrial Plan')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Stage 15|15H|15I|deferred to next stages/i);
     expect(mockedSimulationPreviewPanel).toHaveBeenCalledWith(
       expect.objectContaining({
         system,
@@ -224,12 +236,41 @@ describe('ColonyPlannerWorkspace', () => {
       }),
       undefined,
     );
-    expect(screen.getByText('Read-only topology selection')).toBeTruthy();
+    expect(screen.getByTestId('planning-focus-banner').textContent).toContain('Planning focus: Workspace System A 1');
     expect(screen.getByText(/Build Plan editing stays in the central planner/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Back to system detail/i }));
     expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);
     expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
+  });
+
+  it('opens review drawers from workspace modes without running planner side effects', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <ColonyPlannerWorkspace
+        id64={123}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId('workspace-modes-card');
+    fireEvent.click(screen.getByRole('button', { name: 'Evidence drawer' }));
+    expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspaceDrawer: 'evidence' }),
+      undefined,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Validation drawer' }));
+    expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspaceDrawer: 'validation' }),
+      undefined,
+    );
   });
 
   it('saves, renames, duplicates, and archives a local Colony Project with confirmation', async () => {
@@ -248,7 +289,7 @@ describe('ColonyPlannerWorkspace', () => {
       />,
     );
 
-    expect(await screen.findByTestId('colony-project-panel')).toBeTruthy();
+    expect(await screen.findByTestId('project-card')).toBeTruthy();
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Unsaved changes');
 
     fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Local starter' } });

@@ -9,6 +9,7 @@ import type {
   SystemDetail,
 } from '@/types/api';
 import type { TopologyPlanSnapshot, TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
+import type { ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
 import { BuildPlanSection } from './BuildPlanSection';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
 import { ColonyPlannerSectionNav } from './ColonyPlannerSectionNav';
@@ -31,6 +32,9 @@ export function SimulationPreview({
   initialAssumptions = [],
   onPlanSnapshotChange,
   topologySelection,
+  workspaceDrawer,
+  onWorkspaceDrawerChange,
+  showWorkspaceDrawerControls = true,
 }: {
   system: SystemDetail;
   initialRequest?: SimulateBuildRequest | null;
@@ -38,8 +42,13 @@ export function SimulationPreview({
   initialAssumptions?: string[];
   onPlanSnapshotChange?: (snapshot: TopologyPlanSnapshot) => void;
   topologySelection?: TopologySelection;
+  workspaceDrawer?: ReviewDrawer;
+  onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
+  showWorkspaceDrawerControls?: boolean;
 }) {
-  const [workspaceDrawer, setWorkspaceDrawer] = useState<'evidence' | 'validation' | null>(null);
+  const [localWorkspaceDrawer, setLocalWorkspaceDrawer] = useState<ReviewDrawer>(null);
+  const activeWorkspaceDrawer = workspaceDrawer === undefined ? localWorkspaceDrawer : workspaceDrawer;
+  const setActiveWorkspaceDrawer = onWorkspaceDrawerChange ?? setLocalWorkspaceDrawer;
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
     queryFn: getFacilityTemplates,
@@ -197,8 +206,9 @@ export function SimulationPreview({
         />
 
         <WorkspaceReviewDrawers
-          openDrawer={workspaceDrawer}
-          onOpenDrawer={setWorkspaceDrawer}
+          openDrawer={activeWorkspaceDrawer}
+          onOpenDrawer={setActiveWorkspaceDrawer}
+          showControls={showWorkspaceDrawerControls}
           systemId64={system.id64}
           targetArchetype={plan.targetArchetype}
           previewResult={runState.result}
@@ -214,13 +224,15 @@ export type { RecommendedBuildPlan };
 function WorkspaceReviewDrawers({
   openDrawer,
   onOpenDrawer,
+  showControls,
   systemId64,
   targetArchetype,
   previewResult,
   isPreviewResultStale,
 }: {
-  openDrawer: 'evidence' | 'validation' | null;
-  onOpenDrawer: (drawer: 'evidence' | 'validation' | null) => void;
+  openDrawer: ReviewDrawer;
+  onOpenDrawer: (drawer: ReviewDrawer) => void;
+  showControls: boolean;
   systemId64: number;
   targetArchetype: string;
   previewResult: ReturnType<typeof useSimulationPreviewRun>['result'];
@@ -247,18 +259,20 @@ function WorkspaceReviewDrawers({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <DrawerButton
-          label="Evidence drawer"
-          active={openDrawer === 'evidence'}
-          onClick={() => onOpenDrawer(openDrawer === 'evidence' ? null : 'evidence')}
-        />
-        <DrawerButton
-          label="Validation drawer"
-          active={openDrawer === 'validation'}
-          onClick={() => onOpenDrawer(openDrawer === 'validation' ? null : 'validation')}
-        />
-      </div>
+      {showControls && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <DrawerButton
+            label="Evidence drawer"
+            active={openDrawer === 'evidence'}
+            onClick={() => onOpenDrawer(openDrawer === 'evidence' ? null : 'evidence')}
+          />
+          <DrawerButton
+            label="Validation drawer"
+            active={openDrawer === 'validation'}
+            onClick={() => onOpenDrawer(openDrawer === 'validation' ? null : 'validation')}
+          />
+        </div>
+      )}
 
       {!openDrawer && (
         <div className="mt-3 rounded border border-border/55 bg-bg3/30 px-3 py-2 font-mono text-[11px] text-silver-dk">
