@@ -106,7 +106,7 @@ describe('StructurePickerTable', () => {
     expect(screen.getAllByText('Needs body').length).toBeGreaterThan(0);
 
     renderPicker({ selectedBodyId: '404' });
-    expect(screen.getByText('Unknown body: 404')).toBeTruthy();
+    expect(screen.getByText('Unknown body reference')).toBeTruthy();
     expect(screen.getAllByText('Unknown body').length).toBeGreaterThan(0);
   });
 
