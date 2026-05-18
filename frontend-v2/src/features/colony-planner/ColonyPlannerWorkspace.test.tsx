@@ -4,6 +4,7 @@ import type { SystemDetail } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
 import { ColonyPlannerWorkspace } from './ColonyPlannerWorkspace';
+import { useColonyProjectStore } from './colonyProjectStore';
 
 vi.mock('@/features/system-detail/useSystemDetail', () => ({
   useSystemDetail: vi.fn(),
@@ -86,6 +87,8 @@ const system = {
 
 describe('ColonyPlannerWorkspace', () => {
   beforeEach(() => {
+    localStorage.clear();
+    useColonyProjectStore.setState({ projects: [] });
     mockedUseSystemDetail.mockReturnValue({
       data: null,
       loading: false,
@@ -97,6 +100,8 @@ describe('ColonyPlannerWorkspace', () => {
   afterEach(() => {
     mockedUseSystemDetail.mockReset();
     mockedSimulationPreviewPanel.mockClear();
+    localStorage.clear();
+    useColonyProjectStore.setState({ projects: [] });
   });
 
   it('renders a no-system state for direct #colony-planner visits', () => {
@@ -207,6 +212,7 @@ describe('ColonyPlannerWorkspace', () => {
         selectedPlan: null,
         onPlanSnapshotChange: expect.any(Function),
         topologySelection: { type: 'system' },
+        initialRequest: null,
       }),
       undefined,
     );
@@ -224,5 +230,86 @@ describe('ColonyPlannerWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /Back to system detail/i }));
     expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);
     expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
+  });
+
+  it('saves, renames, duplicates, and archives a local Colony Project with confirmation', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <ColonyPlannerWorkspace
+        id64={123}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByTestId('colony-project-panel')).toBeTruthy();
+    expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Unsaved changes');
+
+    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Local starter' } });
+    fireEvent.change(screen.getByLabelText('Project notes'), { target: { value: 'Check Architect mode before final placement.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+
+    expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');
+    expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Local starter');
+    expect(useColonyProjectStore.getState().projects[0].build_plan_placements).toHaveLength(3);
+
+    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Renamed local starter' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Rename project' }));
+    expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Renamed local starter');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate project' }));
+    expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Renamed local starter copy');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete / archive project' }));
+    expect(screen.getByText(/Archive this local project/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive project' }));
+    expect(useColonyProjectStore.getState().projects[0].archived_at).toBeTruthy();
+  });
+
+  it('restores the latest saved local project into the workspace on reload', async () => {
+    useColonyProjectStore.getState().saveProject(null, {
+      system_id64: 123,
+      system_name: 'Workspace System',
+      project_name: 'Reloaded project',
+      build_plan_placements: [
+        { facility_template_id: 'surface_hub', local_body_id: 'body1', is_primary_port: false, build_order: 1 },
+      ],
+      target_archetype: 'tourism_agriculture',
+      notes: 'Reload me.',
+    });
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <ColonyPlannerWorkspace
+        id64={123}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+      />,
+    );
+
+    expect((await screen.findAllByText('Reloaded project')).length).toBeGreaterThan(0);
+    expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        initialRequest: {
+          system_id64: 123,
+          target_archetype: 'tourism_agriculture',
+          placements: [
+            { facility_template_id: 'surface_hub', local_body_id: 'body1', is_primary_port: false, build_order: 1 },
+          ],
+        },
+      }),
+      undefined,
+    );
   });
 });

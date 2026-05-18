@@ -1176,3 +1176,39 @@ Deferred:
 - Saved Colony Project persistence remains Stage 15G.
 - Evidence/Validation drawers remain Stage 15H.
 - Broader Stage 15 QA/accessibility hardening remains Stage 15I.
+
+## Stage 15G Implementation Note
+
+Stage 15G implemented local-only saved Colony Project persistence.
+
+Delivered:
+
+- Local project storage with:
+  - project id
+  - system id64
+  - system name
+  - project name
+  - build plan placements
+  - selected body assignments
+  - notes
+  - status
+  - created_at
+  - updated_at
+  - archived_at for local archive/delete
+- Workspace controls for Save project, Rename project, Load project, Duplicate project, and Delete/archive project with confirmation.
+- Unsaved changes indicator and Last saved timestamp in the persistent summary rail.
+- Reload restore of the latest active saved project for the current system.
+- Local-only copy so users understand this is not cloud/account sync.
+
+Safety boundaries preserved:
+
+- No backend persistence, account model, collaboration, cloud sync, imports, EDMC ingestion, hauling/material execution, optimiser scoring/ranking/generation, Simulation Preview scoring, CP/economy/buildability/service logic, Observed Evidence, Validation, Search Tuning, or primary-port truth handling changed.
+- No silent autosave. Project save/load/duplicate/archive are explicit user actions, except reload restore of the latest local project for the same system.
+- Loading a project does not auto-run Preview, auto-generate Suggested Builds, auto-import layout, mutate evidence, or run validation.
+
+Deferred:
+
+- Backend project persistence and migration.
+- Preview/evidence/validation snapshots.
+- Project routes and sharable project IDs.
+- Evidence/Validation drawers remain Stage 15H.

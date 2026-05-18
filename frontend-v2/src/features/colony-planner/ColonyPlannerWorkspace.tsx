@@ -1,7 +1,7 @@
 import { ArrowLeft, ExternalLink, PanelRight, Rocket } from 'lucide-react';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { formatPopulation } from '@/lib/format';
-import type { SystemDetail } from '@/types/api';
+import type { SimulateBuildRequest, SystemDetail } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
 import {
@@ -10,6 +10,12 @@ import {
   type TopologyPlanSnapshot,
   type TopologySelection,
 } from './ColonyTopologyRail';
+import {
+  activeProjectsForSystem,
+  projectMatchesSnapshot,
+  useColonyProjectStore,
+  type ColonyProject,
+} from './colonyProjectStore';
 
 export interface ColonyPlannerWorkspaceProps {
   id64: number | null;
@@ -248,13 +254,81 @@ function WorkspaceGrid({ system }: { system: SystemDetail }) {
     templates: [],
     targetArchetype: 'refinery_industrial',
   });
+  const projects = useColonyProjectStore((state) => state.projects);
+  const saveProject = useColonyProjectStore((state) => state.saveProject);
+  const renameProject = useColonyProjectStore((state) => state.renameProject);
+  const duplicateProject = useColonyProjectStore((state) => state.duplicateProject);
+  const archiveProject = useColonyProjectStore((state) => state.archiveProject);
+  const systemProjects = useMemo(() => activeProjectsForSystem(projects, system.id64), [projects, system.id64]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => systemProjects[0]?.id ?? null);
+  const [pendingProjectId, setPendingProjectId] = useState<string>('');
+  const [projectName, setProjectName] = useState(`${system.name || 'Colony'} project`);
+  const [projectNotes, setProjectNotes] = useState('');
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const activeProject = systemProjects.find((project) => project.id === activeProjectId) ?? null;
+
+  useEffect(() => {
+    if (activeProjectId && systemProjects.some((project) => project.id === activeProjectId)) return;
+    const next = systemProjects[0] ?? null;
+    setActiveProjectId(next?.id ?? null);
+  }, [activeProjectId, systemProjects]);
+
+  useEffect(() => {
+    setPendingProjectId(activeProjectId ?? '');
+    setProjectName(activeProject?.project_name ?? `${system.name || 'Colony'} project`);
+    setProjectNotes(activeProject?.notes ?? '');
+    setConfirmArchive(false);
+  }, [activeProject, activeProjectId, system.name]);
+
   const handlePlanSnapshotChange = useCallback((snapshot: TopologyPlanSnapshot) => {
     setPlanSnapshot(snapshot);
   }, []);
+  const projectRequest = useMemo<SimulateBuildRequest | null>(() => {
+    if (!activeProject) return null;
+    return {
+      system_id64: activeProject.system_id64,
+      target_archetype: activeProject.target_archetype,
+      placements: activeProject.build_plan_placements,
+    };
+  }, [activeProject]);
   const selectedContext = useMemo(
     () => describeTopologySelection(selection, system, planSnapshot),
     [planSnapshot, selection, system],
   );
+  const unsavedChanges = !projectMatchesSnapshot(
+    activeProject,
+    planSnapshot.placements,
+    planSnapshot.targetArchetype,
+    projectNotes,
+    projectName,
+  );
+  const handleSaveProject = () => {
+    const saved = saveProject(activeProject?.id ?? null, {
+      system_id64: system.id64,
+      system_name: system.name || 'Unknown system',
+      project_name: projectName,
+      build_plan_placements: planSnapshot.placements,
+      target_archetype: planSnapshot.targetArchetype,
+      notes: projectNotes,
+      status: 'draft',
+    });
+    setActiveProjectId(saved.id);
+  };
+  const handleRenameProject = () => {
+    if (!activeProject) return;
+    renameProject(activeProject.id, projectName);
+  };
+  const handleDuplicateProject = () => {
+    if (!activeProject) return;
+    const duplicate = duplicateProject(activeProject.id);
+    if (duplicate) setActiveProjectId(duplicate.id);
+  };
+  const handleArchiveProject = () => {
+    if (!activeProject) return;
+    archiveProject(activeProject.id);
+    setConfirmArchive(false);
+    setActiveProjectId(null);
+  };
 
   return (
     <section
@@ -291,12 +365,29 @@ function WorkspaceGrid({ system }: { system: SystemDetail }) {
           selectedPlan={null}
           onPlanSnapshotChange={handlePlanSnapshotChange}
           topologySelection={selection}
+          initialRequest={projectRequest}
         />
       </main>
       <SummaryPanel
         system={system}
         snapshot={planSnapshot}
         selectedContext={selectedContext}
+        projects={systemProjects}
+        activeProject={activeProject}
+        pendingProjectId={pendingProjectId}
+        projectName={projectName}
+        projectNotes={projectNotes}
+        unsavedChanges={unsavedChanges}
+        confirmArchive={confirmArchive}
+        onPendingProjectChange={setPendingProjectId}
+        onLoadProject={() => setActiveProjectId(pendingProjectId || null)}
+        onProjectNameChange={setProjectName}
+        onProjectNotesChange={setProjectNotes}
+        onSaveProject={handleSaveProject}
+        onRenameProject={handleRenameProject}
+        onDuplicateProject={handleDuplicateProject}
+        onArchiveProject={handleArchiveProject}
+        onConfirmArchiveChange={setConfirmArchive}
       />
     </section>
   );
@@ -306,14 +397,48 @@ function SummaryPanel({
   system,
   snapshot,
   selectedContext,
+  projects,
+  activeProject,
+  pendingProjectId,
+  projectName,
+  projectNotes,
+  unsavedChanges,
+  confirmArchive,
+  onPendingProjectChange,
+  onLoadProject,
+  onProjectNameChange,
+  onProjectNotesChange,
+  onSaveProject,
+  onRenameProject,
+  onDuplicateProject,
+  onArchiveProject,
+  onConfirmArchiveChange,
 }: {
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
   selectedContext: ReturnType<typeof describeTopologySelection>;
+  projects: ColonyProject[];
+  activeProject: ColonyProject | null;
+  pendingProjectId: string;
+  projectName: string;
+  projectNotes: string;
+  unsavedChanges: boolean;
+  confirmArchive: boolean;
+  onPendingProjectChange: (projectId: string) => void;
+  onLoadProject: () => void;
+  onProjectNameChange: (name: string) => void;
+  onProjectNotesChange: (notes: string) => void;
+  onSaveProject: () => void;
+  onRenameProject: () => void;
+  onDuplicateProject: () => void;
+  onArchiveProject: () => void;
+  onConfirmArchiveChange: (confirming: boolean) => void;
 }) {
   const bodyCount = system.bodies?.length ?? 0;
   const stationCount = system.stations?.length ?? 0;
-  const projectState = 'Unsaved workspace';
+  const projectState = activeProject
+    ? activeProject.project_name
+    : 'Unsaved workspace';
   const architectState = 'Architect flag not observed';
   const plannerState = 'Preview remains explicit';
 
@@ -328,11 +453,13 @@ function SummaryPanel({
         Planner summary
       </div>
       <p className="mt-2 text-[11px] leading-snug text-silver-dk">
-        Persistent project context lives here first; saved projects and validation drawers remain deferred.
+        Local saved project context lives here first; evidence and validation drawers remain deferred.
       </p>
 
       <dl className="mt-3 space-y-2 font-mono text-[10px]">
-        <SummaryRow label="Project" value={projectState} tone="gold" />
+        <SummaryRow label="Project" value={projectState} tone={unsavedChanges ? 'gold' : 'green'} />
+        <SummaryRow label="Changes" value={unsavedChanges ? 'Unsaved changes' : 'Saved'} tone={unsavedChanges ? 'gold' : 'green'} />
+        <SummaryRow label="Last saved" value={formatProjectTimestamp(activeProject?.updated_at)} />
         <SummaryRow label="Planner" value={plannerState} tone="cyan" />
         <SummaryRow label="Bodies loaded" value={String(bodyCount)} />
         <SummaryRow label="Stations loaded" value={String(stationCount)} />
@@ -357,6 +484,25 @@ function SummaryPanel({
         </p>
       </section>
 
+      <ProjectPanel
+        projects={projects}
+        activeProject={activeProject}
+        pendingProjectId={pendingProjectId}
+        projectName={projectName}
+        projectNotes={projectNotes}
+        unsavedChanges={unsavedChanges}
+        confirmArchive={confirmArchive}
+        onPendingProjectChange={onPendingProjectChange}
+        onLoadProject={onLoadProject}
+        onProjectNameChange={onProjectNameChange}
+        onProjectNotesChange={onProjectNotesChange}
+        onSaveProject={onSaveProject}
+        onRenameProject={onRenameProject}
+        onDuplicateProject={onDuplicateProject}
+        onArchiveProject={onArchiveProject}
+        onConfirmArchiveChange={onConfirmArchiveChange}
+      />
+
       <section className="mt-4 rounded border border-cyan/25 bg-cyan/5 p-2">
         <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
           Workspace modes
@@ -374,11 +520,149 @@ function SummaryPanel({
           Deferred to next stages
         </h3>
         <ul className="mt-2 space-y-1 font-mono text-[10px] text-silver-dk">
-          <li>15E: topology-based editing</li>
-          <li>15G: saved colony projects</li>
+          <li>15H: evidence and validation drawers</li>
+          <li>15I: workspace QA hardening</li>
         </ul>
       </section>
     </aside>
+  );
+}
+
+function ProjectPanel({
+  projects,
+  activeProject,
+  pendingProjectId,
+  projectName,
+  projectNotes,
+  unsavedChanges,
+  confirmArchive,
+  onPendingProjectChange,
+  onLoadProject,
+  onProjectNameChange,
+  onProjectNotesChange,
+  onSaveProject,
+  onRenameProject,
+  onDuplicateProject,
+  onArchiveProject,
+  onConfirmArchiveChange,
+}: {
+  projects: ColonyProject[];
+  activeProject: ColonyProject | null;
+  pendingProjectId: string;
+  projectName: string;
+  projectNotes: string;
+  unsavedChanges: boolean;
+  confirmArchive: boolean;
+  onPendingProjectChange: (projectId: string) => void;
+  onLoadProject: () => void;
+  onProjectNameChange: (name: string) => void;
+  onProjectNotesChange: (notes: string) => void;
+  onSaveProject: () => void;
+  onRenameProject: () => void;
+  onDuplicateProject: () => void;
+  onArchiveProject: () => void;
+  onConfirmArchiveChange: (confirming: boolean) => void;
+}) {
+  return (
+    <section className="mt-4 rounded border border-cyan/25 bg-cyan/5 p-2" data-testid="colony-project-panel">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+          Saved project
+        </h3>
+        <span
+          data-testid="project-unsaved-indicator"
+          className={[
+            'rounded border px-1.5 py-0.5 font-mono text-[10px]',
+            unsavedChanges ? 'border-gold/45 bg-gold/10 text-gold' : 'border-green/35 bg-green/10 text-green',
+          ].join(' ')}
+        >
+          {unsavedChanges ? 'Unsaved changes' : 'Saved'}
+        </span>
+      </div>
+
+      <label className="mt-2 block space-y-1">
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Project name</span>
+        <input
+          aria-label="Project name"
+          value={projectName}
+          onChange={(event) => onProjectNameChange(event.target.value)}
+          className="w-full rounded border border-border/70 bg-bg2 px-2 py-1.5 font-mono text-xs text-silver"
+        />
+      </label>
+
+      <label className="mt-2 block space-y-1">
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Notes</span>
+        <textarea
+          aria-label="Project notes"
+          value={projectNotes}
+          onChange={(event) => onProjectNotesChange(event.target.value)}
+          rows={3}
+          className="w-full resize-y rounded border border-border/70 bg-bg2 px-2 py-1.5 font-mono text-xs text-silver"
+        />
+      </label>
+
+      <div className="mt-2 grid gap-2">
+        <button type="button" onClick={onSaveProject} className="rounded border border-orange/45 bg-orange/10 px-2 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/20">
+          Save project
+        </button>
+        <button type="button" onClick={onRenameProject} disabled={!activeProject} className="rounded border border-border/70 bg-bg3 px-2 py-1.5 font-mono text-[11px] text-silver hover:border-cyan/50 disabled:opacity-45">
+          Rename project
+        </button>
+      </div>
+
+      <div className="mt-3 rounded border border-border/55 bg-bg3/30 p-2">
+        <label className="block space-y-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Load project</span>
+          <select
+            aria-label="Load project"
+            value={pendingProjectId}
+            onChange={(event) => onPendingProjectChange(event.target.value)}
+            className="w-full"
+          >
+            <option value="">No saved project selected</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.project_name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="mt-2 grid gap-2">
+          <button type="button" onClick={onLoadProject} disabled={!pendingProjectId} className="rounded border border-cyan/45 bg-cyan/10 px-2 py-1.5 font-mono text-[11px] text-cyan hover:bg-cyan/20 disabled:opacity-45">
+            Load project
+          </button>
+          <button type="button" onClick={onDuplicateProject} disabled={!activeProject} className="rounded border border-border/70 bg-bg3 px-2 py-1.5 font-mono text-[11px] text-silver hover:border-cyan/50 disabled:opacity-45">
+            Duplicate project
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded border border-gold/30 bg-gold/5 p-2">
+        {confirmArchive ? (
+          <div>
+            <p className="font-mono text-[10px] leading-snug text-gold">
+              Archive this local project? The current workspace remains open, but the saved project is removed from this system list.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" onClick={() => onConfirmArchiveChange(false)} className="rounded border border-border bg-bg3 px-2 py-1 font-mono text-[10px] text-silver">
+                Cancel
+              </button>
+              <button type="button" onClick={onArchiveProject} className="rounded border border-gold/45 bg-gold/10 px-2 py-1 font-mono text-[10px] font-bold text-gold">
+                Archive project
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => onConfirmArchiveChange(true)} disabled={!activeProject} className="w-full rounded border border-gold/40 bg-gold/10 px-2 py-1.5 font-mono text-[11px] text-gold hover:bg-gold/20 disabled:opacity-45">
+            Delete / archive project
+          </button>
+        )}
+      </div>
+
+      <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">
+        Local-only MVP. No account sync or backend persistence is used.
+      </p>
+    </section>
   );
 }
 
@@ -389,7 +673,7 @@ function SummaryRow({
 }: {
   label: string;
   value: ReactNode;
-  tone?: 'orange' | 'cyan' | 'gold';
+  tone?: 'orange' | 'cyan' | 'gold' | 'green';
 }) {
   const toneClass = tone === 'orange'
     ? 'text-orange'
@@ -397,13 +681,25 @@ function SummaryRow({
       ? 'text-gold'
       : tone === 'cyan'
         ? 'text-cyan'
-        : 'text-silver';
+        : tone === 'green'
+          ? 'text-green'
+          : 'text-silver';
   return (
     <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1.5">
       <dt className="uppercase tracking-[0.14em] text-silver-dk">{label}</dt>
       <dd className={['mt-0.5 break-words text-[11px]', toneClass].join(' ')}>{value}</dd>
     </div>
   );
+}
+
+function formatProjectTimestamp(value?: string | null) {
+  if (!value) return 'Not saved';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
 }
 
 function ModeChip({ label, active = false }: { label: string; active?: boolean }) {
