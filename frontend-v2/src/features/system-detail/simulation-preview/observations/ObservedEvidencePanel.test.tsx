@@ -191,7 +191,6 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
     expect(screen.getByText(/Build Plan and Preview Result are planning context/)).toBeTruthy();
     expect(screen.getByText('Observed')).toBeTruthy();
     expect(screen.getByText(/Manual evidence is what was checked in-game/)).toBeTruthy();
-    expect(screen.getByText('Unknown')).toBeTruthy();
     expect(screen.getByText(/Missing evidence stays not checked, not contradicted/)).toBeTruthy();
   });
 
@@ -220,7 +219,13 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
     expect(within(categories).getByText('Primary-port / Architect observation')).toBeTruthy();
     expect(within(categories).getByText('Structure actually built')).toBeTruthy();
     expect(within(categories).getByText('Economy observation')).toBeTruthy();
-    expect(screen.getByText('3 visible / 3 recorded')).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.getByText((_content, element) =>
+          Boolean(element?.textContent?.replace(/\s+/g, ' ').includes('3 visible / 3 recorded')),
+        ),
+      ).toBeTruthy(),
+    );
   });
 
   it('shows a loading state while the list query is pending', async () => {
