@@ -219,7 +219,9 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
     expect(within(categories).getByText('Primary-port / Architect observation')).toBeTruthy();
     expect(within(categories).getByText('Structure actually built')).toBeTruthy();
     expect(within(categories).getByText('Economy observation')).toBeTruthy();
-    expect(screen.getByLabelText('Visible observed evidence count').textContent).toMatch(/3\s+visible\s+\/\s+3\s+recorded/);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Visible observed evidence count').textContent).toMatch(/3\s+visible\s+\/\s+3\s+recorded/),
+    );
   });
 
   it('shows a loading state while the list query is pending', async () => {
