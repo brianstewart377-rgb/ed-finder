@@ -1208,3 +1208,29 @@ Deferred after Stage 15G:
 
 - Backend persistence and migration remain future work after the project model stabilises.
 - Stage 15H should move Evidence and Validation into drawers/modes.
+
+### Stage 15H - Evidence / Validation Drawers
+
+Stage 15H moves Observed Evidence and Validation out of the always-visible planner stack and into explicit workspace drawers.
+
+Current Stage 15H status:
+
+- `SimulationPreview` now renders compact Evidence / Validation drawer controls after Preview Result.
+- Observed Evidence and Validation panels mount only when their drawer is opened.
+- Compact status badges show Evidence as manual and Validation as needing preview, preview ready, or preview stale.
+- Each drawer includes a short mismatch / needs-observation summary in a collapsed details block before the existing panel.
+- The existing Observed Evidence and Validation components are reused unchanged inside drawers.
+
+Safety boundaries in Stage 15H:
+
+- Opening/closing drawers does not run Preview, generate Suggested Builds, import layout, save projects, mutate the Build Plan, or change backend mechanics.
+- Validation still does not auto-run without an explicit preview result; the compare query only mounts when the Validation drawer is opened.
+- Observed Evidence CRUD semantics and Validation compare/review semantics remain unchanged.
+
+Test coverage added/updated in Stage 15H:
+
+- Simulation Preview tests cover drawer buttons, evidence drawer open/close, validation drawer open/close, existing Evidence/Validation panel accessibility, no-preview validation empty state, and no compare call until the Validation drawer is explicitly opened.
+
+Deferred after Stage 15H:
+
+- Stage 15I should finish QA, accessibility, copy cleanup, and responsive hardening.

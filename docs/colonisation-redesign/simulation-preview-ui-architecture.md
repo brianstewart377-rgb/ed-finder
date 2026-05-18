@@ -540,3 +540,10 @@ Stage 15G implementation note:
 - Project save captures the current one-way planner snapshot: placements, selected body assignments derived from placement body IDs, target archetype, notes, and local status.
 - Project load/restore does not run Preview, generation, import, evidence, or validation. It only replaces the editable Build Plan through the same request shape already used for selected recommended plans.
 - Delete is implemented as local archive with confirmation so the MVP can hide projects without destructive backend semantics.
+
+Stage 15H implementation note:
+
+- `SimulationPreview` now owns a small `workspaceDrawer` state for Evidence and Validation drawers.
+- Observed Evidence and Validation remain existing components; Stage 15H changes presentation and mount timing, not evidence/compare/review behavior.
+- Drawer status badges live near the central planner flow. They are intentionally compact until Stage 15I decides whether any status should move into the right workspace summary rail.
+- Validation is not mounted until the user opens the Validation drawer. This keeps compare/review advisory and explicit, and avoids the old always-visible stacked panel behavior.

@@ -1212,3 +1212,30 @@ Deferred:
 - Preview/evidence/validation snapshots.
 - Project routes and sharable project IDs.
 - Evidence/Validation drawers remain Stage 15H.
+
+## Stage 15H Implementation Note
+
+Stage 15H moved Evidence and Validation into compact workspace drawers.
+
+Delivered:
+
+- Evidence drawer button and panel.
+- Validation drawer button and panel.
+- Compact Evidence/Validation status badges in the planner flow.
+- Short mismatch / needs-observation summaries inside collapsed details blocks.
+- Existing Observed Evidence and Validation panels remain accessible inside their drawers.
+- Validation compare mounts only when the Validation drawer is opened.
+
+Safety boundaries preserved:
+
+- No auto-validation.
+- No auto-preview.
+- No auto-generation.
+- No Build Plan mutation.
+- No project save/load mutation.
+- No changes to Observed Evidence CRUD semantics or Validation compare/review semantics.
+
+Deferred:
+
+- Summary-rail Evidence/Validation badge consolidation.
+- Focus polish and responsive QA remain Stage 15I.

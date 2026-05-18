@@ -39,6 +39,7 @@ export function SimulationPreview({
   onPlanSnapshotChange?: (snapshot: TopologyPlanSnapshot) => void;
   topologySelection?: TopologySelection;
 }) {
+  const [workspaceDrawer, setWorkspaceDrawer] = useState<'evidence' | 'validation' | null>(null);
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
     queryFn: getFacilityTemplates,
@@ -195,39 +196,150 @@ export function SimulationPreview({
           isResultStale={runState.isResultStale}
         />
 
-        <section className="rounded-chunk-lg border border-border/60 bg-bg2/25 p-3">
-          <div className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
-            Later step: Observed Evidence and Validation
-          </div>
-          {/* Stage 6B: Observed Evidence panel renders after Preview Result.
-              It is intentionally passive - see ObservedEvidencePanel for the
-              contract. The simulation and optimiser data above are NOT
-              re-derived from observations; Stage 6C added the predicted-vs-
-              observed comparison engine and Stage 6D renders that result
-              below in the Validation section. */}
-          <ObservedEvidencePanel
-            systemId64={system.id64}
-            suggestedArchetype={plan.targetArchetype}
-          />
-
-          {/* Stage 6D: Validation section renders the Stage 6C
-              `/api/observations/compare` response in-page (no popout, no
-              top-level tab). The panel is passive: it never runs
-              simulation, never invokes the optimiser, never mutates
-              observed evidence, and never feeds confidence back into
-              scoring or ranking. */}
-          <div className="mt-4">
-            <ValidationPanel
-              systemId64={system.id64}
-              targetArchetype={plan.targetArchetype}
-              previewResult={runState.result}
-              isPreviewResultStale={runState.isResultStale}
-            />
-          </div>
-        </section>
+        <WorkspaceReviewDrawers
+          openDrawer={workspaceDrawer}
+          onOpenDrawer={setWorkspaceDrawer}
+          systemId64={system.id64}
+          targetArchetype={plan.targetArchetype}
+          previewResult={runState.result}
+          isPreviewResultStale={runState.isResultStale}
+        />
       </div>
     </div>
   );
 }
 
 export type { RecommendedBuildPlan };
+
+function WorkspaceReviewDrawers({
+  openDrawer,
+  onOpenDrawer,
+  systemId64,
+  targetArchetype,
+  previewResult,
+  isPreviewResultStale,
+}: {
+  openDrawer: 'evidence' | 'validation' | null;
+  onOpenDrawer: (drawer: 'evidence' | 'validation' | null) => void;
+  systemId64: number;
+  targetArchetype: string;
+  previewResult: ReturnType<typeof useSimulationPreviewRun>['result'];
+  isPreviewResultStale: boolean;
+}) {
+  return (
+    <section className="rounded-chunk-lg border border-border/60 bg-bg2/25 p-3" aria-label="Evidence and validation workspace drawers">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
+            Evidence / Validation
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-silver-dk">
+            Review evidence or validation when needed. Opening a drawer does not run Preview.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
+          <StatusBadge label="Evidence" value="Manual" />
+          <StatusBadge
+            label="Validation"
+            value={previewResult ? (isPreviewResultStale ? 'Preview stale' : 'Preview ready') : 'Needs preview'}
+            warn={!previewResult || isPreviewResultStale}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <DrawerButton
+          label="Evidence drawer"
+          active={openDrawer === 'evidence'}
+          onClick={() => onOpenDrawer(openDrawer === 'evidence' ? null : 'evidence')}
+        />
+        <DrawerButton
+          label="Validation drawer"
+          active={openDrawer === 'validation'}
+          onClick={() => onOpenDrawer(openDrawer === 'validation' ? null : 'validation')}
+        />
+      </div>
+
+      {!openDrawer && (
+        <div className="mt-3 rounded border border-border/55 bg-bg3/30 px-3 py-2 font-mono text-[11px] text-silver-dk">
+          Evidence and validation are available as drawers so they do not dominate the planning workspace.
+        </div>
+      )}
+
+      {openDrawer === 'evidence' && (
+        <div className="mt-3 rounded-chunk-lg border border-cyan/30 bg-bg1/50 p-3" data-testid="evidence-drawer">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="font-mono text-[11px] uppercase tracking-[0.16em] text-cyan">Evidence drawer</h4>
+            <button type="button" onClick={() => onOpenDrawer(null)} className="rounded border border-border bg-bg3 px-2 py-1 font-mono text-[10px] text-silver hover:border-cyan/50">
+              Close
+            </button>
+          </div>
+          <details className="mb-3 rounded border border-border/55 bg-bg3/25 px-3 py-2">
+            <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
+              Mismatch / needs-observation summary
+            </summary>
+            <p className="mt-2 text-[11px] leading-snug text-silver-dk">
+              Add manual observations here when in-game facts need to be compared with the current preview.
+            </p>
+          </details>
+          <ObservedEvidencePanel
+            systemId64={systemId64}
+            suggestedArchetype={targetArchetype}
+          />
+        </div>
+      )}
+
+      {openDrawer === 'validation' && (
+        <div className="mt-3 rounded-chunk-lg border border-orange/30 bg-bg1/50 p-3" data-testid="validation-drawer">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="font-mono text-[11px] uppercase tracking-[0.16em] text-orange">Validation drawer</h4>
+            <button type="button" onClick={() => onOpenDrawer(null)} className="rounded border border-border bg-bg3 px-2 py-1 font-mono text-[10px] text-silver hover:border-orange/50">
+              Close
+            </button>
+          </div>
+          <details className="mb-3 rounded border border-border/55 bg-bg3/25 px-3 py-2">
+            <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
+              Mismatch / needs-observation summary
+            </summary>
+            <p className="mt-2 text-[11px] leading-snug text-silver-dk">
+              Validation compares the current preview with manual evidence only after this drawer is opened.
+            </p>
+          </details>
+          <ValidationPanel
+            systemId64={systemId64}
+            targetArchetype={targetArchetype}
+            previewResult={previewResult}
+            isPreviewResultStale={isPreviewResultStale}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StatusBadge({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <span className={[
+      'rounded border px-1.5 py-0.5',
+      warn ? 'border-gold/40 bg-gold/10 text-gold' : 'border-cyan/35 bg-cyan/10 text-cyan',
+    ].join(' ')}>
+      {label}: {value}
+    </span>
+  );
+}
+
+function DrawerButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={active}
+      onClick={onClick}
+      className={[
+        'rounded border px-3 py-2 font-mono text-xs font-bold transition',
+        active ? 'border-orange/60 bg-orange/15 text-orange' : 'border-border bg-bg3 text-silver hover:border-cyan/50',
+      ].join(' ')}
+    >
+      {label}
+    </button>
+  );
+}

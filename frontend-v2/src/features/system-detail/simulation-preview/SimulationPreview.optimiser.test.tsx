@@ -317,32 +317,33 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedReview.mockReset();
   });
 
-  it('renders Observed Evidence panel and the passive evidence notice', async () => {
+  it('renders Evidence and Validation drawer controls without mounting the panels by default', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
-    // Observed Evidence label appears in both the section nav and the panel
-    // section region. getAllByText keeps this assertion robust.
     const labels = await screen.findAllByText('Observed Evidence');
     expect(labels.length).toBeGreaterThan(0);
-    // The region itself is exposed via aria-label so test code can scope
-    // assertions inside the Observed Evidence panel deterministically.
+    expect(screen.getByRole('button', { name: 'Evidence drawer' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Validation drawer' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Observed Evidence' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Validation' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Evidence drawer' }));
+    expect(await screen.findByTestId('evidence-drawer')).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Observed Evidence' })).toBeTruthy();
-    // Passive copy is present so the user does not think evidence affects scoring.
     expect(
       screen.getByText(/Later step: Observed Evidence records what you see in-game after planning/),
     ).toBeTruthy();
-    // Section nav still renders predicted-side labels too.
     expect(screen.getAllByText('Build Plan').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Suggested Builds').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Preview Result').length).toBeGreaterThan(0);
   });
 
-  it('does not call simulateBuild or optimiser candidate generation when only the observed evidence panel renders', async () => {
+  it('does not call simulateBuild or optimiser candidate generation when the evidence drawer opens', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
-    // Wait for the panel to settle.
+    fireEvent.click(await screen.findByRole('button', { name: 'Evidence drawer' }));
     await screen.findByRole('region', { name: 'Observed Evidence' });
     await waitFor(() => expect(mockedListObservedFacts).toHaveBeenCalled());
 
@@ -734,26 +735,29 @@ describe('SimulationPreview optimiser candidate loading', () => {
   });
 
   // ── Stage 6D integration ────────────────────────────────────────────────
-  it('renders the Validation section after Observed Evidence and the section nav exposes a Validation label', async () => {
+  it('opens and closes Evidence and Validation drawers explicitly', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
-    // Validation chip appears in the section nav.
     expect((await screen.findAllByText('Validation')).length).toBeGreaterThan(0);
-    // Validation panel renders as a separate aria region.
-    const validation = await screen.findByRole('region', { name: 'Validation' });
-    const observed = await screen.findByRole('region', { name: 'Observed Evidence' });
 
-    // The Validation region must appear *after* the Observed Evidence
-    // region in DOM order (Colony Planner section ordering rule).
-    const order = observed.compareDocumentPosition(validation);
-    expect(order & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Evidence drawer' }));
+    expect(await screen.findByTestId('evidence-drawer')).toBeTruthy();
+    expect(screen.queryByTestId('validation-drawer')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Validation drawer' }));
+    expect(await screen.findByTestId('validation-drawer')).toBeTruthy();
+    expect(screen.queryByTestId('evidence-drawer')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByTestId('validation-drawer')).toBeNull();
   });
 
   it('shows the no-preview empty state in Validation when no preview has been run', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Validation drawer' }));
     await screen.findByRole('region', { name: 'Validation' });
     expect(
       screen.getByText(/Run Preview first, then record Observed Evidence after checking in-game/),
@@ -793,6 +797,9 @@ describe('SimulationPreview optimiser candidate loading', () => {
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
 
+    await screen.findByText(/Final Score/i);
+    expect(mockedCompare).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Validation drawer' }));
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(1));
     const sent = mockedCompare.mock.calls[0][0];
     expect(sent.system_id64).toBe(123);
