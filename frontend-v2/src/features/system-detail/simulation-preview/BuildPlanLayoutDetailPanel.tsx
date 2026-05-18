@@ -148,7 +148,7 @@ function BodyDetail({ group, groups, summary }: { group: BodyGroup; groups: Body
       <LayoutTopologyReadout readout={topology} />
       <TagList body={group.body} />
       <WarningList warnings={warnings} emptyLabel="No body-level warnings from current layout data." />
-      <PlannerGuidanceList items={strategicGuidance} title="Strategic topology" />
+      <PlannerGuidanceList items={strategicGuidance} limit={4} title="Strategic topology" />
       <PlannerGuidanceList items={guidance} title="Body guidance" />
       <div>
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Placements on this body</div>

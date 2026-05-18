@@ -260,7 +260,7 @@ function BodyGroupCard({
             {bodyWarnings.map((warning) => <Chip key={warning} tone="warn">{warning}</Chip>)}
           </div>
         )}
-        <PlannerGuidanceList items={strategicGuidance} limit={3} title="Strategic topology" />
+        <PlannerGuidanceList items={strategicGuidance} limit={4} title="Strategic topology" />
         <PlannerGuidanceList items={bodyGuidance} limit={2} title="Body guidance" />
       </div>
 
