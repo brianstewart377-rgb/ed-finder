@@ -2,10 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  comparePredictionToObservations,
   createObservedFact,
   deleteObservedFact,
   fetchOptimiserCandidates,
   listObservedFacts,
+  reviewPredictionValidation,
   simulateBuild,
   updateObservedFact,
 } from '@/lib/api';
@@ -26,6 +28,8 @@ vi.mock('@/lib/api', async () => {
     createObservedFact: vi.fn(),
     updateObservedFact: vi.fn(),
     deleteObservedFact: vi.fn(),
+    comparePredictionToObservations: vi.fn(),
+    reviewPredictionValidation: vi.fn(),
     fetchOptimiserCandidates: vi.fn(),
     simulateBuild: vi.fn(),
   };
@@ -35,6 +39,8 @@ const mockedList = vi.mocked(listObservedFacts);
 const mockedCreate = vi.mocked(createObservedFact);
 const mockedUpdate = vi.mocked(updateObservedFact);
 const mockedDelete = vi.mocked(deleteObservedFact);
+const mockedCompare = vi.mocked(comparePredictionToObservations);
+const mockedReview = vi.mocked(reviewPredictionValidation);
 const mockedFetchOptimiser = vi.mocked(fetchOptimiserCandidates);
 const mockedSimulateBuild = vi.mocked(simulateBuild);
 
@@ -122,6 +128,8 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
     mockedCreate.mockReset();
     mockedUpdate.mockReset();
     mockedDelete.mockReset();
+    mockedCompare.mockReset();
+    mockedReview.mockReset();
     mockedFetchOptimiser.mockReset();
     mockedSimulateBuild.mockReset();
   });
@@ -172,6 +180,47 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
         /Record what you actually saw in-game\. Evidence is passive; Validation can compare it with predictions without changing scoring or mechanics/,
       ),
     ).toBeTruthy();
+  });
+
+  it('renders Stage 14A observed-vs-planned framing and keeps unknown state distinct', async () => {
+    mockedList.mockResolvedValue(emptyResponse());
+    renderPanel();
+
+    expect(await screen.findByText('Observed vs planned framing')).toBeTruthy();
+    expect(screen.getByText('Planned')).toBeTruthy();
+    expect(screen.getByText(/Build Plan and Preview Result are planning context/)).toBeTruthy();
+    expect(screen.getByText('Observed')).toBeTruthy();
+    expect(screen.getByText(/Manual evidence is what was checked in-game/)).toBeTruthy();
+    expect(screen.getByText('Unknown')).toBeTruthy();
+    expect(screen.getByText(/Missing evidence stays not checked, not contradicted/)).toBeTruthy();
+  });
+
+  it('renders Stage 14A evidence categories from the visible observed facts', async () => {
+    mockedList.mockResolvedValue(
+      listResponseWith([
+        fact({
+          observation_id: 'obs_architect',
+          notes: 'Architect Mode primary-port flag observed on A 1.',
+        }),
+        fact({
+          observation_id: 'obs_build',
+          fact_type: 'facility_state',
+          facility_template_id: 'outpost_support_a',
+        }),
+        fact({
+          observation_id: 'obs_economy',
+          fact_type: 'economy_presence',
+          economy: 'Agriculture',
+        }),
+      ]),
+    );
+    renderPanel();
+
+    const categories = await screen.findByLabelText('Observed evidence categories');
+    expect(within(categories).getByText('Primary-port / Architect observation')).toBeTruthy();
+    expect(within(categories).getByText('Structure actually built')).toBeTruthy();
+    expect(within(categories).getByText('Economy observation')).toBeTruthy();
+    expect(screen.getByText('3 visible / 3 recorded')).toBeTruthy();
   });
 
   it('shows a loading state while the list query is pending', async () => {
@@ -559,5 +608,23 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
 
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiser).not.toHaveBeenCalled();
+    expect(mockedCompare).not.toHaveBeenCalled();
+    expect(mockedReview).not.toHaveBeenCalled();
+  });
+
+  it('viewing observed evidence does not run preview, generation, validation, or planner mutation', async () => {
+    mockedList.mockResolvedValue(
+      listResponseWith([fact({ observation_id: 'obs_view', notes: 'Passive viewing only.' })]),
+    );
+    renderPanel();
+
+    expect(await screen.findByText(/Passive viewing only/)).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiser).not.toHaveBeenCalled();
+    expect(mockedCompare).not.toHaveBeenCalled();
+    expect(mockedReview).not.toHaveBeenCalled();
+    expect(mockedCreate).not.toHaveBeenCalled();
+    expect(mockedUpdate).not.toHaveBeenCalled();
+    expect(mockedDelete).not.toHaveBeenCalled();
   });
 });

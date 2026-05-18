@@ -17,6 +17,7 @@ import type {
 } from '@/types/api';
 import { ObservedEvidenceForm } from './ObservedEvidenceForm';
 import { ObservedEvidenceList } from './ObservedEvidenceList';
+import { ObservedEvidencePlanningSummary } from './ObservedEvidencePlanningSummary';
 import {
   CONFIDENCES,
   CREATABLE_FACT_TYPES,
@@ -191,6 +192,12 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
           {PASSIVE_EVIDENCE_COPY}
         </p>
       </header>
+
+      <ObservedEvidencePlanningSummary
+        facts={facts}
+        totalCount={summary?.total_count ?? facts.length}
+        filtered={filtersActive}
+      />
 
       <div className="mb-4 rounded border border-border/60 bg-bg2/30 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-[0.14em] text-silver-dk">Record manually observed evidence</div>

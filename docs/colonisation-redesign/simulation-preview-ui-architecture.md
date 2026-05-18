@@ -430,3 +430,21 @@ Safety boundaries:
 - The guidance does not call `simulateBuild`, optimiser generation, validation compare/review, observation mutation, persistence, import, polling, or any backend endpoint.
 - It does not change scoring, CP formulas, economy mechanics, service unlock logic, buildability checks, optimiser ranking, Simulation Preview scoring, Observed Evidence, or Validation behavior.
 - It does not add primary-port editing, slot editing, Architect Slot Survey storage, or map-like spatial rendering. Unknown Architect context remains unknown until future stages provide observed data.
+
+## Stage 14A - Observed Evidence Planning Expansion
+
+Stage 14A improves the existing Observed Evidence panel as a planning review surface without changing the observed-facts backend contract.
+
+- `observedEvidencePlanningUtils.ts` derives conservative frontend-only categories from existing observed-fact fields: primary-port / Architect observation, structure actually built, body / slot observation, economy observation, service / population / security observation, and general note.
+- `ObservedEvidencePlanningSummary.tsx` renders the planned / observed / unknown distinction above the manual entry form and shows category counts for the visible evidence list.
+- `ObservedEvidencePanel.tsx` keeps the existing manual create/edit/delete flows and inserts the summary as passive context only.
+
+Safety boundaries:
+
+- The panel still calls only observed-facts list/create/update/delete endpoints through explicit user actions already present in the UI.
+- Viewing Observed Evidence does not call `simulateBuild`, optimiser generation, Validation compare/review, persistence/import, polling, auto-preview, or any planner mutation.
+- The new primary-port / Architect category is a label for manually recorded evidence only. It does not add primary-port editing, Architect Slot Survey storage, slot editing, or confirmed primary-port truth.
+
+Deferred:
+
+- Dedicated Architect survey evidence input/storage, richer slot evidence fields, import/EDMC ingestion, and Stage 14B validation mismatch copy.
