@@ -950,3 +950,31 @@ Deferred to Stage 13C:
 - Strategic topology labels such as main-station candidate and support-body guidance.
 - Persistent Architect survey records, manual observation entry, imports, and EDMC/journal ingestion.
 - Full Architect Slot Survey UI, exact slot topology capture, and any map-like spatial rendering.
+
+## Stage 13C - Strategic Topology Guidance
+
+Stage 13C adds conservative strategic labels to the read-only Layout topology surface. It uses only existing Build Plan placements, facility-template fields, body metadata, and optional frontend Architect observation context.
+
+Current Stage 13C status:
+
+- Added frontend-only strategic topology guidance helpers for body groups.
+- Layout body cards and selected-body detail can now label main-station candidates, support-focused bodies, sparse metadata, likely tourism/agriculture review pressure, unknown Architect primary-port flag context, and the outpost-on-inconvenient-flag option.
+- The guidance is advisory copy only. It does not create or modify scoring signals, optimiser ranking, travel-time calculations, Build Plan placement state, Preview state, Observed Evidence, or Validation state.
+- Primary-port guidance remains conservative: unknown Architect primary-port flag context is labelled unknown, users are told to check Architect Mode before final station placement, and inconvenient flagged slots are framed as possible outpost placements rather than reasons to reject a system.
+
+Safety boundaries in Stage 13C:
+
+- No backend mechanics, scoring, CP formulas, economy mechanics, buildability rules, service unlock logic, optimiser generation/ranking, Search Tuning, Simulation Preview scoring, Observed Evidence semantics, Validation semantics, persistence, imports, EDMC ingestion, hauling/material workflows, or map topology rendering changed.
+- No primary-port editing controls, make/remove primary actions, arbitrary slot assignment, Architect Slot Survey storage, auto-preview, auto-generation, auto-load/save, polling, or silent mutation are introduced.
+- Strategic labels are deterministic UI guidance from existing facts only. They do not invent body relationships, exact travel times, confirmed slot capacity, or primary-port truth.
+
+Test coverage added in Stage 13C:
+
+- `strategicTopologyGuidanceUtils.test.ts` covers main-station candidate labels, support-body labels, tourism/agriculture pressure labels, observed-vs-unknown Architect primary-port flag handling, and sparse/unknown body copy.
+- `BuildPlanBodyView.test.tsx` covers strategic topology rendering in Layout cards and selected-body detail while preserving read-only layout behavior.
+
+Deferred beyond Stage 13C:
+
+- Persistent Architect survey records, manual observation entry, imports, and EDMC/journal ingestion.
+- Full Architect Slot Survey UI, exact slot topology capture, and any map-like spatial rendering.
+- Travel-time or adjacency calculations unless future data supports them.

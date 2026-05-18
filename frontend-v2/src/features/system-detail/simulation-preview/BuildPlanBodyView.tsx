@@ -20,6 +20,7 @@ import { LayoutTopologyReadout } from './LayoutTopologyReadout';
 import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from './layoutTopologyUtils';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
 import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
+import { buildStrategicTopologyGuidanceForGroup } from './strategicTopologyGuidanceUtils';
 import { formatLocation } from './utils/formatters';
 
 interface BuildPlanBodyViewProps {
@@ -97,6 +98,7 @@ export function BuildPlanBodyView({
               placements={placements}
               selected={selection.kind === 'body' && selection.groupKey === group.key}
               selectedPlacementIndex={selection.kind === 'placement' && selection.groupKey === group.key ? selection.placementIndex : null}
+              allGroups={groups}
               onSelectBody={() => selectBody(group.key)}
               onSelectPlacement={(placementIndex) => selectPlacement(group.key, placementIndex)}
             />
@@ -171,6 +173,7 @@ function BodyGroupCard({
   placements,
   selected,
   selectedPlacementIndex,
+  allGroups,
   onSelectBody,
   onSelectPlacement,
 }: {
@@ -178,6 +181,7 @@ function BodyGroupCard({
   placements: SimulateBuildPlacement[];
   selected: boolean;
   selectedPlacementIndex: number | null;
+  allGroups: BodyGroup[];
   onSelectBody: () => void;
   onSelectPlacement: (placementIndex: number) => void;
 }) {
@@ -189,6 +193,7 @@ function BodyGroupCard({
     hasUnknownBody: item.hasUnknownBody,
     warnings: getPlacementWarnings(item, group.body),
   })));
+  const strategicGuidance = buildStrategicTopologyGuidanceForGroup(group, allGroups);
   const summary = getBodyGroupSummary(group);
   const topology = buildLayoutTopologyReadout(group);
   const isUnassigned = group.body === null;
@@ -255,6 +260,7 @@ function BodyGroupCard({
             {bodyWarnings.map((warning) => <Chip key={warning} tone="warn">{warning}</Chip>)}
           </div>
         )}
+        <PlannerGuidanceList items={strategicGuidance} limit={4} title="Strategic topology" />
         <PlannerGuidanceList items={bodyGuidance} limit={2} title="Body guidance" />
       </div>
 

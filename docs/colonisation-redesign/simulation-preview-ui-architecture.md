@@ -416,3 +416,17 @@ Deferred to later Stage 13 work:
 - Strategic body relationship guidance and candidate labels.
 - Persistent Architect survey capture and import/storage decisions.
 - Full Architect Slot Survey UI and exact map/topology rendering.
+
+## Stage 13C - Strategic Topology Guidance
+
+Stage 13C layers conservative strategic guidance onto the Stage 13B Layout readout without changing planner mechanics.
+
+- `strategicTopologyGuidanceUtils.ts` derives deterministic body-group guidance from existing placements, templates, body metadata, and optional frontend Architect observation context.
+- `BuildPlanBodyView.tsx` and `BuildPlanLayoutDetailPanel.tsx` render this guidance under a compact **Strategic topology** heading on read-only Layout body surfaces.
+- Labels include main-station candidate, good support body, likely tourism/agriculture pressure, sparse metadata confirmation, unknown Architect primary-port flag checks, and the outpost option for inconvenient flagged primary-port slots.
+
+Safety boundaries:
+
+- The guidance does not call `simulateBuild`, optimiser generation, validation compare/review, observation mutation, persistence, import, polling, or any backend endpoint.
+- It does not change scoring, CP formulas, economy mechanics, service unlock logic, buildability checks, optimiser ranking, Simulation Preview scoring, Observed Evidence, or Validation behavior.
+- It does not add primary-port editing, slot editing, Architect Slot Survey storage, or map-like spatial rendering. Unknown Architect context remains unknown until future stages provide observed data.

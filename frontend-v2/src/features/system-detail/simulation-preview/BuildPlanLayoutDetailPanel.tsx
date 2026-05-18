@@ -18,6 +18,7 @@ import { LayoutTopologyReadout } from './LayoutTopologyReadout';
 import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from './layoutTopologyUtils';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
 import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
+import { buildStrategicTopologyGuidanceForGroup } from './strategicTopologyGuidanceUtils';
 import { formatLocation } from './utils/formatters';
 
 export type LayoutSelection =
@@ -77,7 +78,7 @@ export function BuildPlanLayoutDetailPanel({
       </div>
 
       {selection.kind === 'summary' && <SummaryDetail summary={summary} />}
-      {selection.kind === 'body' && selectedGroup && <BodyDetail group={selectedGroup} summary={summary} />}
+      {selection.kind === 'body' && selectedGroup && <BodyDetail group={selectedGroup} groups={groups} summary={summary} />}
       {selection.kind === 'placement' && selectedGroup && selectedPlacement && (
         <PlacementDetail group={selectedGroup} item={selectedPlacement} summary={summary} />
       )}
@@ -117,10 +118,11 @@ function SummaryDetail({ summary }: { summary: PlanSummary }) {
   );
 }
 
-function BodyDetail({ group, summary }: { group: BodyGroup; summary: PlanSummary }) {
+function BodyDetail({ group, groups, summary }: { group: BodyGroup; groups: BodyGroup[]; summary: PlanSummary }) {
   const bodySummary = getBodyGroupSummary(group);
   const warnings = getBodyGroupWarnings(group);
   const topology = buildLayoutTopologyReadout(group);
+  const strategicGuidance = buildStrategicTopologyGuidanceForGroup(group, groups);
   const guidance = buildPlannerGuidanceForBody(group.body, group.placements.map((item) => ({
     placement: item.placement,
     template: item.template,
@@ -146,6 +148,7 @@ function BodyDetail({ group, summary }: { group: BodyGroup; summary: PlanSummary
       <LayoutTopologyReadout readout={topology} />
       <TagList body={group.body} />
       <WarningList warnings={warnings} emptyLabel="No body-level warnings from current layout data." />
+      <PlannerGuidanceList items={strategicGuidance} limit={4} title="Strategic topology" />
       <PlannerGuidanceList items={guidance} title="Body guidance" />
       <div>
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Placements on this body</div>
