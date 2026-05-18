@@ -48,11 +48,11 @@ const placements: SimulateBuildPlacement[] = [
   { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: true, build_order: 1 },
 ];
 
-function renderEditor() {
+function renderEditor(customPlacements = placements) {
   const onUpdate = vi.fn();
   render(
     <BuildPlanEditor
-      placements={placements}
+      placements={customPlacements}
       templates={templates}
       bodies={bodies}
       onUpdate={onUpdate}
@@ -113,11 +113,28 @@ describe('BuildPlanEditor structure replacement review', () => {
     expect(screen.getAllByText(/Check the primary-port location in-game through System Map and Architect Mode/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Primary-port location is placement guidance, not a Build Point source/).length).toBeGreaterThan(0);
     expect(screen.getByText(/If the flagged slot is inconvenient, consider placing an outpost there/)).toBeTruthy();
+    expect(screen.getByText('Architect primary-port location should be checked before final major station placement.')).toBeTruthy();
+    expect(screen.getByText('If the flagged primary-port slot is inconvenient, consider an outpost there and place the main station elsewhere.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /make primary/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /remove primary/i })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: /primary/i })).toBeNull();
     expect(screen.queryByText(/unsafe to invest/i)).toBeNull();
     expect(screen.queryByText(/system is poor/i)).toBeNull();
     expect(screen.queryByText(/do not build here/i)).toBeNull();
+  });
+
+  it('renders advisory guidance without changing apply or cancel behavior', () => {
+    const { onUpdate } = renderEditor([
+      { facility_template_id: 'surface_outpost', local_body_id: '1', is_primary_port: false, build_order: 1 },
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: /Browse structures/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Select structure Orbital Port/i }));
+
+    expect(screen.getAllByText('Estimated template data: review before relying on the plan.').length).toBeGreaterThan(0);
+    expect(onUpdate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Cancel replacement/i }));
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 });

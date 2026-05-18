@@ -143,6 +143,8 @@ describe('BuildPlanBodyView', () => {
     expect(within(secondBody).getByText('Confidence: estimated')).toBeTruthy();
     expect(within(secondBody).getByText('Needs review: template uses estimated data')).toBeTruthy();
     expect(within(secondBody).getAllByText('May be invalid: surface facility on water world').length).toBeGreaterThan(0);
+    expect(within(secondBody).getAllByText('Surface structure may be invalid on this body.').length).toBeGreaterThan(0);
+    expect(within(secondBody).getAllByText('Estimated template data: review before relying on the plan.').length).toBeGreaterThan(0);
 
     const unassigned = screen.getByTestId('layout-body-group-unassigned');
     expect(within(unassigned).getAllByText('Unassigned / needs body').length).toBeGreaterThan(0);
@@ -180,6 +182,7 @@ describe('BuildPlanBodyView', () => {
     expect(screen.getByRole('button', { name: 'Select body Body 9' })).toBeTruthy();
     expect(screen.getAllByText('Data incomplete: body metadata is sparse').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Data incomplete: orbital suitability unclear').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Sparse body metadata: confirm in game before relying on this placement.').length).toBeGreaterThan(0);
   });
 
   it('handles helper fallbacks and sparse body metadata without crashing', () => {
@@ -221,6 +224,7 @@ describe('BuildPlanBodyView', () => {
     const panel = screen.getByTestId('layout-detail-panel');
     expect(within(panel).getAllByText('A 2').length).toBeGreaterThan(0);
     expect(within(panel).getByText('Water world')).toBeTruthy();
+    expect(within(panel).getByText('Surface structure may be invalid on this body.')).toBeTruthy();
     expect(within(panel).getByText('Placements')).toBeTruthy();
     expect(within(panel).getByText('1')).toBeTruthy();
     expect(within(panel).getByText('Primary port here')).toBeTruthy();
@@ -248,6 +252,9 @@ describe('BuildPlanBodyView', () => {
     expect(within(panel).getByText('Y+0/20 G+0/40')).toBeTruthy();
     expect(within(panel).getByText('observed')).toBeTruthy();
     expect(within(panel).getByText('Use List view to edit this placement.')).toBeTruthy();
+    expect(within(panel).getByText('Architect primary-port location should be checked before final major station placement.')).toBeTruthy();
+    expect(within(panel).queryByRole('button', { name: /make primary/i })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: /remove primary/i })).toBeNull();
   });
 
   it('handles missing templates, unassigned placements, and summary reset safely', () => {

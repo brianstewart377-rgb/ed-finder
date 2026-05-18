@@ -341,3 +341,31 @@ Deferred to Stage 12D:
 - Architect Slot Survey data entry/import and confirmed primary-port slot evidence handling.
 - Better body/orbit recommendation context once confirmed Architect-slot data exists.
 - Backend catalogue enrichment, saved-build persistence, logistics/material planning, and any Layout-view action surface.
+
+## Stage 12D - Planner Guidance Foundation
+
+Stage 12D keeps the planner deterministic and frontend-only while making existing placement risks easier to interpret.
+
+- `plannerGuidanceUtils.ts` maps existing warning strings and body/template facts into `info`, `advisory`, `caution`, `high-risk`, and `incompatible` guidance. The helper does not alter warnings, scoring, preview results, or optimiser ranking.
+- `PlannerGuidanceList.tsx` renders compact guidance rows in the List editor and read-only Layout surfaces.
+- List view guidance explains estimated template data, sparse body metadata, unknown or missing body context, and Architect primary-port checks without blocking replacement Apply/Cancel.
+- Layout view guidance repeats only high-signal body/placement context so the readout advises without becoming an editing surface.
+- Architect copy remains read-only: primary-port location should be checked in System Map -> Architect Mode before final major station placement, it is not a Build Point source, and an inconvenient flagged slot can be treated as an outpost candidate while the main station goes elsewhere.
+
+Safety boundaries in Stage 12D:
+
+- No backend mutation, persistence, import/storage, auto-preview, auto-generation, auto-load/save, polling, or silent mutation is introduced.
+- No scoring, CP formulas, economy mechanics, buildability rules, service unlock logic, optimiser ranking/generation, Search Tuning, Observed Evidence, or Validation behavior changes are introduced.
+- No primary-port editing controls, make/remove primary actions, arbitrary slot assignment, or Architect Slot Survey storage are introduced.
+
+Test coverage added in Stage 12D:
+
+- `plannerGuidanceUtils.test.ts` covers severity mapping and deterministic guidance generation.
+- `BuildPlanEditor.test.tsx` covers guidance rendering while preserving explicit replacement cancel/apply behavior.
+- `BuildPlanBodyView.test.tsx` covers Layout guidance rendering and confirms primary-port guidance remains read-only.
+
+Deferred to Stage 13:
+
+- Architect observation status and unknown/observed survey concepts.
+- Topology-aware Layout readout beyond guidance rows.
+- Any persistent Architect survey data, imports, or primary-port observation workflows.

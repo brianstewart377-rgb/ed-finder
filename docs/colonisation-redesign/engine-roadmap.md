@@ -865,3 +865,33 @@ Deferred to Stage 12D:
 - Architect Slot Survey data entry/import surfaces for confirmed in-game primary-port slot evidence.
 - Better body/orbit recommendation context once confirmed Architect-slot data exists.
 - Any backend catalogue enrichment, saved-build persistence, logistics/material planning, or layout-view action surface.
+
+## Stage 12D - Planner Intelligence Guidance Foundation
+
+Stage 12D adds a frontend-only guidance layer on top of existing planner data and warning strings. It explains what a warning means, how severe it is, and what the user should confirm in game without changing optimiser output, scoring, preview semantics, or Build Plan mutation rules.
+
+Current Stage 12D status:
+
+- Added deterministic guidance severity levels: `info`, `advisory`, `caution`, `high-risk`, and `incompatible`.
+- Added compact guidance rows in List view and read-only Layout view. These rows explain existing facts such as estimated template data, sparse body metadata, unknown body assignments, and potentially invalid surface placements.
+- Surface structures planned on water worlds or non-landable bodies are explained as incompatible placement risks. Estimated template data stays advisory and does not block explicit user actions.
+- Water-world orbital context can surface a conservative tourism/agriculture planning hint when the existing body/template data supports it.
+- Architect primary-port guidance remains read-only. Users are reminded to check System Map -> Architect Mode before final major station placement, and inconvenient flagged primary-port slots are framed as possible outpost placements rather than reasons to reject a system.
+
+Safety boundaries in Stage 12D:
+
+- No backend mechanics, backend scoring, CP formulas, economy mechanics, service unlock mechanics, buildability mechanics, optimiser generation/ranking, Simulation Preview scoring, Search Tuning, Observed Evidence semantics, Validation semantics, persistence, imports, EDMC ingestion, hauling/material workflows, or map topology rendering changed.
+- Guidance is explanatory only. It does not block Apply/Cancel actions, does not auto-run Preview, does not auto-generate/load/save, and does not mutate the Build Plan silently.
+- Primary-port location remains planning guidance only and is not treated as a Build Point source or user-editable truth.
+
+Test coverage added in Stage 12D:
+
+- `plannerGuidanceUtils.test.ts` for severity mapping, placement guidance, read-only Architect guidance, and body-level guidance.
+- `BuildPlanEditor.test.tsx` coverage for advisory guidance rendering while preserving explicit cancel/apply behavior.
+- `BuildPlanBodyView.test.tsx` coverage for Layout guidance rendering and continued absence of primary-port editing controls.
+
+Deferred to Stage 13:
+
+- Architect observation concepts, unknown-vs-observed status, and future storage/import decisions.
+- Topology-aware readout beyond conservative body/placement guidance.
+- Full Architect Slot Survey and primary-port observation workflows.

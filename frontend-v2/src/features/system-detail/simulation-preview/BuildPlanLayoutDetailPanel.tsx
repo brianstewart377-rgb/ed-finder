@@ -13,6 +13,8 @@ import {
   type PlanSummary,
 } from './buildPlanLayoutUtils';
 import { Chip } from './components';
+import { PlannerGuidanceList } from './PlannerGuidanceList';
+import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
 import { formatLocation } from './utils/formatters';
 
 export type LayoutSelection =
@@ -114,6 +116,13 @@ function SummaryDetail({ summary }: { summary: PlanSummary }) {
 function BodyDetail({ group, summary }: { group: BodyGroup; summary: PlanSummary }) {
   const bodySummary = getBodyGroupSummary(group);
   const warnings = getBodyGroupWarnings(group);
+  const guidance = buildPlannerGuidanceForBody(group.body, group.placements.map((item) => ({
+    placement: item.placement,
+    template: item.template,
+    body: group.body,
+    hasUnknownBody: item.hasUnknownBody,
+    warnings: getPlacementWarnings(item, group.body),
+  })));
   const name = group.body ? bodyDisplayName(group.body) : 'Unassigned / needs body';
 
   return (
@@ -131,6 +140,7 @@ function BodyDetail({ group, summary }: { group: BodyGroup; summary: PlanSummary
       </DetailGrid>
       <TagList body={group.body} />
       <WarningList warnings={warnings} emptyLabel="No body-level warnings from current layout data." />
+      <PlannerGuidanceList items={guidance} title="Body guidance" />
       <div>
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Placements on this body</div>
         <ul className="mt-2 space-y-1 font-mono text-[11px] text-silver-dk">
@@ -150,6 +160,13 @@ function BodyDetail({ group, summary }: { group: BodyGroup; summary: PlanSummary
 function PlacementDetail({ group, item, summary }: { group: BodyGroup; item: GroupedPlacement; summary: PlanSummary }) {
   const { placement, template } = item;
   const warnings = getPlacementWarnings(item, group.body);
+  const guidance = buildPlannerGuidanceForPlacement({
+    placement,
+    template,
+    body: group.body,
+    hasUnknownBody: item.hasUnknownBody,
+    warnings,
+  });
   const bodyLabel = placementBodyLabel(group.body, item);
   const status = getPlacementStatus(item, group.body);
 
@@ -175,6 +192,7 @@ function PlacementDetail({ group, item, summary }: { group: BodyGroup; item: Gro
         <DetailItem label="Confidence" value={template?.confidence ?? 'missing'} tone={template?.confidence === 'estimated' || !template ? 'warn' : 'default'} />
       </DetailGrid>
       <WarningList warnings={warnings} emptyLabel="No placement warnings from current layout data." />
+      <PlannerGuidanceList items={guidance} />
       <p className="rounded border border-border/50 bg-bg3/35 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk">
         Use List view to edit this placement.
       </p>
