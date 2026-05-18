@@ -14,6 +14,7 @@ import {
   ADVISORY_COPY,
   NO_PREVIEW_COPY,
   STALE_PREVIEW_COPY,
+  VALIDATION_REVIEW_REMINDERS,
 } from './validationLabels';
 import { previewResultFingerprint } from './validationUtils';
 
@@ -156,6 +157,14 @@ export function ValidationPanel({
         >
           {ADVISORY_COPY}
         </p>
+        <ul
+          className="mt-2 grid gap-1 rounded border border-border/60 bg-bg3/30 px-3 py-2 font-mono text-[10px] leading-snug text-silver-dk sm:grid-cols-2"
+          data-testid="validation-review-reminders"
+        >
+          {VALIDATION_REVIEW_REMINDERS.map((reminder) => (
+            <li key={reminder}>{reminder}</li>
+          ))}
+        </ul>
       </header>
 
       {isPreviewResultStale && previewResult && (
