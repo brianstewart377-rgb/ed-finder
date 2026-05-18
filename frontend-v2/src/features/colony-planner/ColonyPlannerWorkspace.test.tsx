@@ -26,6 +26,11 @@ const system = {
   is_colonised: false,
   primary_economy: 'Agriculture',
   economy_suggestion: 'Refinery',
+  bodies: [
+    { id: 'star1', name: 'Workspace System A', body_type: 'Star', subtype: 'K' },
+    { id: 'body1', name: 'Workspace System A 1', body_type: 'Planet', subtype: 'Water world', is_water_world: true },
+  ],
+  stations: [],
 } as unknown as SystemDetail;
 
 describe('ColonyPlannerWorkspace', () => {
@@ -110,7 +115,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 
-  it('renders loaded system context and reuses SimulationPreviewPanel', () => {
+  it('renders the Stage 15B workspace shell and reuses SimulationPreviewPanel', () => {
     const onOpenSystemDetail = vi.fn();
     mockedUseSystemDetail.mockReturnValue({
       data: system,
@@ -128,15 +133,23 @@ describe('ColonyPlannerWorkspace', () => {
     );
 
     expect(screen.getByText('Workspace System')).toBeTruthy();
-    expect(screen.getByText('Refinery')).toBeTruthy();
-    expect(screen.getByText(/Nothing runs or loads automatically/i)).toBeTruthy();
+    expect(screen.getAllByText('Refinery').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('planner-workspace-shell-v2')).toBeTruthy();
+    expect(screen.getByTestId('planner-topology-sidebar')).toBeTruthy();
+    expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
+    expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
+    expect(screen.getByText('System topology')).toBeTruthy();
+    expect(screen.getByText('Body tree placeholder')).toBeTruthy();
+    expect(screen.getByText('Planning Workspace')).toBeTruthy();
+    expect(screen.getByText('Planner summary')).toBeTruthy();
+    expect(screen.getByText('Workspace System A 1')).toBeTruthy();
     expect(screen.getByText('Reused Colony Planner panel')).toBeTruthy();
     expect(mockedSimulationPreviewPanel).toHaveBeenCalledWith(
       expect.objectContaining({ system, selectedPlan: null }),
       undefined,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Open full system detail/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Back to system detail/i }));
     expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);
     expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
   });

@@ -147,8 +147,15 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     renderWorkspace();
 
     expect(await screen.findByText('Passive Workspace')).toBeTruthy();
+    expect(screen.getByTestId('planner-workspace-shell-v2')).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: /Topology sidebar/i })).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: /Workspace summary/i })).toBeTruthy();
+    expect(screen.getByText('System topology')).toBeTruthy();
+    expect(screen.getByText('Planner summary')).toBeTruthy();
+    expect(screen.getByText('Planning Workspace')).toBeTruthy();
+    expect(screen.getByText('Body tree placeholder')).toBeTruthy();
     expect((await screen.findAllByText('Colony Planner')).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Nothing runs or loads automatically/i)).toBeTruthy();
+    expect(screen.getByText('Contained planner')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Generate Suggested Builds/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Run Preview/i })).toBeTruthy();
 

@@ -1030,3 +1030,40 @@ Deferred beyond Stage 14B:
 
 - Dedicated Architect survey validation fields once Stage 13 storage/input work exists.
 - Richer mismatch grouping, bulk review workflows, and any auto-resolution remain deferred.
+
+## Stage 15 - Topology-First Planner Workspace
+
+Stage 15 reframes the next Colony Planner work as a product/workspace redesign rather than another vertical-panel polish pass. The dedicated route already exists as `#colony-planner/system/{id64}`, but it still wraps the current stacked Simulation Preview flow. The Stage 15 plan moves the target architecture toward a topology-first strategic colony planning workspace with a body tree, local body/slot editing, persistent summary, saved project lifecycle, and drawer-based Preview/Evidence/Validation modes.
+
+Stage 15A is documentation only and is captured in `docs/colonisation-redesign/stage-15-planner-workspace-redesign-plan.md`. It audits the current route/component/data flow, identifies scroll bloat and internal wording, defines the target UX architecture, specifies a minimal saved Colony Project model, and breaks implementation into safe stages 15B through 15I.
+
+Key Stage 15 direction:
+
+- Keep ED-Finder's dark ED-orange / brushed steel identity. Use RavenColonial only as workflow inspiration: visible body hierarchy, local placement, persistent stats, compact warnings, and plan save/load.
+- Simplify System Detail into an overview, project/planner status summary, and open-planner action.
+- Make the Planner Workspace topology-first: left body tree, center selected-body/slot editor, right persistent summary, bottom/drawer modes for Preview, Observed Evidence, Validation, and project journal.
+- Improve Suggested Builds quality so trivial port-only or "Colony Ship only" outputs are hidden, demoted, or clearly labelled as fallback seeds rather than first-class recommendations.
+- Introduce saved Colony Projects, frontend-only first if necessary, before backend persistence is committed.
+- Keep Architect primary-port handling conservative: in-game Architect Mode can reveal the flagged slot, but ED-Finder must not let users arbitrarily declare primary-port truth. The flag is placement guidance, not a Build Point source, and inconvenient flagged slots can be handled as outpost candidates while the main station goes elsewhere.
+
+Stage 15 safety boundaries:
+
+- Stage 15A does not implement UI or backend changes.
+- Later Stage 15 implementation should not change CP formulas, economy mechanics, service unlock logic, simulation scoring, observed-evidence semantics, or validation semantics unless a separate mechanics stage explicitly scopes that work.
+- Avoid RavenColonial visual cloning, proprietary assets, and exact look/feel replication.
+
+### Stage 15B - Planner Workspace Shell V2
+
+Stage 15B implements the first workspace-shell step on the existing `#colony-planner/system/{id64}` route. The route now feels like a planning application shell rather than a single-column report wrapper: compact system header, left topology orientation rail, central contained planner work area, and right persistent summary/context rail.
+
+Current Stage 15B status:
+
+- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx` keeps using `useSystemDetail(id64)` and reuses `SimulationPreviewPanel` in the central workspace content.
+- The left topology rail is a read-only placeholder for Stage 15D. It surfaces body counts, notable loaded bodies, and an unassigned-placement placeholder without changing plan state.
+- The right summary rail surfaces project/planner status placeholders, Architect-not-observed status, loaded body/station counts, mode chips, and deferred-stage reminders.
+- Existing planner behavior remains contained and available. Stage 15B does not alter Simulation Preview internals, Suggested Builds generation, Observed Evidence, Validation, imports, persistence, CP/economy/service mechanics, backend scoring, or route shape.
+
+Deferred to Stage 15C/15D:
+
+- Stage 15C should simplify System Detail so it becomes overview plus project/planner CTA rather than another full planner surface.
+- Stage 15D should replace the placeholder topology rail with an actual body/topology tree navigation MVP.
