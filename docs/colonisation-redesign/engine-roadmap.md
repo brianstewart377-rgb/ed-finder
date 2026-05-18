@@ -1003,4 +1003,30 @@ Test coverage added in Stage 14A:
 Deferred beyond Stage 14A:
 
 - Richer manual evidence types for Architect survey records, slot observations, service/population/security-specific fields, and future persistence/import work.
-- Validation mismatch copy and review-category refinements for Stage 14B.
+
+## Stage 14B - Validation Review Clarity
+
+Stage 14B improves how Validation explains mismatches between the current Preview Result and Observed Evidence. It remains a frontend clarity stage layered over the existing Stage 6C compare response and Stage 6E review response.
+
+Current Stage 14B status:
+
+- Added a frontend-only validation review category layer for comparison rows: Matches plan, Differs from plan, Missing observation, Unknown / not checked, and Needs manual review.
+- Comparison cards now show the category alongside the existing backend status/severity/confidence labels. Backend statuses are preserved; the new category is explanatory copy only.
+- Differing rows use explicit mismatch wording: `Observed value differs from preview.` Missing and unknown rows distinguish unrecorded evidence from unchecked/uncertain comparison state.
+- Validation now includes conservative review reminders: Preview assumes the current plan and should be confirmed in-game; Architect primary-port context is not a dedicated validation field and should be checked in System Map -> Architect Mode before final major station placement.
+
+Safety boundaries in Stage 14B:
+
+- No backend compare/review engine, API contract, persistence, observed-facts semantics, Validation semantics, Simulation Preview scoring, optimiser behavior, CP/economy/buildability/service mechanics, Search Tuning, imports, EDMC ingestion, or planner mutation changed.
+- Validation still does not auto-run Preview, generation, evidence mutation, compare/review outside the existing Validation queries, polling, auto-save, or auto-load.
+- Primary-port wording remains read-only guidance. Stage 14B does not add Architect survey storage, primary-port editing, slot editing, or any make/remove primary control.
+
+Test coverage added in Stage 14B:
+
+- `validationReviewCategoryUtils.test.ts` covers category mapping, fallback behavior for future statuses, and explicit mismatch copy.
+- `ValidationPanel.test.tsx` covers review reminders, comparison category rendering for matches/differs/missing/manual-review/unknown states, Architect primary-port unknown copy, and existing passivity against preview/generation/observed-fact mutation.
+
+Deferred beyond Stage 14B:
+
+- Dedicated Architect survey validation fields once Stage 13 storage/input work exists.
+- Richer mismatch grouping, bulk review workflows, and any auto-resolution remain deferred.

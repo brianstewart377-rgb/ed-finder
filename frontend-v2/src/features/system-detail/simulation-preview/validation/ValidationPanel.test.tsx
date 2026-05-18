@@ -368,6 +368,16 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     ).toBeTruthy();
   });
 
+  it('renders validation review reminders without requiring a preview run', () => {
+    renderPanel({ preview: null });
+    expect(screen.getByTestId('validation-review-reminders').textContent).toMatch(
+      /Preview assumes current plan; confirm in game\./,
+    );
+    expect(screen.getByTestId('validation-review-reminders').textContent).toMatch(
+      /Architect primary-port flag has not been recorded as a dedicated validation field/,
+    );
+  });
+
   it('shows the no-preview empty state and does not call compare API when there is no preview result', async () => {
     renderPanel({ preview: null });
     expect(
@@ -451,6 +461,7 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     const confirmedCard = cards.find((card) => card.getAttribute('data-status') === 'confirmed');
     expect(confirmedCard).toBeTruthy();
     expect(within(confirmedCard!).getByTestId('validation-card-status').textContent).toBe('Confirmed');
+    expect(within(confirmedCard!).getByTestId('validation-card-review-category').textContent).toBe('Matches plan');
   });
 
   it('renders a contradicted row as "Needs review" and avoids high-certainty wording', async () => {
@@ -460,6 +471,10 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     const contradicted = cards.find((card) => card.getAttribute('data-status') === 'contradicted');
     expect(contradicted).toBeTruthy();
     expect(within(contradicted!).getByTestId('validation-card-status').textContent).toBe('Needs review');
+    expect(within(contradicted!).getByTestId('validation-card-review-category').textContent).toBe('Differs from plan');
+    expect(within(contradicted!).getByTestId('validation-card-review-category-note').textContent).toBe(
+      'Observed value differs from preview.',
+    );
     expect(screen.getByTestId('validation-panel').textContent ?? '').not.toMatch(/wrong/i);
     expect(screen.getByTestId('validation-panel').textContent ?? '').not.toMatch(/proof/i);
   });
@@ -473,6 +488,7 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     expect(
       within(predOnly!).getByTestId('validation-card-conservative-note').textContent,
     ).toMatch(/Predicted, but no matching observation has been recorded yet\./);
+    expect(within(predOnly!).getByTestId('validation-card-review-category').textContent).toBe('Missing observation');
   });
 
   it('renders the conservative copy for observed_only rows', async () => {
@@ -484,6 +500,71 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     expect(
       within(obsOnly!).getByTestId('validation-card-conservative-note').textContent,
     ).toMatch(/Observed evidence exists, but the current prediction has no matching item\./);
+    expect(within(obsOnly!).getByTestId('validation-card-review-category').textContent).toBe('Needs manual review');
+  });
+
+  it('renders unknown and unverified rows as not-checked/manual-review categories', async () => {
+    const base = compareResponse();
+    mockedCompare.mockResolvedValue(
+      compareResponse({
+        summary: {
+          ...base.summary,
+          compared_predictions_count: 2,
+          confirmed_count: 0,
+          contradicted_count: 0,
+          observed_only_count: 0,
+          predicted_only_count: 0,
+          unknown_count: 1,
+          unverified_count: 1,
+        },
+        comparisons: [
+          {
+            comparison_id: 'architect:primary-port',
+            area: 'architect',
+            subject_type: 'primary_port_flag',
+            subject_id: null,
+            predicted_value: null,
+            observed_value: null,
+            status: 'unknown',
+            severity: 'info',
+            confidence: 'unknown',
+            reason: 'Architect primary-port flag has not been recorded.',
+            recommended_action: 'Check System Map -> Architect Mode before final station placement.',
+            evidence: [],
+            prediction_source: null,
+          },
+          {
+            comparison_id: 'economy:pending-review',
+            area: 'economy',
+            subject_type: 'economy',
+            subject_id: 'industrial',
+            predicted_value: 'industrial',
+            observed_value: { economy: 'industrial' },
+            status: 'unverified',
+            severity: 'low',
+            confidence: 'low',
+            reason: 'Evidence needs manual review.',
+            recommended_action: null,
+            evidence: [],
+            prediction_source: 'economy_composition',
+          },
+        ],
+      }),
+    );
+    renderPanel();
+    const cards = await screen.findAllByTestId('validation-comparison-card');
+    const unknown = cards.find((card) => card.getAttribute('data-status') === 'unknown');
+    const unverified = cards.find((card) => card.getAttribute('data-status') === 'unverified');
+
+    expect(unknown).toBeTruthy();
+    expect(within(unknown!).getByTestId('validation-card-review-category').textContent).toBe(
+      'Unknown / not checked',
+    );
+    expect(within(unknown!).getByText(/Architect primary-port flag has not been recorded/)).toBeTruthy();
+    expect(unverified).toBeTruthy();
+    expect(within(unverified!).getByTestId('validation-card-review-category').textContent).toBe(
+      'Needs manual review',
+    );
   });
 
   it('renders evidence observation_id, fact_type, status, confidence, and notes inside the evidence list', async () => {

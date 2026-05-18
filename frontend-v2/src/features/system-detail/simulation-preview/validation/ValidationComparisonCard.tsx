@@ -5,6 +5,11 @@ import {
   comparisonSeverityLabel,
   comparisonStatusLabel,
 } from './validationLabels';
+import {
+  validationMismatchCategory,
+  validationMismatchCategoryClassName,
+  validationMismatchCategoryCopy,
+} from './validationReviewCategoryUtils';
 import { formatComparisonValue } from './validationUtils';
 
 interface ValidationComparisonCardProps {
@@ -25,6 +30,8 @@ export function ValidationComparisonCard({ comparison }: ValidationComparisonCar
   const statusLabel = comparisonStatusLabel(comparison.status);
   const severityLabel = comparisonSeverityLabel(comparison.severity);
   const conservativeNote = conservativeStatusNote(comparison.status);
+  const mismatchCategory = validationMismatchCategory(comparison);
+  const mismatchCategoryCopy = validationMismatchCategoryCopy(mismatchCategory);
 
   return (
     <article
@@ -44,6 +51,15 @@ export function ValidationComparisonCard({ comparison }: ValidationComparisonCar
           data-testid="validation-card-severity"
         >
           Severity: <span className="text-silver">{severityLabel}</span>
+        </span>
+        <span
+          className={[
+            'rounded border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em]',
+            validationMismatchCategoryClassName(mismatchCategory),
+          ].join(' ')}
+          data-testid="validation-card-review-category"
+        >
+          {mismatchCategoryCopy.label}
         </span>
         <span className="text-[10px] uppercase tracking-[0.14em] text-silver-dk">
           Confidence:{' '}
@@ -78,6 +94,13 @@ export function ValidationComparisonCard({ comparison }: ValidationComparisonCar
           {formatComparisonValue(comparison.observed_value)}
         </span>
       </div>
+
+      <p
+        className="mt-2 text-[11px] text-silver leading-snug"
+        data-testid="validation-card-review-category-note"
+      >
+        {mismatchCategoryCopy.description}
+      </p>
 
       {conservativeNote && (
         <p

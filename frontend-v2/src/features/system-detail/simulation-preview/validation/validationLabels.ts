@@ -39,6 +39,11 @@ export const EMPTY_COMPARISONS_COPY =
 export const REVIEW_ADVISORY_COPY =
   'Review guidance is advisory. This does not change mechanics or scoring. Use this to decide what to investigate next.';
 
+export const VALIDATION_REVIEW_REMINDERS = [
+  'Preview assumes current plan; confirm in game.',
+  'Architect primary-port flag has not been recorded as a dedicated validation field; check System Map -> Architect Mode before final major station placement.',
+] as const;
+
 export const PREDICTED_ONLY_COPY =
   'Predicted, but no matching observation has been recorded yet.';
 

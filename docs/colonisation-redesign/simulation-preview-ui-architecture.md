@@ -447,4 +447,24 @@ Safety boundaries:
 
 Deferred:
 
-- Dedicated Architect survey evidence input/storage, richer slot evidence fields, import/EDMC ingestion, and Stage 14B validation mismatch copy.
+- Dedicated Architect survey evidence input/storage, richer slot evidence fields, and import/EDMC ingestion.
+
+## Stage 14B - Validation Review Clarity
+
+Stage 14B keeps the existing Validation data flow and improves the readout language around mismatches.
+
+- `validationReviewCategoryUtils.ts` maps existing comparison row statuses into frontend-only review categories: Matches plan, Differs from plan, Missing observation, Unknown / not checked, and Needs manual review.
+- `ValidationComparisonCard.tsx` renders the category chip and short category explanation beside the existing status, severity, and confidence labels. The raw compare status is still preserved for filters and tests.
+- `ValidationPanel.tsx` adds a compact reminder strip: Preview assumes the current plan and should be confirmed in-game; Architect primary-port context is not a dedicated validation field and should be checked in System Map -> Architect Mode before final major station placement.
+- Copy remains conservative: differing rows say `Observed value differs from preview.` Unknown or missing rows do not imply the plan is wrong, and no row auto-resolves a mismatch.
+
+Safety boundaries:
+
+- No compare/review endpoint, backend validation engine, Observed Evidence semantics, Simulation Preview scoring, optimiser behavior, CP/economy/buildability/service mechanics, persistence, imports, EDMC ingestion, or planner state mutation changed.
+- Validation remains an explicit review surface. It does not auto-run Preview, auto-generate, auto-save, poll, mutate evidence, or write back to the Build Plan.
+- Architect/primary-port wording is read-only. Stage 14B does not add Architect survey storage, slot editing, or primary-port editing controls.
+
+Deferred:
+
+- Dedicated Architect survey validation once a later stage adds observed Architect data storage/input.
+- Higher-level mismatch grouping, review workflows, and any automatic resolution.
