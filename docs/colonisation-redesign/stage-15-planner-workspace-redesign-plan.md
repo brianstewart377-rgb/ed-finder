@@ -739,7 +739,6 @@ Safety boundaries:
 
 Explicitly deferred:
 
-- Stage 15D: interactive topology/body tree navigation and body/slot selection.
 - Stage 15E: topology-local build editing.
 - Stage 15G: saved colony project persistence.
 - Stage 15H: Evidence/Validation drawers.
@@ -786,38 +785,53 @@ Safety boundaries:
 
 Explicitly deferred:
 
-- Stage 15D: real topology/body tree navigation in the Planner Workspace.
 - Stage 15E: topology-local plan editing.
 - Stage 15F: Suggested Builds quality gate and load-into-workspace flow.
 - Stage 15G: saved project status/persistence summary on System Detail.
 
 ### Stage 15D - Topology Tree Readout MVP
 
+Current Stage 15D status:
+
+- Implemented in `frontend-v2/src/features/colony-planner/ColonyTopologyRail.tsx` and wired through `ColonyPlannerWorkspace.tsx`.
+- The left rail is now a real read-only topology/body-tree MVP rather than a placeholder. It renders a compact system root row, body rows, moon/child indentation when parent metadata is present, per-body planned placement counts, orbital/surface/flex chips, sparse metadata chips, primary-port planned chips, unknown/unmatched placement groups, and unassigned placements.
+- The workspace receives a one-way read-only plan snapshot from `SimulationPreviewPanel` / `SimulationPreview`. This lets the rail show current placement counts without moving editing ownership out of the central planner.
+- Selecting a body, placement, unknown group, or unassigned group highlights the rail and updates the right summary panel with selected name, selected type, placement count, warning count, Architect status, and read-only selection copy.
+- Build Plan editing remains inside the central planner content. Topology selection does not mutate placements, run Preview, generate Suggested Builds, import layout, mutate observations, or run validation.
+- Empty body layout state now tells users: `No body layout imported yet. Use the planner tools to import/refresh layout when available.`
+
 Purpose:
 
 - Introduce the body/topology tree as primary navigation.
 
-Files likely affected:
+Files affected:
 
-- New `frontend-v2/src/features/colony-planner/topology/*`
-- Existing `buildPlanLayoutUtils.ts`, `layoutTopologyUtils.ts` may be reused or moved later.
-- `frontend-v2/src/types/api.ts` if local UI types are needed.
+- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.tsx`
+- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.test.tsx`
+- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx`
+- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.integration.test.tsx`
+- `frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx`
+- `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
 
 Implementation notes:
 
-- Read-only first.
+- Read-only first; all structure editing remains in the central planner.
 - Use existing system bodies, current placements, and facility templates.
 - Include unassigned placements.
-- Include unknown/estimated slot states.
-- Selecting a node updates center/right context.
+- Include unknown/unmatched body reference states.
+- Selecting a node updates the right context panel only.
 
 Tests:
 
 - Stars/bodies/unassigned render from system detail.
 - Placements attach under body/unassigned nodes.
-- Unknown slot counts remain unknown.
-- Selection is keyboard accessible.
+- Unknown/unmatched placements render without exposing raw body IDs by default.
+- Empty body layout state renders friendly copy.
+- Selection updates read-only context.
 - No mutation or API side effects on selection.
+- Planner workspace still renders central `SimulationPreviewPanel`.
+- System Detail remains simplified and links to Planner.
 
 Safety boundaries:
 
@@ -826,9 +840,11 @@ Safety boundaries:
 
 Explicitly deferred:
 
+- Topology-local structure editing.
 - Drag/drop.
 - Slot editing.
 - Persistent Architect survey records.
+- Saved projects.
 
 ### Stage 15E - Build Plan Editing In Topology Workspace
 

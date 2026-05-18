@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   api,
@@ -146,20 +146,25 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByText('Passive Workspace')).toBeTruthy();
+    expect((await screen.findAllByText('Passive Workspace')).length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-workspace-shell-v2')).toBeTruthy();
-    expect(screen.getByRole('complementary', { name: /Topology sidebar/i })).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: /Topology body tree/i })).toBeTruthy();
     expect(screen.getByRole('complementary', { name: /Workspace summary/i })).toBeTruthy();
     expect(screen.getByText('System topology')).toBeTruthy();
     expect(screen.getByText('Planner summary')).toBeTruthy();
     expect(screen.getByText('Planning Workspace')).toBeTruthy();
-    expect(screen.getByText('Body tree placeholder')).toBeTruthy();
+    expect(screen.getByTestId('topology-root-row')).toBeTruthy();
+    expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
     expect((await screen.findAllByText('Colony Planner')).length).toBeGreaterThan(0);
     expect(screen.getByText('Contained planner')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Generate Suggested Builds/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Run Preview/i })).toBeTruthy();
 
     await waitFor(() => expect(mockedGetSimulationSummary).toHaveBeenCalled());
+    fireEvent.click(screen.getByText('Body 1'));
+    expect(screen.getByText('Read-only topology selection')).toBeTruthy();
+    expect(screen.getByText(/Build Plan editing stays in the central planner/i)).toBeTruthy();
+
     expect(mockedApiSystem).toHaveBeenCalledWith(123);
     expect(mockedGetFacilityTemplates).toHaveBeenCalled();
 

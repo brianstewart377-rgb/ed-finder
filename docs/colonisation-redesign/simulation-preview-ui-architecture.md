@@ -499,7 +499,7 @@ Stage 15B implementation note:
 
 - `ColonyPlannerWorkspace.tsx` now owns the workspace shell around `SimulationPreviewPanel`: compact header, left topology placeholder rail, central contained planner content, and right summary/context rail.
 - The `simulation-preview/` folder still owns the existing planner internals and preview/evidence/validation behavior. Stage 15B intentionally does not move those internals yet.
-- The topology rail and summary rail are placeholders for Stage 15D and later project-persistence work. They must remain read-only until those stages explicitly add selection/edit/save behavior.
+- The topology rail and summary rail are placeholders for Stage 15D and later project-persistence work. They must remain read-only until those stages explicitly add selection/edit/save behavior. Stage 15D later replaced the topology placeholder with read-only body-tree selection, while still deferring edit/save behavior.
 - Stage 15C removes the System Detail embedded planner path. From Stage 15C onward, System Detail is an overview/discovery modal with a compact Colony Planner entry card, and `#colony-planner/system/{id64}` owns the full planning workflow.
 
 Stage 15C implementation note:
@@ -508,4 +508,11 @@ Stage 15C implementation note:
 - Recommended Builds and Suggested Builds are workspace-first. System Detail only tells users that suggested builds can be reviewed in the Colony Planner, and does not fetch or generate candidates for the overview card.
 - The System Detail CTA routes through the existing app handler to `#colony-planner/system/{id64}`; the Planner Workspace `Back to system detail` action remains the return path.
 - The old `simulation-preview/` internals remain intact and available inside the dedicated workspace. Stage 15C does not change preview execution, optimiser calls, validation/evidence behavior, imports, persistence, or scoring.
-- Stage 15D remains the next architecture step: replace the placeholder topology rail with a real body/topology tree MVP while keeping editing and persistence deferred until their scoped stages.
+- Stage 15D completed the next architecture step by replacing the placeholder topology rail with a real body/topology tree MVP while keeping editing and persistence deferred until their scoped stages.
+
+Stage 15D implementation note:
+
+- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.tsx` owns the read-only body-tree/navigation MVP for the workspace. It uses loaded `SystemDetail` bodies plus a one-way planner snapshot to show body rows, child indentation where parent metadata exists, placement counts, orbital/surface/flex chips, unknown/unmatched body groups, and unassigned placements.
+- `SimulationPreviewPanel` and `SimulationPreview` now accept an optional `onPlanSnapshotChange` callback. This is a narrow read-only bridge from the existing central planner state back to the workspace shell; it does not move editing ownership out of `simulation-preview/`.
+- `ColonyPlannerWorkspace` owns only local read-only selection state for topology navigation. Selection updates the rail highlight and right summary context, but never mutates placements, never runs Preview, never generates Suggested Builds, never imports layout, and never touches Observed Evidence or Validation.
+- Stage 15E should build on this by moving add/replace/move interactions toward selected body/slot context. Stage 15D deliberately leaves all editing inside the central planner content.

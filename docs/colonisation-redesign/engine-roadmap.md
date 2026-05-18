@@ -1065,7 +1065,6 @@ Current Stage 15B status:
 
 Deferred to Stage 15D and later:
 
-- Stage 15D should replace the placeholder topology rail with an actual body/topology tree navigation MVP.
 - Stage 15E should move build editing toward selected body/slot context.
 - Stage 15F should add Suggested Builds quality gates and a load-into-workspace flow.
 - Stage 15G should add saved Colony Project persistence and saved-project status on System Detail.
@@ -1095,7 +1094,36 @@ Test coverage added/updated in Stage 15C:
 - `App.test.tsx` covers the System Detail `Open Colony Planner` handoff to `#colony-planner/system/{id64}`.
 - Stage 15B planner workspace tests continue to cover the dedicated planner route shell.
 
-Deferred to Stage 15D:
+Deferred after Stage 15C:
 
-- Replace the read-only topology placeholder rail with a real topology/body-tree MVP.
+- Stage 15D replaces the read-only topology placeholder rail with a real topology/body-tree MVP.
 - Keep saved project status, persistence, Suggested Builds quality gates, and drawer-mode Evidence/Validation for later Stage 15 work.
+
+### Stage 15D - Topology Tree MVP
+
+Stage 15D replaces the Stage 15B placeholder left rail with a real read-only topology/body-tree navigation MVP inside the dedicated Colony Planner workspace. The route remains `#colony-planner/system/{id64}`.
+
+Current Stage 15D status:
+
+- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.tsx` renders the system root, body rows, child/moon indentation when parent metadata exists, planned placement counts, orbital/surface/flex chips, sparse metadata chips, primary-port planned chips, unknown/unmatched placement groups, and unassigned placements.
+- `SimulationPreviewPanel` and `SimulationPreview` expose a narrow read-only `TopologyPlanSnapshot` callback so the workspace can display current placement context without moving Build Plan editing out of the central planner.
+- `ColonyPlannerWorkspace.tsx` owns local read-only selection state. Selecting a body, placement, unknown group, or unassigned group highlights the rail and updates the right summary/context panel.
+- The right summary panel now shows selected context, placement count, warning count, Architect status, and explicit `Read-only topology selection` copy.
+- Empty body layout state is friendly and compact: no body layout imported yet, use planner tools to import/refresh when available.
+
+Safety boundaries in Stage 15D:
+
+- No backend mechanics, scoring, CP formulas, economy logic, optimiser generation/ranking, Search Tuning, Simulation Preview scoring, Observed Evidence, Validation, imports, persistence, or auto-run behavior changed.
+- No topology-local structure editing, saved projects, Architect Slot Survey storage, primary-port editing, map rendering, or hauling/material workflow was added.
+- Selection is read-only UI state only. It does not mutate the Build Plan, run Preview, generate candidates, import layout, mutate observations, or run validation.
+
+Test coverage added/updated in Stage 15D:
+
+- `ColonyTopologyRail.test.tsx` covers body rows, parent/child indentation support, per-body placement counts/chips, unknown/unmatched and unassigned groups, read-only selection context, and empty body layout copy.
+- `ColonyPlannerWorkspace.test.tsx` covers shell rendering with the 15D topology rail, one-way plan snapshots, central `SimulationPreviewPanel` availability, and read-only selected-context updates.
+- `ColonyPlannerWorkspace.integration.test.tsx` confirms the real workspace still loads passive planner data without preview/generation/import/evidence/validation side effects, including after topology selection.
+
+Deferred to Stage 15E:
+
+- Move editing toward selected body/slot context while preserving explicit Apply/Preview behavior.
+- Keep saved projects, Suggested Builds quality gates, and drawer-mode Evidence/Validation for later scoped stages.

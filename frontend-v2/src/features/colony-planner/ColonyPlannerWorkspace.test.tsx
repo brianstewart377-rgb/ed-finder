@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SystemDetail } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
@@ -9,9 +9,60 @@ vi.mock('@/features/system-detail/useSystemDetail', () => ({
   useSystemDetail: vi.fn(),
 }));
 
-vi.mock('@/features/system-detail/SimulationPreviewPanel', () => ({
-  SimulationPreviewPanel: vi.fn(() => <div>Reused Colony Planner panel</div>),
-}));
+vi.mock('@/features/system-detail/SimulationPreviewPanel', async () => {
+  const React = await import('react');
+  return {
+    SimulationPreviewPanel: vi.fn(({ onPlanSnapshotChange }) => {
+      React.useEffect(() => {
+        onPlanSnapshotChange?.({
+          placements: [
+            { facility_template_id: 'orbital_port', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+            { facility_template_id: 'surface_hub', local_body_id: '404', build_order: 2 },
+            { facility_template_id: 'surface_hub', local_body_id: null, build_order: 3 },
+          ],
+          templates: [
+            {
+              id: 'orbital_port',
+              name: 'Orbital Port',
+              category: 'port',
+              tier: 3,
+              economy: null,
+              is_port: true,
+              is_support_facility: false,
+              allowed_location: 'orbital',
+              pad_size: 'large',
+              confidence: 'confirmed',
+              notes: null,
+              yellow_cp_generated: 1,
+              green_cp_generated: 1,
+              yellow_cp_cost: 0,
+              green_cp_cost: 0,
+            },
+            {
+              id: 'surface_hub',
+              name: 'Surface Hub',
+              category: 'support',
+              tier: 1,
+              economy: 'Extraction',
+              is_port: false,
+              is_support_facility: true,
+              allowed_location: 'surface',
+              pad_size: 'medium',
+              confidence: 'confirmed',
+              notes: null,
+              yellow_cp_generated: 0,
+              green_cp_generated: 0,
+              yellow_cp_cost: 1,
+              green_cp_cost: 0,
+            },
+          ],
+          targetArchetype: 'refinery_industrial',
+        });
+      }, [onPlanSnapshotChange]);
+      return <div>Reused Colony Planner panel</div>;
+    }),
+  };
+});
 
 const mockedUseSystemDetail = vi.mocked(useSystemDetail);
 const mockedSimulationPreviewPanel = vi.mocked(SimulationPreviewPanel);
@@ -115,7 +166,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 
-  it('renders the Stage 15B workspace shell and reuses SimulationPreviewPanel', () => {
+  it('renders the Stage 15D workspace shell, topology rail, and reused SimulationPreviewPanel', async () => {
     const onOpenSystemDetail = vi.fn();
     mockedUseSystemDetail.mockReturnValue({
       data: system,
@@ -132,22 +183,36 @@ describe('ColonyPlannerWorkspace', () => {
       />,
     );
 
-    expect(screen.getByText('Workspace System')).toBeTruthy();
+    expect(screen.getAllByText('Workspace System').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Refinery').length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-workspace-shell-v2')).toBeTruthy();
     expect(screen.getByTestId('planner-topology-sidebar')).toBeTruthy();
     expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
     expect(screen.getByText('System topology')).toBeTruthy();
-    expect(screen.getByText('Body tree placeholder')).toBeTruthy();
+    expect(screen.getByTestId('topology-root-row')).toBeTruthy();
+    expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
     expect(screen.getByText('Planning Workspace')).toBeTruthy();
     expect(screen.getByText('Planner summary')).toBeTruthy();
     expect(screen.getByText('Workspace System A 1')).toBeTruthy();
     expect(screen.getByText('Reused Colony Planner panel')).toBeTruthy();
+    expect(await screen.findByText('Unknown / unmatched body')).toBeTruthy();
+    expect(screen.getByText('Unassigned placements')).toBeTruthy();
+    const summaryPanel = screen.getByTestId('planner-summary-panel');
+    expect(within(summaryPanel).getByText('Plan placements')).toBeTruthy();
+    expect(within(summaryPanel).getAllByText('3').length).toBeGreaterThan(0);
     expect(mockedSimulationPreviewPanel).toHaveBeenCalledWith(
-      expect.objectContaining({ system, selectedPlan: null }),
+      expect.objectContaining({
+        system,
+        selectedPlan: null,
+        onPlanSnapshotChange: expect.any(Function),
+      }),
       undefined,
     );
+
+    fireEvent.click(screen.getByText('Workspace System A 1'));
+    expect(screen.getByText('Read-only topology selection')).toBeTruthy();
+    expect(screen.getByText(/Build Plan editing stays in the central planner/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Back to system detail/i }));
     expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);

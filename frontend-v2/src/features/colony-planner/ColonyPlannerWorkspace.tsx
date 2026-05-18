@@ -1,9 +1,15 @@
-import { ArrowLeft, ExternalLink, Network, PanelRight, Rocket } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ArrowLeft, ExternalLink, PanelRight, Rocket } from 'lucide-react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { formatPopulation } from '@/lib/format';
-import type { SystemBody, SystemDetail } from '@/types/api';
+import type { SystemDetail } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
+import {
+  ColonyTopologyRail,
+  describeTopologySelection,
+  type TopologyPlanSnapshot,
+  type TopologySelection,
+} from './ColonyTopologyRail';
 
 export interface ColonyPlannerWorkspaceProps {
   id64: number | null;
@@ -167,7 +173,7 @@ function WorkspaceHeader({
           <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
             <span>Colony Planner Workspace</span>
             <span className="rounded border border-orange/35 bg-orange/10 px-1.5 py-0.5 text-orange">
-              Stage 15B shell
+              Stage 15D topology
             </span>
             <span className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 text-cyan">
               {status}
@@ -236,13 +242,32 @@ function HeaderPill({
 }
 
 function WorkspaceGrid({ system }: { system: SystemDetail }) {
+  const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
+  const [planSnapshot, setPlanSnapshot] = useState<TopologyPlanSnapshot>({
+    placements: [],
+    templates: [],
+    targetArchetype: 'refinery_industrial',
+  });
+  const handlePlanSnapshotChange = useCallback((snapshot: TopologyPlanSnapshot) => {
+    setPlanSnapshot(snapshot);
+  }, []);
+  const selectedContext = useMemo(
+    () => describeTopologySelection(selection, system, planSnapshot),
+    [planSnapshot, selection, system],
+  );
+
   return (
     <section
       aria-label="Colony Planner application shell"
       data-testid="planner-workspace-shell-v2"
       className="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)_20rem] xl:items-start"
     >
-      <TopologySidebar system={system} />
+      <ColonyTopologyRail
+        system={system}
+        snapshot={planSnapshot}
+        selection={selection}
+        onSelect={setSelection}
+      />
       <main
         aria-label="Planning workspace content"
         data-testid="workspace-planner-content"
@@ -254,83 +279,37 @@ function WorkspaceGrid({ system }: { system: SystemDetail }) {
               Planning Workspace
             </h2>
             <p className="mt-1 max-w-2xl text-[11px] font-mono leading-snug text-silver-dk">
-              Existing planner tools remain here while topology editing moves into the workspace shell.
+              Existing planner tools remain here while topology selection stays read-only.
             </p>
           </div>
           <span className="rounded border border-cyan/30 bg-cyan/5 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
             Contained planner
           </span>
         </div>
-        <SimulationPreviewPanel system={system} selectedPlan={null} />
+        <SimulationPreviewPanel
+          system={system}
+          selectedPlan={null}
+          onPlanSnapshotChange={handlePlanSnapshotChange}
+        />
       </main>
-      <SummaryPanel system={system} />
+      <SummaryPanel
+        system={system}
+        snapshot={planSnapshot}
+        selectedContext={selectedContext}
+      />
     </section>
   );
 }
 
-function TopologySidebar({ system }: { system: SystemDetail }) {
-  const bodies = system.bodies ?? [];
-  const stars = bodies.filter((body) => body.body_type === 'Star').length;
-  const planets = bodies.filter((body) => body.body_type === 'Planet').length;
-  const moons = Math.max(0, bodies.length - stars - planets);
-  const notableBodies = bodies.filter(isNotableBody).slice(0, 5);
-
-  return (
-    <aside
-      aria-label="Topology sidebar"
-      data-testid="planner-topology-sidebar"
-      className="panel p-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
-    >
-      <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
-        <Network size={13} />
-        System topology
-      </div>
-      <p className="mt-2 text-[11px] leading-snug text-silver-dk">
-        Body tree navigation lands in Stage 15D. For now, this rail keeps the planning workspace oriented around the system layout.
-      </p>
-
-      <div className="mt-3 grid gap-2 font-mono text-[10px]">
-        <SidebarStat label="Bodies" value={String(bodies.length)} tone="orange" />
-        <SidebarStat label="Stars" value={String(stars)} />
-        <SidebarStat label="Planets" value={String(planets)} />
-        <SidebarStat label="Moons/other" value={String(moons)} />
-      </div>
-
-      <section className="mt-4 rounded border border-border/60 bg-bg3/30 p-2">
-        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
-          Body tree placeholder
-        </h3>
-        {notableBodies.length > 0 ? (
-          <ul className="mt-2 space-y-1">
-            {notableBodies.map((body) => (
-              <li key={body.id ?? body.name} className="rounded border border-border/45 bg-bg2/55 px-2 py-1.5">
-                <div className="truncate font-mono text-[11px] text-silver">{body.name ?? `Body ${body.id}`}</div>
-                <div className="mt-0.5 truncate font-mono text-[10px] text-silver-dk">
-                  {body.subtype ?? body.body_type ?? 'Unknown body'}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-2 rounded border border-border/45 bg-bg2/45 px-2 py-2 font-mono text-[10px] text-silver-dk">
-            No detailed body rows are loaded for this system.
-          </p>
-        )}
-      </section>
-
-      <section className="mt-3 rounded border border-gold/30 bg-gold/5 p-2">
-        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-gold">
-          Unassigned placements
-        </h3>
-        <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
-          Future topology editing will surface placements that still need a body or slot assignment here.
-        </p>
-      </section>
-    </aside>
-  );
-}
-
-function SummaryPanel({ system }: { system: SystemDetail }) {
+function SummaryPanel({
+  system,
+  snapshot,
+  selectedContext,
+}: {
+  system: SystemDetail;
+  snapshot: TopologyPlanSnapshot;
+  selectedContext: ReturnType<typeof describeTopologySelection>;
+}) {
   const bodyCount = system.bodies?.length ?? 0;
   const stationCount = system.stations?.length ?? 0;
   const projectState = 'Unsaved workspace';
@@ -356,9 +335,26 @@ function SummaryPanel({ system }: { system: SystemDetail }) {
         <SummaryRow label="Planner" value={plannerState} tone="cyan" />
         <SummaryRow label="Bodies loaded" value={String(bodyCount)} />
         <SummaryRow label="Stations loaded" value={String(stationCount)} />
+        <SummaryRow label="Plan placements" value={String(snapshot.placements.length)} tone="orange" />
+        <SummaryRow label="Selected" value={selectedContext.label} tone="cyan" />
+        <SummaryRow label="Selected type" value={selectedContext.kind} />
+        <SummaryRow label="Selection placements" value={String(selectedContext.placementCount)} />
+        <SummaryRow label="Selection warnings" value={String(selectedContext.warningCount)} tone={selectedContext.warningCount > 0 ? 'gold' : undefined} />
         <SummaryRow label="Architect" value={architectState} tone="gold" />
         <SummaryRow label="Suggested economy" value={system.economy_suggestion ?? system.primary_economy ?? 'Unknown'} tone="orange" />
       </dl>
+
+      <section className="mt-4 rounded border border-orange/25 bg-orange/5 p-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
+          Read-only topology selection
+        </h3>
+        <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
+          {selectedContext.detail}
+        </p>
+        <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
+          {selectedContext.architectStatus}
+        </p>
+      </section>
 
       <section className="mt-4 rounded border border-cyan/25 bg-cyan/5 p-2">
         <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
@@ -377,30 +373,11 @@ function SummaryPanel({ system }: { system: SystemDetail }) {
           Deferred to next stages
         </h3>
         <ul className="mt-2 space-y-1 font-mono text-[10px] text-silver-dk">
-          <li>15C: System Detail simplification</li>
-          <li>15D: interactive body tree MVP</li>
+          <li>15E: topology-based editing</li>
           <li>15G: saved colony projects</li>
         </ul>
       </section>
     </aside>
-  );
-}
-
-function SidebarStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: 'orange' | 'cyan';
-}) {
-  const toneClass = tone === 'orange' ? 'text-orange' : 'text-cyan';
-  return (
-    <div className="flex items-center justify-between gap-2 rounded border border-border/55 bg-bg3/35 px-2 py-1.5">
-      <span className="uppercase tracking-[0.14em] text-silver-dk">{label}</span>
-      <span className={['tabular-nums', toneClass].join(' ')}>{value}</span>
-    </div>
   );
 }
 
@@ -440,16 +417,5 @@ function ModeChip({ label, active = false }: { label: string; active?: boolean }
     >
       {label}
     </span>
-  );
-}
-
-function isNotableBody(body: SystemBody): boolean {
-  return Boolean(
-    body.is_earth_like
-    || body.is_water_world
-    || body.is_ammonia_world
-    || body.is_landable
-    || body.is_terraformable
-    || body.body_type === 'Star',
   );
 }
