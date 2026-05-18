@@ -516,3 +516,11 @@ Stage 15D implementation note:
 - `SimulationPreviewPanel` and `SimulationPreview` now accept an optional `onPlanSnapshotChange` callback. This is a narrow read-only bridge from the existing central planner state back to the workspace shell; it does not move editing ownership out of `simulation-preview/`.
 - `ColonyPlannerWorkspace` owns only local read-only selection state for topology navigation. Selection updates the rail highlight and right summary context, but never mutates placements, never runs Preview, never generates Suggested Builds, never imports layout, and never touches Observed Evidence or Validation.
 - Stage 15E should build on this by moving add/replace/move interactions toward selected body/slot context. Stage 15D deliberately leaves all editing inside the central planner content.
+
+Stage 15E implementation note:
+
+- `ColonyPlannerWorkspace` now passes topology selection into `SimulationPreviewPanel` as coordination context. This remains local workspace UI state, not persisted project state.
+- `SimulationPreviewPanel`, `SimulationPreview`, and `BuildPlanSection` forward that context to the central Build Plan editor through narrow optional props.
+- `BuildPlanSection` renders compact `Currently viewing` context for selected topology bodies/placements and adds an explicit `Add to selected body` control when the selected body exists in the loaded body list.
+- `BuildPlanEditor` highlights placement rows related to the selected topology body and focuses/highlights a selected topology placement. Structure picker receives selected topology body context for unassigned rows so warnings can be evaluated without changing the placement.
+- The ownership line remains unchanged: topology rail selection is navigation/context only, while placement mutation still happens through central planner buttons/selects and the existing placement editor hook.

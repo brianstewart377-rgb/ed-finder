@@ -199,4 +199,48 @@ describe('BuildPlanSection layout import state', () => {
     expect(await screen.findByText(/Status/)).toBeTruthy();
     expect(await screen.findByText('success')).toBeTruthy();
   });
+
+  it('shows selected topology body context and adds placement only through explicit action', () => {
+    const onAddPlacement = vi.fn();
+
+    render(
+      <BuildPlanSection
+        systemId64={123}
+        systemName="Test System"
+        startMode={'blank_advanced' as StartMode}
+        hasRecommendedBuild={false}
+        loadingRecommended={false}
+        targetArchetype="refinery_industrial"
+        onTargetArchetypeChange={vi.fn()}
+        placements={[{ facility_template_id: 'generic_port_alpha', local_body_id: '1', is_primary_port: false, build_order: 1 }]}
+        templates={[templateMinimal]}
+        bodies={bodies}
+        templatesLoading={false}
+        templatesErrorMessage={null}
+        optimiserCandidateOriginLabel={null}
+        optimiserCandidateWasEdited={false}
+        initialAssumptions={[]}
+        previewResult={previewResult}
+        isPreviewResultStale={false}
+        runningPreview={false}
+        onUseRecommended={vi.fn()}
+        onBlank={vi.fn()}
+        onShowSuggestedBuilds={vi.fn()}
+        onAddPlacement={onAddPlacement}
+        onUpdatePlacement={vi.fn()}
+        onRemovePlacement={vi.fn()}
+        onMovePlacement={vi.fn()}
+        topologySelection={{ type: 'body', bodyId: '1' }}
+      />,
+    );
+
+    expect(screen.getByTestId('topology-planner-context')).toBeTruthy();
+    expect(screen.getByText(/Body 1 - 1 matching placement/)).toBeTruthy();
+    expect(onAddPlacement).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Add to selected body/i }));
+
+    expect(onAddPlacement).toHaveBeenCalledTimes(1);
+    expect(onAddPlacement).toHaveBeenCalledWith('1');
+  });
 });

@@ -290,6 +290,7 @@ function WorkspaceGrid({ system }: { system: SystemDetail }) {
           system={system}
           selectedPlan={null}
           onPlanSnapshotChange={handlePlanSnapshotChange}
+          topologySelection={selection}
         />
       </main>
       <SummaryPanel

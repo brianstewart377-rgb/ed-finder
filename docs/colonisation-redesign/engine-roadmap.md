@@ -1127,3 +1127,31 @@ Deferred to Stage 15E:
 
 - Move editing toward selected body/slot context while preserving explicit Apply/Preview behavior.
 - Keep saved projects, Suggested Builds quality gates, and drawer-mode Evidence/Validation for later scoped stages.
+
+### Stage 15E - Topology-Aware Planner Coordination
+
+Stage 15E keeps topology selection read-only while allowing it to coordinate with the central Build Plan editor.
+
+Current Stage 15E status:
+
+- The workspace passes the selected topology body or placement into the existing central planner through a narrow prop chain.
+- Selecting a body in the topology rail updates a compact `Currently viewing` context in Build Plan and highlights matching placement rows in List view.
+- Selecting a placement in the topology rail highlights and focuses the corresponding placement editor row in List view.
+- The central planner exposes an explicit `Add to selected body` action when a known topology body is selected. It reuses the existing placement-add path and assigns only the selected body id.
+- Structure picker context can evaluate an unassigned placement against the selected topology body without mutating the placement.
+
+Safety boundaries in Stage 15E:
+
+- Rail clicks do not mutate the Build Plan, run Preview, generate Suggested Builds, import layout, save state, mutate Observed Evidence, or run Validation.
+- Editing remains in the central planner. No drag/drop, slot editing, topology-local editor, primary-port truth editing, persistence, backend mechanics, scoring, CP formulas, economy logic, optimiser behavior, or validation/evidence semantics changed.
+
+Test coverage added/updated in Stage 15E:
+
+- Workspace tests cover selection propagation from topology rail to the planner adapter.
+- Build Plan tests cover selected-body context, explicit add-to-selected-body behavior, placement-row highlighting/focus targeting, and no mutation from selection alone.
+
+Deferred after Stage 15E:
+
+- Stage 15F should improve Suggested Builds quality and workspace loading.
+- Stage 15G should add saved Colony Project persistence.
+- Stage 15H should move Evidence and Validation into drawers/modes.

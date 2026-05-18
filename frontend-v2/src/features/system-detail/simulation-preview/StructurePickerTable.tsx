@@ -20,6 +20,7 @@ export function StructurePickerTable({
   templates,
   bodies,
   selectedBodyId,
+  topologyBodyId,
   selectedTemplateId,
   proposedTemplateId,
   onSelectTemplate,
@@ -27,6 +28,7 @@ export function StructurePickerTable({
   templates: FacilityTemplate[];
   bodies: SystemBody[];
   selectedBodyId?: string | null;
+  topologyBodyId?: string | null;
   selectedTemplateId?: string | null;
   proposedTemplateId?: string | null;
   onSelectTemplate: (templateId: string) => void;
@@ -73,6 +75,9 @@ export function StructurePickerTable({
             : bodyContext.status === 'unknown'
               ? `Unknown body: ${bodyContext.bodyId}`
               : 'No body selected yet'}
+          {topologyBodyId && topologyBodyId === selectedBodyId && (
+            <span className="ml-2 text-cyan">Topology context</span>
+          )}
         </div>
       </div>
 

@@ -206,11 +206,18 @@ describe('ColonyPlannerWorkspace', () => {
         system,
         selectedPlan: null,
         onPlanSnapshotChange: expect.any(Function),
+        topologySelection: { type: 'system' },
       }),
       undefined,
     );
 
     fireEvent.click(screen.getByText('Workspace System A 1'));
+    expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        topologySelection: { type: 'body', bodyId: 'body1' },
+      }),
+      undefined,
+    );
     expect(screen.getByText('Read-only topology selection')).toBeTruthy();
     expect(screen.getByText(/Build Plan editing stays in the central planner/i)).toBeTruthy();
 

@@ -139,4 +139,48 @@ describe('BuildPlanEditor structure replacement review', () => {
     fireEvent.click(screen.getByRole('button', { name: /Cancel replacement/i }));
     expect(onUpdate).not.toHaveBeenCalled();
   });
+
+  it('highlights placements related to the selected topology body without mutating the plan', () => {
+    const onUpdate = vi.fn();
+    render(
+      <BuildPlanEditor
+        placements={[
+          { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: true, build_order: 1 },
+          { facility_template_id: 'surface_outpost', local_body_id: null, is_primary_port: false, build_order: 2 },
+        ]}
+        templates={templates}
+        bodies={bodies}
+        topologySelection={{ type: 'body', bodyId: '1' }}
+        onUpdate={onUpdate}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('build-plan-placement-0').getAttribute('data-topology-highlight')).toBe('body');
+    expect(screen.getByTestId('build-plan-placement-1').getAttribute('data-topology-highlight')).toBe('none');
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it('highlights the selected topology placement and keeps editing in the central planner', () => {
+    const onUpdate = vi.fn();
+    render(
+      <BuildPlanEditor
+        placements={[
+          { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: true, build_order: 1 },
+          { facility_template_id: 'surface_outpost', local_body_id: null, is_primary_port: false, build_order: 2 },
+        ]}
+        templates={templates}
+        bodies={bodies}
+        topologySelection={{ type: 'placement', placementIndex: 1 }}
+        onUpdate={onUpdate}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('build-plan-placement-1').getAttribute('data-topology-highlight')).toBe('placement');
+    expect(screen.getByText('Topology selected')).toBeTruthy();
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
 });
