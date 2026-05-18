@@ -1,9 +1,15 @@
-import { ArrowLeft, ExternalLink, Rocket } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ArrowLeft, ExternalLink, PanelRight, Rocket } from 'lucide-react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { formatPopulation } from '@/lib/format';
 import type { SystemDetail } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
+import {
+  ColonyTopologyRail,
+  describeTopologySelection,
+  type TopologyPlanSnapshot,
+  type TopologySelection,
+} from './ColonyTopologyRail';
 
 export interface ColonyPlannerWorkspaceProps {
   id64: number | null;
@@ -72,21 +78,7 @@ export function ColonyPlannerWorkspace({
         onBackToFinder={onBackToFinder}
         onOpenSystemDetail={onOpenSystemDetail}
       />
-      <section className="panel p-4 sm:p-5">
-        <div className="mb-4 grid gap-3 border-b border-border pb-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="min-w-0">
-            <h2 className="font-mono text-[13px] uppercase tracking-[0.18em] text-orange">
-              Colony Planner Workspace
-            </h2>
-            <p className="mt-1 max-w-3xl text-xs font-mono leading-snug text-silver-dk">
-              Evaluate this system as a planning workspace: Suggested Builds, Build Plan, then Preview Result.
-              Nothing runs or loads automatically.
-            </p>
-          </div>
-          <PlannerWorkflowStrip />
-        </div>
-        <SimulationPreviewPanel system={data} selectedPlan={null} />
-      </section>
+      <WorkspaceGrid system={data} />
     </WorkspaceShell>
   );
 }
@@ -175,20 +167,33 @@ function WorkspaceHeader({
   ].filter((value): value is string => value != null).join(', ');
 
   return (
-    <header className="panel p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <header className="panel overflow-hidden p-4 sm:p-5">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
         <div className="min-w-0">
-          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-silver-dk">
-            Colony Planner Workspace
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+            <span>Colony Planner Workspace</span>
+            <span className="rounded border border-orange/35 bg-orange/10 px-1.5 py-0.5 text-orange">
+              Stage 15D topology
+            </span>
+            <span className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 text-cyan">
+              {status}
+            </span>
           </div>
-          <h1 className="mt-1 truncate font-display text-2xl tracking-[0.12em] text-orange">
-            {system.name || 'Unknown system'}
-          </h1>
-          <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-            ID64 <span className="text-silver tabular-nums">{system.id64}</span>
+          <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
+            <h1 className="min-w-0 truncate font-display text-2xl tracking-[0.12em] text-orange">
+              {system.name || 'Unknown system'}
+            </h1>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+              ID64 <span className="text-silver tabular-nums">{system.id64}</span>
+            </div>
           </div>
+          <dl className="mt-3 flex flex-wrap gap-2 text-[10px] font-mono">
+            <HeaderPill label="Coords" value={coords || 'Unknown'} tone="cyan" />
+            <HeaderPill label="Economy" value={system.economy_suggestion ?? system.primary_economy ?? 'Unknown'} tone="orange" />
+            <HeaderPill label="Population" value={population} />
+          </dl>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 xl:justify-end">
           <button
             type="button"
             onClick={onBackToFinder}
@@ -200,25 +205,19 @@ function WorkspaceHeader({
           <button
             type="button"
             onClick={() => onOpenSystemDetail(system.id64)}
+            data-testid="back-to-system-detail"
             className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-2 text-xs font-mono font-bold text-cyan hover:bg-cyan/20"
           >
             <ExternalLink size={14} />
-            Open full system detail
+            Back to system detail
           </button>
         </div>
       </div>
-
-      <dl className="mt-4 grid gap-2 text-xs font-mono sm:grid-cols-2 lg:grid-cols-4">
-        <HeaderFact label="Coordinates" value={coords || 'Unknown'} tone="cyan" />
-        <HeaderFact label="Suggested economy" value={system.economy_suggestion ?? system.primary_economy ?? 'Unknown'} tone="orange" />
-        <HeaderFact label="Status" value={status} tone={system.is_colonised ? 'red' : 'green'} />
-        <HeaderFact label="Population" value={population} />
-      </dl>
     </header>
   );
 }
 
-function HeaderFact({
+function HeaderPill({
   label,
   value,
   tone,
@@ -235,49 +234,188 @@ function HeaderFact({
   }[tone ?? 'cyan'];
 
   return (
-    <div className="rounded-chunk-sm border border-border bg-bg3/50 px-3 py-2">
-      <dt className="text-[10px] uppercase tracking-[0.16em] text-silver-dk">{label}</dt>
-      <dd className={['mt-1 truncate text-silver', toneClass].join(' ')}>{value}</dd>
+    <div className="inline-flex min-w-0 items-center gap-1.5 rounded border border-border bg-bg3/50 px-2 py-1">
+      <dt className="shrink-0 uppercase tracking-[0.14em] text-silver-dk">{label}</dt>
+      <dd className={['min-w-0 truncate text-silver', toneClass].join(' ')}>{value}</dd>
     </div>
   );
 }
 
-function PlannerWorkflowStrip() {
+function WorkspaceGrid({ system }: { system: SystemDetail }) {
+  const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
+  const [planSnapshot, setPlanSnapshot] = useState<TopologyPlanSnapshot>({
+    placements: [],
+    templates: [],
+    targetArchetype: 'refinery_industrial',
+  });
+  const handlePlanSnapshotChange = useCallback((snapshot: TopologyPlanSnapshot) => {
+    setPlanSnapshot(snapshot);
+  }, []);
+  const selectedContext = useMemo(
+    () => describeTopologySelection(selection, system, planSnapshot),
+    [planSnapshot, selection, system],
+  );
+
   return (
-    <div className="rounded-chunk-lg border border-cyan/25 bg-cyan/5 px-3 py-2">
-      <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Colony Planner flow</div>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono">
-        <FlowChip step="1" label="Suggested Builds" tone="primary" />
-        <FlowChip step="2" label="Build Plan" tone="primary" />
-        <FlowChip step="3" label="Preview Result" tone="primary" />
-        <FlowChip step="4" label="Observed Evidence" tone="later" />
-        <FlowChip step="5" label="Validation" tone="later" />
-      </div>
-      <p className="mt-2 text-[10px] font-mono leading-snug text-silver-dk">
-        Observed Evidence and Validation are later-step checks after planning and in-game verification.
-      </p>
-    </div>
+    <section
+      aria-label="Colony Planner application shell"
+      data-testid="planner-workspace-shell-v2"
+      className="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)_20rem] xl:items-start"
+    >
+      <ColonyTopologyRail
+        system={system}
+        snapshot={planSnapshot}
+        selection={selection}
+        onSelect={setSelection}
+      />
+      <main
+        aria-label="Planning workspace content"
+        data-testid="workspace-planner-content"
+        className="min-w-0 rounded-chunk-lg border border-orange/25 bg-bg1/70 p-3 shadow-metal xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
+      >
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-3">
+          <div>
+            <h2 className="font-mono text-[12px] uppercase tracking-[0.18em] text-orange">
+              Planning Workspace
+            </h2>
+            <p className="mt-1 max-w-2xl text-[11px] font-mono leading-snug text-silver-dk">
+              Existing planner tools remain here while topology selection stays read-only.
+            </p>
+          </div>
+          <span className="rounded border border-cyan/30 bg-cyan/5 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
+            Contained planner
+          </span>
+        </div>
+        <SimulationPreviewPanel
+          system={system}
+          selectedPlan={null}
+          onPlanSnapshotChange={handlePlanSnapshotChange}
+        />
+      </main>
+      <SummaryPanel
+        system={system}
+        snapshot={planSnapshot}
+        selectedContext={selectedContext}
+      />
+    </section>
   );
 }
 
-function FlowChip({
-  step,
+function SummaryPanel({
+  system,
+  snapshot,
+  selectedContext,
+}: {
+  system: SystemDetail;
+  snapshot: TopologyPlanSnapshot;
+  selectedContext: ReturnType<typeof describeTopologySelection>;
+}) {
+  const bodyCount = system.bodies?.length ?? 0;
+  const stationCount = system.stations?.length ?? 0;
+  const projectState = 'Unsaved workspace';
+  const architectState = 'Architect flag not observed';
+  const plannerState = 'Preview remains explicit';
+
+  return (
+    <aside
+      aria-label="Workspace summary"
+      data-testid="planner-summary-panel"
+      className="panel p-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
+    >
+      <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
+        <PanelRight size={13} />
+        Planner summary
+      </div>
+      <p className="mt-2 text-[11px] leading-snug text-silver-dk">
+        Persistent project context lives here first; saved projects and validation drawers remain deferred.
+      </p>
+
+      <dl className="mt-3 space-y-2 font-mono text-[10px]">
+        <SummaryRow label="Project" value={projectState} tone="gold" />
+        <SummaryRow label="Planner" value={plannerState} tone="cyan" />
+        <SummaryRow label="Bodies loaded" value={String(bodyCount)} />
+        <SummaryRow label="Stations loaded" value={String(stationCount)} />
+        <SummaryRow label="Plan placements" value={String(snapshot.placements.length)} tone="orange" />
+        <SummaryRow label="Selected" value={selectedContext.label} tone="cyan" />
+        <SummaryRow label="Selected type" value={selectedContext.kind} />
+        <SummaryRow label="Selection placements" value={String(selectedContext.placementCount)} />
+        <SummaryRow label="Selection warnings" value={String(selectedContext.warningCount)} tone={selectedContext.warningCount > 0 ? 'gold' : undefined} />
+        <SummaryRow label="Architect" value={architectState} tone="gold" />
+        <SummaryRow label="Suggested economy" value={system.economy_suggestion ?? system.primary_economy ?? 'Unknown'} tone="orange" />
+      </dl>
+
+      <section className="mt-4 rounded border border-orange/25 bg-orange/5 p-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
+          Read-only topology selection
+        </h3>
+        <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
+          {selectedContext.detail}
+        </p>
+        <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
+          {selectedContext.architectStatus}
+        </p>
+      </section>
+
+      <section className="mt-4 rounded border border-cyan/25 bg-cyan/5 p-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+          Workspace modes
+        </h3>
+        <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
+          <ModeChip label="Plan" active />
+          <ModeChip label="Preview" />
+          <ModeChip label="Evidence" />
+          <ModeChip label="Validation" />
+        </div>
+      </section>
+
+      <section className="mt-3 rounded border border-border/60 bg-bg3/30 p-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
+          Deferred to next stages
+        </h3>
+        <ul className="mt-2 space-y-1 font-mono text-[10px] text-silver-dk">
+          <li>15E: topology-based editing</li>
+          <li>15G: saved colony projects</li>
+        </ul>
+      </section>
+    </aside>
+  );
+}
+
+function SummaryRow({
   label,
+  value,
   tone,
 }: {
-  step: string;
   label: string;
-  tone: 'primary' | 'later';
+  value: ReactNode;
+  tone?: 'orange' | 'cyan' | 'gold';
 }) {
+  const toneClass = tone === 'orange'
+    ? 'text-orange'
+    : tone === 'gold'
+      ? 'text-gold'
+      : tone === 'cyan'
+        ? 'text-cyan'
+        : 'text-silver';
   return (
-    <span className={[
-      'inline-flex items-center gap-1 rounded border px-1.5 py-0.5',
-      tone === 'primary'
-        ? 'border-orange/35 bg-orange/10 text-orange'
-        : 'border-border/70 bg-bg3/40 text-silver-dk',
-    ].join(' ')}>
-      <span className="text-[9px] uppercase tracking-[0.08em]">{step}</span>
-      <span>{label}</span>
+    <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1.5">
+      <dt className="uppercase tracking-[0.14em] text-silver-dk">{label}</dt>
+      <dd className={['mt-0.5 break-words text-[11px]', toneClass].join(' ')}>{value}</dd>
+    </div>
+  );
+}
+
+function ModeChip({ label, active = false }: { label: string; active?: boolean }) {
+  return (
+    <span
+      className={[
+        'rounded border px-1.5 py-0.5',
+        active
+          ? 'border-orange/40 bg-orange/10 text-orange'
+          : 'border-border/60 bg-bg2/55 text-silver-dk',
+      ].join(' ')}
+    >
+      {label}
     </span>
   );
 }

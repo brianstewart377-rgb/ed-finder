@@ -8,6 +8,7 @@ import type {
   SimulationSummary,
   SystemDetail,
 } from '@/types/api';
+import type { TopologyPlanSnapshot } from '@/features/colony-planner/ColonyTopologyRail';
 import { BuildPlanSection } from './BuildPlanSection';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
 import { ColonyPlannerSectionNav } from './ColonyPlannerSectionNav';
@@ -28,11 +29,13 @@ export function SimulationPreview({
   initialRequest,
   initialPlanLabel,
   initialAssumptions = [],
+  onPlanSnapshotChange,
 }: {
   system: SystemDetail;
   initialRequest?: SimulateBuildRequest | null;
   initialPlanLabel?: string | null;
   initialAssumptions?: string[];
+  onPlanSnapshotChange?: (snapshot: TopologyPlanSnapshot) => void;
 }) {
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
@@ -77,6 +80,14 @@ export function SimulationPreview({
     targetArchetype: plan.targetArchetype,
     placements: plan.placements,
   });
+
+  useEffect(() => {
+    onPlanSnapshotChange?.({
+      placements: plan.placements,
+      templates,
+      targetArchetype: plan.targetArchetype,
+    });
+  }, [onPlanSnapshotChange, plan.placements, plan.targetArchetype, templates]);
 
   useEffect(() => {
     runState.clearPreviewState();

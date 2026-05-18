@@ -1,15 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import { Rocket, X } from 'lucide-react';
-import type { RecommendedBuildPlan, SystemDetail, SystemBody, SystemStation } from '@/types/api';
+import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
 import { formatPopulation } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
 import { useSystemDetail } from './useSystemDetail';
 import { RatingRadar } from './RatingRadar';
-import { BuildabilityPanel } from './BuildabilityPanel';
-import { SlotPredictionPanel } from './SlotPredictionPanel';
-import { RecommendedBuildsPanel } from './RecommendedBuildsPanel';
-import { SimulationPreviewPanel } from './SimulationPreviewPanel';
-import { RegionalPositionPanel } from './RegionalPositionPanel';
 
 export interface SystemDetailModalProps {
   id64:    number;
@@ -36,15 +31,10 @@ export interface SystemDetailModalProps {
 export function SystemDetailModal({
   id64,
   onClose,
-  focusIntent = null,
   onOpenColonyPlanner,
   renderActions,
 }: SystemDetailModalProps) {
   const { data, loading, error, refetch } = useSystemDetail(id64);
-  const [selectedBuild, setSelectedBuild] = useState<RecommendedBuildPlan | null>(null);
-  const colonyPlannerRef = useRef<HTMLDivElement | null>(null);
-  const highlightTimeoutRef = useRef<number | null>(null);
-  const [highlightPlanner, setHighlightPlanner] = useState(false);
 
   // Esc closes the modal. Body scroll lock only fires if we're actually
   // mounted (id64 changes between mounts so this is per-open).
@@ -56,37 +46,8 @@ export function SystemDetailModal({
     return () => {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
-      if (highlightTimeoutRef.current !== null) {
-        window.clearTimeout(highlightTimeoutRef.current);
-        highlightTimeoutRef.current = null;
-      }
     };
   }, [onClose]);
-
-  useEffect(() => {
-    setSelectedBuild(null);
-  }, [id64]);
-
-  const focusColonyPlanner = () => {
-    const node = colonyPlannerRef.current;
-    if (!node) return;
-    node.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-    node.focus({ preventScroll: true });
-    setHighlightPlanner(true);
-    if (highlightTimeoutRef.current !== null) {
-      window.clearTimeout(highlightTimeoutRef.current);
-    }
-    highlightTimeoutRef.current = window.setTimeout(() => {
-      setHighlightPlanner(false);
-      highlightTimeoutRef.current = null;
-    }, 1800);
-  };
-
-  useEffect(() => {
-    if (!data || focusIntent !== 'colony-planner') return;
-    const handle = window.setTimeout(focusColonyPlanner, 0);
-    return () => window.clearTimeout(handle);
-  }, [data, focusIntent]);
 
   return (
     <div
@@ -117,8 +78,8 @@ export function SystemDetailModal({
 
           {error && (
             <div className="rounded border border-red/50 bg-red/10 p-3 font-mono text-xs text-red flex flex-wrap items-center gap-3">
-              <span className="font-bold">Failed to load:</span>
-              <span>{error}</span>
+              <span className="font-bold">System detail is unavailable right now.</span>
+              <span className="text-silver-dk">Retry the request, or open another system from the results list.</span>
               <button
                 type="button"
                 onClick={refetch}
@@ -132,14 +93,8 @@ export function SystemDetailModal({
           {data && (
             <>
               <ColonyPlannerEntryPoint
-                onOpen={() => {
-                  if (onOpenColonyPlanner) {
-                    onOpenColonyPlanner(id64);
-                  } else {
-                    focusColonyPlanner();
-                  }
-                }}
-                opensWorkspace={!!onOpenColonyPlanner}
+                system={data}
+                onOpen={onOpenColonyPlanner}
               />
               <Section title="Rating profile">
                 <RatingRadar sys={data} />
@@ -149,32 +104,6 @@ export function SystemDetailModal({
               <StationsSection stations={data.stations} />
               <ExplorationValue value={data.exploration_value} />
 
-              {/* Colony Build Analysis — simulation engine panels */}
-              <Section title="Colony Planning">
-                <BuildabilityPanel id64={id64} />
-                <div className="mt-4">
-                  <RegionalPositionPanel id64={id64} />
-                </div>
-                <div className="mt-4">
-                  <RecommendedBuildsPanel system={data} onPreviewBuild={setSelectedBuild} />
-                </div>
-                <div className="mt-4">
-                  <div
-                    ref={colonyPlannerRef}
-                    tabIndex={-1}
-                    data-testid="colony-planner-focus-target"
-                    className={[
-                      'rounded-chunk-lg outline-none transition-[box-shadow,border-color] duration-300',
-                      highlightPlanner ? 'ring-2 ring-orange/70 shadow-brand-glow' : '',
-                    ].join(' ')}
-                  >
-                    <SimulationPreviewPanel system={data} selectedPlan={selectedBuild} />
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <SlotPredictionPanel id64={id64} />
-                </div>
-              </Section>
 
               <ExternalLinks sys={data} />
             </>
@@ -190,30 +119,55 @@ export function SystemDetailModal({
 }
 
 function ColonyPlannerEntryPoint({
+  system,
   onOpen,
-  opensWorkspace,
 }: {
-  onOpen: () => void;
-  opensWorkspace: boolean;
+  system: SystemDetail;
+  onOpen?: (id64: number) => void;
 }) {
+  const canOpenPlanner = Number.isFinite(system.id64) && system.id64 > 0 && !!onOpen;
+
   return (
-    <section className="rounded-chunk-lg border border-orange/35 bg-orange/10 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 max-w-3xl">
-          <h3 className="font-mono text-[12px] uppercase tracking-[0.18em] text-orange">
-            Colony Planner
-          </h3>
-          <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-            {opensWorkspace
-              ? 'Open the dedicated Colony Planner workspace for this system. Start from Suggested Builds if you are unsure, then run Preview when you are ready to evaluate it.'
-              : 'Build a plan for this system, start from Suggested Builds if you are unsure, then run Preview when you are ready to evaluate it.'}
+    <section
+      data-testid="colony-planner-entry-card"
+      className="rounded-chunk-lg border border-orange/35 bg-orange/10 p-4"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 max-w-3xl space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-mono text-[12px] uppercase tracking-[0.18em] text-orange">
+              Colony Planner
+            </h3>
+            <span className="rounded-full border border-orange/35 bg-bg2/75 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-orange-lt">
+              {canOpenPlanner ? 'Workspace available' : 'Planner unavailable'}
+            </span>
+          </div>
+          <p className="text-[11px] text-silver font-mono leading-snug">
+            Open the Colony Planner to create, compare, preview, and validate a build plan for this system.
           </p>
+          <p className="text-[11px] text-silver-dk font-mono leading-snug">
+            Suggested builds can be reviewed in the Colony Planner.
+          </p>
+          <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
+            <span className="rounded border border-border bg-bg3/60 px-2 py-1">
+              {system.name || 'Unknown system'}
+            </span>
+            <span className="rounded border border-border bg-bg3/60 px-2 py-1 tabular-nums">
+              ID64 {Number.isFinite(system.id64) ? system.id64 : 'unknown'}
+            </span>
+          </div>
+          {!canOpenPlanner && (
+            <p className="text-[11px] text-gold font-mono leading-snug">
+              Planner route is unavailable for this system record.
+            </p>
+          )}
         </div>
         <button
           type="button"
-          onClick={onOpen}
+          onClick={() => onOpen?.(system.id64)}
+          disabled={!canOpenPlanner}
           data-testid="open-colony-planner"
-          className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25"
+          className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
         >
           <Rocket size={14} />
           Open Colony Planner
