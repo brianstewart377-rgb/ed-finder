@@ -1048,6 +1048,103 @@ export interface paths {
         patch: operations["update_observed_fact_api_observations_facts__observation_id__patch"];
         trace?: never;
     };
+    "/api/observations/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compare Prediction Against Observations
+         * @description Run the Stage 6C deterministic comparison engine.
+         *
+         *     Two modes:
+         *
+         *     * **Mode A** — ``observed_facts`` omitted from the request. The
+         *       router loads up to ``fact_load_limit`` persisted facts for
+         *       ``system_id64`` via ``store.list_observed_facts_for_comparison``
+         *       and passes them to the engine.
+         *
+         *       Fact-loading semantics (Stage 6C hardening):
+         *         * If ``target_archetype`` is omitted/null in the request, all
+         *           facts for the system are loaded.
+         *         * If ``target_archetype`` is supplied, facts are included when
+         *           their ``target_archetype`` matches the requested value **or**
+         *           is ``NULL`` — i.e. system-level general evidence (notes,
+         *           service evidence, economy evidence, CP observations not tied
+         *           to a specific target) is included alongside target-specific
+         *           evidence. Facts targeting a *different* explicit archetype
+         *           are excluded.
+         *     * **Mode B** — ``observed_facts`` provided. The supplied list is
+         *       converted to ``PersistedObservedFact`` objects and passed to the
+         *       engine verbatim. The database is NOT queried for facts in this
+         *       mode.
+         *
+         *       Source semantics (Stage 6C hardening): Mode B supplied facts may
+         *       carry any ``ObservationSource`` value including ``imported`` and
+         *       ``inferred``. This is deliberate — Mode B is read-only and the
+         *       supplied facts are never persisted, so Stage 6A's reserved-source
+         *       restriction (manual/test_fixture only on create/update) does not
+         *       apply. Persistence still goes exclusively through Stage 6A's
+         *       ``POST /api/observations/facts`` endpoint and remains restricted.
+         *
+         *     The handler is **passive**: it never invokes simulation, optimiser,
+         *     or ranking code, and never mutates persisted observations. It only
+         *     reads observations (Mode A) and runs the pure comparison engine.
+         */
+        post: operations["compare_prediction_against_observations_api_observations_compare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/observations/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review Prediction Validation
+         * @description Run Stage 6C comparison and Stage 6E review guidance.
+         *
+         *     The handler mirrors compare-endpoint input semantics for caller
+         *     convenience, then passes the comparison result into the pure Stage
+         *     6E review engine. It does not run Simulation Preview, optimiser
+         *     generation, optimiser ranking, or any mechanics module, and it does
+         *     not mutate observations or predictions.
+         */
+        post: operations["review_prediction_validation_api_observations_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony-planner/system/{id64}/import-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import System Layout */
+        post: operations["import_system_layout_api_colony_planner_system__id64__import_layout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1817,6 +1914,55 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** LayoutImportRequest */
+        LayoutImportRequest: {
+            /**
+             * Source
+             * @default spansh
+             * @constant
+             * @enum {string}
+             */
+            source: "spansh";
+        };
+        /** LayoutImportResponse */
+        LayoutImportResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /**
+             * Source
+             * @constant
+             * @enum {string}
+             */
+            source: "spansh";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "success" | "partial" | "failed";
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+            summary: components["schemas"]["LayoutImportSummary"];
+            /** Warnings */
+            warnings: string[];
+            /** Errors */
+            errors: string[];
+        };
+        /** LayoutImportSummary */
+        LayoutImportSummary: {
+            /** Bodies Found */
+            bodies_found: number;
+            /** Stations Found */
+            stations_found: number;
+            /** Bodies Upserted */
+            bodies_upserted: number;
+            /** Stations Upserted */
+            stations_upserted: number;
+            /** Warnings Count */
+            warnings_count: number;
+        };
         /** LocalSearchRequest */
         LocalSearchRequest: {
             filters?: components["schemas"]["SearchFilters"] | null;
@@ -1857,6 +2003,27 @@ export interface components {
         NoteBody: {
             /** Note */
             note: string;
+        };
+        /** ObservationEvidenceMatchResponse */
+        ObservationEvidenceMatchResponse: {
+            /** Observation Id */
+            observation_id: string;
+            /** Fact Type */
+            fact_type: string;
+            /** Subject Type */
+            subject_type: string;
+            /** Subject Id */
+            subject_id: string | null;
+            /** Status */
+            status: string;
+            /** Confidence */
+            confidence: string;
+            /** Observed Value */
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Expected Value */
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** ObservationFactSummaryResponse */
         ObservationFactSummaryResponse: {
@@ -1931,6 +2098,53 @@ export interface components {
             observation_id: string;
             /** Deleted */
             deleted: boolean;
+        };
+        /**
+         * ObservedFactInput
+         * @description Fact-shaped object accepted by the Stage 6C compare endpoint.
+         */
+        ObservedFactInput: {
+            /** Observation Id */
+            observation_id: string;
+            /** System Id64 */
+            system_id64: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** @default manual */
+            source: components["schemas"]["ObservationSource"];
+            fact_type: components["schemas"]["ObservedFactType"];
+            subject_type: components["schemas"]["ObservedSubjectType"];
+            /** Subject Id */
+            subject_id?: string | null;
+            status: components["schemas"]["ObservedStatus"];
+            /** Observed Value */
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Expected Value */
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** @default medium */
+            confidence: components["schemas"]["ObservedConfidence"];
+            /** Notes */
+            notes?: string | null;
+            /** Build Fingerprint */
+            build_fingerprint?: string | null;
+            /** Simulation Fingerprint */
+            simulation_fingerprint?: string | null;
+            /** Target Archetype */
+            target_archetype?: string | null;
+            /** Facility Template Id */
+            facility_template_id?: string | null;
+            /** Local Body Id */
+            local_body_id?: string | null;
+            /** Service Id */
+            service_id?: string | null;
+            /** Economy */
+            economy?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** Metadata */
+            metadata?: Record<string, never>;
         };
         /** ObservedFactListResponse */
         ObservedFactListResponse: {
@@ -2260,6 +2474,104 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * PredictionObservationCompareRequest
+         * @description Request payload for ``POST /api/observations/compare``.
+         *
+         *     Two modes:
+         *
+         *     * **Mode A** — supply only ``system_id64``, ``target_archetype`` and
+         *       ``prediction``. The router loads observed facts for the system
+         *       from the persisted Stage 6A store.
+         *     * **Mode B** — supply ``observed_facts`` explicitly (in addition to
+         *       the other fields). The router will NOT hit the database for facts
+         *       and will use the supplied list verbatim.
+         */
+        PredictionObservationCompareRequest: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype?: string | null;
+            /** Prediction */
+            prediction: Record<string, never>;
+            /** Observed Facts */
+            observed_facts?: components["schemas"]["ObservedFactInput"][] | null;
+            /**
+             * Fact Load Limit
+             * @default 500
+             */
+            fact_load_limit: number;
+        };
+        /** PredictionObservationCompareResponse */
+        PredictionObservationCompareResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype: string | null;
+            /** Generated At */
+            generated_at: string;
+            summary: components["schemas"]["PredictionObservationComparisonSummaryResponse"];
+            /** Comparisons */
+            comparisons?: components["schemas"]["PredictionObservationComparisonResponse"][];
+            /** Warnings */
+            warnings?: string[];
+            /** Assumptions */
+            assumptions?: string[];
+        };
+        /** PredictionObservationComparisonResponse */
+        PredictionObservationComparisonResponse: {
+            /** Comparison Id */
+            comparison_id: string;
+            /** Area */
+            area: string;
+            /** Subject Type */
+            subject_type: string;
+            /** Subject Id */
+            subject_id: string | null;
+            /** Predicted Value */
+            predicted_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Observed Value */
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
+            /** Status */
+            status: string;
+            /** Severity */
+            severity: string;
+            /** Confidence */
+            confidence: string;
+            /** Reason */
+            reason: string;
+            /** Recommended Action */
+            recommended_action?: string | null;
+            /** Evidence */
+            evidence?: components["schemas"]["ObservationEvidenceMatchResponse"][];
+            /** Prediction Source */
+            prediction_source?: string | null;
+        };
+        /** PredictionObservationComparisonSummaryResponse */
+        PredictionObservationComparisonSummaryResponse: {
+            /** Status */
+            status: string;
+            /** Observed Facts Count */
+            observed_facts_count: number;
+            /** Compared Predictions Count */
+            compared_predictions_count: number;
+            /** Confirmed Count */
+            confirmed_count: number;
+            /** Contradicted Count */
+            contradicted_count: number;
+            /** Observed Only Count */
+            observed_only_count: number;
+            /** Predicted Only Count */
+            predicted_only_count: number;
+            /** Unknown Count */
+            unknown_count: number;
+            /** Unverified Count */
+            unverified_count: number;
+            /** Confidence Impact */
+            confidence_impact: string;
+            /** Summary */
+            summary: string;
+        };
+        /**
          * ProfileSyncBlob
          * @description The shape is intentionally `Any` — the frontend owns the schema.
          *
@@ -2481,6 +2793,21 @@ export interface components {
             /** Computed At */
             computed_at?: unknown | null;
         };
+        /** RerankContributions */
+        RerankContributions: {
+            /** Economy */
+            economy: number;
+            /** Slots */
+            slots: number;
+            /** Strategic */
+            strategic: number;
+            /** Safety */
+            safety: number;
+            /** Terraforming */
+            terraforming: number;
+            /** Diversity */
+            diversity: number;
+        };
         /** RerankRequest */
         RerankRequest: {
             /** Id64S */
@@ -2516,23 +2843,21 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** RerankContributions */
-        RerankContributions: {
-            economy: number;
-            slots: number;
-            strategic: number;
-            safety: number;
-            terraforming: number;
-            diversity: number;
-        };
         /** RerankSignals */
         RerankSignals: {
+            /** Economy Score */
             economy_score?: number | null;
+            /** Slots */
             slots?: number | null;
+            /** Body Quality */
             body_quality?: number | null;
+            /** Orbital Safety */
             orbital_safety?: number | null;
+            /** Terraforming Potential */
             terraforming_potential?: number | null;
+            /** Body Diversity */
             body_diversity?: number | null;
+            /** Confidence */
             confidence?: number | null;
         };
         /** RerankWeights */
@@ -3386,6 +3711,85 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * ValidationReviewRequest
+         * @description Request payload for ``POST /api/observations/review``.
+         *
+         *     Shape intentionally matches ``PredictionObservationCompareRequest``:
+         *     callers supply a system, optional target archetype, and current
+         *     prediction object. ``observed_facts`` remains an optional Mode B
+         *     override for tests/offline tools; when omitted the router loads
+         *     persisted facts with the same semantics as Stage 6C compare.
+         */
+        ValidationReviewRequest: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype?: string | null;
+            /** Prediction */
+            prediction: Record<string, never>;
+            /** Observed Facts */
+            observed_facts?: components["schemas"]["ObservedFactInput"][] | null;
+            /**
+             * Fact Load Limit
+             * @default 500
+             */
+            fact_load_limit: number;
+        };
+        /** ValidationReviewResponse */
+        ValidationReviewResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** Target Archetype */
+            target_archetype: string | null;
+            /** Generated At */
+            generated_at: string;
+            summary: components["schemas"]["ValidationReviewSummaryResponse"];
+            /** Signals */
+            signals?: components["schemas"]["ValidationReviewSignalResponse"][];
+            /** Warnings */
+            warnings?: string[];
+            /** Assumptions */
+            assumptions?: string[];
+        };
+        /** ValidationReviewSignalResponse */
+        ValidationReviewSignalResponse: {
+            /** Signal Id */
+            signal_id: string;
+            /** Area */
+            area: string;
+            /** Severity */
+            severity: string;
+            /** Confidence */
+            confidence: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Message */
+            message: string;
+            /** Recommended Action */
+            recommended_action?: string | null;
+            /** Comparison Ids */
+            comparison_ids?: string[];
+        };
+        /** ValidationReviewSummaryResponse */
+        ValidationReviewSummaryResponse: {
+            /** Overall Review Status */
+            overall_review_status: string;
+            /** Confidence Impact */
+            confidence_impact: string;
+            /** Highest Severity */
+            highest_severity: string;
+            /** Review Needed Count */
+            review_needed_count: number;
+            /** Evidence Strength */
+            evidence_strength: string;
+            /** Primary Review Areas */
+            primary_review_areas?: string[];
+            /** Summary */
+            summary: string;
         };
         /** WatchlistAlert */
         WatchlistAlert: {
@@ -5260,6 +5664,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ObservedFactResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_prediction_against_observations_api_observations_compare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PredictionObservationCompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionObservationCompareResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_prediction_validation_api_observations_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationReviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_system_layout_api_colony_planner_system__id64__import_layout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LayoutImportRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutImportResponse"];
                 };
             };
             /** @description Validation Error */

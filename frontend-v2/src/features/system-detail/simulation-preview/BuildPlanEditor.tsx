@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
 import { Chip, IconButton } from './components';
+import { PlannerGuidanceList } from './PlannerGuidanceList';
+import { buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
 import { StructureReplacementComparison } from './StructureReplacementComparison';
 import { StructurePickerTable } from './StructurePickerTable';
+import { getStructurePickerWarnings, resolveBodyContext } from './structurePickerUtils';
 import { formatLocation } from './utils/formatters';
 
 export function BuildPlanEditor({
@@ -33,6 +36,14 @@ export function BuildPlanEditor({
         const proposedTemplate = pendingReplacement?.index === index
           ? templates.find((item) => item.id === pendingReplacement.templateId)
           : undefined;
+        const bodyContext = resolveBodyContext(bodies, placement.local_body_id ?? null);
+        const guidance = buildPlannerGuidanceForPlacement({
+          placement,
+          template,
+          body: bodyContext.body,
+          hasUnknownBody: bodyContext.status === 'unknown',
+          warnings: template ? getStructurePickerWarnings(template, bodyContext) : [],
+        });
         return (
           <div key={`${placement.build_order}-${index}`} className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -142,6 +153,10 @@ export function BuildPlanEditor({
                 {template.confidence === 'estimated' && <Chip tone="warn">Estimated data</Chip>}
               </div>
             )}
+
+            <div className="mt-2">
+              <PlannerGuidanceList items={guidance} />
+            </div>
 
             {pickerOpen && (
               <div id={`structure-picker-panel-${index}`}>

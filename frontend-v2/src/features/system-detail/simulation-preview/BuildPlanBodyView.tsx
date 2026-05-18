@@ -16,6 +16,8 @@ import {
 } from './buildPlanLayoutUtils';
 import { BuildPlanLayoutDetailPanel, type LayoutSelection } from './BuildPlanLayoutDetailPanel';
 import { Chip } from './components';
+import { PlannerGuidanceList } from './PlannerGuidanceList';
+import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
 import { formatLocation } from './utils/formatters';
 
 interface BuildPlanBodyViewProps {
@@ -178,6 +180,13 @@ function BodyGroupCard({
   onSelectPlacement: (placementIndex: number) => void;
 }) {
   const bodyWarnings = getBodyGroupWarnings(group);
+  const bodyGuidance = buildPlannerGuidanceForBody(group.body, group.placements.map((item) => ({
+    placement: item.placement,
+    template: item.template,
+    body: group.body,
+    hasUnknownBody: item.hasUnknownBody,
+    warnings: getPlacementWarnings(item, group.body),
+  })));
   const summary = getBodyGroupSummary(group);
   const isUnassigned = group.body === null;
   const body = group.body;
@@ -242,6 +251,7 @@ function BodyGroupCard({
             {bodyWarnings.map((warning) => <Chip key={warning} tone="warn">{warning}</Chip>)}
           </div>
         )}
+        <PlannerGuidanceList items={bodyGuidance} limit={2} title="Body guidance" />
       </div>
 
       <div className="mt-3 grid gap-2">
@@ -275,6 +285,13 @@ function PlacementCard({
 }) {
   const { placement, template, index } = item;
   const warnings = getPlacementWarnings(item, body);
+  const guidance = buildPlannerGuidanceForPlacement({
+    placement,
+    template,
+    body,
+    hasUnknownBody: item.hasUnknownBody,
+    warnings,
+  });
   const status = getPlacementStatus(item, body);
   const confidence = template?.confidence ?? 'missing';
   const hasNotes = template?.notes != null && template.notes.trim().length > 0;
@@ -342,6 +359,9 @@ function PlacementCard({
       <p className="mt-2 font-mono text-[10px] text-silver-dk">
         Body assignment: {body ? bodyDisplayName(body) : item.hasUnknownBody ? `Unknown body ${item.bodyId}` : 'Unassigned'}
       </p>
+      <div className="mt-2">
+        <PlannerGuidanceList items={guidance} limit={2} />
+      </div>
     </button>
   );
 }
