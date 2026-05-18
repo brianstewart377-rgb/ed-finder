@@ -291,7 +291,7 @@ function WarningList({ warnings, emptyLabel }: { warnings: string[]; emptyLabel:
 
 function placementBodyLabel(body: SystemBody | null, item: GroupedPlacement): string {
   if (body) return bodyDisplayName(body);
-  if (item.hasUnknownBody) return `Unknown body ${item.bodyId}`;
+  if (item.hasUnknownBody) return 'Unknown body reference';
   return 'Unassigned';
 }
 

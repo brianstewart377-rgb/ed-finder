@@ -169,8 +169,10 @@ function ListSection({ title, items, empty }: { title: string; items: string[]; 
 
 function placementText(change: PlacementChange): string {
   const body = change.before_body_id !== change.after_body_id
-    ? ` body ${change.before_body_id ?? 'none'} → ${change.after_body_id ?? 'none'}`
-    : ` body ${change.after_body_id ?? change.before_body_id ?? 'none'}`;
+    ? ' body assignment changed'
+    : change.after_body_id || change.before_body_id
+      ? ' body assigned'
+      : ' unassigned';
   const order = change.before_build_order !== change.after_build_order
     ? ` order ${change.before_build_order ?? 'none'} → ${change.after_build_order ?? 'none'}`
     : '';

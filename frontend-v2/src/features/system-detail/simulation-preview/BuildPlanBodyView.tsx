@@ -368,7 +368,7 @@ function PlacementCard({
         </div>
       </div>
       <p className="mt-2 font-mono text-[10px] text-silver-dk">
-        Body assignment: {body ? bodyDisplayName(body) : item.hasUnknownBody ? `Unknown body ${item.bodyId}` : 'Unassigned'}
+        Body assignment: {body ? bodyDisplayName(body) : item.hasUnknownBody ? 'Unknown body reference' : 'Unassigned'}
       </p>
       <div className="mt-2">
         <PlannerGuidanceList items={guidance} limit={2} />

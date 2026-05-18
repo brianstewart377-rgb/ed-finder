@@ -73,7 +73,7 @@ export function StructurePickerTable({
           {bodyContext.status === 'selected'
             ? `Evaluating against: ${bodyDisplayName(bodyContext.body as SystemBody)}`
             : bodyContext.status === 'unknown'
-              ? `Unknown body: ${bodyContext.bodyId}`
+              ? 'Unknown body reference'
               : 'No body selected yet'}
           {topologyBodyId && topologyBodyId === selectedBodyId && (
             <span className="ml-2 text-cyan">Topology context</span>

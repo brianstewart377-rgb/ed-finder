@@ -189,7 +189,7 @@ describe('BuildPlanBodyView', () => {
     });
 
     expect(screen.getByText('Preview is stale')).toBeTruthy();
-    expect(screen.getByText((content) => content.includes('Unknown body 404'))).toBeTruthy();
+    expect(screen.getByText((content) => content.includes('Unknown body reference'))).toBeTruthy();
     expect(screen.getByText('Check placement: body ID does not match known body')).toBeTruthy();
     expect(screen.getAllByText('May be invalid: surface facility on non-landable body').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Select body Body 9' })).toBeTruthy();
@@ -313,7 +313,7 @@ describe('BuildPlanBodyView', () => {
     fireEvent.click(placement);
 
     const panel = screen.getByTestId('layout-detail-panel');
-    expect(within(panel).getByText('Unknown body 404')).toBeTruthy();
+    expect(within(panel).getByText('Unknown body reference')).toBeTruthy();
     expect(within(panel).getByText('Check placement: body ID does not match known body')).toBeTruthy();
     expect(within(panel).getByText('Build Plan changed. Run Preview again before relying on this result.')).toBeTruthy();
   });

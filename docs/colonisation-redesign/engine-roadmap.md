@@ -1234,3 +1234,32 @@ Test coverage added/updated in Stage 15H:
 Deferred after Stage 15H:
 
 - Stage 15I should finish QA, accessibility, copy cleanup, and responsive hardening.
+
+### Stage 15I - Workspace QA / Accessibility / Regression Hardening
+
+Stage 15I closes the topology-first planner workspace pass with focused QA and copy hardening.
+
+Current Stage 15I status:
+
+- The dedicated planner route header now describes the surface as the Stage 15 workspace instead of the earlier topology-only milestone.
+- User-facing planner copy no longer exposes raw body IDs by default when body metadata is missing.
+- Structure picker, body layout summaries, optimiser placement summaries, and optimiser comparison deltas use compact body-reference fallback copy.
+- Existing component tests cover the updated fallback labels.
+
+Safety boundaries in Stage 15I:
+
+- Stage 15I does not change backend mechanics, scoring, CP/economy/buildability/service logic, optimiser generation/ranking, Simulation Preview scoring, Observed Evidence semantics, Validation behavior, imports, persistence semantics, EDMC ingestion, hauling/material execution, or primary-port truth handling.
+- No auto-preview, auto-generation, auto-validation, auto-import, or autosave behavior is introduced.
+
+Test coverage added/updated in Stage 15I:
+
+- Structure picker fallback copy.
+- Body layout fallback copy.
+- Optimiser placement fallback copy.
+- Existing workspace route tests remain in place for project controls and planner navigation.
+
+Deferred after Stage 15I:
+
+- Backend saved-project persistence and migration.
+- Stage 16 colony role and colony planet modelling.
+- Additional visual regression and responsive screenshot coverage after the role model surfaces are designed.

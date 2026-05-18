@@ -179,7 +179,7 @@ function WorkspaceHeader({
           <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
             <span>Colony Planner Workspace</span>
             <span className="rounded border border-orange/35 bg-orange/10 px-1.5 py-0.5 text-orange">
-              Stage 15D topology
+              Stage 15 workspace
             </span>
             <span className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 text-cyan">
               {status}

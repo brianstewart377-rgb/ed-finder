@@ -460,7 +460,7 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getByText('#1')).toBeTruthy();
     expect(screen.getByText('Primary port')).toBeTruthy();
     expect(screen.getByText('generic_port_alpha')).toBeTruthy();
-    expect(screen.getAllByText('Body: body1').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Body assignment present').length).toBeGreaterThan(0);
   });
 
   it('renders initial read-only panel state with clear purpose copy and no apply button', () => {

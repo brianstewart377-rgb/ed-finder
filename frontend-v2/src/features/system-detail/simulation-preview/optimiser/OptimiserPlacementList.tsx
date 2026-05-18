@@ -26,7 +26,7 @@ export function OptimiserPlacementList({ placements }: { placements: OptimiserCa
             <span>{placement.facility_template_id}</span>
           </div>
           <div className="mt-1 text-[10px] text-silver-dk">
-            Body: {placement.local_body_id ?? 'system-level / unassigned'}
+            {placement.local_body_id ? 'Body assignment present' : 'System-level / unassigned'}
           </div>
         </li>
       ))}

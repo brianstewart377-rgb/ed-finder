@@ -1239,3 +1239,26 @@ Deferred:
 
 - Summary-rail Evidence/Validation badge consolidation.
 - Focus polish and responsive QA remain Stage 15I.
+
+## Stage 15I Implementation Note
+
+Stage 15I closed the Stage 15 workspace pass with focused QA, copy, and regression hardening.
+
+Delivered:
+
+- Workspace copy now refers to the dedicated route as the Stage 15 workspace rather than an earlier topology-only milestone.
+- User-facing planner surfaces avoid exposing raw body IDs by default when a placement references a missing body record.
+- Structure picker, body layout views, optimiser placement summaries, and optimiser comparison deltas now use compact fallback copy such as `Unknown body reference`, `Body assignment present`, and `body assignment changed`.
+- Existing tests were updated to lock the user-facing fallback copy.
+
+Safety boundaries preserved:
+
+- No backend mechanics, scoring, CP/economy/buildability/service logic, optimiser generation/ranking, Search Tuning, Simulation Preview scoring, Observed Evidence semantics, Validation behavior, imports, persistence semantics, EDMC ingestion, hauling/material execution, or primary-port truth handling changed.
+- No auto-preview, auto-generation, auto-validation, auto-import, or autosave behavior added.
+- The topology rail remains a coordination surface; editing remains in the central planner.
+
+Deferred:
+
+- Backend saved-project persistence and migration remain future work.
+- Colony roles, role confidence, and role-aware topology guidance are Stage 16 concerns.
+- Further end-to-end visual/responsive screenshot coverage can be added once Stage 16 role surfaces settle.
