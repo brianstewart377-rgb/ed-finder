@@ -1263,3 +1263,33 @@ Deferred after Stage 15I:
 - Backend saved-project persistence and migration.
 - Stage 16 colony role and colony planet modelling.
 - Additional visual regression and responsive screenshot coverage after the role model surfaces are designed.
+
+## Stage 16 - Colony Role / Colony Planet Model
+
+Stage 16 starts the next planner layer: role intent. Stage 15 made the workspace topology-first and project-capable; Stage 16 defines how ED-Finder should talk about what each body is for without changing game mechanics or pretending user intent is observed truth.
+
+### Stage 16A - Colony Role Model Planning Report
+
+Stage 16A is documentation only and is captured in `docs/colonisation-redesign/stage-16-colony-role-model-plan.md`.
+
+Current Stage 16A status:
+
+- Defines why the planner needs colony roles now that it can show bodies, placements, and saved projects.
+- Separates planned roles, observed roles, user-declared roles, and inferred roles.
+- Defines role boundaries for Colony Anchor, Colony Planet / Core Body, Main Station Body, Primary Port Body, Industrial Core, Extraction Body, Tourism/Agriculture Body, Military/Security Body, Support Body, and Expansion Reserve.
+- Captures role conflicts, overlap, confidence labels, badges, persistence needs, saved-project migration, future optimiser integration, and Evidence/Validation integration.
+
+Safety boundaries in Stage 16A:
+
+- No code implementation.
+- No backend mechanics, scoring, CP/economy/buildability/service logic, optimiser generation/ranking, Simulation Preview scoring, Observed Evidence semantics, Validation behavior, imports, persistence semantics, EDMC ingestion, hauling/material execution, or primary-port truth handling changed.
+- Primary-port role remains evidence-backed guidance only; users must not be able to set it arbitrarily as truth.
+
+Deferred after Stage 16A:
+
+- Role data model and local project migration design.
+- Role badges in the topology workspace.
+- Explicit user-declared role controls.
+- Role conflict/overlap guidance.
+- Evidence/Validation role review integration.
+- Suggested Build role explanations and explicit load-time role acceptance.
