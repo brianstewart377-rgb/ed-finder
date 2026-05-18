@@ -895,3 +895,31 @@ Deferred to Stage 13:
 - Architect observation concepts, unknown-vs-observed status, and future storage/import decisions.
 - Topology-aware readout beyond conservative body/placement guidance.
 - Full Architect Slot Survey and primary-port observation workflows.
+
+## Stage 13A - Architect Observation Foundation
+
+Stage 13A introduces frontend-only Architect observation concepts so the planner can distinguish unknown planning context from user-observed in-game Architect context without adding storage, imports, or primary-port editing.
+
+Current Stage 13A status:
+
+- Added read-only Architect observation status helpers for `not_observed` vs `observed` survey state, observed orbital/ground slot counts when supplied, and unknown vs observed primary-port flag context.
+- Added a compact Architect observation panel in the List editor and read-only Layout detail surfaces. By default it reports `Architect survey: not observed`, `Primary-port flag: unknown`, and unknown slot counts.
+- Preserved the conservative guidance that System Map -> Architect Mode should be checked before final major station placement, primary-port location is placement guidance rather than a Build Point source, and inconvenient flagged primary-port slots can be handled with an outpost while the main station goes elsewhere.
+
+Safety boundaries in Stage 13A:
+
+- No backend persistence, import, EDMC ingestion, Architect Slot Survey storage, scoring, CP formulas, economy mechanics, buildability mechanics, service unlock mechanics, optimiser behavior, Simulation Preview scoring, Observed Evidence semantics, or Validation semantics changed.
+- The Architect observation panel is display-only. It has no make-primary/remove-primary controls, no set/unset primary-port controls, no slot editing, and no automatic mutation.
+- Unknown Architect context is never presented as confirmed. Observed state is only rendered when explicitly supplied to the frontend helper/component.
+
+Test coverage added in Stage 13A:
+
+- `architectObservationUtils.test.ts` covers default unknown state, observed mock state, slot-count normalization, and guidance copy.
+- `ArchitectObservationPanel.test.tsx` covers unknown and observed rendering plus absence of primary-port editing controls.
+- Existing planner/List/Layout tests continue to confirm read-only Architect wording and no primary-port controls.
+
+Deferred to Stage 13B/13C:
+
+- Persistent Architect survey records, import/storage design, manual observation entry workflows, and EDMC/journal ingestion.
+- Full Architect Slot Survey UI and exact slot topology capture.
+- Topology-aware Layout readout that groups bodies, orbital-capable context, ground-capable context, and observed/unknown Architect status.

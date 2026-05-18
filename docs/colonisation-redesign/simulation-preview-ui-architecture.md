@@ -369,3 +369,30 @@ Deferred to Stage 13:
 - Architect observation status and unknown/observed survey concepts.
 - Topology-aware Layout readout beyond guidance rows.
 - Any persistent Architect survey data, imports, or primary-port observation workflows.
+
+## Stage 13A - Architect Observation Foundation
+
+Stage 13A adds a display-only Architect observation layer to the planner UI. It does not add persistence, imports, scoring, or editing flows.
+
+- `architectObservationUtils.ts` normalizes optional frontend Architect observation context into `not_observed`/`observed` survey state, unknown/observed primary-port flag state, and optional orbital/ground slot counts.
+- `ArchitectObservationPanel.tsx` renders the status in the List editor and read-only Layout detail panel. The default state is deliberately unknown: `Architect survey: not observed`, `Primary-port flag: unknown`, and unknown slot counts.
+- When tests or future callers provide observed mock context, the panel can render `Architect survey: observed` and `Primary-port flag: observed on ...` without treating it as backend-confirmed truth.
+- Existing primary-port guidance remains conservative: check System Map -> Architect Mode before final major station placement, primary-port location is placement guidance rather than a Build Point source, and an inconvenient flagged primary-port slot can be used for an outpost while the main station is placed elsewhere.
+
+Safety boundaries in Stage 13A:
+
+- No primary-port editing controls, make/remove primary actions, arbitrary slot assignment, Architect Slot Survey storage, backend imports, EDMC ingestion, auto-preview, auto-generation, auto-load/save, polling, or silent mutation are introduced.
+- No Simulation Preview scoring, optimiser ranking/generation, CP formulas, economy mechanics, service unlock logic, buildability rules, Observed Evidence, or Validation behavior changes are introduced.
+- Unknown Architect context remains unknown unless explicit observed context is supplied to the frontend component.
+
+Test coverage added in Stage 13A:
+
+- `architectObservationUtils.test.ts` covers unknown defaults and observed mock context.
+- `ArchitectObservationPanel.test.tsx` covers read-only unknown/observed rendering and absence of primary-port controls.
+- Existing Build Plan tests cover the integrated read-only wording in List/Layout surfaces.
+
+Deferred to later Stage 13 work:
+
+- Storage/import decisions for Architect surveys.
+- Full Architect Slot Survey UI and exact topology capture.
+- Topology-aware Layout grouping beyond the current read-only observation panel.

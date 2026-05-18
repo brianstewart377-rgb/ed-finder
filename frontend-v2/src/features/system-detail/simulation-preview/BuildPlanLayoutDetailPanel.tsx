@@ -12,6 +12,7 @@ import {
   type GroupedPlacement,
   type PlanSummary,
 } from './buildPlanLayoutUtils';
+import { ArchitectObservationPanel } from './ArchitectObservationPanel';
 import { Chip } from './components';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
 import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
@@ -109,6 +110,7 @@ function SummaryDetail({ summary }: { summary: PlanSummary }) {
         <DetailItem label="CP visible" value={`Y+${summary.yellowGenerated}/${summary.yellowNeeded} G+${summary.greenGenerated}/${summary.greenNeeded}`} />
       </DetailGrid>
       <NextAction summary={summary} />
+      <ArchitectObservationPanel compact />
     </div>
   );
 }
@@ -193,6 +195,7 @@ function PlacementDetail({ group, item, summary }: { group: BodyGroup; item: Gro
       </DetailGrid>
       <WarningList warnings={warnings} emptyLabel="No placement warnings from current layout data." />
       <PlannerGuidanceList items={guidance} />
+      <ArchitectObservationPanel compact showPrimaryPortPlacementReminder={Boolean(placement.is_primary_port)} />
       <p className="rounded border border-border/50 bg-bg3/35 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk">
         Use List view to edit this placement.
       </p>

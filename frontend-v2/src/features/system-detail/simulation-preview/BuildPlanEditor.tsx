@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
+import { ArchitectObservationPanel } from './ArchitectObservationPanel';
 import { Chip, IconButton } from './components';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
 import { buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
@@ -132,16 +133,8 @@ export function BuildPlanEditor({
               </div>
             </div>
 
-            <div className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-3 py-2 text-[11px] leading-snug text-silver-dk">
-              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Architect planning context</div>
-              <p className="mt-1">
-                Check the primary-port location in-game through System Map and Architect Mode before final major station placement. Primary-port location is placement guidance, not a Build Point source.
-              </p>
-              {placement.is_primary_port && (
-                <p className="mt-1">
-                  If the flagged slot is inconvenient, consider placing an outpost there and using a better body/orbit for the main station.
-                </p>
-              )}
+            <div className="mt-2">
+              <ArchitectObservationPanel showPrimaryPortPlacementReminder={Boolean(placement.is_primary_port)} />
             </div>
 
             {template && (
