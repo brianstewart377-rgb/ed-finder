@@ -978,3 +978,29 @@ Deferred beyond Stage 13C:
 - Persistent Architect survey records, manual observation entry, imports, and EDMC/journal ingestion.
 - Full Architect Slot Survey UI, exact slot topology capture, and any map-like spatial rendering.
 - Travel-time or adjacency calculations unless future data supports them.
+
+## Stage 14A - Observed Evidence Planning Expansion
+
+Stage 14A strengthens Observed Evidence as the place where real in-game observations are organized against the plan. It remains a passive evidence surface and uses the existing observed-facts API only.
+
+Current Stage 14A status:
+
+- Added frontend-only evidence category helpers for primary-port / Architect notes, structures actually built, body or slot observations, economy observations, service / population / security observations, and general notes.
+- Added an Observed vs planned framing readout to the Observed Evidence panel so Planned, Observed, and Unknown / not checked states remain visibly distinct.
+- Category counts are derived from the visible evidence list and stay clearly labelled as evidence organization, not validation verdicts.
+
+Safety boundaries in Stage 14A:
+
+- No backend persistence contract, imports, EDMC ingestion, scoring, CP formulas, economy mechanics, buildability rules, service unlock logic, optimiser behavior, Simulation Preview scoring, Validation semantics, or planner mutation changed.
+- Viewing Observed Evidence does not auto-run Preview, generation, Validation compare/review, polling, or silent mutation.
+- Primary-port / Architect evidence is categorized only when existing manual evidence text/tags/fields mention it. Stage 14A does not add Architect survey storage, slot editing, or primary-port editing controls.
+
+Test coverage added in Stage 14A:
+
+- `observedEvidencePlanningUtils.test.ts` covers category derivation and zero-count category summaries.
+- `ObservedEvidencePanel.test.tsx` covers planned/observed/unknown framing, category rendering, and passivity against preview, generation, validation compare/review, and observed-fact mutations while viewing.
+
+Deferred beyond Stage 14A:
+
+- Richer manual evidence types for Architect survey records, slot observations, service/population/security-specific fields, and future persistence/import work.
+- Validation mismatch copy and review-category refinements for Stage 14B.
