@@ -554,3 +554,22 @@ Stage 15I implementation note:
 - The hardening pass focused on copy and default visibility: missing body metadata should produce compact fallback labels, not raw body IDs, unless a future technical-details surface explicitly asks for those IDs.
 - Optimiser comparison copy now describes body assignment changes in player-facing terms. It still compares only the existing frontend candidate data and does not change optimiser generation, ranking, or scoring.
 - The next architecture step is Stage 16A documentation for colony roles and colony planet modelling, not another broad Stage 15 UI rewrite.
+
+## Stage 16 - Colony Role Model Direction
+
+Stage 16A documents the role-model direction in `docs/colonisation-redesign/stage-16-colony-role-model-plan.md`. This is a product and architecture planning layer, not a mechanics implementation.
+
+Architecture direction:
+
+- `features/colony-planner/` should own role intent because roles are workspace/project state tied to topology bodies.
+- `simulation-preview/` should continue to own existing Build Plan editing, preview execution, optimiser display, Observed Evidence, and Validation internals until a later stage deliberately moves a boundary.
+- Roles should be passed into existing planner/editor components through narrow optional props when they affect copy, filtering, badges, or context.
+- Planned roles, observed roles, user-declared roles, and inferred roles must stay distinguishable in the model and UI.
+- Primary-port role must be evidence-backed only. It is placement guidance, not a Build Point source, and not arbitrary user truth.
+
+Stage 16A implementation note:
+
+- No code changes are included in Stage 16A.
+- The role plan defines the first target roles: Colony Anchor, Colony Planet / Core Body, Main Station Body, Primary Port Body, Industrial Core, Extraction Body, Tourism/Agriculture Body, Military/Security Body, Support Body, and Expansion Reserve.
+- Future role UI should start in the topology workspace as read-only badges and explicit central-planner controls, not topology-row click mutations.
+- Future optimiser integration should begin as display-only role explanation. Role-aware generation or ranking would require a separate mechanics and scoring review.
