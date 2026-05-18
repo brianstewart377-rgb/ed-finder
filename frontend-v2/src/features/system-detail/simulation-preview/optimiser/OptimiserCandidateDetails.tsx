@@ -4,6 +4,7 @@ import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { OptimiserComparisonPanel, compareBuildSources, sourceFromCurrentPreview, sourceFromOptimiserCandidate } from './comparison';
 import { formatScore, rankTone, strategyLabel } from './optimiserUtils';
+import { suggestedBuildPresentation } from './optimiserQualityUtils';
 
 export function OptimiserCandidateDetails({
   candidate,
@@ -55,6 +56,7 @@ export function OptimiserCandidateDetails({
 
   const rankingReasons = ranking?.rank_breakdown.reasons ?? [];
   const responseAssumptions = response?.assumptions ?? [];
+  const presentation = suggestedBuildPresentation(candidate);
 
   const requestLoad = () => {
     if (!onLoadCandidate) return;
@@ -98,13 +100,20 @@ export function OptimiserCandidateDetails({
 
       {candidate.tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {candidate.tags.map((tag) => (
+          {presentation.tags.map((tag) => (
             <span key={tag} className="rounded border border-border/50 bg-bg3/30 px-1.5 py-0.5 font-mono text-[10px] text-silver-dk">
               {tag}
             </span>
           ))}
         </div>
       )}
+
+      <div className="grid gap-2 md:grid-cols-2">
+        <SummaryBox title="What this build is for" body={presentation.purpose} />
+        <SummaryBox title="Why suggested" body={presentation.reason} />
+        <SummaryBox title="Tradeoff" body={presentation.tradeoff} />
+        <SummaryBox title="Next action" body={presentation.nextAction} />
+      </div>
 
       <Section title="Rationale" items={candidate.rationale} empty="No rationale was returned for this suggested build." />
       <Section
@@ -144,9 +153,9 @@ export function OptimiserCandidateDetails({
 
       {onLoadCandidate && (
         <div className="rounded-chunk-lg border border-orange/30 bg-orange/8 p-3">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Copy to Build Plan</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Load into Planner Workspace</div>
           <p className="mt-1 text-[11px] text-silver-dk">
-            Copies this suggested build into the editable Build Plan. Nothing is committed in-game.
+            Loads this suggested build into the editable Build Plan for review. Nothing is committed in-game.
           </p>
           {controlsChangedSinceGeneration && (
             <p className="mt-2 text-[11px] text-gold">
@@ -165,7 +174,7 @@ export function OptimiserCandidateDetails({
               onClick={requestLoad}
               className="mt-3 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 font-mono text-xs font-bold text-orange hover:bg-orange/25"
             >
-              Copy to Build Plan
+              Load into Planner Workspace
             </button>
           )}
         </div>
@@ -224,6 +233,15 @@ function LoadConfirmation({
           {confirmLabel}
         </button>
       </div>
+    </div>
+  );
+}
+
+function SummaryBox({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
+      <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">{title}</h5>
+      <p className="mt-1 text-[11px] leading-snug text-silver-dk">{body}</p>
     </div>
   );
 }

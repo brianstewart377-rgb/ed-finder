@@ -1148,3 +1148,31 @@ Deferred:
 - Suggested Builds quality/load workflow remains Stage 15F.
 - Saved Colony Project persistence remains Stage 15G.
 - Evidence/Validation drawers remain Stage 15H.
+
+## Stage 15F Implementation Note
+
+Stage 15F implemented a frontend Suggested Builds quality gate and workspace loading copy.
+
+Delivered:
+
+- Trivial or unhelpful candidates are hidden from the visible Suggested Builds list:
+  - one-placement builds
+  - Colony Ship-only builds
+  - Colony Ship plus generic-station/outpost builds
+  - duplicate near-identical placement sets
+  - candidates with no clear role/purpose
+- If all returned candidates are filtered out, the workspace shows the useful-build empty state instead of presenting low-value cards.
+- Suggested Build cards/details now explain category, purpose, reason, tradeoff, and next action.
+- Raw tags are translated into player-facing labels.
+- The explicit load action is labelled `Load into Planner Workspace` and continues to use the existing candidate-to-Build-Plan path with replacement/stale confirmations.
+
+Safety boundaries preserved:
+
+- No optimiser backend scoring/ranking/generation changes.
+- No Simulation Preview scoring, CP/economy/buildability/service logic, Search Tuning, imports, persistence, Observed Evidence, Validation, primary-port truth handling, auto-preview, auto-generation, or auto-copy behavior changed.
+
+Deferred:
+
+- Saved Colony Project persistence remains Stage 15G.
+- Evidence/Validation drawers remain Stage 15H.
+- Broader Stage 15 QA/accessibility hardening remains Stage 15I.

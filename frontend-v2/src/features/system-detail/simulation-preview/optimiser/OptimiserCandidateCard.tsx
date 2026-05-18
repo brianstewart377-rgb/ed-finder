@@ -1,5 +1,6 @@
 import type { OptimiserCandidate, RankedOptimiserCandidate } from '@/types/api';
 import { formatPercent, formatScore, rankTone, strategyLabel } from './optimiserUtils';
+import { suggestedBuildPresentation } from './optimiserQualityUtils';
 
 export function OptimiserCandidateCard({
   candidate,
@@ -14,6 +15,7 @@ export function OptimiserCandidateCard({
 }) {
   const summary = candidate.preview_summary;
   const warningCount = candidate.warnings.length + (summary?.warnings_count ?? 0);
+  const presentation = suggestedBuildPresentation(candidate);
   return (
     <button
       type="button"
@@ -39,6 +41,9 @@ export function OptimiserCandidateCard({
           <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
             {strategyLabel(candidate.strategy)}
           </div>
+          <div className="mt-1 font-mono text-[10px] text-cyan">
+            {presentation.category}
+          </div>
         </div>
         {ranking && (
           <div className="shrink-0 text-right">
@@ -60,9 +65,7 @@ export function OptimiserCandidateCard({
         {!summary && <span className="rounded border border-border bg-bg3 px-1.5 py-0.5 text-silver-dk">No preview summary</span>}
       </div>
 
-      {candidate.rationale[0] && (
-        <p className="mt-3 line-clamp-2 text-[11px] leading-snug text-silver-dk">{candidate.rationale[0]}</p>
-      )}
+      <p className="mt-3 line-clamp-2 text-[11px] leading-snug text-silver-dk">{presentation.purpose}</p>
     </button>
   );
 }

@@ -1155,3 +1155,29 @@ Deferred after Stage 15E:
 - Stage 15F should improve Suggested Builds quality and workspace loading.
 - Stage 15G should add saved Colony Project persistence.
 - Stage 15H should move Evidence and Validation into drawers/modes.
+
+### Stage 15F - Suggested Builds Quality Gate + Workspace Loading
+
+Stage 15F makes Suggested Builds a workspace-first review surface without changing optimiser generation, ranking, scoring, or backend mechanics.
+
+Current Stage 15F status:
+
+- Suggested Build display now applies a frontend quality gate over the existing optimiser response. Trivial one-placement plans, Colony Ship-only plans, Colony Ship plus generic-station plans, duplicate near-identical placement sets, and candidates with no clear purpose are hidden from the visible list.
+- If generation returns only trivial/duplicate candidates, the workspace shows: `No useful suggested builds are available yet. Add more system data or start a manual Build Plan.`
+- Candidate cards/details now surface player-facing category, purpose, reason, tradeoff, and next action copy.
+- Raw optimiser tags such as `body_diversity` are translated into readable labels like `Uses multiple bodies`.
+- The explicit load action is now framed as `Load into Planner Workspace`; it still uses the existing candidate-to-Build-Plan path and still requires confirmation when replacing an existing plan or loading stale candidates.
+
+Safety boundaries in Stage 15F:
+
+- No optimiser backend scoring/ranking/generation, Simulation Preview scoring, CP/economy/buildability/service mechanics, Search Tuning, imports, persistence, Observed Evidence, Validation, or primary-port truth handling changed.
+- Suggested Builds still require explicit generation and explicit load. They do not auto-copy into the Build Plan, auto-run Preview, auto-save, auto-import, auto-generate on page load, mutate evidence, or run validation.
+
+Test coverage added/updated in Stage 15F:
+
+- Optimiser UI tests cover trivial build filtering, duplicate filtering, useful-build empty state, purpose/reason/tradeoff/action rendering, tag translation, explicit workspace loading, and existing no-auto-side-effect behavior.
+
+Deferred after Stage 15F:
+
+- Stage 15G should add saved Colony Project persistence.
+- Stage 15H should move Evidence and Validation into drawers/modes.
