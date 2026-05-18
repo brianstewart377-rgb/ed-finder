@@ -19,7 +19,7 @@ export function ObservedEvidencePlanningSummary({
     <div className="mb-4 rounded border border-border/60 bg-bg2/25 p-3 font-mono text-[10px] text-silver-dk">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="uppercase tracking-[0.16em] text-silver">Observed vs planned framing</div>
-        <div className="text-cyan">
+        <div className="text-cyan" aria-label="Visible observed evidence count">
           {visibleCount} visible / {totalCount} recorded
         </div>
       </div>
