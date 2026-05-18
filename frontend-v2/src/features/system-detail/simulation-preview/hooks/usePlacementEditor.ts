@@ -16,7 +16,7 @@ export interface UsePlacementEditorResult {
   setPlacements: Dispatch<SetStateAction<SimulateBuildPlacement[]>>;
   replacePlacements: (nextPlacements: SimulateBuildPlacement[]) => void;
   clearPlacements: () => void;
-  addPlacement: () => void;
+  addPlacement: (bodyId?: string | null) => void;
   updatePlacement: (index: number, patch: Partial<SimulateBuildPlacement>) => void;
   removePlacement: (index: number) => void;
   movePlacement: (index: number, direction: -1 | 1) => void;
@@ -39,7 +39,7 @@ export function usePlacementEditor({
     setPlacements([]);
   };
 
-  const addPlacement = () => {
+  const addPlacement = (bodyId?: string | null) => {
     const firstTemplate = preferredTemplate(templates);
     if (!firstTemplate) return;
     onManualEdit();
@@ -50,7 +50,7 @@ export function usePlacementEditor({
       ...current,
       {
         facility_template_id: firstTemplate.id,
-        local_body_id: bodies[0]?.id != null ? String(bodies[0].id) : null,
+        local_body_id: bodyId ?? (bodies[0]?.id != null ? String(bodies[0].id) : null),
         is_primary_port: current.length === 0 && firstTemplate.is_port,
         build_order: current.length + 1,
       },

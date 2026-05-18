@@ -8,7 +8,7 @@ import type {
   SimulationSummary,
   SystemDetail,
 } from '@/types/api';
-import type { TopologyPlanSnapshot } from '@/features/colony-planner/ColonyTopologyRail';
+import type { TopologyPlanSnapshot, TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
 import { BuildPlanSection } from './BuildPlanSection';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
 import { ColonyPlannerSectionNav } from './ColonyPlannerSectionNav';
@@ -30,12 +30,14 @@ export function SimulationPreview({
   initialPlanLabel,
   initialAssumptions = [],
   onPlanSnapshotChange,
+  topologySelection,
 }: {
   system: SystemDetail;
   initialRequest?: SimulateBuildRequest | null;
   initialPlanLabel?: string | null;
   initialAssumptions?: string[];
   onPlanSnapshotChange?: (snapshot: TopologyPlanSnapshot) => void;
+  topologySelection?: TopologySelection;
 }) {
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
@@ -160,6 +162,7 @@ export function SimulationPreview({
           onUpdatePlacement={plan.updatePlacement}
           onRemovePlacement={plan.removePlacement}
           onMovePlacement={plan.movePlacement}
+          topologySelection={topologySelection}
         />
 
         <div

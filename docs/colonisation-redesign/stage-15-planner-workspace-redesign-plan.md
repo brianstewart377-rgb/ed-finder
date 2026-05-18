@@ -1125,3 +1125,26 @@ No implementation changes should be made in Stage 15A.
 3. Should the planner route expose project IDs in the hash immediately, or keep project selection local until saved projects are proven?
 4. Should Suggested Builds quality gates live in the backend response, frontend display layer, or both?
 5. Should Architect observation capture be a subtype of Observed Evidence first, or a separate project survey record first?
+
+## Stage 15E Implementation Note
+
+Stage 15E implemented topology-aware coordination without moving editing into the rail.
+
+Delivered:
+
+- Topology selection is passed from the workspace into the existing central planner as optional context.
+- Body selection shows a compact `Currently viewing` context in Build Plan and highlights matching placement rows in List view.
+- Placement selection highlights and focuses the matching placement editor row in List view.
+- The central planner can explicitly add a new placement to the selected topology body through the existing placement-add path.
+- Structure picker can evaluate an unassigned placement against the selected topology body context without changing the placement assignment.
+
+Safety boundaries preserved:
+
+- Rail clicks remain non-mutating.
+- No drag/drop, slot editing, topology-local placement editor, auto-preview, auto-generation, auto-import, auto-validation, persistence, backend mechanics, scoring, CP/economy/buildability/service logic, observed-evidence semantics, validation behavior, optimiser behavior, or primary-port truth handling changed.
+
+Deferred:
+
+- Suggested Builds quality/load workflow remains Stage 15F.
+- Saved Colony Project persistence remains Stage 15G.
+- Evidence/Validation drawers remain Stage 15H.

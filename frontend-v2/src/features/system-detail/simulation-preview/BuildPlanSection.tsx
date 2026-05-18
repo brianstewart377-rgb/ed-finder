@@ -7,6 +7,8 @@ import { BuildPlanEditor } from './BuildPlanEditor';
 import { ModeIntro, StartModes } from './StartModes';
 import { Message } from './components';
 import { ARCHETYPES, type StartMode } from './types';
+import type { TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
+import { bodyDisplayName } from './buildPlanLayoutUtils';
 
 type BuildPlanViewMode = 'list' | 'body';
 
@@ -36,6 +38,7 @@ export function BuildPlanSection({
   onUpdatePlacement,
   onRemovePlacement,
   onMovePlacement,
+  topologySelection,
 }: {
   systemId64: number;
   systemName: string;
@@ -58,10 +61,11 @@ export function BuildPlanSection({
   onUseRecommended: () => void;
   onBlank: () => void;
   onShowSuggestedBuilds?: () => void;
-  onAddPlacement: () => void;
+  onAddPlacement: (bodyId?: string | null) => void;
   onUpdatePlacement: (index: number, patch: Partial<SimulateBuildPlacement>) => void;
   onRemovePlacement: (index: number) => void;
   onMovePlacement: (index: number, direction: -1 | 1) => void;
+  topologySelection?: TopologySelection;
 }) {
   const [viewMode, setViewMode] = useState<BuildPlanViewMode>('list');
   const [layoutImportResult, setLayoutImportResult] = useState<LayoutImportResponse | null>(null);
@@ -74,6 +78,14 @@ export function BuildPlanSection({
   }, [systemId64]);
   const assignedUnknownBodyIds = getAssignedUnknownBodyIds(placements, bodies);
   const templateCatalogueEmpty = !templatesLoading && !templatesErrorMessage && templates.length === 0;
+  const selectedBodyId = topologySelection?.type === 'body' ? topologySelection.bodyId : null;
+  const selectedPlacementIndex = topologySelection?.type === 'placement' ? topologySelection.placementIndex : null;
+  const selectedBody = selectedBodyId
+    ? bodies.find((body) => body.id != null && String(body.id) === selectedBodyId) ?? null
+    : null;
+  const selectedBodyPlacementCount = selectedBodyId
+    ? placements.filter((placement) => String(placement.local_body_id ?? '') === selectedBodyId).length
+    : 0;
 
   const handleImportLayout = async () => {
     setLayoutImportRunning(true);
@@ -171,7 +183,7 @@ export function BuildPlanSection({
           </label>
           <button
             type="button"
-            onClick={onAddPlacement}
+            onClick={() => onAddPlacement()}
             disabled={templates.length === 0}
             className="self-end inline-flex items-center justify-center gap-2 rounded-chunk-sm border border-border bg-bg3 px-3 py-2 text-xs font-mono text-silver hover:border-orange/60 hover:text-orange disabled:opacity-45"
           >
@@ -179,6 +191,38 @@ export function BuildPlanSection({
             Add Facility
           </button>
         </div>
+        {selectedBodyId && (
+          <div
+            data-testid="topology-planner-context"
+            className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-cyan/30 bg-cyan/5 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+                Currently viewing
+              </div>
+              <p className="mt-0.5 truncate text-[11px] font-mono text-silver-dk">
+                {selectedBody ? bodyDisplayName(selectedBody) : 'Selected topology body'} - {selectedBodyPlacementCount} matching placement{selectedBodyPlacementCount === 1 ? '' : 's'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onAddPlacement(selectedBodyId)}
+              disabled={templates.length === 0 || !selectedBody}
+              className="inline-flex items-center justify-center gap-2 rounded-chunk-sm border border-cyan/45 bg-cyan/10 px-3 py-2 text-xs font-mono text-cyan hover:bg-cyan/20 disabled:opacity-45"
+            >
+              <Plus size={14} />
+              Add to selected body
+            </button>
+          </div>
+        )}
+        {selectedPlacementIndex != null && (
+          <div
+            data-testid="topology-placement-context"
+            className="mt-3 rounded border border-orange/30 bg-orange/5 px-3 py-2 font-mono text-[11px] text-silver-dk"
+          >
+            Currently viewing placement {selectedPlacementIndex + 1}. The matching editor row is highlighted in List view.
+          </div>
+        )}
       </div>
 
       {templatesLoading && (
@@ -261,6 +305,7 @@ export function BuildPlanSection({
               placements={placements}
               templates={templates}
               bodies={bodies}
+              topologySelection={topologySelection}
               onUpdate={onUpdatePlacement}
               onRemove={onRemovePlacement}
               onMove={onMovePlacement}
