@@ -468,3 +468,26 @@ Deferred:
 
 - Dedicated Architect survey validation once a later stage adds observed Architect data storage/input.
 - Higher-level mismatch grouping, review workflows, and any automatic resolution.
+
+## Stage 14C - Planner QA and Roadmap Closure
+
+Stage 14C is the closure pass for the Stage 12-14 planner work. It reviews the architecture and copy added across the Structure Picker, replacement comparison, planner guidance, Architect context, Layout topology, Observed Evidence, and Validation surfaces.
+
+- List view remains the canonical editable Build Plan surface.
+- Layout view remains read-only planning output with topology/guidance context.
+- Structure Picker replacement still requires explicit Select/Apply/Cancel actions.
+- Architect/primary-port context remains read-only and unknown by default unless explicit observed context is supplied by future stages.
+- Observed Evidence remains the manual evidence surface; viewing it does not run Preview, generation, Validation compare/review, polling, or planner mutation.
+- Validation remains an explicit comparison/review surface; it does not auto-resolve mismatches or write back to the Build Plan.
+
+QA checklist:
+
+- Open Colony Planner, add a placement, browse grouped structures, filter by search/location, select a replacement, cancel, then apply explicitly.
+- Confirm Preview does not auto-run after picker/replacement changes and runs only when the user invokes it.
+- Confirm Layout cannot edit placements and only shows read-only topology, Architect, and strategic guidance.
+- Confirm primary-port wording never offers make/remove/set/unset controls and does not treat unknown Architect data as confirmed.
+- Confirm Observed Evidence and Validation copy keeps planned, observed, unknown, missing, mismatch, and manual-review states distinct.
+
+Deferred after Stage 14:
+
+- Persistent Architect survey input/storage, dedicated Architect validation fields, EDMC/journal imports, richer mismatch review workflows, map-like topology rendering, travel-time estimates, and scoring/optimizer changes.

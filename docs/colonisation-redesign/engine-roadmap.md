@@ -1030,3 +1030,47 @@ Deferred beyond Stage 14B:
 
 - Dedicated Architect survey validation fields once Stage 13 storage/input work exists.
 - Richer mismatch grouping, bulk review workflows, and any auto-resolution remain deferred.
+
+## Stage 14C - Planner QA and Roadmap Closure
+
+Stage 14C closes the Stage 12-14 planner polish pass with a focused QA and documentation review. It does not add new planner mechanics.
+
+Current Stage 14C status:
+
+- Reviewed Stage 12C through Stage 14B planner docs for consistent safety boundaries, deferred work, and primary-port / Architect wording.
+- Reviewed planner-facing copy for overclaims. The current wording keeps primary-port context read-only, avoids treating unknown Architect data as confirmed, avoids unsupported Build Point claims, and does not frame inconvenient flagged slots as reasons to reject a system.
+- Reviewed new planner code paths for accidental Preview, optimiser, validation, persistence, polling, or silent mutation side effects. Stage 12-14 additions remain deterministic UI guidance, display-only Architect context, explicit Observed Evidence actions, and explicit Validation review.
+- Confirmed the existing test suite now covers the main Stage 12-14 safety boundaries: grouped picker usability, replacement comparison deltas, planner guidance severity, read-only Architect observation, read-only Layout topology, strategic topology guidance, observed-evidence framing, validation mismatch categories, and primary-port control absence.
+
+Safety boundaries in Stage 14C:
+
+- No backend mechanics, scoring, CP formulas, economy mechanics, buildability rules, service unlock logic, optimiser ranking/generation, Search Tuning, Simulation Preview scoring, Observed Evidence semantics, Validation semantics, persistence, imports, EDMC ingestion, hauling/material workflows, or map topology rendering changed.
+- No auto-preview, auto-generate, auto-load, auto-save, polling, silent mutation, primary-port editing, Architect slot editing, or automatic mismatch resolution was introduced.
+- Layout remains read-only planning output. List view remains the canonical editable Build Plan surface.
+
+Manual QA checklist for Stage 12-14 closure:
+
+- Open Colony Planner.
+- Add a placement in List view.
+- Browse structures in the grouped Structure Picker.
+- Filter grouped picker results by search and location.
+- Select a replacement and review the comparison.
+- Cancel replacement and confirm the plan is unchanged.
+- Apply replacement explicitly and confirm Preview does not auto-run.
+- Run Preview manually.
+- Check Layout remains read-only and shows topology/guidance context.
+- Check Architect/primary-port wording is read-only and not user-editable.
+- Check Observed Evidence distinguishes planned, observed, and unknown states.
+- Check Validation distinguishes matches, differences, missing observations, unknown/not-checked rows, and manual-review rows.
+
+Recommended roadmap after Stage 14:
+
+- Stage 15A: Architect survey input/storage design, still clearly labelled as user-observed context.
+- Stage 15B: Dedicated Architect survey manual entry, including orbital/ground slot counts and flagged primary-port observation, without imports or automation.
+- Stage 15C: Validation integration for dedicated Architect survey evidence, including primary-port unknown/observed comparison rows.
+- Stage 16A: Higher-level validation review workflow for grouping mismatches and tracking manual review notes without auto-resolution.
+- Stage 16B: Optional richer topology visualization once observed slot data exists, avoiding misleading map-like spatial claims before then.
+
+Deferred beyond Stage 14C:
+
+- Full Architect Slot Survey UI, EDMC/journal ingestion, automatic imports, persisted build plans, mismatch auto-resolution, travel-time calculations, and any scoring/optimiser changes.
