@@ -415,7 +415,9 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     expect(screen.getByText(/1 placement in Build Plan/)).toBeTruthy();
     expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
-    expect(screen.getAllByText(/Check the primary-port location in-game through System Map and Architect Mode/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Check System Map > Architect Mode before final major station placement/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Architect survey: not observed')).toBeTruthy();
+    expect(screen.getByText('Primary-port flag: unknown')).toBeTruthy();
     expect(screen.getByText(/Yellow CP supports Tier 2 construction/)).toBeTruthy();
     expect(screen.getByText(/Green CP supports Tier 3 construction/)).toBeTruthy();
     expect(screen.getByText(/Build order can affect CP timing and port escalation/)).toBeTruthy();

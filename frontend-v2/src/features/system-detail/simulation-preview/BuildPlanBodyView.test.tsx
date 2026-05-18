@@ -252,6 +252,9 @@ describe('BuildPlanBodyView', () => {
     expect(within(panel).getByText('Y+0/20 G+0/40')).toBeTruthy();
     expect(within(panel).getByText('observed')).toBeTruthy();
     expect(within(panel).getByText('Use List view to edit this placement.')).toBeTruthy();
+    expect(within(panel).getByText('Architect survey: not observed')).toBeTruthy();
+    expect(within(panel).getByText('Primary-port flag: unknown')).toBeTruthy();
+    expect(within(panel).getByText('Primary-port location is placement guidance, not a Build Point source.')).toBeTruthy();
     expect(within(panel).getByText('Architect primary-port location should be checked before final major station placement.')).toBeTruthy();
     expect(within(panel).queryByRole('button', { name: /make primary/i })).toBeNull();
     expect(within(panel).queryByRole('button', { name: /remove primary/i })).toBeNull();
