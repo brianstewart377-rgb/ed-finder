@@ -923,3 +923,30 @@ Deferred to Stage 13B/13C:
 - Persistent Architect survey records, import/storage design, manual observation entry workflows, and EDMC/journal ingestion.
 - Full Architect Slot Survey UI and exact slot topology capture.
 - Topology-aware Layout readout that groups bodies, orbital-capable context, ground-capable context, and observed/unknown Architect status.
+
+## Stage 13B - Layout Topology Readout
+
+Stage 13B improves the read-only Layout view into a more topology-aware planning readout while staying conservative about unknown Architect data.
+
+Current Stage 13B status:
+
+- Added frontend-only topology readout helpers that count current planned orbital, ground, and unknown-location placements per body group using existing placement templates only.
+- Added compact read-only topology sections to Layout body cards and selected-body detail so users can distinguish known bodies, unknown body references, unassigned placements, ground-capable context, and unknown Architect slot counts.
+- Preserved the Stage 13A Architect boundary: slot counts and primary-port flags remain unknown unless explicit observed context is supplied to frontend helpers; no exact slot locations are invented.
+
+Safety boundaries in Stage 13B:
+
+- Layout view remains read-only. No placement editing, primary-port editing, make/remove primary actions, slot editing, persistence, imports, polling, auto-preview, auto-generation, or silent mutation are introduced.
+- No backend mechanics, scoring, CP formulas, economy mechanics, service unlock logic, buildability rules, optimiser generation/ranking, Search Tuning, Simulation Preview scoring, Observed Evidence semantics, Validation semantics, EDMC ingestion, hauling/material workflows, or map topology rendering changed.
+- Ground/orbital readouts are planning context only. They do not assert confirmed Architect capacity and do not change buildability or planner scoring.
+
+Test coverage added in Stage 13B:
+
+- `layoutTopologyUtils.test.ts` covers topology grouping, orbital/ground/unknown counts, known/unknown/unassigned body states, conservative ground-capability labels, observed mock Architect labels, and template-location formatting.
+- `BuildPlanBodyView.test.tsx` covers topology readout rendering in Layout cards/detail while preserving read-only selection behavior.
+
+Deferred to Stage 13C:
+
+- Strategic topology labels such as main-station candidate and support-body guidance.
+- Persistent Architect survey records, manual observation entry, imports, and EDMC/journal ingestion.
+- Full Architect Slot Survey UI, exact slot topology capture, and any map-like spatial rendering.

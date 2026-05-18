@@ -14,6 +14,8 @@ import {
 } from './buildPlanLayoutUtils';
 import { ArchitectObservationPanel } from './ArchitectObservationPanel';
 import { Chip } from './components';
+import { LayoutTopologyReadout } from './LayoutTopologyReadout';
+import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from './layoutTopologyUtils';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
 import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
 import { formatLocation } from './utils/formatters';
@@ -118,6 +120,7 @@ function SummaryDetail({ summary }: { summary: PlanSummary }) {
 function BodyDetail({ group, summary }: { group: BodyGroup; summary: PlanSummary }) {
   const bodySummary = getBodyGroupSummary(group);
   const warnings = getBodyGroupWarnings(group);
+  const topology = buildLayoutTopologyReadout(group);
   const guidance = buildPlannerGuidanceForBody(group.body, group.placements.map((item) => ({
     placement: item.placement,
     template: item.template,
@@ -140,6 +143,7 @@ function BodyDetail({ group, summary }: { group: BodyGroup; summary: PlanSummary
         <DetailItem label="Primary port here" value={bodySummary.hasPrimaryPort ? 'Yes' : 'No'} tone={bodySummary.hasPrimaryPort ? 'default' : 'warn'} />
         <DetailItem label="CP visible" value={`Y+${bodySummary.yellowGenerated}/${bodySummary.yellowNeeded} G+${bodySummary.greenGenerated}/${bodySummary.greenNeeded}`} />
       </DetailGrid>
+      <LayoutTopologyReadout readout={topology} />
       <TagList body={group.body} />
       <WarningList warnings={warnings} emptyLabel="No body-level warnings from current layout data." />
       <PlannerGuidanceList items={guidance} title="Body guidance" />
@@ -186,6 +190,7 @@ function PlacementDetail({ group, item, summary }: { group: BodyGroup; item: Gro
         <DetailItem label="Status" value={status} tone={status === 'planned' ? 'default' : 'warn'} />
         <DetailItem label="Primary port" value={placement.is_primary_port ? 'Yes' : 'No'} tone={placement.is_primary_port ? 'default' : 'warn'} />
         <DetailItem label="Location" value={template ? formatLocation(template.allowed_location) : 'Unknown'} tone={template ? 'default' : 'warn'} />
+        <DetailItem label="Topology" value={topologyPlacementLocationLabel(template).replace('Topology location: ', '')} tone={template ? 'default' : 'warn'} />
         <DetailItem label="Tier" value={template?.tier != null ? String(template.tier) : 'Unknown'} tone={template ? 'default' : 'warn'} />
         <DetailItem label="Pad" value={template?.pad_size ?? 'Unknown'} tone={template?.pad_size ? 'default' : 'warn'} />
         <DetailItem label="Economy" value={template?.economy ?? 'Unknown'} tone={template?.economy ? 'default' : 'warn'} />
