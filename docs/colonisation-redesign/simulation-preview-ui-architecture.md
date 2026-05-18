@@ -573,3 +573,14 @@ Stage 16A implementation note:
 - The role plan defines the first target roles: Colony Anchor, Colony Planet / Core Body, Main Station Body, Primary Port Body, Industrial Core, Extraction Body, Tourism/Agriculture Body, Military/Security Body, Support Body, and Expansion Reserve.
 - Future role UI should start in the topology workspace as read-only badges and explicit central-planner controls, not topology-row click mutations.
 - Future optimiser integration should begin as display-only role explanation. Role-aware generation or ranking would require a separate mechanics and scoring review.
+
+Stage 16B implementation note:
+
+- `ColonyPlannerWorkspace.tsx` is now the route container only. It owns system loading, empty state, retry/error state, and hands loaded systems to the workspace shell.
+- `WorkspaceGrid.tsx` owns topology selection, the one-way plan snapshot, the controlled Evidence/Validation drawer mode, and planner mounting.
+- `useWorkspaceProjectState.ts` owns local-only saved project lifecycle state and wraps the existing `colonyProjectStore`.
+- `WorkspaceSummaryRail.tsx` composes compact Project, Plan Health, Selection, Architect, Workspace Modes, and save-state cards.
+- `SimulationPreviewPanel` and `SimulationPreview` accept optional controlled drawer props so workspace mode buttons can live in the summary rail while drawer content remains in the existing central planner boundary.
+- This stage intentionally leaves Build Plan editing, preview execution, optimiser display, Observed Evidence, and Validation internals inside `simulation-preview/`.
+- Suggested Build usefulness filtering remains frontend-only display filtering. Backend candidate generation, ranking, and scoring are unchanged.
+- Durable/backend project persistence is deferred to a later persistence stage; local-only browser storage remains the current behavior.

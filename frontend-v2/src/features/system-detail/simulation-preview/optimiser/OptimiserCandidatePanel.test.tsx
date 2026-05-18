@@ -148,12 +148,42 @@ describe('optimiser candidate comparison UI', () => {
     const portOnly = {
       ...candidate('port-only', 'Port only'),
       placements: [{ facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 }],
+      rationale: [],
+      tags: [],
     };
     const original = [portOnly, useful, duplicate];
     const before = structuredClone(original);
 
     expect(filterUsefulSuggestedBuilds(original).map((item) => item.candidate_id)).toEqual(['useful']);
     expect(original).toEqual(before);
+  });
+
+  it('filters brittle trivial suggestions while keeping clear-role starter plans', () => {
+    const colonyShipOnly = {
+      ...candidate('ship-only', 'Colony Ship Only'),
+      placements: [{ facility_template_id: 'colony_ship', local_body_id: null, is_primary_port: false, build_order: 1 }],
+      rationale: [],
+      tags: ['baseline'],
+    };
+    const shipAndGenericOutpost = {
+      ...candidate('ship-outpost', 'Colony ship plus generic outpost'),
+      placements: [
+        { facility_template_id: 'colony_ship', local_body_id: null, is_primary_port: false, build_order: 1 },
+        { facility_template_id: 'generic_outpost', local_body_id: 'body1', is_primary_port: true, build_order: 2 },
+      ],
+      rationale: ['Generic plan'],
+      assumptions: ['baseline only'],
+      tags: [],
+    };
+    const usefulStarter = {
+      ...candidate('tourism-starter', 'Tourism starter'),
+      placements: [{ facility_template_id: 'tourism_lodge', local_body_id: 'body1', is_primary_port: false, build_order: 1 }],
+      rationale: ['Clear tourism starter for a civilian body.'],
+      tags: ['tourism'],
+    };
+
+    expect(filterUsefulSuggestedBuilds([colonyShipOnly, shipAndGenericOutpost, usefulStarter]).map((item) => item.candidate_id))
+      .toEqual(['tourism-starter']);
   });
 
   it('translates raw optimiser tags into player-facing suggested build language', () => {
@@ -198,7 +228,7 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getAllByText('Prefer before').length).toBeGreaterThan(0);
     expect(screen.getByText('Tradeoff summary')).toBeTruthy();
     expect(screen.getByText('Target archetype')).toBeTruthy();
-    expect(screen.getByText(/Changes from refinery_industrial to agriculture_terraforming/)).toBeTruthy();
+    expect(screen.getByText(/Changes from Refinery \/ Industrial Plan to Tourism \/ Agriculture Plan/)).toBeTruthy();
     expect(screen.getByText('Facility count changes')).toBeTruthy();
     expect(screen.getByText(/agri_support_a: 0 → 1/)).toBeTruthy();
     expect(screen.getByText(/legacy_support: removed/)).toBeTruthy();
@@ -467,13 +497,13 @@ describe('optimiser candidate comparison UI', () => {
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
     expect(screen.getByText('Suggested Builds')).toBeTruthy();
     expect(screen.getByText(/Generate Suggested Builds to get possible build plans/i)).toBeTruthy();
-    expect(screen.getByText(/ranked and compared against your editable Build Plan/i)).toBeTruthy();
+    expect(screen.getByText(/filters generated candidates for usefulness before display/i)).toBeTruthy();
     expect(screen.getByText(/Nothing is saved or committed in-game/i)).toBeTruthy();
     expect(screen.getByText(/Generates bounded suggested build plans and lightweight preview summaries/i)).toBeTruthy();
     expect(screen.getByText(/does not run the main Simulation Preview or change your current Build Plan/i)).toBeTruthy();
     expect(screen.getByText(/Allows Suggested Builds to use inferred or incomplete data/i)).toBeTruthy();
     expect(screen.getByText(/confidence and warnings should be reviewed/i)).toBeTruthy();
-    expect(screen.getByText(/Read-only for now/i)).toBeTruthy();
+    expect(screen.getByText(/Review suggested builds here without changing the editable Build Plan/i)).toBeTruthy();
     expect(screen.getByText('Generate Suggested Builds')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Load into Planner Workspace/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /apply/i })).toBeNull();
@@ -491,7 +521,7 @@ describe('optimiser candidate comparison UI', () => {
     );
     expect(screen.getByText(/review it as the editable Build Plan/i)).toBeTruthy();
     expect(screen.getByText(/Nothing is saved or committed in-game/i)).toBeTruthy();
-    expect(screen.queryByText(/Read-only for now/i)).toBeNull();
+    expect(screen.queryByText(/Review suggested builds here without changing the editable Build Plan/i)).toBeNull();
   });
 
   it('clicking Generate Suggested Builds calls API with ranking and preview enabled', async () => {
@@ -515,8 +545,8 @@ describe('optimiser candidate comparison UI', () => {
     fireEvent.click(screen.getByText('Generate Suggested Builds'));
 
     expect(await screen.findByText('Generated for')).toBeTruthy();
-    expect(screen.getByText(/Target archetype:/)).toBeTruthy();
-    expect(screen.getAllByText(/agriculture_terraforming/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Target:/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Tourism \/ Agriculture Plan/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Max suggested builds:/)).toBeTruthy();
     expect(screen.getAllByText('5').length).toBeGreaterThan(0);
     expect(screen.getByText(/Estimated data:/)).toBeTruthy();
@@ -592,6 +622,8 @@ describe('optimiser candidate comparison UI', () => {
       candidates: [{
         ...candidate('port-only', 'Port only'),
         placements: [{ facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 }],
+        rationale: [],
+        tags: [],
       }],
       ranking: null,
     }));

@@ -41,9 +41,10 @@ export function filterUsefulSuggestedBuilds(candidates: OptimiserCandidate[]): O
 }
 
 export function isTrivialSuggestedBuild(candidate: OptimiserCandidate): boolean {
-  if (candidate.placements.length <= 1) return true;
   if (isColonyShipOnly(candidate)) return true;
   if (isColonyShipAndGenericStation(candidate)) return true;
+  if (candidate.placements.length <= 1 && candidate.placements.every((placement) => isLowPurposePortTemplate(placement.facility_template_id))) return true;
+  if (candidate.placements.length <= 1 && !hasClearSuggestedBuildPurpose(candidate)) return true;
   return !hasClearSuggestedBuildPurpose(candidate);
 }
 
@@ -83,20 +84,28 @@ export function translateSuggestedBuildTags(tags: string[], text = ''): string[]
 }
 
 function isColonyShipOnly(candidate: OptimiserCandidate) {
-  return candidate.placements.length > 0
-    && candidate.placements.every((placement) => placement.facility_template_id.toLowerCase().includes('colony_ship'));
+  const text = candidateText(candidate);
+  return (candidate.placements.length > 0
+    && candidate.placements.every((placement) => isColonyShipTemplate(placement.facility_template_id))
+  ) || /\bcolony ship only\b/.test(text);
 }
 
 function isColonyShipAndGenericStation(candidate: OptimiserCandidate) {
   if (candidate.placements.length !== 2) return false;
   const ids = candidate.placements.map((placement) => placement.facility_template_id.toLowerCase());
-  return ids.some((id) => id.includes('colony_ship'))
-    && ids.some((id) => id.includes('generic') || id.includes('station') || id.includes('outpost'));
+  const hasShip = ids.some(isColonyShipTemplate);
+  const hasLowPurposePort = ids.some(isLowPurposePortTemplate);
+  return hasShip && hasLowPurposePort && !hasClearSuggestedBuildPurpose(candidate);
 }
 
 function hasClearSuggestedBuildPurpose(candidate: OptimiserCandidate) {
   const text = candidateText(candidate);
-  if (candidate.rationale.some((item) => item.trim().length > 0)) return true;
+  const meaningfulRationale = candidate.rationale.some((item) => {
+    const value = item.trim().toLowerCase();
+    return value.length > 0
+      && !['starter plan', 'baseline plan', 'generic plan', 'candidate plan'].includes(value);
+  });
+  if (meaningfulRationale) return true;
   return [
     'primary',
     'port',
@@ -110,7 +119,26 @@ function hasClearSuggestedBuildPurpose(candidate: OptimiserCandidate) {
     'balanced',
     'support',
     'body',
-  ].some((term) => text.includes(term));
+  ].some((term) => text.includes(term))
+    && !/\b(colony ship only|generic station only|generic outpost only|baseline only)\b/.test(text);
+}
+
+function isColonyShipTemplate(templateId: string) {
+  const id = templateId.toLowerCase();
+  return id.includes('colony_ship') || id.includes('colony-ship');
+}
+
+function isLowPurposePortTemplate(templateId: string) {
+  const id = templateId.toLowerCase();
+  return id.includes('generic')
+    || id.includes('basic_station')
+    || id.includes('basic-station')
+    || id.includes('generic_station')
+    || id.includes('generic-station')
+    || id.includes('generic_outpost')
+    || id.includes('generic-outpost')
+    || id.includes('placeholder_station')
+    || id.includes('placeholder-station');
 }
 
 function suggestedBuildCategory(candidate: OptimiserCandidate) {
