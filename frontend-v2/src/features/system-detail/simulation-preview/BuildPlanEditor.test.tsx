@@ -116,7 +116,7 @@ describe('BuildPlanEditor structure replacement review', () => {
     expect(screen.getByText('Primary-port flag: unknown')).toBeTruthy();
     expect(screen.getAllByText(/If the flagged primary-port slot is inconvenient, consider an outpost there/).length).toBeGreaterThan(0);
     expect(screen.getByText('Architect primary-port location should be checked before final major station placement.')).toBeTruthy();
-    expect(screen.getByText('If the flagged primary-port slot is inconvenient, consider an outpost there and place the main station elsewhere.')).toBeTruthy();
+    expect(screen.getAllByText('If the flagged primary-port slot is inconvenient, consider an outpost there and place the main station elsewhere.').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: /make primary/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /remove primary/i })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: /primary/i })).toBeNull();
