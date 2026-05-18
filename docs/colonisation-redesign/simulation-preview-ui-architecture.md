@@ -493,11 +493,19 @@ Implementation guidance for later stages:
 - Do not add more workspace-level state to `SimulationPreview.tsx` if it belongs to saved projects, route/workspace layout, body tree selection, or drawer mode.
 - New topology tree and project persistence code should live under `frontend-v2/src/features/colony-planner/` and call into existing preview components through narrow props.
 - If existing `simulation-preview` helpers become generally useful to the workspace, move or re-export them deliberately rather than duplicating logic.
-- Keep `SimulationPreviewPanel` as a compatibility adapter until System Detail simplification removes the embedded planner path.
+- Keep `SimulationPreviewPanel` as the compatibility adapter for the dedicated Planner Workspace while topology-first workspace pieces grow around it.
 
 Stage 15B implementation note:
 
 - `ColonyPlannerWorkspace.tsx` now owns the workspace shell around `SimulationPreviewPanel`: compact header, left topology placeholder rail, central contained planner content, and right summary/context rail.
 - The `simulation-preview/` folder still owns the existing planner internals and preview/evidence/validation behavior. Stage 15B intentionally does not move those internals yet.
 - The topology rail and summary rail are placeholders for Stage 15D and later project-persistence work. They must remain read-only until those stages explicitly add selection/edit/save behavior.
-- System Detail still embeds the current planner in Stage 15B. Replacing that embedded planner with a compact summary/CTA remains Stage 15C.
+- Stage 15C removes the System Detail embedded planner path. From Stage 15C onward, System Detail is an overview/discovery modal with a compact Colony Planner entry card, and `#colony-planner/system/{id64}` owns the full planning workflow.
+
+Stage 15C implementation note:
+
+- `SystemDetailModal.tsx` no longer imports or renders buildability, regional position, Recommended Builds, `SimulationPreviewPanel`, slot prediction, Observed Evidence, or Validation surfaces inline.
+- Recommended Builds and Suggested Builds are workspace-first. System Detail only tells users that suggested builds can be reviewed in the Colony Planner, and does not fetch or generate candidates for the overview card.
+- The System Detail CTA routes through the existing app handler to `#colony-planner/system/{id64}`; the Planner Workspace `Back to system detail` action remains the return path.
+- The old `simulation-preview/` internals remain intact and available inside the dedicated workspace. Stage 15C does not change preview execution, optimiser calls, validation/evidence behavior, imports, persistence, or scoring.
+- Stage 15D remains the next architecture step: replace the placeholder topology rail with a real body/topology tree MVP while keeping editing and persistence deferred until their scoped stages.

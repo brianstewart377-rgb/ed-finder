@@ -93,8 +93,19 @@ vi.mock('@/features/eddn/EddnTicker', () => ({
 }));
 
 vi.mock('@/features/system-detail/SystemDetailModal', () => ({
-  SystemDetailModal: ({ id64 }: { id64: number }) => (
-    <div data-testid="system-detail-modal">System detail {id64}</div>
+  SystemDetailModal: ({
+    id64,
+    onOpenColonyPlanner,
+  }: {
+    id64: number;
+    onOpenColonyPlanner?: (id64: number) => void;
+  }) => (
+    <div data-testid="system-detail-modal">
+      System detail {id64}
+      <button type="button" onClick={() => onOpenColonyPlanner?.(id64)}>
+        Open Colony Planner
+      </button>
+    </div>
   ),
 }));
 
@@ -170,5 +181,22 @@ describe('App Colony Planner workspace route', () => {
       expect(window.location.hash).toBe('#finder/system/123');
     });
     expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
+  });
+
+  it('opens the planner workspace from System Detail through #colony-planner/system/{id64}', async () => {
+    window.location.hash = '#finder/system/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Open Colony Planner/i }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#colony-planner/system/123');
+    });
+    expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
   });
 });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SystemDetail } from '@/types/api';
 import { useSystemDetail } from './useSystemDetail';
@@ -9,11 +9,25 @@ vi.mock('./useSystemDetail', () => ({
 }));
 
 vi.mock('./RatingRadar', () => ({ RatingRadar: () => <div>Rating radar</div> }));
-vi.mock('./BuildabilityPanel', () => ({ BuildabilityPanel: () => <div>Buildability panel</div> }));
-vi.mock('./SlotPredictionPanel', () => ({ SlotPredictionPanel: () => <div>Slot prediction panel</div> }));
-vi.mock('./RecommendedBuildsPanel', () => ({ RecommendedBuildsPanel: () => <div>Recommended builds panel</div> }));
-vi.mock('./SimulationPreviewPanel', () => ({ SimulationPreviewPanel: () => <div>Embedded Colony Planner</div> }));
-vi.mock('./RegionalPositionPanel', () => ({ RegionalPositionPanel: () => <div>Regional position panel</div> }));
+const {
+  mockBuildabilityPanel,
+  mockSlotPredictionPanel,
+  mockRecommendedBuildsPanel,
+  mockSimulationPreviewPanel,
+  mockRegionalPositionPanel,
+} = vi.hoisted(() => ({
+  mockBuildabilityPanel: vi.fn(() => <div>Buildability panel</div>),
+  mockSlotPredictionPanel: vi.fn(() => <div>Slot prediction panel</div>),
+  mockRecommendedBuildsPanel: vi.fn(() => <div>Recommended builds panel</div>),
+  mockSimulationPreviewPanel: vi.fn(() => <div>Embedded Colony Planner</div>),
+  mockRegionalPositionPanel: vi.fn(() => <div>Regional position panel</div>),
+}));
+
+vi.mock('./BuildabilityPanel', () => ({ BuildabilityPanel: mockBuildabilityPanel }));
+vi.mock('./SlotPredictionPanel', () => ({ SlotPredictionPanel: mockSlotPredictionPanel }));
+vi.mock('./RecommendedBuildsPanel', () => ({ RecommendedBuildsPanel: mockRecommendedBuildsPanel }));
+vi.mock('./SimulationPreviewPanel', () => ({ SimulationPreviewPanel: mockSimulationPreviewPanel }));
+vi.mock('./RegionalPositionPanel', () => ({ RegionalPositionPanel: mockRegionalPositionPanel }));
 
 const mockedUseSystemDetail = vi.mocked(useSystemDetail);
 
@@ -27,44 +41,52 @@ const system = {
   stations: [],
 } as unknown as SystemDetail;
 
+function mockLoadedSystem(overrides: Partial<SystemDetail> = {}) {
+  mockedUseSystemDetail.mockReturnValue({
+    data: { ...system, ...overrides } as SystemDetail,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  });
+}
+
 describe('SystemDetailModal Colony Planner entry point', () => {
   afterEach(() => {
     mockedUseSystemDetail.mockReset();
+    mockBuildabilityPanel.mockClear();
+    mockSlotPredictionPanel.mockClear();
+    mockRecommendedBuildsPanel.mockClear();
+    mockSimulationPreviewPanel.mockClear();
+    mockRegionalPositionPanel.mockClear();
     vi.restoreAllMocks();
   });
 
-  it('renders a prominent Open Colony Planner CTA and focuses the embedded planner', async () => {
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
-    mockedUseSystemDetail.mockReturnValue({
-      data: system,
-      loading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+  it('renders a compact Colony Planner entry card on System Detail', () => {
+    mockLoadedSystem();
 
-    render(<SystemDetailModal id64={123} onClose={() => undefined} />);
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onOpenColonyPlanner={() => undefined}
+      />,
+    );
 
-    expect(screen.getByTestId('open-colony-planner')).toBeTruthy();
-    expect(screen.getByText(/start from Suggested Builds/i)).toBeTruthy();
-
-    fireEvent.click(screen.getByTestId('open-colony-planner'));
-
-    const target = screen.getByTestId('colony-planner-focus-target');
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
-    expect(document.activeElement).toBe(target);
+    expect(screen.getByTestId('colony-planner-entry-card')).toBeTruthy();
+    expect(screen.getByText('Workspace available')).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Open the Colony Planner to create, compare, preview, and validate a build plan for this system/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Suggested builds can be reviewed in the Colony Planner/i)).toBeTruthy();
+    expect(screen.getAllByText('Test System').length).toBeGreaterThan(0);
+    expect(screen.getByText('ID64 123')).toBeTruthy();
   });
 
-  it('opens the dedicated Colony Planner workspace when a workspace handler is provided', () => {
+  it('opens the dedicated Colony Planner workspace through the existing route handler', () => {
     const onOpenColonyPlanner = vi.fn();
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
-    mockedUseSystemDetail.mockReturnValue({
-      data: system,
-      loading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+    mockLoadedSystem();
 
     render(
       <SystemDetailModal
@@ -74,65 +96,93 @@ describe('SystemDetailModal Colony Planner entry point', () => {
       />,
     );
 
-    expect(screen.getByText(/dedicated Colony Planner workspace/i)).toBeTruthy();
     fireEvent.click(screen.getByTestId('open-colony-planner'));
 
     expect(onOpenColonyPlanner).toHaveBeenCalledTimes(1);
     expect(onOpenColonyPlanner).toHaveBeenCalledWith(123);
-    expect(scrollIntoView).not.toHaveBeenCalled();
-    expect(screen.getByTestId('colony-planner-focus-target')).toBeTruthy();
   });
 
-  it('honours Search Tuning focus intent when the modal opens', async () => {
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
+  it('does not render the full planner stack inline on System Detail', () => {
+    mockLoadedSystem();
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onOpenColonyPlanner={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByText('Buildability panel')).toBeNull();
+    expect(screen.queryByText('Regional position panel')).toBeNull();
+    expect(screen.queryByText('Recommended builds panel')).toBeNull();
+    expect(screen.queryByText('Embedded Colony Planner')).toBeNull();
+    expect(screen.queryByText('Slot prediction panel')).toBeNull();
+    expect(screen.queryByText('Colony Planning')).toBeNull();
+    expect(screen.queryByText('Observed Evidence')).toBeNull();
+    expect(screen.queryByText('Validation')).toBeNull();
+    expect(screen.queryByTestId('colony-planner-focus-target')).toBeNull();
+    expect(mockBuildabilityPanel).not.toHaveBeenCalled();
+    expect(mockRegionalPositionPanel).not.toHaveBeenCalled();
+    expect(mockRecommendedBuildsPanel).not.toHaveBeenCalled();
+    expect(mockSimulationPreviewPanel).not.toHaveBeenCalled();
+    expect(mockSlotPredictionPanel).not.toHaveBeenCalled();
+  });
+
+  it('keeps the normal System Detail overview visible', () => {
+    mockLoadedSystem();
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onOpenColonyPlanner={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('Rating radar')).toBeTruthy();
+    expect(screen.getByText('System info')).toBeTruthy();
+    expect(screen.getByText('Coordinates')).toBeTruthy();
+    expect(screen.getByText('External')).toBeTruthy();
+  });
+
+  it('shows a friendly disabled planner state when no workspace handler is available', () => {
+    mockLoadedSystem();
+
+    render(<SystemDetailModal id64={123} onClose={() => undefined} />);
+
+    expect(screen.getByText('Planner unavailable')).toBeTruthy();
+    expect(screen.getByText(/Planner route is unavailable for this system record/i)).toBeTruthy();
+    expect((screen.getByTestId('open-colony-planner') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('does not expose raw backend errors in the compact System Detail error state', () => {
     mockedUseSystemDetail.mockReturnValue({
-      data: system,
+      data: null,
       loading: false,
-      error: null,
+      error: '{"trace":"backend exploded"}',
       refetch: vi.fn(),
     });
 
-    render(<SystemDetailModal id64={123} focusIntent="colony-planner" onClose={() => undefined} />);
+    render(<SystemDetailModal id64={123} onClose={() => undefined} />);
 
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
-    expect(document.activeElement).toBe(screen.getByTestId('colony-planner-focus-target'));
+    expect(screen.getByText(/System detail is unavailable right now/i)).toBeTruthy();
+    expect(screen.queryByText(/backend exploded/i)).toBeNull();
   });
 
-  it('cleans up planner highlight timers across repeated focus and unmount', () => {
-    const scrollIntoView = vi.fn();
-    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
-    Element.prototype.scrollIntoView = scrollIntoView;
-    mockedUseSystemDetail.mockReturnValue({
-      data: system,
-      loading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
-
-    const { unmount } = render(<SystemDetailModal id64={123} onClose={() => undefined} />);
-
-    fireEvent.click(screen.getByTestId('open-colony-planner'));
-    fireEvent.click(screen.getByTestId('open-colony-planner'));
-    expect(scrollIntoView).toHaveBeenCalledTimes(2);
-    expect(clearTimeoutSpy).toHaveBeenCalled();
-
-    unmount();
-    expect(clearTimeoutSpy).toHaveBeenCalled();
-  });
-
-  it('keeps normal modal close behaviours working with the planner focus target present', () => {
+  it('keeps normal modal close behaviours working without an embedded planner target', () => {
     const onClose = vi.fn();
-    mockedUseSystemDetail.mockReturnValue({
-      data: system,
-      loading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+    mockLoadedSystem();
 
-    render(<SystemDetailModal id64={123} onClose={onClose} />);
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={onClose}
+        onOpenColonyPlanner={() => undefined}
+      />,
+    );
 
-    expect(screen.getByTestId('colony-planner-focus-target')).toBeTruthy();
+    expect(screen.queryByTestId('colony-planner-focus-target')).toBeNull();
     fireEvent.click(screen.getByTestId('system-detail-close'));
     expect(onClose).toHaveBeenCalledTimes(1);
 

@@ -1063,7 +1063,39 @@ Current Stage 15B status:
 - The right summary rail surfaces project/planner status placeholders, Architect-not-observed status, loaded body/station counts, mode chips, and deferred-stage reminders.
 - Existing planner behavior remains contained and available. Stage 15B does not alter Simulation Preview internals, Suggested Builds generation, Observed Evidence, Validation, imports, persistence, CP/economy/service mechanics, backend scoring, or route shape.
 
-Deferred to Stage 15C/15D:
+Deferred to Stage 15D and later:
 
-- Stage 15C should simplify System Detail so it becomes overview plus project/planner CTA rather than another full planner surface.
 - Stage 15D should replace the placeholder topology rail with an actual body/topology tree navigation MVP.
+- Stage 15E should move build editing toward selected body/slot context.
+- Stage 15F should add Suggested Builds quality gates and a load-into-workspace flow.
+- Stage 15G should add saved Colony Project persistence and saved-project status on System Detail.
+
+### Stage 15C - System Detail Simplification
+
+Stage 15C simplifies the main System Detail modal so it is an overview/discovery surface rather than a second Colony Planner workspace. The full planning workflow now belongs to the existing `#colony-planner/system/{id64}` route.
+
+Current Stage 15C status:
+
+- `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` now renders a compact Colony Planner entry card with planner availability, system name/ID64, concise player-facing copy, and an `Open Colony Planner` CTA.
+- System Detail keeps rating profile, system info, bodies/stations/exploration summaries, external links, and existing modal actions.
+- System Detail no longer renders the full planner stack inline: buildability, regional position, Recommended Builds, embedded Simulation Preview, slot prediction, Observed Evidence, and Validation are no longer part of the modal path.
+- Recommended Builds are workspace-first. System Detail does not fetch/generate/display recommended-build candidates just to populate the entry card.
+- The System Detail to Planner handoff uses the existing `#colony-planner/system/{id64}` route; the Stage 15B back-to-system-detail action preserves the return flow.
+- Error display is compact and friendly, avoiding raw backend strings in the overview modal.
+
+Safety boundaries in Stage 15C:
+
+- No backend mechanics, backend scoring, optimiser generation/ranking, Search Tuning, Simulation Preview scoring, Observed Evidence, Validation, imports, persistence, CP/economy/service mechanics, or auto-run behavior changed.
+- No saved projects and no topology tree implementation were added.
+- The existing planner route shape remains unchanged.
+
+Test coverage added/updated in Stage 15C:
+
+- `SystemDetailModal.test.tsx` covers the compact planner entry card, existing overview visibility, absence of inline planner panels, disabled friendly state, compact error state, and normal modal close behavior.
+- `App.test.tsx` covers the System Detail `Open Colony Planner` handoff to `#colony-planner/system/{id64}`.
+- Stage 15B planner workspace tests continue to cover the dedicated planner route shell.
+
+Deferred to Stage 15D:
+
+- Replace the read-only topology placeholder rail with a real topology/body-tree MVP.
+- Keep saved project status, persistence, Suggested Builds quality gates, and drawer-mode Evidence/Validation for later Stage 15 work.

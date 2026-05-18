@@ -27,7 +27,7 @@ The planner is split across an app-level route shell, a system detail modal, and
 | App shell | `AppInner` owns hash routing, search, watchlist, pinned, compare, colony tracker, FC planner, admin state, and renders the full page. | `frontend-v2/src/App.tsx` |
 | Hash routing | `useHashRoute` parses ordinary modal child routes and the dedicated planner route. `#colony-planner/system/{id64}` maps to `route: 'colony-planner'` plus `plannerSystemId`. | `frontend-v2/src/hooks/useHashRoute.ts` |
 | Planner workspace shell | `ColonyPlannerWorkspace` is a route wrapper that loads system detail and renders `SimulationPreviewPanel`. It is not yet topology-first. | `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx` |
-| System Detail modal | Still renders a full `Colony Planning` section containing buildability, regional position, Recommended Builds, embedded Simulation Preview/Colony Planner, and slot predictions. | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` |
+| System Detail modal | Stage 15C has simplified this into an overview/discovery surface with a compact Colony Planner entry card. It no longer embeds buildability, regional position, Recommended Builds, Simulation Preview, Observed Evidence, Validation, or slot prediction planner panels. | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` |
 | Compatibility panel | `SimulationPreviewPanel` adapts a selected Recommended Build into `SimulationPreview`. | `frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx` |
 | Planner composition | `SimulationPreview` owns facility template loading, simulation summary loading, plan hook, preview-run hook, Suggested Builds, Build Plan, Preview Result, Observed Evidence, and Validation. | `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx` |
 | Build Plan | `BuildPlanSection` owns start modes, status, manual layout import state, archetype selector, List/Layout toggle, and either the list editor or body-group readout. | `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanSection.tsx` |
@@ -72,7 +72,7 @@ The current UI repeats the same workflow explanation in several places:
 - Start modes and empty states repeat the Suggested Builds/manual start choice.
 - Observed Evidence and Validation each repeat passivity/advisory warnings.
 - Layout view repeats "read-only, use List view to edit" across summary, body, placement, and next-action surfaces.
-- System Detail has a `Colony Planner` CTA but still embeds the full planner below.
+- System Detail has a `Colony Planner` CTA and, as of Stage 15C, no longer embeds the full planner below.
 - Recommended Builds and Suggested Builds are two suggestion concepts in close proximity.
 
 The repetition is understandable given prior safety stages, but it is now a major source of vertical bloat.
@@ -81,7 +81,7 @@ The repetition is understandable given prior safety stages, but it is now a majo
 
 High-impact sources:
 
-- System Detail renders rating, system info, bodies, stations, exploration, buildability, regional position, Recommended Builds, embedded planner, slot predictions, external links, and actions in one modal.
+- Before Stage 15C, System Detail rendered rating, system info, bodies, stations, exploration, buildability, regional position, Recommended Builds, embedded planner, slot predictions, external links, and actions in one modal. Stage 15C removed the planner stack from that modal path.
 - The dedicated planner route still wraps a vertical Simulation Preview stack inside a panel.
 - `BuildPlanSection` contains start modes, status, layout import, assumptions, target archetype selector, helper copy, List/Layout toggle, global hints, and either editor or layout readout.
 - List view renders one large card per placement, and each placement can expand a structure picker and replacement comparison.
@@ -722,7 +722,7 @@ Implementation notes:
 - Keep existing route.
 - Create layout regions but initially reuse current planner content in the center.
 - Add responsive shell only; no behavior rewrite yet.
-- Keep System Detail embedded planner until Stage 15C.
+- Keep System Detail embedded planner until Stage 15C. Stage 15C has now completed that handoff by replacing the embedded planner stack with a compact entry card.
 
 Tests:
 
@@ -739,13 +739,21 @@ Safety boundaries:
 
 Explicitly deferred:
 
-- Stage 15C: System Detail simplification and replacing the embedded planner with a compact project/planner summary.
 - Stage 15D: interactive topology/body tree navigation and body/slot selection.
 - Stage 15E: topology-local build editing.
 - Stage 15G: saved colony project persistence.
 - Stage 15H: Evidence/Validation drawers.
 
 ### Stage 15C - System Detail Simplification
+
+Current Stage 15C status:
+
+- Implemented in `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`.
+- System Detail is now an overview/discovery surface: Colony Planner entry card, rating profile, system info, bodies/stations/exploration summaries, external links, and existing modal actions.
+- The full planner stack no longer renders inline on System Detail. Buildability, regional position, Recommended Builds, embedded `SimulationPreviewPanel`, slot prediction, Observed Evidence, and Validation are workspace-first surfaces.
+- The entry card shows planner availability, system name/ID64, concise player-facing copy, a disabled friendly state when the workspace route cannot be opened, and the `Open Colony Planner` CTA wired to `#colony-planner/system/{id64}` through the existing app route handler.
+- Recommended Builds are not generated or displayed on System Detail. The summary copy directs users to review Suggested Builds inside the Colony Planner.
+- Error display is compact and friendly; raw backend strings are not surfaced in the System Detail modal.
 
 Purpose:
 
@@ -754,15 +762,14 @@ Purpose:
 Files likely affected:
 
 - `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`
-- `frontend-v2/src/features/system-detail/RecommendedBuildsPanel.tsx`
-- `frontend-v2/src/features/system-detail/BuildPlanCard.tsx`
-- System detail tests.
+- `frontend-v2/src/features/system-detail/SystemDetailModal.test.tsx`
+- `frontend-v2/src/App.test.tsx`
 
 Implementation notes:
 
 - Replace embedded `SimulationPreviewPanel` with project/planner summary and CTA.
-- Collapse or remove full Recommended Builds from System Detail.
-- Keep old components available if needed for workspace migration, but remove them from the modal path.
+- Remove full Recommended Builds from System Detail without deleting the underlying components.
+- Keep old planner, Recommended Builds, Evidence, and Validation internals available for the dedicated workspace and later migration stages.
 
 Tests:
 
@@ -770,6 +777,7 @@ Tests:
 - `Open Colony Planner` routes to workspace.
 - No embedded planner render in default System Detail.
 - Details actions from Finder/Search Tuning still open System Detail.
+- No new preview/generation/fetch side effects are introduced by System Detail.
 
 Safety boundaries:
 
@@ -778,7 +786,10 @@ Safety boundaries:
 
 Explicitly deferred:
 
-- Saved project summary can be placeholder until Stage 15G if needed.
+- Stage 15D: real topology/body tree navigation in the Planner Workspace.
+- Stage 15E: topology-local plan editing.
+- Stage 15F: Suggested Builds quality gate and load-into-workspace flow.
+- Stage 15G: saved project status/persistence summary on System Detail.
 
 ### Stage 15D - Topology Tree Readout MVP
 
@@ -1094,7 +1105,7 @@ No implementation changes should be made in Stage 15A.
 ## Open Questions Before Implementation
 
 1. Should local-only project persistence be acceptable for the first MVP, or should Stage 15G wait until backend persistence is ready?
-2. Should the old System Detail Recommended Builds panel be removed entirely in Stage 15C, or replaced with a compact "Planner suggestions available" summary until Stage 15F lands?
+2. Resolved in Stage 15C: the old System Detail Recommended Builds panel is removed from the modal path and replaced with compact copy that sends users to the Colony Planner for Suggested Builds.
 3. Should the planner route expose project IDs in the hash immediately, or keep project selection local until saved projects are proven?
 4. Should Suggested Builds quality gates live in the backend response, frontend display layer, or both?
 5. Should Architect observation capture be a subtype of Observed Evidence first, or a separate project survey record first?
