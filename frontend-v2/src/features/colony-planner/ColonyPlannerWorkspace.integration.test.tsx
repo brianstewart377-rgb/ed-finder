@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   api,
@@ -146,9 +146,10 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByText('Passive Workspace')).toBeTruthy();
+    expect((await screen.findAllByText('Passive Workspace')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('Colony Planner')).length).toBeGreaterThan(0);
     expect(screen.getByText(/Nothing runs or loads automatically/i)).toBeTruthy();
+    expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Generate Suggested Builds/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Run Preview/i })).toBeTruthy();
 
@@ -165,5 +166,16 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(mockedCompare).not.toHaveBeenCalled();
     expect(mockedReview).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: /Copy to Build Plan/i })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('topology-body-body1'));
+    expect(screen.getByText('Read-only topology selection')).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+    expect(mockedImportSystemLayout).not.toHaveBeenCalled();
+    expect(mockedCreateObservedFact).not.toHaveBeenCalled();
+    expect(mockedUpdateObservedFact).not.toHaveBeenCalled();
+    expect(mockedDeleteObservedFact).not.toHaveBeenCalled();
+    expect(mockedCompare).not.toHaveBeenCalled();
+    expect(mockedReview).not.toHaveBeenCalled();
   });
 });

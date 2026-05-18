@@ -835,3 +835,20 @@ Deferred to Stage 12C:
 - Better body/orbit recommendation context once confirmed Architect-slot data exists.
 - Layout-view-side explanatory affordances remain read-only unless a later stage explicitly scopes safe actions.
 - Backend catalogue enrichment and persistence workflows remain separate.
+
+## Stage 15D - Topology Tree MVP
+
+Stage 15D completes the first system-first/body-first navigation layer in the dedicated Colony Planner workspace.
+
+Current Stage 15D status:
+
+- `#colony-planner/system/{id64}` still owns the focused Colony Planner workspace shell and continues to reuse `useSystemDetail(id64)` and `SimulationPreviewPanel`.
+- The placeholder left rail is replaced by `ColonyTopologyRail`, a compact read-only topology/body tree built from existing system bodies and passive Build Plan placement context.
+- The rail renders the system root, body rows, optional parent/child indentation when available, placement counts per body, orbital/surface planned chips, sparse/unknown body chips, primary-port context, and unassigned plus unknown/unmatched placement groups.
+- The workspace owns local selected topology state. Selecting a body or placement only updates rail highlighting and the compact selected-context summary in the right panel.
+- The right summary panel now shows selected body/placement context, placement count, warning count, primary-port/Architect context, and explicit read-only topology-selection status.
+- Empty body layouts show a friendly import/refresh message without starting imports automatically.
+
+No backend mechanics, scoring, CP formulas, economy logic, optimiser generation/ranking, Search Tuning, Simulation Preview scoring, Observed Evidence, Validation behaviour, imports, persistence, auto-run, auto-generate, saved projects, Architect Slot Survey storage, primary-port editing, map rendering, or hauling/material workflow changed in Stage 15D.
+
+Stage 15E should decide how topology-based editing begins: which central Build Plan actions can safely move into the body tree, how selection coordinates with structure replacement, and which Architect/primary-port details remain observation context rather than editable planner state.

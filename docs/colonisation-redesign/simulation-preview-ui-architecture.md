@@ -223,6 +223,10 @@ The workspace wrapper owns no Simulation Preview mechanics. It does not call `si
 
 Stage 9D adds final route/workspace passivity hardening around this boundary. Workspace load may fetch system detail, facility templates, simulation summary, and observed-evidence list data through existing passive planner queries. It still does not run Preview, generate Suggested Builds, copy/load builds, mutate evidence, or call validation compare/review before the user runs Preview.
 
+Stage 15D adds the first workspace-local topology navigation layer around this same boundary. `ColonyPlannerWorkspace` renders a read-only `ColonyTopologyRail` from existing `SystemDetail.bodies` plus passive Build Plan context reported by `SimulationPreviewPanel`. The rail shows system/body rows, available parent/child indentation, placement counts, orbital/surface planned chips, sparse/unknown body chips, primary-port context, and unassigned or unknown/unmatched placement groups.
+
+The Stage 15D rail is navigation and context only. Selecting a body or placement updates local highlight and the compact right summary panel; it does not mutate Build Plan state, run Preview, generate Suggested Builds, fetch optimiser candidates, import/refresh layout, persist state, or call Observed Evidence / Validation endpoints. Editing remains in the central planner content until Stage 15E scopes topology-based editing.
+
 ## Stage 6E Validation Review Guidance
 
 Stage 6E extends the Validation section with a structured advisory layer from `POST /api/observations/review`. The panel still starts from a user-run Simulation Preview result; it does not run preview itself, generate optimiser candidates, mutate the build plan, create/update/delete observations, or change mechanics.

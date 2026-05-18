@@ -1,9 +1,17 @@
 import { ArrowLeft, ExternalLink, Rocket } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { formatPopulation } from '@/lib/format';
-import type { SystemDetail } from '@/types/api';
+import type { FacilityTemplate, SimulateBuildPlacement, SystemDetail } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
+import {
+  ColonyTopologyRail,
+  type PlannerPlanContext,
+  type TopologySelection,
+  buildTopologyModel,
+  selectedTopologyContext,
+} from './ColonyTopologyRail';
 
 export interface ColonyPlannerWorkspaceProps {
   id64: number | null;
@@ -17,6 +25,14 @@ export function ColonyPlannerWorkspace({
   onOpenSystemDetail,
 }: ColonyPlannerWorkspaceProps) {
   const { data, loading, error, refetch } = useSystemDetail(id64);
+  const [topologySelection, setTopologySelection] = useState<TopologySelection>({ kind: 'system' });
+  const [planContext, setPlanContext] = useState<PlannerPlanContext>({ placements: [], templates: [] });
+  const handlePlanContextChange = useCallback((context: {
+    placements: SimulateBuildPlacement[];
+    templates: FacilityTemplate[];
+  }) => {
+    setPlanContext(context);
+  }, []);
 
   if (id64 == null) {
     return (
@@ -72,8 +88,48 @@ export function ColonyPlannerWorkspace({
         onBackToFinder={onBackToFinder}
         onOpenSystemDetail={onOpenSystemDetail}
       />
-      <section className="panel p-4 sm:p-5">
-        <div className="mb-4 grid gap-3 border-b border-border pb-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <WorkspacePlanner
+        system={data}
+        planContext={planContext}
+        topologySelection={topologySelection}
+        onTopologySelectionChange={setTopologySelection}
+        onPlanContextChange={handlePlanContextChange}
+      />
+    </WorkspaceShell>
+  );
+}
+
+function WorkspacePlanner({
+  system,
+  planContext,
+  topologySelection,
+  onTopologySelectionChange,
+  onPlanContextChange,
+}: {
+  system: SystemDetail;
+  planContext: PlannerPlanContext;
+  topologySelection: TopologySelection;
+  onTopologySelectionChange: (selection: TopologySelection) => void;
+  onPlanContextChange: (context: { placements: SimulateBuildPlacement[]; templates: FacilityTemplate[] }) => void;
+}) {
+  const summary = useMemo(() => buildTopologyModel(system.bodies ?? [], planContext).summary, [planContext, system.bodies]);
+  const selectedContext = useMemo(() => selectedTopologyContext({
+    system,
+    planContext,
+    selection: topologySelection,
+  }), [planContext, system, topologySelection]);
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)_18rem]">
+      <ColonyTopologyRail
+        system={system}
+        planContext={planContext}
+        selection={topologySelection}
+        onSelect={onTopologySelectionChange}
+      />
+
+      <section className="panel min-w-0 p-4 sm:p-5">
+        <div className="mb-4 border-b border-border pb-4">
           <div className="min-w-0">
             <h2 className="font-mono text-[13px] uppercase tracking-[0.18em] text-orange">
               Colony Planner Workspace
@@ -83,11 +139,82 @@ export function ColonyPlannerWorkspace({
               Nothing runs or loads automatically.
             </p>
           </div>
-          <PlannerWorkflowStrip />
         </div>
-        <SimulationPreviewPanel system={data} selectedPlan={null} />
+        <SimulationPreviewPanel
+          system={system}
+          selectedPlan={null}
+          onPlanContextChange={onPlanContextChange}
+        />
       </section>
-    </WorkspaceShell>
+
+      <PlannerContextPanel
+        selectedContext={selectedContext}
+        summary={summary}
+      />
+    </section>
+  );
+}
+
+function PlannerContextPanel({
+  selectedContext,
+  summary,
+}: {
+  selectedContext: ReturnType<typeof selectedTopologyContext>;
+  summary: ReturnType<typeof buildTopologyModel>['summary'];
+}) {
+  return (
+    <aside className="space-y-3">
+      <PlannerWorkflowStrip />
+      <section className="rounded-chunk-lg border border-border/70 bg-bg2/70 p-3">
+        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
+          Selected context
+        </div>
+        <h3 className="mt-1 truncate text-sm font-bold text-silver">{selectedContext.title}</h3>
+        <p className="mt-1 text-[11px] leading-snug text-silver-dk">{selectedContext.subtitle}</p>
+        <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-[10px]">
+          <ContextMetric label="Placements" value={String(selectedContext.placementCount)} />
+          <ContextMetric label="Warnings" value={String(selectedContext.warningCount)} warn={selectedContext.warningCount > 0} />
+          <ContextMetric label="Bodies" value={String(summary.bodyCount)} />
+          <ContextMetric label="Unassigned" value={String(summary.unassignedCount + summary.unknownCount)} warn={summary.unassignedCount + summary.unknownCount > 0} />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5 font-mono text-[10px]">
+          <span className="rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 text-cyan">
+            Read-only topology selection
+          </span>
+          <span className={[
+            'rounded border px-1.5 py-0.5',
+            selectedContext.primaryPort ? 'border-green/35 bg-green/10 text-green' : 'border-border bg-bg4 text-silver-dk',
+          ].join(' ')}>
+            {selectedContext.primaryPort ? 'Primary port context' : 'No primary port context'}
+          </span>
+        </div>
+        {selectedContext.technicalDetail && (
+          <p className="mt-3 border-t border-border/60 pt-2 font-mono text-[10px] leading-snug text-silver-dk">
+            {selectedContext.technicalDetail}
+          </p>
+        )}
+        <div className="mt-3 border-t border-border/60 pt-2">
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Architect status</div>
+          <p className="mt-1 text-[11px] leading-snug text-silver-dk">
+            {summary.primaryPortBodyName
+              ? `Primary-port observation context is ${summary.primaryPortBodyName}.`
+              : 'No primary-port observation context selected in the current Build Plan.'}
+          </p>
+        </div>
+      </section>
+    </aside>
+  );
+}
+
+function ContextMetric({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className={[
+      'rounded border px-2 py-1.5',
+      warn ? 'border-gold/35 bg-gold/5 text-gold' : 'border-border/55 bg-bg3/35 text-silver',
+    ].join(' ')}>
+      <div className="uppercase tracking-[0.14em] text-silver-dk">{label}</div>
+      <div className="mt-0.5 text-xs tabular-nums">{value}</div>
+    </div>
   );
 }
 

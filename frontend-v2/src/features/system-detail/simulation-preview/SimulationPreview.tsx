@@ -23,16 +23,23 @@ import {
   simulationBodies,
 } from './utils/placementHelpers';
 
+const EMPTY_TEMPLATES: FacilityTemplate[] = [];
+
 export function SimulationPreview({
   system,
   initialRequest,
   initialPlanLabel,
   initialAssumptions = [],
+  onPlanContextChange,
 }: {
   system: SystemDetail;
   initialRequest?: SimulateBuildRequest | null;
   initialPlanLabel?: string | null;
   initialAssumptions?: string[];
+  onPlanContextChange?: (context: {
+    placements: SimulateBuildRequest['placements'];
+    templates: FacilityTemplate[];
+  }) => void;
 }) {
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
@@ -47,7 +54,7 @@ export function SimulationPreview({
     retry: 1,
   });
 
-  const templates = templatesQuery.data ?? [];
+  const templates = templatesQuery.data ?? EMPTY_TEMPLATES;
   const bodies = useMemo(() => simulationBodies(system.bodies), [system.bodies]);
   const recommendedSteps = summaryQuery.data?.buildability?.recommended_build_order ?? [];
   const regionalContext = summaryQuery.data?.regional_context ?? null;
@@ -77,6 +84,13 @@ export function SimulationPreview({
     targetArchetype: plan.targetArchetype,
     placements: plan.placements,
   });
+
+  useEffect(() => {
+    onPlanContextChange?.({
+      placements: plan.placements,
+      templates,
+    });
+  }, [onPlanContextChange, plan.placements, templates]);
 
   useEffect(() => {
     runState.clearPreviewState();
