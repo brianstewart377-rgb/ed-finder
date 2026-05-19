@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { SimulateBuildPlacement } from '@/types/api';
+import { normaliseDeclaredRoles, type DeclaredColonyRole } from './colonyRoles';
 
 export type ColonyProjectStatus = 'draft' | 'previewed' | 'validated';
 
@@ -11,6 +12,7 @@ export interface ColonyProject {
   project_name: string;
   build_plan_placements: SimulateBuildPlacement[];
   selected_body_assignments: Record<number, string | null>;
+  declared_roles: DeclaredColonyRole[];
   target_archetype: string;
   notes: string;
   status: ColonyProjectStatus;
@@ -24,6 +26,7 @@ export interface ColonyProjectInput {
   system_name: string;
   project_name: string;
   build_plan_placements: SimulateBuildPlacement[];
+  declared_roles?: DeclaredColonyRole[];
   target_archetype: string;
   notes: string;
   status?: ColonyProjectStatus;
@@ -53,6 +56,7 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
           project_name: input.project_name.trim() || `${input.system_name || 'Colony'} project`,
           build_plan_placements: clonePlacements(input.build_plan_placements),
           selected_body_assignments: bodyAssignments(input.build_plan_placements),
+          declared_roles: normaliseDeclaredRoles(input.declared_roles ?? existing?.declared_roles ?? []),
           target_archetype: input.target_archetype,
           notes: input.notes,
           status: input.status ?? existing?.status ?? 'draft',
@@ -88,6 +92,7 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
           project_name: `${source.project_name} copy`,
           build_plan_placements: clonePlacements(source.build_plan_placements),
           selected_body_assignments: { ...source.selected_body_assignments },
+          declared_roles: normaliseDeclaredRoles(source.declared_roles),
           status: 'draft',
           created_at: now,
           updated_at: now,
@@ -115,6 +120,7 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
 export function activeProjectsForSystem(projects: ColonyProject[], systemId64: number) {
   return projects
     .filter((project) => project.system_id64 === systemId64 && !project.archived_at)
+    .map((project) => ({ ...project, declared_roles: normaliseDeclaredRoles(project.declared_roles) }))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
@@ -124,12 +130,14 @@ export function projectMatchesSnapshot(
   targetArchetype: string,
   notes: string,
   name: string,
+  declaredRoles: DeclaredColonyRole[] = [],
 ) {
-  if (!project) return placements.length === 0 && notes.trim() === '';
+  if (!project) return placements.length === 0 && notes.trim() === '' && declaredRoles.length === 0;
   return project.project_name === name
     && project.target_archetype === targetArchetype
     && project.notes === notes
-    && JSON.stringify(project.build_plan_placements) === JSON.stringify(clonePlacements(placements));
+    && JSON.stringify(project.build_plan_placements) === JSON.stringify(clonePlacements(placements))
+    && JSON.stringify(normaliseDeclaredRoles(project.declared_roles)) === JSON.stringify(normaliseDeclaredRoles(declaredRoles));
 }
 
 function clonePlacements(placements: SimulateBuildPlacement[]) {

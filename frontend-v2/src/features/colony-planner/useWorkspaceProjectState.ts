@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SystemDetail } from '@/types/api';
 import type { TopologyPlanSnapshot } from './ColonyTopologyRail';
 import {
+  addDeclaredRole,
+  normaliseDeclaredRoles,
+  removeDeclaredRole,
+  type DeclaredColonyRole,
+  type DeclaredColonyRoleId,
+} from './colonyRoles';
+import {
   activeProjectsForSystem,
   projectMatchesSnapshot,
   useColonyProjectStore,
@@ -20,6 +27,7 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
   const [pendingProjectId, setPendingProjectId] = useState<string>('');
   const [projectName, setProjectName] = useState(`${system.name || 'Colony'} project`);
   const [projectNotes, setProjectNotes] = useState('');
+  const [declaredRoles, setDeclaredRoles] = useState<DeclaredColonyRole[]>([]);
   const [confirmArchive, setConfirmArchive] = useState(false);
 
   const activeProject = systemProjects.find((project) => project.id === activeProjectId) ?? null;
@@ -34,6 +42,7 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
     setPendingProjectId(activeProjectId ?? '');
     setProjectName(activeProject?.project_name ?? `${system.name || 'Colony'} project`);
     setProjectNotes(activeProject?.notes ?? '');
+    setDeclaredRoles(normaliseDeclaredRoles(activeProject?.declared_roles));
     setConfirmArchive(false);
   }, [activeProject, activeProjectId, system.name]);
 
@@ -43,6 +52,7 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
     planSnapshot.targetArchetype,
     projectNotes,
     projectName,
+    declaredRoles,
   );
 
   const projectRequest = useMemo(() => projectRequestFromProject(activeProject), [activeProject]);
@@ -53,12 +63,13 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
       system_name: system.name || 'Unknown system',
       project_name: projectName,
       build_plan_placements: planSnapshot.placements,
+      declared_roles: declaredRoles,
       target_archetype: planSnapshot.targetArchetype,
       notes: projectNotes,
       status: 'draft',
     });
     setActiveProjectId(saved.id);
-  }, [activeProject?.id, planSnapshot.placements, planSnapshot.targetArchetype, projectName, projectNotes, saveProject, system.id64, system.name]);
+  }, [activeProject?.id, declaredRoles, planSnapshot.placements, planSnapshot.targetArchetype, projectName, projectNotes, saveProject, system.id64, system.name]);
 
   const handleRenameProject = useCallback(() => {
     if (!activeProject) return;
@@ -78,18 +89,31 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
     setActiveProjectId(null);
   }, [activeProject, archiveProject]);
 
+  const handleAddDeclaredRole = useCallback((bodyId: string, roleId: DeclaredColonyRoleId) => {
+    const body = (system.bodies ?? []).find((candidate) => candidate.id != null && String(candidate.id) === bodyId);
+    if (!body) return;
+    setDeclaredRoles((current) => addDeclaredRole(current, body, roleId));
+  }, [system.bodies]);
+
+  const handleRemoveDeclaredRole = useCallback((bodyId: string, roleId: DeclaredColonyRoleId) => {
+    setDeclaredRoles((current) => removeDeclaredRole(current, bodyId, roleId));
+  }, []);
+
   return {
     projects: systemProjects,
     activeProject,
     pendingProjectId,
     projectName,
     projectNotes,
+    declaredRoles,
     confirmArchive,
     projectRequest,
     unsavedChanges,
     setPendingProjectId,
     setProjectName,
     setProjectNotes,
+    addDeclaredRole: handleAddDeclaredRole,
+    removeDeclaredRole: handleRemoveDeclaredRole,
     setConfirmArchive,
     loadProject: () => setActiveProjectId(pendingProjectId || null),
     saveProject: handleSaveProject,

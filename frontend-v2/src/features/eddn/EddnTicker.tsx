@@ -66,6 +66,7 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
 
   const haveEvents = filtered.length > 0;
   const hasError   = !!error;
+  const feedState = hasError && !haveEvents ? 'reconnecting' : haveEvents ? 'live feed' : 'connecting...';
 
   return (
     <div
@@ -98,7 +99,7 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
                 EDDN
               </span>
               <span className="font-mono text-[8px] tracking-[0.22em] text-silver-dk uppercase mt-0.5">
-                {hasError ? 'offline' : haveEvents ? 'live feed' : 'connecting…'}
+                {feedState}
               </span>
             </div>
           </div>
@@ -114,10 +115,10 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
             ) : (
               <div className="py-2 px-4 font-mono text-[11px] text-silver-dk italic">
                 {hasError
-                  ? `Couldn't reach EDDN feed — ${error}`
+                  ? 'EDDN feed reconnecting'
                   : Object.values(enabled).every((v) => !v)
-                  ? 'All event types filtered out — toggle some back on →'
-                  : 'Awaiting events from the galactic network…'}
+                  ? 'All event types filtered out'
+                  : 'Awaiting EDDN events'}
               </div>
             )}
           </div>

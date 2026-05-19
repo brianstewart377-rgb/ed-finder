@@ -238,7 +238,9 @@ describe('BuildPlanSection layout import state', () => {
     expect(screen.getByText(/Body 1 - 1 matching placement/)).toBeTruthy();
     expect(onAddPlacement).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /Add to selected body/i }));
+    expect(screen.getByTestId('build-plan-body-view').getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: /Add structure here/i }));
 
     expect(onAddPlacement).toHaveBeenCalledTimes(1);
     expect(onAddPlacement).toHaveBeenCalledWith('1');

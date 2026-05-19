@@ -73,17 +73,30 @@ export function useEddnFeed({
     if (import.meta.env.PROD && typeof EventSource !== 'undefined') {
       try {
         es = new EventSource('/api/events/live');
+        es.onopen = () => {
+          if (!cancelled) setError(null);
+        };
         es.onmessage = (ev) => {
           try {
             const data = JSON.parse(ev.data) as EddnEvent;
-            if (data && data.id64) push([data]);
+            if (data && data.id64) {
+              setError(null);
+              push([data]);
+            }
           } catch { /* heartbeat / non-JSON — ignore */ }
         };
         es.onerror = () => {
           // Browser auto-reconnects; just surface the state.
           setError('SSE connection interrupted (auto-reconnect)');
         };
-        return () => { cancelled = true; es?.close(); };
+        return () => {
+          cancelled = true;
+          es?.close();
+          if (flushT.current != null) {
+            window.clearTimeout(flushT.current);
+            flushT.current = null;
+          }
+        };
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
         // Fall through to polling on EventSource construction failure.

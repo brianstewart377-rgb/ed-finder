@@ -26,9 +26,41 @@ describe('colonyProjectStore', () => {
     expect(saved.id).toMatch(/^colony-123-/);
     expect(saved.status).toBe('draft');
     expect(saved.selected_body_assignments).toEqual({ 0: 'body1' });
+    expect(saved.declared_roles).toEqual([]);
     expect(useColonyProjectStore.getState().projects).toHaveLength(1);
     expect(projectMatchesSnapshot(saved, [placement], 'refinery_industrial', 'Check Architect mode.', 'Starter project')).toBe(true);
     expect(projectMatchesSnapshot(saved, [placement], 'refinery_industrial', 'Changed notes.', 'Starter project')).toBe(false);
+  });
+
+  it('persists declared roles and defaults old project shapes safely', () => {
+    const saved = useColonyProjectStore.getState().saveProject(null, {
+      system_id64: 123,
+      system_name: 'Workspace System',
+      project_name: 'Role project',
+      build_plan_placements: [placement],
+      declared_roles: [{
+        id: 'declared:body1:main_station_body',
+        body_id: 'body1',
+        role_id: 'main_station_body',
+        source: 'declared',
+        label: 'Main Station Body',
+      }],
+      target_archetype: 'refinery_industrial',
+      notes: '',
+    });
+
+    expect(saved.declared_roles).toEqual([
+      expect.objectContaining({ body_id: 'body1', role_id: 'main_station_body', source: 'declared' }),
+    ]);
+    expect(projectMatchesSnapshot(saved, [placement], 'refinery_industrial', '', 'Role project', saved.declared_roles)).toBe(true);
+    expect(projectMatchesSnapshot(saved, [placement], 'refinery_industrial', '', 'Role project', [])).toBe(false);
+
+    const oldProject = {
+      ...saved,
+      id: 'old-shape',
+      declared_roles: undefined,
+    } as never;
+    expect(activeProjectsForSystem([oldProject], 123)[0].declared_roles).toEqual([]);
   });
 
   it('renames, duplicates, and archives projects without deleting the source data shape', () => {

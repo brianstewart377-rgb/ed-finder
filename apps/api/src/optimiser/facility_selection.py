@@ -71,10 +71,16 @@ def select_port_template(
     ports = [p for p in find_primary_port_templates(catalogue) if allow_estimated_data or p.data_confidence != 'estimated']
     if not ports:
         return None
+    if strategy != 'primary_port_bootstrap':
+        strategic_ports = [port for port in ports if not port.is_colony_port]
+        if strategic_ports:
+            ports = strategic_ports
     if strategy == 'low_cp':
         return min(ports, key=lambda p: (p.yellow_cp_cost + p.green_cp_cost, p.tier, p.name, p.id))
-    if strategy in {'services_aware', 'balanced'}:
+    if strategy in {'services_aware', 'balanced', 'balanced_expansion', 'support_body'}:
         return min(ports, key=lambda p: (abs(p.tier - 2), p.yellow_cp_cost + p.green_cp_cost, p.name, p.id))
+    if strategy == 'main_station':
+        return max(ports, key=lambda p: (p.tier, -(p.yellow_cp_cost + p.green_cp_cost), p.name, p.id))
     return ports[0]
 
 

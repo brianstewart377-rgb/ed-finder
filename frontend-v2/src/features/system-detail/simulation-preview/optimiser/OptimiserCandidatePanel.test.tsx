@@ -594,11 +594,28 @@ describe('optimiser candidate comparison UI', () => {
   });
 
   it('renders error state with retry', async () => {
-    mockedFetchOptimiserCandidates.mockRejectedValue(new Error('backend down'));
+    mockedFetchOptimiserCandidates.mockRejectedValue(new Error('{"detail":{"message":"backend down","stack":"private trace"}}'));
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
     fireEvent.click(screen.getByText('Generate Suggested Builds'));
-    expect(await screen.findByText(/backend down/)).toBeTruthy();
-    expect(screen.getByText('retry')).toBeTruthy();
+    expect(await screen.findByText(/Suggested Builds are temporarily unavailable/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    expect(screen.getByText('Show technical details')).toBeTruthy();
+    expect(screen.queryByText(/backend down/)).toBeNull();
+    expect(screen.queryByText(/private trace/)).toBeNull();
+    fireEvent.click(screen.getByText('Show technical details'));
+    expect(screen.getByText(/backend down/)).toBeTruthy();
+  });
+
+  it('retry calls candidate generation again after a friendly error', async () => {
+    mockedFetchOptimiserCandidates
+      .mockRejectedValueOnce(new Error('backend down'))
+      .mockResolvedValueOnce(response());
+    render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
+    await screen.findByText(/Suggested Builds are temporarily unavailable/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Generated for')).toBeTruthy();
+    expect(mockedFetchOptimiserCandidates).toHaveBeenCalledTimes(2);
   });
 
   it('renders empty state with backend warning and assumption', async () => {
@@ -631,7 +648,7 @@ describe('optimiser candidate comparison UI', () => {
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
     fireEvent.click(screen.getByText('Generate Suggested Builds'));
 
-    expect(await screen.findByText('No useful suggested builds are available yet. Add more system data or start a manual Build Plan.')).toBeTruthy();
+    expect(await screen.findByText('No useful suggested builds are available yet. Start manually or provide more system data.')).toBeTruthy();
     expect(screen.queryByText('Port only')).toBeNull();
   });
 

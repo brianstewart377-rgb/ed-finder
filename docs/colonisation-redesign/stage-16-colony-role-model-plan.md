@@ -4,7 +4,7 @@ Stage 16A is a planning/report phase only. It does not implement code, change ba
 
 ## Purpose
 
-ED-Finder now has a dedicated Colony Planner workspace with topology navigation, central Build Plan editing, Suggested Builds quality gates, local saved projects, and Evidence/Validation drawers. The next limitation is intent: the planner can show placements on bodies, but it does not yet know what the user thinks each body is for.
+ED-Finder now has a dedicated Colony Planner workspace with topology navigation, mode-oriented central Build Plan/Suggested Builds/Preview/Evidence/Validation surfaces, Suggested Builds quality gates, local saved projects, and a persistent summary rail. The next limitation is intent: the planner can show placements on bodies, but it does not yet know what the user thinks each body is for.
 
 Colony roles should give the workspace a language for intent without pretending to know unsupported game mechanics. A body can be a main station candidate, support body, industrial core, or expansion reserve because that is useful planning guidance. That label must not become hidden scoring truth, service unlock truth, economy truth, or primary-port truth.
 
@@ -85,6 +85,32 @@ They can be inferred from:
 
 They should be phrased as guidance: "likely industrial core", "candidate support body", "possible expansion reserve".
 
+## Stage 16E Implemented Scope
+
+Stage 16E integrates inferred role hints into the persistent workspace shell without making roles editable or authoritative.
+
+Implemented surfaces:
+
+- topology body rows render compact role badges and confidence chips
+- selected body/placement context in the right summary rail renders a strategic role summary
+- Build Plan, Suggested Builds, Preview, Evidence, and Validation modes render short mode-aware role context
+- role confidence labels are qualitative only: `tentative`, `likely`, and `strong`
+- role conflicts render as conservative overlap indicators instead of errors
+
+The confidence model is lightweight and frontend-only. It derives from placement concentration, primary/port presence, support/economy mix, topology spread, and metadata quality. Sparse metadata and unknown body references lower confidence. ED-Finder does not expose percentages and does not imply simulation certainty.
+
+Stage 16E role hints remain read-only:
+
+- no editable role assignment
+- no backend role persistence
+- no role-aware optimiser generation or ranking
+- no scoring or CP/economy/service changes
+- no automatic Preview
+- no automatic Suggested Build generation
+- no primary-port editing or Architect Slot Survey storage
+
+Primary-port copy may mention planned primary-port placement context, but it remains advisory until a future evidence workflow records Architect observations.
+
 ## Workspace Fit
 
 Roles belong in the topology workspace because the user thinks about roles at body level:
@@ -92,10 +118,125 @@ Roles belong in the topology workspace because the user thinks about roles at bo
 - left topology rail can show compact role badges on body rows
 - central planner can filter or group placements by selected role
 - right summary rail can show role coverage, conflicts, and missing planned anchors
-- Evidence/Validation drawers can compare planned roles against observed evidence
+- Evidence/Validation modes can compare planned roles against observed evidence
 - Suggested Builds can explain which roles a candidate would seed, without changing optimiser scoring
 
 The core editing surface should remain the central planner until a later stage explicitly moves role editing into topology-local controls. Topology row clicks should continue to navigate/select; role mutation should be an explicit control.
+
+After Stage 16E, the workspace can show strategic identity at a glance, but it still cannot store user intent. Stage 16F should add explicit user-declared role assignment with clear source labelling and persistence boundaries.
+
+## Stage 16F Implemented Scope
+
+Stage 16F adds explicit user-declared colony roles as local project intent. It does not promote roles to mechanics truth.
+
+Implemented role model:
+
+- `RoleSource`: `inferred`, `declared`, `observed`
+- `RoleConfidence`: `tentative`, `likely`, `strong`
+- `ColonyBodyRole`: shared frontend-safe body-role shape
+- `DeclaredColonyRole`: editable user intent with `source: declared`
+
+Supported declared roles:
+
+- Colony Anchor
+- Main Station Body
+- Primary Port Body
+- Industrial Core
+- Refinery Core
+- Extraction Support
+- Tourism / Agriculture Body
+- Security / Military Body
+- Support Body
+- Expansion Reserve
+
+Assignment UX:
+
+- Users select a body through the topology rail.
+- The central workspace shows a compact Body Strategy card for the selected body.
+- Users can add/remove declared roles from that card.
+- Topology rows remain navigational/contextual. They can show declared badges, but clicking rows does not mutate roles.
+
+Persistence:
+
+- Declared roles are saved inside local Colony Projects as `declared_roles`.
+- Existing local projects without `declared_roles` normalise to an empty list.
+- Save, duplicate, reload, and unsaved-change detection include declared roles.
+- No backend, account, cloud, or EDMC persistence is added.
+
+Source separation:
+
+- `Inferred:` badges remain advisory ED-Finder suggestions.
+- `Declared:` badges are user strategic intent.
+- `Observed:` context remains evidence-backed; Stage 16F does not add observed role editing or Architect Slot Survey storage.
+
+Conflict handling:
+
+- Role overlap is allowed.
+- Conflicts render as strategic tradeoff notes, for example Tourism + Heavy Industrial or Main Station + Expansion Reserve.
+- Conflicts do not block editing, auto-remove roles, change Preview, change Suggested Builds, or affect scoring.
+
+Primary-port handling:
+
+- Users may declare intended Primary Port Body.
+- The UI states that Architect observation is not recorded.
+- Declared primary-port intent is not observed primary-port truth and does not imply Build Point changes.
+
+Deferred after Stage 16F:
+
+- backend/cloud role persistence
+- observed role facts and Architect Slot Survey storage
+- role-aware optimiser candidate generation or ranking
+- role-aware Simulation Preview mechanics
+- role-driven CP, economy, service, scoring, validation, or Search Tuning changes
+
+## Stage 16G Implemented Scope
+
+Stage 16G formalizes declared-vs-observed role review. It remains frontend-only and advisory.
+
+Review terminology:
+
+- **Declared Strategy**: the user-declared roles saved in the local project.
+- **Observed Colony State**: lightweight role signals derived from existing Observed Evidence facts.
+- **Inferred Planning Signals**: ED-Finder topology/placement hints from Stage 16D-16E.
+
+Observed role foundation:
+
+- Observed role signals are derived from existing observed facts such as economy presence, service presence, facility state, notes, and tags.
+- Examples include Observed Main Station Body, Observed Industrial Core, Observed Tourism Focus, Observed Security Support, Observed Population Center, Observed Support Body, and Observed Primary Port.
+- No backend role table, evidence schema migration, observed-role editor, or Architect Slot Survey persistence is added.
+
+Strategic consistency:
+
+- `Strategy aligned`: declared and observed role signals match.
+- `Partially aligned`: some evidence supports declared strategy or observed roles exist without a full match.
+- `Strategy diverging`: observed role signals differ from declared strategy.
+- `Insufficient observed evidence`: no observed role evidence exists yet.
+
+Validation mode:
+
+- Shows a compact Validation Role Review card before the existing validation comparison panel.
+- Displays declared-vs-observed counts, match/mismatch counts, source-labelled chips, concise mismatch summaries, and declared-role conflicts.
+- Does not auto-resolve validation, auto-change roles, or alter Preview results.
+
+Evidence mode:
+
+- Shows an Evidence Role Review card before the existing Observed Evidence panel.
+- Distinguishes observed evidence from planning intent and keeps the Observed Evidence panel as the manual evidence surface.
+- Does not add large role forms or new backend persistence.
+
+Primary-port review:
+
+- Observed primary-port context may appear when existing evidence mentions primary-port or Architect context.
+- Declared Main Station Body may intentionally differ from observed primary-port context.
+- ED-Finder still does not create primary-port truth, Build Point claims, primary-port editing, or Architect Slot Survey storage.
+
+Deferred after Stage 16G:
+
+- role-aware optimiser ranking/generation
+- role-aware Simulation Preview scoring/mechanics
+- backend/cloud role persistence
+- observed role editing and dedicated evidence schema
+- automatic role changes or strategy reconciliation
 
 ## Guidance Boundaries
 
@@ -543,8 +684,8 @@ Any optimiser-aware stage must separately review scoring, ranking, and unsupport
 
 Roles should integrate with Evidence/Validation as review context:
 
-- Evidence drawer can show observed roles and their source.
-- Validation drawer can compare planned role intent against observed evidence.
+- Evidence mode can show observed roles and their source.
+- Validation mode can compare planned role intent against observed evidence.
 - Primary-port evidence must remain evidence-backed and cannot be arbitrary user truth.
 - Role mismatches should be advisory unless a later validation stage defines stricter semantics.
 
@@ -593,21 +734,27 @@ Stage 16B:
 
 Stage 16C:
 
-- topology role badges and read-only inferred role display
+- central workspace decomposition into Build Plan, Suggested Builds, Preview, Evidence, and Validation modes
+- persistent topology and summary rails during mode switching
+- no colony-role editing, role badges, durable persistence, or mechanics changes
 
 Stage 16D:
 
-- explicit user-declared role controls in the central workspace
+- topology role badges and read-only inferred role display
 
 Stage 16E:
 
-- role conflict/overlap guidance and summary rail coverage
+- explicit user-declared role controls in the central workspace
 
 Stage 16F:
 
-- evidence/validation role review integration
+- role conflict/overlap guidance and summary rail coverage
 
 Stage 16G:
+
+- evidence/validation role review integration
+
+Stage 16H:
 
 - Suggested Build role explanation and explicit load-time role acceptance
 
@@ -653,3 +800,58 @@ Still deferred:
 - backend/cloud saved project persistence
 - Architect Slot Survey storage
 - export/import JSON
+
+## Stage 16C Central Workspace Addendum
+
+Stage 16C completed the central planner decomposition before role implementation.
+
+Delivered:
+
+- `SimulationPreview.tsx` now renders one central workspace mode at a time instead of stacking Build Plan, Suggested Builds, Preview, Evidence, and Validation vertically.
+- `WorkspaceModeTabs.tsx` provides local Build Plan, Suggested Builds, Preview, Evidence, and Validation mode switching.
+- Build Plan is the default mode and contains topology-aware planning focus copy around the existing editable Build Plan.
+- Suggested Builds has its own mode and still requires an explicit Generate Suggested Builds action; loading a suggested build deliberately returns the user to Build Plan for review.
+- Preview has its own mode and still requires an explicit Run Preview action.
+- Evidence and Validation are central workspace modes. They remain passive and do not expose raw diagnostics by default.
+- The topology rail and summary rail remain persistent while modes change.
+- Topology selection updates planning focus and row highlighting only; it does not mutate, filter, or auto-place Build Plan rows.
+- Local-only project persistence remains browser-local and unchanged.
+
+Still deferred:
+
+- colony role editing
+- topology role badges and inferred role display
+- durable/backend Colony Project persistence
+- account sync and export/import
+- Architect Slot Survey storage
+- backend mechanics, optimiser, scoring, CP, economy, service, Observed Evidence, and Validation behaviour changes
+
+## Stage 16D Role-Hint Foundations Addendum
+
+Stage 16D adds the first colony-role foundation as read-only, inferred role hints in the Build Plan Layout view.
+
+Delivered:
+
+- Body-group cards now show compact advisory role hints derived from the current Build Plan placements and existing body topology metadata.
+- The layout detail panel expands those hints with short explanations and an explicit advisory-only boundary.
+- Main Station Body candidate hints render only when the current plan places a primary, port, or major-tier facility on that body.
+- Support Body, Industrial Core, Extraction Body, Tourism/Agriculture, and Colony Core candidate hints are inferred only from existing placement/template/body context.
+- Sparse, unknown, or unassigned body context renders conservative pending/limited hints instead of confident roles.
+- Role hints distinguish the current source as inferred; observed roles and future editable roles remain separate concepts.
+
+Boundaries preserved:
+
+- Role hints do not edit roles, persist roles, add backend role models, assign roles automatically, or introduce role controls.
+- Role hints do not run Preview, generate Suggested Builds, import layout data, validate predictions, or change saved projects.
+- CP formulas, scoring, economy propagation, service unlocks, optimiser generation/ranking, Simulation Preview calculations, Observed Evidence semantics, Validation behaviour, EDMC ingestion, hauling/material workflows, and primary-port truth handling remain unchanged.
+- Primary Port Body remains a future evidence-backed role. Stage 16D may show current primary-port placement context elsewhere in the planner, but it does not infer or let users set primary-port truth as a role.
+
+Still deferred:
+
+- editable colony roles
+- role persistence and migration
+- backend/cloud role models
+- observed role evidence workflows
+- Suggested Build role explanations
+- summary rail role coverage/conflict reporting
+- Architect Slot Survey storage

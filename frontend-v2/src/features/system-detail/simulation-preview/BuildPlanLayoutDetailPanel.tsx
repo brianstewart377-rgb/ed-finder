@@ -14,10 +14,12 @@ import {
 } from './buildPlanLayoutUtils';
 import { ArchitectObservationPanel } from './ArchitectObservationPanel';
 import { Chip } from './components';
+import { ColonyRoleHints } from './ColonyRoleHints';
 import { LayoutTopologyReadout } from './LayoutTopologyReadout';
 import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from './layoutTopologyUtils';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
 import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
+import { buildColonyRoleHintsForGroup } from './colonyRoleHintUtils';
 import { buildStrategicTopologyGuidanceForGroup } from './strategicTopologyGuidanceUtils';
 import { formatLocation } from './utils/formatters';
 
@@ -123,6 +125,7 @@ function BodyDetail({ group, groups, summary }: { group: BodyGroup; groups: Body
   const warnings = getBodyGroupWarnings(group);
   const topology = buildLayoutTopologyReadout(group);
   const strategicGuidance = buildStrategicTopologyGuidanceForGroup(group, groups);
+  const roleHints = buildColonyRoleHintsForGroup(group, groups);
   const guidance = buildPlannerGuidanceForBody(group.body, group.placements.map((item) => ({
     placement: item.placement,
     template: item.template,
@@ -146,6 +149,7 @@ function BodyDetail({ group, groups, summary }: { group: BodyGroup; groups: Body
         <DetailItem label="CP visible" value={`Y+${bodySummary.yellowGenerated}/${bodySummary.yellowNeeded} G+${bodySummary.greenGenerated}/${bodySummary.greenNeeded}`} />
       </DetailGrid>
       <LayoutTopologyReadout readout={topology} />
+      <ColonyRoleHints hints={roleHints} />
       <TagList body={group.body} />
       <WarningList warnings={warnings} emptyLabel="No body-level warnings from current layout data." />
       <PlannerGuidanceList items={strategicGuidance} limit={4} title="Strategic topology" />

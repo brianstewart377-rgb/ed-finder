@@ -14,6 +14,13 @@ from optimiser.models import (
 )
 
 _STRATEGY_MODIFIERS = {
+    'main_station': 4.5,
+    'balanced_expansion': 4.25,
+    'industrial_refinery': 4.0,
+    'tourism_agriculture': 3.75,
+    'military_security': 3.5,
+    'support_body': 3.25,
+    'primary_port_bootstrap': -2.0,
     'balanced': 4.0,
     'pure': 3.0,
     'services_aware': 2.5,

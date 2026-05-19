@@ -53,7 +53,7 @@ export function ProjectControlsCard({
       </div>
 
       <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">
-        Saved projects are stored locally in this browser. They are not cloud-synced, and clearing browser storage may remove them.
+        Saved locally in this browser. Not cloud synced.
       </p>
 
       <label className="mt-2 block space-y-1">
