@@ -69,6 +69,16 @@ const API_BASE = (
   '/api'
 );
 
+function resolveApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  // Allow callers to force an /api-prefixed endpoint without doubling when
+  // API_BASE already ends with /api.
+  if (path.startsWith('/api/') && /\/api$/i.test(API_BASE)) {
+    return `${API_BASE}${path.slice(4)}`;
+  }
+  return `${API_BASE}${path}`;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -81,7 +91,7 @@ export class ApiError extends Error {
 }
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${API_BASE}${path}`;
+  const url = resolveApiUrl(path);
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -129,7 +139,7 @@ export interface ProfileSyncPush {
 
 export const api = {
   health(): Promise<{ status: string; database: string; version: string }> {
-    return jsonFetch('/health');
+    return jsonFetch('/api/health');
   },
 
   autocomplete(q: string, limit = 10): Promise<AutocompleteResponse> {

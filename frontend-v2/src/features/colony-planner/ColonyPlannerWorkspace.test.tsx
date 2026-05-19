@@ -203,8 +203,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('project-card')).toBeTruthy();
     expect(screen.getByTestId('plan-health-card')).toBeTruthy();
     expect(screen.getByTestId('selection-card')).toBeTruthy();
-    expect(screen.getByTestId('workspace-modes-card')).toBeTruthy();
-    expect(screen.getByText('Workspace System A 1')).toBeTruthy();
+    expect(screen.getByTestId('preview-suggested-card')).toBeTruthy();
+    expect(screen.getByTestId('topology-body-button-body1').getAttribute('title')).toBe('Workspace System A 1');
     expect(screen.getByText('Reused Colony Planner panel')).toBeTruthy();
     expect(await screen.findByText('Unknown / unmatched body')).toBeTruthy();
     expect(screen.getByText('Unassigned placements')).toBeTruthy();
@@ -227,7 +227,7 @@ describe('ColonyPlannerWorkspace', () => {
       undefined,
     );
 
-    fireEvent.click(screen.getByText('Workspace System A 1'));
+    fireEvent.click(screen.getByTestId('topology-body-button-body1'));
     expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({
         topologySelection: { type: 'body', bodyId: 'body1' },
@@ -235,14 +235,13 @@ describe('ColonyPlannerWorkspace', () => {
       undefined,
     );
     expect(screen.getByText(/Planning focus: Workspace System A 1/i)).toBeTruthy();
-    expect(screen.getByTestId('selected-role-summary-card')).toBeTruthy();
-    expect(screen.getByText('Body Hint')).toBeTruthy();
+    expect(screen.queryByTestId('selected-role-summary-card')).toBeNull();
+    expect(screen.queryByText('Body Hint')).toBeNull();
     const bodySurface = screen.getByTestId('body-planning-surface');
     expect(within(bodySurface).getByText('Planning on body')).toBeTruthy();
     expect(within(bodySurface).getByText((content) => content.includes('Orbital Port'))).toBeTruthy();
     expect(within(bodySurface).getByRole('button', { name: 'Add structure here' })).toBeTruthy();
     expect(within(bodySurface).getByRole('button', { name: 'Review structures' })).toBeTruthy();
-    expect(screen.getByText(/Possible main-station body due to current orbital\/port concentration/i)).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
 
@@ -267,7 +266,7 @@ describe('ColonyPlannerWorkspace', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByText('Workspace System A 1'));
+    fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
     const surface = screen.getByTestId('body-planning-surface');
     expect(within(surface).getByText('Planning on body')).toBeTruthy();
     expect(within(surface).getByText((content) => content.includes('Orbital Port'))).toBeTruthy();
@@ -299,13 +298,13 @@ describe('ColonyPlannerWorkspace', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByText('Workspace System A 1'));
+    fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByText('Role conflict: Tourism + Heavy Industrial')).toBeNull();
     expect(screen.queryByText('Observed: not recorded')).toBeNull();
   });
 
-  it('opens review modes from workspace summary without running planner side effects', async () => {
+  it('keeps the summary rail compact without review-toggle clutter', async () => {
     mockedUseSystemDetail.mockReturnValue({
       data: system,
       loading: false,
@@ -321,17 +320,10 @@ describe('ColonyPlannerWorkspace', () => {
       />,
     );
 
-    await screen.findByTestId('workspace-modes-card');
-    fireEvent.click(screen.getByRole('button', { name: 'Evidence' }));
-    expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
-      expect.objectContaining({ workspaceDrawer: 'evidence' }),
-      undefined,
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Validation' }));
-    expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
-      expect.objectContaining({ workspaceDrawer: 'validation' }),
-      undefined,
-    );
+    const summary = await screen.findByTestId('planner-summary-panel');
+    expect(within(summary).getByTestId('preview-suggested-card')).toBeTruthy();
+    expect(within(summary).queryByRole('button', { name: 'Evidence' })).toBeNull();
+    expect(within(summary).queryByRole('button', { name: 'Validation' })).toBeNull();
   });
 
   it('saves, renames, duplicates, and archives a local Colony Project with confirmation', async () => {
@@ -355,7 +347,7 @@ describe('ColonyPlannerWorkspace', () => {
 
     fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Local starter' } });
     fireEvent.change(screen.getByLabelText('Project notes'), { target: { value: 'Check Architect mode before final placement.' } });
-    fireEvent.click(screen.getByText('Workspace System A 1'));
+    fireEvent.click(screen.getByTestId('topology-body-button-body1'));
     fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
 
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');

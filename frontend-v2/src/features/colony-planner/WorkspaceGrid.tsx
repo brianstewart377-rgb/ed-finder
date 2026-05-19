@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
 import {
@@ -16,16 +16,18 @@ import {
 } from './ColonyTopologyRail';
 import { useWorkspaceProjectState } from './useWorkspaceProjectState';
 import { WorkspaceSummaryRail } from './WorkspaceSummaryRail';
-import { getPlanningFocusLabel, type ReviewDrawer } from './workspaceUtils';
+import { getPlanningFocusLabel, type PlannerWorkspaceCommand } from './workspaceUtils';
 
 export function WorkspaceGrid({ system }: { system: SystemDetail }) {
   const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
-  const [reviewDrawer, setReviewDrawer] = useState<ReviewDrawer>(null);
+  const [workspaceCommand, setWorkspaceCommand] = useState<PlannerWorkspaceCommand | null>(null);
   const [planSnapshot, setPlanSnapshot] = useState<TopologyPlanSnapshot>({
     placements: [],
     templates: [],
     targetArchetype: 'refinery_industrial',
+    projection: null,
   });
+  const workspaceCommandToken = useRef(0);
   const projectState = useWorkspaceProjectState(system, planSnapshot);
 
   const handlePlanSnapshotChange = useCallback((snapshot: TopologyPlanSnapshot) => {
@@ -36,6 +38,10 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
     () => describeTopologySelection(selection, system, planSnapshot),
     [planSnapshot, selection, system],
   );
+  const issueWorkspaceCommand = useCallback((kind: PlannerWorkspaceCommand['kind'], bodyId: string) => {
+    workspaceCommandToken.current += 1;
+    setWorkspaceCommand({ token: workspaceCommandToken.current, kind, bodyId });
+  }, []);
   const planningFocusLabel = getPlanningFocusLabel(selection, system);
   const selectedBody = useMemo(() => {
     if (selection.type === 'body') {
@@ -58,7 +64,6 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
       <ColonyTopologyRail
         system={system}
         snapshot={planSnapshot}
-        declaredRoles={projectState.declaredRoles}
         selection={selection}
         onSelect={setSelection}
       />
@@ -77,6 +82,8 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
           body={selectedBody}
           snapshot={planSnapshot}
           selection={selection}
+          onAddStructureHere={(bodyId) => issueWorkspaceCommand('add-structure', bodyId)}
+          onReviewStructures={(bodyId) => issueWorkspaceCommand('review-structures', bodyId)}
         />
         <SimulationPreviewPanel
           system={system}
@@ -85,15 +92,13 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
           topologySelection={selection}
           initialRequest={projectState.projectRequest}
           declaredRoles={projectState.declaredRoles}
-          workspaceDrawer={reviewDrawer}
-          onWorkspaceDrawerChange={setReviewDrawer}
+          workspaceCommand={workspaceCommand}
         />
       </main>
       <WorkspaceSummaryRail
         system={system}
         snapshot={planSnapshot}
         selection={selection}
-        declaredRoles={projectState.declaredRoles}
         selectedContext={selectedContext}
         projects={projectState.projects}
         activeProject={projectState.activeProject}
@@ -102,8 +107,6 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
         projectNotes={projectState.projectNotes}
         unsavedChanges={projectState.unsavedChanges}
         confirmArchive={projectState.confirmArchive}
-        reviewDrawer={reviewDrawer}
-        onReviewDrawerChange={setReviewDrawer}
         onPendingProjectChange={projectState.setPendingProjectId}
         onLoadProject={projectState.loadProject}
         onProjectNameChange={projectState.setProjectName}
@@ -122,10 +125,14 @@ function BodyPlanningSurface({
   body,
   snapshot,
   selection,
+  onAddStructureHere,
+  onReviewStructures,
 }: {
   body: SystemBody | null;
   snapshot: TopologyPlanSnapshot;
   selection: TopologySelection;
+  onAddStructureHere: (bodyId: string) => void;
+  onReviewStructures: (bodyId: string) => void;
 }) {
   if (!body || body.id == null) {
     return (
@@ -162,20 +169,13 @@ function BodyPlanningSurface({
     .filter((item) => item.bodyId === bodyId);
   const warnings = getBodyGroupWarnings({ key: bodyId, body, placements });
   const tags = bodyTags(body).slice(0, 3);
-  const addButton = () => document.querySelector<HTMLButtonElement>('[data-testid="add-structure-selected-body"]');
-  const listButton = () => document.querySelector<HTMLButtonElement>('[data-testid="build-plan-list-view"]');
-  const bodyButton = () => document.querySelector<HTMLButtonElement>('[data-testid="build-plan-body-view"]');
+  const projectedPlacements = (snapshot.projection?.placements ?? []).filter((placement) => (
+    placement.local_body_id != null && String(placement.local_body_id) === bodyId
+  ));
 
-  const focusAddStructure = () => {
-    const target = addButton();
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target?.focus({ preventScroll: true });
-  };
+  const focusAddStructure = () => onAddStructureHere(bodyId);
   const reviewBodyStructures = () => {
-    const target = placements.length > 0 ? bodyButton() : listButton();
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target?.click();
-    target?.focus({ preventScroll: true });
+    onReviewStructures(bodyId);
   };
 
   return (
@@ -191,6 +191,7 @@ function BodyPlanningSurface({
             <BodyFact label={body.subtype ?? body.body_type ?? 'Body'} />
             {tags.map((tag) => <BodyFact key={tag} label={tag} />)}
             <BodyFact label={`${placements.length} planned`} tone={placements.length > 0 ? 'orange' : 'silver'} />
+            {projectedPlacements.length > 0 && <BodyFact label={`suggested ${projectedPlacements.length}`} tone="cyan" />}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -214,6 +215,12 @@ function BodyPlanningSurface({
       {warnings.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {warnings.slice(0, 3).map((warning) => <BodyFact key={warning} label={warning} tone="gold" />)}
+        </div>
+      )}
+
+      {snapshot.projection && projectedPlacements.length > 0 && (
+        <div className="mt-3 rounded border border-cyan/30 bg-cyan/5 px-3 py-2 text-cyan">
+          Suggested Build projection includes this body.
         </div>
       )}
 
@@ -272,7 +279,7 @@ function BodyStartAction({ label, detail }: { label: string; detail: string }) {
   );
 }
 
-function BodyFact({ label, tone = 'silver' }: { label: string; tone?: 'silver' | 'orange' | 'gold' }) {
+function BodyFact({ label, tone = 'silver' }: { label: string; tone?: 'silver' | 'orange' | 'gold' | 'cyan' }) {
   return (
     <span
       className={[
@@ -281,6 +288,8 @@ function BodyFact({ label, tone = 'silver' }: { label: string; tone?: 'silver' |
           ? 'border-orange/35 bg-orange/10 text-orange'
           : tone === 'gold'
             ? 'border-gold/35 bg-gold/10 text-gold'
+            : tone === 'cyan'
+              ? 'border-cyan/35 bg-cyan/10 text-cyan'
             : 'border-border/60 bg-bg3/45 text-silver-dk',
       ].join(' ')}
     >

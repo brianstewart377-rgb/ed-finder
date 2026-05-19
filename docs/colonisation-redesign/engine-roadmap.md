@@ -209,6 +209,28 @@ Suggested Builds remain the Stage 17B deterministic rescue path. Stage 17C keeps
 
 The EDDN ticker now treats production SSE interruptions as reconnecting state instead of rendering the raw transport error. A successful SSE open/message clears the transient error and cleanup clears pending event flush timers.
 
+### Stage 17D Colony Planner Functional UX Reset
+
+Stage 17D is a frontend interaction and routing/display correction pass. It assumes the backend feed and optimiser routes are mostly healthy and focuses on making the planner reflect that reality.
+
+Delivered scope:
+
+- nav/menu overlay behaviour was corrected so planner routes do not start with a blocking menu layer; menu state now closes on navigation, outside click, and Escape
+- health status now probes `/api/health` explicitly and shows compact user copy in normal UI instead of raw technical payloads
+- EDDN feed UI now uses explicit `connecting/live/reconnecting/offline` states with safe fallback polling from recent events when SSE is unstable
+- topology rail was compacted to body-first planning navigation with short body labels and projection highlighting
+- central workspace now responds directly to body selection with reliable body-scoped planning actions (`Add structure here`, `Review structures`) via explicit state/props commands instead of DOM query coupling
+- Suggested Builds selection now projects body usage context into topology and candidate details while keeping explicit load and explicit preview boundaries
+- right summary rail was reduced to compact operational cards: Project, Plan Health, Current Focus, Preview/Suggested
+
+Stage 17D keeps all non-UI mechanics boundaries intact:
+
+- no CP/economy/service/scoring changes
+- no Search Tuning changes
+- no import/EDMC/persistence model changes
+- no automatic Suggested Build generation/loading
+- no automatic Preview execution
+
 ## Stage 6 - Observed vs Predicted Validation
 
 Stage 6A begins the validation layer as a backend-only observed facts foundation. It adds a passive `observed_facts` persistence contract, manual/test-fixture source support, CRUD API endpoints, and descriptive summaries. Observations record evidence; they do not mutate predictions, optimiser generation, ranking, Simulation Preview scoring, or CP/economy/service/buildability mechanics.

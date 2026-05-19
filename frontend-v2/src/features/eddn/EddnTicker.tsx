@@ -29,7 +29,7 @@ export interface EddnTickerProps {
  *   • Pause-on-hover marquee.
  */
 export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
-  const { events, error } = useEddnFeed({ intervalMs: 4000, keep: 30 });
+  const { events, status } = useEddnFeed({ intervalMs: 4000, keep: 30 });
   const [enabled, setEnabled] = useState<Record<string, boolean>>(
     () => Object.fromEntries(TICKER_TYPES.map((t) => [t, true])),
   );
@@ -65,8 +65,13 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
   );
 
   const haveEvents = filtered.length > 0;
-  const hasError   = !!error;
-  const feedState = hasError && !haveEvents ? 'reconnecting' : haveEvents ? 'live feed' : 'connecting...';
+  const feedState = status === 'live'
+    ? 'live feed'
+    : status === 'reconnecting'
+      ? (haveEvents ? 'recent feed' : 'reconnecting')
+      : status === 'offline'
+        ? 'offline'
+        : 'connecting';
 
   return (
     <div
@@ -114,11 +119,13 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
               </div>
             ) : (
               <div className="py-2 px-4 font-mono text-[11px] text-silver-dk italic">
-                {hasError
-                  ? 'EDDN feed reconnecting'
-                  : Object.values(enabled).every((v) => !v)
+                {Object.values(enabled).every((v) => !v)
                   ? 'All event types filtered out'
-                  : 'Awaiting EDDN events'}
+                  : status === 'reconnecting'
+                    ? 'EDDN reconnecting'
+                    : status === 'offline'
+                      ? 'EDDN temporarily offline'
+                      : 'Awaiting EDDN events'}
               </div>
             )}
           </div>

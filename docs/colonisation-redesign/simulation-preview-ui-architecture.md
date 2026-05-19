@@ -721,3 +721,57 @@ EDDN:
 
 - `useEddnFeed.ts` clears transient SSE errors on open/message and clears pending flush timers on cleanup.
 - `EddnTicker.tsx` renders a compact reconnecting state instead of raw SSE error text.
+
+## Stage 17D Colony Planner Functional UX Reset
+
+Stage 17D keeps Stage 17C ownership boundaries and focuses on interaction reliability, endpoint correctness, and projection coherence.
+
+Workspace shell and routing:
+
+- `NavBar.tsx` now keeps compact-route menu state non-blocking for the planner workflow:
+  - closed by default
+  - closes on route navigation
+  - closes on outside click and Escape
+- planner routes no longer begin with a persistent overlay state that obscures the central workspace.
+
+Health/status display:
+
+- `api.health()` now targets `/api/health` explicitly.
+- `App.tsx` and `NavBar.tsx` show compact user-facing status text (`Online`, `API connection issue`) in normal UI.
+- raw API error payloads and transport details are not rendered in the normal planner header path.
+
+EDDN feed state:
+
+- `useEddnFeed.ts` now exposes explicit state labels (`connecting`, `live`, `reconnecting`, `offline`).
+- SSE-first mode can degrade to polling fallback (`/events/recent`) when live events are not arriving or SSE reconnects repeatedly.
+- malformed payloads are ignored safely and do not crash the ticker.
+- `EddnTicker.tsx` uses compact reconnect/offline copy and avoids raw technical error text in default display.
+
+Body-first planning reliability:
+
+- `WorkspaceGrid.tsx` now issues explicit workspace commands for body-local actions instead of DOM query/click indirection.
+- `SimulationPreview.tsx` and `BuildPlanSection.tsx` consume those commands to focus body-aware add/review flow deterministically.
+- body selection always updates central body planning context before any edit action.
+
+Suggested Build projection coherence:
+
+- `SimulationPreview.tsx` tracks selected candidate projection and publishes projection context with plan snapshot updates.
+- `ColonyTopologyRail.tsx` highlights projected bodies and lists compact projected body usage.
+- `OptimiserCandidateDetails.tsx` shows projected layout context (`This plan uses`, main station candidate body, support bodies).
+- candidate load remains explicit, and Preview remains explicit.
+
+Summary-rail compression:
+
+- `WorkspaceSummaryRail.tsx` now focuses on compact operational cards:
+  - Project
+  - Plan Health
+  - Current Focus
+  - Preview / Suggested
+- role/conflict/evidence-heavy narrative content is not part of default planner chrome.
+
+Stage 17D boundary reaffirmation:
+
+- no mechanics, scoring, or CP formula changes
+- no Search Tuning changes
+- no import/EDMC/persistence model changes
+- no automatic generation/load/preview behaviours

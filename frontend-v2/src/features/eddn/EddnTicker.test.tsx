@@ -10,18 +10,32 @@ vi.mock('./useEddnFeed', () => ({
 const mockedUseEddnFeed = vi.mocked(useEddnFeed);
 
 describe('EddnTicker', () => {
-  it('renders a compact reconnecting state without raw SSE error text', () => {
+  it('renders a compact reconnecting state without raw transport error text', () => {
     mockedUseEddnFeed.mockReturnValue({
       events: [],
-      error: 'SSE connection interrupted (auto-reconnect)',
+      error: 'reconnecting',
+      status: 'reconnecting',
     });
 
     render(<EddnTicker />);
 
     expect(screen.getByTestId('eddn-ticker')).toBeTruthy();
     expect(screen.getByText('reconnecting')).toBeTruthy();
-    expect(screen.getByText('EDDN feed reconnecting')).toBeTruthy();
+    expect(screen.getByText('EDDN reconnecting')).toBeTruthy();
     expect(screen.queryByText(/SSE connection interrupted/i)).toBeNull();
+  });
+
+  it('renders compact offline state when no events are available', () => {
+    mockedUseEddnFeed.mockReturnValue({
+      events: [],
+      error: 'offline',
+      status: 'offline',
+    });
+
+    render(<EddnTicker />);
+
+    expect(screen.getByText('offline')).toBeTruthy();
+    expect(screen.getByText('EDDN temporarily offline')).toBeTruthy();
   });
 
   it('renders live events and opens a system pip without crashing', () => {
@@ -34,6 +48,7 @@ describe('EddnTicker', () => {
         timestamp: new Date().toISOString(),
       }],
       error: null,
+      status: 'live',
     });
 
     render(<EddnTicker onOpenSystem={onOpenSystem} />);

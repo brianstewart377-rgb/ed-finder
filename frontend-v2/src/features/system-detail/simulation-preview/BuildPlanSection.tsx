@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Columns3, DownloadCloud, ListChecks, Plus } from 'lucide-react';
 import { importSystemLayout } from '@/lib/api';
 import type { FacilityTemplate, LayoutImportResponse, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
@@ -8,6 +8,7 @@ import { ModeIntro, StartModes } from './StartModes';
 import { Message } from './components';
 import { ARCHETYPES, type StartMode } from './types';
 import type { TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
+import type { PlannerWorkspaceCommand } from '@/features/colony-planner/workspaceUtils';
 import { bodyDisplayName } from './buildPlanLayoutUtils';
 
 type BuildPlanViewMode = 'list' | 'body';
@@ -39,6 +40,7 @@ export function BuildPlanSection({
   onRemovePlacement,
   onMovePlacement,
   topologySelection,
+  workspaceCommand,
 }: {
   systemId64: number;
   systemName: string;
@@ -66,11 +68,13 @@ export function BuildPlanSection({
   onRemovePlacement: (index: number) => void;
   onMovePlacement: (index: number, direction: -1 | 1) => void;
   topologySelection?: TopologySelection;
+  workspaceCommand?: PlannerWorkspaceCommand | null;
 }) {
   const [viewMode, setViewMode] = useState<BuildPlanViewMode>('list');
   const [layoutImportResult, setLayoutImportResult] = useState<LayoutImportResponse | null>(null);
   const [layoutImportError, setLayoutImportError] = useState<string | null>(null);
   const [layoutImportRunning, setLayoutImportRunning] = useState(false);
+  const lastHandledWorkspaceCommandToken = useRef<number | null>(null);
   useEffect(() => {
     setLayoutImportResult(null);
     setLayoutImportError(null);
@@ -90,6 +94,20 @@ export function BuildPlanSection({
   useEffect(() => {
     if (selectedBodyId) setViewMode('body');
   }, [selectedBodyId]);
+
+  useEffect(() => {
+    if (!workspaceCommand) return;
+    if (lastHandledWorkspaceCommandToken.current === workspaceCommand.token) return;
+    lastHandledWorkspaceCommandToken.current = workspaceCommand.token;
+    if (workspaceCommand.kind === 'add-structure') {
+      setViewMode('body');
+      onAddPlacement(workspaceCommand.bodyId);
+      return;
+    }
+    if (workspaceCommand.kind === 'review-structures') {
+      setViewMode('body');
+    }
+  }, [onAddPlacement, workspaceCommand]);
 
   const handleImportLayout = async () => {
     setLayoutImportRunning(true);

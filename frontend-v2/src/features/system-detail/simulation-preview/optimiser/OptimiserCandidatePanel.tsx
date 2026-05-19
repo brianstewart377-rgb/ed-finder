@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchOptimiserCandidates } from '@/lib/api';
 import type { OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
@@ -20,6 +20,8 @@ export function OptimiserCandidatePanel({
   targetArchetype,
   hasExistingPreviewPlan = false,
   onLoadCandidate,
+  onCandidateSelect,
+  bodyLabelsById,
   currentPreviewPlacements,
   currentTargetArchetype,
   currentPreviewLabel,
@@ -28,6 +30,8 @@ export function OptimiserCandidatePanel({
   targetArchetype: string;
   hasExistingPreviewPlan?: boolean;
   onLoadCandidate?: (candidate: OptimiserCandidate) => void;
+  onCandidateSelect?: (candidate: OptimiserCandidate | null) => void;
+  bodyLabelsById?: Record<string, string>;
   currentPreviewPlacements?: SimulateBuildPlacement[];
   currentTargetArchetype?: string | null;
   currentPreviewLabel?: string;
@@ -52,6 +56,10 @@ export function OptimiserCandidatePanel({
     || generatedParams.maxCandidates !== currentParams.maxCandidates
     || generatedParams.allowEstimatedData !== currentParams.allowEstimatedData
   ));
+
+  useEffect(() => {
+    onCandidateSelect?.(selectedCandidate ?? null);
+  }, [onCandidateSelect, selectedCandidate]);
 
   const generateCandidates = async () => {
     setLoading(true);
@@ -202,6 +210,7 @@ export function OptimiserCandidatePanel({
             controlsChangedSinceGeneration={controlsChangedSinceGeneration}
             generatedTargetArchetype={generatedParams?.targetArchetype ?? null}
             currentControlTargetArchetype={currentParams.targetArchetype}
+            bodyLabelsById={bodyLabelsById}
           />
         </div>
       )}

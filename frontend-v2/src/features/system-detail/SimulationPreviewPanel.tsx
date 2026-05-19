@@ -2,7 +2,7 @@ import type { RecommendedBuildPlan, SimulateBuildRequest, SystemDetail } from '@
 import { SimulationPreview } from './SimulationPreview';
 import type { TopologyPlanSnapshot, TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
 import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
-import type { ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
+import type { PlannerWorkspaceCommand, ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
 
 export function SimulationPreviewPanel({
   system,
@@ -11,6 +11,7 @@ export function SimulationPreviewPanel({
   topologySelection,
   initialRequest,
   declaredRoles = [],
+  workspaceCommand,
   workspaceDrawer,
   onWorkspaceDrawerChange,
 }: {
@@ -20,6 +21,7 @@ export function SimulationPreviewPanel({
   topologySelection?: TopologySelection;
   initialRequest?: SimulateBuildRequest | null;
   declaredRoles?: DeclaredColonyRole[];
+  workspaceCommand?: PlannerWorkspaceCommand | null;
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
 }) {
@@ -32,6 +34,7 @@ export function SimulationPreviewPanel({
       onPlanSnapshotChange={onPlanSnapshotChange}
       topologySelection={topologySelection}
       declaredRoles={declaredRoles}
+      workspaceCommand={workspaceCommand}
       workspaceDrawer={workspaceDrawer}
       onWorkspaceDrawerChange={onWorkspaceDrawerChange}
     />

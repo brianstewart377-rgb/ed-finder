@@ -281,6 +281,16 @@ export function bodyDisplayName(body: SystemBody): string {
   return body.name || (body.id != null ? `Body ${body.id}` : 'Unknown body');
 }
 
+export function compactBodyDisplayName(body: SystemBody, systemName?: string | null): string {
+  const fullName = bodyDisplayName(body);
+  const trimmedSystem = (systemName ?? '').trim();
+  if (!trimmedSystem) return fullName;
+  const prefix = `${trimmedSystem} `;
+  if (!fullName.startsWith(prefix)) return fullName;
+  const compact = fullName.slice(prefix.length).trim();
+  return compact || fullName;
+}
+
 export function bodyTags(body: SystemBody): string[] {
   const tags = [
     body.body_type,

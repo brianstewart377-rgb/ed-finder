@@ -6,47 +6,65 @@ import type { EddnEvent } from '@/lib/api';
  * Live EDDN events feed hook.
  *
  * Strategy:
- *   • Production / preview build → Server-Sent Events on /api/events/live.
- *     This piggybacks on the existing Redis-pubsub bridge in the API
- *     (see backend/routers/events.py) and costs ~zero DB I/O per user.
- *   • Dev build → poll /api/events/recent every `intervalMs`. SSE +
- *     Vite HMR is jittery (the dev proxy reconnects on every HMR ping)
- *     so we keep the polling fallback for local development only.
- *
- * Audit fix (2026-05-08, AUDIT_REPORT.md §H3): the previous
- * always-polling implementation hammered Postgres at 4 s × N concurrent
- * users in production despite the SSE bridge already existing.
+ *   • Prefer SSE in production.
+ *   • If SSE is slow or reconnecting, fall back to recent-events polling.
+ *   • Keep UI status compact and user-facing (`live`, `reconnecting`,
+ *     `offline`, `connecting`) without exposing transport internals.
  */
 export type { EddnEvent };
+export type EddnFeedStatus = 'connecting' | 'live' | 'reconnecting' | 'offline';
 
 const KEY = (e: EddnEvent) => `${e.id64}|${e.type}|${e.timestamp}`;
 
+function coerceEvent(input: unknown): EddnEvent | null {
+  if (!input || typeof input !== 'object') return null;
+  const raw = input as Record<string, unknown>;
+  const id64 = Number(raw.id64);
+  if (!Number.isFinite(id64) || id64 <= 0) return null;
+  const systemName = typeof raw.system_name === 'string' && raw.system_name.trim().length > 0
+    ? raw.system_name.trim()
+    : 'Unknown system';
+  const type = typeof raw.type === 'string' && raw.type.trim().length > 0
+    ? raw.type.trim()
+    : 'Event';
+  const timestamp = typeof raw.timestamp === 'string' ? raw.timestamp : null;
+  return {
+    id64,
+    system_name: systemName,
+    type,
+    timestamp,
+  };
+}
+
 export function useEddnFeed({
   intervalMs = 4000,
-  keep       = 30,
-  // Batch-flush window — at the production EDDN rate (~19 events/sec)
-  // calling setState on every SSE message makes React re-render the
-  // marquee 19 times per second, which restarts the CSS animation
-  // every frame and produces the "ticker is just a blur" effect the
-  // user reported. We accumulate incoming events in a ref and only
-  // commit to React state every `flushMs`, so the marquee animation
-  // can actually play through. 1500 ms = roughly 1 visual cycle of
-  // updates per visible system on screen.
-  flushMs    = 1500,
-}: { intervalMs?: number; keep?: number; flushMs?: number } = {}) {
+  keep = 30,
+  flushMs = 1500,
+  sseGraceMs = 9000,
+  preferSse = import.meta.env.PROD,
+}: {
+  intervalMs?: number;
+  keep?: number;
+  flushMs?: number;
+  sseGraceMs?: number;
+  preferSse?: boolean;
+} = {}) {
   const [events, setEvents] = useState<EddnEvent[]>([]);
-  const [error,  setError]  = useState<string | null>(null);
-  const seen    = useRef<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<EddnFeedStatus>('connecting');
+  const seen = useRef<Set<string>>(new Set());
   const pending = useRef<EddnEvent[]>([]);
-  const flushT  = useRef<number | null>(null);
+  const flushT = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let timer: number | null = null;
+    let pollTimer: number | null = null;
+    let graceTimer: number | null = null;
     let es: EventSource | null = null;
+    let pollingEnabled = false;
 
     const scheduleFlush = () => {
-      if (flushT.current != null) return;       // already armed
+      if (flushT.current != null) return;
       flushT.current = window.setTimeout(() => {
         flushT.current = null;
         if (cancelled || pending.current.length === 0) return;
@@ -56,79 +74,126 @@ export function useEddnFeed({
       }, flushMs);
     };
 
-    const push = (incoming: EddnEvent[]) => {
+    const push = (incoming: unknown[]) => {
       if (cancelled) return;
-      const fresh = incoming.filter((e) => {
-        const k = KEY(e);
-        if (seen.current.has(k)) return false;
-        seen.current.add(k);
-        return true;
-      });
+      const fresh = incoming
+        .map(coerceEvent)
+        .filter((event): event is EddnEvent => Boolean(event))
+        .filter((event) => {
+          const key = KEY(event);
+          if (seen.current.has(key)) return false;
+          seen.current.add(key);
+          return true;
+        });
       if (!fresh.length) return;
       pending.current = [...fresh, ...pending.current];
+      setStatus('live');
+      setError(null);
       scheduleFlush();
     };
 
-    // ── PROD / preview: SSE ──────────────────────────────────────────────
-    if (import.meta.env.PROD && typeof EventSource !== 'undefined') {
+    const pollRecentEvents = async () => {
       try {
-        es = new EventSource('/api/events/live');
-        es.onopen = () => {
-          if (!cancelled) setError(null);
-        };
-        es.onmessage = (ev) => {
-          try {
-            const data = JSON.parse(ev.data) as EddnEvent;
-            if (data && data.id64) {
-              setError(null);
-              push([data]);
-            }
-          } catch { /* heartbeat / non-JSON — ignore */ }
-        };
-        es.onerror = () => {
-          // Browser auto-reconnects; just surface the state.
-          setError('SSE connection interrupted (auto-reconnect)');
-        };
-        return () => {
-          cancelled = true;
-          es?.close();
-          if (flushT.current != null) {
-            window.clearTimeout(flushT.current);
-            flushT.current = null;
-          }
-        };
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        // Fall through to polling on EventSource construction failure.
-      }
-    }
-
-    // ── DEV: polling fallback ────────────────────────────────────────────
-    const tick = async () => {
-      try {
-        const json = await api.recentEvents(20);
-        const fresh: EddnEvent[] = Array.isArray(json.events) ? json.events : [];
-        push(fresh);
+        const json = await api.recentEvents(Math.max(20, keep));
+        const incoming = Array.isArray(json.events) ? json.events : [];
+        push(incoming);
+        if (seen.current.size === 0) {
+          setStatus(preferSse ? 'reconnecting' : 'connecting');
+        }
         setError(null);
-      } catch (err) {
+      } catch {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
+        if (seen.current.size > 0) {
+          setStatus('reconnecting');
+          setError('reconnecting');
+        } else {
+          setStatus('offline');
+          setError('offline');
+        }
       } finally {
-        if (!cancelled) timer = window.setTimeout(tick, intervalMs);
+        if (!cancelled && pollingEnabled) {
+          pollTimer = window.setTimeout(() => {
+            void pollRecentEvents();
+          }, intervalMs);
+        }
       }
     };
 
-    void tick();
+    const startPollingFallback = () => {
+      if (pollingEnabled || cancelled) return;
+      pollingEnabled = true;
+      if (seen.current.size > 0) {
+        setStatus('reconnecting');
+      }
+      void pollRecentEvents();
+    };
+
+    const stopPollingFallback = () => {
+      pollingEnabled = false;
+      if (pollTimer != null) {
+        window.clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    if (preferSse && typeof EventSource !== 'undefined') {
+      try {
+        es = new EventSource('/api/events/live');
+        es.onopen = () => {
+          if (cancelled) return;
+          if (seen.current.size === 0) setStatus('connecting');
+          setError(null);
+        };
+        es.onmessage = (event) => {
+          const parsed = coerceEvent(safeParse(event.data));
+          if (!parsed) return;
+          push([parsed]);
+          stopPollingFallback();
+        };
+        es.onerror = () => {
+          if (cancelled) return;
+          setStatus(seen.current.size > 0 ? 'reconnecting' : 'offline');
+          setError('reconnecting');
+          startPollingFallback();
+        };
+
+        graceTimer = window.setTimeout(() => {
+          if (cancelled) return;
+          if (seen.current.size === 0) {
+            setStatus('reconnecting');
+            startPollingFallback();
+          }
+        }, sseGraceMs);
+      } catch {
+        setStatus('reconnecting');
+        startPollingFallback();
+      }
+    } else {
+      pollingEnabled = true;
+      void pollRecentEvents();
+    }
 
     return () => {
       cancelled = true;
-      if (timer != null) window.clearTimeout(timer);
+      es?.close();
+      stopPollingFallback();
+      if (graceTimer != null) {
+        window.clearTimeout(graceTimer);
+      }
       if (flushT.current != null) {
         window.clearTimeout(flushT.current);
         flushT.current = null;
       }
     };
-  }, [intervalMs, keep, flushMs]);
+  }, [flushMs, intervalMs, keep, preferSse, sseGraceMs]);
 
-  return { events, error };
+  return { events, error, status };
+}
+
+function safeParse(input: string): unknown {
+  try {
+    return JSON.parse(input);
+  } catch {
+    return null;
+  }
 }

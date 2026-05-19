@@ -4,6 +4,11 @@ import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext 
 import type { ColonyProject } from './colonyProjectStore';
 
 export type ReviewDrawer = 'evidence' | 'validation' | null;
+export interface PlannerWorkspaceCommand {
+  token: number;
+  kind: 'add-structure' | 'review-structures';
+  bodyId: string;
+}
 
 export interface PlanHealthSummary {
   placementCount: number;

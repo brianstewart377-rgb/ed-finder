@@ -97,9 +97,12 @@ describe('ColonyTopologyRail', () => {
     render(<RailHarness />);
 
     expect(screen.getByTestId('topology-root-row')).toBeTruthy();
-    expect(screen.getByText('Tree System A')).toBeTruthy();
-    expect(screen.getByText('Tree System A 1')).toBeTruthy();
-    expect(screen.getByText('Tree System A 1 a')).toBeTruthy();
+    expect(screen.getByText('A')).toBeTruthy();
+    expect(screen.getByText('A 1')).toBeTruthy();
+    expect(screen.getByText('A 1 a')).toBeTruthy();
+    expect(screen.getByTitle('Tree System A')).toBeTruthy();
+    expect(screen.getByTitle('Tree System A 1')).toBeTruthy();
+    expect(screen.getByTitle('Tree System A 1 a')).toBeTruthy();
 
     const firstBody = screen.getByTestId('topology-body-1');
     expect(within(firstBody).getByText('1')).toBeTruthy();
@@ -110,7 +113,7 @@ describe('ColonyTopologyRail', () => {
     expect(within(moonBody).getByText('1')).toBeTruthy();
     expect(within(moonBody).queryByText(/Inferred:/i)).toBeNull();
     expect(within(moonBody).queryByText('1 surface')).toBeNull();
-    expect(within(moonBody).getByRole('button', { name: /Tree System A 1 a/i }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('topology-body-button-2').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('renders unknown and unassigned placement groups without exposing raw IDs by default', () => {
@@ -127,10 +130,10 @@ describe('ColonyTopologyRail', () => {
     const onSelectSpy = vi.fn();
     render(<RailHarness onSelectSpy={onSelectSpy} />);
 
-    fireEvent.click(screen.getByText('Tree System A 1'));
+    fireEvent.click(screen.getByTestId('topology-body-button-1'));
     expect(onSelectSpy).toHaveBeenLastCalledWith({ type: 'body', bodyId: '1' });
     expect(screen.getByTestId('selected-context').textContent).toBe('Tree System A 1');
-    expect(screen.getByRole('button', { name: /Tree System A 1 High metal content/i }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('topology-body-button-1').getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByTestId('topology-placement-0'));
     expect(onSelectSpy).toHaveBeenLastCalledWith({ type: 'placement', placementIndex: 0 });

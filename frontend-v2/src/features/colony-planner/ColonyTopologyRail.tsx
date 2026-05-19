@@ -7,13 +7,13 @@ import type {
 } from '@/types/api';
 import {
   bodyDisplayName,
+  compactBodyDisplayName,
   bodyTags,
   getBodyGroupWarnings,
   getPlacementWarnings,
   type BodyGroup,
   type GroupedPlacement,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
-import { rolesForBody, type DeclaredColonyRole } from './colonyRoles';
 
 export type TopologySelection =
   | { type: 'system' }
@@ -25,6 +25,11 @@ export interface TopologyPlanSnapshot {
   placements: SimulateBuildPlacement[];
   templates: FacilityTemplate[];
   targetArchetype: string;
+  projection?: {
+    candidateId: string;
+    label: string;
+    placements: SimulateBuildPlacement[];
+  } | null;
 }
 
 export interface TopologySelectionContext {
@@ -39,7 +44,6 @@ export interface TopologySelectionContext {
 interface ColonyTopologyRailProps {
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
-  declaredRoles?: DeclaredColonyRole[];
   selection: TopologySelection;
   onSelect: (selection: TopologySelection) => void;
 }
@@ -59,7 +63,6 @@ interface PlacementBucket {
 export function ColonyTopologyRail({
   system,
   snapshot,
-  declaredRoles = [],
   selection,
   onSelect,
 }: ColonyTopologyRailProps) {
@@ -68,6 +71,15 @@ export function ColonyTopologyRail({
   const buckets = bucketPlacements(snapshot.placements, snapshot.templates, bodies);
   const totalPlacements = snapshot.placements.length;
   const selectedIsSystem = selection.type === 'system';
+  const projectedBodyIds = new Set(
+    (snapshot.projection?.placements ?? [])
+      .map((placement) => placement.local_body_id != null ? String(placement.local_body_id) : '')
+      .filter(Boolean),
+  );
+  const projectedBodyLabels = bodyNodes
+    .filter((node) => projectedBodyIds.has(node.id))
+    .map((node) => compactBodyDisplayName(node.body, system.name))
+    .slice(0, 6);
 
   return (
     <aside
@@ -85,7 +97,7 @@ export function ColonyTopologyRail({
         onClick={() => onSelect({ type: 'system' })}
         data-testid="topology-root-row"
         aria-pressed={selectedIsSystem}
-        className={rowClass(selectedIsSystem)}
+        className={rowClass(selectedIsSystem, projectedBodyIds.size > 0)}
       >
         <span className="mt-0.5 shrink-0 text-cyan" aria-hidden="true">SYS</span>
         <div className="min-w-0 flex-1">
@@ -110,10 +122,11 @@ export function ColonyTopologyRail({
             <BodyTreeRow
               key={node.id}
               node={node}
+              systemName={system.name}
               placements={buckets.knownByBody.get(node.id) ?? []}
-              declaredRoles={rolesForBody(declaredRoles, node.id)}
               selected={selection.type === 'body' && selection.bodyId === node.id}
               selectedPlacementIndex={selection.type === 'placement' ? selection.placementIndex : null}
+              projected={projectedBodyIds.has(node.id)}
               onSelect={onSelect}
             />
           ))}
@@ -147,6 +160,18 @@ export function ColonyTopologyRail({
         </section>
       )}
 
+      {snapshot.projection && projectedBodyLabels.length > 0 && (
+        <div
+          data-testid="topology-projected-bodies"
+          className="mt-3 rounded border border-cyan/30 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-cyan"
+        >
+          <div className="uppercase tracking-[0.14em]">Projected plan</div>
+          <div className="mt-1 text-silver-dk">
+            This plan uses: <span className="text-silver">{projectedBodyLabels.join(', ')}</span>
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 rounded border border-border/45 bg-bg3/30 px-2 py-1.5 font-mono text-[10px] text-silver-dk">
         Click a body to plan there.
       </div>
@@ -156,24 +181,27 @@ export function ColonyTopologyRail({
 
 function BodyTreeRow({
   node,
+  systemName,
   placements,
-  declaredRoles,
   selected,
   selectedPlacementIndex,
+  projected,
   onSelect,
 }: {
   node: BodyNode;
+  systemName?: string | null;
   placements: GroupedPlacement[];
-  declaredRoles: DeclaredColonyRole[];
   selected: boolean;
   selectedPlacementIndex: number | null;
+  projected: boolean;
   onSelect: (selection: TopologySelection) => void;
 }) {
   const tags = bodyTags(node.body);
   const sparse = tags.includes('Unknown body data') || (!node.body.body_type && !node.body.subtype);
   const hasPrimary = placements.some((item) => item.placement.is_primary_port);
   const warningCount = getBodyGroupWarnings({ key: node.id, body: node.body, placements }).length;
-  const roleCount = declaredRoles.length;
+  const fullName = bodyDisplayName(node.body);
+  const compactName = compactBodyDisplayName(node.body, systemName);
 
   return (
     <div data-testid={`topology-body-${node.id}`} style={{ marginLeft: `${node.depth * 0.75}rem` }}>
@@ -181,24 +209,26 @@ function BodyTreeRow({
         type="button"
         onClick={() => onSelect({ type: 'body', bodyId: node.id })}
         aria-pressed={selected}
-        className={rowClass(selected)}
+        data-testid={`topology-body-button-${node.id}`}
+        title={fullName}
+        className={rowClass(selected, projected)}
       >
         <span className="mt-0.5 w-4 shrink-0 text-center text-[13px] text-cyan" aria-hidden="true">
           {bodyIcon(node.body)}
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-mono text-[11px] font-bold text-silver">
-            {bodyDisplayName(node.body)}
+            {compactName}
           </div>
           <div className="mt-0.5 truncate font-mono text-[10px] text-silver-dk">
             {compactBodyKind(node.body)}
           </div>
         </div>
         {placements.length > 0 && <CountChip>{placements.length}</CountChip>}
+        {projected && <Marker tone="cyan" label="Used by selected suggested build">G</Marker>}
         {hasPrimary && <Marker tone="gold" label="Primary-port placement">P</Marker>}
         {warningCount > 0 && <Marker tone="gold" label={`${warningCount} warnings`}>!</Marker>}
         {sparse && <Marker tone="silver" label="Sparse body data">?</Marker>}
-        {roleCount > 0 && <Marker tone="green" label={`${roleCount} declared roles`}>R</Marker>}
       </button>
       {placements.length > 0 && (
         <div className="ml-3 mt-1 space-y-1 border-l border-border/50 pl-2">
@@ -470,12 +500,14 @@ function countWorkspaceWarnings(snapshot: TopologyPlanSnapshot, bodies: SystemBo
   return bodyWarnings + buckets.unknown.length + buckets.unassigned.length;
 }
 
-function rowClass(selected: boolean) {
+function rowClass(selected: boolean, projected = false) {
   return [
     'flex w-full min-w-0 cursor-pointer items-start gap-2 rounded border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70',
     selected
       ? 'border-orange/70 bg-orange/18 shadow-[inset_3px_0_0_rgba(255,122,20,0.9),0_0_18px_rgba(255,125,32,0.12)]'
-      : 'border-border/55 bg-bg3/35 hover:border-orange/45 hover:bg-orange/8 hover:text-silver',
+      : projected
+        ? 'border-cyan/45 bg-cyan/6 hover:border-cyan/70 hover:bg-cyan/10 text-silver'
+        : 'border-border/55 bg-bg3/35 hover:border-orange/45 hover:bg-orange/8 hover:text-silver',
   ].join(' ');
 }
 
@@ -508,7 +540,7 @@ function Marker({
   label,
 }: {
   children: React.ReactNode;
-  tone: 'gold' | 'silver' | 'green';
+  tone: 'gold' | 'silver' | 'cyan';
   label: string;
 }) {
   return (
@@ -519,8 +551,8 @@ function Marker({
         'grid h-5 w-5 shrink-0 place-items-center rounded border font-mono text-[9px] font-bold',
         tone === 'gold'
           ? 'border-gold/40 bg-gold/10 text-gold'
-          : tone === 'green'
-            ? 'border-green/35 bg-green/10 text-green'
+          : tone === 'cyan'
+            ? 'border-cyan/35 bg-cyan/10 text-cyan'
             : 'border-border/60 bg-bg2/60 text-silver-dk',
       ].join(' ')}
     >

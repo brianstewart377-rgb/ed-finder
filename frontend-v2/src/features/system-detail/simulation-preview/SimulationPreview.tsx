@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getFacilityTemplates, getSimulationSummary, listObservedFacts } from '@/lib/api';
 import type {
   FacilityTemplate,
+  OptimiserCandidate,
   RecommendedBuildPlan,
   SimulateBuildRequest,
   SimulationSummary,
@@ -15,8 +16,8 @@ import {
   buildRoleReview,
 } from '@/features/colony-planner/colonyRoleReview';
 import { getPlanningFocusLabel } from '@/features/colony-planner/workspaceUtils';
-import type { ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
-import { groupPlacementsByBody, type BodyGroup } from './buildPlanLayoutUtils';
+import type { PlannerWorkspaceCommand, ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
+import { compactBodyDisplayName, groupPlacementsByBody, type BodyGroup } from './buildPlanLayoutUtils';
 import { BuildPlanWorkspaceView } from './BuildPlanWorkspaceView';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
 import { EvidenceWorkspaceView } from './EvidenceWorkspaceView';
@@ -46,6 +47,7 @@ export function SimulationPreview({
   onPlanSnapshotChange,
   topologySelection,
   declaredRoles = [],
+  workspaceCommand,
   workspaceDrawer,
   onWorkspaceDrawerChange,
 }: {
@@ -56,6 +58,7 @@ export function SimulationPreview({
   onPlanSnapshotChange?: (snapshot: TopologyPlanSnapshot) => void;
   topologySelection?: TopologySelection;
   declaredRoles?: DeclaredColonyRole[];
+  workspaceCommand?: PlannerWorkspaceCommand | null;
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
 }) {
@@ -63,6 +66,8 @@ export function SimulationPreview({
   const activeWorkspaceDrawer = workspaceDrawer === undefined ? localWorkspaceDrawer : workspaceDrawer;
   const setActiveWorkspaceDrawer = onWorkspaceDrawerChange ?? setLocalWorkspaceDrawer;
   const [activeMode, setActiveMode] = useState<SimulationWorkspaceMode>('build-plan');
+  const [projectedCandidate, setProjectedCandidate] = useState<OptimiserCandidate | null>(null);
+  const lastWorkspaceCommandTokenRef = useRef<number | null>(null);
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
     queryFn: getFacilityTemplates,
@@ -99,6 +104,11 @@ export function SimulationPreview({
   const suggestedBuildsHighlightTimeoutRef = useRef<number | null>(null);
   const [highlightSuggestedBuilds, setHighlightSuggestedBuilds] = useState(false);
   const planningFocusLabel = topologySelection ? getPlanningFocusLabel(topologySelection, system) : null;
+  const bodyLabelsById = useMemo(() => Object.fromEntries(
+    bodies
+      .filter((body) => body.id != null)
+      .map((body) => [String(body.id), compactBodyDisplayName(body, system.name)]),
+  ), [bodies, system.name]);
 
   const plan = useSimulationPreviewPlan({
     initialRequest,
@@ -140,8 +150,18 @@ export function SimulationPreview({
       placements: plan.placements,
       templates,
       targetArchetype: plan.targetArchetype,
+      projection: projectedCandidate ? {
+        candidateId: projectedCandidate.candidate_id,
+        label: projectedCandidate.label,
+        placements: projectedCandidate.placements.map((placement) => ({
+          facility_template_id: placement.facility_template_id,
+          local_body_id: placement.local_body_id ?? null,
+          is_primary_port: placement.is_primary_port,
+          build_order: placement.build_order,
+        })),
+      } : null,
     });
-  }, [onPlanSnapshotChange, plan.placements, plan.targetArchetype, templates]);
+  }, [onPlanSnapshotChange, plan.placements, plan.targetArchetype, projectedCandidate, templates]);
 
   useEffect(() => {
     runState.clearPreviewState();
@@ -154,6 +174,14 @@ export function SimulationPreview({
       setActiveMode('validation');
     }
   }, [activeWorkspaceDrawer]);
+
+  useEffect(() => {
+    if (!workspaceCommand) return;
+    if (lastWorkspaceCommandTokenRef.current === workspaceCommand.token) return;
+    lastWorkspaceCommandTokenRef.current = workspaceCommand.token;
+    setActiveMode('build-plan');
+    if (activeWorkspaceDrawer) setActiveWorkspaceDrawer(null);
+  }, [activeWorkspaceDrawer, setActiveWorkspaceDrawer, workspaceCommand]);
 
   useEffect(() => () => {
     if (suggestedBuildsHighlightTimeoutRef.current !== null) {
@@ -191,10 +219,15 @@ export function SimulationPreview({
 
   const handleLoadSuggestedBuild = (candidate: Parameters<typeof plan.loadOptimiserCandidateIntoPreview>[0]) => {
     plan.loadOptimiserCandidateIntoPreview(candidate);
+    setProjectedCandidate(null);
     setActiveMode('build-plan');
     if (activeWorkspaceDrawer) {
       setActiveWorkspaceDrawer(null);
     }
+  };
+
+  const handleSuggestedCandidateSelection = (candidate: OptimiserCandidate | null) => {
+    setProjectedCandidate(candidate);
   };
 
   return (
@@ -252,6 +285,7 @@ export function SimulationPreview({
             onRemovePlacement={plan.removePlacement}
             onMovePlacement={plan.movePlacement}
             topologySelection={topologySelection}
+            workspaceCommand={workspaceCommand}
           />
         )}
         <div
@@ -278,6 +312,8 @@ export function SimulationPreview({
               currentPreviewPlacements={plan.placements}
               currentTargetArchetype={plan.targetArchetype}
               currentPreviewLabel="Current editable Build Plan"
+              onCandidateSelect={handleSuggestedCandidateSelection}
+              bodyLabelsById={bodyLabelsById}
             />
           )}
         </div>

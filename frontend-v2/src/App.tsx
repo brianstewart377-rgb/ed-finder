@@ -59,7 +59,7 @@ function AppInner() {
   const colony    = useColony();
   const fc        = useFcPlanner();
   const admin     = useAdmin();
-  const [health, setHealth] = useState<string>('checking…');
+  const [health, setHealth] = useState<string>('Checking API');
   const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
 
   const openSystemDetail = (id64: number, options?: { focus?: 'colony-planner' }) => {
@@ -80,8 +80,8 @@ function AppInner() {
   // First-paint: health + default search.
   useEffect(() => {
     api.health()
-      .then((h) => setHealth(`${h.status} · v${h.version}`))
-      .catch((e: Error) => setHealth(`unreachable: ${e.message}`));
+      .then(() => setHealth('Online'))
+      .catch(() => setHealth('API connection issue'));
     void search.run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

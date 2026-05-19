@@ -18,6 +18,7 @@ export function OptimiserCandidateDetails({
   controlsChangedSinceGeneration = false,
   generatedTargetArchetype,
   currentControlTargetArchetype,
+  bodyLabelsById,
 }: {
   candidate?: OptimiserCandidate;
   ranking?: RankedOptimiserCandidate;
@@ -30,6 +31,7 @@ export function OptimiserCandidateDetails({
   controlsChangedSinceGeneration?: boolean;
   generatedTargetArchetype?: string | null;
   currentControlTargetArchetype?: string | null;
+  bodyLabelsById?: Record<string, string>;
 }) {
   const [loadConfirmation, setLoadConfirmation] = useState<'replace' | 'stale' | 'stale_replace' | null>(null);
   const comparison = useMemo(() => {
@@ -57,6 +59,19 @@ export function OptimiserCandidateDetails({
   const rankingReasons = ranking?.rank_breakdown.reasons ?? [];
   const responseAssumptions = response?.assumptions ?? [];
   const presentation = suggestedBuildPresentation(candidate);
+  const usedBodyIds = Array.from(new Set(
+    candidate.placements
+      .map((placement) => placement.local_body_id ?? '')
+      .filter((bodyId) => Boolean(bodyId)),
+  ));
+  const usedBodyNames = usedBodyIds.map((bodyId) => bodyLabelsById?.[bodyId] ?? `Body ${bodyId}`);
+  const mainBodyId = candidate.placements.find((placement) => placement.is_primary_port)?.local_body_id
+    ?? usedBodyIds[0]
+    ?? null;
+  const mainBodyLabel = mainBodyId ? (bodyLabelsById?.[mainBodyId] ?? `Body ${mainBodyId}`) : null;
+  const supportBodyLabels = usedBodyIds
+    .filter((bodyId) => bodyId !== mainBodyId)
+    .map((bodyId) => bodyLabelsById?.[bodyId] ?? `Body ${bodyId}`);
 
   const requestLoad = () => {
     if (!onLoadCandidate) return;
@@ -113,6 +128,23 @@ export function OptimiserCandidateDetails({
         <SummaryBox title="Why suggested" body={presentation.reason} />
         <SummaryBox title="Tradeoff" body={presentation.tradeoff} />
         <SummaryBox title="Next action" body={presentation.nextAction} />
+      </div>
+
+      <div className="rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
+        <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Projected layout</h5>
+        <p className="mt-1 text-[11px] text-silver-dk">
+          {usedBodyNames.length > 0 ? `This plan uses: ${usedBodyNames.join(', ')}` : 'This plan has no explicit body assignments yet.'}
+        </p>
+        {mainBodyLabel && (
+          <p className="mt-1 text-[11px] text-silver-dk">
+            Main station candidate: <span className="text-silver">{mainBodyLabel}</span>
+          </p>
+        )}
+        {supportBodyLabels.length > 0 && (
+          <p className="mt-1 text-[11px] text-silver-dk">
+            Support bodies: <span className="text-silver">{supportBodyLabels.join(', ')}</span>
+          </p>
+        )}
       </div>
 
       <Section title="Rationale" items={candidate.rationale} empty="No rationale was returned for this suggested build." />

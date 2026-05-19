@@ -81,12 +81,59 @@ EDDN ticker fix:
 - the SSE cleanup path now clears pending flush timers
 - the visible fallback is the compact "EDDN feed reconnecting" state
 
+## Stage 17D Colony Planner Functional UX Reset
+
+Stage 17D is a usability rescue pass focused on the dedicated Colony Planner loop:
+
+`pick body -> plan on body -> project suggested build -> run preview explicitly`
+
+It does not change CP formulas, economy/service mechanics, simulation scoring, Search Tuning, imports, EDMC ingestion, or persistence architecture.
+
+### Root causes addressed
+
+- Nav overlay: menu state/layout let the compact route menu behave like a blocking planner overlay in narrow/transition states.
+- Health banner: frontend status checks and display fallback allowed the wrong endpoint path and technical failure payloads to leak into normal UI.
+- EDDN ticker: SSE-first rendering could present dead/reconnecting states even while recent events were available.
+- Planner interaction: topology, central surface, and Suggested Builds were still acting like disconnected report cards.
+
+### Stage 17D changes
+
+- Nav/menu:
+  - mobile/compact menu is closed by default
+  - menu closes on route click, outside click, and Escape
+  - planner route no longer starts with an open blocking menu
+- Health display:
+  - `api.health()` explicitly targets `/api/health`
+  - normal UI status copy is compact (`Online`, `API connection issue`)
+  - raw API/Cloudflare payloads are not shown in the normal planner shell
+- EDDN feed:
+  - `useEddnFeed` now uses explicit feed states (`connecting`, `live`, `reconnecting`, `offline`)
+  - SSE reconnects degrade to compact reconnecting/offline labels
+  - recent-events polling fallback keeps ticker useful when SSE is unstable
+  - malformed event payloads are ignored safely
+- Topology rail:
+  - compact body names (for example `A 1`, `A 1 a`) are shown in-row
+  - full body name remains available via title/selected-body context
+  - body rows remain explicit button controls with strong selected state
+  - projection context can mark bodies used by a selected suggested build
+- Central planning surface:
+  - selected body now drives the centre surface immediately
+  - body-local planned structures are listed directly
+  - `Add structure here` / `Review structures` now issue explicit workspace commands instead of DOM query hacks
+- Suggested Builds projection:
+  - selected candidate now reports projected body usage in candidate details and topology
+  - explicit load action remains unchanged (no auto-load, no auto-preview)
+- Right summary rail:
+  - compact rail focused on Project, Plan Health, Current Focus, and Preview/Suggested status
+  - reduced strategy/role narrative clutter in default view
+
 Remaining limitations:
 
 - Add structure here still delegates into the existing safe Build Plan add path instead of introducing drag/drop or slot editing
 - Suggested Builds are still deterministic heuristic starts, not a full strategy advisor
 - topology projection for hovered Suggested Builds is still limited
 - Architect slot counts and primary-port truth remain evidence-backed future work
+- backend dirty-recalc statement-timeout warnings can be tracked separately, but they are not treated as Stage 17D blockers for live-feed ticker UX
 
 ## Remaining Limitations
 
