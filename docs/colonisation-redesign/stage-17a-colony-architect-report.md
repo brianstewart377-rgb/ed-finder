@@ -142,3 +142,57 @@ This is still not the full Colony Architect advisor. ED-Finder does not yet acce
 ## Next Stage
 
 Stage 17C should turn the deterministic analysis and candidate explanations into an explicit Guided Colony Strategy Advisor shell: system analysis, declared intent, generated plan, preview, explanation, and refinement controls without introducing black-box planning.
+
+## Stage 17E RavenColonial-Style Functional Build Planner Rebuild
+
+Stage 17E is a functional rebuild pass, not a visual polish pass. It targets the missing loop:
+
+`click body -> plan on that body -> add structure there -> see it in tree -> compare projected suggested plan -> load explicitly -> preview explicitly`
+
+### Stage 17E implemented changes
+
+- Left rail now behaves as a true build tree:
+  - planned structures stay nested under bodies
+  - projected suggested-build placements render as separate ghost rows under bodies before load
+  - projected bodies are explicitly highlighted
+- Central planner is now body-local first:
+  - selected body shows planned + projected structures directly
+  - `Add structure here` opens an explicit body-aware structure picker (no DOM query hacks)
+  - selecting a structure from the picker issues an explicit body/template add command
+- Old stack is now secondary:
+  - Suggested Builds, Preview, and advanced list/body editor live behind an explicit `Advanced planner views` toggle in the centre column
+  - core body planning remains visible first
+- Suggested Builds are now scale-aware and less trivial:
+  - backend candidate assembly targets starter/expansion/full footprints where catalogue/body coverage allows
+  - candidate tags now include scale markers (`scale_bootstrap`, `scale_starter`, `scale_expansion`, `scale_full`)
+  - fallback duplication of supports is bounded so sparse catalogues can still produce useful 5+ placement plans
+  - multi-body distribution is applied for non-bootstrap strategies when anchor bodies exist
+- Suggested Build cards/details now show plan scale and footprint:
+  - scale label
+  - placement count
+  - body count
+  - short scale rationale
+
+### Stage 17E boundaries kept
+
+- no CP formula changes
+- no economy/service scoring changes
+- no automatic preview, generation, or loading
+- no live LLM calls
+- no backend persistence changes
+
+### Remaining Stage 17E limitations
+
+- body-local planner currently uses deterministic placement creation from existing template catalogue metadata; slot-level drag/drop is still future work
+- candidate scale still depends on catalogue breadth and body coverage; sparse systems can still produce starter-level output
+- LLM advisor remains foundation-only (schema/docs), not active UI generation
+
+## Stage 18 direction
+
+Stage 18 should build a constrained Colony Architect assistant shell on top of Stage 17E:
+
+- natural-language intent capture
+- deterministic constraint translation
+- explicit user review/acceptance
+- no silent build mutation
+- Preview remains the validation authority

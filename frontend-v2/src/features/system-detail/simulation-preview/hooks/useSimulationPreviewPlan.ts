@@ -31,7 +31,7 @@ export interface UseSimulationPreviewPlanResult {
   loadRecommendedPlan: (mode: StartMode) => void;
   loadOptimiserCandidateIntoPreview: (candidate: OptimiserCandidate) => void;
   startBlankAdvanced: () => void;
-  addPlacement: (bodyId?: string | null) => void;
+  addPlacement: (options?: { bodyId?: string | null; templateId?: string | null }) => void;
   updatePlacement: (index: number, patch: Partial<SimulateBuildPlacement>) => void;
   removePlacement: (index: number) => void;
   movePlacement: (index: number, direction: -1 | 1) => void;

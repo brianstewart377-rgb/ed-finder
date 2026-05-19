@@ -16,7 +16,7 @@ export interface UsePlacementEditorResult {
   setPlacements: Dispatch<SetStateAction<SimulateBuildPlacement[]>>;
   replacePlacements: (nextPlacements: SimulateBuildPlacement[]) => void;
   clearPlacements: () => void;
-  addPlacement: (bodyId?: string | null) => void;
+  addPlacement: (options?: { bodyId?: string | null; templateId?: string | null }) => void;
   updatePlacement: (index: number, patch: Partial<SimulateBuildPlacement>) => void;
   removePlacement: (index: number) => void;
   movePlacement: (index: number, direction: -1 | 1) => void;
@@ -39,8 +39,11 @@ export function usePlacementEditor({
     setPlacements([]);
   };
 
-  const addPlacement = (bodyId?: string | null) => {
-    const firstTemplate = preferredTemplate(templates);
+  const addPlacement = (options?: { bodyId?: string | null; templateId?: string | null }) => {
+    const requestedTemplate = options?.templateId
+      ? templates.find((template) => template.id === options.templateId)
+      : null;
+    const firstTemplate = requestedTemplate ?? preferredTemplate(templates);
     if (!firstTemplate) return;
     onManualEdit();
     if (placements.length === 0 && startMode !== 'blank_advanced') {
@@ -50,7 +53,7 @@ export function usePlacementEditor({
       ...current,
       {
         facility_template_id: firstTemplate.id,
-        local_body_id: bodyId ?? (bodies[0]?.id != null ? String(bodies[0].id) : null),
+        local_body_id: options?.bodyId ?? (bodies[0]?.id != null ? String(bodies[0].id) : null),
         is_primary_port: current.length === 0 && firstTemplate.is_port,
         build_order: current.length + 1,
       },

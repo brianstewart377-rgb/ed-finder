@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from collections import Counter
 import logging
 from typing import Any, Callable, Optional
 
@@ -264,85 +265,106 @@ def _build_candidate(
     warnings: list[str] = []
     assumptions: list[str] = []
     tags = [strategy, rule.key, *anchor.tags]
-    selected: list[FacilityTemplate] = [port]
 
     supports = select_support_templates(catalogue, rule, strategy, allow_estimated_data=allow_estimated_data)
     primary_supports = find_support_by_economy(catalogue, rule.primary_economies, allow_estimated_data=allow_estimated_data)
+    support_pool: list[FacilityTemplate] = []
 
     if strategy == 'main_station':
-        selected.extend(_unique_templates(_support_templates_for_economies(
+        support_pool = _support_templates_for_economies(
             catalogue,
             [*rule.expected_economies, 'Industrial', 'Refinery', 'HighTech', 'Agriculture', 'Military', 'Tourism'],
             allow_estimated_data=allow_estimated_data,
-        )[:3]))
+        )
         tags.extend(['main_station', 'primary_port'])
-        assumptions.append('Main station candidate uses a higher-tier port with several support placements; Simulation Preview validates the outcome.')
+        assumptions.append('Main station candidate targets expansion/full scale around a higher-tier port.')
     elif strategy == 'balanced_expansion':
-        selected.extend(_unique_templates((supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data))[:3]))
+        support_pool = supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data)
         tags.extend(['balanced', 'support_body'])
-        assumptions.append('Balanced expansion seeds a port anchor plus several supports so it can be edited into a real Build Plan.')
+        assumptions.append('Balanced expansion aims for a multi-body strategic plan, not just a bootstrap starter.')
     elif strategy == 'industrial_refinery':
-        selected.extend(_unique_templates(_support_templates_for_economies(
+        support_pool = _support_templates_for_economies(
             catalogue,
             ['Refinery', 'Industrial', 'Extraction'],
             allow_estimated_data=allow_estimated_data,
-        )[:3]))
+        )
         tags.extend(['industrial', 'refinery'])
-        assumptions.append('Industrial/refinery strategy looks for refinery, industrial, or extraction support pressure.')
+        assumptions.append('Industrial/refinery strategy expands beyond the anchor with multiple supports where possible.')
     elif strategy == 'tourism_agriculture':
-        selected.extend(_unique_templates(_support_templates_for_economies(
+        support_pool = _support_templates_for_economies(
             catalogue,
             ['Tourism', 'Agriculture', 'HighTech'],
             allow_estimated_data=allow_estimated_data,
-        )[:3]))
+        )
         tags.extend(['tourism', 'agriculture'])
-        assumptions.append('Tourism/agriculture strategy looks for civilian economy support without using abstract output sliders.')
+        assumptions.append('Tourism/agriculture strategy builds a body network for civilian economy support.')
     elif strategy == 'military_security':
-        selected.extend(_unique_templates(_support_templates_for_economies(
+        support_pool = _support_templates_for_economies(
             catalogue,
             ['Military', 'Industrial'],
             allow_estimated_data=allow_estimated_data,
-        )[:3]))
+        )
         tags.extend(['military', 'security'])
-        assumptions.append('Military/security strategy adds security-oriented support where catalogue data allows.')
+        assumptions.append('Military/security strategy scales support around security and logistics pressure.')
     elif strategy == 'support_body':
-        selected.extend(_unique_templates((supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data))[:2]))
+        support_pool = supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data)
         tags.extend(['support_body', 'body_diversity'])
-        assumptions.append('Support-body strategy intentionally spreads support beyond a single bootstrap site when body data allows.')
+        assumptions.append('Support-body strategy intentionally spreads placements across multiple bodies.')
     elif strategy == 'primary_port_bootstrap':
-        selected.extend(_unique_templates((supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data))[:1]))
+        support_pool = supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data)
         tags.extend(['primary_port', 'bootstrap'])
-        assumptions.append('Primary-port starter is a bootstrap option only; it should not be treated as a complete strategic recommendation.')
+        assumptions.append('Primary-port starter is explicitly minimal bootstrap, not a full strategic recommendation.')
     elif strategy == 'balanced':
-        selected.extend(_unique_templates(supports[:2]))
-        assumptions.append('Balanced strategy uses a compact port plus up to two target-economy supports.')
+        support_pool = supports
+        assumptions.append('Balanced strategy remains available as a compact compatibility fallback.')
     elif strategy == 'pure':
-        selected.extend(_unique_templates((primary_supports or supports)[:2]))
-        assumptions.append('Pure strategy prioritises primary target-economy supports where catalogue data allows.')
+        support_pool = primary_supports or supports
+        assumptions.append('Pure strategy prioritises primary target-economy supports.')
     elif strategy == 'services_aware':
-        selected.extend(_unique_templates(supports[:1]))
+        support_pool = supports
         service_support = find_service_unlock_support(catalogue, allow_estimated_data=allow_estimated_data)
         if service_support:
-            selected.append(service_support)
-            assumptions.append('Service-aware strategy includes an obvious unlock support; Simulation Preview validates actual effects.')
+            support_pool = [service_support, *support_pool]
+            assumptions.append('Service-aware strategy includes an obvious unlock support.')
         else:
             warnings.append('No obvious service-unlocking support was available in the catalogue.')
     elif strategy == 'low_cp':
-        selected.extend(_unique_templates(supports[:1]))
-        assumptions.append('Low-CP strategy minimises candidate size and favours lower CP-cost templates.')
+        support_pool = supports
+        assumptions.append('Low-CP strategy favours lower CP-cost templates over build scale.')
     elif strategy == 'flexible_multirole':
-        selected.extend(_unique_templates(supports[:3]))
+        support_pool = supports
         assumptions.append('Flexible multirole strategy samples broad support options without exhaustive search.')
     else:
         return None
 
-    selected = _unique_templates(selected)
+    target_placements = _target_placement_count(
+        strategy=strategy,
+        support_pool=support_pool,
+        anchor_count=len([candidate for candidate in anchors if candidate.body_id]),
+    )
+    minimum_placements = _minimum_placement_count(strategy)
+    selected = _scaled_template_sequence(
+        port=port,
+        supports=support_pool,
+        target_size=target_placements,
+        strategy=strategy,
+    )
     if len(selected) == 1:
         warnings.append('No matching support facilities were available; candidate is port-only.')
 
     placements = _placements_from_templates(selected, anchor.body_id, strategy=strategy, anchors=anchors)
     if not placements:
         return None
+    if len(placements) < minimum_placements and strategy != 'primary_port_bootstrap':
+        warnings.append('Candidate scale is limited by sparse body or facility data.')
+        assumptions.append('Generate additional data/imports to unlock larger strategic plans for this system.')
+
+    scale_tier = _candidate_scale_tier(len(placements))
+    used_body_ids = sorted({placement.local_body_id for placement in placements if placement.local_body_id})
+    tags.extend([f'scale_{scale_tier}', scale_tier])
+    if len(used_body_ids) > 1:
+        tags.append('body_diversity')
+    assumptions.append(_scale_summary(scale_tier, len(placements), len(used_body_ids)))
 
     safe_body = anchor.body_id or 'system'
     candidate_id = f'{rule.key}_{safe_body}_{strategy}'
@@ -353,7 +375,11 @@ def _build_candidate(
         target_archetype=rule.key,
         strategy=strategy,
         placements=placements,
-        rationale=[*anchor.rationale, f'Strategy: {strategy.replace("_", " ")}'],
+        rationale=[
+            *anchor.rationale,
+            f'Strategy: {strategy.replace("_", " ")}',
+            f'Scale: {scale_tier} ({len(placements)} placements across {max(1, len(used_body_ids))} body/bodies).',
+        ],
         warnings=warnings,
         assumptions=assumptions,
         tags=_unique_strings(tags),
@@ -402,13 +428,15 @@ def _placements_from_templates(
 ) -> list[CandidatePlacement]:
     placements: list[CandidatePlacement] = []
     primary_assigned = False
-    support_body_id = _secondary_anchor_body_id(anchors, body_id) if strategy == 'support_body' else None
+    support_body_cycle = _support_body_cycle(strategy=strategy, anchors=anchors, primary_body_id=body_id)
+    support_cursor = 0
     for template in templates:
         is_primary = bool(template.is_port and not primary_assigned)
         primary_assigned = primary_assigned or is_primary
         placement_body_id = body_id
-        if support_body_id and not template.is_port and len([p for p in placements if not p.is_primary_port]) >= 1:
-            placement_body_id = support_body_id
+        if not is_primary and support_body_cycle:
+            placement_body_id = support_body_cycle[support_cursor % len(support_body_cycle)]
+            support_cursor += 1
         placements.append(CandidatePlacement(
             facility_template_id=template.id,
             local_body_id=placement_body_id,
@@ -443,11 +471,125 @@ def _general_support_templates(
     return sorted(supports, key=lambda t: (t.tier, -(t.yellow_cp_generated + t.green_cp_generated), t.name, t.id))
 
 
-def _secondary_anchor_body_id(anchors: list[BodyAnchor], primary_body_id: Optional[str]) -> Optional[str]:
-    for anchor in anchors:
-        if anchor.body_id and anchor.body_id != primary_body_id:
-            return anchor.body_id
-    return None
+def _support_body_cycle(
+    *,
+    strategy: str,
+    anchors: list[BodyAnchor],
+    primary_body_id: Optional[str],
+) -> list[Optional[str]]:
+    ordered: list[Optional[str]] = []
+    if primary_body_id:
+        ordered.append(primary_body_id)
+    ordered.extend([
+        anchor.body_id
+        for anchor in anchors
+        if anchor.body_id and anchor.body_id != primary_body_id
+    ])
+    unique_ordered: list[Optional[str]] = []
+    seen: set[Optional[str]] = set()
+    for body in ordered:
+        if body in seen:
+            continue
+        seen.add(body)
+        unique_ordered.append(body)
+    if not unique_ordered:
+        return [primary_body_id]
+    if strategy == 'primary_port_bootstrap':
+        return unique_ordered[:1]
+    if strategy in {'main_station', 'balanced_expansion', 'support_body'}:
+        return unique_ordered[: min(4, len(unique_ordered))]
+    if strategy in {'industrial_refinery', 'tourism_agriculture', 'military_security', 'balanced', 'pure', 'services_aware', 'flexible_multirole'}:
+        return unique_ordered[: min(3, len(unique_ordered))]
+    return unique_ordered[:1]
+
+
+def _target_placement_count(
+    *,
+    strategy: str,
+    support_pool: list[FacilityTemplate],
+    anchor_count: int,
+) -> int:
+    unique_support_count = len(_unique_templates(support_pool))
+    if strategy == 'primary_port_bootstrap':
+        return 4
+    if strategy in {'main_station', 'balanced_expansion', 'support_body'}:
+        if unique_support_count >= 12 and anchor_count >= 3:
+            return 16
+        if unique_support_count >= 8:
+            return 12
+        return 9
+    if unique_support_count >= 6:
+        return 8
+    if unique_support_count >= 4:
+        return 6
+    return 5
+
+
+def _minimum_placement_count(strategy: str) -> int:
+    if strategy == 'primary_port_bootstrap':
+        return 2
+    if strategy in {'main_station', 'balanced_expansion', 'support_body'}:
+        return 9
+    return 5
+
+
+def _scaled_template_sequence(
+    *,
+    port: FacilityTemplate,
+    supports: list[FacilityTemplate],
+    target_size: int,
+    strategy: str,
+) -> list[FacilityTemplate]:
+    selected: list[FacilityTemplate] = [port]
+    if not supports:
+        return selected
+
+    unique_supports = _unique_templates(supports)
+    for template in unique_supports:
+        if len(selected) >= target_size:
+            break
+        selected.append(template)
+    if len(selected) >= target_size:
+        return selected
+
+    # Sparse catalogues should still produce usable multi-structure plans. Reuse
+    # supports in a bounded way so candidates can reach starter/expansion scale.
+    max_repeats = 1 if strategy == 'primary_port_bootstrap' else (2 if target_size < 12 else 3)
+    support_counts = Counter(template.id for template in selected if template.id != port.id)
+    support_index = 0
+    safety = 0
+    while len(selected) < target_size and support_index < 10_000:
+        template = unique_supports[support_index % len(unique_supports)]
+        support_index += 1
+        safety += 1
+        if support_counts[template.id] >= max_repeats:
+            if safety > len(unique_supports) * 3:
+                break
+            continue
+        selected.append(template)
+        support_counts[template.id] += 1
+        safety = 0
+    return selected
+
+
+def _candidate_scale_tier(placement_count: int) -> str:
+    if placement_count <= 4:
+        return 'bootstrap'
+    if placement_count <= 8:
+        return 'starter'
+    if placement_count <= 14:
+        return 'expansion'
+    return 'full'
+
+
+def _scale_summary(scale_tier: str, placement_count: int, body_count: int) -> str:
+    readable = {
+        'bootstrap': 'bootstrap/minimal',
+        'starter': 'starter',
+        'expansion': 'expansion',
+        'full': 'ambitious/full',
+    }.get(scale_tier, scale_tier)
+    return f'Suggested build scale is {readable}: {placement_count} placements across {max(1, body_count)} body/bodies.'
 
 
 def _is_useful_candidate(candidate: OptimiserCandidate, catalogue: dict[str, FacilityTemplate]) -> bool:

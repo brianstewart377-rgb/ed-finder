@@ -8,6 +8,7 @@ export interface PlannerWorkspaceCommand {
   token: number;
   kind: 'add-structure' | 'review-structures';
   bodyId: string;
+  templateId?: string | null;
 }
 
 export interface PlanHealthSummary {

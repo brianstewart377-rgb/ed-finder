@@ -8,7 +8,7 @@ import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { candidatePlacementsToPreviewPlacements, sortCandidatesForDisplay } from './optimiserUtils';
-import { filterUsefulSuggestedBuilds, suggestedBuildPresentation } from './optimiserQualityUtils';
+import { filterUsefulSuggestedBuilds, suggestedBuildPresentation, suggestedBuildScale } from './optimiserQualityUtils';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
@@ -199,6 +199,45 @@ describe('optimiser candidate comparison UI', () => {
     expect(presentation.reason).toBeTruthy();
     expect(presentation.tradeoff).toBeTruthy();
     expect(presentation.nextAction).toMatch(/Review in Workspace/i);
+  });
+
+  it('derives suggested build scale tiers from placement counts and scale tags', () => {
+    const starter = candidate('starter', 'Starter');
+    starter.placements = [
+      { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+      { facility_template_id: 'agri_support_a', local_body_id: 'body1', is_primary_port: false, build_order: 2 },
+      { facility_template_id: 'agri_support_b', local_body_id: 'body2', is_primary_port: false, build_order: 3 },
+      { facility_template_id: 'agri_support_a', local_body_id: 'body2', is_primary_port: false, build_order: 4 },
+      { facility_template_id: 'agri_support_b', local_body_id: 'body3', is_primary_port: false, build_order: 5 },
+      { facility_template_id: 'agri_support_a', local_body_id: 'body3', is_primary_port: false, build_order: 6 },
+    ];
+    const bootstrapTagged = candidate('bootstrap', 'Bootstrap');
+    bootstrapTagged.tags = ['scale_bootstrap'];
+    bootstrapTagged.placements = bootstrapTagged.placements.slice(0, 2);
+
+    expect(suggestedBuildScale(starter)).toBe('starter');
+    expect(suggestedBuildScale(bootstrapTagged)).toBe('bootstrap');
+    expect(suggestedBuildPresentation(starter).scaleLabel).toBe('Starter');
+    expect(suggestedBuildPresentation(starter).placementCount).toBe(6);
+    expect(suggestedBuildPresentation(starter).bodyCount).toBe(3);
+  });
+
+  it('keeps multi-structure candidates even when rationale text is sparse', () => {
+    const sparseTextExpansion = {
+      ...candidate('expansion', 'Expansion candidate'),
+      rationale: [],
+      tags: [],
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body1', is_primary_port: false, build_order: 2 },
+        { facility_template_id: 'agri_support_b', local_body_id: 'body2', is_primary_port: false, build_order: 3 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body2', is_primary_port: false, build_order: 4 },
+        { facility_template_id: 'agri_support_b', local_body_id: 'body3', is_primary_port: false, build_order: 5 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body3', is_primary_port: false, build_order: 6 },
+      ],
+    };
+
+    expect(filterUsefulSuggestedBuilds([sparseTextExpansion]).map((item) => item.candidate_id)).toEqual(['expansion']);
   });
 
   it('renders selected suggested build comparison against current Build Plan and supports hide/show', () => {

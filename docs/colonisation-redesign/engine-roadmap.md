@@ -1476,3 +1476,37 @@ Safety boundaries for Stage 17:
 - No primary-port truth editing.
 - No loss of local-only projects during migration.
 - No mechanics/scoring changes bundled with persistence work.
+
+## Stage 17E - Functional Build Planner Rebuild (Implemented)
+
+Stage 17E reframes the planner around body-local interaction instead of report-card navigation.
+
+Delivered:
+
+- topology rail now behaves as a build tree with planned + projected child rows
+- central panel prioritises body-local planning and explicit `Add structure here`
+- body-aware structure picker flow is explicit and callback/state-driven
+- advanced Simulation Preview/Suggested Builds stack is secondary (explicitly opened)
+- optimiser candidate generation now pushes starter/expansion/full scales where data supports it
+- suggested-build UI now surfaces scale, placement count, and body footprint before explicit load
+
+Safety boundaries preserved:
+
+- no simulation mechanics/scoring/CP formula changes
+- no auto-generation/auto-load/auto-preview
+- no persistence architecture change
+
+## Stage 18 - Colony Architect Assistant Foundation (Planned)
+
+Stage 18 should add an assistant foundation while keeping deterministic planner authority:
+
+- constraints schema for natural language intent translation
+- advisor memory and knowledge-bank shape
+- explicit user approval gates before plan mutation
+- Preview remains the final validation source
+- no live LLM inference in early Stage 18 foundation commits
+
+See:
+
+- `docs/colonisation-redesign/stage-18-colony-architect-assistant-plan.md`
+- `docs/colonisation-redesign/black-box-llm-colony-architect-musings.md`

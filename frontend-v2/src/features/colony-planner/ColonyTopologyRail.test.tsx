@@ -65,16 +65,22 @@ const system = {
 function RailHarness({
   customSystem = system,
   onSelectSpy,
+  projection = null,
 }: {
   customSystem?: SystemDetail;
   onSelectSpy?: (selection: TopologySelection) => void;
+  projection?: {
+    candidateId: string;
+    label: string;
+    placements: SimulateBuildPlacement[];
+  } | null;
 }) {
   const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
   return (
     <>
       <ColonyTopologyRail
         system={customSystem}
-        snapshot={{ placements, templates, targetArchetype: 'refinery_industrial' }}
+        snapshot={{ placements, templates, targetArchetype: 'refinery_industrial', projection }}
         selection={selection}
         onSelect={(next) => {
           onSelectSpy?.(next);
@@ -146,5 +152,23 @@ describe('ColonyTopologyRail', () => {
     expect(
       screen.getByText(/No body layout imported yet\. Use the planner tools to import\/refresh layout when available/i),
     ).toBeTruthy();
+  });
+
+  it('shows projected suggested-build placements under matching bodies before loading', () => {
+    render(
+      <RailHarness
+        projection={{
+          candidateId: 'candidate-expansion',
+          label: 'Expansion candidate',
+          placements: [
+            { facility_template_id: 'surface_hub', local_body_id: '2', is_primary_port: false, build_order: 5 },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('topology-projected-bodies')).toBeTruthy();
+    expect(screen.getByTestId('topology-projected-group-2')).toBeTruthy();
+    expect(screen.getByTestId('topology-projected-placement-0')).toBeTruthy();
   });
 });

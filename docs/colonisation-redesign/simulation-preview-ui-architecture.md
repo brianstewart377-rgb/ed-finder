@@ -775,3 +775,41 @@ Stage 17D boundary reaffirmation:
 - no Search Tuning changes
 - no import/EDMC/persistence model changes
 - no automatic generation/load/preview behaviours
+
+## Stage 17E Functional Planner Architecture Notes
+
+Stage 17E keeps `simulation-preview/` as the deterministic planning engine boundary, but changes the workspace interaction hierarchy:
+
+- `features/colony-planner/WorkspaceGrid.tsx` now owns the primary body-local planner loop.
+- `SimulationPreviewPanel` remains mounted as the advanced tool stack and receives explicit workspace commands.
+- body-local add flow now uses explicit command payloads (`bodyId`, optional `templateId`) instead of DOM-driven button indirection.
+
+New interaction layering:
+
+1. Topology build tree (left) selects body/placement context.
+2. Body planning surface (centre top) is the default interaction surface.
+3. Advanced planner stack (centre secondary) is opened explicitly for Suggested Builds/Preview/list editing.
+
+Projection model:
+
+- candidate projection stays owned by `SimulationPreview` and is emitted in `onPlanSnapshotChange`.
+- topology tree and body surface consume projection for ghost rows and projected-body highlighting.
+- load remains explicit and does not auto-run Preview.
+
+Suggested Builds scale model (UI interpretation):
+
+- bootstrap: 2-4 placements
+- starter: 5-8 placements
+- expansion: 9-14 placements
+- full: 15+ placements
+
+The UI now presents scale + footprint directly in candidate cards/details and uses that metadata to avoid over-promoting trivial plans.
+
+## Stage 18 Assistant Foundation Boundary
+
+Planned assistant layer should sit above this architecture:
+
+- assistant proposes structured constraints only
+- deterministic candidate generation/build-plan editing remains authoritative
+- Preview remains explicit and authoritative
+- no assistant-originated silent mutation of the active Build Plan

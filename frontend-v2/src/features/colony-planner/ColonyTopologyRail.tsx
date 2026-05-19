@@ -60,6 +60,12 @@ interface PlacementBucket {
   unassigned: GroupedPlacement[];
 }
 
+interface ProjectedPlacementItem {
+  index: number;
+  placement: SimulateBuildPlacement;
+  template?: FacilityTemplate;
+}
+
 export function ColonyTopologyRail({
   system,
   snapshot,
@@ -71,6 +77,7 @@ export function ColonyTopologyRail({
   const buckets = bucketPlacements(snapshot.placements, snapshot.templates, bodies);
   const totalPlacements = snapshot.placements.length;
   const selectedIsSystem = selection.type === 'system';
+  const projectedByBody = bucketProjectedPlacements(snapshot.projection?.placements ?? [], snapshot.templates, bodies);
   const projectedBodyIds = new Set(
     (snapshot.projection?.placements ?? [])
       .map((placement) => placement.local_body_id != null ? String(placement.local_body_id) : '')
@@ -124,6 +131,7 @@ export function ColonyTopologyRail({
               node={node}
               systemName={system.name}
               placements={buckets.knownByBody.get(node.id) ?? []}
+              projectedPlacements={projectedByBody.get(node.id) ?? []}
               selected={selection.type === 'body' && selection.bodyId === node.id}
               selectedPlacementIndex={selection.type === 'placement' ? selection.placementIndex : null}
               projected={projectedBodyIds.has(node.id)}
@@ -183,6 +191,7 @@ function BodyTreeRow({
   node,
   systemName,
   placements,
+  projectedPlacements,
   selected,
   selectedPlacementIndex,
   projected,
@@ -191,6 +200,7 @@ function BodyTreeRow({
   node: BodyNode;
   systemName?: string | null;
   placements: GroupedPlacement[];
+  projectedPlacements: ProjectedPlacementItem[];
   selected: boolean;
   selectedPlacementIndex: number | null;
   projected: boolean;
@@ -202,6 +212,7 @@ function BodyTreeRow({
   const warningCount = getBodyGroupWarnings({ key: node.id, body: node.body, placements }).length;
   const fullName = bodyDisplayName(node.body);
   const compactName = compactBodyDisplayName(node.body, systemName);
+  const projectedCount = projectedPlacements.length;
 
   return (
     <div data-testid={`topology-body-${node.id}`} style={{ marginLeft: `${node.depth * 0.75}rem` }}>
@@ -225,6 +236,7 @@ function BodyTreeRow({
           </div>
         </div>
         {placements.length > 0 && <CountChip>{placements.length}</CountChip>}
+        {projectedCount > 0 && <Chip tone="cyan">+{projectedCount}</Chip>}
         {projected && <Marker tone="cyan" label="Used by selected suggested build">G</Marker>}
         {hasPrimary && <Marker tone="gold" label="Primary-port placement">P</Marker>}
         {warningCount > 0 && <Marker tone="gold" label={`${warningCount} warnings`}>!</Marker>}
@@ -239,6 +251,16 @@ function BodyTreeRow({
               selected={selectedPlacementIndex === item.index}
               onSelect={() => onSelect({ type: 'placement', placementIndex: item.index })}
             />
+          ))}
+        </div>
+      )}
+      {projectedPlacements.length > 0 && (
+        <div
+          data-testid={`topology-projected-group-${node.id}`}
+          className="ml-3 mt-1 space-y-1 border-l border-cyan/35 pl-2"
+        >
+          {projectedPlacements.map((item) => (
+            <ProjectedPlacementRow key={`projected-${node.id}-${item.index}-${item.placement.facility_template_id}`} item={item} />
           ))}
         </div>
       )}
@@ -313,6 +335,20 @@ function PlacementButton({
       <span className="min-w-0 truncate">#{item.placement.build_order} {label}</span>
       {item.placement.is_primary_port && <span className="shrink-0 text-gold">primary</span>}
     </button>
+  );
+}
+
+function ProjectedPlacementRow({ item }: { item: ProjectedPlacementItem }) {
+  const label = item.template?.name ?? item.placement.facility_template_id;
+  return (
+    <div
+      data-testid={`topology-projected-placement-${item.index}`}
+      className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-cyan/35 bg-cyan/8 px-2 py-1 text-left font-mono text-[10px] text-cyan"
+      aria-label={`Projected structure ${label}`}
+    >
+      <span className="min-w-0 truncate">#{item.placement.build_order} {label}</span>
+      <span className="shrink-0 uppercase tracking-[0.12em]">projected</span>
+    </div>
   );
 }
 
@@ -422,6 +458,32 @@ function bucketPlacements(
   });
 
   return { knownByBody, unknown, unassigned };
+}
+
+function bucketProjectedPlacements(
+  placements: SimulateBuildPlacement[],
+  templates: FacilityTemplate[],
+  bodies: SystemBody[],
+): Map<string, ProjectedPlacementItem[]> {
+  const bodyIds = new Set(
+    bodies
+      .filter((body) => body.id != null)
+      .map((body) => String(body.id)),
+  );
+  const templatesById = new Map(templates.map((template) => [template.id, template]));
+  const buckets = new Map<string, ProjectedPlacementItem[]>();
+  placements.forEach((placement, index) => {
+    const bodyId = placement.local_body_id != null ? String(placement.local_body_id) : null;
+    if (!bodyId || !bodyIds.has(bodyId)) return;
+    const list = buckets.get(bodyId) ?? [];
+    list.push({
+      index,
+      placement,
+      template: templatesById.get(placement.facility_template_id),
+    });
+    buckets.set(bodyId, list);
+  });
+  return buckets;
 }
 
 function buildBodyNodes(bodies: SystemBody[]): BodyNode[] {

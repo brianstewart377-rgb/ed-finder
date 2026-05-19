@@ -130,6 +130,14 @@ export function OptimiserCandidateDetails({
         <SummaryBox title="Next action" body={presentation.nextAction} />
       </div>
 
+      <div className="rounded border border-orange/25 bg-orange/8 px-3 py-2">
+        <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Plan scale</h5>
+        <p className="mt-1 text-[11px] text-silver-dk">
+          <span className="text-silver">{presentation.scaleLabel}</span> scale: {presentation.placementCount} placements across {presentation.bodyCount || 1} body/bodies.
+        </p>
+        <p className="mt-1 text-[11px] text-silver-dk">{presentation.scaleReason}</p>
+      </div>
+
       <div className="rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
         <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Projected layout</h5>
         <p className="mt-1 text-[11px] text-silver-dk">

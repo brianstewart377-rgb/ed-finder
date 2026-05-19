@@ -243,6 +243,49 @@ describe('BuildPlanSection layout import state', () => {
     fireEvent.click(screen.getByRole('button', { name: /Add structure here/i }));
 
     expect(onAddPlacement).toHaveBeenCalledTimes(1);
-    expect(onAddPlacement).toHaveBeenCalledWith('1');
+    expect(onAddPlacement).toHaveBeenCalledWith({ bodyId: '1' });
+  });
+
+  it('handles add-structure workspace command with explicit body/template context', () => {
+    const onAddPlacement = vi.fn();
+
+    render(
+      <BuildPlanSection
+        systemId64={123}
+        systemName="Test System"
+        startMode={'blank_advanced' as StartMode}
+        hasRecommendedBuild={false}
+        loadingRecommended={false}
+        targetArchetype="refinery_industrial"
+        onTargetArchetypeChange={vi.fn()}
+        placements={[]}
+        templates={[templateMinimal]}
+        bodies={bodies}
+        templatesLoading={false}
+        templatesErrorMessage={null}
+        optimiserCandidateOriginLabel={null}
+        optimiserCandidateWasEdited={false}
+        initialAssumptions={[]}
+        previewResult={previewResult}
+        isPreviewResultStale={false}
+        runningPreview={false}
+        onUseRecommended={vi.fn()}
+        onBlank={vi.fn()}
+        onShowSuggestedBuilds={vi.fn()}
+        onAddPlacement={onAddPlacement}
+        onUpdatePlacement={vi.fn()}
+        onRemovePlacement={vi.fn()}
+        onMovePlacement={vi.fn()}
+        topologySelection={{ type: 'body', bodyId: '1' }}
+        workspaceCommand={{
+          token: 77,
+          kind: 'add-structure',
+          bodyId: '1',
+          templateId: 'generic_port_alpha',
+        }}
+      />,
+    );
+
+    expect(onAddPlacement).toHaveBeenCalledWith({ bodyId: '1', templateId: 'generic_port_alpha' });
   });
 });

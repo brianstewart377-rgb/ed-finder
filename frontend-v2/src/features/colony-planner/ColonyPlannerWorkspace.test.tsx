@@ -199,6 +199,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
     expect(screen.getByText('Planning Workspace')).toBeTruthy();
     expect(screen.getByTestId('body-planning-surface')).toBeTruthy();
+    expect(screen.getByTestId('advanced-workspace-toggle')).toBeTruthy();
+    expect(screen.getByTestId('advanced-workspace-toggle').textContent).toContain('Open');
     expect(screen.getByText('Planner summary')).toBeTruthy();
     expect(screen.getByTestId('project-card')).toBeTruthy();
     expect(screen.getByTestId('plan-health-card')).toBeTruthy();
@@ -248,6 +250,41 @@ describe('ColonyPlannerWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /Back to system detail/i }));
     expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);
     expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
+  });
+
+  it('opens body-aware structure picker and sends add-structure command with selected body/template', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <ColonyPlannerWorkspace
+        id64={123}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add structure here' }));
+
+    expect(screen.getByTestId('body-structure-picker')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
+
+    expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        topologySelection: { type: 'body', bodyId: 'body1' },
+        workspaceCommand: expect.objectContaining({
+          kind: 'add-structure',
+          bodyId: 'body1',
+          templateId: 'orbital_port',
+        }),
+      }),
+      undefined,
+    );
   });
 
   it('keeps body clicks focused on planning rather than role editing side effects', async () => {

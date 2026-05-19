@@ -40,6 +40,17 @@ export function OptimiserCandidateCard({
           <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
             {presentation.category}
           </div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            <span className="rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">
+              {presentation.scaleLabel}
+            </span>
+            <span className="rounded border border-border/55 bg-bg3/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
+              {presentation.placementCount} placements
+            </span>
+            <span className="rounded border border-border/55 bg-bg3/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
+              {presentation.bodyCount || 1} bodies
+            </span>
+          </div>
           <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-silver-dk">{presentation.purpose}</p>
           <div className="mt-2 truncate text-sm font-semibold text-silver">{candidate.label}</div>
           <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">

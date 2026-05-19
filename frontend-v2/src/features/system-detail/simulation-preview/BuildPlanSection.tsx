@@ -63,7 +63,7 @@ export function BuildPlanSection({
   onUseRecommended: () => void;
   onBlank: () => void;
   onShowSuggestedBuilds?: () => void;
-  onAddPlacement: (bodyId?: string | null) => void;
+  onAddPlacement: (options?: { bodyId?: string | null; templateId?: string | null }) => void;
   onUpdatePlacement: (index: number, patch: Partial<SimulateBuildPlacement>) => void;
   onRemovePlacement: (index: number) => void;
   onMovePlacement: (index: number, direction: -1 | 1) => void;
@@ -101,7 +101,10 @@ export function BuildPlanSection({
     lastHandledWorkspaceCommandToken.current = workspaceCommand.token;
     if (workspaceCommand.kind === 'add-structure') {
       setViewMode('body');
-      onAddPlacement(workspaceCommand.bodyId);
+      onAddPlacement({
+        bodyId: workspaceCommand.bodyId,
+        templateId: workspaceCommand.templateId ?? null,
+      });
       return;
     }
     if (workspaceCommand.kind === 'review-structures') {
@@ -221,7 +224,7 @@ export function BuildPlanSection({
             </div>
             <button
               type="button"
-              onClick={() => onAddPlacement(selectedBodyId)}
+              onClick={() => onAddPlacement({ bodyId: selectedBodyId })}
               data-testid="add-structure-selected-body"
               disabled={templates.length === 0 || !selectedBody}
               className="inline-flex items-center justify-center gap-2 rounded-chunk-sm border border-cyan/45 bg-cyan/10 px-3 py-2 text-xs font-mono text-cyan hover:bg-cyan/20 disabled:opacity-45"

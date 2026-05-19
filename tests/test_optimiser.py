@@ -311,6 +311,75 @@ async def test_useful_industrial_archetype_candidate_appears(catalogue):
 
 
 @pytest.mark.asyncio
+async def test_default_candidates_are_scaled_beyond_bootstrap_when_data_allows(catalogue):
+    result = await generate(
+        catalogue,
+        target='agriculture_terraforming',
+        body_rows=body_rows_default(),
+        max_candidates=5,
+        run_preview=False,
+    )
+
+    assert result.candidate_count > 0
+    assert any(len(candidate.placements) > 4 for candidate in result.candidates)
+    assert any(any(tag.startswith('scale_') for tag in candidate.tags) for candidate in result.candidates)
+
+
+@pytest.mark.asyncio
+async def test_scaled_candidates_use_multiple_bodies_when_available(catalogue):
+    result = await generate(
+        catalogue,
+        target='agriculture_terraforming',
+        body_rows=body_rows_default(),
+        max_candidates=5,
+        run_preview=False,
+    )
+
+    assert any(
+        len({placement.local_body_id for placement in candidate.placements if placement.local_body_id}) > 1
+        for candidate in result.candidates
+        if len(candidate.placements) >= 5
+    )
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_candidate_is_marked_and_ranks_below_strategic_options(catalogue):
+    bootstrap = OptimiserCandidate(
+        candidate_id='bootstrap',
+        label='Bootstrap candidate',
+        target_archetype='agriculture_terraforming',
+        strategy='primary_port_bootstrap',
+        placements=[
+            CandidatePlacement('generic_port_alpha', local_body_id='body1', is_primary_port=True, build_order=1),
+            CandidatePlacement('agri_support_a', local_body_id='body1', is_primary_port=False, build_order=2),
+            CandidatePlacement('agri_support_b', local_body_id='body2', is_primary_port=False, build_order=3),
+        ],
+        tags=['scale_bootstrap', 'bootstrap'],
+        preview_summary=CandidatePreviewSummary(final_score=80, composition_score=80, buildability_score=80, confidence=0.8),
+    )
+    expansion = OptimiserCandidate(
+        candidate_id='expansion',
+        label='Expansion candidate',
+        target_archetype='agriculture_terraforming',
+        strategy='balanced_expansion',
+        placements=[
+            CandidatePlacement('generic_port_alpha', local_body_id='body1', is_primary_port=True, build_order=1),
+            CandidatePlacement('agri_support_a', local_body_id='body1', is_primary_port=False, build_order=2),
+            CandidatePlacement('agri_support_b', local_body_id='body2', is_primary_port=False, build_order=3),
+            CandidatePlacement('service_support', local_body_id='body2', is_primary_port=False, build_order=4),
+            CandidatePlacement('agri_support_a', local_body_id='body1', is_primary_port=False, build_order=5),
+        ],
+        tags=['scale_starter'],
+        preview_summary=CandidatePreviewSummary(final_score=80, composition_score=80, buildability_score=80, confidence=0.8),
+    )
+
+    ranking = rank_candidates([bootstrap, expansion], target_archetype='agriculture_terraforming')
+    scores = {item.candidate_id: item.rank_score for item in ranking.ranked_candidates}
+    assert 'scale_bootstrap' in bootstrap.tags
+    assert scores['bootstrap'] < scores['expansion']
+
+
+@pytest.mark.asyncio
 async def test_colony_ship_bootstrap_is_not_returned_as_strategic_candidate(catalogue):
     with_colony_ship = {
         **catalogue,
