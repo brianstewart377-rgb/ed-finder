@@ -137,13 +137,37 @@ const layoutImportSuccess: LayoutImportResponse = {
   errors: [],
 };
 
-function renderPreview(options: { system?: SystemDetail; initialRequest?: SimulateBuildRequest } = {}) {
+function renderPreview(options: { system?: SystemDetail; initialRequest?: SimulateBuildRequest; declaredRoles?: Parameters<typeof SimulationPreview>[0]['declaredRoles'] } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SimulationPreview system={options.system ?? system} initialRequest={options.initialRequest} />
+      <SimulationPreview
+        system={options.system ?? system}
+        initialRequest={options.initialRequest}
+        declaredRoles={options.declaredRoles}
+      />
     </QueryClientProvider>,
   );
+}
+
+async function openSuggestedBuildsMode() {
+  fireEvent.click(await screen.findByRole('button', { name: /^Suggested Builds/i }));
+  await screen.findByTestId('suggested-builds-workspace-view');
+}
+
+async function openEvidenceMode() {
+  fireEvent.click(await screen.findByRole('button', { name: /^Evidence/i }));
+  await screen.findByTestId('evidence-workspace-view');
+}
+
+async function openValidationMode() {
+  fireEvent.click(await screen.findByRole('button', { name: /^Validation/i }));
+  await screen.findByTestId('validation-workspace-view');
+}
+
+async function openPreviewMode() {
+  fireEvent.click(await screen.findByRole('button', { name: /^Preview/i }));
+  await screen.findByTestId('preview-workspace-view');
 }
 
 function emptyObservedFactsResponse() {
@@ -317,33 +341,105 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedReview.mockReset();
   });
 
-  it('renders Evidence and Validation drawer controls without mounting the panels by default', async () => {
+  it('renders Evidence and Validation modes without mounting the panels by default', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
     const labels = await screen.findAllByText('Observed Evidence');
     expect(labels.length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Evidence drawer' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Validation drawer' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Evidence/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Validation/i })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Observed Evidence' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Validation' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Evidence drawer' }));
-    expect(await screen.findByTestId('evidence-drawer')).toBeTruthy();
+    await openEvidenceMode();
     expect(screen.getByRole('region', { name: 'Observed Evidence' })).toBeTruthy();
     expect(
       screen.getByText(/Later step: Observed Evidence records what you see in-game after planning/),
     ).toBeTruthy();
-    expect(screen.getAllByText('Build Plan').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Suggested Builds').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Preview Result').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('build-plan-workspace-view')).toBeNull();
+    expect(screen.queryByTestId('suggested-builds-workspace-view')).toBeNull();
+    expect(screen.queryByTestId('preview-workspace-view')).toBeNull();
+  });
+
+  it('shows observed-role review context in Evidence mode without changing declared roles', async () => {
+    mockNoRecommendedBuild();
+    mockedListObservedFacts.mockResolvedValue({
+      ...emptyObservedFactsResponse(),
+      total: 1,
+      summary: {
+        total_count: 1,
+        by_fact_type: { economy_presence: 1 },
+        by_status: { observed_present: 1 },
+        by_confidence: { high: 1 },
+        latest_observed_at: '2026-05-19T00:00:00.000Z',
+      },
+      facts: [{
+        observation_id: 'obs-tourism',
+        system_id64: 123,
+        created_at: '2026-05-19T00:00:00.000Z',
+        updated_at: null,
+        source: 'manual',
+        fact_type: 'economy_presence',
+        subject_type: 'body',
+        subject_id: 'body1',
+        local_body_id: 'body1',
+        status: 'observed_present',
+        economy: 'Tourism',
+        confidence: 'high',
+        tags: [],
+        metadata: {},
+      }],
+    });
+    renderPreview({
+      declaredRoles: [{
+        id: 'declared:body1:industrial_core',
+        body_id: 'body1',
+        role_id: 'industrial_core',
+        source: 'declared',
+        label: 'Industrial Core',
+      }],
+    });
+
+    await openEvidenceMode();
+
+    expect(await screen.findByText('Evidence Role Review')).toBeTruthy();
+    expect(screen.getAllByText('Strategy diverging').length).toBeGreaterThan(0);
+    expect(screen.getByText('Declared Industrial Core but observed Observed Tourism Focus.')).toBeTruthy();
+    expect(screen.getByText('Declared: Industrial')).toBeTruthy();
+    expect(screen.getByText('Observed Tourism Focus')).toBeTruthy();
+    expect(screen.getByText(/Review-only: role review never changes declared strategy/)).toBeTruthy();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
+  it('shows strategic role review context in Validation mode without optimiser side effects', async () => {
+    mockNoRecommendedBuild();
+    renderPreview({
+      declaredRoles: [{
+        id: 'declared:body1:main_station_body',
+        body_id: 'body1',
+        role_id: 'main_station_body',
+        source: 'declared',
+        label: 'Main Station Body',
+      }],
+    });
+
+    await openValidationMode();
+
+    expect(await screen.findByText('Validation Role Review')).toBeTruthy();
+    expect(screen.getAllByText('Insufficient observed evidence').length).toBeGreaterThan(0);
+    expect(screen.getByText('No observed evidence recorded yet.')).toBeTruthy();
+    expect(screen.getByText('Declared: Main Station')).toBeTruthy();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
   });
 
   it('does not call simulateBuild or optimiser candidate generation when the evidence drawer opens', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Evidence drawer' }));
+    await openEvidenceMode();
     await screen.findByRole('region', { name: 'Observed Evidence' });
     await waitFor(() => expect(mockedListObservedFacts).toHaveBeenCalled());
 
@@ -361,49 +457,53 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getAllByText('Build Plan').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Suggested Builds').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Preview Result').length).toBeGreaterThan(0);
-    expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
-    expect(screen.getAllByText('Generate Suggested Builds').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Target for Suggested Builds and Preview/)).toBeTruthy();
+    expect(screen.queryByTestId('suggested-builds-workspace-view')).toBeNull();
     expect(screen.getByRole('button', { name: /Show Suggested Builds/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Start blank/i })).toBeTruthy();
     expect(screen.getByText(/Advanced manual control/)).toBeTruthy();
     expect(screen.getByText(/0 placements in Build Plan/)).toBeTruthy();
     expect(screen.getAllByText(/Preview not run yet/).length).toBeGreaterThan(0);
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
 
     await waitFor(() => expect(screen.getByText(/Copied suggested build:/)).toBeTruthy());
-    expect(screen.getAllByText(/Balanced Agriculture candidate/).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('suggested-builds-workspace-view')).toBeNull();
+    expect(screen.getByText('Build Plan role context')).toBeTruthy();
+    expect(screen.getAllByText('Main Station Candidate').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Possible main-station body due to current orbital\/port concentration/i)).toBeTruthy();
     expect(screen.getByText(/You can edit the Build Plan and run Preview when ready/)).toBeTruthy();
     expect((screen.getByLabelText(/Target archetype/i) as HTMLSelectElement).value).toBe('agriculture_terraforming');
-    expect(screen.getAllByText('generic_port_alpha').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('agri_support_a').length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
+    expect(screen.getAllByRole('combobox').length).toBeGreaterThan(2);
     expect(screen.getByText('Suggested build')).toBeTruthy();
     expect(screen.getByText(/2 placements in Build Plan/)).toBeTruthy();
     expect(screen.getByText(/Preview has not been run for this plan yet/)).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
+
+    await openPreviewMode();
+    expect(screen.getByText('Preview role context')).toBeTruthy();
+    expect(screen.getByText(/Advisory only; no role assignment or mechanics change is applied/i)).toBeTruthy();
   });
 
-  it('focuses Suggested Builds from the start card without generating or loading anything', async () => {
-    const scrollIntoView = vi.fn();
-    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
-    Element.prototype.scrollIntoView = scrollIntoView;
+  it('opens Suggested Builds from the start card without generating or loading anything', async () => {
     mockNoRecommendedBuild();
     const { unmount } = renderPreview();
 
     const target = await screen.findByTestId('suggested-builds-focus-target');
     fireEvent.click(screen.getByRole('button', { name: /Show Suggested Builds/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Show Suggested Builds/i }));
 
-    expect(scrollIntoView).toHaveBeenCalledTimes(2);
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
-    expect(document.activeElement).toBe(target);
-    expect(clearTimeoutSpy).toHaveBeenCalled();
+    expect(await screen.findByTestId('suggested-builds-workspace-view')).toBeTruthy();
+    expect(screen.getByText('Suggested Builds role context')).toBeTruthy();
+    expect(screen.getByText(/Suggested Builds can be compared against the selected strategic purpose/i)).toBeTruthy();
+    expect(screen.queryByTestId('build-plan-workspace-view')).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(target));
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(screen.queryByText(/Copied suggested build:/)).toBeNull();
     unmount();
-    expect(clearTimeoutSpy).toHaveBeenCalled();
   });
 
   it('shows Build Plan placement count and helper copy for manual planning', async () => {
@@ -415,19 +515,16 @@ describe('SimulationPreview optimiser candidate loading', () => {
     fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
 
     expect(screen.getByText(/1 placement in Build Plan/)).toBeTruthy();
-    expect(screen.getByText(/Target archetype affects predicted economy, service, and buildability outcomes/)).toBeTruthy();
+    expect(screen.getByText(/Target for Suggested Builds and Preview/)).toBeTruthy();
     expect(screen.getAllByText(/Check System Map > Architect Mode before final major station placement/).length).toBeGreaterThan(0);
     expect(screen.getByText('Architect survey: not observed')).toBeTruthy();
     expect(screen.getByText('Primary-port flag: unknown')).toBeTruthy();
-    expect(screen.getByText(/Yellow CP supports Tier 2 construction/)).toBeTruthy();
-    expect(screen.getByText(/Green CP supports Tier 3 construction/)).toBeTruthy();
-    expect(screen.getByText(/Build order can affect CP timing and port escalation/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
     expect(screen.getByText(/2 placements in Build Plan/)).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
   });
 
-  it('toggles between List view and Layout view without preview or suggested-build side effects', async () => {
+  it('toggles between List view and Body view without preview or suggested-build side effects', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
@@ -438,10 +535,10 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getByRole('button', { name: /List view/i }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByDisplayValue('T1 - Generic Port Alpha')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /Layout view/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Body view/i }));
 
-    expect(screen.getByRole('button', { name: /Layout view/i }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByText(/Layout view is a readout\.? Use List view to edit\./i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Body view/i }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(/Body view is the default planning surface\. List view is the advanced editor\./i)).toBeTruthy();
     expect(screen.getByRole('region', { name: /Layout plan summary/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Select body Test Body/i })).toBeTruthy();
     expect(screen.getByText('Generic Port Alpha')).toBeTruthy();
@@ -569,6 +666,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockNoRecommendedBuild();
     renderPreview();
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
@@ -583,6 +681,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockNoRecommendedBuild();
     renderPreview();
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
@@ -598,6 +697,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockRecommendedBuild();
     renderPreview();
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     const replaceButton = screen.queryByRole('button', { name: /Replace Build Plan/i });
@@ -618,6 +718,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockReturnValue(new Promise(() => {}) as never);
     renderPreview();
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
@@ -641,23 +742,25 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockResolvedValue(simulationResult());
     renderPreview();
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
+    await openPreviewMode();
     await screen.findByText(/Final Score/i);
     expect(screen.queryAllByText(/The Build Plan has changed since this preview was run/)).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /^Build Plan/i }));
+    await screen.findByTestId('build-plan-workspace-view');
 
     fireEvent.change(screen.getByLabelText(/Target archetype/i), { target: { value: 'trade_logistics' } });
 
-    // Stage 6D: the stale wording can now appear in BOTH PreviewResult
-    // and ValidationPanel (each with their own copy). Both are
-    // legitimate UX signals that a re-run is needed.
+    expect(screen.getByText(/Preview is stale - run Preview again/)).toBeTruthy();
+    expect(screen.getByText(/Build Plan changed\. Run Preview to update the prediction/)).toBeTruthy();
+    await openPreviewMode();
     expect(
       screen.getAllByText(/The Build Plan has changed since this preview was run/).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText(/Preview is stale - run Preview again/)).toBeTruthy();
-    expect(screen.getByText(/Build Plan changed\. Run Preview to update the prediction/)).toBeTruthy();
     expect(mockedSimulateBuild).toHaveBeenCalledTimes(1);
   });
 
@@ -666,19 +769,25 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockResolvedValue(simulationResult());
     renderPreview();
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
+    await openPreviewMode();
     await screen.findByText(/Final Score/i);
+    fireEvent.click(screen.getByRole('button', { name: /^Build Plan/i }));
+    await screen.findByTestId('build-plan-workspace-view');
 
     fireEvent.click(screen.getAllByRole('button', { name: /Move down/i })[0]);
+    expect(screen.getByText(/Preview is stale - run Preview again/)).toBeTruthy();
+    await openPreviewMode();
     expect(
       screen.getAllByText(/The Build Plan has changed since this preview was run/).length,
     ).toBeGreaterThan(0);
     expect(mockedSimulateBuild).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
+    fireEvent.click(screen.getAllByRole('button', { name: /Run Preview/i })[0]);
     await waitFor(() => expect(mockedSimulateBuild).toHaveBeenCalledTimes(2));
     expect(screen.queryAllByText(/The Build Plan has changed since this preview was run/)).toHaveLength(0);
   });
@@ -688,6 +797,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockReturnValue(new Promise(() => {}) as never);
     renderPreview();
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(await screen.findByText(/Compare with current plan/i)).toBeTruthy();
@@ -723,41 +833,42 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedSimulateBuild.mockResolvedValue(simulationResult());
     renderPreview();
 
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByTestId('generate-suggested-builds'));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
 
+    expect(await screen.findByText(/Preview matches current Build Plan/)).toBeTruthy();
+    await openPreviewMode();
     await screen.findByText(/Final Score/i);
-    expect(screen.getByText(/Preview matches current Build Plan/)).toBeTruthy();
-    expect(screen.getByText(/This Preview Result was generated for the current Build Plan/)).toBeTruthy();
+    expect(screen.getByText(/After checking in-game, record Observed Evidence/)).toBeTruthy();
     expect(screen.queryByText(/Preview is up to date/)).toBeNull();
   });
 
   // ── Stage 6D integration ────────────────────────────────────────────────
-  it('opens and closes Evidence and Validation drawers explicitly', async () => {
+  it('opens Evidence and Validation modes explicitly', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
     expect((await screen.findAllByText('Validation')).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Evidence drawer' }));
-    expect(await screen.findByTestId('evidence-drawer')).toBeTruthy();
-    expect(screen.queryByTestId('validation-drawer')).toBeNull();
+    await openEvidenceMode();
+    expect(screen.queryByTestId('validation-workspace-view')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Validation drawer' }));
-    expect(await screen.findByTestId('validation-drawer')).toBeTruthy();
-    expect(screen.queryByTestId('evidence-drawer')).toBeNull();
+    await openValidationMode();
+    expect(screen.queryByTestId('evidence-workspace-view')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.queryByTestId('validation-drawer')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Build Plan/i }));
+    expect(await screen.findByTestId('build-plan-workspace-view')).toBeTruthy();
+    expect(screen.queryByTestId('validation-workspace-view')).toBeNull();
   });
 
   it('shows the no-preview empty state in Validation when no preview has been run', async () => {
     mockNoRecommendedBuild();
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Validation drawer' }));
+    await openValidationMode();
     await screen.findByRole('region', { name: 'Validation' });
     expect(
       screen.getByText(/Run Preview first, then record Observed Evidence after checking in-game/),
@@ -792,14 +903,16 @@ describe('SimulationPreview optimiser candidate loading', () => {
     } satisfies PredictionObservationCompareResponse);
 
     renderPreview();
+    await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Load into Planner Workspace' }));
     await screen.findByText(/Copied suggested build:/);
     fireEvent.click(screen.getByRole('button', { name: /Run Preview/i }));
 
+    await openPreviewMode();
     await screen.findByText(/Final Score/i);
     expect(mockedCompare).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Validation drawer' }));
+    await openValidationMode();
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(1));
     const sent = mockedCompare.mock.calls[0][0];
     expect(sent.system_id64).toBe(123);

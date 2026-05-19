@@ -87,6 +87,10 @@ export function BuildPlanSection({
     ? placements.filter((placement) => String(placement.local_body_id ?? '') === selectedBodyId).length
     : 0;
 
+  useEffect(() => {
+    if (selectedBodyId) setViewMode('body');
+  }, [selectedBodyId]);
+
   const handleImportLayout = async () => {
     setLayoutImportRunning(true);
     setLayoutImportError(null);
@@ -106,15 +110,8 @@ export function BuildPlanSection({
       <div className="mb-3">
         <h4 className="font-mono text-[11px] uppercase tracking-[0.18em] text-orange">Build Plan</h4>
         <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">
-          Build your plan here, then run Preview when ready. Suggested Builds are a starting point; copy one into this editable plan, adjust placements, and run Preview explicitly.
+          Select a body, add structures deliberately, then run Preview when ready.
         </p>
-        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono">
-          <BuildFlowChip step="1" label="Suggested Builds" tone="primary" />
-          <BuildFlowChip step="2" label="Build Plan" tone="primary" />
-          <BuildFlowChip step="3" label="Preview Result" tone="primary" />
-          <BuildFlowChip step="4" label="Observed Evidence" tone="later" />
-          <BuildFlowChip step="5" label="Validation" tone="later" />
-        </div>
       </div>
       <BuildPlanStatus
         placementCount={placements.length}
@@ -178,7 +175,7 @@ export function BuildPlanSection({
               ))}
             </select>
             <span className="block text-[10px] text-silver-dk font-mono leading-snug">
-              Target archetype affects predicted economy, service, and buildability outcomes. Changing it does not change anything in-game.
+              Target for Suggested Builds and Preview.
             </span>
           </label>
           <button
@@ -198,7 +195,7 @@ export function BuildPlanSection({
           >
             <div className="min-w-0">
               <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
-                Currently viewing
+                Body context
               </div>
               <p className="mt-0.5 truncate text-[11px] font-mono text-silver-dk">
                 {selectedBody ? bodyDisplayName(selectedBody) : 'Selected topology body'} - {selectedBodyPlacementCount} matching placement{selectedBodyPlacementCount === 1 ? '' : 's'}
@@ -207,11 +204,12 @@ export function BuildPlanSection({
             <button
               type="button"
               onClick={() => onAddPlacement(selectedBodyId)}
+              data-testid="add-structure-selected-body"
               disabled={templates.length === 0 || !selectedBody}
               className="inline-flex items-center justify-center gap-2 rounded-chunk-sm border border-cyan/45 bg-cyan/10 px-3 py-2 text-xs font-mono text-cyan hover:bg-cyan/20 disabled:opacity-45"
             >
               <Plus size={14} />
-              Add to selected body
+              Add structure here
             </button>
           </div>
         )}
@@ -246,7 +244,7 @@ export function BuildPlanSection({
           <div>
             <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Planner views</div>
             <p className="mt-0.5 text-[10px] font-mono text-silver-dk">
-              Layout view is a readout. Use List view to edit.
+              Body view is the default planning surface. List view is the advanced editor.
             </p>
           </div>
           <div className="inline-flex rounded-chunk-sm border border-border/70 bg-bg3/40 p-1">
@@ -255,27 +253,18 @@ export function BuildPlanSection({
               icon={<ListChecks size={14} />}
               label="List view"
               helper="Edit placements in order."
+              testId="build-plan-list-view"
               onClick={() => setViewMode('list')}
             />
             <BuildPlanViewButton
               active={viewMode === 'body'}
               icon={<Columns3 size={14} />}
-              label="Layout view"
-              helper="Body-grouped planning readout."
+              label="Body view"
+              helper="Plan by body."
+              testId="build-plan-body-view"
               onClick={() => setViewMode('body')}
             />
           </div>
-        </div>
-        <div className="mb-3 grid gap-2 font-mono text-[10px] text-silver-dk md:grid-cols-2">
-          <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2">
-            Architect primary-port location should be checked before final station placement; it is planning context, not a Build Point source.
-          </p>
-          <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2">
-            Yellow CP supports Tier 2 construction. Green CP supports Tier 3 construction. Build order can affect CP timing and port escalation.
-          </p>
-          <p className="rounded border border-border/50 bg-bg3/20 px-3 py-2 md:col-span-2">
-            Orbital and planetary placements have different tradeoffs; Suggested Builds help with a safe starting point, then you can tune in List view.
-          </p>
         </div>
         {placements.length === 0 ? (
           <div className="rounded-chunk-lg border border-dashed border-gold/45 bg-gold/5 px-4 py-6 text-center">
@@ -284,8 +273,8 @@ export function BuildPlanSection({
             </div>
             <div className="mt-1 text-[11px] text-silver-dk">
               {startMode === 'blank_advanced'
-                ? 'Start with a facility placement, then add support facilities and run Preview.'
-                : 'Use Suggested Builds below, use a recommended baseline when available, or choose Start blank.'}
+                ? 'Select a body and add a structure there.'
+                : 'Select a body, generate Suggested Builds, or start blank.'}
             </div>
           </div>
         ) : (
@@ -442,18 +431,21 @@ function BuildPlanViewButton({
   icon,
   label,
   helper,
+  testId,
   onClick,
 }: {
   active: boolean;
   icon: ReactNode;
   label: string;
   helper: string;
+  testId: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      data-testid={testId}
       className={[
         'inline-flex min-w-[8.5rem] items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors',
         active ? 'bg-orange/15 text-orange' : 'text-silver-dk hover:bg-bg2 hover:text-silver',
@@ -466,28 +458,6 @@ function BuildPlanViewButton({
         <span className="block text-[10px] normal-case tracking-normal">{helper}</span>
       </span>
     </button>
-  );
-}
-
-function BuildFlowChip({
-  step,
-  label,
-  tone,
-}: {
-  step: string;
-  label: string;
-  tone: 'primary' | 'later';
-}) {
-  return (
-    <span className={[
-      'inline-flex items-center gap-1 rounded border px-1.5 py-0.5',
-      tone === 'primary'
-        ? 'border-orange/35 bg-orange/10 text-orange'
-        : 'border-border/70 bg-bg3/35 text-silver-dk',
-    ].join(' ')}>
-      <span className="text-[9px] tracking-[0.08em] text-silver-dk">{step}</span>
-      <span>{label}</span>
-    </span>
   );
 }
 

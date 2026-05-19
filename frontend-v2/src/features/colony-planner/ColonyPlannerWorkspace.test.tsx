@@ -198,19 +198,17 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('topology-root-row')).toBeTruthy();
     expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
     expect(screen.getByText('Planning Workspace')).toBeTruthy();
+    expect(screen.getByTestId('body-planning-surface')).toBeTruthy();
     expect(screen.getByText('Planner summary')).toBeTruthy();
     expect(screen.getByTestId('project-card')).toBeTruthy();
     expect(screen.getByTestId('plan-health-card')).toBeTruthy();
     expect(screen.getByTestId('selection-card')).toBeTruthy();
-    expect(screen.getByTestId('architect-card')).toBeTruthy();
     expect(screen.getByTestId('workspace-modes-card')).toBeTruthy();
     expect(screen.getByText('Workspace System A 1')).toBeTruthy();
     expect(screen.getByText('Reused Colony Planner panel')).toBeTruthy();
     expect(await screen.findByText('Unknown / unmatched body')).toBeTruthy();
     expect(screen.getByText('Unassigned placements')).toBeTruthy();
-    expect(screen.getByText(/Saved projects are stored locally in this browser/i)).toBeTruthy();
-    expect(screen.getByText(/They are not cloud-synced/i)).toBeTruthy();
-    expect(screen.getByText(/Architect flag not recorded/)).toBeTruthy();
+    expect(screen.getByText(/Saved locally in this browser/i)).toBeTruthy();
     const summaryPanel = screen.getByTestId('planner-summary-panel');
     expect(within(screen.getByTestId('plan-health-card')).getByText('Placements')).toBeTruthy();
     expect(within(summaryPanel).getAllByText('3').length).toBeGreaterThan(0);
@@ -236,15 +234,78 @@ describe('ColonyPlannerWorkspace', () => {
       }),
       undefined,
     );
-    expect(screen.getByTestId('planning-focus-banner').textContent).toContain('Planning focus: Workspace System A 1');
-    expect(screen.getByText(/Build Plan editing stays in the central planner/i)).toBeTruthy();
+    expect(screen.getByText(/Planning focus: Workspace System A 1/i)).toBeTruthy();
+    expect(screen.getByTestId('selected-role-summary-card')).toBeTruthy();
+    expect(screen.getByText('Body Hint')).toBeTruthy();
+    const bodySurface = screen.getByTestId('body-planning-surface');
+    expect(within(bodySurface).getByText('Planning on body')).toBeTruthy();
+    expect(within(bodySurface).getByText((content) => content.includes('Orbital Port'))).toBeTruthy();
+    expect(within(bodySurface).getByRole('button', { name: 'Add structure here' })).toBeTruthy();
+    expect(within(bodySurface).getByRole('button', { name: 'Review structures' })).toBeTruthy();
+    expect(screen.getByText(/Possible main-station body due to current orbital\/port concentration/i)).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /Back to system detail/i }));
     expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);
     expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
   });
 
-  it('opens review drawers from workspace modes without running planner side effects', async () => {
+  it('keeps body clicks focused on planning rather than role editing side effects', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <ColonyPlannerWorkspace
+        id64={123}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText('Workspace System A 1'));
+    const surface = screen.getByTestId('body-planning-surface');
+    expect(within(surface).getByText('Planning on body')).toBeTruthy();
+    expect(within(surface).getByText((content) => content.includes('Orbital Port'))).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add role' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
+    expect(screen.queryByText('Observed: Primary Port')).toBeNull();
+    expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        topologySelection: { type: 'body', bodyId: 'body1' },
+      }),
+      undefined,
+    );
+
+  });
+
+  it('does not render role conflict controls in the default rescue surface', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <ColonyPlannerWorkspace
+        id64={123}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText('Workspace System A 1'));
+    expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
+    expect(screen.queryByText('Role conflict: Tourism + Heavy Industrial')).toBeNull();
+    expect(screen.queryByText('Observed: not recorded')).toBeNull();
+  });
+
+  it('opens review modes from workspace summary without running planner side effects', async () => {
     mockedUseSystemDetail.mockReturnValue({
       data: system,
       loading: false,
@@ -261,12 +322,12 @@ describe('ColonyPlannerWorkspace', () => {
     );
 
     await screen.findByTestId('workspace-modes-card');
-    fireEvent.click(screen.getByRole('button', { name: 'Evidence drawer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Evidence' }));
     expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ workspaceDrawer: 'evidence' }),
       undefined,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Validation drawer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Validation' }));
     expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ workspaceDrawer: 'validation' }),
       undefined,
@@ -294,11 +355,13 @@ describe('ColonyPlannerWorkspace', () => {
 
     fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Local starter' } });
     fireEvent.change(screen.getByLabelText('Project notes'), { target: { value: 'Check Architect mode before final placement.' } });
+    fireEvent.click(screen.getByText('Workspace System A 1'));
     fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
 
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');
     expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Local starter');
     expect(useColonyProjectStore.getState().projects[0].build_plan_placements).toHaveLength(3);
+    expect(useColonyProjectStore.getState().projects[0].declared_roles).toEqual([]);
 
     fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Renamed local starter' } });
     fireEvent.click(screen.getByRole('button', { name: 'Rename project' }));
@@ -306,11 +369,48 @@ describe('ColonyPlannerWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Duplicate project' }));
     expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Renamed local starter copy');
+    expect(useColonyProjectStore.getState().projects[0].declared_roles).toEqual([]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete / archive project' }));
     expect(screen.getByText(/Archive this local project/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Archive project' }));
     expect(useColonyProjectStore.getState().projects[0].archived_at).toBeTruthy();
+  });
+
+  it('loads old local projects without declared roles safely', async () => {
+    useColonyProjectStore.setState({
+      projects: [{
+        id: 'old-project',
+        system_id64: 123,
+        system_name: 'Workspace System',
+        project_name: 'Old project',
+        build_plan_placements: [],
+        selected_body_assignments: {},
+        target_archetype: 'refinery_industrial',
+        notes: 'No role field.',
+        status: 'draft',
+        created_at: '2026-05-01T00:00:00.000Z',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        archived_at: null,
+      } as never],
+    });
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <ColonyPlannerWorkspace
+        id64={123}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+      />,
+    );
+
+    expect((await screen.findAllByText('Old project')).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('body-planning-surface')).toBeTruthy();
   });
 
   it('restores the latest saved local project into the workspace on reload', async () => {

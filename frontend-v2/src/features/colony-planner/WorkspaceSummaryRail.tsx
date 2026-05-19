@@ -1,12 +1,22 @@
 import { PanelRight } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { SystemDetail } from '@/types/api';
-import type { TopologyPlanSnapshot, TopologySelectionContext } from './ColonyTopologyRail';
+import type { FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
+import type { BodyGroup, GroupedPlacement } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
+import {
+  buildColonyRoleSummaryForGroup,
+  primaryRoleHint,
+  type ColonyRoleSummary,
+} from '@/features/system-detail/simulation-preview/colonyRoleHintUtils';
+import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
 import type { ColonyProject } from './colonyProjectStore';
+import {
+  declaredRoleConflicts,
+  roleCompactLabel,
+  rolesForBody,
+  type DeclaredColonyRole,
+} from './colonyRoles';
 import { ProjectControlsCard } from './ProjectControlsCard';
 import {
-  deriveArchitectStatus,
-  formatProjectTimestamp,
   getPlanHealthSummary,
   humanizeArchetype,
   type ReviewDrawer,
@@ -15,6 +25,8 @@ import {
 export function WorkspaceSummaryRail({
   system,
   snapshot,
+  selection,
+  declaredRoles,
   selectedContext,
   projects,
   activeProject,
@@ -37,6 +49,8 @@ export function WorkspaceSummaryRail({
 }: {
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
+  selection: TopologySelection;
+  declaredRoles: DeclaredColonyRole[];
   selectedContext: TopologySelectionContext;
   projects: ColonyProject[];
   activeProject: ColonyProject | null;
@@ -58,6 +72,7 @@ export function WorkspaceSummaryRail({
   onConfirmArchiveChange: (confirming: boolean) => void;
 }) {
   const health = getPlanHealthSummary({ snapshot, system, selectedContext, unsavedChanges });
+  const selectedRoleContext = buildSelectedRoleContext(selection, system, snapshot, declaredRoles);
 
   return (
     <aside
@@ -100,23 +115,63 @@ export function WorkspaceSummaryRail({
 
       <SelectionSummaryCard selectedContext={selectedContext} />
 
-      <ArchitectCard status={deriveArchitectStatus(snapshot)} />
+      {selectedRoleContext && <SelectedRoleCard context={selectedRoleContext} />}
 
       <WorkspaceModeCard
         reviewDrawer={reviewDrawer}
         onReviewDrawerChange={onReviewDrawerChange}
       />
-
-      <section className="rounded border border-border/55 bg-bg3/30 p-2" data-testid="workspace-project-status">
-        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
-          Current save state
-        </h3>
-        <dl className="mt-2 space-y-2 font-mono text-[10px]">
-          <SummaryRow label="Project" value={activeProject?.project_name ?? 'Unsaved workspace'} tone={unsavedChanges ? 'gold' : 'green'} />
-          <SummaryRow label="Last saved" value={formatProjectTimestamp(activeProject?.updated_at)} />
-        </dl>
-      </section>
     </aside>
+  );
+}
+
+interface SelectedRoleContext {
+  summary: ColonyRoleSummary;
+  declaredRoles: DeclaredColonyRole[];
+}
+
+function SelectedRoleCard({ context }: { context: SelectedRoleContext }) {
+  const { summary, declaredRoles } = context;
+  const primary = primaryRoleHint(summary.hints);
+  const declaredConflicts = declaredRoleConflicts(declaredRoles);
+  return (
+    <section className="rounded border border-cyan/25 bg-cyan/5 p-2" data-testid="selected-role-summary-card">
+      <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+        Body Hint
+      </h3>
+      <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
+        {primary && (
+          <span
+            className={[
+              'rounded border px-1.5 py-0.5 uppercase tracking-[0.12em]',
+              primary.tone === 'good'
+                ? 'border-green/35 bg-green/10 text-green'
+                : primary.tone === 'warn'
+                  ? 'border-gold/35 bg-gold/10 text-gold'
+                  : 'border-border/60 bg-bg3/45 text-silver',
+            ].join(' ')}
+          >
+            {primary.compactLabel}
+          </span>
+        )}
+        {declaredRoles.slice(0, 1).map((role) => (
+          <span
+            key={role.id}
+            className="rounded border border-green/35 bg-green/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-green"
+          >
+            Declared: {roleCompactLabel(role.role_id)}
+          </span>
+        ))}
+      </div>
+      <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">
+        {summary.reasoning}
+      </p>
+      {declaredConflicts.length > 0 && (
+        <div className="mt-2 space-y-1 font-mono text-[10px] text-gold">
+          {declaredConflicts.map((conflict) => <p key={conflict}>{conflict}</p>)}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -156,36 +211,15 @@ function SelectionSummaryCard({ selectedContext }: { selectedContext: TopologySe
   return (
     <section className="rounded border border-cyan/25 bg-cyan/5 p-2" data-testid="selection-card">
       <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
-        Selection
+        Current Focus
       </h3>
-      <div className="mt-1 font-mono text-[10px] text-silver-dk">
-        Read-only topology selection
-      </div>
       <dl className="mt-2 space-y-2 font-mono text-[10px]">
         <SummaryRow label="Viewing" value={selectedContext.label} tone="cyan" />
         <SummaryRow label="Type" value={selectedContext.kind} />
         <SummaryRow label="Placements" value={String(selectedContext.placementCount)} />
         <SummaryRow label="Warnings" value={String(selectedContext.warningCount)} tone={selectedContext.warningCount > 0 ? 'gold' : 'green'} />
       </dl>
-      <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">
-        {selectedContext.detail}
-      </p>
-    </section>
-  );
-}
-
-function ArchitectCard({ status }: { status: string }) {
-  return (
-    <section className="rounded border border-gold/30 bg-gold/5 p-2" data-testid="architect-card">
-      <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-gold">
-        Architect
-      </h3>
-      <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">
-        {status}
-      </p>
-      <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
-        Primary-port guidance must come from in-game Architect Mode evidence.
-      </p>
+      <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">{selectedContext.detail}</p>
     </section>
   );
 }
@@ -203,12 +237,9 @@ function WorkspaceModeCard({
         Workspace Modes
       </h3>
       <div className="mt-2 grid gap-2 font-mono text-[10px]">
-        <ModeButton label="Evidence drawer" active={reviewDrawer === 'evidence'} onClick={() => onReviewDrawerChange(reviewDrawer === 'evidence' ? null : 'evidence')} />
-        <ModeButton label="Validation drawer" active={reviewDrawer === 'validation'} onClick={() => onReviewDrawerChange(reviewDrawer === 'validation' ? null : 'validation')} />
+        <ModeButton label="Evidence" active={reviewDrawer === 'evidence'} onClick={() => onReviewDrawerChange(reviewDrawer === 'evidence' ? null : 'evidence')} />
+        <ModeButton label="Validation" active={reviewDrawer === 'validation'} onClick={() => onReviewDrawerChange(reviewDrawer === 'validation' ? null : 'validation')} />
       </div>
-      <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">
-        Drawers open in the central planner and do not run Preview or Validation by themselves.
-      </p>
     </section>
   );
 }
@@ -253,4 +284,68 @@ function SummaryRow({
       <dd className={['mt-0.5 break-words text-[11px]', toneClass].join(' ')}>{value}</dd>
     </div>
   );
+}
+
+function buildSelectedRoleContext(
+  selection: TopologySelection,
+  system: SystemDetail,
+  snapshot: TopologyPlanSnapshot,
+  declaredRoles: DeclaredColonyRole[],
+): SelectedRoleContext | null {
+  const bodies = system.bodies ?? [];
+  const groups = buildBodyGroups(snapshot.placements, snapshot.templates, bodies);
+  if (selection.type === 'body') {
+    const existing = groups.find((group) => group.key === selection.bodyId);
+    const body = bodies.find((candidate) => candidate.id != null && String(candidate.id) === selection.bodyId) ?? null;
+    if (!existing && !body) return null;
+    return {
+      summary: buildColonyRoleSummaryForGroup(existing ?? { key: selection.bodyId, body, placements: [] }, groups),
+      declaredRoles: rolesForBody(declaredRoles, selection.bodyId),
+    };
+  }
+  if (selection.type === 'placement') {
+    const group = groups.find((candidate) => candidate.placements.some((item) => item.index === selection.placementIndex));
+    return group ? {
+      summary: buildColonyRoleSummaryForGroup(group, groups),
+      declaredRoles: rolesForBody(declaredRoles, group.key),
+    } : null;
+  }
+  return null;
+}
+
+function buildBodyGroups(
+  placements: SimulateBuildPlacement[],
+  templates: FacilityTemplate[],
+  bodies: SystemBody[],
+): BodyGroup[] {
+  const templatesById = new Map(templates.map((template) => [template.id, template]));
+  const bodiesById = new Map(
+    bodies
+      .filter((body) => body.id != null)
+      .map((body) => [String(body.id), body]),
+  );
+  const groupsByKey = new Map<string, BodyGroup>();
+  const ensureGroup = (key: string, body: SystemBody | null): BodyGroup => {
+    const existing = groupsByKey.get(key);
+    if (existing) return existing;
+    const next: BodyGroup = { key, body, placements: [] };
+    groupsByKey.set(key, next);
+    return next;
+  };
+
+  placements.forEach((placement, index) => {
+    const bodyId = placement.local_body_id != null ? String(placement.local_body_id) : '';
+    const body = bodyId ? bodiesById.get(bodyId) ?? null : null;
+    const key = body ? bodyId : 'unassigned';
+    const item: GroupedPlacement = {
+      placement,
+      index,
+      template: templatesById.get(placement.facility_template_id),
+      bodyId: bodyId || undefined,
+      hasUnknownBody: Boolean(bodyId && !body),
+    };
+    ensureGroup(key, body).placements.push(item);
+  });
+
+  return Array.from(groupsByKey.values());
 }

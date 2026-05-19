@@ -8,7 +8,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-STAGE5A_STRATEGIES = ('balanced', 'pure', 'services_aware', 'low_cp', 'flexible_multirole')
+STAGE5A_STRATEGIES = (
+    'main_station',
+    'balanced_expansion',
+    'industrial_refinery',
+    'tourism_agriculture',
+    'military_security',
+    'support_body',
+    'primary_port_bootstrap',
+    # Legacy strategy names are kept so older tests/callers that construct
+    # candidates directly still rank and render predictably.
+    'balanced',
+    'pure',
+    'services_aware',
+    'low_cp',
+    'flexible_multirole',
+)
 
 
 @dataclass(frozen=True)

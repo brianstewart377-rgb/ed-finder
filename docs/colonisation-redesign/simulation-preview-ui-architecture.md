@@ -11,6 +11,12 @@ The Simulation Preview UI now lives under `frontend-v2/src/features/system-detai
 | Path | Responsibility |
 |---|---|
 | `SimulationPreview.tsx` | Smaller composition component that owns the React Query fetches, derives recommended placements, wires hooks to presentational sections, and preserves the public entry point. Stage 5.9D moved plan state and preview-run state into hooks. |
+| `WorkspaceModeTabs.tsx` | Stage 16C local mode tabs for Build Plan, Suggested Builds, Preview, Evidence, and Validation. Switching modes is UI-only and does not run preview/generation/validation. |
+| `BuildPlanWorkspaceView.tsx` | Stage 16C Build Plan mode wrapper with topology-aware planning focus copy around the existing editable Build Plan. |
+| `SuggestedBuildsWorkspaceView.tsx` | Stage 16C Suggested Builds mode wrapper around `OptimiserCandidatePanel`, preserving explicit generation and deliberate load/review behaviour. |
+| `PreviewWorkspaceView.tsx` | Stage 16C Preview mode wrapper around `PreviewResultSection`, with explicit Run Preview control and current/stale/not-run state. |
+| `EvidenceWorkspaceView.tsx` | Stage 16C Evidence mode wrapper around `ObservedEvidencePanel`; evidence remains manual/passive. |
+| `ValidationWorkspaceView.tsx` | Stage 16C Validation mode wrapper around `ValidationPanel`; validation remains explicit and preview-result dependent. |
 | `SimulationResult.tsx` | Result layout and panel ordering for an already-returned `SimulateBuildResponse`. |
 | `BuildPlanEditor.tsx` | Placement editor for facility template, body, primary-port flag, sequence movement, and removal controls. |
 | `StartModes.tsx` | Start-mode cards, mode intro copy, and current plan badge. |
@@ -76,6 +82,94 @@ Stage 11G is a focused label and header consistency pass after Stage 11F.
 - Accessibility intent remains explicit via screen-reader semantics on later-step chips while avoiding visual duplication in labels.
 - Added a focused regression test for `ColonyPlannerHeader` to guard label consistency and ensure the Run Preview button remains an explicit, opt-in action.
 - No new planner mechanics introduced; selection/edit boundaries remain unchanged (`List view` editable, `Layout view` readout-only).
+
+## Stage 16C Workspace Modes
+
+Stage 16C decomposes the central planner flow without changing the underlying hooks or backend contracts. `SimulationPreview.tsx` still owns facility-template and simulation-summary queries, `useSimulationPreviewPlan`, and `useSimulationPreviewRun`, but it now renders one active workspace mode at a time:
+
+- **Build Plan** is the default mode and the only default central panel. It contains the planning focus banner, editable Build Plan, structure picker/replacement flow, import status, start options, and List/Layout editor.
+- **Suggested Builds** is isolated behind a mode tab or the Build Plan start card. It preserves quality filtering, player-facing categorisation, comparison, explicit `Generate Suggested Builds`, and deliberate load into the Build Plan.
+- **Preview** focuses on the current Preview Result and explicit `Run Preview` control. The mode shows not-run/current/stale state without mixing placement editing into the result surface.
+- **Evidence** hosts manual Observed Evidence as a workspace mode instead of an always-visible stacked section.
+- **Validation** hosts Validation as a workspace mode and still calls comparison only when a preview result exists.
+
+The left topology rail and right summary rail remain mounted while central modes change. Topology selection updates planning focus copy and Build Plan row highlighting, but it does not filter away placements or mutate the plan. Right-rail Evidence/Validation controls map to the corresponding central modes for compatibility with the workspace shell.
+
+This pass intentionally reduces central scroll depth by replacing the previous Build Plan + Suggested Builds + Preview + Evidence + Validation vertical stack with mode switching. It does not introduce routes, modals, nested accordions, hidden fetch loops, automatic Preview, automatic Suggested Build generation, automatic Validation, or autosave behaviour.
+
+## Stage 16E Role-Hint Workspace Integration
+
+Stage 16E keeps the Stage 16C workspace architecture but makes its persistent shell strategically aware at a glance.
+
+| Surface | Stage 16E role context |
+|---|---|
+| `ColonyTopologyRail.tsx` | Body rows show compact inferred role badges such as Main Station Candidate, Colony Anchor Candidate, Industrial Candidate, Refinery Candidate, Tourism Pressure, Support Body, Sparse Metadata, or Unknown Role. Rows also show qualitative confidence chips. |
+| `WorkspaceSummaryRail.tsx` | When a body or placement-backed body is selected, the summary rail shows inferred roles, `tentative`/`likely`/`strong` confidence, short reasoning, advisory conflicts/warnings, and Architect/primary-port context. |
+| `SimulationPreview.tsx` workspace modes | Build Plan, Suggested Builds, Preview, Evidence, and Validation each receive a small mode-aware role context strip. The strip is informational only and does not duplicate the full role panel. |
+| `colonyRoleHintUtils.ts` | Owns compact labels, confidence derivation, conflict detection, warning copy, and primary-port context for read-only role hints. |
+
+The confidence model is deliberately qualitative and frontend-only. It uses existing plan shape signals: placement concentration, primary/port presence, support/economy mix, topology spread, and metadata quality. Sparse or unknown body metadata lowers confidence; no fake percentages are shown.
+
+Role conflicts are displayed as conservative overlap indicators rather than validation errors. Rendering a role hint never runs Preview, generates Suggested Builds, saves a role, edits the Build Plan, changes scoring, changes CP/economy/service mechanics, mutates observed evidence, or triggers validation. Primary-port language remains advisory: ED-Finder can reference planned primary-port placement context, but Architect Mode observation is not recorded or editable in Stage 16E.
+
+## Stage 16F Declared Role Assignment
+
+Stage 16F adds explicit user-declared roles to the dedicated Colony Planner workspace. The implementation remains frontend/local-project only.
+
+| Surface | Stage 16F role behaviour |
+|---|---|
+| `colonyRoles.ts` | Defines `RoleSource`, `RoleConfidence`, `ColonyBodyRole`, `DeclaredColonyRole`, supported declared-role options, normalisation helpers, conflict detection, and project summary helpers. |
+| `colonyProjectStore.ts` | Persists `declared_roles` inside local Colony Projects. Old projects without the field normalise to an empty list. Save, duplicate, active-project filtering, and unsaved-change detection include declared roles. |
+| `WorkspaceGrid.tsx` | Renders the selected-body strategy card in the central workspace. Users add/remove declared roles there after selecting a body; topology row clicks remain navigation/context only. |
+| `ColonyTopologyRail.tsx` | Continues to be navigational and contextual. It may display compact `Declared:` badges, but it does not mutate role state. |
+| `WorkspaceSummaryRail.tsx` | Shows project-level declared-role coverage, selected-body source-separated role badges, role conflicts, and primary-port/Architect advisory context. |
+
+Role sources are deliberately separate in the UI:
+
+- `Inferred:` means ED-Finder advisory context from current placements/body data.
+- `Declared:` means user strategic intent saved locally with the project.
+- `Observed:` remains evidence-backed context; Stage 16F only shows missing Architect observation context where relevant and does not create observed role facts.
+
+Declared roles do not affect Simulation Preview calculations, CP, scoring, economy/service propagation, optimiser generation/ranking, Search Tuning, Observed Evidence semantics, Validation behaviour, imports, EDMC ingestion, or hauling/material workflows. Suggested Builds can still show inferred strategic emphasis, but loading or generating candidates never auto-assigns declared roles.
+
+## Stage 17B Suggested Builds Rescue
+
+Stage 17B keeps the Stage 16C workspace architecture intact and only rescues the Suggested Builds mode.
+
+Frontend behaviour:
+
+- raw API/JSON/internal error text is hidden by default
+- the visible error is: `Suggested Builds are temporarily unavailable. You can still edit your Build Plan manually or try again.`
+- Retry remains available
+- technical details are only rendered after the user expands them
+- if generated candidates are all trivial, the mode shows: `No useful suggested builds are available yet. Start manually or provide more system data.`
+
+Candidate display now applies a usefulness floor before rendering cards. It filters colony-ship-only plans, colony ship plus generic one-structure bootstraps, one generic low-purpose port/station plans, duplicate near-identical plans, and plans without clear player-facing purpose. Candidate cards continue to explain what the plan is for, why it was suggested, tradeoffs, and the next manual review step.
+
+This stage does not redesign the topology rail, summary rail, central workspace layout, mode tabs, role cards, project persistence, or preview result surface. It does not auto-generate Suggested Builds, auto-load a candidate, auto-run Preview, or add role-aware optimiser integration.
+
+## Stage 16G Role Review
+
+Stage 16G adds declared-vs-observed strategic role review without adding role mechanics.
+
+| Surface | Stage 16G role-review behaviour |
+|---|---|
+| `colonyRoleReview.ts` | Derives lightweight observed role signals from existing `ObservedFact` records and compares them with local declared roles. Emits consistency labels, compact summaries, conflict counts, and coverage metrics. |
+| `RoleReviewCard.tsx` | Shared compact review card for Evidence and Validation modes. Shows Declared Strategy count, Observed Colony State count, match/mismatch counts, source-labelled role chips, and short advisory summaries. |
+| `EvidenceWorkspaceView.tsx` | Shows Evidence Role Review above the existing Observed Evidence panel. The panel remains the source for manual evidence; role review only reads evidence. |
+| `ValidationWorkspaceView.tsx` | Shows Validation Role Review above the existing validation comparison panel. This is strategic context and does not auto-resolve validation results. |
+| `SimulationPreview.tsx` | Fetches existing observed facts only while Evidence or Validation mode is active, derives observed role signals, and passes review context to the relevant mode. |
+| `WorkspaceSummaryRail.tsx` | Adds a compact strategic consistency/observed-role coverage line to the persistent summary rail. |
+
+The review model uses these terms:
+
+- **Declared Strategy**: user-declared local project roles.
+- **Observed Colony State**: role signals from existing observed evidence.
+- **Inferred Planning Signals**: advisory role hints from topology and plan shape.
+
+Strategic consistency indicators are advisory only: **Strategy aligned**, **Partially aligned**, **Strategy diverging**, and **Insufficient observed evidence**. The UI may say that declared Industrial Core diverges from observed Tourism Focus, or that no observed evidence exists yet, but it never changes the project, declared roles, observed facts, Preview, Suggested Builds, optimiser ranking, scoring, CP, economy, service propagation, imports, EDMC ingestion, or hauling/material workflows.
+
+Stage 16G still does not add backend/cloud role persistence, observed-role editing, Architect Slot Survey storage, primary-port editing, role-aware optimiser integration, or role-aware simulation mechanics.
 
 ## Shared UI Atoms
 
@@ -584,3 +678,46 @@ Stage 16B implementation note:
 - This stage intentionally leaves Build Plan editing, preview execution, optimiser display, Observed Evidence, and Validation internals inside `simulation-preview/`.
 - Suggested Build usefulness filtering remains frontend-only display filtering. Backend candidate generation, ranking, and scoring are unchanged.
 - Durable/backend project persistence is deferred to a later persistence stage; local-only browser storage remains the current behavior.
+
+Stage 16D implementation note:
+
+- `simulation-preview/colonyRoleHintUtils.ts` derives read-only colony role hints from existing placement, template, and body topology context.
+- `ColonyRoleHints.tsx` renders inferred role hints in the Build Plan Layout body cards and the selected-body detail panel.
+- Hints are advisory player-facing context only. They do not introduce editable roles, role persistence, backend role models, automatic role assignment, Preview execution, Suggested Build generation, primary-port editing, or Architect Slot Survey storage.
+- Inferred, observed, and future editable role sources remain separate. Stage 16D only emits inferred hints; observed roles require evidence-backed workflows later, and editable roles remain deferred.
+- Sparse, unknown, and unassigned bodies render conservative pending/limited hints. Main-station candidate hints appear only from current primary/port/major-tier placement context.
+- Backend mechanics, CP formulas, scoring, economy/service logic, optimiser generation/ranking, Simulation Preview calculations, Observed Evidence semantics, Validation behavior, imports, EDMC ingestion, and hauling/material workflows remain unchanged.
+
+## Stage 17C Body-First Planner Rescue
+
+Stage 17C keeps the same ownership boundaries but changes the default interaction shape inside the dedicated workspace.
+
+Workspace shell:
+
+- `ColonyTopologyRail.tsx` renders compact button-like body rows with strong selected/hover/focus states.
+- Row content is intentionally limited to body marker, name, short type hint, one planned count, and tiny status markers.
+- Unknown and unassigned placement groups remain compact navigation groups.
+- Role badges, confidence clusters, raw IDs, and long explanation text are not rendered in the rail by default.
+
+Central body surface:
+
+- `WorkspaceGrid.tsx` now renders a body planning surface above the existing `SimulationPreviewPanel`.
+- No body selected shows a short start panel.
+- A selected body shows body facts, planned structures on that body, compact warnings, and explicit Add structure here / Review structures actions.
+- Add structure here focuses the existing safe body-scoped Build Plan add path; it does not mutate on body click.
+
+Build Plan:
+
+- `BuildPlanSection.tsx` defaults to body view so the first editing surface is body-grouped rather than list-first.
+- List view remains available as the advanced editor and continues to own ordered placement editing.
+- Navigation clicks do not run Preview, generate Suggested Builds, import layout, validate evidence, or save projects.
+
+Summary rail:
+
+- `WorkspaceSummaryRail.tsx` is reduced to project controls, plan health, current focus, a compact body hint when available, and Evidence/Validation mode controls.
+- Local save copy is concise and avoids cloud/persistence essays in the default rail.
+
+EDDN:
+
+- `useEddnFeed.ts` clears transient SSE errors on open/message and clears pending flush timers on cleanup.
+- `EddnTicker.tsx` renders a compact reconnecting state instead of raw SSE error text.

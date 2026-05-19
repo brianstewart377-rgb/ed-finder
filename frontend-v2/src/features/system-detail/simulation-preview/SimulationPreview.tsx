@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getFacilityTemplates, getSimulationSummary } from '@/lib/api';
+import { getFacilityTemplates, getSimulationSummary, listObservedFacts } from '@/lib/api';
 import type {
   FacilityTemplate,
   RecommendedBuildPlan,
@@ -9,14 +9,27 @@ import type {
   SystemDetail,
 } from '@/types/api';
 import type { TopologyPlanSnapshot, TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
+import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
+import {
+  buildObservedRolesFromFacts,
+  buildRoleReview,
+} from '@/features/colony-planner/colonyRoleReview';
+import { getPlanningFocusLabel } from '@/features/colony-planner/workspaceUtils';
 import type { ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
-import { BuildPlanSection } from './BuildPlanSection';
+import { groupPlacementsByBody, type BodyGroup } from './buildPlanLayoutUtils';
+import { BuildPlanWorkspaceView } from './BuildPlanWorkspaceView';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
-import { ColonyPlannerSectionNav } from './ColonyPlannerSectionNav';
-import { PreviewResultSection } from './PreviewResultSection';
-import { ObservedEvidencePanel } from './observations';
-import { OptimiserCandidatePanel } from './optimiser';
-import { ValidationPanel } from './validation';
+import { EvidenceWorkspaceView } from './EvidenceWorkspaceView';
+import { PreviewWorkspaceView } from './PreviewWorkspaceView';
+import { SuggestedBuildsWorkspaceView } from './SuggestedBuildsWorkspaceView';
+import { ValidationWorkspaceView } from './ValidationWorkspaceView';
+import { WorkspaceModeTabs, type SimulationWorkspaceMode } from './WorkspaceModeTabs';
+import {
+  buildColonyRoleSummaryForGroup,
+  primaryRoleHint,
+  roleConfidenceLabel,
+  type ColonyRoleSummary,
+} from './colonyRoleHintUtils';
 import { useSimulationPreviewPlan } from './hooks/useSimulationPreviewPlan';
 import { useSimulationPreviewRun } from './hooks/useSimulationPreviewRun';
 import {
@@ -32,9 +45,9 @@ export function SimulationPreview({
   initialAssumptions = [],
   onPlanSnapshotChange,
   topologySelection,
+  declaredRoles = [],
   workspaceDrawer,
   onWorkspaceDrawerChange,
-  showWorkspaceDrawerControls = true,
 }: {
   system: SystemDetail;
   initialRequest?: SimulateBuildRequest | null;
@@ -42,13 +55,14 @@ export function SimulationPreview({
   initialAssumptions?: string[];
   onPlanSnapshotChange?: (snapshot: TopologyPlanSnapshot) => void;
   topologySelection?: TopologySelection;
+  declaredRoles?: DeclaredColonyRole[];
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
-  showWorkspaceDrawerControls?: boolean;
 }) {
   const [localWorkspaceDrawer, setLocalWorkspaceDrawer] = useState<ReviewDrawer>(null);
   const activeWorkspaceDrawer = workspaceDrawer === undefined ? localWorkspaceDrawer : workspaceDrawer;
   const setActiveWorkspaceDrawer = onWorkspaceDrawerChange ?? setLocalWorkspaceDrawer;
+  const [activeMode, setActiveMode] = useState<SimulationWorkspaceMode>('build-plan');
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
     queryFn: getFacilityTemplates,
@@ -59,6 +73,13 @@ export function SimulationPreview({
     queryKey: ['sim-summary-preview', system.id64],
     queryFn: () => getSimulationSummary(system.id64),
     staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+  const observedFactsQuery = useQuery({
+    queryKey: ['role-review-observed-facts', system.id64],
+    queryFn: () => listObservedFacts({ system_id64: system.id64, limit: 100 }),
+    enabled: activeMode === 'evidence' || activeMode === 'validation',
+    staleTime: 60 * 1000,
     retry: 1,
   });
 
@@ -77,6 +98,7 @@ export function SimulationPreview({
   const suggestedBuildsRef = useRef<HTMLDivElement | null>(null);
   const suggestedBuildsHighlightTimeoutRef = useRef<number | null>(null);
   const [highlightSuggestedBuilds, setHighlightSuggestedBuilds] = useState(false);
+  const planningFocusLabel = topologySelection ? getPlanningFocusLabel(topologySelection, system) : null;
 
   const plan = useSimulationPreviewPlan({
     initialRequest,
@@ -92,6 +114,26 @@ export function SimulationPreview({
     targetArchetype: plan.targetArchetype,
     placements: plan.placements,
   });
+  const roleGroups = useMemo(
+    () => groupPlacementsByBody(plan.placements, templates, bodies),
+    [bodies, plan.placements, templates],
+  );
+  const selectedRoleSummary = useMemo(
+    () => buildWorkspaceRoleSummary(topologySelection, roleGroups),
+    [roleGroups, topologySelection],
+  );
+  const overviewRoleSummary = useMemo(
+    () => buildOverviewRoleSummary(roleGroups),
+    [roleGroups],
+  );
+  const observedRoles = useMemo(
+    () => buildObservedRolesFromFacts(observedFactsQuery.data?.facts ?? []),
+    [observedFactsQuery.data?.facts],
+  );
+  const roleReview = useMemo(
+    () => buildRoleReview({ declaredRoles, observedRoles }),
+    [declaredRoles, observedRoles],
+  );
 
   useEffect(() => {
     onPlanSnapshotChange?.({
@@ -105,6 +147,14 @@ export function SimulationPreview({
     runState.clearPreviewState();
   }, [plan.planReplacementVersion, runState.clearPreviewState]);
 
+  useEffect(() => {
+    if (activeWorkspaceDrawer === 'evidence') {
+      setActiveMode('evidence');
+    } else if (activeWorkspaceDrawer === 'validation') {
+      setActiveMode('validation');
+    }
+  }, [activeWorkspaceDrawer]);
+
   useEffect(() => () => {
     if (suggestedBuildsHighlightTimeoutRef.current !== null) {
       window.clearTimeout(suggestedBuildsHighlightTimeoutRef.current);
@@ -113,10 +163,8 @@ export function SimulationPreview({
   }, []);
 
   const focusSuggestedBuilds = () => {
+    setActiveMode('suggested-builds');
     const node = suggestedBuildsRef.current;
-    if (!node) return;
-    node.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-    node.focus({ preventScroll: true });
     setHighlightSuggestedBuilds(true);
     if (suggestedBuildsHighlightTimeoutRef.current !== null) {
       window.clearTimeout(suggestedBuildsHighlightTimeoutRef.current);
@@ -125,6 +173,28 @@ export function SimulationPreview({
       setHighlightSuggestedBuilds(false);
       suggestedBuildsHighlightTimeoutRef.current = null;
     }, 1800);
+    window.setTimeout(() => {
+      node?.focus({ preventScroll: true });
+    }, 0);
+  };
+
+  const handleModeChange = (mode: SimulationWorkspaceMode) => {
+    setActiveMode(mode);
+    if (mode === 'evidence') {
+      setActiveWorkspaceDrawer('evidence');
+    } else if (mode === 'validation') {
+      setActiveWorkspaceDrawer('validation');
+    } else if (activeWorkspaceDrawer) {
+      setActiveWorkspaceDrawer(null);
+    }
+  };
+
+  const handleLoadSuggestedBuild = (candidate: Parameters<typeof plan.loadOptimiserCandidateIntoPreview>[0]) => {
+    plan.loadOptimiserCandidateIntoPreview(candidate);
+    setActiveMode('build-plan');
+    if (activeWorkspaceDrawer) {
+      setActiveWorkspaceDrawer(null);
+    }
   };
 
   return (
@@ -143,217 +213,205 @@ export function SimulationPreview({
         onRunPreview={() => void runState.runSimulation()}
       />
 
-      <ColonyPlannerSectionNav />
+      <WorkspaceModeTabs activeMode={activeMode} onModeChange={handleModeChange} />
 
-      <div className="space-y-4 p-4">
-        <BuildPlanSection
-          systemId64={system.id64}
-          systemName={system.name}
-          startMode={plan.startMode}
-          hasRecommendedBuild={hasRecommendedBuild}
-          loadingRecommended={summaryQuery.isLoading || templatesQuery.isLoading}
-          targetArchetype={plan.targetArchetype}
-          onTargetArchetypeChange={plan.setTargetArchetype}
-          placements={plan.placements}
-          templates={templates}
-          bodies={bodies}
-          templatesLoading={templatesQuery.isLoading}
-          templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
-          optimiserCandidateOriginLabel={plan.optimiserCandidateOriginLabel}
-          optimiserCandidateWasEdited={plan.optimiserCandidateWasEdited}
-          initialAssumptions={initialAssumptions}
-          previewResult={runState.result}
-          isPreviewResultStale={runState.isResultStale}
-          runningPreview={runState.running}
-          onUseRecommended={() => plan.loadRecommendedPlan('recommended')}
-          onBlank={plan.startBlankAdvanced}
-          onShowSuggestedBuilds={focusSuggestedBuilds}
-          onAddPlacement={plan.addPlacement}
-          onUpdatePlacement={plan.updatePlacement}
-          onRemovePlacement={plan.removePlacement}
-          onMovePlacement={plan.movePlacement}
-          topologySelection={topologySelection}
-        />
-
+      <div className="p-4" data-testid="simulation-preview-active-mode" data-active-mode={activeMode}>
+        {activeMode === 'build-plan' && (
+          <BuildPlanWorkspaceView
+            planningFocusLabel={planningFocusLabel}
+            roleContext={(
+              <WorkspaceRoleContext
+                mode="Build Plan"
+                summary={selectedRoleSummary ?? overviewRoleSummary}
+                fallback="Current body strategic purpose will appear here once placements provide role context."
+              />
+            )}
+            systemId64={system.id64}
+            systemName={system.name}
+            startMode={plan.startMode}
+            hasRecommendedBuild={hasRecommendedBuild}
+            loadingRecommended={summaryQuery.isLoading || templatesQuery.isLoading}
+            targetArchetype={plan.targetArchetype}
+            onTargetArchetypeChange={plan.setTargetArchetype}
+            placements={plan.placements}
+            templates={templates}
+            bodies={bodies}
+            templatesLoading={templatesQuery.isLoading}
+            templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
+            optimiserCandidateOriginLabel={plan.optimiserCandidateOriginLabel}
+            optimiserCandidateWasEdited={plan.optimiserCandidateWasEdited}
+            initialAssumptions={initialAssumptions}
+            previewResult={runState.result}
+            isPreviewResultStale={runState.isResultStale}
+            runningPreview={runState.running}
+            onUseRecommended={() => plan.loadRecommendedPlan('recommended')}
+            onBlank={plan.startBlankAdvanced}
+            onShowSuggestedBuilds={focusSuggestedBuilds}
+            onAddPlacement={plan.addPlacement}
+            onUpdatePlacement={plan.updatePlacement}
+            onRemovePlacement={plan.removePlacement}
+            onMovePlacement={plan.movePlacement}
+            topologySelection={topologySelection}
+          />
+        )}
         <div
           ref={suggestedBuildsRef}
           tabIndex={-1}
           data-testid="suggested-builds-focus-target"
-          className={[
-            'rounded-chunk-lg outline-none transition-[box-shadow,border-color] duration-300',
-            highlightSuggestedBuilds ? 'ring-2 ring-cyan/70 shadow-brand-glow' : '',
-          ].join(' ')}
+          className="outline-none"
         >
-          <section aria-label="Suggested Builds">
-            <OptimiserCandidatePanel
+          {activeMode === 'suggested-builds' && (
+            <SuggestedBuildsWorkspaceView
+              planningFocusLabel={planningFocusLabel}
+              highlighted={highlightSuggestedBuilds}
+              roleContext={(
+                <WorkspaceRoleContext
+                  mode="Suggested Builds"
+                  summary={selectedRoleSummary ?? overviewRoleSummary}
+                  fallback="Suggested Builds can be compared against the selected strategic purpose after candidates are loaded."
+                />
+              )}
               systemId64={system.id64}
               targetArchetype={plan.targetArchetype}
               hasExistingPreviewPlan={plan.placements.length > 0}
-              onLoadCandidate={plan.loadOptimiserCandidateIntoPreview}
+              onLoadCandidate={handleLoadSuggestedBuild}
               currentPreviewPlacements={plan.placements}
               currentTargetArchetype={plan.targetArchetype}
               currentPreviewLabel="Current editable Build Plan"
             />
-          </section>
+          )}
         </div>
 
-        <PreviewResultSection
-          regional={regionalContext}
-          loadingRegional={summaryQuery.isLoading}
-          error={runState.error}
-          result={runState.result}
-          isResultStale={runState.isResultStale}
-        />
+        {activeMode === 'preview' && (
+          <PreviewWorkspaceView
+            roleContext={(
+              <WorkspaceRoleContext
+                mode="Preview"
+                summary={overviewRoleSummary}
+                fallback="Preview role overview is informational until the Build Plan has body assignments."
+              />
+            )}
+            regional={regionalContext}
+            loadingRegional={summaryQuery.isLoading}
+            error={runState.error}
+            result={runState.result}
+            isResultStale={runState.isResultStale}
+            canRun={runState.canRun}
+            running={runState.running}
+            onRunPreview={() => void runState.runSimulation()}
+          />
+        )}
 
-        <WorkspaceReviewDrawers
-          openDrawer={activeWorkspaceDrawer}
-          onOpenDrawer={setActiveWorkspaceDrawer}
-          showControls={showWorkspaceDrawerControls}
-          systemId64={system.id64}
-          targetArchetype={plan.targetArchetype}
-          previewResult={runState.result}
-          isPreviewResultStale={runState.isResultStale}
-        />
+        {activeMode === 'evidence' && (
+          <EvidenceWorkspaceView
+            systemId64={system.id64}
+            targetArchetype={plan.targetArchetype}
+            roleContext={(
+              <WorkspaceRoleContext
+                mode="Evidence"
+                summary={selectedRoleSummary ?? overviewRoleSummary}
+                fallback="Role hints remain informational while observed evidence is reviewed."
+                reviewLabel={roleReview.consistencyLabel}
+              />
+            )}
+            roleReview={roleReview}
+          />
+        )}
+
+        {activeMode === 'validation' && (
+          <ValidationWorkspaceView
+            systemId64={system.id64}
+            targetArchetype={plan.targetArchetype}
+            previewResult={runState.result}
+            isPreviewResultStale={runState.isResultStale}
+            roleContext={(
+              <WorkspaceRoleContext
+                mode="Validation"
+                summary={selectedRoleSummary ?? overviewRoleSummary}
+                fallback="Validation does not treat inferred roles as authoritative."
+                reviewLabel={roleReview.consistencyLabel}
+              />
+            )}
+            roleReview={roleReview}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-export type { RecommendedBuildPlan };
-
-function WorkspaceReviewDrawers({
-  openDrawer,
-  onOpenDrawer,
-  showControls,
-  systemId64,
-  targetArchetype,
-  previewResult,
-  isPreviewResultStale,
+function WorkspaceRoleContext({
+  mode,
+  summary,
+  fallback,
+  reviewLabel,
 }: {
-  openDrawer: ReviewDrawer;
-  onOpenDrawer: (drawer: ReviewDrawer) => void;
-  showControls: boolean;
-  systemId64: number;
-  targetArchetype: string;
-  previewResult: ReturnType<typeof useSimulationPreviewRun>['result'];
-  isPreviewResultStale: boolean;
+  mode: SimulationWorkspaceMode | 'Build Plan' | 'Suggested Builds' | 'Preview' | 'Evidence' | 'Validation';
+  summary: ColonyRoleSummary | null;
+  fallback: string;
+  reviewLabel?: string;
 }) {
+  const primary = summary ? primaryRoleHint(summary.hints) : null;
   return (
-    <section className="rounded-chunk-lg border border-border/60 bg-bg2/25 p-3" aria-label="Evidence and validation workspace drawers">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">
-            Evidence / Validation
-          </div>
-          <p className="mt-1 text-[11px] leading-snug text-silver-dk">
-            Review evidence or validation when needed. Opening a drawer does not run Preview.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
-          <StatusBadge label="Evidence" value="Manual" />
-          <StatusBadge
-            label="Validation"
-            value={previewResult ? (isPreviewResultStale ? 'Preview stale' : 'Preview ready') : 'Needs preview'}
-            warn={!previewResult || isPreviewResultStale}
-          />
-        </div>
+    <section
+      data-testid="workspace-mode-role-context"
+      className="rounded-chunk-lg border border-cyan/20 bg-bg3/35 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk"
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-[0.16em] text-cyan">{mode} role context</span>
+        {primary && (
+          <span className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan">
+            {primary.compactLabel}
+          </span>
+        )}
+        {summary && (
+          <span className="rounded border border-border/60 bg-bg2/55 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+            {roleConfidenceLabel(summary.confidence)}
+          </span>
+        )}
+        {summary?.conflicts.length ? (
+          <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-gold">
+            role overlap
+          </span>
+        ) : null}
+        {reviewLabel && (
+          <span className="rounded border border-orange/35 bg-orange/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-orange">
+            {reviewLabel}
+          </span>
+        )}
       </div>
-
-      {showControls && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <DrawerButton
-            label="Evidence drawer"
-            active={openDrawer === 'evidence'}
-            onClick={() => onOpenDrawer(openDrawer === 'evidence' ? null : 'evidence')}
-          />
-          <DrawerButton
-            label="Validation drawer"
-            active={openDrawer === 'validation'}
-            onClick={() => onOpenDrawer(openDrawer === 'validation' ? null : 'validation')}
-          />
-        </div>
-      )}
-
-      {!openDrawer && (
-        <div className="mt-3 rounded border border-border/55 bg-bg3/30 px-3 py-2 font-mono text-[11px] text-silver-dk">
-          Evidence and validation are available as drawers so they do not dominate the planning workspace.
-        </div>
-      )}
-
-      {openDrawer === 'evidence' && (
-        <div className="mt-3 rounded-chunk-lg border border-cyan/30 bg-bg1/50 p-3" data-testid="evidence-drawer">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h4 className="font-mono text-[11px] uppercase tracking-[0.16em] text-cyan">Evidence drawer</h4>
-            <button type="button" onClick={() => onOpenDrawer(null)} className="rounded border border-border bg-bg3 px-2 py-1 font-mono text-[10px] text-silver hover:border-cyan/50">
-              Close
-            </button>
-          </div>
-          <details className="mb-3 rounded border border-border/55 bg-bg3/25 px-3 py-2">
-            <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
-              Mismatch / needs-observation summary
-            </summary>
-            <p className="mt-2 text-[11px] leading-snug text-silver-dk">
-              Add manual observations here when in-game facts need to be compared with the current preview.
-            </p>
-          </details>
-          <ObservedEvidencePanel
-            systemId64={systemId64}
-            suggestedArchetype={targetArchetype}
-          />
-        </div>
-      )}
-
-      {openDrawer === 'validation' && (
-        <div className="mt-3 rounded-chunk-lg border border-orange/30 bg-bg1/50 p-3" data-testid="validation-drawer">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h4 className="font-mono text-[11px] uppercase tracking-[0.16em] text-orange">Validation drawer</h4>
-            <button type="button" onClick={() => onOpenDrawer(null)} className="rounded border border-border bg-bg3 px-2 py-1 font-mono text-[10px] text-silver hover:border-orange/50">
-              Close
-            </button>
-          </div>
-          <details className="mb-3 rounded border border-border/55 bg-bg3/25 px-3 py-2">
-            <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
-              Mismatch / needs-observation summary
-            </summary>
-            <p className="mt-2 text-[11px] leading-snug text-silver-dk">
-              Validation compares the current preview with manual evidence only after this drawer is opened.
-            </p>
-          </details>
-          <ValidationPanel
-            systemId64={systemId64}
-            targetArchetype={targetArchetype}
-            previewResult={previewResult}
-            isPreviewResultStale={isPreviewResultStale}
-          />
-        </div>
-      )}
+      <p className="mt-1">
+        {summary ? summary.reasoning : fallback}
+        <span className="ml-2 text-silver-dk">Advisory only; no role assignment or mechanics change is applied.</span>
+      </p>
     </section>
   );
 }
 
-function StatusBadge({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
-  return (
-    <span className={[
-      'rounded border px-1.5 py-0.5',
-      warn ? 'border-gold/40 bg-gold/10 text-gold' : 'border-cyan/35 bg-cyan/10 text-cyan',
-    ].join(' ')}>
-      {label}: {value}
-    </span>
-  );
+function buildWorkspaceRoleSummary(
+  selection: TopologySelection | undefined,
+  groups: BodyGroup[],
+): ColonyRoleSummary | null {
+  if (!selection) return null;
+  if (selection.type === 'body') {
+    const group = groups.find((item) => item.key === selection.bodyId);
+    return group ? buildColonyRoleSummaryForGroup(group, groups) : null;
+  }
+  if (selection.type === 'placement') {
+    const group = groups.find((item) => item.placements.some((placement) => placement.index === selection.placementIndex));
+    return group ? buildColonyRoleSummaryForGroup(group, groups) : null;
+  }
+  return null;
 }
 
-function DrawerButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-expanded={active}
-      onClick={onClick}
-      className={[
-        'rounded border px-3 py-2 font-mono text-xs font-bold transition',
-        active ? 'border-orange/60 bg-orange/15 text-orange' : 'border-border bg-bg3 text-silver hover:border-cyan/50',
-      ].join(' ')}
-    >
-      {label}
-    </button>
-  );
+function buildOverviewRoleSummary(groups: BodyGroup[]): ColonyRoleSummary | null {
+  const summaries = groups
+    .filter((group) => group.placements.length > 0)
+    .map((group) => buildColonyRoleSummaryForGroup(group, groups));
+  return summaries.find((summary) => summary.confidence === 'strong')
+    ?? summaries.find((summary) => summary.confidence === 'likely')
+    ?? summaries[0]
+    ?? null;
 }
+
+export type { RecommendedBuildPlan };

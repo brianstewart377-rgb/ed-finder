@@ -173,7 +173,7 @@ export function OptimiserCandidatePanel({
       )}
       {!loading && !error && response && response.candidates.length > 0 && candidates.length === 0 && (
         <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
-          No useful suggested builds are available yet. Add more system data or start a manual Build Plan.
+          No useful suggested builds are available yet. Start manually or provide more system data.
         </div>
       )}
 

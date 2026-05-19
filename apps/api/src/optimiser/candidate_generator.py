@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import logging
 from typing import Any, Callable, Optional
 
 import asyncpg
@@ -24,9 +25,11 @@ from optimiser.models import (
     candidate_placement_to_preview_placement,
 )
 from optimiser.preview_summary import preview_summary_from_response
+from optimiser.system_analysis import analyse_system_strategy
 from simulation.build_preview import PreviewContext, simulate_build_preview
 
 PreviewRunner = Callable[..., dict[str, Any]]
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,15 @@ async def generate_candidates(
     preview_runner: PreviewRunner = simulate_build_preview,
 ) -> CandidateGenerationResult:
     rule, warnings = resolve_archetype_rule(request.target_archetype)
+    logger.info(
+        "optimiser.candidates.generate.start",
+        extra={
+            "system_id64": request.system_id64,
+            "target_archetype": request.target_archetype,
+            "max_candidates": request.max_candidates,
+            "run_preview": request.run_preview,
+        },
+    )
     assumptions = [
         'Stage 5A generates bounded heuristic candidates only; Simulation Preview remains the source of truth.',
     ]
@@ -62,6 +74,10 @@ async def generate_candidates(
         )
 
     context, body_rows = await _get_preview_context_and_body_rows(pool, request.system_id64)
+    logger.info(
+        "optimiser.candidates.context.loaded",
+        extra={"system_id64": request.system_id64, "body_count": len(body_rows), "catalogue_count": len(catalogue)},
+    )
 
     if not catalogue:
         return CandidateGenerationResult(
@@ -82,6 +98,9 @@ async def generate_candidates(
     if not anchors:
         anchors = [BodyAnchor(None, 'system-level plan', None, 0.0, ['No body data is available; generated a system-level candidate.'], ['no_body_data'])]
         warnings.append('No body data available; generated system-level candidates only.')
+    analysis = analyse_system_strategy(anchors, body_count=len(body_rows))
+    assumptions.extend(analysis.opportunities[:2])
+    warnings.extend(analysis.weak_points[:2])
 
     candidates: list[OptimiserCandidate] = []
     seen_fingerprints: set[tuple[tuple[str, str | None, bool, int], ...]] = set()
@@ -92,10 +111,17 @@ async def generate_candidates(
                 rule=rule,
                 strategy=strategy,
                 anchor=anchor,
+                anchors=anchors,
                 catalogue=catalogue,
                 allow_estimated_data=request.allow_estimated_data,
             )
             if candidate is None:
+                continue
+            if not _is_useful_candidate(candidate, catalogue):
+                logger.info(
+                    "optimiser.candidates.filtered_trivial",
+                    extra={"candidate_id": candidate.candidate_id, "strategy": candidate.strategy},
+                )
                 continue
 
             fingerprint = placement_fingerprint(candidate.placements)
@@ -104,6 +130,10 @@ async def generate_candidates(
             seen_fingerprints.add(fingerprint)
 
             if request.run_preview:
+                logger.info(
+                    "optimiser.candidates.preview.start",
+                    extra={"candidate_id": candidate.candidate_id, "placement_count": len(candidate.placements)},
+                )
                 candidate = _attach_preview_summary(
                     candidate=candidate,
                     request=request,
@@ -120,6 +150,10 @@ async def generate_candidates(
             break
 
     candidates = dedupe_candidates(candidates)[:max(0, request.max_candidates)]
+    logger.info(
+        "optimiser.candidates.generate.complete",
+        extra={"system_id64": request.system_id64, "candidate_count": len(candidates)},
+    )
     return CandidateGenerationResult(
         system_id64=request.system_id64,
         target_archetype=rule.key,
@@ -133,7 +167,7 @@ async def generate_candidates(
 async def _get_preview_context_and_body_rows(pool: asyncpg.Pool, system_id64: int) -> tuple[PreviewContext, list[dict[str, Any]]]:
     async with pool.acquire() as conn:
         system_row = await conn.fetchrow(
-            """SELECT * FROM systems WHERE system_id64 = $1""",
+            """SELECT * FROM systems WHERE id64 = $1""",
             system_id64,
         )
         if not system_row:
@@ -219,6 +253,7 @@ def _build_candidate(
     rule: ArchetypeRule,
     strategy: str,
     anchor: BodyAnchor,
+    anchors: list[BodyAnchor],
     catalogue: dict[str, FacilityTemplate],
     allow_estimated_data: bool,
 ) -> Optional[OptimiserCandidate]:
@@ -234,7 +269,51 @@ def _build_candidate(
     supports = select_support_templates(catalogue, rule, strategy, allow_estimated_data=allow_estimated_data)
     primary_supports = find_support_by_economy(catalogue, rule.primary_economies, allow_estimated_data=allow_estimated_data)
 
-    if strategy == 'balanced':
+    if strategy == 'main_station':
+        selected.extend(_unique_templates(_support_templates_for_economies(
+            catalogue,
+            [*rule.expected_economies, 'Industrial', 'Refinery', 'HighTech', 'Agriculture', 'Military', 'Tourism'],
+            allow_estimated_data=allow_estimated_data,
+        )[:3]))
+        tags.extend(['main_station', 'primary_port'])
+        assumptions.append('Main station candidate uses a higher-tier port with several support placements; Simulation Preview validates the outcome.')
+    elif strategy == 'balanced_expansion':
+        selected.extend(_unique_templates((supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data))[:3]))
+        tags.extend(['balanced', 'support_body'])
+        assumptions.append('Balanced expansion seeds a port anchor plus several supports so it can be edited into a real Build Plan.')
+    elif strategy == 'industrial_refinery':
+        selected.extend(_unique_templates(_support_templates_for_economies(
+            catalogue,
+            ['Refinery', 'Industrial', 'Extraction'],
+            allow_estimated_data=allow_estimated_data,
+        )[:3]))
+        tags.extend(['industrial', 'refinery'])
+        assumptions.append('Industrial/refinery strategy looks for refinery, industrial, or extraction support pressure.')
+    elif strategy == 'tourism_agriculture':
+        selected.extend(_unique_templates(_support_templates_for_economies(
+            catalogue,
+            ['Tourism', 'Agriculture', 'HighTech'],
+            allow_estimated_data=allow_estimated_data,
+        )[:3]))
+        tags.extend(['tourism', 'agriculture'])
+        assumptions.append('Tourism/agriculture strategy looks for civilian economy support without using abstract output sliders.')
+    elif strategy == 'military_security':
+        selected.extend(_unique_templates(_support_templates_for_economies(
+            catalogue,
+            ['Military', 'Industrial'],
+            allow_estimated_data=allow_estimated_data,
+        )[:3]))
+        tags.extend(['military', 'security'])
+        assumptions.append('Military/security strategy adds security-oriented support where catalogue data allows.')
+    elif strategy == 'support_body':
+        selected.extend(_unique_templates((supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data))[:2]))
+        tags.extend(['support_body', 'body_diversity'])
+        assumptions.append('Support-body strategy intentionally spreads support beyond a single bootstrap site when body data allows.')
+    elif strategy == 'primary_port_bootstrap':
+        selected.extend(_unique_templates((supports or _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data))[:1]))
+        tags.extend(['primary_port', 'bootstrap'])
+        assumptions.append('Primary-port starter is a bootstrap option only; it should not be treated as a complete strategic recommendation.')
+    elif strategy == 'balanced':
         selected.extend(_unique_templates(supports[:2]))
         assumptions.append('Balanced strategy uses a compact port plus up to two target-economy supports.')
     elif strategy == 'pure':
@@ -261,13 +340,13 @@ def _build_candidate(
     if len(selected) == 1:
         warnings.append('No matching support facilities were available; candidate is port-only.')
 
-    placements = _placements_from_templates(selected, anchor.body_id)
+    placements = _placements_from_templates(selected, anchor.body_id, strategy=strategy, anchors=anchors)
     if not placements:
         return None
 
     safe_body = anchor.body_id or 'system'
     candidate_id = f'{rule.key}_{safe_body}_{strategy}'
-    label = f'{strategy.replace("_", " ").title()} {rule.label} candidate'
+    label = _candidate_label(strategy, rule.label)
     return OptimiserCandidate(
         candidate_id=candidate_id,
         label=label,
@@ -310,22 +389,93 @@ def _attach_preview_summary(
         )
         return replace(candidate, preview_summary=preview_summary_from_response(response))
     except Exception as exc:  # pragma: no cover - exercised through tests with deterministic monkeypatches.
+        logger.exception("optimiser.candidates.preview.failed", extra={"candidate_id": candidate.candidate_id})
         return replace(candidate, warnings=[*candidate.warnings, f'Preview failed for candidate: {exc}'])
 
 
-def _placements_from_templates(templates: list[FacilityTemplate], body_id: Optional[str]) -> list[CandidatePlacement]:
+def _placements_from_templates(
+    templates: list[FacilityTemplate],
+    body_id: Optional[str],
+    *,
+    strategy: str,
+    anchors: list[BodyAnchor],
+) -> list[CandidatePlacement]:
     placements: list[CandidatePlacement] = []
     primary_assigned = False
+    support_body_id = _secondary_anchor_body_id(anchors, body_id) if strategy == 'support_body' else None
     for template in templates:
         is_primary = bool(template.is_port and not primary_assigned)
         primary_assigned = primary_assigned or is_primary
+        placement_body_id = body_id
+        if support_body_id and not template.is_port and len([p for p in placements if not p.is_primary_port]) >= 1:
+            placement_body_id = support_body_id
         placements.append(CandidatePlacement(
             facility_template_id=template.id,
-            local_body_id=body_id,
+            local_body_id=placement_body_id,
             is_primary_port=is_primary,
             build_order=len(placements) + 1,
         ))
     return placements
+
+
+def _support_templates_for_economies(
+    catalogue: dict[str, FacilityTemplate],
+    economies: list[str],
+    *,
+    allow_estimated_data: bool,
+) -> list[FacilityTemplate]:
+    supports = find_support_by_economy(catalogue, economies, allow_estimated_data=allow_estimated_data)
+    if supports:
+        return supports
+    return _general_support_templates(catalogue, allow_estimated_data=allow_estimated_data)
+
+
+def _general_support_templates(
+    catalogue: dict[str, FacilityTemplate],
+    *,
+    allow_estimated_data: bool,
+) -> list[FacilityTemplate]:
+    supports = [
+        template
+        for template in catalogue.values()
+        if template.is_support_facility and (allow_estimated_data or template.data_confidence != 'estimated')
+    ]
+    return sorted(supports, key=lambda t: (t.tier, -(t.yellow_cp_generated + t.green_cp_generated), t.name, t.id))
+
+
+def _secondary_anchor_body_id(anchors: list[BodyAnchor], primary_body_id: Optional[str]) -> Optional[str]:
+    for anchor in anchors:
+        if anchor.body_id and anchor.body_id != primary_body_id:
+            return anchor.body_id
+    return None
+
+
+def _is_useful_candidate(candidate: OptimiserCandidate, catalogue: dict[str, FacilityTemplate]) -> bool:
+    if len(candidate.placements) < 2:
+        return False
+    templates = [catalogue.get(placement.facility_template_id) for placement in candidate.placements]
+    known_templates = [template for template in templates if template is not None]
+    if known_templates and all(template.is_colony_port for template in known_templates):
+        return False
+    support_count = sum(1 for template in known_templates if template.is_support_facility)
+    has_strategic_tag = any(
+        tag in candidate.tags
+        for tag in ('industrial', 'refinery', 'tourism', 'agriculture', 'military', 'security', 'balanced', 'support_body', 'main_station')
+    )
+    return support_count >= 1 and has_strategic_tag
+
+
+def _candidate_label(strategy: str, rule_label: str) -> str:
+    labels = {
+        'main_station': f'Main station {rule_label} candidate',
+        'balanced_expansion': f'Balanced expansion {rule_label} plan',
+        'industrial_refinery': 'Industrial / refinery starter',
+        'tourism_agriculture': 'Tourism / agriculture hub starter',
+        'military_security': 'Military / security stabiliser',
+        'support_body': f'Support-body {rule_label} plan',
+        'primary_port_bootstrap': 'Primary-port bootstrap starter',
+    }
+    return labels.get(strategy, f'{strategy.replace("_", " ").title()} {rule_label} candidate')
 
 
 def _unique_templates(templates: list[FacilityTemplate]) -> list[FacilityTemplate]:

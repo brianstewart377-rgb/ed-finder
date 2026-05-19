@@ -16,10 +16,12 @@ import {
 } from './buildPlanLayoutUtils';
 import { BuildPlanLayoutDetailPanel, type LayoutSelection } from './BuildPlanLayoutDetailPanel';
 import { Chip } from './components';
+import { ColonyRoleHints } from './ColonyRoleHints';
 import { LayoutTopologyReadout } from './LayoutTopologyReadout';
 import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from './layoutTopologyUtils';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
 import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
+import { buildColonyRoleHintsForGroup } from './colonyRoleHintUtils';
 import { buildStrategicTopologyGuidanceForGroup } from './strategicTopologyGuidanceUtils';
 import { formatLocation } from './utils/formatters';
 
@@ -68,8 +70,8 @@ export function BuildPlanBodyView({
       <div className="rounded-chunk-lg border border-cyan/30 bg-cyan/5 px-3 py-2 text-[11px] text-silver-dk">
         <div className="flex flex-wrap items-center gap-2">
           <LayoutPanelTop size={14} className="text-cyan" />
-          <span className="font-mono uppercase tracking-[0.14em] text-cyan">Layout view</span>
-          <span>This is a planning readout. Use List view to edit.</span>
+          <span className="font-mono uppercase tracking-[0.14em] text-cyan">Body view</span>
+          <span>Plan by body. Use List view for advanced edits.</span>
         </div>
       </div>
 
@@ -194,6 +196,7 @@ function BodyGroupCard({
     warnings: getPlacementWarnings(item, group.body),
   })));
   const strategicGuidance = buildStrategicTopologyGuidanceForGroup(group, allGroups);
+  const roleHints = buildColonyRoleHintsForGroup(group, allGroups);
   const summary = getBodyGroupSummary(group);
   const topology = buildLayoutTopologyReadout(group);
   const isUnassigned = group.body === null;
@@ -255,6 +258,7 @@ function BodyGroupCard({
           <span className="ml-1 text-silver">Y+{summary.yellowGenerated}/{summary.yellowNeeded} G+{summary.greenGenerated}/{summary.greenNeeded}</span>
         </div>
         <LayoutTopologyReadout readout={topology} compact />
+        <ColonyRoleHints hints={roleHints} compact />
         {bodyWarnings.length > 0 && (
           <div className="flex max-w-md flex-wrap gap-1.5 font-mono text-[10px]">
             {bodyWarnings.map((warning) => <Chip key={warning} tone="warn">{warning}</Chip>)}

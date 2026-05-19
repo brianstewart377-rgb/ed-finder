@@ -142,6 +142,9 @@ describe('BuildPlanBodyView', () => {
     expect(within(firstBody).getByText('Ground capability: landable')).toBeTruthy();
     expect(within(firstBody).getByText('Architect survey: not observed')).toBeTruthy();
     expect(within(firstBody).getByText('Orbital slots: unknown')).toBeTruthy();
+    expect(within(firstBody).getByText('Role hints')).toBeTruthy();
+    expect(within(firstBody).getByText('Main Station Body candidate - inferred')).toBeTruthy();
+    expect(within(firstBody).queryByRole('button', { name: /role/i })).toBeNull();
     expect(within(firstBody).getByText('Strategic topology')).toBeTruthy();
     expect(within(firstBody).getByText('Main station candidate: current plan places a primary or major port here.')).toBeTruthy();
     expect(within(firstBody).getByText('Primary-port flag unknown: check Architect Mode before final station placement.')).toBeTruthy();
@@ -155,6 +158,8 @@ describe('BuildPlanBodyView', () => {
     expect(within(secondBody).getAllByText('May be invalid: surface facility on water world').length).toBeGreaterThan(0);
     expect(within(secondBody).getAllByText('Surface structure may be invalid on this body.').length).toBeGreaterThan(0);
     expect(within(secondBody).getAllByText('Estimated template data: review before relying on the plan.').length).toBeGreaterThan(0);
+    expect(within(secondBody).getByText('Support Body candidate - inferred')).toBeTruthy();
+    expect(within(secondBody).queryByText('Main Station Body candidate - inferred')).toBeNull();
     expect(within(secondBody).getByText('Good support body: current plan keeps this body support-focused away from the main station candidate.')).toBeTruthy();
 
     const unassigned = screen.getByTestId('layout-body-group-unassigned');
@@ -165,6 +170,7 @@ describe('BuildPlanBodyView', () => {
     expect(within(unassigned).getByText('Needs review: placement has no body')).toBeTruthy();
     expect(within(unassigned).getByText('Body: unassigned')).toBeTruthy();
     expect(within(unassigned).getByText('Location unknown: 1')).toBeTruthy();
+    expect(within(unassigned).getByText('Role hint pending - inferred')).toBeTruthy();
   });
 
   it('reports primary port states for none, one, and multiple primary ports', () => {
@@ -196,6 +202,27 @@ describe('BuildPlanBodyView', () => {
     expect(screen.getAllByText('Data incomplete: body metadata is sparse').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Data incomplete: orbital suitability unclear').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Sparse body metadata: confirm in game before relying on this placement.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Role hint limited - inferred').length).toBeGreaterThan(0);
+  });
+
+  it('renders advisory role hint details without editing controls or mechanics mutation', () => {
+    const inputPlacements = placements.map((placement) => ({ ...placement }));
+    const inputTemplates = templates.map((template) => ({ ...template }));
+    const expectedSummary = planSummary(inputPlacements);
+    renderLayout({ placements: inputPlacements, templates: inputTemplates });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select body A 1' }));
+
+    const panel = screen.getByTestId('layout-detail-panel');
+    expect(within(panel).getByText('Role hints')).toBeTruthy();
+    expect(within(panel).getByText('Main Station Body candidate - inferred')).toBeTruthy();
+    expect(within(panel).getByText(/Current Build Plan places a primary, port, or major-tier facility on this body/)).toBeTruthy();
+    expect(within(panel).getByText(/Advisory only: role hints do not edit roles, save role state, run Preview, generate Suggested Builds, or change mechanics/)).toBeTruthy();
+    expect(within(panel).queryByRole('button', { name: /role/i })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: /role/i })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
+    expect(inputPlacements).toEqual(placements);
+    expect(planSummary(inputPlacements)).toEqual(expectedSummary);
   });
 
   it('handles helper fallbacks and sparse body metadata without crashing', () => {

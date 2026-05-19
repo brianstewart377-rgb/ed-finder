@@ -102,13 +102,15 @@ describe('ColonyTopologyRail', () => {
     expect(screen.getByText('Tree System A 1 a')).toBeTruthy();
 
     const firstBody = screen.getByTestId('topology-body-1');
-    expect(within(firstBody).getByText('1 planned')).toBeTruthy();
-    expect(within(firstBody).getByText('1 orbital')).toBeTruthy();
+    expect(within(firstBody).getByText('1')).toBeTruthy();
+    expect(within(firstBody).getByLabelText('Primary-port placement')).toBeTruthy();
     expect(within(firstBody).getAllByText('primary').length).toBeGreaterThan(0);
 
     const moonBody = screen.getByTestId('topology-body-2');
-    expect(within(moonBody).getByText('1 planned')).toBeTruthy();
-    expect(within(moonBody).getByText('1 surface')).toBeTruthy();
+    expect(within(moonBody).getByText('1')).toBeTruthy();
+    expect(within(moonBody).queryByText(/Inferred:/i)).toBeNull();
+    expect(within(moonBody).queryByText('1 surface')).toBeNull();
+    expect(within(moonBody).getByRole('button', { name: /Tree System A 1 a/i }).getAttribute('aria-pressed')).toBe('false');
   });
 
   it('renders unknown and unassigned placement groups without exposing raw IDs by default', () => {
@@ -128,6 +130,7 @@ describe('ColonyTopologyRail', () => {
     fireEvent.click(screen.getByText('Tree System A 1'));
     expect(onSelectSpy).toHaveBeenLastCalledWith({ type: 'body', bodyId: '1' });
     expect(screen.getByTestId('selected-context').textContent).toBe('Tree System A 1');
+    expect(screen.getByRole('button', { name: /Tree System A 1 High metal content/i }).getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByTestId('topology-placement-0'));
     expect(onSelectSpy).toHaveBeenLastCalledWith({ type: 'placement', placementIndex: 0 });

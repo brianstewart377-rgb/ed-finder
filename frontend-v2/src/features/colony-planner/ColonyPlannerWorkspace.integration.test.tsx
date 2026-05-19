@@ -156,14 +156,16 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.getByTestId('topology-root-row')).toBeTruthy();
     expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
     expect((await screen.findAllByText('Colony Planner')).length).toBeGreaterThan(0);
-    expect(screen.getByText('Contained planner')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Generate Suggested Builds/i })).toBeTruthy();
+    expect(screen.getByTestId('body-planning-surface')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Suggested Builds/i })).toBeTruthy();
+    expect(screen.queryByTestId('suggested-builds-workspace-view')).toBeNull();
     expect(screen.getByRole('button', { name: /Run Preview/i })).toBeTruthy();
 
     await waitFor(() => expect(mockedGetSimulationSummary).toHaveBeenCalled());
     fireEvent.click(screen.getByText('Body 1'));
-    expect(screen.getByText('Read-only topology selection')).toBeTruthy();
-    expect(screen.getByText(/Build Plan editing stays in the central planner/i)).toBeTruthy();
+    expect(screen.getByText('Planning on body')).toBeTruthy();
+    expect(screen.getByText(/No structures planned on this body yet/i)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Add structure here' }).length).toBeGreaterThan(0);
 
     expect(mockedApiSystem).toHaveBeenCalledWith(123);
     expect(mockedGetFacilityTemplates).toHaveBeenCalled();

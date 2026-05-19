@@ -115,6 +115,100 @@ User-facing planner terms are **Suggested Builds**, **Build Plan**, and **Previe
 
 Stage 8C also aligns the older Recommended Builds cards with the Colony Planner path: recommended plans open into the editable Build Plan, and service unlock detail points to the Preview Result. Dedicated planner routes/workspaces, saved builds, material/hauling estimates, deeper primary-port/CP strategy logic, EDMC/journal ingestion, and automatic learning remain deferred.
 
+### Stage 16C Central Workspace Decomposition
+
+Stage 16C turns the dedicated Colony Planner centre from a vertically stacked report into a mode-oriented planning surface. The persistent workspace architecture is now:
+
+- left topology rail for navigation/context
+- central planner mode for the active task
+- right summary rail for project/status/context
+
+The central `SimulationPreview` composition defaults to **Build Plan** mode and exposes local workspace modes for **Suggested Builds**, **Preview**, **Evidence**, and **Validation**. Mode switching is local UI state only. It does not run Simulation Preview, generate Suggested Builds, mutate the Build Plan, validate predictions, import layout data, or save projects.
+
+Stage 16C is not a mechanics rewrite. It keeps CP formulas, scoring, economy/service logic, optimiser generation/ranking, Simulation Preview calculations, Observed Evidence semantics, Validation behaviour, imports, EDMC ingestion, hauling/material workflows, and primary-port truth handling unchanged. Colony-role editing, role badges, durable/backend project persistence, export/import, account sync, and Architect Slot Survey storage remain deferred.
+
+### Stage 16D Role-Hint Foundations
+
+Stage 16D adds read-only colony role hints to the body-grouped Build Plan Layout view. These hints are inferred from existing placement/template/body context and are player-facing planning guidance only.
+
+The first hints cover Main Station Body, Colony Core, Industrial Core, Extraction Body, Tourism/Agriculture, and Support Body candidates. Sparse, unknown, and unassigned bodies render conservative pending/limited hints. Main-station candidate hints appear only when the current plan places a primary, port, or major-tier facility on that body.
+
+Role hints distinguish inferred context from future observed or editable roles. No role editing controls, role persistence, backend role model, automatic role assignment, automatic Preview, automatic Suggested Build generation, primary-port editing, or Architect Slot Survey storage is introduced. CP formulas, scoring, economy/service logic, optimiser generation/ranking, Simulation Preview calculations, Observed Evidence semantics, Validation behaviour, imports, EDMC ingestion, and hauling/material workflows remain unchanged.
+
+### Stage 16E Role-Hint Workspace Integration
+
+Stage 16E moves the read-only role-hint language into the persistent workspace shell so strategic context is visible before opening body detail panels.
+
+- The left topology rail now shows compact inferred role badges and conservative confidence labels on body rows.
+- The right summary rail shows a selected-body strategic role card with inferred roles, confidence, short reasoning, conflicts/warnings, and primary-port/Architect context.
+- Build Plan, Suggested Builds, Preview, Evidence, and Validation modes each render a small mode-aware role context strip.
+- Confidence remains frontend-only and qualitative: `tentative`, `likely`, or `strong`. It is derived from placement concentration, port signals, support/economy mix, topology spread, and metadata quality, with sparse metadata lowering confidence.
+- Conflicts are advisory overlap notes, not errors. Examples include industrial/tourism pressure overlap and main-station/support-body signal conflicts.
+
+Stage 16E is still inferred, advisory, and non-authoritative. It does not add editable roles, role persistence, backend role models, optimiser role mechanics, scoring changes, automatic planning, automatic Preview, automatic Suggested Build generation, primary-port editing, Architect Slot Survey storage, or changes to CP/economy/service/validation/observed-evidence semantics. Stage 16F remains responsible for explicit user-declared roles.
+
+### Stage 16F Explicit Declared Roles
+
+Stage 16F adds planner-level user-declared colony roles while preserving the Stage 16E inferred-role boundary. Users can now select a body and declare strategic intent such as Colony Anchor, Main Station Body, Primary Port Body, Industrial Core, Refinery Core, Extraction Support, Tourism / Agriculture Body, Security / Military Body, Support Body, or Expansion Reserve.
+
+Declared roles are stored only in local Colony Projects. Existing projects without a role field load safely with an empty role list. Duplicating or saving a project carries declared roles with the local project snapshot, and unsaved-change detection includes role changes.
+
+The UI keeps role sources separate:
+
+- inferred roles are ED-Finder advisory suggestions from current plan shape
+- declared roles are user intent saved with the local project
+- observed roles remain evidence-backed facts and are not implemented as editable truth in Stage 16F
+
+Role overlap is allowed and rendered as tradeoff/conflict notes, for example Tourism + Heavy Industrial or Main Station + Expansion Reserve. These warnings do not block planning, auto-correct assignments, remove roles, run Preview, generate Suggested Builds, or change mechanics.
+
+Primary-port handling remains conservative: users may declare intended Primary Port Body, but the UI states that Architect observation is not recorded and the declaration is not primary-port truth. Stage 16F does not add Architect Slot Survey storage, backend/cloud persistence, role-driven optimiser scoring, role-driven Simulation Preview mechanics, automatic role assignment, automatic Preview, or automatic Suggested Build generation.
+
+### Stage 16G Declared-vs-Observed Role Review
+
+Stage 16G adds a frontend-only strategic review layer that compares user-declared strategy against observed colony-state signals derived from existing Observed Evidence facts. It helps answer whether the colony appears to be evolving toward the intended identity without changing predictions or mechanics.
+
+The role review language is intentionally source-separated:
+
+- **Declared Strategy**: local project intent from Stage 16F
+- **Observed Colony State**: lightweight role signals derived from manual observed evidence
+- **Inferred Planning Signals**: advisory hints from current plan topology and facility/body context
+
+Evidence and Validation modes now show compact role review cards with strategic consistency indicators: Strategy aligned, Partially aligned, Strategy diverging, or Insufficient observed evidence. Review summaries can surface messages such as declared Industrial Core but observed Tourism Focus, observed role not declared, or no observed evidence recorded yet.
+
+Observed role signals are read-only and derived from existing facts such as economy presence, service presence, facility state, tags, and notes. They do not introduce backend role persistence, Architect Slot Survey storage, observed-role editing, automatic declared-role updates, optimiser integration, scoring changes, Simulation Preview changes, or validation semantics changes. Primary-port review remains conservative: observed primary-port context can be mentioned when evidence supports it, but ED-Finder still does not invent authoritative primary-port truth.
+
+### Stage 17B Suggested Builds Rescue
+
+Stage 17B fixes the immediate Suggested Builds failure path while keeping the larger Colony Architect advisor deferred. The `/optimiser/candidates` 500 was caused by the optimiser preview-context query reading `systems.system_id64`; the systems table and system-detail API use `systems.id64`. The optimiser now queries `WHERE id64 = $1`.
+
+The optimiser route logs request payloads, context loading, generation completion, ranking, preview attachment, trivial-candidate filtering, and root-cause exceptions. Unexpected failures return a safe 503 message for the UI while preserving technical detail for logs and the explicit technical-details expander.
+
+Generation is still deterministic and bounded, but Stage 17B raises the usefulness floor:
+
+- non-colony ports are preferred for strategic candidates
+- colony-ship/bootstrap-only candidates are not returned as strategic recommendations
+- candidates need at least one support placement and a clear purpose tag
+- near-duplicate and trivial candidates are filtered before display
+- empty useful output tells the player to start manually or provide more system data
+
+New deterministic candidate directions include Main station candidate, Balanced expansion, Industrial/refinery starter, Tourism/agriculture hub starter, Military/security stabiliser, and Support-body plan. A small system-strategy analysis helper records economy pressure, opportunities, weak points, and sparse-data status as the foundation for Stage 17C/17D Guided Colony Strategy Advisor work.
+
+Stage 17B does not change Simulation Preview scoring, CP formulas, economy propagation, service mechanics, Search Tuning, imports, EDMC ingestion, primary-port truth handling, project persistence, automatic Suggested Build generation, automatic Preview, role-aware optimiser mechanics, or LLM planning.
+
+### Stage 17C Colony Planner Usability Rescue
+
+Stage 17C changes the dedicated Colony Planner interaction model from report-first to body-first without changing mechanics.
+
+- The topology rail is now a compact clickable body tree. Rows show body marker, name, one planned-count chip, and tiny primary/warning/sparse markers instead of role badge clusters and long metadata.
+- The central workspace now reacts directly to body selection with a body planning surface: selected body title, compact body facts, planned structures on that body, and explicit Add structure here / Review structures actions.
+- Build Plan opens in body view by default. List view remains the advanced order/editor surface and all placement mutations still flow through existing explicit Build Plan controls.
+- The summary rail is reduced to Project, Plan Health, Current Focus, compact Body Hint, and Evidence/Validation mode buttons.
+- User-facing stage/roadmap/internal language remains out of the planner surface.
+
+Suggested Builds remain the Stage 17B deterministic rescue path. Stage 17C keeps friendly error handling, hidden technical details, useful-build filtering, and explicit generate/load behavior. It does not add automatic generation, automatic Preview, role-aware optimiser scoring, LLM planning, topology drag/drop, slot editing, primary-port editing, or persistence changes.
+
+The EDDN ticker now treats production SSE interruptions as reconnecting state instead of rendering the raw transport error. A successful SSE open/message clears the transient error and cleanup clears pending event flush timers.
+
 ## Stage 6 - Observed vs Predicted Validation
 
 Stage 6A begins the validation layer as a backend-only observed facts foundation. It adds a passive `observed_facts` persistence contract, manual/test-fixture source support, CRUD API endpoints, and descriptive summaries. Observations record evidence; they do not mutate predictions, optimiser generation, ranking, Simulation Preview scoring, or CP/economy/service/buildability mechanics.

@@ -6,11 +6,9 @@ os.environ.setdefault('REDIS_URL', 'redis://localhost:6379/0')
 os.environ.setdefault('DATABASE_URL', 'postgresql://user:password@localhost:5432/ed_finder_test')
 
 import pytest
-from fastapi import FastAPI
+from fastapi import HTTPException
 from pydantic import ValidationError
-from httpx import ASGITransport, AsyncClient
 
-from deps import get_pool
 from domain.facilities import FacilityTemplate
 from models import OptimiserCandidatesRequest, OptimiserCandidatesResponse
 from optimiser.candidate_generator import generate_candidates
@@ -25,7 +23,7 @@ from optimiser.models import (
     ranking_result_to_dict,
 )
 from optimiser.ranker import rank_candidates
-from routers.optimiser import router as optimiser_router
+from routers.optimiser import post_optimiser_candidates
 
 
 class MockConnection:
@@ -95,6 +93,7 @@ def facility(
     economy,
     *,
     is_port=False,
+    is_colony_port=False,
     is_support_facility=False,
     yellow_cp_cost=5,
     green_cp_cost=5,
@@ -107,7 +106,7 @@ def facility(
         tier=tier,
         economy=economy,
         is_port=is_port,
-        is_colony_port=False,
+        is_colony_port=is_colony_port,
         is_support_facility=is_support_facility,
         yellow_cp_generated=0,
         green_cp_generated=0,
@@ -198,6 +197,35 @@ async def generate(catalogue, *, body_rows=None, max_candidates=5, target='agric
     )
 
 
+async def endpoint_payload(
+    catalogue,
+    monkeypatch,
+    *,
+    system_id64=123,
+    target_archetype='agriculture_terraforming',
+    target_archetype_key=None,
+    max_candidates=5,
+    run_preview=False,
+    include_ranking=False,
+):
+    async def fake_catalogue(pool):
+        return catalogue
+
+    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    response = await post_optimiser_candidates(
+        OptimiserCandidatesRequest(
+            system_id64=system_id64,
+            target_archetype=target_archetype,
+            target_archetype_key=target_archetype_key,
+            max_candidates=max_candidates,
+            run_preview=run_preview,
+            include_ranking=include_ranking,
+        ),
+        MockPool(),
+    )
+    return response.model_dump()
+
+
 @pytest.mark.asyncio
 async def test_generate_candidates_respects_max_candidates(catalogue):
     result = await generate(catalogue, max_candidates=2)
@@ -235,12 +263,12 @@ async def test_candidates_only_use_catalogue_facilities(catalogue):
 
 
 @pytest.mark.asyncio
-async def test_duplicate_candidate_fingerprints_are_deduped():
+async def test_trivial_port_only_candidates_are_rejected():
     port_only_catalogue = {
         'generic_port_only': facility('generic_port_only', 'Generic Port Only', 'Port', 1, None, is_port=True),
     }
     result = await generate(port_only_catalogue, body_rows=[body_row('body1', 'Body One', ['Agriculture'], ['terraforming_candidate'])], max_candidates=5)
-    assert result.candidate_count == 1
+    assert result.candidate_count == 0
 
 
 @pytest.mark.asyncio
@@ -263,6 +291,45 @@ async def test_preferred_body_ids_are_used_when_supplied(catalogue):
     result = await generate(catalogue, max_candidates=1, preferred_body_ids=['body2'])
     assert result.candidates[0].placements[0].local_body_id == 'body2'
     assert any('preferred' in item for item in result.candidates[0].rationale)
+
+
+@pytest.mark.asyncio
+async def test_useful_industrial_archetype_candidate_appears(catalogue):
+    result = await generate(
+        catalogue,
+        target='refinery_industrial',
+        body_rows=[body_row('body1', 'Rocky Industrial', ['Refinery'], [])],
+        max_candidates=4,
+    )
+
+    assert result.candidate_count > 0
+    assert any(
+        {'refinery_support', 'industrial_support'} & {placement.facility_template_id for placement in candidate.placements}
+        for candidate in result.candidates
+    )
+    assert all(len(candidate.placements) >= 2 for candidate in result.candidates)
+
+
+@pytest.mark.asyncio
+async def test_colony_ship_bootstrap_is_not_returned_as_strategic_candidate(catalogue):
+    with_colony_ship = {
+        **catalogue,
+        'colony_ship': facility('colony_ship', 'Colony Ship', 'Port', 0, 'Colony', is_port=True, is_colony_port=True, yellow_cp_cost=0, green_cp_cost=0),
+    }
+
+    result = await generate(
+        with_colony_ship,
+        target='agriculture_terraforming',
+        body_rows=[body_row('body1', 'Body One', ['Agriculture'], ['terraforming_candidate'])],
+        max_candidates=5,
+    )
+
+    assert result.candidate_count > 0
+    assert all(
+        placement.facility_template_id != 'colony_ship'
+        for candidate in result.candidates
+        for placement in candidate.placements
+    )
 
 
 @pytest.mark.asyncio
@@ -303,25 +370,7 @@ def test_candidate_placement_converts_to_preview_placement():
 
 @pytest.mark.asyncio
 async def test_endpoint_returns_clean_candidate_response_shape(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 1,
-            'run_preview': False,
-        })
-
-    assert response.status_code == 200
-    payload = response.json()
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=1)
     response_data = OptimiserCandidatesResponse.model_validate(payload)
     assert payload['system_id64'] == 123
     assert payload['target_archetype'] == 'agriculture_terraforming'
@@ -334,26 +383,68 @@ async def test_endpoint_returns_clean_candidate_response_shape(catalogue, monkey
 
 
 @pytest.mark.asyncio
-async def test_endpoint_respects_max_candidates(catalogue, monkeypatch):
+async def test_endpoint_returns_safe_error_without_raw_exception(catalogue, monkeypatch):
     async def fake_catalogue(pool):
         return catalogue
 
+    class BrokenPool:
+        def acquire(self):
+            raise RuntimeError('database schema exploded with private details')
+
     monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
+    with pytest.raises(HTTPException) as exc_info:
+        await post_optimiser_candidates(
+            OptimiserCandidatesRequest(
+                system_id64=123,
+                target_archetype='agriculture_terraforming',
+                max_candidates=1,
+                run_preview=False,
+            ),
+            BrokenPool(),
+        )
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype_key': 'agriculture_terraforming',
-            'max_candidates': 2,
-            'run_preview': False,
-        })
+    assert exc_info.value.status_code == 503
+    detail = exc_info.value.detail
+    assert detail['message'] == 'Suggested Builds are temporarily unavailable. You can still edit your Build Plan manually or try again.'
+    assert detail['error_code'] == 'optimiser_candidates_unavailable'
+    assert 'technical_detail' in detail
 
-    assert response.status_code == 200
-    payload = response.json()
+
+@pytest.mark.asyncio
+async def test_context_query_uses_systems_id64_column(catalogue):
+    class QueryAssertingConnection(MockConnection):
+        async def fetchrow(self, query, *args):
+            assert 'WHERE id64 = $1' in query
+            assert 'system_id64 = $1' not in query
+            return await super().fetchrow(query, *args)
+
+    class QueryAssertingPool(MockPool):
+        def __init__(self):
+            self.connection = QueryAssertingConnection()
+
+    result = await generate_candidates(
+        CandidateGenerationRequest(
+            system_id64=123,
+            target_archetype='agriculture_terraforming',
+            max_candidates=1,
+            run_preview=False,
+        ),
+        catalogue=catalogue,
+        pool=QueryAssertingPool(),
+    )
+
+    assert result.candidate_count == 1
+
+
+@pytest.mark.asyncio
+async def test_endpoint_respects_max_candidates(catalogue, monkeypatch):
+    payload = await endpoint_payload(
+        catalogue,
+        monkeypatch,
+        target_archetype=None,
+        target_archetype_key='agriculture_terraforming',
+        max_candidates=2,
+    )
     assert payload['candidate_count'] == 2
     assert len(payload['candidates']) == 2
 
@@ -629,72 +720,20 @@ def test_ranking_does_not_mutate_candidates():
 
 @pytest.mark.asyncio
 async def test_endpoint_without_ranking_preserves_stage5a_shape(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 2,
-            'run_preview': False,
-            'include_ranking': False,
-        })
-
-    assert response.status_code == 200
-    payload = response.json()
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=2, include_ranking=False)
     assert payload['ranking'] is None
     assert all('rank' not in candidate and 'rank_score' not in candidate for candidate in payload['candidates'])
 
 
 @pytest.mark.asyncio
 async def test_include_ranking_false_does_not_add_rank_fields_to_candidates(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 2,
-            'run_preview': False,
-        })
-    payload = response.json()
-    assert response.status_code == 200
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=2)
     assert all('rank' not in candidate and 'rank_breakdown' not in candidate for candidate in payload['candidates'])
 
 
 @pytest.mark.asyncio
 async def test_include_ranking_false_preserves_candidate_order(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 3,
-            'run_preview': False,
-            'include_ranking': False,
-        })
-    payload = response.json()
-    assert response.status_code == 200
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=3, include_ranking=False)
     direct = await generate(catalogue, max_candidates=3, run_preview=False)
     assert [candidate['candidate_id'] for candidate in payload['candidates']] == [
         candidate.candidate_id for candidate in direct.candidates
@@ -703,47 +742,14 @@ async def test_include_ranking_false_preserves_candidate_order(catalogue, monkey
 
 @pytest.mark.asyncio
 async def test_endpoint_with_ranking_returns_top_level_ranking_object(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 2,
-            'run_preview': True,
-            'include_ranking': True,
-        })
-    payload = response.json()
-    assert response.status_code == 200
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=2, run_preview=True, include_ranking=True)
     assert payload['ranking'] is not None
     assert set(payload['ranking']) == {'target_archetype', 'ranked_candidates', 'warnings', 'assumptions'}
 
 
 @pytest.mark.asyncio
 async def test_endpoint_with_ranking_returns_ranked_candidate_ids(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 2,
-            'run_preview': True,
-            'include_ranking': True,
-        })
-    payload = response.json()
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=2, run_preview=True, include_ranking=True)
     candidate_ids = {candidate['candidate_id'] for candidate in payload['candidates']}
     ranked_ids = {candidate['candidate_id'] for candidate in payload['ranking']['ranked_candidates']}
     assert ranked_ids == candidate_ids
@@ -751,23 +757,8 @@ async def test_endpoint_with_ranking_returns_ranked_candidate_ids(catalogue, mon
 
 @pytest.mark.asyncio
 async def test_endpoint_with_ranking_does_not_duplicate_full_candidates_inside_ranking(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 1,
-            'run_preview': True,
-            'include_ranking': True,
-        })
-    ranked = response.json()['ranking']['ranked_candidates'][0]
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=1, run_preview=True, include_ranking=True)
+    ranked = payload['ranking']['ranked_candidates'][0]
     assert set(ranked) == {'candidate_id', 'rank', 'rank_score', 'rank_tier', 'rank_breakdown'}
     assert 'placements' not in ranked
     assert 'preview_summary' not in ranked
@@ -929,25 +920,7 @@ def test_ranking_does_not_mutate_candidates():
 
 @pytest.mark.asyncio
 async def test_endpoint_without_ranking_preserves_stage5a_shape(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 2,
-            'run_preview': False,
-        })
-
-    assert response.status_code == 200
-    payload = response.json()
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=2)
     assert payload['ranking'] is None
     assert 'rank' not in payload['candidates'][0]
     assert 'rank_score' not in payload['candidates'][0]
@@ -955,26 +928,8 @@ async def test_endpoint_without_ranking_preserves_stage5a_shape(catalogue, monke
 
 @pytest.mark.asyncio
 async def test_include_ranking_false_does_not_add_rank_fields_to_candidates(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 1,
-            'run_preview': False,
-            'include_ranking': False,
-        })
-
-    assert response.status_code == 200
-    candidate = response.json()['candidates'][0]
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=1, include_ranking=False)
+    candidate = payload['candidates'][0]
     assert 'rank' not in candidate
     assert 'rank_score' not in candidate
     assert 'rank_breakdown' not in candidate
@@ -982,52 +937,16 @@ async def test_include_ranking_false_does_not_add_rank_fields_to_candidates(cata
 
 @pytest.mark.asyncio
 async def test_include_ranking_false_preserves_candidate_order(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 3,
-            'run_preview': False,
-            'include_ranking': False,
-        })
-
-    assert response.status_code == 200
-    ids = [candidate['candidate_id'] for candidate in response.json()['candidates']]
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=3, include_ranking=False)
+    ids = [candidate['candidate_id'] for candidate in payload['candidates']]
     expected = await generate(catalogue, max_candidates=3, run_preview=False)
     assert ids == [candidate.candidate_id for candidate in expected.candidates]
 
 
 @pytest.mark.asyncio
 async def test_endpoint_with_ranking_returns_top_level_ranking_object(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 2,
-            'run_preview': False,
-            'include_ranking': True,
-        })
-
-    assert response.status_code == 200
-    ranking = response.json()['ranking']
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=2, include_ranking=True)
+    ranking = payload['ranking']
     assert ranking is not None
     assert set(ranking) == {'target_archetype', 'ranked_candidates', 'warnings', 'assumptions'}
     assert ranking['target_archetype'] == 'agriculture_terraforming'
@@ -1035,26 +954,7 @@ async def test_endpoint_with_ranking_returns_top_level_ranking_object(catalogue,
 
 @pytest.mark.asyncio
 async def test_endpoint_with_ranking_returns_ranked_candidate_ids(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 2,
-            'run_preview': False,
-            'include_ranking': True,
-        })
-
-    assert response.status_code == 200
-    payload = response.json()
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=2, include_ranking=True)
     candidate_ids = {candidate['candidate_id'] for candidate in payload['candidates']}
     ranked_ids = {item['candidate_id'] for item in payload['ranking']['ranked_candidates']}
     assert ranked_ids == candidate_ids
@@ -1062,26 +962,8 @@ async def test_endpoint_with_ranking_returns_ranked_candidate_ids(catalogue, mon
 
 @pytest.mark.asyncio
 async def test_endpoint_with_ranking_does_not_duplicate_full_candidates_inside_ranking(catalogue, monkeypatch):
-    async def fake_catalogue(pool):
-        return catalogue
-
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
-    app = FastAPI()
-    app.include_router(optimiser_router)
-    app.dependency_overrides[get_pool] = lambda: MockPool()
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as client:
-        response = await client.post('/api/optimiser/candidates', json={
-            'system_id64': 123,
-            'target_archetype': 'agriculture_terraforming',
-            'max_candidates': 1,
-            'run_preview': False,
-            'include_ranking': True,
-        })
-
-    assert response.status_code == 200
-    ranked = response.json()['ranking']['ranked_candidates'][0]
+    payload = await endpoint_payload(catalogue, monkeypatch, max_candidates=1, include_ranking=True)
+    ranked = payload['ranking']['ranked_candidates'][0]
     assert set(ranked) == {'candidate_id', 'rank', 'rank_score', 'rank_tier', 'rank_breakdown'}
     assert 'placements' not in ranked
     assert 'preview_summary' not in ranked
