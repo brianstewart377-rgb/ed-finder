@@ -1,5 +1,5 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,58 +17,65 @@ const rootDir = fileURLToPath(new URL('.', import.meta.url));
 //     is accepted by Vite's HMR / host-check.
 //   • /api proxied to local FastAPI on :8001 (the supervisor backend).
 // ────────────────────────────────────────────────────────────────────────────
-export default defineConfig({
-  base: '/',
-  plugins: [react()],
-  resolve: {
-    preserveSymlinks: true,
-    alias: {
-      '@': path.resolve(rootDir, './src'),
-    },
-  },
-  server: {
-    host: '0.0.0.0',
-    port: 3000,
-    strictPort: true,
-    allowedHosts: true,
-    hmr: {
-      clientPort: 443,
-      protocol: 'wss',
-    },
-    proxy: {
-      '/api': {
-        target: process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:8001',
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  const loadedEnv = loadEnv(mode, rootDir, '');
+  const proxyTarget = loadedEnv.VITE_DEV_API_TARGET
+    || process.env.VITE_DEV_API_TARGET
+    || 'http://127.0.0.1:8001';
+
+  return {
+    base: '/',
+    plugins: [react()],
+    resolve: {
+      preserveSymlinks: true,
+      alias: {
+        '@': path.resolve(rootDir, './src'),
       },
     },
-  },
-  // Preview server (used by Playwright E2E and `yarn preview`) proxies
-  // /api the same way the dev server does. Without this, the production
-  // bundle served by `vite preview` would 404 every API call.
-  preview: {
-    host: '0.0.0.0',
-    port: 4173,
-    proxy: {
-      '/api': {
-        target: process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:8001',
-        changeOrigin: true,
+    server: {
+      host: '0.0.0.0',
+      port: 3000,
+      strictPort: true,
+      allowedHosts: true,
+      hmr: {
+        clientPort: 443,
+        protocol: 'wss',
       },
-    },
-  },
-  build: {
-    outDir: 'dist',
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          react: ['react', 'react-dom'],
+      proxy: {
+        '/api': {
+          target: proxyTarget,
+          changeOrigin: true,
         },
       },
     },
-  },
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    include: ['src/**/*.test.{ts,tsx}'],
-  },
+    // Preview server (used by Playwright E2E and `yarn preview`) proxies
+    // /api the same way the dev server does. Without this, the production
+    // bundle served by `vite preview` would 404 every API call.
+    preview: {
+      host: '0.0.0.0',
+      port: 4173,
+      proxy: {
+        '/api': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
+      },
+    },
+    build: {
+      outDir: 'dist',
+      sourcemap: true,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom'],
+          },
+        },
+      },
+    },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      include: ['src/**/*.test.{ts,tsx}'],
+    },
+  };
 });
