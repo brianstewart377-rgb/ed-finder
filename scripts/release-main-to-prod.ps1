@@ -5,6 +5,9 @@ param(
   [int]$DeployPort = $(if ($env:EDFINDER_DEPLOY_PORT) { [int]$env:EDFINDER_DEPLOY_PORT } else { 22 }),
   [string]$PublicUrl = 'https://ed-finder.app',
   [string]$PlannerRoute = '#colony-planner/system/1453586352459',
+  [string]$RemoteRepoPath = '/opt/ed-finder',
+  [ValidateSet('abort', 'stash', 'reset')]
+  [string]$RemoteDirtyPolicy = 'stash',
   [switch]$SkipPrompt,
   [switch]$SkipPull,
   [switch]$SkipTypecheck,
@@ -132,11 +135,33 @@ setx EDFINDER_DEPLOY_PORT 22
   }
 
   $remote = "$DeployUser@$DeployHost"
-  $remoteCmd = 'cd /opt/ed-finder && bash scripts/deploy_main.sh'
+  $remoteCmdParts = @(
+    'set -euo pipefail',
+    "cd $RemoteRepoPath",
+    'if ! git diff --quiet || ! git diff --cached --quiet; then',
+    "echo '[remote] Detected tracked local edits in $RemoteRepoPath'",
+    'git status --short'
+  )
+  if ($RemoteDirtyPolicy -eq 'stash') {
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $remoteCmdParts += "git stash push -u -m 'release-auto-stash-$stamp' >/dev/null"
+    $remoteCmdParts += "echo '[remote] Stashed local edits (release-auto-stash-$stamp) and continuing deploy.'"
+    $remoteCmdParts += 'git stash list --max-count=1'
+  } elseif ($RemoteDirtyPolicy -eq 'reset') {
+    $remoteCmdParts += "echo '[remote] Resetting tracked local edits to HEAD and continuing deploy.'"
+    $remoteCmdParts += 'git reset --hard HEAD >/dev/null'
+  } else {
+    $remoteCmdParts += "echo '[remote] Refusing deploy because tracked local edits exist. Commit/stash/clean server repo first.'"
+    $remoteCmdParts += 'exit 25'
+  }
+  $remoteCmdParts += 'fi'
+  $remoteCmdParts += 'bash scripts/deploy_main.sh'
+  $remoteCmd = "bash -lc `"$($remoteCmdParts -join '; ')`""
   if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
     throw 'ssh is not available in PATH.'
   }
   Write-Host "[release] Starting remote deploy on $remote`:$DeployPort ..."
+  Write-Host "[release] Remote dirty policy: $RemoteDirtyPolicy"
   Write-Host '[release] If prompted, complete SSH authentication in this terminal.'
   $sshArgs = @()
   if ($SshOptions.Trim()) {
