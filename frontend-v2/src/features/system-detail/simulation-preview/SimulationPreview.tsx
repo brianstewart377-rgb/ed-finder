@@ -88,7 +88,10 @@ export function SimulationPreview({
     retry: 1,
   });
 
-  const templates = templatesQuery.data ?? [];
+  const templates = useMemo(
+    () => templatesQuery.data ?? [],
+    [templatesQuery.data],
+  );
   const bodies = useMemo(() => simulationBodies(system.bodies), [system.bodies]);
   const recommendedSteps = summaryQuery.data?.buildability?.recommended_build_order ?? [];
   const regionalContext = summaryQuery.data?.regional_context ?? null;

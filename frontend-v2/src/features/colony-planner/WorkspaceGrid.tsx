@@ -46,7 +46,9 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
   const projectState = useWorkspaceProjectState(system, planSnapshot);
 
   const handlePlanSnapshotChange = useCallback((snapshot: TopologyPlanSnapshot) => {
-    setPlanSnapshot(snapshot);
+    setPlanSnapshot((previous) => (
+      planSnapshotsEqual(previous, snapshot) ? previous : snapshot
+    ));
   }, []);
 
   const selectedContext = useMemo(
@@ -499,4 +501,54 @@ function WhatNextStrip({ hasPlacements, unsavedChanges }: { hasPlacements: boole
       ))}
     </div>
   );
+}
+
+function planSnapshotsEqual(a: TopologyPlanSnapshot, b: TopologyPlanSnapshot) {
+  if (a === b) return true;
+  if (a.targetArchetype !== b.targetArchetype) return false;
+  if (!placementsEqual(a.placements, b.placements)) return false;
+  if (!templatesEqual(a.templates, b.templates)) return false;
+  if (!projectionEqual(a.projection, b.projection)) return false;
+  return true;
+}
+
+function placementsEqual(a: SimulateBuildPlacement[], b: SimulateBuildPlacement[]) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index];
+    const right = b[index];
+    if (left.facility_template_id !== right.facility_template_id) return false;
+    if ((left.local_body_id ?? null) !== (right.local_body_id ?? null)) return false;
+    if ((left.is_primary_port ?? false) !== (right.is_primary_port ?? false)) return false;
+    if ((left.build_order ?? null) !== (right.build_order ?? null)) return false;
+  }
+  return true;
+}
+
+function templatesEqual(a: FacilityTemplate[], b: FacilityTemplate[]) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index];
+    const right = b[index];
+    if (left.id !== right.id) return false;
+    if (left.name !== right.name) return false;
+    if (left.category !== right.category) return false;
+    if ((left.allowed_location ?? null) !== (right.allowed_location ?? null)) return false;
+    if ((left.tier ?? null) !== (right.tier ?? null)) return false;
+    if ((left.economy ?? null) !== (right.economy ?? null)) return false;
+  }
+  return true;
+}
+
+function projectionEqual(
+  a: TopologyPlanSnapshot['projection'],
+  b: TopologyPlanSnapshot['projection'],
+) {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  if (a.candidateId !== b.candidateId) return false;
+  if (a.label !== b.label) return false;
+  return placementsEqual(a.placements, b.placements);
 }
