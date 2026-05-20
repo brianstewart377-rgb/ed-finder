@@ -117,18 +117,12 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
     <section
       aria-label="Colony Planner application shell"
       data-testid="planner-workspace-shell-v2"
-      className="grid gap-4 xl:grid-cols-[17.5rem_minmax(0,1fr)_15rem] xl:items-start"
+      className="grid gap-4 lg:grid-cols-[16.5rem_minmax(0,1fr)_14rem] lg:items-start"
     >
-      <ColonyTopologyRail
-        system={system}
-        snapshot={planSnapshot}
-        selection={selection}
-        onSelect={setSelection}
-      />
       <main
         aria-label="Planning workspace content"
         data-testid="workspace-planner-content"
-        className="min-w-0 rounded-chunk-lg border border-orange/25 bg-bg1/70 p-3 shadow-metal xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
+        className="order-1 min-w-0 rounded-chunk-lg border border-orange/25 bg-bg1/70 p-3 shadow-metal lg:order-2 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto"
       >
         <WorkspaceIntro
           selection={selection}
@@ -183,28 +177,38 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
           </div>
         </section>
       </main>
-      <WorkspaceSummaryRail
-        system={system}
-        snapshot={planSnapshot}
-        selection={selection}
-        selectedContext={selectedContext}
-        projects={projectState.projects}
-        activeProject={projectState.activeProject}
-        pendingProjectId={projectState.pendingProjectId}
-        projectName={projectState.projectName}
-        projectNotes={projectState.projectNotes}
-        unsavedChanges={projectState.unsavedChanges}
-        confirmArchive={projectState.confirmArchive}
-        onPendingProjectChange={projectState.setPendingProjectId}
-        onLoadProject={projectState.loadProject}
-        onProjectNameChange={projectState.setProjectName}
-        onProjectNotesChange={projectState.setProjectNotes}
-        onSaveProject={projectState.saveProject}
-        onRenameProject={projectState.renameProject}
-        onDuplicateProject={projectState.duplicateProject}
-        onArchiveProject={projectState.archiveProject}
-        onConfirmArchiveChange={projectState.setConfirmArchive}
-      />
+      <div className="order-3 lg:order-3">
+        <WorkspaceSummaryRail
+          system={system}
+          snapshot={planSnapshot}
+          selection={selection}
+          selectedContext={selectedContext}
+          projects={projectState.projects}
+          activeProject={projectState.activeProject}
+          pendingProjectId={projectState.pendingProjectId}
+          projectName={projectState.projectName}
+          projectNotes={projectState.projectNotes}
+          unsavedChanges={projectState.unsavedChanges}
+          confirmArchive={projectState.confirmArchive}
+          onPendingProjectChange={projectState.setPendingProjectId}
+          onLoadProject={projectState.loadProject}
+          onProjectNameChange={projectState.setProjectName}
+          onProjectNotesChange={projectState.setProjectNotes}
+          onSaveProject={projectState.saveProject}
+          onRenameProject={projectState.renameProject}
+          onDuplicateProject={projectState.duplicateProject}
+          onArchiveProject={projectState.archiveProject}
+          onConfirmArchiveChange={projectState.setConfirmArchive}
+        />
+      </div>
+      <div className="order-2 lg:order-1">
+        <ColonyTopologyRail
+          system={system}
+          snapshot={planSnapshot}
+          selection={selection}
+          onSelect={setSelection}
+        />
+      </div>
     </section>
   );
 }

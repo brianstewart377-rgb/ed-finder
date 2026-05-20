@@ -216,7 +216,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getAllByText('Workspace System').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Refinery').length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-workspace-shell-v2')).toBeTruthy();
-    expect(screen.getByTestId('planner-workspace-shell-v2').className).toContain('xl:grid-cols-[17.5rem_minmax(0,1fr)_15rem]');
+    expect(screen.getByTestId('planner-workspace-shell-v2').className).toContain('lg:grid-cols-[16.5rem_minmax(0,1fr)_14rem]');
     expect(screen.getByTestId('planner-topology-sidebar')).toBeTruthy();
     expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
