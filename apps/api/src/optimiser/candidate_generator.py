@@ -10,6 +10,7 @@ import asyncpg
 
 from domain.colonisation_rules import BodyEconomyProfile, profile_body
 from domain.facilities import FacilityTemplate
+from ingest.slot_prediction import INSUFFICIENT_DATA_REASON, PREDICTION_DISCLAIMER, predict_system_slots
 from optimiser.archetype_rules import ArchetypeRule, resolve_archetype_rule
 from optimiser.dedupe import dedupe_candidates, placement_fingerprint
 from optimiser.facility_selection import (
@@ -181,19 +182,51 @@ async def _get_preview_context_and_body_rows(pool: asyncpg.Pool, system_id64: in
 
     local_body_profiles: dict[str, dict[str, Any]] = {}
     clean_rows = [dict(row) for row in body_rows]
+    slot_input_rows: list[dict[str, Any]] = []
     for row in clean_rows:
         profile = profile_body(row)
         if profile.body_id:
             local_body_profiles[profile.body_id] = profile.to_context_profile()
+        slot_input_rows.append({
+            'system_address': system_id64,
+            'body_id': row.get('body_id') or row.get('id'),
+            'body_name': row.get('body_name') or row.get('name'),
+            'radius': row.get('radius'),
+            'gravity': row.get('gravity'),
+            'surface_temp': row.get('surface_temp'),
+            'planet_class': row.get('planet_class') or row.get('subtype'),
+            'terraform_state': row.get('terraform_state'),
+            'atmosphere': row.get('atmosphere') or row.get('atmosphere_type'),
+            'volcanism': row.get('volcanism') or row.get('volcanism_type'),
+            'has_geo': row.get('has_geo'),
+            'has_bio': row.get('has_bio'),
+            'geo_signal_count': row.get('geo_signal_count'),
+            'bio_signal_count': row.get('bio_signal_count'),
+            'is_landable': row.get('is_landable'),
+            'is_terraformable': row.get('is_terraformable'),
+            'is_ringed': row.get('is_ringed'),
+        })
+
+    slot_prediction = predict_system_slots(slot_input_rows) if slot_input_rows else {
+        'predicted_orbital_slots_total': None,
+        'predicted_ground_slots_total': None,
+        'slot_confidence': None,
+        'prediction_status': 'unknown',
+    }
+
+    notes: list[str] = []
+    notes.append(PREDICTION_DISCLAIMER)
+    if slot_prediction.get('prediction_status') == 'unknown':
+        notes.append(f'{INSUFFICIENT_DATA_REASON}. Verify in Architect Mode.')
 
     return PreviewContext(
         system_id64=system_id64,
-        estimated_orbital_slots=system_row.get('estimated_orbital_slots'),
-        estimated_ground_slots=system_row.get('estimated_ground_slots'),
-        slot_confidence=system_row.get('slot_confidence'),
-        has_ringed_body=system_row.get('has_ringed_body'),
+        estimated_orbital_slots=slot_prediction.get('predicted_orbital_slots_total'),
+        estimated_ground_slots=slot_prediction.get('predicted_ground_slots_total'),
+        slot_confidence=slot_prediction.get('slot_confidence'),
+        has_ringed_body=any(bool(row.get('is_ringed')) for row in clean_rows),
         local_body_profiles=local_body_profiles,
-        mechanics_notes=[],
+        mechanics_notes=notes,
         observed_facts=[],
     ), clean_rows
 

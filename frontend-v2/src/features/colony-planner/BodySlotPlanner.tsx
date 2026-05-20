@@ -1,4 +1,4 @@
-import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
+import type { BodySlotPrediction, FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
 import {
   bodyDisplayName,
   bodyTags,
@@ -27,6 +27,7 @@ export interface BodyPlannerProjectedPlacementItem {
 
 export function BodySlotPlanner({
   body,
+  slotPrediction,
   placements,
   projectedPlacements,
   selectedPlacementIndex,
@@ -35,6 +36,7 @@ export function BodySlotPlanner({
   onAddLaneStructure,
 }: {
   body: SystemBody;
+  slotPrediction: BodySlotPrediction | null;
   placements: BodyPlannerPlacementItem[];
   projectedPlacements: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
@@ -53,8 +55,8 @@ export function BodySlotPlanner({
   const surfaceProjected = projectedPlacements.filter((item) => laneForTemplate(item.template) === 'surface');
   const flexProjected = projectedPlacements.filter((item) => laneForTemplate(item.template) === 'flex');
 
-  const orbitalSlots = readLaneSlotCount(body, 'orbital');
-  const surfaceSlots = readLaneSlotCount(body, 'surface');
+  const orbitalSlots = readLaneSlotCount(slotPrediction, 'orbital');
+  const surfaceSlots = readLaneSlotCount(slotPrediction, 'surface');
   const surfaceBlocked = body.is_water_world === true || body.is_landable === false;
   const surfaceBlockedReason = body.is_water_world
     ? 'Surface lane limited: water world.'
@@ -484,42 +486,17 @@ function laneForTemplate(template: FacilityTemplate | undefined): BodyPlannerLan
   return 'flex';
 }
 
-function readLaneSlotCount(body: SystemBody, lane: 'orbital' | 'surface'): number | null {
-  const paths = lane === 'orbital'
-    ? [
-      'orbital_slot_count',
-      'orbital_slots',
-      'estimated_orbital_slots',
-      'architect_observation.orbitalSlotCount',
-      'architectObservation.orbitalSlotCount',
-      'slot_counts.orbital',
-      'slots.orbital',
-    ]
-    : [
-      'ground_slot_count',
-      'ground_slots',
-      'surface_slot_count',
-      'surface_slots',
-      'estimated_surface_slots',
-      'architect_observation.groundSlotCount',
-      'architectObservation.groundSlotCount',
-      'slot_counts.surface',
-      'slots.surface',
-    ];
-  for (const path of paths) {
-    const value = readPath(body as Record<string, unknown>, path);
-    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-      return Math.floor(value);
-    }
+function readLaneSlotCount(
+  prediction: BodySlotPrediction | null,
+  lane: 'orbital' | 'surface',
+): number | null {
+  const raw = lane === 'orbital'
+    ? prediction?.predicted_orbital_slots
+    : prediction?.predicted_ground_slots;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) {
+    return null;
   }
-  return null;
-}
-
-function readPath(obj: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, part) => {
-    if (!current || typeof current !== 'object') return null;
-    return (current as Record<string, unknown>)[part];
-  }, obj);
+  return Math.floor(raw);
 }
 
 function laneSlotStatusLabel(slotCount: number | null, plannedCount: number, projectedCount: number) {

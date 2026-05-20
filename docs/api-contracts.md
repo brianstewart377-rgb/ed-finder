@@ -18,6 +18,10 @@ For the simulation and optimiser endpoints, the important response models are:
 - `OptimiserCandidate`
 - `OptimiserCandidatesResponse`
 
+Stage 17G slot-prediction mechanics and safety boundaries are documented in:
+
+- `docs/colonisation-redesign/validated-slot-prediction-algorithm.md`
+
 Frontend code should not manually guess these response shapes. When backend fields change, regenerate the frontend OpenAPI types and update the central API client if needed.
 
 ## Frontend Types
@@ -83,20 +87,52 @@ Stage 7D added explicit row actions to open system detail and evaluate in Colony
 
 ## Canonical Field Names
 
-The frontend should consume the backend field names exactly:
+Stage 17G defines canonical slot-prediction fields.
 
-- `estimated_surface_slots`
+Top-level slot-prediction response fields:
+
+- `predicted_orbital_slots_total`
+- `predicted_ground_slots_total`
+- `prediction_status` (`predicted|unknown|observed`)
+- `prediction_version`
+- `confidence_label`
+- `disclaimer`
+- `validation_note`
+- `required_input_missing`
+
+Per-body slot-prediction fields:
+
+- `predicted_orbital_slots`
+- `predicted_ground_slots`
+- `prediction_status`
+- `prediction_version`
+- `confidence_label`
+- `validation_note`
+- `required_input_missing`
+- `reasons`
+
+Unknown handling rule:
+
+- if required canonical inputs are missing, return `prediction_status=unknown`
+- include `required_input_missing` and user guidance (`Verify in Architect Mode`)
+- do not return fallback heuristic slot estimates
+
+Compatibility note:
+
+- `estimated_*` and `slot_confidence*` fields may still appear for legacy clients, but they mirror canonical predictor output; they are not an alternate slot source.
+
+Buildability/simulation summary fields still use:
+
 - `estimated_orbital_slots`
 - `estimated_ground_slots`
 - `slot_confidence`
 - `slot_confidence_label`
-- `slot_source`
 - `build_complexity`
 - `bottlenecks`
 - `opportunities`
 - `recommended_build_order`
 
-Do not introduce frontend-only names such as `surface_slots`, `orbital_slots`, or `confidence` for these API responses unless they are deliberately mapped in one central API adapter.
+Do not introduce frontend-only alias names such as `surface_slots`, `orbital_slots`, or `confidence` unless mapped once in the central API adapter.
 
 For optimiser candidates, clients should consume the backend field names exactly:
 

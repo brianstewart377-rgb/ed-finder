@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from deps import get_pool
 from domain.colonisation_rules import get_target_profile, profile_body
 from domain.facilities import FacilityTemplate, get_catalogue, load_bundled_catalogue, load_catalogue_from_rows
+from ingest.slot_prediction import INSUFFICIENT_DATA_REASON, PREDICTION_DISCLAIMER, predict_system_slots
 from mechanics.scoring_rules import REGIONAL_RECOMMENDATION_WEIGHT, SIMULATION_RECOMMENDATION_WEIGHT
 from mechanics.versions import MECHANICS_VERSION
 from models import (
@@ -252,30 +253,14 @@ async def _catalogue_or_db(pool: asyncpg.Pool) -> dict[str, FacilityTemplate]:
 
 async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> tuple[PreviewContext, list[dict]]:
     async with pool.acquire() as conn:
-        topology = await conn.fetchrow(
-            """
-            SELECT estimated_orbital_slots, estimated_ground_slots,
-                   has_ringed_gas_giant, has_viable_surface_port, body_slots
-            FROM system_slot_topology
-            WHERE system_id64 = $1
-            """,
-            system_id64,
-        )
-        buildability = await conn.fetchrow(
-            """
-            SELECT estimated_orbital_slots, estimated_ground_slots, slot_confidence
-            FROM buildability_analysis
-            WHERE system_id64 = $1
-            """,
-            system_id64,
-        )
         body_rows = await conn.fetch(
             """
-            SELECT body_id, body_name, 'Planet' AS body_type,
+            SELECT system_address, body_id, body_name, 'Planet' AS body_type,
                    planet_class AS subtype, planet_class,
                    is_landable, is_terraformable, is_ringed,
                    has_geo, has_bio, geo_signal_count, bio_signal_count,
-                   terraform_state, volcanism, confidence
+                   terraform_state, volcanism, atmosphere,
+                   radius, gravity, surface_temp, confidence
             FROM body_scan_facts
             WHERE system_address = $1
             ORDER BY body_id
@@ -285,10 +270,18 @@ async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> tuple[Previe
         if not body_rows:
             body_rows = await conn.fetch(
                 """
-                SELECT id AS body_id, name AS body_name, body_type, subtype,
+                SELECT $1::bigint AS system_address,
+                       id AS body_id, name AS body_name, body_type, subtype,
+                       subtype AS planet_class,
                        is_landable, is_terraformable,
                        (LOWER(COALESCE(subtype, '')) LIKE '%ring%') AS is_ringed,
+                       (geo_signal_count > 0) AS has_geo,
+                       (bio_signal_count > 0) AS has_bio,
                        bio_signal_count, geo_signal_count,
+                       NULL AS terraform_state,
+                       NULL AS volcanism,
+                       NULL AS atmosphere,
+                       radius, gravity, surface_temp,
                        is_earth_like, is_water_world, is_ammonia_world,
                        0.45::numeric AS confidence
                 FROM bodies
@@ -298,19 +291,16 @@ async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> tuple[Previe
                 system_id64,
             )
 
-    topology_dict = dict(topology) if topology else None
-    buildability_dict = dict(buildability) if buildability else None
-
-    orbital = _maybe_int(buildability_dict, 'estimated_orbital_slots')
-    ground = _maybe_int(buildability_dict, 'estimated_ground_slots')
-    slot_confidence = _maybe_float(buildability_dict, 'slot_confidence')
-
-    if topology_dict:
-        orbital = orbital if orbital is not None else _maybe_int(topology_dict, 'estimated_orbital_slots')
-        ground = ground if ground is not None else _maybe_int(topology_dict, 'estimated_ground_slots')
-        slot_confidence = slot_confidence if slot_confidence is not None else 0.65
-
     body_dicts = [dict(row) for row in body_rows]
+    slot_prediction = predict_system_slots(body_dicts) if body_dicts else {
+        'predicted_orbital_slots_total': None,
+        'predicted_ground_slots_total': None,
+        'slot_confidence': None,
+        'prediction_status': 'unknown',
+    }
+    orbital = slot_prediction.get('predicted_orbital_slots_total')
+    ground = slot_prediction.get('predicted_ground_slots_total')
+    slot_confidence = slot_prediction.get('slot_confidence')
     body_profiles = {}
     for body in body_dicts:
         if body.get('body_id') is None:
@@ -321,13 +311,16 @@ async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> tuple[Previe
     mechanics_notes = ['Body economy inheritance follows the repo Mega Guide table in frontend-v2/public/ratings.html.']
     if body_profiles:
         mechanics_notes.append('Body economy is estimated from scan facts; confirm unusual cases in-game.')
+    mechanics_notes.append(PREDICTION_DISCLAIMER)
+    if slot_prediction.get('prediction_status') == 'unknown':
+        mechanics_notes.append(f'{INSUFFICIENT_DATA_REASON}. Verify in Architect Mode.')
 
     return PreviewContext(
         system_id64=system_id64,
         estimated_orbital_slots=orbital,
         estimated_ground_slots=ground,
         slot_confidence=slot_confidence,
-        has_ringed_body=bool(topology_dict and topology_dict['has_ringed_gas_giant']),
+        has_ringed_body=any(bool(body.get('is_ringed')) for body in body_dicts),
         local_body_profiles=body_profiles,
         mechanics_notes=mechanics_notes,
     ), body_dicts
@@ -344,18 +337,6 @@ async def _suggested_archetype(pool: asyncpg.Pool, system_id64: int) -> Optional
             system_id64,
         )
     return str(row['primary_archetype']) if row and row['primary_archetype'] else None
-
-
-def _maybe_int(row: Optional[dict], key: str) -> Optional[int]:
-    if not row or row.get(key) is None:
-        return None
-    return int(row[key])
-
-
-def _maybe_float(row: Optional[dict], key: str) -> Optional[float]:
-    if not row or row.get(key) is None:
-        return None
-    return float(row[key])
 
 
 def _decision_explanation(

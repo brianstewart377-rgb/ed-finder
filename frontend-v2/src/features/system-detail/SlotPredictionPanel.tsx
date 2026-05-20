@@ -1,36 +1,18 @@
-/**
- * SlotPredictionPanel — Per-body slot prediction table
- * ======================================================
- * Renders inside the "Colony Build Analysis" section of SystemDetailModal.
- *
- * Data source: GET /api/systems/{id64}/slot-predictions
- * Shows predicted orbital + surface slots per body, confidence badges,
- * and expandable reason tooltips for each prediction.
- *
- * Design language: ED orange / brushed-steel (matches SystemDetailModal).
- */
-
 import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { BodySlotPrediction, SlotPredictionResponse, SlotReason } from '@/types/api';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 type BodyPrediction = BodySlotPrediction;
-
-// ─── Fetch hook ─────────────────────────────────────────────────────────────
 
 function useSlotPredictions(id64: number) {
   return useQuery<SlotPredictionResponse, Error>({
     queryKey: ['slot-predictions', id64],
-    queryFn:  () => api.slotPredictions(id64),
+    queryFn: () => api.slotPredictions(id64),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 }
-
-// ─── Public component ───────────────────────────────────────────────────────
 
 export interface SlotPredictionPanelProps {
   id64: number;
@@ -41,45 +23,41 @@ export function SlotPredictionPanel({ id64 }: SlotPredictionPanelProps) {
   const { data, isLoading, isError, refetch } = useSlotPredictions(id64);
   const predictions = data?.predictions ?? [];
 
-  // Collapsed header — always show, even before expand
+  const orbitalTotal = data?.predicted_orbital_slots_total ?? null;
+  const groundTotal = data?.predicted_ground_slots_total ?? null;
+
   const headerContent = () => {
     if (isLoading) {
-      return (
-        <span className="font-mono text-silver-dk text-[11px] animate-pulse">
-          Loading slot data…
-        </span>
-      );
+      return <span className="font-mono text-silver-dk text-[11px] animate-pulse">Loading slot data…</span>;
     }
     if (isError || !data) {
       return (
         <span className="font-mono text-red text-[11px]">
-          Failed to load · <button
+          Failed to load ·{' '}
+          <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); void refetch(); }}
+            onClick={(event) => {
+              event.stopPropagation();
+              void refetch();
+            }}
             className="underline hover:text-orange"
-          >retry</button>
-        </span>
-      );
-    }
-    if (data.data_source === 'none' || predictions.length === 0) {
-      return (
-        <span className="font-mono text-silver-dk text-[11px] italic">
-          No body scan data available
+          >
+            retry
+          </button>
         </span>
       );
     }
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-silver text-[11px]">
-          <span className="tabular-nums text-cyan font-bold">{data.estimated_orbital_slots}</span>
+          <span className="tabular-nums text-cyan font-bold">{slotLabel(orbitalTotal)}</span>
           <span className="text-silver-dk"> orbital · </span>
-          <span className="tabular-nums text-gold font-bold">{data.estimated_ground_slots}</span>
-          <span className="text-silver-dk"> surface · </span>
+          <span className="tabular-nums text-gold font-bold">{slotLabel(groundTotal)}</span>
+          <span className="text-silver-dk"> ground · </span>
           <span className="tabular-nums text-silver">{data.body_count}</span>
-          <span className="text-silver-dk"> bodies scanned</span>
+          <span className="text-silver-dk"> bodies</span>
         </span>
-        <ConfidenceBadge label={data.slot_confidence_label} />
-        <DataSourceBadge source={data.data_source} />
+        <StatusBadge status={data.prediction_status} />
       </div>
     );
   };
@@ -89,13 +67,12 @@ export function SlotPredictionPanel({ id64 }: SlotPredictionPanelProps) {
       className="rounded-chunk-lg border border-border/60 overflow-hidden"
       style={{
         background: 'linear-gradient(180deg, rgba(20,22,26,0.85), rgba(14,16,20,0.85))',
-        boxShadow:  'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -16px rgba(0,0,0,0.6)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -16px rgba(0,0,0,0.6)',
       }}
     >
-      {/* ── Collapsible header ────────────────────────────────────────── */}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((value) => !value)}
         disabled={!data || predictions.length === 0}
         className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-orange/5 disabled:cursor-default transition-colors"
       >
@@ -106,112 +83,75 @@ export function SlotPredictionPanel({ id64 }: SlotPredictionPanelProps) {
           {headerContent()}
         </div>
         {data && predictions.length > 0 && (
-          <span
-            className={[
-              'font-mono text-orange text-sm transition-transform duration-200 ml-3 shrink-0',
-              open ? 'rotate-180' : '',
-            ].join(' ')}
-          >
+          <span className={['font-mono text-orange text-sm transition-transform duration-200 ml-3 shrink-0', open ? 'rotate-180' : ''].join(' ')}>
             ▾
           </span>
         )}
       </button>
 
-      {/* ── Expanded table ────────────────────────────────────────────── */}
       {open && data && predictions.length > 0 && (
         <div className="border-t border-border/50">
+          <div className="px-3 py-2 border-b border-border/40 font-mono text-[10px] text-silver-dk">
+            <div className="text-silver">{data.disclaimer}</div>
+            <div className="mt-1 italic">{data.validation_note}</div>
+            {data.prediction_status === 'unknown' && (
+              <div className="mt-1 text-gold">{data.note ?? 'insufficient prediction data. verify in Architect Mode.'}</div>
+            )}
+          </div>
           <PredictionTable predictions={predictions} />
-          {data.note && (
-            <div className="px-3 py-2 font-mono text-[10px] text-silver-dk border-t border-border/40 italic leading-snug">
-              {data.note}
-            </div>
-          )}
         </div>
       )}
     </div>
   );
 }
 
-// ─── PredictionTable ────────────────────────────────────────────────────────
-
 function PredictionTable({ predictions }: { predictions: BodyPrediction[] }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   return (
     <table className="w-full text-xs font-mono">
-      <thead
-        className="text-silver-dk uppercase tracking-[0.14em] text-[9px]"
-        style={{
-          background:   'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
-          borderBottom: '1px solid hsl(216 10% 22%)',
-        }}
-      >
+      <thead className="text-silver-dk uppercase tracking-[0.14em] text-[9px]" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))', borderBottom: '1px solid hsl(216 10% 22%)' }}>
         <tr>
           <th className="px-3 py-2 text-left">Body</th>
           <th className="px-3 py-2 text-left">Class</th>
-          <th className="px-3 py-2 text-center">Tags</th>
           <th className="px-3 py-2 text-right text-cyan">Orbital</th>
-          <th className="px-3 py-2 text-right text-gold">Surface</th>
-          <th className="px-3 py-2 text-center">Conf.</th>
+          <th className="px-3 py-2 text-right text-gold">Ground</th>
+          <th className="px-3 py-2 text-center">Status</th>
           <th className="px-3 py-2 text-center">Reasons</th>
         </tr>
       </thead>
       <tbody>
-        {predictions.map((p) => {
-          const isExpanded = expandedId === p.body_id;
+        {predictions.map((prediction) => {
+          const isExpanded = expandedId === prediction.body_id;
           return (
-            <Fragment key={p.body_id}>
+            <Fragment key={prediction.body_id}>
               <tr
                 className="border-t border-border/40 hover:bg-orange/5 transition-colors cursor-pointer"
-                onClick={() => setExpandedId(isExpanded ? null : p.body_id)}
+                onClick={() => setExpandedId(isExpanded ? null : prediction.body_id)}
               >
-                {/* Body name */}
                 <td className="px-3 py-2 text-orange-lt font-semibold max-w-[140px] truncate">
-                  {shortBodyName(p.body_name)}
+                  {shortBodyName(prediction.body_name)}
                 </td>
-
-                {/* Planet class */}
-                <td className="px-3 py-2 text-silver max-w-[120px]">
-                  <span className="truncate block">{abbreviateClass(p.planet_class)}</span>
+                <td className="px-3 py-2 text-silver max-w-[140px]">
+                  <span className="truncate block">{abbreviateClass(prediction.planet_class)}</span>
                 </td>
-
-                {/* Body tags */}
+                <td className="px-3 py-2 text-right tabular-nums text-cyan font-bold">{slotLabel(prediction.predicted_orbital_slots ?? null)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-gold font-bold">{slotLabel(prediction.predicted_ground_slots ?? null)}</td>
                 <td className="px-3 py-2 text-center">
-                  <BodyTagRow pred={p} />
+                  <StatusBadge status={prediction.prediction_status} compact />
                 </td>
-
-                {/* Orbital slots */}
-                <td className="px-3 py-2 text-right tabular-nums text-cyan font-bold">
-                  {p.estimated_orbital_slots > 0 ? p.estimated_orbital_slots : <span className="text-text-dim font-normal">—</span>}
-                </td>
-
-                {/* Surface slots */}
-                <td className="px-3 py-2 text-right tabular-nums text-gold font-bold">
-                  {p.estimated_surface_slots > 0 ? p.estimated_surface_slots : <span className="text-text-dim font-normal">—</span>}
-                </td>
-
-                {/* Confidence */}
                 <td className="px-3 py-2 text-center">
-                  <ConfidencePip value={p.slot_confidence} />
-                </td>
-
-                {/* Reasons toggle */}
-                <td className="px-3 py-2 text-center">
-                  {p.reasons && p.reasons.length > 0 ? (
-                    <span className={['text-[10px]', isExpanded ? 'text-orange' : 'text-silver-dk'].join(' ')}>
-                      {isExpanded ? '▲' : `▾ ${p.reasons.length}`}
-                    </span>
+                  {(prediction.reasons?.length ?? 0) > 0 ? (
+                    <span className={['text-[10px]', isExpanded ? 'text-orange' : 'text-silver-dk'].join(' ')}>{isExpanded ? '▲' : `▾ ${prediction.reasons?.length ?? 0}`}</span>
                   ) : (
                     <span className="text-border">—</span>
                   )}
                 </td>
               </tr>
-
-              {/* Expanded reasons row */}
-              {isExpanded && p.reasons && p.reasons.length > 0 && (
-                <tr key={`${p.body_id}-reasons`} className="border-t border-orange/10 bg-orange/5">
-                  <td colSpan={7} className="px-4 py-2">
-                    <ReasonList reasons={p.reasons} />
+              {isExpanded && (prediction.reasons?.length ?? 0) > 0 && (
+                <tr className="border-t border-orange/10 bg-orange/5">
+                  <td colSpan={6} className="px-4 py-2">
+                    <ReasonList reasons={prediction.reasons ?? []} missingInputs={prediction.required_input_missing ?? []} />
                   </td>
                 </tr>
               )}
@@ -223,140 +163,61 @@ function PredictionTable({ predictions }: { predictions: BodyPrediction[] }) {
   );
 }
 
-// ─── ReasonList ─────────────────────────────────────────────────────────────
-
-function ReasonList({ reasons }: { reasons: SlotReason[] }) {
+function ReasonList({ reasons, missingInputs }: { reasons: SlotReason[]; missingInputs: string[] }) {
   return (
     <ul className="space-y-1">
-      {reasons.map((r, i) => (
-        <li key={i} className="flex items-start gap-2 font-mono text-[10px]">
+      {reasons.map((reason, index) => (
+        <li key={index} className="flex items-start gap-2 font-mono text-[10px]">
           <span className="text-orange shrink-0 mt-0.5">›</span>
-          <span className="text-silver-dk uppercase tracking-wide shrink-0">{r.factor}</span>
-          {r.delta != null && r.delta !== 0 && (
-            <span
-              className={['tabular-nums font-bold shrink-0', r.delta > 0 ? 'text-green' : 'text-red'].join(' ')}
-            >
-              {r.delta > 0 ? `+${r.delta}` : r.delta}
+          <span className="text-silver-dk uppercase tracking-wide shrink-0">{reason.factor}</span>
+          {reason.delta != null && reason.delta !== 0 && (
+            <span className={['tabular-nums font-bold shrink-0', reason.delta > 0 ? 'text-green' : 'text-red'].join(' ')}>
+              {reason.delta > 0 ? `+${reason.delta}` : reason.delta}
             </span>
           )}
-          {r.note && <span className="text-silver italic leading-tight">{r.note}</span>}
+          {reason.note && <span className="text-silver italic leading-tight">{reason.note}</span>}
         </li>
       ))}
+      {missingInputs.length > 0 && (
+        <li className="flex items-start gap-2 font-mono text-[10px] text-gold">
+          <span className="shrink-0 mt-0.5">!</span>
+          <span>Missing inputs: {missingInputs.join(', ')}</span>
+        </li>
+      )}
     </ul>
   );
 }
 
-// ─── BodyTagRow ─────────────────────────────────────────────────────────────
-
-function BodyTagRow({ pred }: { pred: BodyPrediction }) {
-  const tags: string[] = [];
-  if (pred.is_ringed)   tags.push('⊙');   // ringed
-  if (pred.is_landable) tags.push('⬇');   // landable
-  if (tags.length === 0) return <span className="text-border">—</span>;
+function StatusBadge({ status, compact = false }: { status: 'predicted' | 'unknown' | 'observed'; compact?: boolean }) {
+  const style = status === 'predicted'
+    ? { border: 'border-green/40', bg: 'bg-green/15', text: 'text-green', label: compact ? 'P' : 'predicted' }
+    : status === 'observed'
+      ? { border: 'border-cyan/40', bg: 'bg-cyan/15', text: 'text-cyan', label: compact ? 'O' : 'observed' }
+      : { border: 'border-gold/40', bg: 'bg-gold/15', text: 'text-gold', label: compact ? '?' : 'unknown' };
   return (
-    <span className="text-silver-dk text-[10px] tracking-widest">{tags.join(' ')}</span>
-  );
-}
-
-// ─── ConfidenceBadge ────────────────────────────────────────────────────────
-
-function ConfidenceBadge({ label }: { label: string }) {
-  const colour = confidenceColour(label);
-  return (
-    <span
-      className="px-1.5 py-0.5 rounded border font-mono text-[9px] font-bold uppercase tracking-wide"
-      style={{ borderColor: `${colour}60`, color: colour, backgroundColor: `${colour}18` }}
-    >
-      {label}
+    <span className={['rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em]', style.border, style.bg, style.text].join(' ')}>
+      {style.label}
     </span>
   );
 }
 
-// ─── ConfidencePip ──────────────────────────────────────────────────────────
-
-function ConfidencePip({ value }: { value: number }) {
-  const pct   = Math.round(value * 100);
-  const colour = value >= 0.85 ? '#4caf50' : value >= 0.65 ? '#f5c518' : value >= 0.45 ? '#ff9800' : '#8c9bab';
-  return (
-    <span
-      className="inline-block px-1.5 py-0.5 rounded font-mono text-[9px] tabular-nums font-bold border"
-      style={{ borderColor: `${colour}50`, color: colour, backgroundColor: `${colour}15` }}
-      title={`${pct}% confidence`}
-    >
-      {pct}%
-    </span>
-  );
+function slotLabel(value: number | null | undefined): string {
+  return value == null ? '?' : String(value);
 }
 
-// ─── DataSourceBadge ────────────────────────────────────────────────────────
-
-function DataSourceBadge({ source }: { source: 'eddn' | 'spansh' | 'none' }) {
-  const map: Record<string, { label: string; colour: string }> = {
-    eddn:   { label: 'EDDN', colour: '#4caf50' },
-    spansh: { label: 'Spansh', colour: '#f5c518' },
-    none:   { label: 'No data', colour: '#8c9bab' },
-  };
-  const { label, colour } = map[source] ?? map.none;
-  return (
-    <span
-      className="px-1.5 py-0.5 rounded border font-mono text-[9px] uppercase tracking-wide"
-      style={{ borderColor: `${colour}50`, color: colour, backgroundColor: `${colour}12` }}
-    >
-      {label}
-    </span>
-  );
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function confidenceColour(label: string): string {
-  switch (label) {
-    case 'High':      return '#4caf50';
-    case 'Moderate':  return '#f5c518';
-    case 'Low':       return '#ff9800';
-    default:          return '#8c9bab';
-  }
-}
-
-/** Strip the system name prefix from body names (e.g. "Colonia 1 a" → "1 a") */
 function shortBodyName(name?: string | null): string {
-  if (!name) return '—';
-  // Body names in ED follow pattern "<System> <body designator>"
-  // We show the full name but truncate long system-name prefixes
+  if (!name) return 'Unknown body';
   const parts = name.trim().split(' ');
-  // If ≤3 words it's already short
   if (parts.length <= 3) return name;
-  // Return last 2 tokens (body designator usually 1-2 tokens)
-  return parts.slice(-2).join(' ');
+  return parts.slice(-3).join(' ');
 }
 
-const CLASS_ABBREV: Record<string, string> = {
-  'High metal content body':         'HMC',
-  'Rocky body':                      'Rocky',
-  'Rocky ice body':                  'Rocky Ice',
-  'Icy body':                        'Icy',
-  'Metal rich body':                 'Metal Rich',
-  'Earth-like world':                'ELW',
-  'Water world':                     'Water World',
-  'Ammonia world':                   'Ammonia',
-  'Gas giant with water-based life': 'GG Water',
-  'Gas giant with ammonia-based life':'GG Ammonia',
-  'Class I gas giant':               'GG-I',
-  'Class II gas giant':              'GG-II',
-  'Class III gas giant':             'GG-III',
-  'Class IV gas giant':              'GG-IV',
-  'Class V gas giant':               'GG-V',
-  'Sudarsky class I gas giant':      'GG-I',
-  'Sudarsky class II gas giant':     'GG-II',
-  'Sudarsky class III gas giant':    'GG-III',
-  'Sudarsky class IV gas giant':     'GG-IV',
-  'Sudarsky class V gas giant':      'GG-V',
-  'Helium-rich gas giant':           'GG He',
-  'Helium gas giant':                'GG He',
-  'Water giant':                     'Water GG',
-};
-
-function abbreviateClass(cls?: string | null): string {
-  if (!cls) return '—';
-  return CLASS_ABBREV[cls] ?? cls;
+function abbreviateClass(planetClass?: string | null): string {
+  if (!planetClass) return '—';
+  return planetClass
+    .replace('High metal content body', 'HMC')
+    .replace('High metal content world', 'HMC')
+    .replace('Rocky ice body', 'Rocky-Ice')
+    .replace('Earth-like world', 'ELW')
+    .replace('Water world', 'WW');
 }

@@ -8,6 +8,7 @@ import {
   fetchOptimiserCandidates,
   getFacilityTemplates,
   getSimulationSummary,
+  getSlotPredictions,
   importSystemLayout,
   listObservedFacts,
   reviewPredictionValidation,
@@ -21,6 +22,7 @@ vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
   getFacilityTemplates: vi.fn(),
   getSimulationSummary: vi.fn(),
+  getSlotPredictions: vi.fn(),
   importSystemLayout: vi.fn(),
   simulateBuild: vi.fn(),
   // Stage 6B observation helpers — the optimiser test does not exercise
@@ -40,6 +42,7 @@ vi.mock('@/lib/api', () => ({
 const mockedFetchOptimiserCandidates = vi.mocked(fetchOptimiserCandidates);
 const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
+const mockedGetSlotPredictions = vi.mocked(getSlotPredictions);
 const mockedImportSystemLayout = vi.mocked(importSystemLayout);
 const mockedSimulateBuild = vi.mocked(simulateBuild);
 const mockedListObservedFacts = vi.mocked(listObservedFacts);
@@ -120,6 +123,31 @@ const system = {
     { id: 'body1', name: 'Test Body', body_type: 'Planet', is_landable: true },
   ],
 } as unknown as SystemDetail;
+
+const slotPredictionResponse = {
+  system_id64: 123,
+  data_source: 'eddn',
+  body_count: 1,
+  predicted_orbital_slots_total: 4,
+  predicted_ground_slots_total: 5,
+  prediction_status: 'predicted',
+  prediction_version: 'validated-slot-v1',
+  confidence_label: 'validated_high_accuracy',
+  disclaimer: 'Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode.',
+  validation_note: 'Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.',
+  required_input_missing: [],
+  predictions: [
+    {
+      system_address: 123,
+      body_id: 1,
+      body_name: 'Test Body',
+      predicted_orbital_slots: 4,
+      predicted_ground_slots: 5,
+      prediction_status: 'predicted',
+      reasons: [],
+    },
+  ],
+};
 
 const layoutImportSuccess: LayoutImportResponse = {
   system_id64: 123,
@@ -238,6 +266,7 @@ function mockNoRecommendedBuild() {
     regional_context: null,
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+  mockedGetSlotPredictions.mockResolvedValue(slotPredictionResponse as any);
   mockedImportSystemLayout.mockResolvedValue(layoutImportSuccess);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
   mockedCompare.mockResolvedValue(emptyCompareResponse());
@@ -257,6 +286,7 @@ function mockRecommendedBuild() {
     regional_context: null,
   } as unknown as SimulationSummary);
   mockedFetchOptimiserCandidates.mockResolvedValue(optimiserResponse);
+  mockedGetSlotPredictions.mockResolvedValue(slotPredictionResponse as any);
   mockedImportSystemLayout.mockResolvedValue(layoutImportSuccess);
   mockedListObservedFacts.mockResolvedValue(emptyObservedFactsResponse());
   mockedCompare.mockResolvedValue(emptyCompareResponse());
@@ -331,6 +361,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     mockedFetchOptimiserCandidates.mockReset();
     mockedGetFacilityTemplates.mockReset();
     mockedGetSimulationSummary.mockReset();
+    mockedGetSlotPredictions.mockReset();
     mockedImportSystemLayout.mockReset();
     mockedSimulateBuild.mockReset();
     mockedListObservedFacts.mockReset();

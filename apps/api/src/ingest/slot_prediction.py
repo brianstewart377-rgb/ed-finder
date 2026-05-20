@@ -1,345 +1,461 @@
-"""
-ED Finder — Ingest: Slot Prediction Engine
-============================================
-Predicts orbital and surface slot counts per body from scan facts.
+"""Canonical validated slot prediction for colony planning.
 
-Design rules:
-  • Pure functions — no DB, no asyncio.
-  • Every prediction carries confidence + reasons (explainability).
-  • Predictions are ESTIMATES. ED does not expose slot counts via any API.
-    All values are derived from observed colonisation behaviour.
-  • Versionable: PREDICTION_VERSION bumped when logic changes.
-
-Slot count heuristics (community-derived, confidence: observed):
-  Surface slots:
-    • Radius-based primary driver (larger body → more slots)
-    • Landable required for any surface slots
-    • High-metal / rocky bodies favour more slots
-    • Terraformable gets a bonus
-
-  Orbital slots:
-    • Presence of body in system = 1 base orbital slot
-    • Ringed body = +1 bonus orbital slot (ring anchor)
-    • Large gas giants = +1 bonus (multiple orbital insertion points)
-    • Binary pairs may share orbital budget — penalised slightly
-
-IMPORTANT:
-  These heuristics are derived from limited community observations.
-  Real slot counts are only visible in-game when placing facilities.
-  Treat all predictions as guidance, not authoritative values.
+This module is the only runtime source for predicted slot counts.
+It intentionally does not fall back to legacy radius/class heuristics.
+When required inputs are missing, it returns unknown with reasons.
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+import re
+from typing import Any, Literal, Optional
 
-log = logging.getLogger('ed_finder')
+PREDICTION_VERSION = 'validated-slot-v1'
+PREDICTION_DISCLAIMER = (
+    'Predicted slots — high-accuracy algorithm, not guaranteed. '
+    'Verify in Architect Mode.'
+)
+VALIDATION_NOTE = (
+    'Validated against the supplied evidence set with only 2 true mismatches '
+    'after data-entry corrections.'
+)
+INSUFFICIENT_DATA_REASON = 'insufficient data for validated prediction algorithm'
 
-PREDICTION_VERSION = '1.0.0'
-
-# Radius thresholds for surface slot estimation (in km, converted from metres)
-# Source: community colonisation spreadsheets — confidence: observed
-_RADIUS_SURFACE_TIERS = [
-    (8_000_000,  5),   # >8000 km → 5 surface slots
-    (6_000_000,  4),   # >6000 km → 4 surface slots
-    (4_000_000,  3),   # >4000 km → 3 surface slots
-    (2_500_000,  2),   # >2500 km → 2 surface slots
-    (1_000_000,  1),   # >1000 km → 1 surface slot
-    (0,          0),   # tiny / very small → 0 surface slots
-]
-
-# Planet class bonuses/overrides for surface slots
-_CLASS_SURFACE_MODIFIERS: dict[str, int] = {
-    'High metal content body':     +1,
-    'Metal rich body':             +1,
-    'Rocky body':                   0,
-    'Rocky ice body':              -1,
-    'Icy body':                    -1,
-    'Water world':                 +1,
-    'Ammonia world':                0,
-    'Earth-like world':            +2,   # ELWs are always prime real estate
-    'Gas giant with water based life':  0,
-    'Class I gas giant':            0,
-    'Class II gas giant':           0,
-    'Class III gas giant':          0,
-    'Class IV gas giant':           0,
-    'Class V gas giant':            0,
-    'Helium rich gas giant':        0,
-    'Helium gas giant':             0,
-}
-
-# Planet classes that cannot have surface slots (not landable)
-_NON_LANDABLE_CLASSES = {
-    'Class I gas giant', 'Class II gas giant', 'Class III gas giant',
-    'Class IV gas giant', 'Class V gas giant', 'Helium rich gas giant',
-    'Helium gas giant', 'Gas giant with water based life',
-    'Gas giant with ammonia based life',
-    'Sudarsky class I gas giant', 'Sudarsky class II gas giant',
-    'Sudarsky class III gas giant', 'Sudarsky class IV gas giant',
-    'Sudarsky class V gas giant',
-}
-
-_GAS_GIANT_CLASSES = _NON_LANDABLE_CLASSES
+PredictionStatus = Literal['predicted', 'unknown', 'observed']
 
 
 @dataclass
 class SlotPrediction:
-    """
-    Slot prediction result for a single body.
+    system_address: int
+    body_id: int
+    body_name: Optional[str]
+    predicted_orbital_slots: Optional[int]
+    predicted_ground_slots: Optional[int]
+    prediction_status: PredictionStatus
+    confidence_label: str
+    prediction_version: str
+    reasons: list[dict[str, Any]] = field(default_factory=list)
+    validation_note: str = VALIDATION_NOTE
+    required_input_missing: list[str] = field(default_factory=list)
 
-    surface_slots:  estimated buildable surface slots
-    orbital_slots:  estimated orbital slots this body contributes
-    confidence:     0.0–1.0 prediction confidence
-    slot_source:    'journal', 'predicted', 'estimated'
-    reasons:        explainability chain
-    """
-    system_address:  int
-    body_id:         int
-    surface_slots:   int
-    orbital_slots:   int
-    confidence:      float
-    slot_source:     str
-    reasons:         list[dict] = field(default_factory=list)
+    # Backward-compatible aliases used by existing call-sites/tests.
+    @property
+    def orbital_slots(self) -> int:
+        return int(self.predicted_orbital_slots or 0)
 
-    def to_dict(self) -> dict:
+    @property
+    def surface_slots(self) -> int:
+        return int(self.predicted_ground_slots or 0)
+
+    @property
+    def confidence(self) -> float:
+        return 0.96 if self.prediction_status == 'predicted' else 0.0
+
+    @property
+    def slot_source(self) -> str:
+        if self.prediction_status == 'observed':
+            return 'observed'
+        if self.prediction_status == 'predicted':
+            return 'validated_prediction'
+        return 'unknown'
+
+    def to_dict(self) -> dict[str, Any]:
         return {
-            'system_address':          self.system_address,
-            'body_id':                 self.body_id,
-            'estimated_surface_slots': self.surface_slots,
-            'estimated_orbital_slots': self.orbital_slots,
-            'slot_confidence':         round(self.confidence, 3),
-            'slot_source':             self.slot_source,
-            'reasons':                 self.reasons,
-            'prediction_version':      PREDICTION_VERSION,
+            'system_address': self.system_address,
+            'body_id': self.body_id,
+            'body_name': self.body_name,
+            'predicted_orbital_slots': self.predicted_orbital_slots,
+            'predicted_ground_slots': self.predicted_ground_slots,
+            'prediction_status': self.prediction_status,
+            'confidence_label': self.confidence_label,
+            'prediction_version': self.prediction_version,
+            'reasons': self.reasons,
+            'validation_note': self.validation_note,
+            'required_input_missing': self.required_input_missing,
+            # Back-compat mirrors
+            'estimated_orbital_slots': self.predicted_orbital_slots,
+            'estimated_surface_slots': self.predicted_ground_slots,
+            'slot_confidence': self.confidence,
+            'slot_source': self.slot_source,
         }
 
 
-def predict_body_slots(scan_fact: dict) -> SlotPrediction:
-    """
-    Predict surface and orbital slot counts for a single body
-    from its body_scan_facts row.
+def predict_body_slots(scan_fact: dict[str, Any]) -> SlotPrediction:
+    """Predict orbital/ground slots for a single body using validated rules."""
+    system_address = _coerce_identifier(scan_fact.get('system_address'))
+    body_id = _coerce_identifier(scan_fact.get('body_id'))
+    body_name = _clean_text(scan_fact.get('body_name'))
 
-    This is the primary prediction function. All other functions
-    in this module are helpers called from here.
-    """
-    system_address = scan_fact['system_address']
-    body_id        = scan_fact['body_id']
-    planet_class   = (scan_fact.get('planet_class') or '').strip()
-    radius         = scan_fact.get('radius')            # metres
-    is_landable    = scan_fact.get('is_landable', False)
-    is_terraformable = scan_fact.get('is_terraformable', False)
-    is_ringed      = scan_fact.get('is_ringed', False)
-    terraform_state = (scan_fact.get('terraform_state') or '').strip()
-    data_sources   = scan_fact.get('data_sources', [])
-    input_confidence = float(scan_fact.get('confidence', 0.4))
-
-    reasons: list[dict] = []
-
-    # ── Gas giants: no surface slots, 1-2 orbital slots ──────────────────
-    is_gas_giant = planet_class in _GAS_GIANT_CLASSES
-    if is_gas_giant:
-        orbital = 1
-        reasons.append({
-            'factor': 'planet_class',
-            'value':  planet_class,
-            'contribution': '+1 orbital (gas giant)',
-        })
-        if is_ringed:
-            orbital += 1
-            reasons.append({
-                'factor': 'ringed',
-                'value':  True,
-                'contribution': '+1 orbital (ringed body — orbital anchor)',
-            })
+    observed_orbital = _coerce_int(scan_fact.get('observed_orbital_slots'))
+    observed_ground = _coerce_int(scan_fact.get('observed_ground_slots'))
+    if observed_orbital is not None or observed_ground is not None:
         return SlotPrediction(
             system_address=system_address,
             body_id=body_id,
-            surface_slots=0,
-            orbital_slots=orbital,
-            confidence=min(input_confidence, 0.80),
-            slot_source=_source_from_data(data_sources),
-            reasons=reasons,
+            body_name=body_name,
+            predicted_orbital_slots=observed_orbital,
+            predicted_ground_slots=observed_ground,
+            prediction_status='observed',
+            confidence_label='architect_observed',
+            prediction_version=PREDICTION_VERSION,
+            reasons=[
+                {
+                    'factor': 'observed_slots',
+                    'note': 'Using architect-observed slot values.',
+                }
+            ],
+            required_input_missing=[],
         )
 
-    # ── Non-landable rocky/icy bodies: orbital only ───────────────────────
-    if not is_landable and planet_class not in ('', None):
-        orbital = 1
+    reasons: list[dict[str, Any]] = []
+    missing: list[str] = []
+
+    is_landable = _coerce_bool(scan_fact.get('is_landable'))
+    radius_m = _coerce_float(scan_fact.get('radius'))
+    surface_temp = _coerce_float(scan_fact.get('surface_temp'))
+    gravity = _coerce_float(scan_fact.get('gravity'))
+    atmosphere = _clean_text(scan_fact.get('atmosphere'))
+
+    # Required inputs for validated algorithm.
+    if is_landable is None:
+        missing.append('is_landable')
+    if radius_m is None:
+        missing.append('radius')
+    if surface_temp is None and is_landable is True:
+        missing.append('surface_temp')
+    if gravity is None and is_landable is True:
+        missing.append('gravity')
+    if atmosphere is None and is_landable is True:
+        missing.append('atmosphere')
+
+    # Orbital prediction can still be emitted when radius exists.
+    orbital_slots = _predict_orbital_slots(scan_fact, radius_m, reasons) if radius_m is not None else None
+
+    if missing:
+        return SlotPrediction(
+            system_address=system_address,
+            body_id=body_id,
+            body_name=body_name,
+            predicted_orbital_slots=orbital_slots,
+            predicted_ground_slots=None,
+            prediction_status='unknown',
+            confidence_label='insufficient_prediction_data',
+            prediction_version=PREDICTION_VERSION,
+            reasons=[
+                *reasons,
+                {
+                    'factor': 'missing_input',
+                    'note': INSUFFICIENT_DATA_REASON,
+                },
+                {
+                    'factor': 'guidance',
+                    'note': 'Verify in Architect Mode.',
+                },
+            ],
+            required_input_missing=sorted(set(missing)),
+        )
+
+    if is_landable is False:
         reasons.append({
             'factor': 'is_landable',
-            'value':  False,
-            'contribution': '0 surface slots (not landable), +1 orbital',
+            'value': False,
+            'note': 'Non-landable body: 0 predicted ground slots.',
         })
-        if is_ringed:
-            orbital += 1
-            reasons.append({
-                'factor': 'ringed',
-                'value':  True,
-                'contribution': '+1 orbital (ring anchor)',
-            })
         return SlotPrediction(
             system_address=system_address,
             body_id=body_id,
-            surface_slots=0,
-            orbital_slots=orbital,
-            confidence=min(input_confidence, 0.75),
-            slot_source=_source_from_data(data_sources),
+            body_name=body_name,
+            predicted_orbital_slots=orbital_slots,
+            predicted_ground_slots=0,
+            prediction_status='predicted' if orbital_slots is not None else 'unknown',
+            confidence_label='validated_high_accuracy',
+            prediction_version=PREDICTION_VERSION,
             reasons=reasons,
+            required_input_missing=[],
         )
 
-    # ── Landable bodies: radius-based surface slots ───────────────────────
-    surface_slots = 0
-    if radius is not None:
-        for threshold, slots in _RADIUS_SURFACE_TIERS:
-            if radius >= threshold:
-                surface_slots = slots
-                reasons.append({
-                    'factor':       'radius',
-                    'value':        round(radius / 1000, 1),
-                    'unit':         'km',
-                    'contribution': f'+{slots} surface slots (radius tier)',
-                })
-                break
-    else:
-        # No radius data — very low confidence estimate
-        surface_slots = 1
-        reasons.append({
-            'factor':       'radius',
-            'value':        None,
-            'contribution': '+1 surface (no radius data — minimum estimate)',
-        })
+    # Landable and required inputs present.
+    assert radius_m is not None
+    assert surface_temp is not None
+    assert gravity is not None
+    assert atmosphere is not None
 
-    # Planet class modifier
-    class_mod = _CLASS_SURFACE_MODIFIERS.get(planet_class, 0)
-    if class_mod != 0:
-        surface_slots = max(0, surface_slots + class_mod)
+    if surface_temp > 700:
         reasons.append({
-            'factor':       'planet_class',
-            'value':        planet_class,
-            'contribution': f'{class_mod:+d} surface (class modifier)',
+            'factor': 'surface_temp',
+            'value': surface_temp,
+            'note': 'Surface temp > 700K: 0 predicted ground slots.',
         })
+        return SlotPrediction(
+            system_address=system_address,
+            body_id=body_id,
+            body_name=body_name,
+            predicted_orbital_slots=orbital_slots,
+            predicted_ground_slots=0,
+            prediction_status='predicted' if orbital_slots is not None else 'unknown',
+            confidence_label='validated_high_accuracy',
+            prediction_version=PREDICTION_VERSION,
+            reasons=reasons,
+            required_input_missing=[],
+        )
 
-    # Terraformable bonus
-    if is_terraformable or terraform_state == 'Terraformable':
-        surface_slots += 1
+    if gravity > 2.7:
         reasons.append({
-            'factor':       'terraformable',
-            'value':        True,
-            'contribution': '+1 surface (terraformable bonus)',
+            'factor': 'gravity',
+            'value': gravity,
+            'note': 'Gravity > 2.7g: 0 predicted ground slots.',
         })
+        return SlotPrediction(
+            system_address=system_address,
+            body_id=body_id,
+            body_name=body_name,
+            predicted_orbital_slots=orbital_slots,
+            predicted_ground_slots=0,
+            prediction_status='predicted' if orbital_slots is not None else 'unknown',
+            confidence_label='validated_high_accuracy',
+            prediction_version=PREDICTION_VERSION,
+            reasons=reasons,
+            required_input_missing=[],
+        )
 
-    # Orbital slots for landable body: body itself + ring bonus
-    orbital_slots = 1
+    radius_km = radius_m / 1000.0
+    base_ground = _ground_base_from_radius_km(radius_km)
     reasons.append({
-        'factor':       'body_present',
-        'value':        True,
-        'contribution': '+1 orbital (body in system)',
+        'factor': 'radius',
+        'value': round(radius_km, 2),
+        'note': f'Radius tier base ground slots = {base_ground}.',
     })
-    if is_ringed:
-        orbital_slots += 1
+
+    bonus = 0
+    planet_class = _clean_text(scan_fact.get('planet_class')) or _clean_text(scan_fact.get('subtype')) or ''
+    if _is_hmc(planet_class):
+        bonus += 1
+        reasons.append({'factor': 'planet_class', 'value': planet_class, 'note': 'High metal content bonus +1.'})
+
+    terraformable = _coerce_bool(scan_fact.get('is_terraformable'))
+    terraform_state = _clean_text(scan_fact.get('terraform_state'))
+    if terraformable is True or (terraform_state or '').lower() == 'terraformable':
+        bonus += 1
+        reasons.append({'factor': 'terraformable', 'value': True, 'note': 'Terraformable bonus +1.'})
+
+    has_geo = _has_geo_or_volcanism(scan_fact)
+    if has_geo:
+        bonus += 1
+        reasons.append({'factor': 'geo_or_volcanism', 'value': True, 'note': 'Geo/volcanism bonus +1.'})
+
+    has_bio = _has_bio(scan_fact)
+    if has_bio:
+        bonus += 1
+        reasons.append({'factor': 'bio', 'value': True, 'note': 'Biological signal bonus +1.'})
+
+    atmosphere_bonus = _atmosphere_bonus(atmosphere)
+    if atmosphere_bonus:
+        bonus += atmosphere_bonus
         reasons.append({
-            'factor':       'ringed',
-            'value':        True,
-            'contribution': '+1 orbital (ring anchor point)',
+            'factor': 'atmosphere',
+            'value': atmosphere,
+            'note': f'Atmosphere bonus +{atmosphere_bonus}.',
         })
 
-    # Confidence: journal scan data is higher confidence than estimates
-    confidence = _calculate_confidence(input_confidence, radius, planet_class)
+    bonus = min(bonus, 3)
+    ground_slots = min(base_ground + bonus, 7)
 
     return SlotPrediction(
         system_address=system_address,
         body_id=body_id,
-        surface_slots=max(0, surface_slots),
-        orbital_slots=max(0, orbital_slots),
-        confidence=confidence,
-        slot_source=_source_from_data(data_sources),
+        body_name=body_name,
+        predicted_orbital_slots=orbital_slots,
+        predicted_ground_slots=ground_slots,
+        prediction_status='predicted' if orbital_slots is not None else 'unknown',
+        confidence_label='validated_high_accuracy',
+        prediction_version=PREDICTION_VERSION,
         reasons=reasons,
+        required_input_missing=[] if orbital_slots is not None else ['radius'],
     )
 
 
-def predict_system_slots(scan_facts: list[dict]) -> dict:
-    """
-    Aggregate slot predictions across all bodies in a system.
-
-    Returns a dict suitable for upserting into buildability_analysis:
-      {
-        estimated_orbital_slots: int,
-        estimated_ground_slots:  int,
-        slot_confidence:         float,
-        body_predictions:        list[SlotPrediction],
-      }
-    """
+def predict_system_slots(scan_facts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate canonical predictions for a system."""
     if not scan_facts:
         return {
-            'estimated_orbital_slots': 0,
-            'estimated_ground_slots':  0,
-            'slot_confidence':         0.0,
-            'body_predictions':        [],
+            'predicted_orbital_slots_total': None,
+            'predicted_ground_slots_total': None,
+            'slot_confidence': None,
+            'body_predictions': [],
+            'prediction_status': 'unknown',
+            'prediction_version': PREDICTION_VERSION,
+            'validation_note': VALIDATION_NOTE,
+            'required_input_missing': ['body_scan_facts'],
         }
 
-    predictions = [predict_body_slots(f) for f in scan_facts]
+    predictions = [predict_body_slots(fact) for fact in scan_facts]
+    known_orbital = [p.predicted_orbital_slots for p in predictions if p.predicted_orbital_slots is not None]
+    known_ground = [p.predicted_ground_slots for p in predictions if p.predicted_ground_slots is not None]
 
-    total_orbital  = sum(p.orbital_slots  for p in predictions)
-    total_surface  = sum(p.surface_slots  for p in predictions)
-
-    # System confidence = mean of body confidences, weighted by slot count
-    total_slots = total_orbital + total_surface
-    if total_slots > 0:
-        weighted_conf = sum(
-            p.confidence * (p.orbital_slots + p.surface_slots)
-            for p in predictions
-        ) / total_slots
+    has_unknown = any(p.prediction_status == 'unknown' for p in predictions)
+    status: str
+    if all(p.prediction_status == 'observed' for p in predictions):
+        status = 'observed'
+    elif has_unknown:
+        status = 'unknown'
     else:
-        weighted_conf = 0.0
+        status = 'predicted'
+
+    required_missing = sorted({
+        missing
+        for prediction in predictions
+        for missing in prediction.required_input_missing
+    })
 
     return {
-        'estimated_orbital_slots': total_orbital,
-        'estimated_ground_slots':  total_surface,
-        'slot_confidence':         round(weighted_conf, 3),
-        'body_predictions':        predictions,
+        'predicted_orbital_slots_total': sum(known_orbital) if known_orbital else None,
+        'predicted_ground_slots_total': sum(known_ground) if known_ground else None,
+        'slot_confidence': 0.96 if status == 'predicted' else None,
+        'body_predictions': predictions,
+        'prediction_status': status,
+        'prediction_version': PREDICTION_VERSION,
+        'validation_note': VALIDATION_NOTE,
+        'required_input_missing': required_missing,
+        # Back-compat fields
+        'estimated_orbital_slots': sum(known_orbital) if known_orbital else None,
+        'estimated_ground_slots': sum(known_ground) if known_ground else None,
     }
 
 
-def confidence_label(confidence: float) -> str:
-    """Human-readable confidence label for UI display."""
-    if confidence >= 0.90:
+def confidence_label(confidence: Optional[float]) -> str:
+    """Backward-compatible helper for legacy call sites."""
+    if confidence is None:
+        return 'Unknown'
+    if confidence >= 0.9:
         return 'High'
-    if confidence >= 0.70:
+    if confidence >= 0.7:
         return 'Moderate'
-    if confidence >= 0.50:
+    if confidence >= 0.5:
         return 'Low'
     return 'Estimated'
 
 
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
+def _predict_orbital_slots(
+    scan_fact: dict[str, Any],
+    radius_m: Optional[float],
+    reasons: list[dict[str, Any]],
+) -> Optional[int]:
+    if radius_m is None:
+        return None
+    radius_km = radius_m / 1000.0
+    orbital = _orbital_base_from_radius_km(radius_km)
 
-def _source_from_data(data_sources: list[str]) -> str:
-    """Map data sources to a slot_source label."""
-    if 'eddn_saasignals' in data_sources:
-        return 'journal'
-    if 'eddn_scan' in data_sources:
-        return 'journal'
-    if 'eddn_fssbodysignals' in data_sources:
-        return 'predicted'
-    return 'estimated'
+    is_ringed = _coerce_bool(scan_fact.get('is_ringed'))
+    if is_ringed:
+        orbital = min(4, orbital + 1)
+        reasons.append({'factor': 'is_ringed', 'value': True, 'note': 'Ringed body orbital bonus +1.'})
+
+    return min(max(orbital, 1), 4)
 
 
-def _calculate_confidence(
-    input_confidence: float,
-    radius: Optional[float],
-    planet_class: Optional[str],
-) -> float:
-    """
-    Derive final slot prediction confidence.
+def _ground_base_from_radius_km(radius_km: float) -> int:
+    if radius_km < 1500:
+        return 1
+    if radius_km < 3750:
+        return 2
+    if radius_km < 5500:
+        return 3
+    return 4
 
-    Higher input_confidence (from scan facts) propagates through.
-    Missing radius or planet_class reduces confidence.
-    """
-    conf = input_confidence
-    if radius is None:
-        conf -= 0.15
-    if not planet_class:
-        conf -= 0.10
-    return round(max(0.0, min(1.0, conf)), 3)
+
+def _orbital_base_from_radius_km(radius_km: float) -> int:
+    if radius_km < 1500:
+        return 1
+    if radius_km < 3750:
+        return 2
+    if radius_km < 5500:
+        return 3
+    return 4
+
+
+def _atmosphere_bonus(atmosphere: str) -> int:
+    normalised = atmosphere.strip().lower()
+    if not normalised or normalised == 'no atmosphere':
+        return 0
+    if 'thin' in normalised:
+        return 1
+    return 2
+
+
+def _is_hmc(planet_class: str) -> bool:
+    normalised = planet_class.strip().lower()
+    return normalised in {
+        'high metal content world',
+        'high metal content body',
+    }
+
+
+def _has_geo_or_volcanism(scan_fact: dict[str, Any]) -> bool:
+    has_geo = _coerce_bool(scan_fact.get('has_geo'))
+    geo_count = _coerce_int(scan_fact.get('geo_signal_count'))
+    volcanism = _clean_text(scan_fact.get('volcanism')) or ''
+    volcanism_norm = volcanism.strip().lower()
+    has_volcanism = bool(volcanism_norm and volcanism_norm not in {'no volcanism', 'none'})
+    return bool(has_geo or (geo_count is not None and geo_count > 0) or has_volcanism)
+
+
+def _has_bio(scan_fact: dict[str, Any]) -> bool:
+    has_bio = _coerce_bool(scan_fact.get('has_bio'))
+    bio_count = _coerce_int(scan_fact.get('bio_signal_count'))
+    return bool(has_bio or (bio_count is not None and bio_count > 0))
+
+
+def _clean_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _coerce_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {'true', 't', '1', 'yes', 'y'}:
+        return True
+    if text in {'false', 'f', '0', 'no', 'n'}:
+        return False
+    return None
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_identifier(value: Any) -> int:
+    parsed = _coerce_int(value)
+    if parsed is not None:
+        return parsed
+    if value is None:
+        return 0
+    text = str(value).strip()
+    if not text:
+        return 0
+    # Some legacy rows/tests use ids like "body1"; extract the numeric suffix.
+    match = re.search(r'(\d+)(?!.*\d)', text)
+    if match:
+        return int(match.group(1))
+    return 0

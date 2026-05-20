@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { FacilityTemplate, SimulateBuildPlacement, SystemDetail } from '@/types/api';
+import type { FacilityTemplate, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
 import {
   ColonyTopologyRail,
   describeTopologySelection,
@@ -52,6 +52,43 @@ const placements: SimulateBuildPlacement[] = [
   { facility_template_id: 'surface_hub', local_body_id: null, build_order: 4 },
 ];
 
+const slotPredictions: SlotPredictionResponse = {
+  system_id64: 123,
+  data_source: 'eddn',
+  body_count: 2,
+  predicted_orbital_slots_total: 4,
+  predicted_ground_slots_total: 5,
+  prediction_status: 'predicted',
+  prediction_version: 'validated-slot-v1',
+  confidence_label: 'validated_high_accuracy',
+  disclaimer: 'Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode.',
+  validation_note: 'Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.',
+  required_input_missing: [],
+  predictions: [
+    {
+      system_address: 123,
+      body_id: 1,
+      body_name: 'Tree System A 1',
+      planet_class: 'High metal content world',
+      predicted_orbital_slots: 4,
+      predicted_ground_slots: 5,
+      prediction_status: 'predicted',
+      reasons: [],
+    },
+    {
+      system_address: 123,
+      body_id: 2,
+      body_name: 'Tree System A 1 a',
+      planet_class: 'Rocky body',
+      predicted_orbital_slots: null,
+      predicted_ground_slots: null,
+      prediction_status: 'unknown',
+      required_input_missing: ['atmosphere'],
+      reasons: [],
+    },
+  ],
+};
+
 const system = {
   id64: 123,
   name: 'Tree System',
@@ -80,7 +117,7 @@ function RailHarness({
     <>
       <ColonyTopologyRail
         system={customSystem}
-        snapshot={{ placements, templates, targetArchetype: 'refinery_industrial', projection }}
+        snapshot={{ placements, templates, targetArchetype: 'refinery_industrial', slotPredictions, projection }}
         selection={selection}
         onSelect={(next) => {
           onSelectSpy?.(next);
@@ -92,6 +129,7 @@ function RailHarness({
           placements,
           templates,
           targetArchetype: 'refinery_industrial',
+          slotPredictions,
         }).label}
       </output>
     </>
@@ -172,5 +210,41 @@ describe('ColonyTopologyRail', () => {
     expect(screen.getByTestId('topology-projected-group-2')).toBeTruthy();
     expect(within(screen.getByTestId('topology-projected-group-2')).getByText('Projected')).toBeTruthy();
     expect(screen.getByTestId('topology-projected-placement-0')).toBeTruthy();
+  });
+
+  it('renders canonical slot lane counts and occupancy for a 4 orbital / 5 ground body', () => {
+    render(<RailHarness />);
+
+    expect(screen.getByText(/Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode./)).toBeTruthy();
+    expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
+    expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
+
+    const firstBody = screen.getByTestId('topology-body-1');
+    expect(within(firstBody).getByTestId('1-orbital-slot-0').textContent?.trim().length).toBeGreaterThan(0);
+  });
+
+  it('shows unknown slot lane when canonical prediction is unknown', () => {
+    render(<RailHarness />);
+    expect(screen.getByTestId('slot-lane-unknown-2-orbital')).toBeTruthy();
+    expect(screen.getByTestId('slot-lane-unknown-2-ground')).toBeTruthy();
+  });
+
+  it('shows overflow when structures exceed predicted capacity', () => {
+    render(
+      <RailHarness
+        projection={{
+          candidateId: 'candidate-overflow',
+          label: 'Overflow candidate',
+          placements: [
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 5 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 6 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 7 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 8 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 9 },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByTestId('topology-overflow-1').textContent).toContain('overflow / unconfirmed');
   });
 });

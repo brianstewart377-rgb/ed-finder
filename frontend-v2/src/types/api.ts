@@ -60,12 +60,57 @@ export type RerankResponse        = Schemas['RerankResponse'];
 export type RerankRow             = Schemas['RerankRow'];
 export type RerankWeights         = Schemas['RerankWeights'];
 export type BuildabilityData      = Schemas['BuildabilityData'];
-export type BodySlotPrediction    = Schemas['BodySlotPrediction'];
 export type SimulationSummary     = Schemas['SimulationSummaryResponse'] & { regional_context?: RegionalAnalysisResponse | null };
-export type SlotPredictionResponse = Schemas['SlotPredictionResponse'];
-export type SlotReason            = Schemas['SlotReason'];
 export type BuildabilityResponse  = Schemas['BuildabilityResponse'];
 export type SystemBuildability    = BuildabilityResponse;
+
+export interface SlotReason {
+  factor: string;
+  delta?: number | null;
+  note?: string | null;
+}
+
+export interface BodySlotPrediction {
+  system_address: number;
+  body_id: number;
+  body_name?: string | null;
+  planet_class?: string | null;
+  predicted_orbital_slots?: number | null;
+  predicted_ground_slots?: number | null;
+  prediction_status: 'predicted' | 'unknown' | 'observed';
+  confidence_label?: string | null;
+  prediction_version?: string | null;
+  validation_note?: string | null;
+  required_input_missing?: string[];
+  estimated_orbital_slots?: number | null;
+  estimated_surface_slots?: number | null;
+  slot_confidence?: number | null;
+  slot_source?: string | null;
+  reasons?: SlotReason[];
+  is_ringed?: boolean | null;
+  is_landable?: boolean | null;
+  radius?: number | null;
+}
+
+export interface SlotPredictionResponse {
+  system_id64: number;
+  data_source: 'eddn' | 'spansh' | 'none';
+  body_count: number;
+  predicted_orbital_slots_total?: number | null;
+  predicted_ground_slots_total?: number | null;
+  prediction_status: 'predicted' | 'unknown' | 'observed';
+  prediction_version: string;
+  confidence_label?: string | null;
+  disclaimer: string;
+  validation_note: string;
+  required_input_missing?: string[];
+  estimated_orbital_slots?: number | null;
+  estimated_ground_slots?: number | null;
+  slot_confidence?: number | null;
+  slot_confidence_label?: string | null;
+  predictions: BodySlotPrediction[];
+  note?: string | null;
+}
 
 export interface FacilityTemplate {
   id: string;

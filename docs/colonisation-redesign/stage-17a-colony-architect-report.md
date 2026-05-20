@@ -187,6 +187,34 @@ Stage 17E is a functional rebuild pass, not a visual polish pass. It targets the
 - candidate scale still depends on catalogue breadth and body coverage; sparse systems can still produce starter-level output
 - LLM advisor remains foundation-only (schema/docs), not active UI generation
 
+## Stage 17G Validated Slot Algorithm Everywhere + System-Wide Slot Map
+
+Stage 17G standardises slot prediction on one canonical backend algorithm and removes active heuristic fallback paths for slot counts.
+
+Delivered:
+
+- canonical runtime predictor in `apps/api/src/ingest/slot_prediction.py` (`validated-slot-v1`)
+- strict unknown behavior for missing required inputs (`insufficient prediction data`, `Verify in Architect Mode`)
+- no active radius/class/body-type fallback slot estimates when canonical prediction cannot be produced
+- canonical slot metadata in API responses (`prediction_status`, `prediction_version`, `validation_note`, `required_input_missing`)
+- frontend slot-map surfaces now consume canonical `predicted_*` fields directly and render unknown lanes when unavailable
+- planner left rail now shows dense whole-system per-body slot lanes (orbital + ground), planned occupancy, projected ghost occupancy, and overflow labels
+- central selected-body planner lane counts now match left-rail canonical counts
+
+Prediction wording is explicit and conservative:
+
+- `Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode.`
+- `Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.`
+
+Boundaries kept:
+
+- no CP formula changes
+- no economy/service scoring changes
+- no Search Tuning changes
+- no import/EDMC/persistence model changes
+- no auto-generation/auto-load/auto-preview behavior changes
+- no Architect-observed slot storage in this stage
+
 ## Stage 18 direction
 
 Stage 18 should build a constrained Colony Architect assistant shell on top of Stage 17E:

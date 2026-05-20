@@ -1073,6 +1073,7 @@ class FacilityTemplateResponse(BaseModel):
 
 SimulationSource = Literal['precomputed', 'computed', 'insufficient_data']
 SlotDataSource = Literal['eddn', 'spansh', 'none']
+SlotPredictionStatus = Literal['predicted', 'unknown', 'observed']
 
 
 class SlotReason(BaseModel):
@@ -1092,10 +1093,17 @@ class BodySlotPrediction(BaseModel):
     body_id:        int
     body_name:      Optional[str]   = None
     planet_class:   Optional[str]   = None
-    estimated_surface_slots: int    = 0
-    estimated_orbital_slots: int    = 0
-    slot_confidence: float          = 0.0
-    slot_source:    str             = 'estimated'
+    predicted_ground_slots: Optional[int] = None
+    predicted_orbital_slots: Optional[int] = None
+    prediction_status: SlotPredictionStatus = 'unknown'
+    confidence_label: Optional[str] = None
+    prediction_version: Optional[str] = None
+    validation_note: Optional[str] = None
+    required_input_missing: list[str] = Field(default_factory=list)
+    estimated_surface_slots: Optional[int] = None
+    estimated_orbital_slots: Optional[int] = None
+    slot_confidence: Optional[float] = None
+    slot_source:    Optional[str] = None
     reasons:        list[SlotReason]= Field(default_factory=list)
     is_ringed:      Optional[bool]  = None
     is_landable:    Optional[bool]  = None
@@ -1108,10 +1116,18 @@ class SlotPredictionResponse(BaseModel):
     system_id64:             int
     data_source:             SlotDataSource
     body_count:              int
-    estimated_orbital_slots: int
-    estimated_ground_slots:  int
-    slot_confidence:         float
-    slot_confidence_label:   str
+    predicted_orbital_slots_total: Optional[int] = None
+    predicted_ground_slots_total:  Optional[int] = None
+    prediction_status: SlotPredictionStatus = 'unknown'
+    prediction_version: str
+    confidence_label: Optional[str] = None
+    disclaimer: str
+    validation_note: str
+    required_input_missing: list[str] = Field(default_factory=list)
+    estimated_orbital_slots: Optional[int] = None
+    estimated_ground_slots:  Optional[int] = None
+    slot_confidence:         Optional[float] = None
+    slot_confidence_label:   Optional[str] = None
     predictions:             list[BodySlotPrediction] = Field(default_factory=list)
     note:                    Optional[str] = None
 
