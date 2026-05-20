@@ -179,8 +179,43 @@ docker compose exec nginx nginx -s reload
 ok "nginx reloaded"
 
 say "Check nginx health route"
-curl -fsS --max-time 5 http://127.0.0.1/api/health >/tmp/ed-finder-nginx-health.json
-ok "nginx health: $(cat /tmp/ed-finder-nginx-health.json)"
+nginx_health_ok=0
+for i in {1..30}; do
+  if curl -fsS --max-time 5 http://127.0.0.1/api/health >/tmp/ed-finder-nginx-health.json; then
+    nginx_health_ok=1
+    ok "nginx health: $(cat /tmp/ed-finder-nginx-health.json)"
+    break
+  fi
+  sleep 2
+done
+
+if [[ "$nginx_health_ok" -ne 1 ]]; then
+  echo "[WARN] nginx health route did not return 200 after retries" >&2
+  curl -sS -D /tmp/ed-finder-nginx-health.headers -o /tmp/ed-finder-nginx-health.body \
+    --max-time 5 http://127.0.0.1/api/health || true
+  echo "[INFO] nginx health response headers:" >&2
+  cat /tmp/ed-finder-nginx-health.headers >&2 || true
+  echo "[INFO] nginx health response body:" >&2
+  cat /tmp/ed-finder-nginx-health.body >&2 || true
+
+  say "Nginx/API diagnostics"
+  docker compose ps api nginx >&2 || true
+  echo "[INFO] docker compose logs --tail=120 nginx" >&2
+  docker compose logs --tail=120 nginx >&2 || true
+  echo "[INFO] docker compose logs --tail=120 api" >&2
+  docker compose logs --tail=120 api >&2 || true
+  echo "[INFO] Probe API from nginx container (api:8000)" >&2
+  docker compose exec -T nginx sh -lc '\
+    if command -v curl >/dev/null 2>&1; then \
+      curl -sS --max-time 5 http://api:8000/api/health; \
+    elif command -v wget >/dev/null 2>&1; then \
+      wget -qO- http://api:8000/api/health; \
+    else \
+      echo "no curl/wget available in nginx container"; \
+    fi' >&2 || true
+
+  die "nginx health route remained unavailable (HTTP 502/timeout)"
+fi
 
 say "Check OpenAPI simulation contract"
 curl -fsS --max-time 10 http://127.0.0.1:8000/openapi.json \
