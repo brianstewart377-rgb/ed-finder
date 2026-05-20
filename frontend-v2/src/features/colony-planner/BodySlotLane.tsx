@@ -29,7 +29,7 @@ export function BodySlotLane({
     <section
       data-testid={`slot-lane-${laneKey}`}
       className={[
-        'rounded border p-2.5',
+        'relative overflow-hidden rounded border p-2.5',
         disabled
           ? 'border-gold/35 bg-gold/6'
           : laneKey === 'orbital'
@@ -39,6 +39,19 @@ export function BodySlotLane({
               : 'border-border/60 bg-bg3/35',
       ].join(' ')}
     >
+      <div
+        aria-hidden="true"
+        className={[
+          'pointer-events-none absolute inset-x-0 top-0 h-px',
+          disabled
+            ? 'bg-gold/50'
+            : laneKey === 'orbital'
+              ? 'bg-cyan/55'
+              : laneKey === 'surface'
+                ? 'bg-green/55'
+                : 'bg-silver/35',
+        ].join(' ')}
+      />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver">{label}</div>

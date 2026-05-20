@@ -136,7 +136,7 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
     <section
       aria-label="Colony Planner application shell"
       data-testid="planner-workspace-shell-v2"
-      className="grid gap-4 lg:grid-cols-[16.5rem_minmax(0,1fr)_14rem] lg:items-start"
+      className="grid gap-4 lg:grid-cols-[15.5rem_minmax(0,1fr)_11.5rem] xl:grid-cols-[16.5rem_minmax(0,1fr)_12.5rem] lg:items-start"
     >
       <main
         aria-label="Planning workspace content"
@@ -145,8 +145,9 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
       >
         <WorkspaceIntro
           selection={selection}
-          hasPlacements={planSnapshot.placements.length > 0}
           planningFocusLabel={planningFocusLabel}
+          placementCount={planSnapshot.placements.length}
+          projectedCount={planSnapshot.projection?.placements.length ?? 0}
           unsavedChanges={projectState.unsavedChanges}
         />
         <BodyPlanningSurface
@@ -475,49 +476,37 @@ function BodyFact({ label, tone = 'silver' }: { label: string; tone?: 'silver' |
 
 function WorkspaceIntro({
   selection,
-  hasPlacements,
   planningFocusLabel,
+  placementCount,
+  projectedCount,
   unsavedChanges,
 }: {
   selection: TopologySelection;
-  hasPlacements: boolean;
   planningFocusLabel: string | null;
+  placementCount: number;
+  projectedCount: number;
   unsavedChanges: boolean;
 }) {
   const title = selection.type === 'body' ? 'Body Planner' : 'Planning Workspace';
   return (
-    <div className="mb-3 border-b border-border/70 pb-3">
+    <div className="mb-3 rounded border border-border/60 bg-bg3/25 px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="font-mono text-[12px] uppercase tracking-[0.18em] text-orange">
             {title}
           </h2>
-          <p className="mt-1 max-w-2xl text-[11px] font-mono leading-snug text-silver-dk">
+          <p className="mt-0.5 max-w-2xl text-[11px] font-mono leading-snug text-silver-dk">
             {planningFocusLabel
               ? `Planning focus: ${planningFocusLabel}`
               : 'Select a body from the topology rail or open Suggested Builds.'}
           </p>
         </div>
-        <WhatNextStrip hasPlacements={hasPlacements} unsavedChanges={unsavedChanges} />
+        <div className="flex flex-wrap gap-1.5" aria-label="Planner status">
+          <BodyFact label={`${placementCount} planned`} tone={placementCount > 0 ? 'orange' : 'silver'} />
+          {projectedCount > 0 && <BodyFact label={`${projectedCount} projected`} tone="cyan" />}
+          <BodyFact label={unsavedChanges ? 'Unsaved changes' : 'Saved locally'} tone={unsavedChanges ? 'gold' : 'silver'} />
+        </div>
       </div>
-    </div>
-  );
-}
-
-function WhatNextStrip({ hasPlacements, unsavedChanges }: { hasPlacements: boolean; unsavedChanges: boolean }) {
-  const items = [
-    hasPlacements ? 'Review body plan' : 'Select a body',
-    hasPlacements ? 'Run Preview' : 'Generate strategy',
-    unsavedChanges ? 'Save project' : 'Saved locally',
-  ];
-
-  return (
-    <div className="flex flex-wrap gap-1.5" aria-label="What next">
-      {items.map((item) => (
-        <span key={item} className="rounded border border-border/60 bg-bg3/55 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
-          {item}
-        </span>
-      ))}
     </div>
   );
 }

@@ -216,7 +216,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getAllByText('Workspace System').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Refinery').length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-workspace-shell-v2')).toBeTruthy();
-    expect(screen.getByTestId('planner-workspace-shell-v2').className).toContain('lg:grid-cols-[16.5rem_minmax(0,1fr)_14rem]');
+    expect(screen.getByTestId('planner-workspace-shell-v2').className).toContain('lg:grid-cols-[15.5rem_minmax(0,1fr)_11.5rem]');
     expect(screen.getByTestId('planner-topology-sidebar')).toBeTruthy();
     expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
@@ -228,6 +228,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('advanced-workspace-toggle')).toBeTruthy();
     expect(screen.getByTestId('advanced-workspace-toggle').textContent).toContain('Open');
     expect(screen.getByText('Planner summary')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('summary-rail-collapse-toggle'));
     expect(screen.getByTestId('project-card')).toBeTruthy();
     expect(screen.getByTestId('plan-health-card')).toBeTruthy();
     expect(screen.getByTestId('selection-card')).toBeTruthy();
@@ -396,10 +397,10 @@ describe('ColonyPlannerWorkspace', () => {
     );
 
     const summary = await screen.findByTestId('planner-summary-panel');
-    expect(within(summary).getByTestId('preview-suggested-card')).toBeTruthy();
+    expect(within(summary).getByTestId('summary-rail-compact-view')).toBeTruthy();
     expect(within(summary).getByTestId('summary-rail-collapse-toggle')).toBeTruthy();
     fireEvent.click(within(summary).getByTestId('summary-rail-collapse-toggle'));
-    expect(within(summary).getByTestId('summary-rail-compact-view')).toBeTruthy();
+    expect(within(summary).getByTestId('preview-suggested-card')).toBeTruthy();
     expect(within(summary).queryByRole('button', { name: 'Evidence' })).toBeNull();
     expect(within(summary).queryByRole('button', { name: 'Validation' })).toBeNull();
   });
@@ -420,6 +421,7 @@ describe('ColonyPlannerWorkspace', () => {
       />,
     );
 
+    fireEvent.click((await screen.findByTestId('summary-rail-collapse-toggle')));
     expect(await screen.findByTestId('project-card')).toBeTruthy();
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Unsaved changes');
 
@@ -480,6 +482,7 @@ describe('ColonyPlannerWorkspace', () => {
       />,
     );
 
+    fireEvent.click((await screen.findByTestId('summary-rail-collapse-toggle')));
     expect((await screen.findAllByText('Old project')).length).toBeGreaterThan(0);
     expect(screen.getByTestId('body-planning-surface')).toBeTruthy();
   });
@@ -510,6 +513,7 @@ describe('ColonyPlannerWorkspace', () => {
       />,
     );
 
+    fireEvent.click((await screen.findByTestId('summary-rail-collapse-toggle')));
     expect((await screen.findAllByText('Reloaded project')).length).toBeGreaterThan(0);
     expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({

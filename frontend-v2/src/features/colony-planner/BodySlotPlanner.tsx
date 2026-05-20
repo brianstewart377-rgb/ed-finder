@@ -83,6 +83,12 @@ export function BodySlotPlanner({
         </div>
       </header>
 
+      <BodySchematicStrip
+        orbital={{ planned: orbitalPlanned.length, projected: orbitalProjected.length }}
+        surface={{ planned: surfacePlanned.length, projected: surfaceProjected.length }}
+        flex={{ planned: flexPlanned.length, projected: flexProjected.length }}
+      />
+
       <div className="space-y-2.5">
         <BodySlotLane
           laneKey="orbital"
@@ -145,6 +151,90 @@ export function BodySlotPlanner({
         </BodySlotLane>
       </div>
     </section>
+  );
+}
+
+function BodySchematicStrip({
+  orbital,
+  surface,
+  flex,
+}: {
+  orbital: { planned: number; projected: number };
+  surface: { planned: number; projected: number };
+  flex: { planned: number; projected: number };
+}) {
+  const totalPlanned = orbital.planned + surface.planned + flex.planned;
+  const totalProjected = orbital.projected + surface.projected + flex.projected;
+  return (
+    <div
+      data-testid="body-slot-graph"
+      className="mb-3 rounded border border-border/60 bg-bg3/35 p-2.5"
+    >
+      <div className="grid gap-3 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-center">
+        <div className="relative mx-auto h-28 w-28">
+          <div className="absolute inset-0 rounded-full border border-cyan/35 bg-cyan/5" />
+          <div className="absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-orange/45 bg-orange/10 shadow-[0_0_22px_rgba(255,122,20,0.2)]" />
+          <div className="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan/30" />
+          <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-green/25" />
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 rounded border border-border/60 bg-bg2/60 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
+            body core
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <LaneStatBlock
+            label="Orbital ring"
+            planned={orbital.planned}
+            projected={orbital.projected}
+            tone="cyan"
+          />
+          <LaneStatBlock
+            label="Surface grid"
+            planned={surface.planned}
+            projected={surface.projected}
+            tone="green"
+          />
+          <LaneStatBlock
+            label="Flex lane"
+            planned={flex.planned}
+            projected={flex.projected}
+            tone="silver"
+          />
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <FactChip label={`${totalPlanned} planned structures`} tone={totalPlanned > 0 ? 'orange' : 'silver'} />
+        {totalProjected > 0 && <FactChip label={`${totalProjected} projected ghosts`} tone="cyan" />}
+      </div>
+    </div>
+  );
+}
+
+function LaneStatBlock({
+  label,
+  planned,
+  projected,
+  tone,
+}: {
+  label: string;
+  planned: number;
+  projected: number;
+  tone: 'cyan' | 'green' | 'silver';
+}) {
+  const toneClass = tone === 'cyan'
+    ? 'border-cyan/35 bg-cyan/8 text-cyan'
+    : tone === 'green'
+      ? 'border-green/35 bg-green/8 text-green'
+      : 'border-border/60 bg-bg2/60 text-silver';
+  return (
+    <div className={['rounded border px-2 py-1.5 font-mono', toneClass].join(' ')}>
+      <div className="text-[9px] uppercase tracking-[0.14em]">{label}</div>
+      <div className="mt-1 text-[11px] font-bold">
+        {planned} planned
+      </div>
+      <div className="text-[10px] text-silver-dk">
+        {projected > 0 ? `+${projected} projected` : 'no projection'}
+      </div>
+    </div>
   );
 }
 

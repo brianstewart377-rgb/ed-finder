@@ -54,7 +54,7 @@ export function WorkspaceSummaryRail({
   onConfirmArchiveChange: (confirming: boolean) => void;
 }) {
   const health = getPlanHealthSummary({ snapshot, system, selectedContext, unsavedChanges });
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   return (
     <aside
