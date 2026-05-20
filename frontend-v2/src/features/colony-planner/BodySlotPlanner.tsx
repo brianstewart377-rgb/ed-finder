@@ -83,10 +83,18 @@ export function BodySlotPlanner({
         </div>
       </header>
 
-      <BodySchematicStrip
-        orbital={{ planned: orbitalPlanned.length, projected: orbitalProjected.length }}
-        surface={{ planned: surfacePlanned.length, projected: surfaceProjected.length }}
-        flex={{ planned: flexPlanned.length, projected: flexProjected.length }}
+      <BodyRingMap
+        orbitalPlanned={orbitalPlanned}
+        surfacePlanned={surfacePlanned}
+        flexPlanned={flexPlanned}
+        orbitalProjected={orbitalProjected}
+        surfaceProjected={surfaceProjected}
+        flexProjected={flexProjected}
+        selectedPlacementIndex={selectedPlacementIndex}
+        hasTemplates={hasTemplates}
+        surfaceBlocked={surfaceBlocked}
+        onSelectPlacement={onSelectPlacement}
+        onAddLaneStructure={onAddLaneStructure}
       />
 
       <div className="space-y-2.5">
@@ -154,87 +162,260 @@ export function BodySlotPlanner({
   );
 }
 
-function BodySchematicStrip({
-  orbital,
-  surface,
-  flex,
+function BodyRingMap({
+  orbitalPlanned,
+  surfacePlanned,
+  flexPlanned,
+  orbitalProjected,
+  surfaceProjected,
+  flexProjected,
+  selectedPlacementIndex,
+  hasTemplates,
+  surfaceBlocked,
+  onSelectPlacement,
+  onAddLaneStructure,
 }: {
-  orbital: { planned: number; projected: number };
-  surface: { planned: number; projected: number };
-  flex: { planned: number; projected: number };
+  orbitalPlanned: BodyPlannerPlacementItem[];
+  surfacePlanned: BodyPlannerPlacementItem[];
+  flexPlanned: BodyPlannerPlacementItem[];
+  orbitalProjected: BodyPlannerProjectedPlacementItem[];
+  surfaceProjected: BodyPlannerProjectedPlacementItem[];
+  flexProjected: BodyPlannerProjectedPlacementItem[];
+  selectedPlacementIndex: number | null;
+  hasTemplates: boolean;
+  surfaceBlocked: boolean;
+  onSelectPlacement: (index: number) => void;
+  onAddLaneStructure: (lane: BodyPlannerLane) => void;
 }) {
-  const totalPlanned = orbital.planned + surface.planned + flex.planned;
-  const totalProjected = orbital.projected + surface.projected + flex.projected;
+  const orbitalNodes = [
+    ...orbitalPlanned.map((item) => ({ kind: 'planned' as const, id: `p-${item.index}`, item })),
+    ...orbitalProjected.map((item, i) => ({ kind: 'projected' as const, id: `g-${i}-${item.placement.facility_template_id}`, item })),
+  ];
+  const surfaceNodes = [
+    ...surfacePlanned.map((item) => ({ kind: 'planned' as const, id: `p-${item.index}`, item })),
+    ...surfaceProjected.map((item, i) => ({ kind: 'projected' as const, id: `g-${i}-${item.placement.facility_template_id}`, item })),
+  ];
+  const flexNodes = [
+    ...flexPlanned.map((item) => ({ kind: 'planned' as const, id: `p-${item.index}`, item })),
+    ...flexProjected.map((item, i) => ({ kind: 'projected' as const, id: `g-${i}-${item.placement.facility_template_id}`, item })),
+  ];
+
+  const orbitalSlots = ringSlots(orbitalNodes.length, 130);
+  const surfaceSlots = ringSlots(surfaceNodes.length, 92);
+  const flexSlots = railSlots(flexNodes.length);
+
+  return (
+    <section data-testid="body-slot-graph" className="mb-3 rounded border border-border/60 bg-bg3/35 px-2 py-3">
+      <div className="relative mx-auto min-h-[23rem] max-w-[56rem]">
+        <div className="absolute left-1/2 top-[8.9rem] h-[16rem] w-[16rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan/35" />
+        <div className="absolute left-1/2 top-[8.9rem] h-[11.4rem] w-[11.4rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-green/35" />
+        <div className="absolute left-1/2 top-[8.9rem] h-[6.4rem] w-[6.4rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-orange/45 bg-orange/10 shadow-[0_0_30px_rgba(255,122,20,0.2)]" />
+
+        <div className="absolute left-1/2 top-[8.9rem] -translate-x-1/2 -translate-y-1/2 text-center">
+          <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Body core</div>
+        </div>
+
+        {orbitalNodes.map((node, index) => (
+          <RingPlacementToken
+            key={`orb-${node.id}`}
+            lane="orbital"
+            left={`calc(50% + ${orbitalSlots[index].x}px)`}
+            top={`calc(8.9rem + ${orbitalSlots[index].y}px)`}
+            label={slotLabel(node.item)}
+            projected={node.kind === 'projected'}
+            selected={node.kind === 'planned' && selectedPlacementIndex === node.item.index}
+            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : undefined}
+          />
+        ))}
+
+        {surfaceNodes.map((node, index) => (
+          <RingPlacementToken
+            key={`surf-${node.id}`}
+            lane="surface"
+            left={`calc(50% + ${surfaceSlots[index].x}px)`}
+            top={`calc(8.9rem + ${surfaceSlots[index].y}px)`}
+            label={slotLabel(node.item)}
+            projected={node.kind === 'projected'}
+            selected={node.kind === 'planned' && selectedPlacementIndex === node.item.index}
+            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : undefined}
+          />
+        ))}
+
+        <div className="absolute left-1/2 top-[19.2rem] h-px w-[86%] -translate-x-1/2 bg-border/60" />
+        {flexNodes.map((node, index) => (
+          <RingPlacementToken
+            key={`flex-${node.id}`}
+            lane="flex"
+            left={`${flexSlots[index]}%`}
+            top="20rem"
+            label={slotLabel(node.item)}
+            projected={node.kind === 'projected'}
+            selected={node.kind === 'planned' && selectedPlacementIndex === node.item.index}
+            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : undefined}
+          />
+        ))}
+
+        <LaneAddNode
+          lane="orbital"
+          left="50%"
+          top="0.9rem"
+          enabled={hasTemplates}
+          disabledReason={!hasTemplates ? 'Facility catalogue loading.' : undefined}
+          onAdd={() => onAddLaneStructure('orbital')}
+        />
+        <LaneAddNode
+          lane="surface"
+          left="calc(50% + 5.7rem)"
+          top="8.9rem"
+          enabled={hasTemplates && !surfaceBlocked}
+          disabledReason={surfaceBlocked ? 'Surface blocked for this body.' : (!hasTemplates ? 'Facility catalogue loading.' : undefined)}
+          onAdd={() => onAddLaneStructure('surface')}
+        />
+        <LaneAddNode
+          lane="flex"
+          left="50%"
+          top="20.8rem"
+          enabled={hasTemplates}
+          disabledReason={!hasTemplates ? 'Facility catalogue loading.' : undefined}
+          onAdd={() => onAddLaneStructure('flex')}
+        />
+
+        <div className="absolute left-2 top-2 rounded border border-cyan/35 bg-cyan/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">Orbital ring</div>
+        <div className="absolute left-2 top-8 rounded border border-green/35 bg-green/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-green">Surface ring</div>
+        <div className="absolute left-2 top-[19.6rem] rounded border border-border/60 bg-bg2/60 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">Flex lane</div>
+      </div>
+    </section>
+  );
+}
+
+function ringSlots(count: number, radius: number) {
+  if (count <= 0) return [];
+  const spread = Math.min(320, Math.max(140, 50 * count));
+  const start = -90 - spread / 2;
+  const step = count === 1 ? 0 : spread / (count - 1);
+  return new Array(count).fill(null).map((_, index) => {
+    const angle = (start + step * index) * (Math.PI / 180);
+    return {
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+    };
+  });
+}
+
+function railSlots(count: number) {
+  if (count <= 0) return [];
+  const left = 24;
+  const right = 76;
+  if (count === 1) return [50];
+  const step = (right - left) / (count - 1);
+  return new Array(count).fill(null).map((_, index) => left + step * index);
+}
+
+function slotLabel(item: BodyPlannerPlacementItem | BodyPlannerProjectedPlacementItem) {
+  const raw = item.template?.name ?? item.placement.facility_template_id;
+  const clean = raw.replace(/[^A-Za-z0-9 ]/g, ' ').trim();
+  if (!clean) return '??';
+  const words = clean.split(/\s+/).slice(0, 2);
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0] ?? ''}${words[1][0] ?? ''}`.toUpperCase();
+}
+
+function RingPlacementToken({
+  lane,
+  left,
+  top,
+  label,
+  projected,
+  selected,
+  onClick,
+}: {
+  lane: BodyPlannerLane;
+  left: string;
+  top: string;
+  label: string;
+  projected: boolean;
+  selected: boolean;
+  onClick?: () => void;
+}) {
+  const toneClass = projected
+    ? 'border-cyan/45 bg-cyan/14 text-cyan'
+    : lane === 'orbital'
+      ? 'border-cyan/45 bg-cyan/8 text-cyan'
+      : lane === 'surface'
+        ? 'border-green/45 bg-green/10 text-green'
+        : 'border-border/70 bg-bg2/70 text-silver';
+
+  const selectedClass = selected
+    ? 'shadow-[0_0_20px_rgba(255,122,20,0.3)] ring-2 ring-orange/70'
+    : '';
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        style={{ left, top, transform: 'translate(-50%, -50%)' }}
+        className={[
+          'absolute z-10 grid h-8 w-8 place-items-center rounded-full border font-mono text-[9px] font-bold uppercase tracking-[0.08em] transition-transform hover:scale-105',
+          toneClass,
+          selectedClass,
+        ].join(' ')}
+      >
+        {label}
+      </button>
+    );
+  }
+
   return (
     <div
-      data-testid="body-slot-graph"
-      className="mb-3 rounded border border-border/60 bg-bg3/35 p-2.5"
+      style={{ left, top, transform: 'translate(-50%, -50%)' }}
+      className={[
+        'absolute z-10 grid h-8 w-8 place-items-center rounded-full border font-mono text-[9px] font-bold uppercase tracking-[0.08em]',
+        toneClass,
+      ].join(' ')}
     >
-      <div className="grid gap-3 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-center">
-        <div className="relative mx-auto h-28 w-28">
-          <div className="absolute inset-0 rounded-full border border-cyan/35 bg-cyan/5" />
-          <div className="absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-orange/45 bg-orange/10 shadow-[0_0_22px_rgba(255,122,20,0.2)]" />
-          <div className="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan/30" />
-          <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-green/25" />
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 rounded border border-border/60 bg-bg2/60 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
-            body core
-          </div>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <LaneStatBlock
-            label="Orbital ring"
-            planned={orbital.planned}
-            projected={orbital.projected}
-            tone="cyan"
-          />
-          <LaneStatBlock
-            label="Surface grid"
-            planned={surface.planned}
-            projected={surface.projected}
-            tone="green"
-          />
-          <LaneStatBlock
-            label="Flex lane"
-            planned={flex.planned}
-            projected={flex.projected}
-            tone="silver"
-          />
-        </div>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <FactChip label={`${totalPlanned} planned structures`} tone={totalPlanned > 0 ? 'orange' : 'silver'} />
-        {totalProjected > 0 && <FactChip label={`${totalProjected} projected ghosts`} tone="cyan" />}
-      </div>
+      {label}
     </div>
   );
 }
 
-function LaneStatBlock({
-  label,
-  planned,
-  projected,
-  tone,
+function LaneAddNode({
+  lane,
+  left,
+  top,
+  enabled,
+  disabledReason,
+  onAdd,
 }: {
-  label: string;
-  planned: number;
-  projected: number;
-  tone: 'cyan' | 'green' | 'silver';
+  lane: BodyPlannerLane;
+  left: string;
+  top: string;
+  enabled: boolean;
+  disabledReason?: string;
+  onAdd: () => void;
 }) {
-  const toneClass = tone === 'cyan'
-    ? 'border-cyan/35 bg-cyan/8 text-cyan'
-    : tone === 'green'
-      ? 'border-green/35 bg-green/8 text-green'
-      : 'border-border/60 bg-bg2/60 text-silver';
+  const label = lane === 'orbital'
+    ? 'Add orbital structure'
+    : lane === 'surface'
+      ? 'Add surface structure'
+      : 'Add flexible/unknown structure';
   return (
-    <div className={['rounded border px-2 py-1.5 font-mono', toneClass].join(' ')}>
-      <div className="text-[9px] uppercase tracking-[0.14em]">{label}</div>
-      <div className="mt-1 text-[11px] font-bold">
-        {planned} planned
-      </div>
-      <div className="text-[10px] text-silver-dk">
-        {projected > 0 ? `+${projected} projected` : 'no projection'}
-      </div>
-    </div>
+    <button
+      type="button"
+      aria-label={label}
+      title={enabled ? label : disabledReason ?? label}
+      disabled={!enabled}
+      onClick={onAdd}
+      style={{ left, top, transform: 'translate(-50%, -50%)' }}
+      className={[
+        'absolute z-20 grid h-8 w-8 place-items-center rounded-full border text-sm font-bold transition-transform',
+        enabled
+          ? 'border-orange/55 bg-orange/18 text-orange hover:scale-110'
+          : 'cursor-not-allowed border-gold/35 bg-gold/10 text-gold/70',
+      ].join(' ')}
+    >
+      +
+    </button>
   );
 }
 

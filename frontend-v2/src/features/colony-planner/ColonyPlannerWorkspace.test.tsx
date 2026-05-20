@@ -273,9 +273,9 @@ describe('ColonyPlannerWorkspace', () => {
     expect(within(bodySurface).getByTestId('slot-lane-flex')).toBeTruthy();
     expect(within(bodySurface).getByText((content) => content.includes('Orbital Port'))).toBeTruthy();
     expect(within(bodySurface).getByText((content) => content.includes('Flexible Lab'))).toBeTruthy();
-    expect(within(bodySurface).getByRole('button', { name: 'Add orbital structure' })).toBeTruthy();
-    expect((within(bodySurface).getByRole('button', { name: 'Add surface structure' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(within(bodySurface).getByRole('button', { name: 'Add flexible/unknown structure' })).toBeTruthy();
+    expect(within(bodySurface).getByTestId('slot-lane-add-orbital')).toBeTruthy();
+    expect((within(bodySurface).getByTestId('slot-lane-add-surface') as HTMLButtonElement).disabled).toBe(true);
+    expect(within(bodySurface).getByTestId('slot-lane-add-flex')).toBeTruthy();
     expect(within(bodySurface).getByText(/surface lane limited: water world/i)).toBeTruthy();
     expect(within(bodySurface).getByRole('button', { name: 'Review structures' })).toBeTruthy();
     expect(within(bodySurface).getByTestId('slot-projected-0')).toBeTruthy();
@@ -304,7 +304,7 @@ describe('ColonyPlannerWorkspace', () => {
     );
 
     fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
-    fireEvent.click(screen.getByRole('button', { name: 'Add orbital structure' }));
+    fireEvent.click(screen.getByTestId('slot-lane-add-orbital'));
 
     const picker = screen.getByTestId('body-structure-picker');
     expect(picker).toBeTruthy();
