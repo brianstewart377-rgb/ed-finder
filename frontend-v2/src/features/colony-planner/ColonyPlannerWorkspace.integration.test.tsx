@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   api,
@@ -290,24 +290,28 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     });
 
     fireEvent.click(screen.getByTestId('topology-body-button-1'));
-    await screen.findByText('Planning on body');
+    await screen.findByText(/Planning focus:/i);
     await waitFor(() => {
-      expect(screen.getByTestId('body-1-orbital-slot-3')).toBeTruthy();
-      expect(screen.getByTestId('body-1-ground-slot-4')).toBeTruthy();
+      expect(screen.getByTestId('slot-lane-orbital')).toBeTruthy();
+      expect(screen.getByTestId('slot-lane-surface')).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-orbital')).getByText('0/4 planned')).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-surface')).getByText('0/5 planned')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add structure here' })[0]);
+    fireEvent.click(screen.getByTestId('slot-lane-add-orbital'));
     fireEvent.click(await screen.findByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
-      expect((screen.getByTestId('body-1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
+      expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-items-orbital')).getByText(/Orbital Port/i)).toBeTruthy();
     });
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add structure here' })[0]);
+    fireEvent.click(screen.getByTestId('slot-lane-add-surface'));
     fireEvent.click(await screen.findByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
-      expect((screen.getByTestId('body-1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
+      expect(within(screen.getByTestId('slot-lane-surface')).getByText('1/5 planned')).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-items-surface')).getByText(/Surface Hub/i)).toBeTruthy();
     });
   });
 });
