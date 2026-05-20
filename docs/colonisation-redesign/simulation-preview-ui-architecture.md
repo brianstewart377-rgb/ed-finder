@@ -805,6 +805,61 @@ Suggested Builds scale model (UI interpretation):
 
 The UI now presents scale + footprint directly in candidate cards/details and uses that metadata to avoid over-promoting trivial plans.
 
+## Stage 17F Graphical Slot-Lane Surface and Full-Width Shell
+
+Stage 17F keeps the Stage 17E ownership boundaries but changes how the dedicated planner route is rendered and interacted with.
+
+Route/layout behavior:
+
+- planner route app shell now runs in full-width mode so Colony Planner is no longer constrained to the legacy centred max width
+- `WorkspaceGrid.tsx` is rebalanced to prioritize the central planner canvas
+- right summary rail is compact and collapsible so status remains visible without dominating width
+- non-planner routes keep existing width constraints
+
+Graphical selected-body planner surface:
+
+- `BodySlotPlanner.tsx` renders a selected body as a graphical planning surface with three lanes:
+  - `Orbital`
+  - `Surface`
+  - `Flexible/Unknown`
+- `BodySlotLane.tsx` renders lane chrome, occupancy/slot-status metadata, and lane-level add actions
+- `BodyStructureSlot.tsx` renders planned structure slots
+- `ProjectedStructureSlot.tsx` renders projected (ghost) slots from the selected Suggested Build candidate
+
+Slot/compatibility behavior:
+
+- known slot totals render when present in existing body metadata
+- unknown slot totals render as unknown/unconfirmed without fabricated capacities
+- surface lane is conservatively limited/disabled for water-world or non-landable bodies
+- unknown/flexible lane remains available for structures where placement location is not confirmed
+
+Lane-first add flow:
+
+- lane add actions in the centre surface open the body picker with lane context (`orbital`, `surface`, `flex`)
+- template filtering is conservative and lane-aware using existing location helpers
+- selecting a template emits the existing explicit workspace add command for the selected body
+- no automatic preview run, generation, or candidate load is introduced
+
+Projection integration:
+
+- selected Suggested Build candidate projection is shown in both:
+  - left build tree projected child rows
+  - centre body slot lanes as ghost placements
+- candidate load remains explicit and separate from projection visibility
+
+Advanced stack demotion:
+
+- advanced Simulation Preview/Suggested Builds/list-editor stack remains intact
+- advanced stack is collapsed by default and opened explicitly by the user
+
+Stage 17F boundaries remain unchanged:
+
+- no simulation mechanics/scoring/CP changes
+- no optimiser backend contract rewrite
+- no import/EDMC/search-tuning scope expansion
+- no backend Architect slot survey persistence
+- no automatic plan mutation actions
+
 ## Stage 18 Assistant Foundation Boundary
 
 Planned assistant layer should sit above this architecture:

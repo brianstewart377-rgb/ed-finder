@@ -222,6 +222,50 @@ describe('optimiser candidate comparison UI', () => {
     expect(suggestedBuildPresentation(starter).bodyCount).toBe(3);
   });
 
+  it('defaults Suggested Builds scale to Expansion and avoids bootstrap-first display', async () => {
+    const bootstrap = {
+      ...candidate('bootstrap-option', 'Bootstrap option'),
+      tags: ['scale_bootstrap', 'balanced'],
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body1', is_primary_port: false, build_order: 2 },
+        { facility_template_id: 'agri_support_b', local_body_id: 'body2', is_primary_port: false, build_order: 3 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body2', is_primary_port: false, build_order: 4 },
+      ],
+    };
+    const expansion = {
+      ...candidate('expansion-option', 'Expansion option'),
+      tags: ['scale_expansion', 'balanced'],
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body1', is_primary_port: false, build_order: 2 },
+        { facility_template_id: 'agri_support_b', local_body_id: 'body2', is_primary_port: false, build_order: 3 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body2', is_primary_port: false, build_order: 4 },
+        { facility_template_id: 'agri_support_b', local_body_id: 'body3', is_primary_port: false, build_order: 5 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body3', is_primary_port: false, build_order: 6 },
+        { facility_template_id: 'agri_support_b', local_body_id: 'body4', is_primary_port: false, build_order: 7 },
+        { facility_template_id: 'agri_support_a', local_body_id: 'body4', is_primary_port: false, build_order: 8 },
+        { facility_template_id: 'agri_support_b', local_body_id: 'body5', is_primary_port: false, build_order: 9 },
+      ],
+    };
+
+    mockedFetchOptimiserCandidates.mockResolvedValue(response({
+      candidate_count: 2,
+      candidates: [bootstrap, expansion],
+      ranking: null,
+    }));
+
+    render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    expect(screen.getByRole('button', { name: 'Expansion' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByText('Generate Suggested Builds'));
+
+    expect((await screen.findAllByText('Expansion option')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Bootstrap option')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Starter' }));
+    expect(screen.getAllByText('Bootstrap option').length).toBeGreaterThan(0);
+  });
+
   it('keeps multi-structure candidates even when rationale text is sparse', () => {
     const sparseTextExpansion = {
       ...candidate('expansion', 'Expansion candidate'),
@@ -687,13 +731,14 @@ describe('optimiser candidate comparison UI', () => {
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
     fireEvent.click(screen.getByText('Generate Suggested Builds'));
 
-    expect(await screen.findByText('No useful suggested builds are available yet. Start manually or provide more system data.')).toBeTruthy();
+    expect(await screen.findByText(/No useful .* suggested builds are available yet/i)).toBeTruthy();
     expect(screen.queryByText('Port only')).toBeNull();
   });
 
   it('displays ranked candidates in ranking order and details for the selected candidate', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response());
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Starter' }));
     fireEvent.click(screen.getByText('Generate Suggested Builds'));
     await screen.findAllByText('Candidate B');
     const cards = screen.getAllByRole('button');
@@ -709,6 +754,7 @@ describe('optimiser candidate comparison UI', () => {
   it('renders candidates without ranking gracefully', async () => {
     mockedFetchOptimiserCandidates.mockResolvedValue(response({ ranking: null }));
     render(<OptimiserCandidatePanel systemId64={123} targetArchetype="agriculture_terraforming" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Starter' }));
     fireEvent.click(screen.getByText('Generate Suggested Builds'));
     expect((await screen.findAllByText('Candidate A')).length).toBeGreaterThan(0);
     expect(screen.getByText('No ranking breakdown is available for this suggested build.')).toBeTruthy();

@@ -163,9 +163,11 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     await waitFor(() => expect(mockedGetSimulationSummary).toHaveBeenCalled());
     fireEvent.click(screen.getByText('Body 1'));
-    expect(screen.getByText('Planning on body')).toBeTruthy();
-    expect(screen.getByText(/No structures planned on this body yet/i)).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Add structure here' }).length).toBeGreaterThan(0);
+    expect(screen.getByText('Body slot planner')).toBeTruthy();
+    expect(screen.getByText(/No orbital structures yet/i)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Add orbital structure' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Add surface structure' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Add flexible/unknown structure' }).length).toBeGreaterThan(0);
 
     expect(mockedApiSystem).toHaveBeenCalledWith(123);
     expect(mockedGetFacilityTemplates).toHaveBeenCalled();

@@ -213,37 +213,46 @@ function BodyTreeRow({
   const fullName = bodyDisplayName(node.body);
   const compactName = compactBodyDisplayName(node.body, systemName);
   const projectedCount = projectedPlacements.length;
+  const depthIndent = node.depth > 0 ? `${node.depth * 0.75}rem` : '0rem';
 
   return (
-    <div data-testid={`topology-body-${node.id}`} style={{ marginLeft: `${node.depth * 0.75}rem` }}>
-      <button
-        type="button"
-        onClick={() => onSelect({ type: 'body', bodyId: node.id })}
-        aria-pressed={selected}
-        data-testid={`topology-body-button-${node.id}`}
-        title={fullName}
-        className={rowClass(selected, projected)}
-      >
-        <span className="mt-0.5 w-4 shrink-0 text-center text-[13px] text-cyan" aria-hidden="true">
-          {bodyIcon(node.body)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-[11px] font-bold text-silver">
-            {compactName}
+    <div data-testid={`topology-body-${node.id}`}>
+      <div className="flex items-start gap-1" style={{ marginLeft: depthIndent }}>
+        {node.depth > 0 ? (
+          <span className="mt-3 h-px w-2 shrink-0 bg-border/70" aria-hidden="true" />
+        ) : (
+          <span className="w-2 shrink-0" aria-hidden="true" />
+        )}
+        <button
+          type="button"
+          onClick={() => onSelect({ type: 'body', bodyId: node.id })}
+          aria-pressed={selected}
+          data-testid={`topology-body-button-${node.id}`}
+          title={fullName}
+          className={rowClass(selected, projected)}
+        >
+          <span className="mt-0.5 w-4 shrink-0 text-center text-[13px] text-cyan" aria-hidden="true">
+            {bodyIcon(node.body)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-mono text-[11px] font-bold text-silver">
+              {compactName}
+            </div>
+            <div className="mt-0.5 truncate font-mono text-[10px] text-silver-dk">
+              {compactBodyKind(node.body)}
+            </div>
           </div>
-          <div className="mt-0.5 truncate font-mono text-[10px] text-silver-dk">
-            {compactBodyKind(node.body)}
-          </div>
-        </div>
-        {placements.length > 0 && <CountChip>{placements.length}</CountChip>}
-        {projectedCount > 0 && <Chip tone="cyan">+{projectedCount}</Chip>}
-        {projected && <Marker tone="cyan" label="Used by selected suggested build">G</Marker>}
-        {hasPrimary && <Marker tone="gold" label="Primary-port placement">P</Marker>}
-        {warningCount > 0 && <Marker tone="gold" label={`${warningCount} warnings`}>!</Marker>}
-        {sparse && <Marker tone="silver" label="Sparse body data">?</Marker>}
-      </button>
+          {placements.length > 0 && <CountChip>{placements.length}</CountChip>}
+          {projectedCount > 0 && <Chip tone="cyan">+{projectedCount}</Chip>}
+          {projected && <Marker tone="cyan" label="Used by selected suggested build">G</Marker>}
+          {hasPrimary && <Marker tone="gold" label="Primary-port placement">P</Marker>}
+          {warningCount > 0 && <Marker tone="gold" label={`${warningCount} warnings`}>!</Marker>}
+          {sparse && <Marker tone="silver" label="Sparse body data">?</Marker>}
+        </button>
+      </div>
       {placements.length > 0 && (
         <div className="ml-3 mt-1 space-y-1 border-l border-border/50 pl-2">
+          <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">Planned</div>
           {placements.map((item) => (
             <PlacementButton
               key={`${item.index}-${item.placement.facility_template_id}`}
@@ -259,6 +268,7 @@ function BodyTreeRow({
           data-testid={`topology-projected-group-${node.id}`}
           className="ml-3 mt-1 space-y-1 border-l border-cyan/35 pl-2"
         >
+          <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">Projected</div>
           {projectedPlacements.map((item) => (
             <ProjectedPlacementRow key={`projected-${node.id}-${item.index}-${item.placement.facility_template_id}`} item={item} />
           ))}
@@ -295,16 +305,18 @@ function PlacementGroupRow({
         </div>
         <CountChip>{placements.length}</CountChip>
       </button>
-      <div className="ml-3 mt-1 space-y-1 border-l border-gold/25 pl-2">
-        {placements.map((item) => (
-          <PlacementButton
-            key={`${item.index}-${item.placement.facility_template_id}`}
-            item={item}
-            selected={selectedPlacementIndex === item.index}
-            onSelect={() => onSelectPlacement(item.index)}
-          />
-        ))}
-      </div>
+      {placements.length > 0 && (
+        <div className="ml-3 mt-1 space-y-1 border-l border-gold/25 pl-2">
+          {placements.map((item) => (
+            <PlacementButton
+              key={`${item.index}-${item.placement.facility_template_id}`}
+              item={item}
+              selected={selectedPlacementIndex === item.index}
+              onSelect={() => onSelectPlacement(item.index)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -6,14 +6,17 @@ import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserEmptyState } from './OptimiserEmptyState';
 import { OptimiserErrorState } from './OptimiserErrorState';
 import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
-import { filterUsefulSuggestedBuilds } from './optimiserQualityUtils';
+import { filterUsefulSuggestedBuilds, suggestedBuildScale, type SuggestedBuildScale } from './optimiserQualityUtils';
 import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
 
 type GeneratedCandidateParams = {
   targetArchetype: string;
   maxCandidates: number;
   allowEstimatedData: boolean;
+  scale: SuggestedBuildScaleFilter;
 };
+
+type SuggestedBuildScaleFilter = 'starter' | 'expansion' | 'full';
 
 export function OptimiserCandidatePanel({
   systemId64,
@@ -38,6 +41,7 @@ export function OptimiserCandidatePanel({
 }) {
   const [maxCandidates, setMaxCandidates] = useState(5);
   const [allowEstimatedData, setAllowEstimatedData] = useState(true);
+  const [scale, setScale] = useState<SuggestedBuildScaleFilter>('expansion');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<OptimiserCandidatesResponse | null>(null);
@@ -45,16 +49,21 @@ export function OptimiserCandidatePanel({
   const [generatedParams, setGeneratedParams] = useState<GeneratedCandidateParams | null>(null);
 
   const rankLookup = useMemo(() => buildRankLookup(response?.ranking), [response]);
-  const candidates = useMemo(
+  const allUsefulCandidates = useMemo(
     () => filterUsefulSuggestedBuilds(sortCandidatesForDisplay(response?.candidates ?? [], response?.ranking)),
     [response],
   );
+  const candidates = useMemo(
+    () => allUsefulCandidates.filter((candidate) => scaleMatchesFilter(suggestedBuildScale(candidate), scale)),
+    [allUsefulCandidates, scale],
+  );
   const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selectedId) ?? candidates[0];
-  const currentParams: GeneratedCandidateParams = { targetArchetype, maxCandidates, allowEstimatedData };
+  const currentParams: GeneratedCandidateParams = { targetArchetype, maxCandidates, allowEstimatedData, scale };
   const controlsChangedSinceGeneration = Boolean(generatedParams && (
     generatedParams.targetArchetype !== currentParams.targetArchetype
     || generatedParams.maxCandidates !== currentParams.maxCandidates
     || generatedParams.allowEstimatedData !== currentParams.allowEstimatedData
+    || generatedParams.scale !== currentParams.scale
   ));
 
   useEffect(() => {
@@ -100,9 +109,29 @@ export function OptimiserCandidatePanel({
         </div>
       </div>
 
-      <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+      <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
         <div className="rounded border border-border/50 bg-bg3/20 px-3 py-2 font-mono text-[11px] text-silver-dk">
           Target: <span className="text-silver">{humanizeArchetype(targetArchetype)}</span>
+        </div>
+        <div className="inline-flex items-center rounded border border-border/70 bg-bg2/60 p-1" role="group" aria-label="Suggested build scale">
+          {([
+            ['starter', 'Starter'],
+            ['expansion', 'Expansion'],
+            ['full', 'Full / Ambitious'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={scale === value}
+              onClick={() => setScale(value)}
+              className={[
+                'rounded px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em]',
+                scale === value ? 'bg-orange/18 text-orange' : 'text-silver-dk hover:text-silver',
+              ].join(' ')}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <label className="flex items-center gap-2 rounded border border-border/50 bg-bg3/20 px-3 py-2 font-mono text-[11px] text-silver-dk">
           Max
@@ -147,6 +176,7 @@ export function OptimiserCandidatePanel({
           <div className="uppercase tracking-[0.16em] text-cyan">Generated for</div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
             <span>Target: <span className="text-silver">{humanizeArchetype(generatedParams.targetArchetype)}</span></span>
+            <span>Scale: <span className="text-silver">{scaleLabel(generatedParams.scale)}</span></span>
             <span>Max suggested builds: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
             <span>Estimated data: <span className="text-silver">{generatedParams.allowEstimatedData ? 'on' : 'off'}</span></span>
           </div>
@@ -158,9 +188,11 @@ export function OptimiserCandidatePanel({
           <div className="font-bold">Controls have changed since these suggested builds were generated. Generate again to refresh suggested builds before comparing or copying.</div>
           <div className="mt-2 grid gap-1 text-[10px] text-silver-dk sm:grid-cols-3">
             <span>Generated target: <span className="text-silver">{humanizeArchetype(generatedParams.targetArchetype)}</span></span>
+            <span>Generated scale: <span className="text-silver">{scaleLabel(generatedParams.scale)}</span></span>
             <span>Generated max: <span className="text-silver">{generatedParams.maxCandidates}</span></span>
             <span>Generated estimated data: <span className="text-silver">{generatedParams.allowEstimatedData ? 'on' : 'off'}</span></span>
             <span>Current target: <span className="text-silver">{humanizeArchetype(currentParams.targetArchetype)}</span></span>
+            <span>Current scale: <span className="text-silver">{scaleLabel(currentParams.scale)}</span></span>
             <span>Current max: <span className="text-silver">{currentParams.maxCandidates}</span></span>
             <span>Current estimated data: <span className="text-silver">{currentParams.allowEstimatedData ? 'on' : 'off'}</span></span>
           </div>
@@ -181,7 +213,7 @@ export function OptimiserCandidatePanel({
       )}
       {!loading && !error && response && response.candidates.length > 0 && candidates.length === 0 && (
         <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
-          No useful suggested builds are available yet. Start manually or provide more system data.
+          No useful {scaleLabel(scale).toLowerCase()} suggested builds are available yet. Change scale or generate again with different controls.
         </div>
       )}
 
@@ -216,6 +248,18 @@ export function OptimiserCandidatePanel({
       )}
     </section>
   );
+}
+
+function scaleMatchesFilter(scale: SuggestedBuildScale, filter: SuggestedBuildScaleFilter) {
+  if (filter === 'starter') return scale === 'starter' || scale === 'bootstrap';
+  if (filter === 'expansion') return scale === 'starter' || scale === 'expansion' || scale === 'full';
+  return scale === 'expansion' || scale === 'full';
+}
+
+function scaleLabel(scale: SuggestedBuildScaleFilter) {
+  if (scale === 'starter') return 'Starter';
+  if (scale === 'expansion') return 'Expansion';
+  return 'Full / Ambitious';
 }
 
 export function getRankForCandidate(

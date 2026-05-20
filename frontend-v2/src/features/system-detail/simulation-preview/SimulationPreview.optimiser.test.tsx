@@ -103,7 +103,7 @@ const optimiserResponse: OptimiserCandidatesResponse = {
       rationale: ['Good agricultural fit.'],
       warnings: [],
       assumptions: [],
-      tags: [],
+      tags: ['scale_starter'],
       preview_summary: null,
     },
   ],

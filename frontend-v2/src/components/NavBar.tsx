@@ -14,12 +14,14 @@ export interface NavBarProps {
   colonyCount?:    number;
   fcCount?:        number;
   health?:         string;
+  fullWidth?:      boolean;
 }
 
 export function NavBar({
   current, onNavigate,
   watchlistCount, pinnedCount, compareCount, colonyCount, fcCount,
   health,
+  fullWidth = false,
 }: NavBarProps) {
   const ok = (health ?? '').toLowerCase() === 'online';
   const { density, cycle } = useDensity();
@@ -71,7 +73,10 @@ export function NavBar({
   const currentTab = tabs.find((tab) => tab.route === current);
   return (
     <nav
-      className="sticky top-3 z-30 mx-auto mb-8 max-w-[1840px] px-3"
+      className={[
+        'sticky top-3 z-30 mb-8 px-3',
+        fullWidth ? 'w-full max-w-none' : 'mx-auto max-w-[1840px]',
+      ].join(' ')}
       data-testid="navbar"
     >
       {/* py-1.5 here matches the EDDN ticker bar height so top + bottom chrome align */}

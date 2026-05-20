@@ -3,11 +3,10 @@ import type { FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
 import {
   bodyDisplayName,
-  bodyTags,
   getBodyGroupWarnings,
-  getPlacementWarnings,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
+import { BodySlotPlanner, type BodyPlannerLane } from './BodySlotPlanner';
 import {
   ColonyTopologyRail,
   describeTopologySelection,
@@ -42,7 +41,7 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
     projection: null,
   });
   const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
-  const [pickerBodyId, setPickerBodyId] = useState<string | null>(null);
+  const [pickerContext, setPickerContext] = useState<{ bodyId: string; lane: BodyPlannerLane } | null>(null);
   const workspaceCommandToken = useRef(0);
   const projectState = useWorkspaceProjectState(system, planSnapshot);
 
@@ -80,18 +79,18 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
   }, [planSnapshot.placements, selection, system.bodies]);
 
   const pickerBody = useMemo(() => {
-    if (!pickerBodyId) return null;
-    return (system.bodies ?? []).find((body) => body.id != null && String(body.id) === pickerBodyId) ?? null;
-  }, [pickerBodyId, system.bodies]);
+    if (!pickerContext) return null;
+    return (system.bodies ?? []).find((body) => body.id != null && String(body.id) === pickerContext.bodyId) ?? null;
+  }, [pickerContext, system.bodies]);
 
   const selectedPlacementIndex = selection.type === 'placement' ? selection.placementIndex : null;
 
-  const openBodyPicker = useCallback((bodyId: string) => {
-    setPickerBodyId(bodyId);
+  const openBodyPicker = useCallback((bodyId: string, lane: BodyPlannerLane) => {
+    setPickerContext({ bodyId, lane });
   }, []);
 
   const closeBodyPicker = useCallback(() => {
-    setPickerBodyId(null);
+    setPickerContext(null);
   }, []);
 
   const reviewBodyStructures = useCallback((bodyId: string) => {
@@ -100,10 +99,10 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
   }, [issueWorkspaceCommand]);
 
   const pickTemplateForBody = useCallback((templateId: string) => {
-    if (!pickerBodyId) return;
-    issueWorkspaceCommand('add-structure', pickerBodyId, templateId);
-    setPickerBodyId(null);
-  }, [issueWorkspaceCommand, pickerBodyId]);
+    if (!pickerContext) return;
+    issueWorkspaceCommand('add-structure', pickerContext.bodyId, templateId);
+    setPickerContext(null);
+  }, [issueWorkspaceCommand, pickerContext]);
 
   const focusPlacement = useCallback((placementIndex: number) => {
     setSelection({ type: 'placement', placementIndex });
@@ -118,7 +117,7 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
     <section
       aria-label="Colony Planner application shell"
       data-testid="planner-workspace-shell-v2"
-      className="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)_20rem] xl:items-start"
+      className="grid gap-4 xl:grid-cols-[17.5rem_minmax(0,1fr)_15rem] xl:items-start"
     >
       <ColonyTopologyRail
         system={system}
@@ -148,6 +147,7 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
         />
         <BodyStructurePickerDrawer
           body={pickerBody}
+          lane={pickerContext?.lane ?? null}
           templates={planSnapshot.templates}
           onClose={closeBodyPicker}
           onPickTemplate={pickTemplateForBody}
@@ -222,7 +222,7 @@ function BodyPlanningSurface({
   snapshot: TopologyPlanSnapshot;
   selection: TopologySelection;
   selectedPlacementIndex: number | null;
-  onAddStructureHere: (bodyId: string) => void;
+  onAddStructureHere: (bodyId: string, lane: BodyPlannerLane) => void;
   onReviewStructures: (bodyId: string) => void;
   onSelectPlacement: (placementIndex: number) => void;
 }) {
@@ -260,7 +260,6 @@ function BodyPlanningSurface({
     }))
     .filter((item) => item.bodyId === bodyId);
   const warnings = getBodyGroupWarnings({ key: bodyId, body, placements });
-  const tags = bodyTags(body).slice(0, 3);
   const projectedPlacements: ProjectedPlacementViewItem[] = (snapshot.projection?.placements ?? [])
     .map((placement, index) => ({
       placement,
@@ -269,161 +268,63 @@ function BodyPlanningSurface({
     }))
     .filter((item) => item.placement.local_body_id != null && String(item.placement.local_body_id) === bodyId);
 
-  const focusAddStructure = () => onAddStructureHere(bodyId);
   const reviewBodyStructures = () => {
     onReviewStructures(bodyId);
   };
 
   return (
-    <section
-      data-testid="body-planning-surface"
-      className="mb-3 rounded-chunk-lg border border-orange/30 bg-bg2/55 px-3 py-3 font-mono text-[11px] leading-snug"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-orange">Planning on body</div>
-          <h3 className="mt-0.5 truncate text-sm font-bold text-silver">{bodyDisplayName(body)}</h3>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            <BodyFact label={body.subtype ?? body.body_type ?? 'Body'} />
-            {tags.map((tag) => <BodyFact key={tag} label={tag} />)}
-            <BodyFact label={`${placements.length} planned`} tone={placements.length > 0 ? 'orange' : 'silver'} />
-            {projectedPlacements.length > 0 && <BodyFact label={`projected ${projectedPlacements.length}`} tone="cyan" />}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={focusAddStructure}
-            disabled={snapshot.templates.length === 0}
-            className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-orange hover:bg-orange/25 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            Add structure here
-          </button>
-          <button
-            type="button"
-            onClick={reviewBodyStructures}
-            className="rounded-chunk-sm border border-cyan/45 bg-cyan/10 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-cyan hover:bg-cyan/20"
-          >
-            Review structures
-          </button>
-        </div>
-      </div>
+    <div data-testid="body-planning-surface">
+      <BodySlotPlanner
+        body={body}
+        placements={placements}
+        projectedPlacements={projectedPlacements}
+        selectedPlacementIndex={selectedPlacementIndex}
+        hasTemplates={snapshot.templates.length > 0}
+        onSelectPlacement={onSelectPlacement}
+        onAddLaneStructure={(lane) => onAddStructureHere(bodyId, lane)}
+      />
 
       {warnings.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mb-3 flex flex-wrap gap-1.5 rounded border border-gold/30 bg-gold/6 px-3 py-2">
           {warnings.slice(0, 3).map((warning) => <BodyFact key={warning} label={warning} tone="gold" />)}
         </div>
       )}
 
-      {snapshot.templates.length === 0 && (
-        <div className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2 text-gold">
-          Structure picker will open after the facility catalogue loads.
-        </div>
-      )}
-
-      {snapshot.projection && projectedPlacements.length > 0 && (
-        <div className="mt-3 rounded border border-cyan/30 bg-cyan/5 px-3 py-2 text-cyan">
-          <div className="text-[10px] uppercase tracking-[0.14em]">Projected suggested build (not loaded)</div>
-          <div className="mt-2 grid gap-1.5">
-            {projectedPlacements.map((item) => (
-              <ProjectedPlacementRow key={`body-projection-${item.index}-${item.placement.facility_template_id}`} item={item} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-3 grid gap-2" data-testid="body-planning-placements">
-        {placements.length === 0 ? (
-          <div className="rounded border border-border/55 bg-bg3/35 px-3 py-2 text-silver-dk">
-            No structures planned on this body yet.
-          </div>
-        ) : placements.map((item) => (
-          <BodyPlacementRow
-            key={`${item.index}-${item.placement.facility_template_id}`}
-            item={item}
-            body={body}
-            selected={selectedPlacementIndex === item.index}
-            onSelect={() => onSelectPlacement(item.index)}
-          />
-        ))}
+      <div className="mb-3 flex justify-end">
+        <button
+          type="button"
+          onClick={reviewBodyStructures}
+          className="rounded-chunk-sm border border-cyan/45 bg-cyan/10 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-cyan hover:bg-cyan/20"
+        >
+          Review structures
+        </button>
       </div>
-    </section>
-  );
-}
-
-function BodyPlacementRow({
-  item,
-  body,
-  selected,
-  onSelect,
-}: {
-  item: PlacementViewItem;
-  body: SystemBody;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const location = item.template ? templateLocationKind(item.template) : 'unknown';
-  const warnings = getPlacementWarnings(item, body);
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      data-testid={`body-placement-row-${item.index}`}
-      aria-pressed={selected}
-      className={[
-        'flex w-full flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 text-left transition-colors',
-        selected
-          ? 'border-orange/55 bg-orange/12'
-          : 'border-border/55 bg-bg3/40 hover:border-orange/40 hover:bg-orange/6',
-      ].join(' ')}
-    >
-      <div className="min-w-0">
-        <div className="truncate text-[11px] font-bold text-silver">
-          #{item.placement.build_order || item.index + 1} {item.template?.name ?? item.placement.facility_template_id}
-        </div>
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          <BodyFact label={location} />
-          {item.template?.economy && <BodyFact label={item.template.economy} />}
-          {item.template?.category && <BodyFact label={item.template.category} />}
-          {item.placement.is_primary_port && <BodyFact label="primary" tone="gold" />}
-          {warnings.length > 0 && <BodyFact label={`${warnings.length} warnings`} tone="gold" />}
-        </div>
-      </div>
-      <span className="rounded border border-border/60 bg-bg2/55 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-silver-dk">
-        Review
-      </span>
-    </button>
-  );
-}
-
-function ProjectedPlacementRow({ item }: { item: ProjectedPlacementViewItem }) {
-  return (
-    <div className="rounded border border-cyan/30 bg-cyan/8 px-2 py-1 text-[10px]">
-      <span className="font-bold">#{item.placement.build_order || item.index + 1}</span>{' '}
-      <span>{item.template?.name ?? item.placement.facility_template_id}</span>{' '}
-      <span className="text-cyan/80">(projected)</span>
     </div>
   );
 }
 
 function BodyStructurePickerDrawer({
   body,
+  lane,
   templates,
   onClose,
   onPickTemplate,
 }: {
   body: SystemBody | null;
+  lane: BodyPlannerLane | null;
   templates: FacilityTemplate[];
   onClose: () => void;
   onPickTemplate: (templateId: string) => void;
 }) {
   const [query, setQuery] = useState('');
 
-  if (!body || body.id == null) return null;
+  if (!body || body.id == null || !lane) return null;
 
   const bodyName = bodyDisplayName(body);
+  const laneLabel = lane === 'orbital' ? 'orbital' : lane === 'surface' ? 'surface' : 'flexible/unknown';
   const filtered = templates
-    .filter((template) => templateCanFitBody(template, body))
+    .filter((template) => templateMatchesLane(template, lane))
+    .filter((template) => templateCanFitBody(template, body, lane))
     .filter((template) => {
       const text = `${template.name} ${template.id} ${template.category} ${template.economy ?? ''}`.toLowerCase();
       return text.includes(query.trim().toLowerCase());
@@ -437,8 +338,13 @@ function BodyStructurePickerDrawer({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Add structure on selected body</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
+            Add {laneLabel} structure
+          </div>
           <h4 className="mt-0.5 text-sm font-bold text-silver">{bodyName}</h4>
+          <p className="mt-0.5 font-mono text-[10px] text-silver-dk">
+            Filtered to {laneLabel}-compatible templates for this body.
+          </p>
         </div>
         <button
           type="button"
@@ -465,7 +371,7 @@ function BodyStructurePickerDrawer({
         </p>
       ) : filtered.length === 0 ? (
         <p className="mt-3 rounded border border-border/55 bg-bg3/35 px-3 py-2 text-[11px] text-silver-dk">
-          No matching structures for this body and filter.
+          No matching {laneLabel} structures for this body and filter.
         </p>
       ) : (
         <div className="mt-3 grid max-h-72 gap-1.5 overflow-y-auto">
@@ -497,10 +403,21 @@ function BodyStructurePickerDrawer({
   );
 }
 
-function templateCanFitBody(template: FacilityTemplate, body: SystemBody) {
+function templateCanFitBody(template: FacilityTemplate, body: SystemBody, lane: BodyPlannerLane) {
   const location = templateLocationKind(template);
-  if (location === 'surface') return Boolean(body.is_landable);
+  if (lane === 'surface') {
+    if (body.is_water_world) return false;
+    if (body.is_landable === false) return false;
+  }
+  if (location === 'surface') return Boolean(body.is_landable) && !body.is_water_world;
   return true;
+}
+
+function templateMatchesLane(template: FacilityTemplate, lane: BodyPlannerLane) {
+  const location = templateLocationKind(template);
+  if (lane === 'orbital') return location === 'orbital' || location === 'both';
+  if (lane === 'surface') return location === 'surface' || location === 'both';
+  return location === 'both' || location === 'unknown';
 }
 
 function BodyStartAction({ label, detail }: { label: string; detail: string }) {

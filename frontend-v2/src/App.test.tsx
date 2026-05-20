@@ -155,6 +155,26 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
   });
 
+  it('uses full-width main layout on the dedicated planner route only', async () => {
+    window.location.hash = '#colony-planner/system/123';
+    const { container, unmount } = render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId('colony-planner-workspace')).toBeTruthy();
+    });
+    const plannerMain = container.querySelector('main');
+    expect(plannerMain?.className).toContain('max-w-none');
+    expect(plannerMain?.className).not.toContain('max-w-[1840px]');
+    unmount();
+
+    window.location.hash = '#finder';
+    const { container: finderContainer } = render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText('Search form')).toBeTruthy();
+    });
+    const finderMain = finderContainer.querySelector('main');
+    expect(finderMain?.className).toContain('max-w-[1840px]');
+  });
+
   it('renders the workspace no-system state for #colony-planner', async () => {
     window.location.hash = '#colony-planner';
 

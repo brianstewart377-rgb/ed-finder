@@ -1,4 +1,5 @@
 import { PanelRight } from 'lucide-react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SystemDetail } from '@/types/api';
 import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
@@ -53,6 +54,7 @@ export function WorkspaceSummaryRail({
   onConfirmArchiveChange: (confirming: boolean) => void;
 }) {
   const health = getPlanHealthSummary({ snapshot, system, selectedContext, unsavedChanges });
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <aside
@@ -60,47 +62,94 @@ export function WorkspaceSummaryRail({
       data-testid="planner-summary-panel"
       className="panel space-y-3 p-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
     >
-      <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
-        <PanelRight size={13} />
-        Planner summary
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
+          <PanelRight size={13} />
+          Planner summary
+        </div>
+        <button
+          type="button"
+          data-testid="summary-rail-collapse-toggle"
+          onClick={() => setCollapsed((value) => !value)}
+          className="rounded border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-orange/45 hover:text-orange"
+        >
+          {collapsed ? 'Expand' : 'Compact'}
+        </button>
       </div>
 
-      <ProjectControlsCard
-        projects={projects}
-        activeProject={activeProject}
-        pendingProjectId={pendingProjectId}
-        projectName={projectName}
-        projectNotes={projectNotes}
-        unsavedChanges={unsavedChanges}
-        confirmArchive={confirmArchive}
-        onPendingProjectChange={onPendingProjectChange}
-        onLoadProject={onLoadProject}
-        onProjectNameChange={onProjectNameChange}
-        onProjectNotesChange={onProjectNotesChange}
-        onSaveProject={onSaveProject}
-        onRenameProject={onRenameProject}
-        onDuplicateProject={onDuplicateProject}
-        onArchiveProject={onArchiveProject}
-        onConfirmArchiveChange={onConfirmArchiveChange}
-      />
+      {collapsed ? (
+        <CompactSummary
+          saveStatus={health.saveStatus}
+          selectedContext={selectedContext}
+          projectionLabel={snapshot.projection?.label ?? null}
+        />
+      ) : (
+        <>
+          <ProjectControlsCard
+            projects={projects}
+            activeProject={activeProject}
+            pendingProjectId={pendingProjectId}
+            projectName={projectName}
+            projectNotes={projectNotes}
+            unsavedChanges={unsavedChanges}
+            confirmArchive={confirmArchive}
+            onPendingProjectChange={onPendingProjectChange}
+            onLoadProject={onLoadProject}
+            onProjectNameChange={onProjectNameChange}
+            onProjectNotesChange={onProjectNotesChange}
+            onSaveProject={onSaveProject}
+            onRenameProject={onRenameProject}
+            onDuplicateProject={onDuplicateProject}
+            onArchiveProject={onArchiveProject}
+            onConfirmArchiveChange={onConfirmArchiveChange}
+          />
 
-      <PlanHealthCard
-        targetArchetype={snapshot.targetArchetype}
-        placementCount={health.placementCount}
-        unassignedCount={health.unassignedCount}
-        warningCount={health.warningCount}
-        previewStatus={health.previewStatus}
-        saveStatus={health.saveStatus}
-      />
+          <PlanHealthCard
+            targetArchetype={snapshot.targetArchetype}
+            placementCount={health.placementCount}
+            unassignedCount={health.unassignedCount}
+            warningCount={health.warningCount}
+            previewStatus={health.previewStatus}
+            saveStatus={health.saveStatus}
+          />
 
-      <SelectionSummaryCard selectedContext={selectedContext} />
+          <SelectionSummaryCard selectedContext={selectedContext} />
 
-      <PreviewSuggestedCard
-        selection={selection}
-        snapshot={snapshot}
-        previewStatus={health.previewStatus}
-      />
+          <PreviewSuggestedCard
+            selection={selection}
+            snapshot={snapshot}
+            previewStatus={health.previewStatus}
+          />
+        </>
+      )}
     </aside>
+  );
+}
+
+function CompactSummary({
+  saveStatus,
+  selectedContext,
+  projectionLabel,
+}: {
+  saveStatus: string;
+  selectedContext: TopologySelectionContext;
+  projectionLabel: string | null;
+}) {
+  return (
+    <section className="space-y-2" data-testid="summary-rail-compact-view">
+      <div className="rounded border border-cyan/25 bg-cyan/5 p-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Project</div>
+        <p className="mt-1 font-mono text-[10px] text-silver-dk">{saveStatus}</p>
+      </div>
+      <div className="rounded border border-cyan/25 bg-cyan/5 p-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Current body</div>
+        <p className="mt-1 font-mono text-[10px] text-silver-dk">{selectedContext.label}</p>
+      </div>
+      <div className="rounded border border-cyan/25 bg-cyan/5 p-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Projection</div>
+        <p className="mt-1 font-mono text-[10px] text-silver-dk">{projectionLabel ?? 'No candidate selected'}</p>
+      </div>
+    </section>
   );
 }
 

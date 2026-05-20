@@ -112,6 +112,7 @@ describe('ColonyTopologyRail', () => {
 
     const firstBody = screen.getByTestId('topology-body-1');
     expect(within(firstBody).getByText('1')).toBeTruthy();
+    expect(within(firstBody).getByText('Planned')).toBeTruthy();
     expect(within(firstBody).getByLabelText('Primary-port placement')).toBeTruthy();
     expect(within(firstBody).getAllByText('primary').length).toBeGreaterThan(0);
 
@@ -169,6 +170,7 @@ describe('ColonyTopologyRail', () => {
 
     expect(screen.getByTestId('topology-projected-bodies')).toBeTruthy();
     expect(screen.getByTestId('topology-projected-group-2')).toBeTruthy();
+    expect(within(screen.getByTestId('topology-projected-group-2')).getByText('Projected')).toBeTruthy();
     expect(screen.getByTestId('topology-projected-placement-0')).toBeTruthy();
   });
 });

@@ -18,6 +18,7 @@ vi.mock('@/features/system-detail/SimulationPreviewPanel', async () => {
         onPlanSnapshotChange?.({
           placements: [
             { facility_template_id: 'orbital_port', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+            { facility_template_id: 'flex_lab', local_body_id: 'body1', build_order: 2 },
             { facility_template_id: 'surface_hub', local_body_id: '404', build_order: 2 },
             { facility_template_id: 'surface_hub', local_body_id: null, build_order: 3 },
           ],
@@ -56,8 +57,32 @@ vi.mock('@/features/system-detail/SimulationPreviewPanel', async () => {
               yellow_cp_cost: 1,
               green_cp_cost: 0,
             },
+            {
+              id: 'flex_lab',
+              name: 'Flexible Lab',
+              category: 'science',
+              tier: 2,
+              economy: 'HighTech',
+              is_port: false,
+              is_support_facility: true,
+              allowed_location: 'surface_or_orbit',
+              pad_size: 'medium',
+              confidence: 'confirmed',
+              notes: null,
+              yellow_cp_generated: 1,
+              green_cp_generated: 0,
+              yellow_cp_cost: 1,
+              green_cp_cost: 0,
+            },
           ],
           targetArchetype: 'refinery_industrial',
+          projection: {
+            candidateId: 'expansion-1',
+            label: 'Expansion candidate',
+            placements: [
+              { facility_template_id: 'surface_hub', local_body_id: 'body1', build_order: 5 },
+            ],
+          },
         });
       }, [onPlanSnapshotChange]);
       return <div>Reused Colony Planner panel</div>;
@@ -80,7 +105,7 @@ const system = {
   economy_suggestion: 'Refinery',
   bodies: [
     { id: 'star1', name: 'Workspace System A', body_type: 'Star', subtype: 'K' },
-    { id: 'body1', name: 'Workspace System A 1', body_type: 'Planet', subtype: 'Water world', is_water_world: true },
+    { id: 'body1', name: 'Workspace System A 1', body_type: 'Planet', subtype: 'Water world', is_water_world: true, is_landable: false },
   ],
   stations: [],
 } as unknown as SystemDetail;
@@ -191,6 +216,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getAllByText('Workspace System').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Refinery').length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-workspace-shell-v2')).toBeTruthy();
+    expect(screen.getByTestId('planner-workspace-shell-v2').className).toContain('xl:grid-cols-[17.5rem_minmax(0,1fr)_15rem]');
     expect(screen.getByTestId('planner-topology-sidebar')).toBeTruthy();
     expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
@@ -213,7 +239,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByText(/Saved locally in this browser/i)).toBeTruthy();
     const summaryPanel = screen.getByTestId('planner-summary-panel');
     expect(within(screen.getByTestId('plan-health-card')).getByText('Placements')).toBeTruthy();
-    expect(within(summaryPanel).getAllByText('3').length).toBeGreaterThan(0);
+    expect(within(summaryPanel).getAllByText('4').length).toBeGreaterThan(0);
     expect(within(screen.getByTestId('plan-health-card')).getByText('Unassigned')).toBeTruthy();
     expect(within(screen.getByTestId('plan-health-card')).getByText('Warnings')).toBeTruthy();
     expect(within(screen.getByTestId('plan-health-card')).getByText('Refinery / Industrial Plan')).toBeTruthy();
@@ -240,10 +266,18 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByTestId('selected-role-summary-card')).toBeNull();
     expect(screen.queryByText('Body Hint')).toBeNull();
     const bodySurface = screen.getByTestId('body-planning-surface');
-    expect(within(bodySurface).getByText('Planning on body')).toBeTruthy();
+    expect(within(bodySurface).getByText('Body slot planner')).toBeTruthy();
+    expect(within(bodySurface).getByTestId('slot-lane-orbital')).toBeTruthy();
+    expect(within(bodySurface).getByTestId('slot-lane-surface')).toBeTruthy();
+    expect(within(bodySurface).getByTestId('slot-lane-flex')).toBeTruthy();
     expect(within(bodySurface).getByText((content) => content.includes('Orbital Port'))).toBeTruthy();
-    expect(within(bodySurface).getByRole('button', { name: 'Add structure here' })).toBeTruthy();
+    expect(within(bodySurface).getByText((content) => content.includes('Flexible Lab'))).toBeTruthy();
+    expect(within(bodySurface).getByRole('button', { name: 'Add orbital structure' })).toBeTruthy();
+    expect((within(bodySurface).getByRole('button', { name: 'Add surface structure' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(bodySurface).getByRole('button', { name: 'Add flexible/unknown structure' })).toBeTruthy();
+    expect(within(bodySurface).getByText(/surface lane limited: water world/i)).toBeTruthy();
     expect(within(bodySurface).getByRole('button', { name: 'Review structures' })).toBeTruthy();
+    expect(within(bodySurface).getByTestId('slot-projected-0')).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
 
@@ -269,9 +303,13 @@ describe('ColonyPlannerWorkspace', () => {
     );
 
     fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
-    fireEvent.click(screen.getByRole('button', { name: 'Add structure here' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add orbital structure' }));
 
-    expect(screen.getByTestId('body-structure-picker')).toBeTruthy();
+    const picker = screen.getByTestId('body-structure-picker');
+    expect(picker).toBeTruthy();
+    expect(within(picker).getByText(/Add orbital structure/i)).toBeTruthy();
+    expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
+    expect(screen.getByTestId('body-structure-template-flex_lab')).toBeTruthy();
     fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
 
     expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(
@@ -305,7 +343,7 @@ describe('ColonyPlannerWorkspace', () => {
 
     fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
     const surface = screen.getByTestId('body-planning-surface');
-    expect(within(surface).getByText('Planning on body')).toBeTruthy();
+    expect(within(surface).getByText('Body slot planner')).toBeTruthy();
     expect(within(surface).getByText((content) => content.includes('Orbital Port'))).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add role' })).toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
@@ -359,6 +397,9 @@ describe('ColonyPlannerWorkspace', () => {
 
     const summary = await screen.findByTestId('planner-summary-panel');
     expect(within(summary).getByTestId('preview-suggested-card')).toBeTruthy();
+    expect(within(summary).getByTestId('summary-rail-collapse-toggle')).toBeTruthy();
+    fireEvent.click(within(summary).getByTestId('summary-rail-collapse-toggle'));
+    expect(within(summary).getByTestId('summary-rail-compact-view')).toBeTruthy();
     expect(within(summary).queryByRole('button', { name: 'Evidence' })).toBeNull();
     expect(within(summary).queryByRole('button', { name: 'Validation' })).toBeNull();
   });
@@ -383,13 +424,14 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Unsaved changes');
 
     fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Local starter' } });
+    fireEvent.click(screen.getByTestId('project-details-toggle'));
     fireEvent.change(screen.getByLabelText('Project notes'), { target: { value: 'Check Architect mode before final placement.' } });
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
     fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
 
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');
     expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Local starter');
-    expect(useColonyProjectStore.getState().projects[0].build_plan_placements).toHaveLength(3);
+    expect(useColonyProjectStore.getState().projects[0].build_plan_placements).toHaveLength(4);
     expect(useColonyProjectStore.getState().projects[0].declared_roles).toEqual([]);
 
     fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Renamed local starter' } });

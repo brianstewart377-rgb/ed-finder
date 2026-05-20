@@ -86,8 +86,15 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const plannerWorkspaceRoute = route === 'colony-planner';
+
   return (
-    <main className="min-h-screen px-4 py-6 sm:px-6 sm:py-10 pb-28 max-w-[1840px] mx-auto">
+    <main
+      className={[
+        'min-h-screen px-4 py-6 pb-28 sm:px-6 sm:py-10',
+        plannerWorkspaceRoute ? 'max-w-none' : 'mx-auto max-w-[1840px]',
+      ].join(' ')}
+    >
       <NavBar
         current={route}
         onNavigate={navigate}
@@ -97,6 +104,7 @@ function AppInner() {
         colonyCount={colony.counts.total}
         fcCount={fc.waypoints.length}
         health={health}
+        fullWidth={plannerWorkspaceRoute}
       />
 
       {route === 'finder' && (

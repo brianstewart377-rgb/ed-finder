@@ -1496,6 +1496,50 @@ Safety boundaries preserved:
 - no auto-generation/auto-load/auto-preview
 - no persistence architecture change
 
+## Stage 17F - Graphical Slot-Lane Planner and Full-Width Workspace (Implemented)
+
+Stage 17F turns the dedicated Colony Planner route into a graphical body planner surface instead of a text/card dashboard.
+
+Delivered:
+
+- dedicated planner route now uses a full-width workspace shell (`max-w-none` on planner route only), so the centre planner gets priority width
+- workspace shell is rebalanced for planning (`left build tree + wide centre canvas + compact/collapsible right rail`)
+- centre planning surface is now a slot-lane planner per selected body:
+  - Orbital lane
+  - Surface lane
+  - Flexible/Unknown lane
+- planned placements render as lane slots; Suggested Build projection renders as ghost slots in the same lanes
+- lane-level add flow is explicit and location-aware:
+  - Add orbital structure
+  - Add surface structure
+  - Add flexible/unknown structure
+- lane add opens a filtered structure picker and selecting a template issues the existing explicit add-structure command for the selected body
+- left rail now behaves as a build tree with clearer hierarchy and planned/projected child rows
+- projected bodies and projected structures are visible before load when a Suggested Build candidate is selected
+- Suggested Builds expose concrete scale controls (`Starter`, `Expansion`, `Full / Ambitious`) with `Expansion` as the default filter
+- advanced planner/editor stack stays available but is hidden/collapsed by default
+
+Slot/placement constraints handled in UI:
+
+- known slot totals are shown when body slot metadata is available
+- unknown slot state is shown as unknown/unconfirmed without inventing capacities
+- surface lane is conservatively marked limited/invalid for non-landable or water-world bodies
+
+Safety boundaries preserved:
+
+- no Simulation Preview mechanics, scoring, CP formulas, or core economy/service mechanics changed
+- no Search Tuning changes
+- no import/EDMC ingestion/workflow changes
+- no auto-generate, auto-load, or auto-preview behavior
+- no backend Architect slot-survey persistence added
+
+Remaining non-RavenColonial gaps (intentional in Stage 17F):
+
+- no drag/drop placement editing
+- no authoritative backend slot survey model
+- no automatic planner synthesis or AI-driven plan mutation
+- no durable cloud project persistence (local project model remains)
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:

@@ -196,3 +196,59 @@ Stage 18 should build a constrained Colony Architect assistant shell on top of S
 - explicit user review/acceptance
 - no silent build mutation
 - Preview remains the validation authority
+
+## Stage 17F Graphical Slot-Lane Planner and Full-Width Workspace
+
+Stage 17F converts the dedicated planner centre from a body-local list into a graphical slot-lane planning surface while preserving explicit planner safety.
+
+Implemented Stage 17F changes:
+
+- full-width planner route:
+  - `#colony-planner` now uses a route-specific full-width app container
+  - the workspace grid now prioritises centre width (`left ~280px`, wide centre canvas, narrower right rail)
+  - other app routes keep the existing max-width container
+- graphical selected-body planner surface:
+  - new lane planner components render **Orbital**, **Surface**, and **Flexible / Unknown** lanes
+  - each lane shows planned placement cards and projected Suggested Build ghost cards
+  - empty lanes show explicit empty states and lane-local add actions
+  - selected placement state remains explicit and synchronised with Build Plan selection context
+- slot-count handling:
+  - lane headers display occupied/available when body slot-count fields exist
+  - unknown slot capacity remains explicitly unknown
+  - no fake slot counts are invented
+- surface-lane validity:
+  - non-landable or water-world bodies render compact surface-lane limitation state
+  - surface add action is disabled in clearly invalid cases
+- lane-aware add flow:
+  - lane add actions open a body + lane filtered structure picker
+  - orbital/surface/flexible filtering is conservative and frontend-local
+  - selected template still mutates the editable Build Plan only through the existing explicit add command path
+- left rail as build tree:
+  - planned and projected children remain nested under each body
+  - compact planned/projection group markers improve hierarchy scanability
+  - selected body and projected-body states remain explicit
+- Suggested Builds scale controls:
+  - user-facing scale selector now exposes `Starter`, `Expansion`, and `Full / Ambitious`
+  - default filter is `Expansion` (bootstrap is not the default recommendation view)
+  - candidate footprint visibility remains explicit: scale, placement count, body count, main/support body context
+- right summary-rail reduction:
+  - rail is narrower and includes a compact toggle mode
+  - heavy project details (notes/duplicate/archive controls) are collapsed behind an explicit project-details toggle
+- advanced stack remains secondary:
+  - the existing Build Plan/Suggested Builds/Preview stack remains behind the existing `Advanced planner views` toggle and stays closed by default
+
+Stage 17F boundaries preserved:
+
+- no CP formula changes
+- no economy/service/simulation scoring mechanics changes
+- no Search Tuning changes
+- no backend persistence changes
+- no auto-preview/auto-generate/auto-load
+- no live LLM calls
+
+Stage 18 foundation remains unchanged:
+
+- natural-language intent should translate to explicit structured constraints
+- deterministic planner remains the source of truth
+- Preview remains the validation authority
+- mutation remains explicit and user-confirmed
