@@ -1,7 +1,7 @@
 {
   "name": "ed-finder-v2",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "ED Finder v2 — Vite + React + TypeScript (proof of concept). Mounts at /v2/ alongside the existing vanilla JS app at /.",
   "scripts": {

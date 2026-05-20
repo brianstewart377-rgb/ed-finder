@@ -2,9 +2,13 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
+const packageJsonPath = path.resolve(rootDir, 'package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { version?: string };
+const appVersion = packageJson.version ?? '0.0.0';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Vite config for ed-finder v2 — Emergent preview / dev variant.
@@ -25,6 +29,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: '/',
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+    },
     plugins: [react()],
     resolve: {
       preserveSymlinks: true,

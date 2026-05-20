@@ -23,6 +23,7 @@ export function NavBar({
   health,
   fullWidth = false,
 }: NavBarProps) {
+  const appVersionLabel = `v${__APP_VERSION__}`;
   const ok = (health ?? '').toLowerCase() === 'online';
   const { density, cycle } = useDensity();
   const densityIcon  = density === 'compact' ? '▬' : density === 'spacious' ? '☰' : '≡';
@@ -89,7 +90,7 @@ export function NavBar({
               ED:FINDER
             </span>
             <span className="font-mono text-[9px] tracking-[0.32em] text-silver-dk -mt-0.5">
-              v2
+              {appVersionLabel}
             </span>
           </div>
         </div>
