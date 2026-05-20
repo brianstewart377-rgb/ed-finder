@@ -195,11 +195,27 @@ if ($plannerProbe.StatusCode -lt 200 -or $plannerProbe.StatusCode -ge 400) {
 }
 Write-Host "[release] Public planner probe OK: $plannerUrl ($($plannerProbe.StatusCode))"
 
-$appShell = Invoke-WebRequest -Uri "$baseUrl/v2/" -UseBasicParsing -TimeoutSec 20
-if ($appShell.Content -notmatch '/v2/assets/') {
-  throw 'App shell validation failed: /v2/index does not reference /v2/assets/* (likely wrong base path build).'
+$releaseCheckStamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$appShell = Invoke-WebRequest -Uri "$baseUrl/v2/index.html?release_check=$releaseCheckStamp" -UseBasicParsing -TimeoutSec 20
+$scriptMatch = [regex]::Match($appShell.Content, '<script[^>]+src="([^"]+)"')
+if (-not $scriptMatch.Success) {
+  throw 'App shell validation failed: could not find a module script src in /v2/index.html.'
 }
-Write-Host '[release] App shell asset base OK (/v2/assets/* detected).'
+$scriptSrc = $scriptMatch.Groups[1].Value
+$scriptUrl = if ($scriptSrc.StartsWith('http')) { $scriptSrc } else { "$baseUrl$scriptSrc" }
+$scriptProbe = Invoke-WebRequest -Uri $scriptUrl -UseBasicParsing -TimeoutSec 20
+$scriptContentType = [string]$scriptProbe.Headers['Content-Type']
+$scriptLooksLikeHtml = $scriptProbe.Content -match '^\s*<!doctype html'
+if ($scriptLooksLikeHtml -or ($scriptContentType -notmatch 'javascript')) {
+  throw "App shell validation failed: script URL resolved to non-JS payload ($scriptUrl, content-type=$scriptContentType)."
+}
+if ($appShell.Content -match '/v2/assets/') {
+  Write-Host '[release] App shell asset base OK (/v2/assets/* detected).'
+} elseif ($appShell.Content -match '/assets/') {
+  Write-Warning 'App shell is using /assets/* (compatibility mode via nginx alias), not /v2/assets/*.'
+} else {
+  Write-Warning 'App shell does not clearly advertise /v2/assets/* or /assets/*; continuing because script probe succeeded.'
+}
 
 if ($OpenApp) {
   Start-Process $plannerUrl
