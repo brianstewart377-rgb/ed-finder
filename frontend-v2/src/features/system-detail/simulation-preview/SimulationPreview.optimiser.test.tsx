@@ -662,6 +662,49 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
   });
 
+  it('keeps current Build Plan edits when initialRequest object identity changes but content is unchanged', async () => {
+    mockNoRecommendedBuild();
+    const initialRequest: SimulateBuildRequest = {
+      system_id64: 123,
+      target_archetype: 'refinery_industrial',
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+      ],
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <SimulationPreview
+          system={system}
+          initialRequest={initialRequest}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByDisplayValue('T1 - Generic Port Alpha');
+    fireEvent.click(screen.getByRole('button', { name: /Add Facility/i }));
+    await screen.findByText(/2 placements in Build Plan/i);
+
+    const refreshedInitialRequest: SimulateBuildRequest = {
+      system_id64: 123,
+      target_archetype: 'refinery_industrial',
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+      ],
+    };
+    rerender(
+      <QueryClientProvider client={client}>
+        <SimulationPreview
+          system={system}
+          initialRequest={refreshedInitialRequest}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText(/2 placements in Build Plan/i)).toBeTruthy();
+    expect(screen.queryByText(/1 placement in Build Plan/i)).toBeNull();
+  });
+
   it('marks an optimiser-origin plan as edited after manual add', async () => {
     mockNoRecommendedBuild();
     renderPreview();

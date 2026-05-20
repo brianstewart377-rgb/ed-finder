@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ratingTier } from '@/lib/format';
 import type { SystemResult } from '@/types/api';
 
@@ -35,6 +35,12 @@ export function GalacticMap({
     cz: reference.z,
     scale: 6,                          // px per LY at zoom = 1
   });
+  const autoFitSignature = useMemo(
+    () => systems
+      .map((system) => `${system.id64}:${system.coords?.x ?? ''}:${system.coords?.z ?? ''}`)
+      .join('|'),
+    [systems],
+  );
 
   // ── Auto-fit on first render & when systems list size changes a lot ─
   useEffect(() => {
@@ -52,7 +58,7 @@ export function GalacticMap({
     const h = el?.clientHeight ?? 400;
     const fit = Math.min(w, h) / (2 * radius);
     setView({ cx: reference.x, cz: reference.z, scale: Math.max(0.5, fit) });
-  }, [systems.length, reference.x, reference.z, initialRadius]);
+  }, [autoFitSignature, systems, reference.x, reference.z, initialRadius]);
 
   // ── Render loop. Re-runs on view/systems/selection changes. ────────
   useEffect(() => {

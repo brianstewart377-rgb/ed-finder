@@ -34,6 +34,7 @@ interface ProjectedPlacementViewItem {
 export function WorkspaceGrid({ system }: { system: SystemDetail }) {
   const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
   const [workspaceCommand, setWorkspaceCommand] = useState<PlannerWorkspaceCommand | null>(null);
+  const [lastHandledWorkspaceCommandToken, setLastHandledWorkspaceCommandToken] = useState(0);
   const [planSnapshot, setPlanSnapshot] = useState<TopologyPlanSnapshot>({
     placements: [],
     templates: [],
@@ -64,6 +65,10 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
       bodyId,
       templateId: templateId ?? null,
     });
+  }, []);
+  const handleWorkspaceCommandHandled = useCallback((token: number) => {
+    setLastHandledWorkspaceCommandToken((current) => (token > current ? token : current));
+    setWorkspaceCommand((current) => (current?.token === token ? null : current));
   }, []);
 
   const planningFocusLabel = getPlanningFocusLabel(selection, system);
@@ -175,6 +180,8 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
               initialRequest={projectState.projectRequest}
               declaredRoles={projectState.declaredRoles}
               workspaceCommand={workspaceCommand}
+              lastHandledWorkspaceCommandToken={lastHandledWorkspaceCommandToken}
+              onWorkspaceCommandHandled={handleWorkspaceCommandHandled}
             />
           </div>
         </section>

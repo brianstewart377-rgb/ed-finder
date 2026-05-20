@@ -248,6 +248,7 @@ describe('BuildPlanSection layout import state', () => {
 
   it('handles add-structure workspace command with explicit body/template context', () => {
     const onAddPlacement = vi.fn();
+    const onWorkspaceCommandHandled = vi.fn();
 
     render(
       <BuildPlanSection
@@ -273,6 +274,7 @@ describe('BuildPlanSection layout import state', () => {
         onBlank={vi.fn()}
         onShowSuggestedBuilds={vi.fn()}
         onAddPlacement={onAddPlacement}
+        onWorkspaceCommandHandled={onWorkspaceCommandHandled}
         onUpdatePlacement={vi.fn()}
         onRemovePlacement={vi.fn()}
         onMovePlacement={vi.fn()}
@@ -287,5 +289,91 @@ describe('BuildPlanSection layout import state', () => {
     );
 
     expect(onAddPlacement).toHaveBeenCalledWith({ bodyId: '1', templateId: 'generic_port_alpha' });
+    expect(onWorkspaceCommandHandled).toHaveBeenCalledWith(77);
+  });
+
+  it('does not replay a previously handled workspace command token after remount-like rerender', () => {
+    const onAddPlacement = vi.fn();
+    const onWorkspaceCommandHandled = vi.fn();
+
+    const { rerender } = render(
+      <BuildPlanSection
+        systemId64={123}
+        systemName="Test System"
+        startMode={'blank_advanced' as StartMode}
+        hasRecommendedBuild={false}
+        loadingRecommended={false}
+        targetArchetype="refinery_industrial"
+        onTargetArchetypeChange={vi.fn()}
+        placements={[]}
+        templates={[templateMinimal]}
+        bodies={bodies}
+        templatesLoading={false}
+        templatesErrorMessage={null}
+        optimiserCandidateOriginLabel={null}
+        optimiserCandidateWasEdited={false}
+        initialAssumptions={[]}
+        previewResult={previewResult}
+        isPreviewResultStale={false}
+        runningPreview={false}
+        onUseRecommended={vi.fn()}
+        onBlank={vi.fn()}
+        onShowSuggestedBuilds={vi.fn()}
+        onAddPlacement={onAddPlacement}
+        onWorkspaceCommandHandled={onWorkspaceCommandHandled}
+        onUpdatePlacement={vi.fn()}
+        onRemovePlacement={vi.fn()}
+        onMovePlacement={vi.fn()}
+        workspaceCommand={{
+          token: 201,
+          kind: 'add-structure',
+          bodyId: '1',
+          templateId: 'generic_port_alpha',
+        }}
+      />,
+    );
+
+    expect(onAddPlacement).toHaveBeenCalledTimes(1);
+    expect(onWorkspaceCommandHandled).toHaveBeenCalledWith(201);
+
+    rerender(
+      <BuildPlanSection
+        systemId64={123}
+        systemName="Test System"
+        startMode={'blank_advanced' as StartMode}
+        hasRecommendedBuild={false}
+        loadingRecommended={false}
+        targetArchetype="refinery_industrial"
+        onTargetArchetypeChange={vi.fn()}
+        placements={[]}
+        templates={[templateMinimal]}
+        bodies={bodies}
+        templatesLoading={false}
+        templatesErrorMessage={null}
+        optimiserCandidateOriginLabel={null}
+        optimiserCandidateWasEdited={false}
+        initialAssumptions={[]}
+        previewResult={previewResult}
+        isPreviewResultStale={false}
+        runningPreview={false}
+        onUseRecommended={vi.fn()}
+        onBlank={vi.fn()}
+        onShowSuggestedBuilds={vi.fn()}
+        onAddPlacement={onAddPlacement}
+        onWorkspaceCommandHandled={onWorkspaceCommandHandled}
+        onUpdatePlacement={vi.fn()}
+        onRemovePlacement={vi.fn()}
+        onMovePlacement={vi.fn()}
+        lastHandledWorkspaceCommandToken={201}
+        workspaceCommand={{
+          token: 201,
+          kind: 'add-structure',
+          bodyId: '1',
+          templateId: 'generic_port_alpha',
+        }}
+      />,
+    );
+
+    expect(onAddPlacement).toHaveBeenCalledTimes(1);
   });
 });

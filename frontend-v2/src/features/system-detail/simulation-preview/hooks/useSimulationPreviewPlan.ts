@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   FacilityTemplate,
   OptimiserCandidate,
@@ -8,6 +8,7 @@ import type {
 } from '@/types/api';
 import { candidatePlacementsToPreviewPlacements } from '../optimiser';
 import type { StartMode } from '../types';
+import { resequence } from '../utils/placementHelpers';
 import { useOptimiserCandidateOrigin } from './useOptimiserCandidateOrigin';
 import { usePlacementEditor } from './usePlacementEditor';
 
@@ -50,6 +51,7 @@ export function useSimulationPreviewPlan({
   const [startMode, setStartMode] = useState<StartMode>('recommended');
   const [autoLoadedRecommendation, setAutoLoadedRecommendation] = useState(false);
   const [planReplacementVersion, setPlanReplacementVersion] = useState(0);
+  const lastLoadedInitialRequestFingerprintRef = useRef<string | null>(null);
 
   const origin = useOptimiserCandidateOrigin();
   const placementEditor = usePlacementEditor({
@@ -59,34 +61,58 @@ export function useSimulationPreviewPlan({
     setStartMode,
     onManualEdit: origin.markOptimiserCandidateEdited,
   });
+  const placements = placementEditor.placements;
+  const replacePlacements = placementEditor.replacePlacements;
+  const clearPlacements = placementEditor.clearPlacements;
+  const addPlacement = placementEditor.addPlacement;
+  const updatePlacement = placementEditor.updatePlacement;
+  const removePlacement = placementEditor.removePlacement;
+  const movePlacement = placementEditor.movePlacement;
+  const clearOptimiserCandidateOrigin = origin.clearOptimiserCandidateOrigin;
+  const setLoadedOptimiserCandidate = origin.setLoadedOptimiserCandidate;
+  const optimiserCandidateOriginLabel = origin.optimiserCandidateOriginLabel;
+  const optimiserCandidateWasEdited = origin.optimiserCandidateWasEdited;
 
   const signalPlanReplacement = () => {
     setPlanReplacementVersion((current) => current + 1);
   };
+  const initialRequestFingerprint = useMemo(
+    () => simulationRequestFingerprint(initialRequest),
+    [initialRequest],
+  );
 
   useEffect(() => {
-    if (!initialRequest) return;
+    if (!initialRequest || !initialRequestFingerprint) return;
+    if (lastLoadedInitialRequestFingerprintRef.current === initialRequestFingerprint) return;
+    lastLoadedInitialRequestFingerprintRef.current = initialRequestFingerprint;
     setTargetArchetype(initialRequest.target_archetype);
-    placementEditor.replacePlacements(initialRequest.placements);
+    replacePlacements(initialRequest.placements);
     setStartMode('edit_recommended');
-    origin.clearOptimiserCandidateOrigin();
+    clearOptimiserCandidateOrigin();
     setAutoLoadedRecommendation(true);
     signalPlanReplacement();
-  }, [initialRequest]);
+  }, [
+    clearOptimiserCandidateOrigin,
+    initialRequest,
+    initialRequestFingerprint,
+    replacePlacements,
+  ]);
 
   useEffect(() => {
     if (!hasRecommendedBuild || autoLoadedRecommendation) return;
-    if (placementEditor.placements.length > 0 || startMode === 'blank_advanced') return;
+    if (placements.length > 0 || startMode === 'blank_advanced') return;
     setTargetArchetype(suggestedArchetype);
-    placementEditor.replacePlacements(recommendedPlacements);
+    replacePlacements(recommendedPlacements);
     setStartMode('recommended');
-    origin.clearOptimiserCandidateOrigin();
+    clearOptimiserCandidateOrigin();
     setAutoLoadedRecommendation(true);
     signalPlanReplacement();
   }, [
     autoLoadedRecommendation,
+    clearOptimiserCandidateOrigin,
     hasRecommendedBuild,
-    placementEditor.placements.length,
+    placements.length,
+    replacePlacements,
     recommendedPlacements,
     startMode,
     suggestedArchetype,
@@ -96,44 +122,58 @@ export function useSimulationPreviewPlan({
     if (!hasRecommendedBuild) return;
     setStartMode(mode);
     setTargetArchetype(suggestedArchetype);
-    placementEditor.replacePlacements(recommendedPlacements);
-    origin.clearOptimiserCandidateOrigin();
+    replacePlacements(recommendedPlacements);
+    clearOptimiserCandidateOrigin();
     signalPlanReplacement();
   };
 
   const loadOptimiserCandidateIntoPreview = (candidate: OptimiserCandidate) => {
     const candidatePlacements = candidatePlacementsToPreviewPlacements(candidate.placements);
     setTargetArchetype(candidate.target_archetype);
-    placementEditor.replacePlacements(candidatePlacements);
+    replacePlacements(candidatePlacements);
     setStartMode('optimiser_candidate');
     setAutoLoadedRecommendation(true);
-    origin.setLoadedOptimiserCandidate(candidate.label);
+    setLoadedOptimiserCandidate(candidate.label);
     signalPlanReplacement();
   };
 
   const startBlankAdvanced = () => {
     setStartMode('blank_advanced');
-    origin.clearOptimiserCandidateOrigin();
+    clearOptimiserCandidateOrigin();
     setAutoLoadedRecommendation(true);
-    placementEditor.clearPlacements();
+    clearPlacements();
     signalPlanReplacement();
   };
 
   return {
     targetArchetype,
     setTargetArchetype,
-    placements: placementEditor.placements,
+    placements,
     startMode,
     autoLoadedRecommendation,
-    optimiserCandidateOriginLabel: origin.optimiserCandidateOriginLabel,
-    optimiserCandidateWasEdited: origin.optimiserCandidateWasEdited,
+    optimiserCandidateOriginLabel,
+    optimiserCandidateWasEdited,
     loadRecommendedPlan,
     loadOptimiserCandidateIntoPreview,
     startBlankAdvanced,
-    addPlacement: placementEditor.addPlacement,
-    updatePlacement: placementEditor.updatePlacement,
-    removePlacement: placementEditor.removePlacement,
-    movePlacement: placementEditor.movePlacement,
+    addPlacement,
+    updatePlacement,
+    removePlacement,
+    movePlacement,
     planReplacementVersion,
   };
+}
+
+function simulationRequestFingerprint(request?: SimulateBuildRequest | null): string | null {
+  if (!request) return null;
+  return JSON.stringify({
+    system_id64: request.system_id64,
+    target_archetype: request.target_archetype,
+    placements: resequence(request.placements).map((placement) => ({
+      facility_template_id: placement.facility_template_id,
+      local_body_id: placement.local_body_id ?? null,
+      is_primary_port: Boolean(placement.is_primary_port),
+      build_order: placement.build_order,
+    })),
+  });
 }

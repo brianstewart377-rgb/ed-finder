@@ -48,6 +48,8 @@ export function SimulationPreview({
   topologySelection,
   declaredRoles = [],
   workspaceCommand,
+  lastHandledWorkspaceCommandToken = 0,
+  onWorkspaceCommandHandled,
   workspaceDrawer,
   onWorkspaceDrawerChange,
 }: {
@@ -59,6 +61,8 @@ export function SimulationPreview({
   topologySelection?: TopologySelection;
   declaredRoles?: DeclaredColonyRole[];
   workspaceCommand?: PlannerWorkspaceCommand | null;
+  lastHandledWorkspaceCommandToken?: number;
+  onWorkspaceCommandHandled?: (token: number) => void;
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
 }) {
@@ -67,7 +71,6 @@ export function SimulationPreview({
   const setActiveWorkspaceDrawer = onWorkspaceDrawerChange ?? setLocalWorkspaceDrawer;
   const [activeMode, setActiveMode] = useState<SimulationWorkspaceMode>('build-plan');
   const [projectedCandidate, setProjectedCandidate] = useState<OptimiserCandidate | null>(null);
-  const lastWorkspaceCommandTokenRef = useRef<number | null>(null);
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
     queryFn: getFacilityTemplates,
@@ -93,7 +96,10 @@ export function SimulationPreview({
     [templatesQuery.data],
   );
   const bodies = useMemo(() => simulationBodies(system.bodies), [system.bodies]);
-  const recommendedSteps = summaryQuery.data?.buildability?.recommended_build_order ?? [];
+  const recommendedSteps = useMemo(
+    () => summaryQuery.data?.buildability?.recommended_build_order ?? [],
+    [summaryQuery.data?.buildability?.recommended_build_order],
+  );
   const regionalContext = summaryQuery.data?.regional_context ?? null;
   const suggestedArchetype = summaryQuery.data?.classification?.primary_archetype
     ?? archetypeFromEconomy(system.economy_suggestion)
@@ -127,6 +133,7 @@ export function SimulationPreview({
     targetArchetype: plan.targetArchetype,
     placements: plan.placements,
   });
+  const clearPreviewState = runState.clearPreviewState;
   const roleGroups = useMemo(
     () => groupPlacementsByBody(plan.placements, templates, bodies),
     [bodies, plan.placements, templates],
@@ -167,8 +174,8 @@ export function SimulationPreview({
   }, [onPlanSnapshotChange, plan.placements, plan.targetArchetype, projectedCandidate, templates]);
 
   useEffect(() => {
-    runState.clearPreviewState();
-  }, [plan.planReplacementVersion, runState.clearPreviewState]);
+    clearPreviewState();
+  }, [clearPreviewState, plan.planReplacementVersion]);
 
   useEffect(() => {
     if (activeWorkspaceDrawer === 'evidence') {
@@ -180,11 +187,15 @@ export function SimulationPreview({
 
   useEffect(() => {
     if (!workspaceCommand) return;
-    if (lastWorkspaceCommandTokenRef.current === workspaceCommand.token) return;
-    lastWorkspaceCommandTokenRef.current = workspaceCommand.token;
+    if (workspaceCommand.token <= lastHandledWorkspaceCommandToken) return;
     setActiveMode('build-plan');
     if (activeWorkspaceDrawer) setActiveWorkspaceDrawer(null);
-  }, [activeWorkspaceDrawer, setActiveWorkspaceDrawer, workspaceCommand]);
+  }, [
+    activeWorkspaceDrawer,
+    lastHandledWorkspaceCommandToken,
+    setActiveWorkspaceDrawer,
+    workspaceCommand,
+  ]);
 
   useEffect(() => () => {
     if (suggestedBuildsHighlightTimeoutRef.current !== null) {
@@ -289,6 +300,8 @@ export function SimulationPreview({
             onMovePlacement={plan.movePlacement}
             topologySelection={topologySelection}
             workspaceCommand={workspaceCommand}
+            lastHandledWorkspaceCommandToken={lastHandledWorkspaceCommandToken}
+            onWorkspaceCommandHandled={onWorkspaceCommandHandled}
           />
         )}
         <div

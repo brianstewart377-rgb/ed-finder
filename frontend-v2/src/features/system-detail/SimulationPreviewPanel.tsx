@@ -12,6 +12,8 @@ export function SimulationPreviewPanel({
   initialRequest,
   declaredRoles = [],
   workspaceCommand,
+  lastHandledWorkspaceCommandToken,
+  onWorkspaceCommandHandled,
   workspaceDrawer,
   onWorkspaceDrawerChange,
 }: {
@@ -22,6 +24,8 @@ export function SimulationPreviewPanel({
   initialRequest?: SimulateBuildRequest | null;
   declaredRoles?: DeclaredColonyRole[];
   workspaceCommand?: PlannerWorkspaceCommand | null;
+  lastHandledWorkspaceCommandToken?: number;
+  onWorkspaceCommandHandled?: (token: number) => void;
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
 }) {
@@ -35,6 +39,8 @@ export function SimulationPreviewPanel({
       topologySelection={topologySelection}
       declaredRoles={declaredRoles}
       workspaceCommand={workspaceCommand}
+      lastHandledWorkspaceCommandToken={lastHandledWorkspaceCommandToken}
+      onWorkspaceCommandHandled={onWorkspaceCommandHandled}
       workspaceDrawer={workspaceDrawer}
       onWorkspaceDrawerChange={onWorkspaceDrawerChange}
     />

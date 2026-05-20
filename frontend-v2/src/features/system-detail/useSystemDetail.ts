@@ -31,7 +31,7 @@ export function useSystemDetail(id64: number | null): UseSystemDetail {
   });
   return {
     data:    q.data ?? null,
-    loading: q.isLoading || q.isFetching,
+    loading: q.isLoading,
     error:   q.error ? q.error.message : null,
     refetch: () => { void q.refetch(); },
   };

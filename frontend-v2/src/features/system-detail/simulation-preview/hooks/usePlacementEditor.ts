@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useState, type Dispatch, type SetStateAction } from 'react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
 import type { StartMode } from '../types';
 import { preferredTemplate, resequence } from '../utils/placementHelpers';
@@ -31,36 +31,38 @@ export function usePlacementEditor({
 }: UsePlacementEditorOptions): UsePlacementEditorResult {
   const [placements, setPlacements] = useState<SimulateBuildPlacement[]>([]);
 
-  const replacePlacements = (nextPlacements: SimulateBuildPlacement[]) => {
+  const replacePlacements = useCallback((nextPlacements: SimulateBuildPlacement[]) => {
     setPlacements(resequence(nextPlacements));
-  };
+  }, []);
 
-  const clearPlacements = () => {
+  const clearPlacements = useCallback(() => {
     setPlacements([]);
-  };
+  }, []);
 
-  const addPlacement = (options?: { bodyId?: string | null; templateId?: string | null }) => {
+  const addPlacement = useCallback((options?: { bodyId?: string | null; templateId?: string | null }) => {
     const requestedTemplate = options?.templateId
       ? templates.find((template) => template.id === options.templateId)
       : null;
     const firstTemplate = requestedTemplate ?? preferredTemplate(templates);
     if (!firstTemplate) return;
     onManualEdit();
-    if (placements.length === 0 && startMode !== 'blank_advanced') {
-      setStartMode('edit_recommended');
-    }
-    setPlacements((current) => [
-      ...current,
-      {
-        facility_template_id: firstTemplate.id,
-        local_body_id: options?.bodyId ?? (bodies[0]?.id != null ? String(bodies[0].id) : null),
-        is_primary_port: current.length === 0 && firstTemplate.is_port,
-        build_order: current.length + 1,
-      },
-    ]);
-  };
+    setPlacements((current) => {
+      if (current.length === 0 && startMode !== 'blank_advanced') {
+        setStartMode('edit_recommended');
+      }
+      return [
+        ...current,
+        {
+          facility_template_id: firstTemplate.id,
+          local_body_id: options?.bodyId ?? (bodies[0]?.id != null ? String(bodies[0].id) : null),
+          is_primary_port: current.length === 0 && firstTemplate.is_port,
+          build_order: current.length + 1,
+        },
+      ];
+    });
+  }, [bodies, onManualEdit, setStartMode, startMode, templates]);
 
-  const updatePlacement = (index: number, patch: Partial<SimulateBuildPlacement>) => {
+  const updatePlacement = useCallback((index: number, patch: Partial<SimulateBuildPlacement>) => {
     onManualEdit();
     if (startMode === 'recommended') {
       setStartMode('edit_recommended');
@@ -71,17 +73,17 @@ export function usePlacementEditor({
       }
       return { ...item, ...patch };
     }));
-  };
+  }, [onManualEdit, setStartMode, startMode]);
 
-  const removePlacement = (index: number) => {
+  const removePlacement = useCallback((index: number) => {
     onManualEdit();
     if (startMode === 'recommended') {
       setStartMode('edit_recommended');
     }
     setPlacements((current) => resequence(current.filter((_, i) => i !== index)));
-  };
+  }, [onManualEdit, setStartMode, startMode]);
 
-  const movePlacement = (index: number, direction: -1 | 1) => {
+  const movePlacement = useCallback((index: number, direction: -1 | 1) => {
     onManualEdit();
     if (startMode === 'recommended') {
       setStartMode('edit_recommended');
@@ -93,7 +95,7 @@ export function usePlacementEditor({
       [copy[index], copy[nextIndex]] = [copy[nextIndex], copy[index]];
       return resequence(copy);
     });
-  };
+  }, [onManualEdit, setStartMode, startMode]);
 
   return {
     placements,
