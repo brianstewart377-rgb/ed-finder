@@ -2,6 +2,7 @@ param(
   [string]$RepoPath = 'C:\Users\brian\Documents\Codex\2026-05-20\files-mentioned-by-the-user-edfinder',
   [string]$DeployHost = $(if ($env:EDFINDER_DEPLOY_HOST) { $env:EDFINDER_DEPLOY_HOST } else { 'ed-finder.app' }),
   [string]$DeployUser = $env:EDFINDER_DEPLOY_USER,
+  [int]$DeployPort = $(if ($env:EDFINDER_DEPLOY_PORT) { [int]$env:EDFINDER_DEPLOY_PORT } else { 22 }),
   [string]$PublicUrl = 'https://ed-finder.app',
   [string]$PlannerRoute = '#colony-planner/system/1453586352459',
   [switch]$SkipPrompt,
@@ -17,6 +18,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Test-TcpOpen {
+  param(
+    [Parameter(Mandatory = $true)][string]$HostName,
+    [Parameter(Mandatory = $true)][int]$Port,
+    [int]$TimeoutMs = 3000
+  )
+  try {
+    $client = New-Object System.Net.Sockets.TcpClient
+    $iar = $client.BeginConnect($HostName, $Port, $null, $null)
+    $ok = $iar.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+    $connected = $ok -and $client.Connected
+    $client.Close()
+    return $connected
+  } catch {
+    return $false
+  }
+}
+
 if (-not $DeployUser) {
   $DeployUser = 'root'
 }
@@ -26,7 +45,7 @@ if (-not (Test-Path -LiteralPath $RepoPath)) {
 }
 
 if (-not $SkipPrompt) {
-  $target = if ($SkipDeploy) { '(deploy skipped)' } else { "$DeployUser@$DeployHost" }
+  $target = if ($SkipDeploy) { '(deploy skipped)' } else { "$DeployUser@$DeployHost`:$DeployPort" }
   $answer = Read-Host "Release main, push, and deploy to $target ? (y/N)"
   if ($answer -notin @('y', 'Y')) {
     throw 'Cancelled by user.'
@@ -95,18 +114,36 @@ if (-not $SkipDeploy) {
   if (-not $DeployHost) {
     throw 'Deploy host missing. Set EDFINDER_DEPLOY_HOST or pass -DeployHost.'
   }
+  if (-not (Test-TcpOpen -HostName $DeployHost -Port $DeployPort -TimeoutMs 3000)) {
+    if ($DeployHost -eq 'ed-finder.app' -and $DeployPort -eq 22) {
+      throw @"
+SSH to ed-finder.app:22 is not reachable.
+This domain is Cloudflare-proxied, so SSH usually must target the Hetzner origin host/IP.
+
+Run again with the origin host, for example:
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-main-to-prod.ps1 -DeployHost <hetzner-ip-or-hostname> -DeployPort 22 -OpenApp
+
+Or set defaults once:
+setx EDFINDER_DEPLOY_HOST <hetzner-ip-or-hostname>
+setx EDFINDER_DEPLOY_PORT 22
+"@
+    }
+    throw "SSH is not reachable on $DeployHost`:$DeployPort. Check host/port/firewall."
+  }
 
   $remote = "$DeployUser@$DeployHost"
   $remoteCmd = 'cd /opt/ed-finder && bash scripts/deploy_main.sh'
   if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
     throw 'ssh is not available in PATH.'
   }
-  Write-Host "[release] Starting remote deploy on $remote ..."
+  Write-Host "[release] Starting remote deploy on $remote`:$DeployPort ..."
   Write-Host '[release] If prompted, complete SSH authentication in this terminal.'
   $sshArgs = @()
   if ($SshOptions.Trim()) {
     $sshArgs += $SshOptions.Trim().Split(' ')
   }
+  $sshArgs += '-p'
+  $sshArgs += "$DeployPort"
   $sshArgs += $remote
   $sshArgs += $remoteCmd
   & ssh @sshArgs
