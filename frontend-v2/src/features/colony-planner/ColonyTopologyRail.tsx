@@ -2,6 +2,7 @@ import { Network } from 'lucide-react';
 import type {
   FacilityTemplate,
   SimulateBuildPlacement,
+  SlotPredictionResponse,
   SystemBody,
   SystemDetail,
 } from '@/types/api';
@@ -25,6 +26,7 @@ export interface TopologyPlanSnapshot {
   placements: SimulateBuildPlacement[];
   templates: FacilityTemplate[];
   targetArchetype: string;
+  slotPredictions?: SlotPredictionResponse | null;
   projection?: {
     candidateId: string;
     label: string;
@@ -66,6 +68,8 @@ interface ProjectedPlacementItem {
   template?: FacilityTemplate;
 }
 
+type SlotLaneKind = 'orbital' | 'ground' | 'unknown';
+
 export function ColonyTopologyRail({
   system,
   snapshot,
@@ -98,6 +102,13 @@ export function ColonyTopologyRail({
         <Network size={13} />
         System topology
       </div>
+      {snapshot.slotPredictions && (
+        <div className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-silver-dk">
+          <div className="text-cyan">Predicted slots</div>
+          <div className="mt-0.5">{snapshot.slotPredictions.disclaimer}</div>
+          <div className="mt-0.5 italic">{snapshot.slotPredictions.validation_note}</div>
+        </div>
+      )}
 
       <button
         type="button"
@@ -130,6 +141,7 @@ export function ColonyTopologyRail({
               key={node.id}
               node={node}
               systemName={system.name}
+              slotPrediction={snapshot.slotPredictions?.predictions?.find((item) => String(item.body_id) === node.id) ?? null}
               placements={buckets.knownByBody.get(node.id) ?? []}
               projectedPlacements={projectedByBody.get(node.id) ?? []}
               selected={selection.type === 'body' && selection.bodyId === node.id}
@@ -190,6 +202,7 @@ export function ColonyTopologyRail({
 function BodyTreeRow({
   node,
   systemName,
+  slotPrediction,
   placements,
   projectedPlacements,
   selected,
@@ -199,6 +212,7 @@ function BodyTreeRow({
 }: {
   node: BodyNode;
   systemName?: string | null;
+  slotPrediction: NonNullable<TopologyPlanSnapshot['slotPredictions']>['predictions'][number] | null;
   placements: GroupedPlacement[];
   projectedPlacements: ProjectedPlacementItem[];
   selected: boolean;
@@ -214,6 +228,18 @@ function BodyTreeRow({
   const compactName = compactBodyDisplayName(node.body, systemName);
   const projectedCount = projectedPlacements.length;
   const depthIndent = node.depth > 0 ? `${node.depth * 0.75}rem` : '0rem';
+  const plannedOrbital = placements.filter((item) => placementLaneKind(item.template) === 'orbital');
+  const plannedGround = placements.filter((item) => placementLaneKind(item.template) === 'ground');
+  const plannedUnknown = placements.filter((item) => placementLaneKind(item.template) === 'unknown');
+  const projectedOrbital = projectedPlacements.filter((item) => placementLaneKind(item.template) === 'orbital');
+  const projectedGround = projectedPlacements.filter((item) => placementLaneKind(item.template) === 'ground');
+  const projectedUnknown = projectedPlacements.filter((item) => placementLaneKind(item.template) === 'unknown');
+  const orbitalCapacity = slotPrediction?.predicted_orbital_slots ?? null;
+  const groundCapacity = slotPrediction?.predicted_ground_slots ?? null;
+  const orbitalOverflow = orbitalCapacity == null ? 0 : Math.max(0, plannedOrbital.length + projectedOrbital.length - orbitalCapacity);
+  const groundOverflow = groundCapacity == null ? 0 : Math.max(0, plannedGround.length + projectedGround.length - groundCapacity);
+  const unknownOverflow = plannedUnknown.length + projectedUnknown.length;
+  const totalOverflow = orbitalOverflow + groundOverflow + unknownOverflow;
 
   return (
     <div data-testid={`topology-body-${node.id}`}>
@@ -263,6 +289,30 @@ function BodyTreeRow({
           ))}
         </div>
       )}
+      <div className="ml-3 mt-1 rounded border border-border/45 bg-bg3/35 px-2 py-1.5">
+        <SlotLaneRow
+          laneKey={`${node.id}-orbital`}
+          label="Orbital"
+          capacity={orbitalCapacity}
+          planned={plannedOrbital.map((item) => item.template?.name ?? item.placement.facility_template_id)}
+          projected={projectedOrbital.map((item) => item.template?.name ?? item.placement.facility_template_id)}
+        />
+        <SlotLaneRow
+          laneKey={`${node.id}-ground`}
+          label="Ground"
+          capacity={groundCapacity}
+          planned={plannedGround.map((item) => item.template?.name ?? item.placement.facility_template_id)}
+          projected={projectedGround.map((item) => item.template?.name ?? item.placement.facility_template_id)}
+        />
+        {totalOverflow > 0 && (
+          <div
+            data-testid={`topology-overflow-${node.id}`}
+            className="mt-1 font-mono text-[9px] text-gold"
+          >
+            +{totalOverflow} overflow / unconfirmed
+          </div>
+        )}
+      </div>
       {projectedPlacements.length > 0 && (
         <div
           data-testid={`topology-projected-group-${node.id}`}
@@ -348,6 +398,96 @@ function PlacementButton({
       {item.placement.is_primary_port && <span className="shrink-0 text-gold">primary</span>}
     </button>
   );
+}
+
+function placementLaneKind(template?: FacilityTemplate): SlotLaneKind {
+  const value = (template?.allowed_location ?? '').toLowerCase();
+  const hasOrbital = value.includes('orbit');
+  const hasGround = value.includes('surface') || value.includes('ground');
+  if (hasOrbital && !hasGround) return 'orbital';
+  if (hasGround && !hasOrbital) return 'ground';
+  return 'unknown';
+}
+
+function SlotLaneRow({
+  laneKey,
+  label,
+  capacity,
+  planned,
+  projected,
+}: {
+  laneKey: string;
+  label: string;
+  capacity: number | null | undefined;
+  planned: string[];
+  projected: string[];
+}) {
+  if (capacity == null) {
+    return (
+      <div className="flex items-center gap-1.5 font-mono text-[9px] text-silver-dk">
+        <span className="w-10 uppercase tracking-[0.12em]">{label}</span>
+        <span className="rounded border border-gold/35 bg-gold/10 px-1 text-gold" data-testid={`slot-lane-unknown-${laneKey}`}>[?]</span>
+      </div>
+    );
+  }
+
+  const cells = Array.from({ length: Math.max(0, capacity) }, (_unused, index) => {
+    if (index < planned.length) {
+      const value = planned[index] ?? '';
+      return {
+        key: `planned-${laneKey}-${index}`,
+        label: compactFacilityName(value),
+        tone: 'planned' as const,
+      };
+    }
+    const projectedIndex = index - planned.length;
+    if (projectedIndex >= 0 && projectedIndex < projected.length) {
+      const value = projected[projectedIndex] ?? '';
+      return {
+        key: `projected-${laneKey}-${index}`,
+        label: compactFacilityName(value),
+        tone: 'projected' as const,
+      };
+    }
+    return {
+      key: `empty-${laneKey}-${index}`,
+      label: '',
+      tone: 'empty' as const,
+    };
+  });
+
+  return (
+    <div className="flex items-center gap-1.5 font-mono text-[9px] text-silver-dk">
+      <span className="w-10 uppercase tracking-[0.12em]">{label}</span>
+      <div className="flex min-w-0 flex-wrap gap-1">
+        {cells.map((cell, index) => (
+          <span
+            key={cell.key}
+            data-testid={`${laneKey}-slot-${index}`}
+            className={[
+              'inline-flex h-5 min-w-5 max-w-[4.6rem] items-center justify-center rounded border px-1 text-[8px] leading-none',
+              cell.tone === 'planned'
+                ? 'border-orange/55 bg-orange/15 text-orange'
+                : cell.tone === 'projected'
+                  ? 'border-cyan/45 bg-cyan/10 text-cyan'
+                  : 'border-border/60 bg-bg2/45 text-silver-dk',
+            ].join(' ')}
+            title={cell.label || 'Empty slot'}
+          >
+            {cell.label ? cell.label : ' '}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function compactFacilityName(value: string): string {
+  const clean = value.trim();
+  if (!clean) return '';
+  const parts = clean.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 6);
+  return parts[0].slice(0, 5);
 }
 
 function ProjectedPlacementRow({ item }: { item: ProjectedPlacementItem }) {

@@ -860,6 +860,26 @@ Stage 17F boundaries remain unchanged:
 - no backend Architect slot survey persistence
 - no automatic plan mutation actions
 
+## Stage 17G Canonical Slot Prediction + System-Wide Slot Map
+
+Stage 17G keeps the Stage 17E workspace ownership model and upgrades slot visibility/data trust boundaries:
+
+- slot-count prediction now comes from one canonical backend algorithm (`validated-slot-v1`)
+- planner slot lanes consume canonical `predicted_orbital_slots` / `predicted_ground_slots` values
+- when canonical prediction data is missing, UI lanes render unknown (`[?]`) rather than fallback estimates
+- left topology rail now shows dense per-body orbital/ground slot lanes with:
+  - planned occupancy
+  - projected Suggested Build ghost occupancy
+  - explicit overflow (`+N overflow / unconfirmed`)
+- centre selected-body planner lane counts match left rail counts from the same snapshot payload
+
+Stage 17G copy boundary:
+
+- `Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode.`
+- optional detail note: `Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.`
+
+Stage 17G does not add Architect-observed slot persistence. Predicted and observed slot states remain distinct.
+
 ## Stage 18 Assistant Foundation Boundary
 
 Planned assistant layer should sit above this architecture:

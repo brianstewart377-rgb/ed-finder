@@ -34,7 +34,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from config import log
 from deps import get_pool, get_redis, cache_get, cache_set
-from ingest.slot_prediction import predict_system_slots, confidence_label
+from ingest.slot_prediction import (
+    INSUFFICIENT_DATA_REASON,
+    PREDICTION_DISCLAIMER,
+    PREDICTION_VERSION,
+    VALIDATION_NOTE,
+    confidence_label,
+    predict_system_slots,
+)
 from mechanics.versions import MECHANICS_VERSION
 from models import (
     BuildabilityResponse,
@@ -45,7 +52,7 @@ from models import (
 from regional.regional_analysis import response_from_row
 from simulation.buildability import analyse_buildability
 from simulation.topology_simulator import (
-    topology_from_row, topology_from_traits, summarise_topology,
+    topology_from_row, summarise_topology,
 )
 
 router = APIRouter(prefix='/api/systems', tags=['simulation'])
@@ -109,95 +116,66 @@ async def get_slot_predictions(
         return cached
 
     async with pool.acquire() as conn:
-        # Try body_scan_facts first (EDDN-derived, better confidence)
-        scan_facts = await conn.fetch("""
-            SELECT system_address, body_id, body_name,
-                   radius, mass_em, gravity,
-                   planet_class, terraform_state, atmosphere,
-                   has_geo, has_bio, geo_signal_count, bio_signal_count,
-                   is_landable, is_terraformable, is_ringed,
-                   data_sources, confidence
-            FROM body_scan_facts
-            WHERE system_address = $1
-            ORDER BY body_id
-        """, id64)
-
-        # Fall back to bodies table (Spansh import)
-        if not scan_facts:
-            bodies = await conn.fetch("""
-                SELECT
-                    $1::bigint AS system_address,
-                    id AS body_id,
-                    name AS body_name,
-                    radius,
-                    NULL::float AS mass_em,
-                    gravity,
-                    subtype AS planet_class,
-                    NULL AS terraform_state,
-                    NULL AS atmosphere,
-                    (geo_signal_count > 0) AS has_geo,
-                    (bio_signal_count > 0) AS has_bio,
-                    geo_signal_count,
-                    bio_signal_count,
-                    is_landable,
-                    is_terraformable,
-                    (LOWER(subtype) LIKE '%%ring%%') AS is_ringed,
-                    ARRAY['spansh_import'] AS data_sources,
-                    0.55::numeric AS confidence
-                FROM bodies
-                WHERE system_id64 = $1
-                  AND body_type != 'Star'
-                ORDER BY id
-            """, id64)
-            scan_facts = bodies
-
-        # System exists check
-        system_exists = await conn.fetchval(
-            'SELECT 1 FROM systems WHERE id64 = $1', id64
-        )
+        system_exists = await conn.fetchval('SELECT 1 FROM systems WHERE id64 = $1', id64)
         if not system_exists:
             raise HTTPException(404, f'System {id64} not found')
+        scan_facts, data_source = await _fetch_slot_scan_facts(conn, id64)
 
     if not scan_facts:
         result = {
-            'system_id64':             id64,
-            'data_source':             'none',
-            'body_count':              0,
-            'estimated_orbital_slots': 0,
-            'estimated_ground_slots':  0,
-            'slot_confidence':         0.0,
-            'slot_confidence_label':   'No Data',
-            'predictions':             [],
+            'system_id64': id64,
+            'data_source': 'none',
+            'body_count': 0,
+            'predicted_orbital_slots_total': None,
+            'predicted_ground_slots_total': None,
+            'prediction_status': 'unknown',
+            'prediction_version': PREDICTION_VERSION,
+            'confidence_label': 'insufficient_prediction_data',
+            'disclaimer': PREDICTION_DISCLAIMER,
+            'validation_note': VALIDATION_NOTE,
+            'required_input_missing': ['body_scan_facts'],
+            'estimated_orbital_slots': None,
+            'estimated_ground_slots': None,
+            'slot_confidence': None,
+            'slot_confidence_label': 'Unknown',
+            'predictions': [],
             'note': (
                 'No body scan data available for this system. '
-                'Slot predictions require at least FSS scan data via EDDN. '
-                'Visit this system and use the Full Spectrum Scanner to contribute data.'
+                f'{INSUFFICIENT_DATA_REASON}. Verify in Architect Mode.'
             ),
         }
         await cache_set(cache_key, result, _CACHE_TTL, redis)
         return result
 
-    facts = [dict(r) for r in scan_facts]
-    prediction = predict_system_slots(facts)
-
-    data_source = (
-        'eddn' if facts and 'eddn_scan' in (facts[0].get('data_sources') or [])
-        else 'spansh'
-    )
+    prediction = predict_system_slots(scan_facts)
+    slot_confidence = prediction.get('slot_confidence')
 
     result = {
-        'system_id64':             id64,
-        'data_source':             data_source,
-        'body_count':              len(facts),
-        'estimated_orbital_slots': prediction['estimated_orbital_slots'],
-        'estimated_ground_slots':  prediction['estimated_ground_slots'],
-        'slot_confidence':         round(prediction['slot_confidence'], 3),
-        'slot_confidence_label':   confidence_label(prediction['slot_confidence']),
-        'predictions': [
-            _slot_prediction_to_api(p, fact)
-            for p, fact in zip(prediction['body_predictions'], facts)
-            if p.orbital_slots > 0 or p.surface_slots > 0
-        ],
+        'system_id64': id64,
+        'data_source': data_source,
+        'body_count': len(scan_facts),
+        'predicted_orbital_slots_total': prediction.get('predicted_orbital_slots_total'),
+        'predicted_ground_slots_total': prediction.get('predicted_ground_slots_total'),
+        'prediction_status': prediction.get('prediction_status', 'unknown'),
+        'prediction_version': prediction.get('prediction_version', PREDICTION_VERSION),
+        'confidence_label': (
+            'validated_high_accuracy'
+            if prediction.get('prediction_status') == 'predicted'
+            else 'architect_observed'
+            if prediction.get('prediction_status') == 'observed'
+            else 'insufficient_prediction_data'
+        ),
+        'disclaimer': PREDICTION_DISCLAIMER,
+        'validation_note': prediction.get('validation_note', VALIDATION_NOTE),
+        'required_input_missing': prediction.get('required_input_missing') or [],
+        'estimated_orbital_slots': prediction.get('predicted_orbital_slots_total'),
+        'estimated_ground_slots': prediction.get('predicted_ground_slots_total'),
+        'slot_confidence': round(float(slot_confidence), 3) if slot_confidence is not None else None,
+        'slot_confidence_label': confidence_label(slot_confidence),
+        'predictions': [_slot_prediction_to_api(p, fact) for p, fact in zip(prediction['body_predictions'], scan_facts)],
+        'note': None if prediction.get('prediction_status') != 'unknown' else (
+            f'{INSUFFICIENT_DATA_REASON}. Verify in Architect Mode.'
+        ),
     }
 
     await cache_set(cache_key, result, _CACHE_TTL, redis)
@@ -229,8 +207,8 @@ async def get_buildability(
 
     Data source priority:
       1. buildability_analysis (pre-computed, fastest)
-      2. system_slot_topology + body_scan_facts (compute on demand)
-      3. system_archetype_traits (fallback, lower confidence)
+      2. canonical slot prediction + topology traits (compute on demand)
+      3. insufficient data response (no slot fallback estimates)
     """
     cache_key = f'sim:v3:build:{id64}:{archetype or "auto"}'
     cached = await cache_get(cache_key, redis)
@@ -267,28 +245,45 @@ async def get_buildability(
                    has_ringed_gas_giant
             FROM system_slot_topology WHERE system_id64 = $1
         """, id64)
+        slot_facts, _slot_source = await _fetch_slot_scan_facts(conn, id64)
 
-        # Traits row (fallback)
-        traits_row = await conn.fetchrow("""
-            SELECT est_orbital_slots, est_ground_slots,
-                   has_ringed_body, total_body_count
-            FROM system_archetype_traits WHERE system_id64 = $1
-        """, id64)
+    topo_dict = dict(topo_row) if topo_row else None
+    slot_prediction = predict_system_slots(slot_facts) if slot_facts else {
+        'predicted_orbital_slots_total': None,
+        'predicted_ground_slots_total': None,
+        'slot_confidence': None,
+        'prediction_status': 'unknown',
+        'required_input_missing': ['body_scan_facts'],
+    }
 
-    topo_dict   = dict(topo_row)  if topo_row   else None
-    traits_dict = dict(traits_row) if traits_row else None
-
-    # Determine slot inputs
-    if topo_dict:
-        ctx = topology_from_row(topo_dict)
-    elif traits_dict:
-        ctx = topology_from_traits(traits_dict)
+    predicted_orbital = slot_prediction.get('predicted_orbital_slots_total')
+    predicted_ground = slot_prediction.get('predicted_ground_slots_total')
+    if predicted_orbital is not None and predicted_ground is not None:
+        topo_for_ctx = dict(topo_dict) if topo_dict else {
+            'has_ringed_gas_giant': any(bool(f.get('is_ringed')) for f in slot_facts),
+            'has_viable_surface_port': True,
+            'has_deep_orbital_anchor': False,
+            'orbital_synergy': 0.0,
+            'ground_synergy': 0.0,
+            'build_flexibility': 0.0,
+            'contamination_risk': 0.0,
+            'strong_link_potential': 0.0,
+            'weak_link_stability': 0.0,
+            'nesting_potential': 0.0,
+        }
+        topo_for_ctx['estimated_orbital_slots'] = predicted_orbital
+        topo_for_ctx['estimated_ground_slots'] = predicted_ground
+        ctx = topology_from_row(topo_for_ctx)
+        ctx.slot_confidence = float(slot_prediction.get('slot_confidence') or 0.0)
     else:
         ctx = None
 
     # If we have pre-computed buildability AND no archetype override, use it
-    if ba_row and not archetype:
+    if ba_row and not archetype and ctx:
         ba_dict = dict(ba_row)
+        ba_dict['estimated_orbital_slots'] = ctx.orbital_slots
+        ba_dict['estimated_ground_slots'] = ctx.surface_slots
+        ba_dict['slot_confidence'] = slot_prediction.get('slot_confidence')
         topology_summary = summarise_topology(ctx) if ctx else []
         result = {
             'system_id64':             id64,
@@ -318,9 +313,8 @@ async def get_buildability(
             'system_name':   system_row['name'],
             'archetype':     effective_archetype,
             **_normalise_buildability({}, source='insufficient_data', note=(
-                'Insufficient topology data to compute buildability. '
-                'Run build_topology.py to generate slot estimates for this system, '
-                'or scan bodies in-game to contribute data via EDDN.'
+                f'{INSUFFICIENT_DATA_REASON}. '
+                'Predicted slots are unknown. Verify in Architect Mode.'
             )),
         }
         await cache_set(cache_key, result, 60, redis)
@@ -443,6 +437,18 @@ async def get_simulation_summary(
             )
         except asyncpg.UndefinedTableError:
             regional_row = None
+        slot_facts, _slot_source = await _fetch_slot_scan_facts(conn, id64)
+
+    slot_prediction = predict_system_slots(slot_facts) if slot_facts else {
+        'predicted_orbital_slots_total': None,
+        'predicted_ground_slots_total': None,
+        'slot_confidence': None,
+        'prediction_status': 'unknown',
+        'required_input_missing': ['body_scan_facts'],
+    }
+    predicted_orbital = slot_prediction.get('predicted_orbital_slots_total')
+    predicted_ground = slot_prediction.get('predicted_ground_slots_total')
+    predicted_slot_confidence = slot_prediction.get('slot_confidence')
 
     effective_archetype = archetype or (
         mv_row['primary_archetype'] if mv_row else None
@@ -497,29 +503,33 @@ async def get_simulation_summary(
         }
 
     # Buildability
-    if ba_row:
+    if ba_row and predicted_orbital is not None and predicted_ground is not None:
         ba = dict(ba_row)
+        ba['estimated_orbital_slots'] = predicted_orbital
+        ba['estimated_ground_slots'] = predicted_ground
+        ba['slot_confidence'] = predicted_slot_confidence
         response['buildability'] = _normalise_buildability(ba, source='precomputed')
-    elif mv_row and (mv_row['topo_orbital_slots'] or mv_row['est_orbital_slots']):
-        # Compute on demand from MV data
-        orbital = int(mv_row['topo_orbital_slots'] or mv_row['est_orbital_slots'] or 0)
-        surface = int(mv_row['topo_ground_slots']  or mv_row['est_ground_slots']  or 0)
+    elif predicted_orbital is not None and predicted_ground is not None:
+        # Compute on demand from canonical predicted slots + topology traits.
         topo_dict = {
-            'estimated_orbital_slots':  orbital,
-            'estimated_ground_slots':   surface,
-            'orbital_synergy':          mv_row['orbital_synergy'],
-            'ground_synergy':           mv_row['ground_synergy'],
-            'build_flexibility':        mv_row['build_flexibility'],
-            'contamination_risk':       mv_row['topo_contamination_risk'],
-            'strong_link_potential':    mv_row['strong_link_potential'],
-            'weak_link_stability':      mv_row['weak_link_stability'],
-            'nesting_potential':        mv_row['nesting_potential'],
-            'has_viable_surface_port':  mv_row['has_viable_surface_port'],
-            'has_deep_orbital_anchor':  mv_row['has_deep_orbital_anchor'],
-            'has_ringed_gas_giant':     mv_row['has_ringed_body'],
+            'estimated_orbital_slots': predicted_orbital,
+            'estimated_ground_slots': predicted_ground,
+            'orbital_synergy': mv_row['orbital_synergy'] if mv_row else 0.0,
+            'ground_synergy': mv_row['ground_synergy'] if mv_row else 0.0,
+            'build_flexibility': mv_row['build_flexibility'] if mv_row else 0.0,
+            'contamination_risk': mv_row['topo_contamination_risk'] if mv_row else 0.0,
+            'strong_link_potential': mv_row['strong_link_potential'] if mv_row else 0.0,
+            'weak_link_stability': mv_row['weak_link_stability'] if mv_row else 0.0,
+            'nesting_potential': mv_row['nesting_potential'] if mv_row else 0.0,
+            'has_viable_surface_port': mv_row['has_viable_surface_port'] if mv_row else True,
+            'has_deep_orbital_anchor': mv_row['has_deep_orbital_anchor'] if mv_row else False,
+            'has_ringed_gas_giant': (
+                mv_row['has_ringed_body'] if mv_row else any(bool(f.get('is_ringed')) for f in slot_facts)
+            ),
         }
         from simulation.topology_simulator import topology_from_row
         ctx = topology_from_row(topo_dict)
+        ctx.slot_confidence = float(predicted_slot_confidence or 0.0)
         ba = analyse_buildability(
             system_id64=id64,
             orbital_slots=ctx.orbital_slots,
@@ -536,33 +546,111 @@ async def get_simulation_summary(
         response['buildability'] = _normalise_buildability(
             {},
             source='insufficient_data',
-            note='Run build_topology.py to generate slot estimates, or scan bodies in-game.',
+            note=f'{INSUFFICIENT_DATA_REASON}. Predicted slots are unknown. Verify in Architect Mode.',
         )
 
     # Topology summary narrative
-    if mv_row:
+    if predicted_orbital is not None and predicted_ground is not None:
         topo_dict_for_ctx = {
-            'estimated_orbital_slots': mv_row['topo_orbital_slots'] or mv_row['est_orbital_slots'] or 0,
-            'estimated_ground_slots':  mv_row['topo_ground_slots']  or mv_row['est_ground_slots']  or 0,
-            'orbital_synergy':         mv_row['orbital_synergy'],
-            'ground_synergy':          mv_row['ground_synergy'],
-            'build_flexibility':       mv_row['build_flexibility'],
-            'contamination_risk':      mv_row['topo_contamination_risk'],
-            'strong_link_potential':   mv_row['strong_link_potential'],
-            'weak_link_stability':     mv_row['weak_link_stability'],
-            'nesting_potential':       mv_row['nesting_potential'],
-            'has_viable_surface_port': mv_row['has_viable_surface_port'],
-            'has_deep_orbital_anchor': mv_row['has_deep_orbital_anchor'],
-            'has_ringed_gas_giant':    mv_row['has_ringed_body'],
+            'estimated_orbital_slots': predicted_orbital,
+            'estimated_ground_slots': predicted_ground,
+            'orbital_synergy': mv_row['orbital_synergy'] if mv_row else 0.0,
+            'ground_synergy': mv_row['ground_synergy'] if mv_row else 0.0,
+            'build_flexibility': mv_row['build_flexibility'] if mv_row else 0.0,
+            'contamination_risk': mv_row['topo_contamination_risk'] if mv_row else 0.0,
+            'strong_link_potential': mv_row['strong_link_potential'] if mv_row else 0.0,
+            'weak_link_stability': mv_row['weak_link_stability'] if mv_row else 0.0,
+            'nesting_potential': mv_row['nesting_potential'] if mv_row else 0.0,
+            'has_viable_surface_port': mv_row['has_viable_surface_port'] if mv_row else True,
+            'has_deep_orbital_anchor': mv_row['has_deep_orbital_anchor'] if mv_row else False,
+            'has_ringed_gas_giant': (
+                mv_row['has_ringed_body'] if mv_row else any(bool(f.get('is_ringed')) for f in slot_facts)
+            ),
         }
         from simulation.topology_simulator import topology_from_row
         ctx = topology_from_row(topo_dict_for_ctx)
+        ctx.slot_confidence = float(predicted_slot_confidence or 0.0)
         response['topology_summary'] = summarise_topology(ctx)
-        response['distance_to_sol']  = float(mv_row['distance_to_sol'] or 0)
-        response['main_star_type']   = mv_row['main_star_type']
+    elif slot_prediction.get('prediction_status') == 'unknown':
+        response['topology_summary'] = [
+            f'{INSUFFICIENT_DATA_REASON}. Verify in Architect Mode.',
+        ]
+
+    if mv_row:
+        response['distance_to_sol'] = float(mv_row['distance_to_sol'] or 0)
+        response['main_star_type'] = mv_row['main_star_type']
 
     await cache_set(cache_key, response, _CACHE_TTL, redis)
     return response
+
+
+async def _fetch_slot_scan_facts(
+    conn: asyncpg.Connection,
+    id64: int,
+) -> tuple[list[dict[str, Any]], str]:
+    scan_facts = await conn.fetch(
+        """
+        SELECT
+            system_address,
+            body_id,
+            body_name,
+            radius,
+            gravity,
+            surface_temp,
+            planet_class,
+            terraform_state,
+            atmosphere,
+            volcanism,
+            has_geo,
+            has_bio,
+            geo_signal_count,
+            bio_signal_count,
+            is_landable,
+            is_terraformable,
+            is_ringed,
+            data_sources,
+            confidence
+        FROM body_scan_facts
+        WHERE system_address = $1
+        ORDER BY body_id
+        """,
+        id64,
+    )
+    if scan_facts:
+        return [dict(row) for row in scan_facts], 'eddn'
+
+    bodies = await conn.fetch(
+        """
+        SELECT
+            $1::bigint AS system_address,
+            id AS body_id,
+            name AS body_name,
+            radius,
+            gravity,
+            surface_temp,
+            subtype AS planet_class,
+            NULL AS terraform_state,
+            NULL AS atmosphere,
+            NULL AS volcanism,
+            (geo_signal_count > 0) AS has_geo,
+            (bio_signal_count > 0) AS has_bio,
+            geo_signal_count,
+            bio_signal_count,
+            is_landable,
+            is_terraformable,
+            (LOWER(COALESCE(subtype, '')) LIKE '%%ring%%') AS is_ringed,
+            ARRAY['spansh_import'] AS data_sources,
+            0.55::numeric AS confidence
+        FROM bodies
+        WHERE system_id64 = $1
+          AND body_type != 'Star'
+        ORDER BY id
+        """,
+        id64,
+    )
+    if bodies:
+        return [dict(row) for row in bodies], 'spansh'
+    return [], 'none'
 
 
 def _conf_label(v: float) -> str:
@@ -579,10 +667,17 @@ def _slot_prediction_to_api(pred: Any, fact: dict[str, Any]) -> dict[str, Any]:
         'body_id':        pred.body_id,
         'body_name':      fact.get('body_name'),
         'planet_class':   fact.get('planet_class'),
-        'estimated_surface_slots': pred.surface_slots,
-        'estimated_orbital_slots': pred.orbital_slots,
-        'slot_confidence': round(float(pred.confidence or 0), 3),
-        'slot_source':    pred.slot_source,
+        'predicted_ground_slots': pred.predicted_ground_slots,
+        'predicted_orbital_slots': pred.predicted_orbital_slots,
+        'prediction_status': pred.prediction_status,
+        'confidence_label': pred.confidence_label,
+        'prediction_version': pred.prediction_version,
+        'validation_note': pred.validation_note,
+        'required_input_missing': list(pred.required_input_missing or []),
+        'estimated_surface_slots': pred.predicted_ground_slots,
+        'estimated_orbital_slots': pred.predicted_orbital_slots,
+        'slot_confidence': round(float(pred.confidence or 0), 3) if pred.prediction_status == 'predicted' else None,
+        'slot_source': pred.slot_source,
         'reasons':        [_normalise_slot_reason(r) for r in pred.reasons],
         'is_ringed':      _maybe_bool(fact.get('is_ringed')),
         'is_landable':    _maybe_bool(fact.get('is_landable')),

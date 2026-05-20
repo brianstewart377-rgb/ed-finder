@@ -16,46 +16,53 @@ from routers.simulation import _normalise_buildability, _slot_prediction_to_api
 
 
 class TestSimulationContracts(unittest.TestCase):
-    def test_slot_prediction_response_uses_frontend_field_names(self):
+    def test_slot_prediction_response_uses_canonical_prediction_fields(self):
         prediction = SlotPrediction(
             system_address=123,
             body_id=4,
-            surface_slots=2,
-            orbital_slots=1,
-            confidence=0.75,
-            slot_source='journal',
+            body_name='Test System 4 a',
+            predicted_orbital_slots=1,
+            predicted_ground_slots=2,
+            prediction_status='predicted',
+            confidence_label='validated_high_accuracy',
+            prediction_version='validated-slot-v1',
             reasons=[{
                 'factor': 'radius',
                 'value': 5000.0,
-                'contribution': '+2 surface slots',
+                'note': 'Radius tier base ground slots = 3.',
             }],
         )
         fact = {
             'body_name': 'Test System 4 a',
-            'planet_class': 'High metal content body',
+            'planet_class': 'High metal content world',
             'is_ringed': False,
             'is_landable': True,
             'radius': 5_000_000,
         }
 
         body = _slot_prediction_to_api(prediction, fact)
-        self.assertEqual(body['estimated_surface_slots'], 2)
-        self.assertEqual(body['estimated_orbital_slots'], 1)
-        self.assertEqual(body['slot_confidence'], 0.75)
+        self.assertEqual(body['predicted_ground_slots'], 2)
+        self.assertEqual(body['predicted_orbital_slots'], 1)
+        self.assertEqual(body['prediction_status'], 'predicted')
         self.assertEqual(body['body_name'], 'Test System 4 a')
-        self.assertEqual(body['reasons'][0]['note'], '+2 surface slots')
-        self.assertNotIn('surface_slots', body)
-        self.assertNotIn('orbital_slots', body)
-        self.assertNotIn('confidence', body)
+        self.assertEqual(body['reasons'][0]['note'], 'Radius tier base ground slots = 3.')
 
         SlotPredictionResponse.model_validate({
             'system_id64': 123,
             'data_source': 'eddn',
             'body_count': 1,
+            'predicted_orbital_slots_total': 1,
+            'predicted_ground_slots_total': 2,
+            'prediction_status': 'predicted',
+            'prediction_version': 'validated-slot-v1',
+            'confidence_label': 'validated_high_accuracy',
+            'disclaimer': 'Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode.',
+            'validation_note': 'Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.',
+            'required_input_missing': [],
             'estimated_orbital_slots': 1,
             'estimated_ground_slots': 2,
-            'slot_confidence': 0.75,
-            'slot_confidence_label': 'Moderate',
+            'slot_confidence': 0.96,
+            'slot_confidence_label': 'High',
             'predictions': [body],
         })
 

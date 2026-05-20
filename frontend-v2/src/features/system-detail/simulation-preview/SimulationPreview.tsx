@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getFacilityTemplates, getSimulationSummary, listObservedFacts } from '@/lib/api';
+import { getFacilityTemplates, getSimulationSummary, getSlotPredictions, listObservedFacts } from '@/lib/api';
 import type {
   FacilityTemplate,
   OptimiserCandidate,
@@ -83,6 +83,12 @@ export function SimulationPreview({
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
+  const slotPredictionsQuery = useQuery({
+    queryKey: ['slot-predictions-preview', system.id64],
+    queryFn: () => getSlotPredictions(system.id64),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
   const observedFactsQuery = useQuery({
     queryKey: ['role-review-observed-facts', system.id64],
     queryFn: () => listObservedFacts({ system_id64: system.id64, limit: 100 }),
@@ -160,6 +166,7 @@ export function SimulationPreview({
       placements: plan.placements,
       templates,
       targetArchetype: plan.targetArchetype,
+      slotPredictions: slotPredictionsQuery.data ?? null,
       projection: projectedCandidate ? {
         candidateId: projectedCandidate.candidate_id,
         label: projectedCandidate.label,
@@ -171,7 +178,7 @@ export function SimulationPreview({
         })),
       } : null,
     });
-  }, [onPlanSnapshotChange, plan.placements, plan.targetArchetype, projectedCandidate, templates]);
+  }, [onPlanSnapshotChange, plan.placements, plan.targetArchetype, projectedCandidate, slotPredictionsQuery.data, templates]);
 
   useEffect(() => {
     clearPreviewState();

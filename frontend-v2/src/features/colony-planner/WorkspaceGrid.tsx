@@ -39,6 +39,7 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
     placements: [],
     templates: [],
     targetArchetype: 'refinery_industrial',
+    slotPredictions: null,
     projection: null,
   });
   const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
@@ -293,6 +294,7 @@ function BodyPlanningSurface({
       template: templatesById.get(placement.facility_template_id),
     }))
     .filter((item) => item.placement.local_body_id != null && String(item.placement.local_body_id) === bodyId);
+  const slotPrediction = snapshot.slotPredictions?.predictions?.find((item) => String(item.body_id) === bodyId) ?? null;
 
   const reviewBodyStructures = () => {
     onReviewStructures(bodyId);
@@ -302,6 +304,7 @@ function BodyPlanningSurface({
     <div data-testid="body-planning-surface">
       <BodySlotPlanner
         body={body}
+        slotPrediction={slotPrediction}
         placements={placements}
         projectedPlacements={projectedPlacements}
         selectedPlacementIndex={selectedPlacementIndex}

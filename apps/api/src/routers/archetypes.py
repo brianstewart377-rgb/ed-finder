@@ -35,6 +35,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from config import log, limiter
+from ingest.slot_prediction import INSUFFICIENT_DATA_REASON, predict_system_slots
 from models import (
     ArchetypeRankingsResponse,
     ArchetypeRerankRequest,
@@ -528,6 +529,62 @@ async def get_system_archetypes(request: Request, id64: int):
                 FROM system_archetype_traits WHERE system_id64 = $1
             """, id64)
 
+            slot_fact_rows = await conn.fetch("""
+                SELECT
+                    system_address,
+                    body_id,
+                    body_name,
+                    radius,
+                    gravity,
+                    surface_temp,
+                    planet_class,
+                    terraform_state,
+                    atmosphere,
+                    volcanism,
+                    has_geo,
+                    has_bio,
+                    geo_signal_count,
+                    bio_signal_count,
+                    is_landable,
+                    is_terraformable,
+                    is_ringed
+                FROM body_scan_facts
+                WHERE system_address = $1
+                ORDER BY body_id
+            """, id64)
+            if slot_fact_rows:
+                slot_facts = [dict(r) for r in slot_fact_rows]
+            else:
+                slot_facts = [
+                    {
+                        'system_address': id64,
+                        'body_id': r['id'],
+                        'body_name': r['name'],
+                        'radius': r['radius'],
+                        'gravity': r['gravity'],
+                        'surface_temp': r['surface_temp'],
+                        'planet_class': r['subtype'],
+                        'terraform_state': None,
+                        'atmosphere': None,
+                        'volcanism': None,
+                        'has_geo': (r['geo_signal_count'] or 0) > 0,
+                        'has_bio': (r['bio_signal_count'] or 0) > 0,
+                        'geo_signal_count': r['geo_signal_count'],
+                        'bio_signal_count': r['bio_signal_count'],
+                        'is_landable': r['is_landable'],
+                        'is_terraformable': r['is_terraformable'],
+                        'is_ringed': False,
+                    }
+                    for r in await conn.fetch("""
+                        SELECT id, name, subtype, radius, gravity, surface_temp,
+                               geo_signal_count, bio_signal_count,
+                               is_landable, is_terraformable
+                        FROM bodies
+                        WHERE system_id64 = $1 AND body_type != 'Star'
+                        ORDER BY id
+                    """, id64)
+                ]
+
     except asyncpg.PostgresError as e:
         log.error('archetypes.system DB error: %s', e)
         raise HTTPException(
@@ -537,6 +594,11 @@ async def get_system_archetypes(request: Request, id64: int):
         )
 
     query_ms = int((time.monotonic() - t0) * 1000)
+    slot_prediction = predict_system_slots(slot_facts) if slot_facts else {
+        'predicted_orbital_slots_total': None,
+        'predicted_ground_slots_total': None,
+        'prediction_status': 'unknown',
+    }
 
     # Build per-archetype score dict
     archetypes_out = {}
@@ -555,9 +617,15 @@ async def get_system_archetypes(request: Request, id64: int):
     topology_out = None
     if topo_row:
         topology_out = {
-            'estimated_orbital_slots': topo_row['estimated_orbital_slots'],
-            'estimated_ground_slots':  topo_row['estimated_ground_slots'],
-            'estimated_total_slots':   topo_row['estimated_total_slots'],
+            'estimated_orbital_slots': slot_prediction.get('predicted_orbital_slots_total'),
+            'estimated_ground_slots':  slot_prediction.get('predicted_ground_slots_total'),
+            'estimated_total_slots': (
+                (slot_prediction.get('predicted_orbital_slots_total') or 0)
+                + (slot_prediction.get('predicted_ground_slots_total') or 0)
+                if slot_prediction.get('predicted_orbital_slots_total') is not None
+                and slot_prediction.get('predicted_ground_slots_total') is not None
+                else None
+            ),
             'strong_link_potential':   topo_row['strong_link_potential'],
             'weak_link_stability':     topo_row['weak_link_stability'],
             'contamination_risk':      topo_row['topo_contamination'],
@@ -567,6 +635,11 @@ async def get_system_archetypes(request: Request, id64: int):
             'build_flexibility':       topo_row['build_flexibility'],
             'has_viable_surface_port': topo_row['has_viable_surface_port'],
             'has_deep_orbital_anchor': topo_row['has_deep_orbital_anchor'],
+            'prediction_status':       slot_prediction.get('prediction_status', 'unknown'),
+            'slot_prediction_note': (
+                None if slot_prediction.get('prediction_status') != 'unknown'
+                else f'{INSUFFICIENT_DATA_REASON}. Verify in Architect Mode.'
+            ),
         }
 
     economy_pairs_out = [

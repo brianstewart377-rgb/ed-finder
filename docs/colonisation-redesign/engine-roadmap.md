@@ -1540,6 +1540,38 @@ Remaining non-RavenColonial gaps (intentional in Stage 17F):
 - no automatic planner synthesis or AI-driven plan mutation
 - no durable cloud project persistence (local project model remains)
 
+## Stage 17G - Validated Slot Algorithm Everywhere + System-Wide Slot Map (Implemented)
+
+Stage 17G makes one canonical slot predictor authoritative across backend and frontend planner surfaces.
+
+Delivered:
+
+- canonical predictor module: `apps/api/src/ingest/slot_prediction.py`
+- prediction version and metadata: `validated-slot-v1`, `prediction_status`, `validation_note`, `required_input_missing`
+- strict no-fallback behavior for slot predictions when required data is missing
+- canonical slot totals/body rows wired into:
+  - `/api/systems/{id64}/slot-predictions`
+  - `/api/systems/{id64}/buildability`
+  - `/api/systems/{id64}/simulation-summary`
+  - preview/recommended-build contexts
+  - optimiser preview context
+  - archetype system topology slot output
+- dense whole-system slot map lanes in the planner left rail and matching selected-body lanes in the centre
+- projected Suggested Build ghost occupancy and overflow labelling (`+N overflow / unconfirmed`)
+
+Required prediction copy:
+
+- `Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode.`
+- `Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.`
+
+Stage 17G safety boundaries preserved:
+
+- no CP/economy/service/scoring mechanics changes
+- no Search Tuning changes
+- no import/EDMC changes
+- no auto-generation/auto-load/auto-preview changes
+- no Architect-observed slot persistence (future work)
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:
