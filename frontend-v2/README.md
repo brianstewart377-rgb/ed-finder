@@ -158,6 +158,20 @@ yarn install              # one-time
 yarn dev                  # http://localhost:5174/v2/
 ```
 
+For the Stage 17 planner workflow, prefer:
+
+```bash
+cd frontend-v2
+npm run start             # runs dev-doctor first, then starts/reuses :3000
+```
+
+Manual verification gate:
+
+```bash
+npm run dev:doctor        # advisory checks
+npm run dev:doctor:strict # non-zero exit if warnings exist
+```
+
 If you don't have an API running locally, you still get a clean error UI
 that tells you what env var to set:
 

@@ -5,7 +5,11 @@
   "type": "module",
   "description": "ED Finder v2 — Vite + React + TypeScript (proof of concept). Mounts at /v2/ alongside the existing vanilla JS app at /.",
   "scripts": {
-    "start": "vite --host 0.0.0.0 --port 3000",
+    "dev:doctor": "node scripts/dev-doctor.mjs",
+    "dev:doctor:strict": "node scripts/dev-doctor.mjs --strict",
+    "prestart": "npm run dev:doctor",
+    "predev": "npm run dev:doctor",
+    "start": "node scripts/start-or-reuse.mjs",
     "dev": "vite",
     "build": "vite build --configLoader runner",
     "build:typecheck": "tsc --noEmit && vite build --configLoader runner",
