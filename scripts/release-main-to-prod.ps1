@@ -1,6 +1,6 @@
 param(
   [string]$RepoPath = 'C:\Users\brian\Documents\Codex\2026-05-20\files-mentioned-by-the-user-edfinder',
-  [string]$DeployHost = $env:EDFINDER_DEPLOY_HOST,
+  [string]$DeployHost = $(if ($env:EDFINDER_DEPLOY_HOST) { $env:EDFINDER_DEPLOY_HOST } else { 'ed-finder.app' }),
   [string]$DeployUser = $env:EDFINDER_DEPLOY_USER,
   [string]$PublicUrl = 'https://ed-finder.app',
   [string]$PlannerRoute = '#colony-planner/system/1453586352459',
