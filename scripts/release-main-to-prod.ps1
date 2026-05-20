@@ -39,6 +39,13 @@ function Test-TcpOpen {
   }
 }
 
+function ConvertTo-BashSingleQuoted {
+  param(
+    [Parameter(Mandatory = $true)][string]$Text
+  )
+  return "'" + $Text.Replace("'", "'`"`"'`"`"'") + "'"
+}
+
 if (-not $DeployUser) {
   $DeployUser = 'root'
 }
@@ -135,28 +142,32 @@ setx EDFINDER_DEPLOY_PORT 22
   }
 
   $remote = "$DeployUser@$DeployHost"
+  $quotedRepoPath = ConvertTo-BashSingleQuoted -Text $RemoteRepoPath
   $remoteCmdParts = @(
     'set -euo pipefail',
-    "cd $RemoteRepoPath",
+    "cd $quotedRepoPath",
     'if ! git diff --quiet || ! git diff --cached --quiet; then',
-    "echo '[remote] Detected tracked local edits in $RemoteRepoPath'",
+    "echo ""[remote] Detected tracked local edits in $RemoteRepoPath""",
     'git status --short'
   )
   if ($RemoteDirtyPolicy -eq 'stash') {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $remoteCmdParts += "git stash push -u -m 'release-auto-stash-$stamp' >/dev/null"
-    $remoteCmdParts += "echo '[remote] Stashed local edits (release-auto-stash-$stamp) and continuing deploy.'"
+    $stashMessage = "release-auto-stash-$stamp"
+    $quotedStashMessage = ConvertTo-BashSingleQuoted -Text $stashMessage
+    $remoteCmdParts += "git stash push -u -m $quotedStashMessage >/dev/null"
+    $remoteCmdParts += "echo ""[remote] Stashed local edits ($stashMessage) and continuing deploy."""
     $remoteCmdParts += 'git stash list --max-count=1'
   } elseif ($RemoteDirtyPolicy -eq 'reset') {
-    $remoteCmdParts += "echo '[remote] Resetting tracked local edits to HEAD and continuing deploy.'"
+    $remoteCmdParts += 'echo "[remote] Resetting tracked local edits to HEAD and continuing deploy."'
     $remoteCmdParts += 'git reset --hard HEAD >/dev/null'
   } else {
-    $remoteCmdParts += "echo '[remote] Refusing deploy because tracked local edits exist. Commit/stash/clean server repo first.'"
+    $remoteCmdParts += 'echo "[remote] Refusing deploy because tracked local edits exist. Commit/stash/clean server repo first."'
     $remoteCmdParts += 'exit 25'
   }
   $remoteCmdParts += 'fi'
   $remoteCmdParts += 'bash scripts/deploy_main.sh'
-  $remoteCmd = "bash -lc `"$($remoteCmdParts -join '; ')`""
+  $remoteScript = $remoteCmdParts -join "`n"
+  $remoteCmd = "bash -lc " + (ConvertTo-BashSingleQuoted -Text $remoteScript)
   if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
     throw 'ssh is not available in PATH.'
   }
