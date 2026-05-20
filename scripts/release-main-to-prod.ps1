@@ -11,7 +11,8 @@ param(
   [switch]$SkipTests,
   [switch]$SkipPush,
   [switch]$SkipDeploy,
-  [switch]$OpenApp
+  [switch]$OpenApp,
+  [string]$SshOptions = '-o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +39,8 @@ $branch = (git rev-parse --abbrev-ref HEAD).Trim()
 if ($branch -ne 'main') {
   throw "Expected branch 'main' but found '$branch'"
 }
+Write-Host "[release] Repo: $RepoPath"
+Write-Host "[release] Branch: $branch"
 
 # Ignore .codex-context noise, but fail on any tracked edits or other untracked files.
 git diff --quiet
@@ -54,22 +57,26 @@ if ($untracked) {
 }
 
 if (-not $SkipPull) {
+  Write-Host '[release] Pulling latest main...'
   git pull --ff-only origin main
 }
 
 Set-Location (Join-Path $RepoPath 'frontend-v2')
 
 if (-not $SkipTypecheck) {
+  Write-Host '[release] Running typecheck...'
   npm run typecheck
   if ($LASTEXITCODE -ne 0) { throw 'typecheck failed' }
 }
 
 if (-not $SkipBuild) {
+  Write-Host '[release] Running build...'
   npm run build
   if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 }
 
 if (-not $SkipTests) {
+  Write-Host '[release] Running tests...'
   npm test
   if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
 }
@@ -79,6 +86,7 @@ Set-Location $RepoPath
 $head = (git rev-parse --short HEAD).Trim()
 
 if (-not $SkipPush) {
+  Write-Host "[release] Pushing main ($head)..."
   git push origin main
   if ($LASTEXITCODE -ne 0) { throw 'git push failed' }
 }
@@ -90,13 +98,26 @@ if (-not $SkipDeploy) {
 
   $remote = "$DeployUser@$DeployHost"
   $remoteCmd = 'cd /opt/ed-finder && bash scripts/deploy_main.sh'
-  & ssh $remote $remoteCmd
+  if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
+    throw 'ssh is not available in PATH.'
+  }
+  Write-Host "[release] Starting remote deploy on $remote ..."
+  Write-Host '[release] If prompted, complete SSH authentication in this terminal.'
+  $sshArgs = @()
+  if ($SshOptions.Trim()) {
+    $sshArgs += $SshOptions.Trim().Split(' ')
+  }
+  $sshArgs += $remote
+  $sshArgs += $remoteCmd
+  & ssh @sshArgs
   if ($LASTEXITCODE -ne 0) {
     throw "Remote deploy failed on $remote"
   }
+  Write-Host '[release] Remote deploy finished.'
 }
 
 $healthUrl = "$PublicUrl/api/health"
+Write-Host "[release] Probing public health: $healthUrl"
 $health = Invoke-RestMethod -Uri $healthUrl -TimeoutSec 20
 if ($health.status -ne 'ok') {
   throw "Public health check did not return status=ok from $healthUrl"
@@ -108,6 +129,7 @@ $plannerProbe = Invoke-WebRequest -Uri $plannerUrl -UseBasicParsing -TimeoutSec 
 if ($plannerProbe.StatusCode -lt 200 -or $plannerProbe.StatusCode -ge 400) {
   throw "Planner URL probe failed: $plannerUrl ($($plannerProbe.StatusCode))"
 }
+Write-Host "[release] Public planner probe OK: $plannerUrl ($($plannerProbe.StatusCode))"
 
 if ($OpenApp) {
   Start-Process $plannerUrl
