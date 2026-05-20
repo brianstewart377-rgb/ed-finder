@@ -39,13 +39,6 @@ function Test-TcpOpen {
   }
 }
 
-function ConvertTo-BashSingleQuoted {
-  param(
-    [Parameter(Mandatory = $true)][string]$Text
-  )
-  return "'" + $Text.Replace("'", "'`"`"'`"`"'") + "'"
-}
-
 if (-not $DeployUser) {
   $DeployUser = 'root'
 }
@@ -142,10 +135,9 @@ setx EDFINDER_DEPLOY_PORT 22
   }
 
   $remote = "$DeployUser@$DeployHost"
-  $quotedRepoPath = ConvertTo-BashSingleQuoted -Text $RemoteRepoPath
   $remoteCmdParts = @(
     'set -euo pipefail',
-    "cd $quotedRepoPath",
+    "cd ""$RemoteRepoPath""",
     'if ! git diff --quiet || ! git diff --cached --quiet; then',
     "echo ""[remote] Detected tracked local edits in $RemoteRepoPath""",
     'git status --short'
@@ -153,8 +145,7 @@ setx EDFINDER_DEPLOY_PORT 22
   if ($RemoteDirtyPolicy -eq 'stash') {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $stashMessage = "release-auto-stash-$stamp"
-    $quotedStashMessage = ConvertTo-BashSingleQuoted -Text $stashMessage
-    $remoteCmdParts += "git stash push -u -m $quotedStashMessage >/dev/null"
+    $remoteCmdParts += "git stash push -u -m ""$stashMessage"" >/dev/null"
     $remoteCmdParts += "echo ""[remote] Stashed local edits ($stashMessage) and continuing deploy."""
     $remoteCmdParts += 'git stash list --max-count=1'
   } elseif ($RemoteDirtyPolicy -eq 'reset') {
@@ -166,8 +157,8 @@ setx EDFINDER_DEPLOY_PORT 22
   }
   $remoteCmdParts += 'fi'
   $remoteCmdParts += 'bash scripts/deploy_main.sh'
-  $remoteScript = $remoteCmdParts -join "`n"
-  $remoteCmd = "bash -lc " + (ConvertTo-BashSingleQuoted -Text $remoteScript)
+  $remoteScript = ($remoteCmdParts -join "`n") + "`n"
+  $remoteScriptLf = $remoteScript -replace "`r`n", "`n"
   if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
     throw 'ssh is not available in PATH.'
   }
@@ -181,8 +172,8 @@ setx EDFINDER_DEPLOY_PORT 22
   $sshArgs += '-p'
   $sshArgs += "$DeployPort"
   $sshArgs += $remote
-  $sshArgs += $remoteCmd
-  & ssh @sshArgs
+  $sshArgs += 'bash -s --'
+  $remoteScriptLf | & ssh @sshArgs
   if ($LASTEXITCODE -ne 0) {
     throw "Remote deploy failed on $remote"
   }
