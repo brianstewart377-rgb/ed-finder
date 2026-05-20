@@ -223,7 +223,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByText('System topology')).toBeTruthy();
     expect(screen.getByTestId('topology-root-row')).toBeTruthy();
     expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
-    expect(screen.getByText('Planning Workspace')).toBeTruthy();
+    expect(await screen.findByText('Body Planner')).toBeTruthy();
     expect(screen.getByTestId('body-planning-surface')).toBeTruthy();
     expect(screen.getByTestId('advanced-workspace-toggle')).toBeTruthy();
     expect(screen.getByTestId('advanced-workspace-toggle').textContent).toContain('Open');
@@ -249,11 +249,11 @@ describe('ColonyPlannerWorkspace', () => {
         system,
         selectedPlan: null,
         onPlanSnapshotChange: expect.any(Function),
-        topologySelection: { type: 'system' },
         initialRequest: null,
       }),
       undefined,
     );
+    expect(screen.getByTestId('topology-body-button-star1').getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
     expect(mockedSimulationPreviewPanel).toHaveBeenLastCalledWith(

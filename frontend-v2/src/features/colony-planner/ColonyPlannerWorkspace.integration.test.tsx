@@ -152,7 +152,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.getByRole('complementary', { name: /Workspace summary/i })).toBeTruthy();
     expect(screen.getByText('System topology')).toBeTruthy();
     expect(screen.getByText('Planner summary')).toBeTruthy();
-    expect(screen.getByText('Planning Workspace')).toBeTruthy();
+    expect(await screen.findByText('Body Planner')).toBeTruthy();
     expect(screen.getByTestId('topology-root-row')).toBeTruthy();
     expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
     expect((await screen.findAllByText('Colony Planner')).length).toBeGreaterThan(0);
@@ -162,7 +162,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.getByRole('button', { name: /Run Preview/i })).toBeTruthy();
 
     await waitFor(() => expect(mockedGetSimulationSummary).toHaveBeenCalled());
-    fireEvent.click(screen.getByText('Body 1'));
+    fireEvent.click(screen.getByTestId('topology-body-button-body1'));
     expect(screen.getByText('Body slot planner')).toBeTruthy();
     expect(screen.getByText(/No orbital structures yet/i)).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Add orbital structure' }).length).toBeGreaterThan(0);

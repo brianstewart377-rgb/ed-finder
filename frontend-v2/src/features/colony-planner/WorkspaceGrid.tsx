@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
 import {
@@ -44,7 +44,19 @@ export function WorkspaceGrid({ system }: { system: SystemDetail }) {
   const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
   const [pickerContext, setPickerContext] = useState<{ bodyId: string; lane: BodyPlannerLane } | null>(null);
   const workspaceCommandToken = useRef(0);
+  const autoSelectedSystemId = useRef<number | null>(null);
   const projectState = useWorkspaceProjectState(system, planSnapshot);
+
+  useEffect(() => {
+    if (autoSelectedSystemId.current === system.id64) return;
+    autoSelectedSystemId.current = system.id64;
+    const firstBodyWithId = (system.bodies ?? []).find((body) => body.id != null);
+    if (firstBodyWithId?.id != null) {
+      setSelection({ type: 'body', bodyId: String(firstBodyWithId.id) });
+      return;
+    }
+    setSelection({ type: 'system' });
+  }, [system.bodies, system.id64]);
 
   const handlePlanSnapshotChange = useCallback((snapshot: TopologyPlanSnapshot) => {
     setPlanSnapshot((previous) => (
