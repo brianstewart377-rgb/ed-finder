@@ -26,9 +26,12 @@ export default defineConfig(({ mode }) => {
   const proxyTarget = loadedEnv.VITE_DEV_API_TARGET
     || process.env.VITE_DEV_API_TARGET
     || 'http://127.0.0.1:8001';
+  const publicBase = loadedEnv.VITE_PUBLIC_BASE
+    || process.env.VITE_PUBLIC_BASE
+    || '/';
 
   return {
-    base: '/',
+    base: publicBase,
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
     },

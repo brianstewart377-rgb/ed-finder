@@ -137,13 +137,13 @@ else
 fi
 
 if [[ "$SKIP_FRONTEND" -eq 0 ]]; then
-  say "Build frontend-v2"
-  (
-    cd frontend-v2
-    yarn install --frozen-lockfile
-    yarn build
-  )
-  ok "frontend built"
+say "Build frontend-v2"
+(
+  cd frontend-v2
+  yarn install --frozen-lockfile
+  VITE_PUBLIC_BASE=/v2/ yarn build
+)
+ok "frontend built"
 else
   say "Skipping frontend build"
 fi

@@ -4,7 +4,7 @@ param(
   [string]$DeployUser = $env:EDFINDER_DEPLOY_USER,
   [int]$DeployPort = $(if ($env:EDFINDER_DEPLOY_PORT) { [int]$env:EDFINDER_DEPLOY_PORT } else { 22 }),
   [string]$PublicUrl = 'https://ed-finder.app',
-  [string]$PlannerRoute = '#colony-planner/system/1453586352459',
+  [string]$PlannerRoute = '/v2/#colony-planner/system/1453586352459',
   [string]$RemoteRepoPath = '/opt/ed-finder',
   [ValidateSet('abort', 'stash', 'reset')]
   [string]$RemoteDirtyPolicy = 'stash',
@@ -194,6 +194,12 @@ if ($plannerProbe.StatusCode -lt 200 -or $plannerProbe.StatusCode -ge 400) {
   throw "Planner URL probe failed: $plannerUrl ($($plannerProbe.StatusCode))"
 }
 Write-Host "[release] Public planner probe OK: $plannerUrl ($($plannerProbe.StatusCode))"
+
+$appShell = Invoke-WebRequest -Uri "$baseUrl/v2/" -UseBasicParsing -TimeoutSec 20
+if ($appShell.Content -notmatch '/v2/assets/') {
+  throw 'App shell validation failed: /v2/index does not reference /v2/assets/* (likely wrong base path build).'
+}
+Write-Host '[release] App shell asset base OK (/v2/assets/* detected).'
 
 if ($OpenApp) {
   Start-Process $plannerUrl
