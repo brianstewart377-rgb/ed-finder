@@ -1535,6 +1535,27 @@ export interface components {
             body_name?: string | null;
             /** Planet Class */
             planet_class?: string | null;
+            /** Predicted Ground Slots */
+            predicted_ground_slots?: number | null;
+            /** Predicted Orbital Slots */
+            predicted_orbital_slots?: number | null;
+            /**
+             * Prediction Status
+             * @default unknown
+             */
+            prediction_status?: "predicted" | "unknown" | "observed";
+            /** Confidence Label */
+            confidence_label?: string | null;
+            /** Prediction Version */
+            prediction_version?: string | null;
+            /** Validation Note */
+            validation_note?: string | null;
+            /** Required Input Missing */
+            required_input_missing?: string[];
+            /** Missing Inputs */
+            missing_inputs?: string[];
+            /** Source Label */
+            source_label?: string | null;
             /**
              * Estimated Surface Slots
              * @default 0
@@ -3215,6 +3236,29 @@ export interface components {
             data_source: "eddn" | "spansh" | "none";
             /** Body Count */
             body_count: number;
+            /** Predicted Orbital Slots Total */
+            predicted_orbital_slots_total?: number | null;
+            /** Predicted Ground Slots Total */
+            predicted_ground_slots_total?: number | null;
+            /**
+             * Prediction Status
+             * @default unknown
+             */
+            prediction_status?: "predicted" | "unknown" | "observed";
+            /** Prediction Version */
+            prediction_version?: string;
+            /** Confidence Label */
+            confidence_label?: string | null;
+            /** Disclaimer */
+            disclaimer?: string;
+            /** Validation Note */
+            validation_note?: string;
+            /** Required Input Missing */
+            required_input_missing?: string[];
+            /** Missing Inputs */
+            missing_inputs?: string[];
+            /** Source Label */
+            source_label?: string | null;
             /** Estimated Orbital Slots */
             estimated_orbital_slots: number;
             /** Estimated Ground Slots */

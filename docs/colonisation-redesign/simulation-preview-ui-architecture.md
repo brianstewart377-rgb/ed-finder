@@ -97,6 +97,32 @@ The left topology rail and right summary rail remain mounted while central modes
 
 This pass intentionally reduces central scroll depth by replacing the previous Build Plan + Suggested Builds + Preview + Evidence + Validation vertical stack with mode switching. It does not introduce routes, modals, nested accordions, hidden fetch loops, automatic Preview, automatic Suggested Build generation, automatic Validation, or autosave behaviour.
 
+## Stage 17G Planner Slot/Economy Map
+
+Stage 17G adds the dedicated planner surface around the existing Simulation Preview composition without changing Simulation Preview mechanics.
+
+| Surface | Stage 17G responsibility |
+|---|---|
+| `WorkspaceGrid.tsx` | Full-width three-column shell, widened left rail, flexible centre planner, compact right rail, and system-level planning economy ledger. |
+| `ColonyTopologyRail.tsx` | Whole-system scroll map. Each body row shows canonical predicted orbital/ground capacity, planned slot occupancy, projected Suggested Build ghost occupancy, overflow/unconfirmed state, and compact economy contribution. |
+| `BodySlotPlanner.tsx` | Selected-body detail/editor. It mirrors left-rail slot counts with larger lane boxes and keeps lane-specific add actions explicit. |
+| `PlanningEconomyStrip.tsx` / `planningEconomy.ts` | Frontend-only planning economy ledger from existing facility-template economy metadata. Planned and projected counts are visually distinct. |
+| `OptimiserCandidateDetails.tsx` | Shows projected economy for the selected Suggested Build where facility template metadata is available. |
+
+Important behavioural boundary:
+
+- the ledger label is `Planning economy mix — run Preview for validated outcome.`
+- it does not run Simulation Preview
+- it does not change CP, economy, service, optimiser, or ranking formulas
+- Suggested Build selection can project ghost slots/economy, but load remains explicit
+- Preview remains explicit and authoritative
+
+Slot-capacity boundary:
+
+- planner slot boxes consume only canonical `predicted_orbital_slots` and `predicted_ground_slots`
+- unknown values render as unknown lanes
+- frontend code must not derive fallback slot counts from radius, class, landability, body type, or hardcoded estimates
+
 ## Stage 16E Role-Hint Workspace Integration
 
 Stage 16E keeps the Stage 16C workspace architecture but makes its persistent shell strategically aware at a glance.
@@ -879,6 +905,134 @@ Stage 17G copy boundary:
 - optional detail note: `Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.`
 
 Stage 17G does not add Architect-observed slot persistence. Predicted and observed slot states remain distinct.
+
+## Stage 17H Default Planner Replacement Boundary
+
+Stage 17H changes the dedicated Colony Planner route ownership:
+
+- `WholeSystemColonyPlanner.tsx` is now the default route composition.
+- `SimulationPreviewPanel` is no longer mounted by default on the dedicated planner route.
+- `AdvancedPlannerDrawer.tsx` mounts the old Simulation Preview/Suggested Builds/list-editor stack only after the user explicitly opens Advanced Planner.
+- `WorkspaceGrid.tsx` is a compatibility wrapper around the new whole-system planner, not a separate old-card layout.
+
+Default interaction hierarchy:
+
+1. Left: whole-system slot/build/economy map.
+2. Centre: selected-body graphical slot editor or graphical no-body prompt.
+3. Top/right: compact status, project, and planning economy surfaces.
+4. Advanced drawer: explicit access to Suggested Builds, Preview, and list editor.
+
+Whole-system left map requirements now owned by `ColonyTopologyRail.tsx`:
+
+- body name and type/subtype
+- orbital slot lane
+- ground slot lane
+- planned structures in visible slots
+- projected Suggested Build structures in ghost slots
+- overflow/unconfirmed marker
+- compact economy strip
+- unknown slot lanes as `[?]`
+- selected and projected-body states
+
+Centre graphical editor requirements now owned by `SelectedBodyPlannerCanvas.tsx` and `BodySlotPlanner.tsx`:
+
+- no-body prompt with Select / Generate Suggested Build / Open Advanced Planner actions
+- selected body full name and slot counts
+- orbital, surface, and flexible/unknown lanes
+- planned placement blocks
+- projected ghost blocks
+- body-level economy contribution
+- lane-specific add actions with lane-filtered picker
+
+Planning economy boundary:
+
+- `planningEconomy.ts` counts planned/projected facility template economy metadata only
+- UI wording remains `Planning economy mix — run Preview for validated outcome.`
+- the planning ledger is not a Preview result and must not claim validated outcome
+
+Passive default-route guarantees:
+
+- no automatic Suggested Build generation
+- no automatic Preview run
+- no automatic candidate load
+- no RavenColonial API mutation
+
+## Stage 17I Static Visual Prototype Boundary
+
+Stage 17I adds a separate visual-prototype route instead of changing the Simulation Preview or live planner stack.
+
+Prototype ownership:
+
+- `RavenStylePlannerPrototype.tsx` owns the static mock canvas.
+- `#colony-planner-prototype` opens the canvas for review.
+- The component uses hardcoded mock bodies, slots, projected structures, economy strips, and telemetry placeholders.
+- It does not import Simulation Preview hooks, optimiser hooks, project state, slot prediction responses, or backend API helpers.
+
+Visual contract being tested:
+
+- one continuous scrollable system build canvas
+- branch lines and nested body hierarchy
+- inline orbital and ground slot boxes per body
+- planned structures directly in slots and attached to their body row
+- projected structures as ghost/dashed/subdued slot content
+- unknown slot and overflow examples
+- compact persistent stats/economy panel while the build remains visible
+
+Safety boundary:
+
+- no Simulation Preview mechanics, CP, service, economy, optimiser, slot prediction, validation, observation, import, EDMC, or persistence behavior changes
+- no automatic Suggested Build generation, candidate load, Preview run, or project save
+- no RavenColonial source, CSS, assets, icons, or API usage
+
+If the visual direction is accepted, a later implementation stage can map the existing Stage 17H data/state surfaces into this canvas shape. Stage 17I intentionally does not do that wiring.
+
+## Stage 17K Real Raven-Style Planner Route
+
+Stage 17K performs that mapping for the dedicated real Colony Planner route.
+
+Route ownership:
+
+- `#colony-planner/system/{id64}` uses `WholeSystemColonyPlanner.tsx`.
+- `WholeSystemColonyPlanner.tsx` now renders `RavenStylePlannerCanvas.tsx` as the primary whole-system canvas.
+- `#colony-planner-prototype` remains isolated and mock-only.
+
+Real data consumed by the Raven-style canvas:
+
+- `SystemDetail` bodies and body parentage
+- `SlotPredictionResponse` predicted orbital/ground counts
+- current editable Build Plan placements
+- selected Suggested Build projection placements from the Advanced Planner callback
+- `FacilityTemplate` display/name/category/economy/location metadata
+- frontend planning economy ledger
+
+Default route interaction hierarchy:
+
+1. Left/main: continuous Raven-style whole-system canvas with real body rows and slot lanes.
+2. Middle: selected-body editor/detail surface with readable slot lanes and add/review actions.
+3. Right: telemetry and compact project summary.
+4. Advanced Planner: explicit Suggested Builds, Preview, evidence, validation, and list editor.
+
+Readability/default-resolution contract:
+
+- important body and structure names should use readable text sizes, not only microtext.
+- lane helper copy uses normal text styling where readability matters.
+- right telemetry is wide on large screens but moves below the first two columns before it crushes the centre.
+- horizontal scrolling is limited to the internal whole-system canvas when real systems need more lane width.
+
+Planning economy boundary:
+
+- real route economy bars use ED-Finder template economy metadata and Build Plan/projected placement counts.
+- missing economy metadata renders explicitly as missing/no contribution.
+- the UI copy remains `Planning economy mix — run Preview for validated outcome.`
+- Preview remains the only validated outcome surface.
+
+Safety boundary:
+
+- no automatic Suggested Build generation
+- no automatic candidate load
+- no automatic Preview run
+- no CP/economy/scoring mechanic changes
+- no RavenColonial API/code/CSS/assets usage
 
 ## Stage 18 Assistant Foundation Boundary
 

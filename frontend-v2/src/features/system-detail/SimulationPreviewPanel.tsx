@@ -3,6 +3,7 @@ import { SimulationPreview } from './SimulationPreview';
 import type { TopologyPlanSnapshot, TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
 import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
 import type { PlannerWorkspaceCommand, ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
+import type { SimulationWorkspaceMode } from './simulation-preview/WorkspaceModeTabs';
 
 export function SimulationPreviewPanel({
   system,
@@ -16,6 +17,7 @@ export function SimulationPreviewPanel({
   onWorkspaceCommandHandled,
   workspaceDrawer,
   onWorkspaceDrawerChange,
+  initialMode,
 }: {
   system: SystemDetail;
   selectedPlan: RecommendedBuildPlan | null;
@@ -28,6 +30,7 @@ export function SimulationPreviewPanel({
   onWorkspaceCommandHandled?: (token: number) => void;
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
+  initialMode?: SimulationWorkspaceMode;
 }) {
   return (
     <SimulationPreview
@@ -43,6 +46,7 @@ export function SimulationPreviewPanel({
       onWorkspaceCommandHandled={onWorkspaceCommandHandled}
       workspaceDrawer={workspaceDrawer}
       onWorkspaceDrawerChange={onWorkspaceDrawerChange}
+      initialMode={initialMode}
     />
   );
 }

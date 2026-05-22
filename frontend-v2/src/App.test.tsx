@@ -186,6 +186,18 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
   });
 
+  it('renders the static Raven-style planner prototype on its own safe route', async () => {
+    window.location.hash = '#colony-planner-prototype';
+
+    const { container } = render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('raven-style-planner-prototype')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
+    expect(container.querySelector('main')?.className).toContain('max-w-none');
+  });
+
   it('opens full System Detail from the workspace through the existing modal route', async () => {
     window.location.hash = '#colony-planner/system/123';
 

@@ -24,8 +24,9 @@ import { AdminTab } from '@/features/admin/AdminTab';
 import { MapTab } from '@/features/map/MapTab';
 import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
 import { ColonyPlannerWorkspace } from '@/features/colony-planner/ColonyPlannerWorkspace';
+import { RavenStylePlannerPrototype } from '@/features/colony-planner/prototype/RavenStylePlannerPrototype';
 import { EddnTicker } from '@/features/eddn/EddnTicker';
-import { useHashRoute } from '@/hooks/useHashRoute';
+import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
 import './index.css';
 
 /**
@@ -50,7 +51,36 @@ export default function App() {
 }
 
 function AppInner() {
-  const { route, selectedSystemId, plannerSystemId, navigate, openSystem, openColonyPlanner, closeSystem } = useHashRoute();
+  const hashRoute = useHashRoute();
+
+  if (hashRoute.route === 'colony-planner-prototype') {
+    return <PrototypeAppShell navigate={hashRoute.navigate} />;
+  }
+
+  return <LiveAppInner hashRoute={hashRoute} />;
+}
+
+function PrototypeAppShell({ navigate }: { navigate: HashRoute['navigate'] }) {
+  return (
+    <main className="min-h-screen max-w-none px-4 py-6 pb-10 sm:px-6 sm:py-10">
+      <NavBar
+        current="colony-planner-prototype"
+        onNavigate={navigate}
+        watchlistCount={0}
+        pinnedCount={0}
+        compareCount={0}
+        colonyCount={0}
+        fcCount={0}
+        health="Visual"
+        fullWidth
+      />
+      <RavenStylePlannerPrototype />
+    </main>
+  );
+}
+
+function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
+  const { route, selectedSystemId, plannerSystemId, navigate, openSystem, openColonyPlanner, closeSystem } = hashRoute;
   const search    = useSearch();
   const watchlist = useWatchlist();
   const pinned    = usePinned();
@@ -91,7 +121,8 @@ function AppInner() {
   return (
     <main
       className={[
-        'min-h-screen px-4 py-6 pb-28 sm:px-6 sm:py-10',
+        'min-h-screen px-4 py-6 sm:px-6 sm:py-10',
+        plannerWorkspaceRoute ? 'pb-10' : 'pb-28',
         plannerWorkspaceRoute ? 'max-w-none' : 'mx-auto max-w-[1840px]',
       ].join(' ')}
     >
@@ -277,7 +308,7 @@ function AppInner() {
         />
       )}
 
-      <EddnTicker onOpenSystem={openSystemDetail} />
+      {!plannerWorkspaceRoute && <EddnTicker onOpenSystem={openSystemDetail} />}
     </main>
   );
 }

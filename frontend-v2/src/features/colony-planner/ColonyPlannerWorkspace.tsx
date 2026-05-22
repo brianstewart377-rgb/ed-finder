@@ -1,7 +1,7 @@
 import { ArrowLeft, Rocket } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
-import { WorkspaceGrid } from './WorkspaceGrid';
+import { WholeSystemColonyPlanner } from './WholeSystemColonyPlanner';
 import { WorkspaceHeader, WorkspaceHeaderSkeleton } from './WorkspaceHeader';
 
 export interface ColonyPlannerWorkspaceProps {
@@ -71,7 +71,7 @@ export function ColonyPlannerWorkspace({
         onBackToFinder={onBackToFinder}
         onOpenSystemDetail={onOpenSystemDetail}
       />
-      <WorkspaceGrid system={data} />
+      <WholeSystemColonyPlanner system={data} />
     </WorkspaceShell>
   );
 }

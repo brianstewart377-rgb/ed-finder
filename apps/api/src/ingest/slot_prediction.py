@@ -72,6 +72,8 @@ class SlotPrediction:
             'reasons': self.reasons,
             'validation_note': self.validation_note,
             'required_input_missing': self.required_input_missing,
+            'missing_inputs': self.required_input_missing,
+            'source_label': self.slot_source,
             # Back-compat mirrors
             'estimated_orbital_slots': self.predicted_orbital_slots,
             'estimated_surface_slots': self.predicted_ground_slots,
@@ -128,21 +130,17 @@ def predict_body_slots(scan_fact: dict[str, Any]) -> SlotPrediction:
     if atmosphere is None and is_landable is True:
         missing.append('atmosphere')
 
-    # Orbital prediction can still be emitted when radius exists.
-    orbital_slots = _predict_orbital_slots(scan_fact, radius_m, reasons) if radius_m is not None else None
-
     if missing:
         return SlotPrediction(
             system_address=system_address,
             body_id=body_id,
             body_name=body_name,
-            predicted_orbital_slots=orbital_slots,
+            predicted_orbital_slots=None,
             predicted_ground_slots=None,
             prediction_status='unknown',
             confidence_label='insufficient_prediction_data',
             prediction_version=PREDICTION_VERSION,
             reasons=[
-                *reasons,
                 {
                     'factor': 'missing_input',
                     'note': INSUFFICIENT_DATA_REASON,
@@ -154,6 +152,8 @@ def predict_body_slots(scan_fact: dict[str, Any]) -> SlotPrediction:
             ],
             required_input_missing=sorted(set(missing)),
         )
+
+    orbital_slots = _predict_orbital_slots(scan_fact, radius_m, reasons)
 
     if is_landable is False:
         reasons.append({
@@ -289,9 +289,6 @@ def predict_system_slots(scan_facts: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     predictions = [predict_body_slots(fact) for fact in scan_facts]
-    known_orbital = [p.predicted_orbital_slots for p in predictions if p.predicted_orbital_slots is not None]
-    known_ground = [p.predicted_ground_slots for p in predictions if p.predicted_ground_slots is not None]
-
     has_unknown = any(p.prediction_status == 'unknown' for p in predictions)
     status: str
     if all(p.prediction_status == 'observed' for p in predictions):
@@ -307,9 +304,14 @@ def predict_system_slots(scan_facts: list[dict[str, Any]]) -> dict[str, Any]:
         for missing in prediction.required_input_missing
     })
 
+    known_orbital = [p.predicted_orbital_slots for p in predictions if p.predicted_orbital_slots is not None]
+    known_ground = [p.predicted_ground_slots for p in predictions if p.predicted_ground_slots is not None]
+    orbital_total = None if status == 'unknown' else (sum(known_orbital) if known_orbital else None)
+    ground_total = None if status == 'unknown' else (sum(known_ground) if known_ground else None)
+
     return {
-        'predicted_orbital_slots_total': sum(known_orbital) if known_orbital else None,
-        'predicted_ground_slots_total': sum(known_ground) if known_ground else None,
+        'predicted_orbital_slots_total': orbital_total,
+        'predicted_ground_slots_total': ground_total,
         'slot_confidence': 0.96 if status == 'predicted' else None,
         'body_predictions': predictions,
         'prediction_status': status,
@@ -317,8 +319,8 @@ def predict_system_slots(scan_facts: list[dict[str, Any]]) -> dict[str, Any]:
         'validation_note': VALIDATION_NOTE,
         'required_input_missing': required_missing,
         # Back-compat fields
-        'estimated_orbital_slots': sum(known_orbital) if known_orbital else None,
-        'estimated_ground_slots': sum(known_ground) if known_ground else None,
+        'estimated_orbital_slots': orbital_total,
+        'estimated_ground_slots': ground_total,
     }
 
 

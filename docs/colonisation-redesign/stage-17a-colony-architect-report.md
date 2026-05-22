@@ -189,17 +189,21 @@ Stage 17E is a functional rebuild pass, not a visual polish pass. It targets the
 
 ## Stage 17G Validated Slot Algorithm Everywhere + System-Wide Slot Map
 
-Stage 17G standardises slot prediction on one canonical backend algorithm and removes active heuristic fallback paths for slot counts.
+Stage 17G standardises slot prediction on one canonical backend algorithm and changes the dedicated planner from a body list plus report cards into a whole-system slot/economy map.
 
 Delivered:
 
 - canonical runtime predictor in `apps/api/src/ingest/slot_prediction.py` (`validated-slot-v1`)
-- strict unknown behavior for missing required inputs (`insufficient prediction data`, `Verify in Architect Mode`)
+- strict unknown behavior for missing required inputs (`insufficient data for validated prediction algorithm`, `Verify in Architect Mode`)
+- system totals remain unknown if any required body inputs are missing, preventing partial totals from masquerading as capacity
 - no active radius/class/body-type fallback slot estimates when canonical prediction cannot be produced
-- canonical slot metadata in API responses (`prediction_status`, `prediction_version`, `validation_note`, `required_input_missing`)
-- frontend slot-map surfaces now consume canonical `predicted_*` fields directly and render unknown lanes when unavailable
-- planner left rail now shows dense whole-system per-body slot lanes (orbital + ground), planned occupancy, projected ghost occupancy, and overflow labels
-- central selected-body planner lane counts now match left-rail canonical counts
+- legacy trait-derived topology fallback is disabled as a compatibility no-op
+- canonical slot metadata in API responses (`prediction_status`, `prediction_version`, `validation_note`, `required_input_missing`, `missing_inputs`, `source_label`)
+- frontend slot-map surfaces consume canonical `predicted_*` fields directly and render unknown lanes when unavailable
+- planner left rail shows dense whole-system per-body slot lanes (orbital + ground), planned occupancy, projected ghost occupancy, compact economy contribution, and overflow labels
+- central selected-body planner mirrors left-rail slot counts with larger editable lanes and lane-specific add actions
+- live planning economy ledger is visible in workspace header, selected-body editor, left rail, summary rail, and Suggested Build details
+- Suggested Build selection projects ghost structures and projected economy into the map without auto-loading or auto-running Preview
 
 Prediction wording is explicit and conservative:
 
@@ -215,15 +219,103 @@ Boundaries kept:
 - no auto-generation/auto-load/auto-preview behavior changes
 - no Architect-observed slot storage in this stage
 
+Economy wording is explicit and conservative:
+
+- `Planning economy mix — run Preview for validated outcome.`
+- economy contribution is counted from existing facility-template economy metadata only
+- Simulation Preview remains the authoritative mechanics result
+
+## Stage 17H Default Whole-System Planner Replacement
+
+Stage 17H is a rejection/replacement pass for the default dedicated Colony Planner experience.
+
+Why the previous iterations failed as the default:
+
+- Stage 17F/17G added useful slot-lane and projection pieces, but the first impression could still read as the old Build Plan/Suggested Builds/Preview card stack.
+- The left side could still be interpreted as a body/navigation list instead of the main whole-system build map.
+- The user still had to move into body-level or advanced panels to understand enough of the system plan.
+- Suggested Builds were still too easy to experience as candidate report cards instead of projected system layouts.
+
+Stage 17H replaces the default route composition:
+
+- `WholeSystemColonyPlanner.tsx` is the default dedicated planner composition.
+- `SystemSlotMapPanel.tsx` wraps the whole-system slot map as the left/default system surface.
+- `SelectedBodyPlannerCanvas.tsx` owns the centre graphical body editor and no-body graphical prompt.
+- `PlannerStatusStrip.tsx` keeps system-level status and the live planning economy strip compact.
+- `AdvancedPlannerDrawer.tsx` is the only default-route path to the old Simulation Preview/Suggested Builds/list-editor stack, and it is closed by default.
+- `WorkspaceGrid.tsx` is retained only as a compatibility wrapper around the new whole-system planner, so the rejected old layout cannot be reintroduced by importing it.
+
+Default planner behavior:
+
+- opening the planner immediately shows the whole-system left slot map and centre graphical planner surface
+- left body rows show body name/type, orbital slots, ground slots, planned structures, projected ghost structures, overflow/unconfirmed state, and compact economy strips
+- the centre no-body state offers `Select a body from the system map`, `Generate Suggested Build`, and `Open Advanced Planner`
+- selecting a body opens a larger graphical editor with matching orbital/ground/flexible lanes and lane-specific add actions
+- adding structures updates local plan state immediately in both the left map and centre editor
+- selecting/providing a Suggested Build projection pushes ghost placements into the left map, selected-body lanes, projected-body highlighting, and planning economy ledger
+
+Safety boundaries kept:
+
+- no auto-generation
+- no auto-load
+- no auto-preview
+- no CP formula, economy mechanics, service scoring, Search Tuning, import, EDMC, or hauling/material workflow changes
+- no primary-port truth editing or Architect survey persistence
+- no RavenColonial source/CSS/assets/API mutation
+
 ## Stage 18 direction
 
-Stage 18 should build a constrained Colony Architect assistant shell on top of Stage 17E:
+Stage 18 should build a constrained Colony Architect assistant shell on top of the Stage 17H whole-system planner:
 
 - natural-language intent capture
 - deterministic constraint translation
 - explicit user review/acceptance
 - no silent build mutation
 - Preview remains the validation authority
+
+## Stage 17I Static Raven-Style Planner Canvas Prototype
+
+Stage 17I is a visual wireframe stage, not a live planner replacement.
+
+Why it exists:
+
+- previous iterations kept drifting back toward left rail plus centre report/card panels
+- slot lanes and projected structures existed, but the first impression still did not read as a continuous whole-system build layout
+- the visual direction needs to be validated before another implementation pass wires real data through it
+
+Delivered boundary:
+
+- `frontend-v2/src/features/colony-planner/prototype/RavenStylePlannerPrototype.tsx`
+- safe review route: `#colony-planner-prototype`
+- hardcoded/mock system data only
+- no backend fetches, no Build Plan state, no local project mutation, no persistence
+- no optimiser, slot prediction, Simulation Preview, CP, economy, service, Search Tuning, import, or EDMC logic changes
+
+Visual prototype goals:
+
+- whole system as one continuous scrollable build canvas
+- body hierarchy shown by branch lines and vertical flow, not a detached body list
+- orbital and ground site boxes visible inline for each body
+- planned and projected structures rendered inside slot boxes and repeated as attached child markers
+- ghost/projection styling is visually distinct from planned structures
+- compact economy strips live beside each body while the build layout remains visible
+- a persistent RavenColonial-like telemetry panel shows score, population, security, tech, wealth, standard of living, development, economy mix, haul, and active-build placeholders
+
+Clean-room boundary:
+
+- RavenColonial evidence was used only to understand functional visual behaviour: system tree, inline site counts, attached structures, projection ghosts, and persistent calculations
+- no RavenColonial source, CSS, assets, icons, API calls, or proprietary implementation details were copied
+- ED-Finder keeps its dark/orange/brushed-steel/cyan styling
+
+What must be validated before real implementation:
+
+- whether the continuous canvas reads as a planner instead of a dashboard
+- whether slot boxes are large and obvious enough at desktop widths
+- whether structure attachment is understandable without opening body cards
+- whether the right telemetry panel helps without consuming too much width
+- whether compact rows remain usable for 15-25 body systems
+
+The next real implementation pass should wire this shape to existing planner state only after the visual direction is accepted.
 
 ## Stage 17F Graphical Slot-Lane Planner and Full-Width Workspace
 
@@ -280,3 +372,42 @@ Stage 18 foundation remains unchanged:
 - deterministic planner remains the source of truth
 - Preview remains the validation authority
 - mutation remains explicit and user-confirmed
+
+Stage 17H supersession note: Stage 17F's graphical lane work remains part of the implementation, but it is no longer the default architecture description. The current default is the Stage 17H whole-system planner with the old stack behind Advanced Planner.
+
+## Stage 17K Raven-Style Real Data Wire-Up
+
+Stage 17K wires the accepted Raven-style planner direction into the real dedicated Colony Planner route while keeping the isolated prototype route for visual testing.
+
+Implemented Stage 17K changes:
+
+- `#colony-planner/system/{id64}` now renders a data-driven Raven-style whole-system canvas as the first planner surface.
+- `#colony-planner-prototype` remains mock-only for visual iteration.
+- the real canvas consumes the existing planner snapshot:
+  - loaded system detail and real body hierarchy
+  - canonical slot-prediction response
+  - editable Build Plan placements
+  - facility template metadata and display names
+  - selected Suggested Build projection emitted by the Advanced Planner
+  - planning economy ledger counts from real template economy metadata
+- planned and projected structures render directly inside orbital/ground slot lanes.
+- missing slot prediction data renders explicit unknown slots instead of fake counts.
+- missing economy metadata renders as unavailable/no contribution rather than mock values.
+- the Attached Structures column remains removed.
+- the old Simulation Preview/Suggested Builds/list-editor stack remains behind Advanced Planner and is not mounted by default.
+
+Default-resolution/readability pass:
+
+- planner route layout now uses a responsive Raven data layout:
+  - wide real canvas first
+  - selected-body editor/detail surface second
+  - readable telemetry/project rail on the right at larger widths
+- the selected-body middle surface uses larger body titles, more readable structure names, stronger line-height, and less all-caps microtext for important content.
+- telemetry keeps red negative / green positive zero-centred bars and real planning economy mix copy.
+
+Still not production-final:
+
+- planning economy remains the frontend planning ledger, not a validated Preview result.
+- strength values are only shown from available real template metadata; the UI does not invent RavenColonial-style bonus magnitudes when the data is missing.
+- project save/load remains browser-local.
+- Suggested Build generation, candidate load, and Preview remain explicit actions.

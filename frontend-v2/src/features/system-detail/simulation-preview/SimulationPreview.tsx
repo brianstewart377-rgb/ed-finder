@@ -52,6 +52,7 @@ export function SimulationPreview({
   onWorkspaceCommandHandled,
   workspaceDrawer,
   onWorkspaceDrawerChange,
+  initialMode = 'build-plan',
 }: {
   system: SystemDetail;
   initialRequest?: SimulateBuildRequest | null;
@@ -65,11 +66,12 @@ export function SimulationPreview({
   onWorkspaceCommandHandled?: (token: number) => void;
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
+  initialMode?: SimulationWorkspaceMode;
 }) {
   const [localWorkspaceDrawer, setLocalWorkspaceDrawer] = useState<ReviewDrawer>(null);
   const activeWorkspaceDrawer = workspaceDrawer === undefined ? localWorkspaceDrawer : workspaceDrawer;
   const setActiveWorkspaceDrawer = onWorkspaceDrawerChange ?? setLocalWorkspaceDrawer;
-  const [activeMode, setActiveMode] = useState<SimulationWorkspaceMode>('build-plan');
+  const [activeMode, setActiveMode] = useState<SimulationWorkspaceMode>(initialMode);
   const [projectedCandidate, setProjectedCandidate] = useState<OptimiserCandidate | null>(null);
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
@@ -191,6 +193,10 @@ export function SimulationPreview({
       setActiveMode('validation');
     }
   }, [activeWorkspaceDrawer]);
+
+  useEffect(() => {
+    setActiveMode(initialMode);
+  }, [initialMode]);
 
   useEffect(() => {
     if (!workspaceCommand) return;
@@ -337,6 +343,7 @@ export function SimulationPreview({
               currentPreviewLabel="Current editable Build Plan"
               onCandidateSelect={handleSuggestedCandidateSelection}
               bodyLabelsById={bodyLabelsById}
+              templates={templates}
             />
           )}
         </div>

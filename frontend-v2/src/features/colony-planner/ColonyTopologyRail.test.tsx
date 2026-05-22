@@ -153,11 +153,13 @@ describe('ColonyTopologyRail', () => {
     expect(within(firstBody).getByText('Planned')).toBeTruthy();
     expect(within(firstBody).getByLabelText('Primary-port placement')).toBeTruthy();
     expect(within(firstBody).getAllByText('primary').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('topology-economy-1')).toBeNull();
 
     const moonBody = screen.getByTestId('topology-body-2');
-    expect(within(moonBody).getByText('1')).toBeTruthy();
+    expect(within(moonBody).getAllByText('1').length).toBeGreaterThan(0);
     expect(within(moonBody).queryByText(/Inferred:/i)).toBeNull();
     expect(within(moonBody).queryByText('1 surface')).toBeNull();
+    expect(within(screen.getByTestId('topology-economy-2')).getByText(/Ext/i)).toBeTruthy();
     expect(screen.getByTestId('topology-body-button-2').getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -210,6 +212,7 @@ describe('ColonyTopologyRail', () => {
     expect(screen.getByTestId('topology-projected-group-2')).toBeTruthy();
     expect(within(screen.getByTestId('topology-projected-group-2')).getByText('Projected')).toBeTruthy();
     expect(screen.getByTestId('topology-projected-placement-0')).toBeTruthy();
+    expect(within(screen.getByTestId('topology-economy-2')).getByText(/\+1/i)).toBeTruthy();
   });
 
   it('renders canonical slot lane counts and occupancy for a 4 orbital / 5 ground body', () => {

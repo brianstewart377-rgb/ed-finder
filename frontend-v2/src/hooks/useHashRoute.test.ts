@@ -18,6 +18,7 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
     ['#colony', 'colony'],
     ['#admin', 'admin'],
     ['#colony-planner', 'colony-planner'],
+    ['#colony-planner-prototype', 'colony-planner-prototype'],
   ] as const)('parses %s as %s', (hash, route) => {
     window.location.hash = hash;
 
