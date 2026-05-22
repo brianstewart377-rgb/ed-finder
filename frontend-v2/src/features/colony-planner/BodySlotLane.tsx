@@ -48,11 +48,11 @@ export function BodySlotLane({
       />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="font-mono text-[11px] uppercase tracking-[0.1em] text-silver">{label}</div>
-          <p className="mt-0.5 text-xs leading-relaxed text-silver-dk">{helper}</p>
+          <div className="mb-4 font-mono text-2xl font-bold uppercase tracking-wide text-silver">{label}</div>
+          <p className="mt-0.5 text-xs leading-relaxed text-silver">{helper}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="rounded border border-border/55 bg-bg2/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-silver-dk">
+          <span className="rounded border border-border/55 bg-bg2/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-silver">
             {slotStatus}
           </span>
           <button

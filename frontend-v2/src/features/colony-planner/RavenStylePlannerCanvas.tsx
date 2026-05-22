@@ -169,7 +169,7 @@ export function RavenStylePlannerCanvas({
           </div>
           <div className="min-w-0">
             <h2 className="font-display text-lg text-orange">Whole-System Build Canvas</h2>
-            <p className="truncate text-xs leading-relaxed text-silver-dk">
+            <p className="truncate text-xs leading-relaxed text-silver">
               Real bodies, validated slot predictions, Build Plan placements, and selected Suggested Build projection.
             </p>
           </div>
@@ -190,17 +190,17 @@ export function RavenStylePlannerCanvas({
       <div className="overflow-x-auto">
         <div className="min-w-[860px]">
           <div
-            className="grid border-b border-orange/20 bg-bg2/70 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.1em] text-silver-dk"
+            className="mb-4 grid border-b border-orange/20 bg-bg2/70 px-3 py-4 font-mono text-2xl font-bold uppercase tracking-wide text-silver"
             style={gridStyle}
           >
-            <div className="text-cyan">System tree</div>
+            <div className="text-cyan">System Tree</div>
             <div>Orbit</div>
             <div>Surface</div>
           </div>
 
           <div className="divide-y divide-border/45">
             {rows.length === 0 ? (
-              <div className="px-3 py-5 text-sm text-silver-dk">No real body layout is available for this system.</div>
+              <div className="px-3 py-5 text-sm text-silver">No real body layout is available for this system.</div>
             ) : rows.map((row) => (
               <RavenPlannerBodyRow
                 key={row.id}
@@ -258,7 +258,7 @@ export function RavenPlannerTelemetryPanel({
         </div>
         <div>
           <h2 className="font-display text-base text-orange">Planning Telemetry</h2>
-          <p className="text-xs leading-relaxed text-silver-dk">Live planner data, Preview remains explicit.</p>
+          <p className="text-xs leading-relaxed text-silver">Live planner data, Preview remains explicit.</p>
         </div>
       </div>
 
@@ -277,7 +277,7 @@ export function RavenPlannerTelemetryPanel({
 
       <div className="mt-4 border-t border-border/70 pt-3">
         <h3 className="font-mono text-[11px] uppercase tracking-[0.12em] text-cyan">Economy mix</h3>
-        <p className="mt-1 text-xs leading-relaxed text-silver-dk">{PLANNING_ECONOMY_NOTE}</p>
+        <p className="mt-1 text-xs leading-relaxed text-silver">{PLANNING_ECONOMY_NOTE}</p>
         <div className="mt-2">
           <PlanningEconomyStrip ledger={economyLedger} testId="raven-telemetry-economy-ledger" />
         </div>
@@ -293,8 +293,8 @@ export function RavenPlannerTelemetryPanel({
       <div className="mt-4 border-t border-cyan/25 pt-3">
         <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-cyan">Selected focus</div>
         <div className="mt-1 text-base font-semibold leading-snug text-silver">{selectedContext.label}</div>
-        <div className="mt-1 text-sm text-silver-dk">{selectedContext.kind}</div>
-        <p className="mt-2 text-sm leading-relaxed text-silver-dk">{selectedContext.detail}</p>
+        <div className="mt-1 text-sm text-silver">{selectedContext.kind}</div>
+        <p className="mt-2 text-sm leading-relaxed text-silver">{selectedContext.detail}</p>
       </div>
 
       {bodyDetail && <SelectedBodyTelemetryCard detail={bodyDetail} />}
@@ -438,7 +438,7 @@ function TreeCell({
               testId={`raven-body-slot-indicators-${row.id}`}
             />
           </span>
-          <span className="mt-0.5 block truncate text-xs leading-snug text-silver-dk">{row.bodyKind}</span>
+          <span className="mt-0.5 block truncate text-xs leading-snug text-silver">{row.bodyKind}</span>
         </span>
       </button>
     </div>
@@ -515,7 +515,7 @@ function RavenSlotBox({
     <>
       {slot.kind === 'projected' && <span data-testid="raven-projected-ghost-structure" className="sr-only">{slot.fullName}</span>}
       {slot.status !== 'unknown' && (
-        <span className={slot.kind === 'projected' ? 'absolute right-1 top-0.5 text-[8px] text-cyan' : 'absolute right-1 top-0.5 text-[8px] text-silver-dk'}>
+        <span className={slot.kind === 'projected' ? 'absolute right-1 top-0.5 text-[8px] text-cyan' : 'absolute right-1 top-0.5 text-[8px] text-silver'}>
           {slot.kind === 'projected' ? 'PROJ' : slot.kind === 'overflow' ? 'OVER' : 'PLAN'}
         </span>
       )}
@@ -644,7 +644,7 @@ function ProjectionComparisonCard({
         <ProjectionViewButton view="slots" active={view === 'slots'} disabled={controlsDisabled} onSelect={onViewChange} />
       </div>
       {!summary.hasProjection ? (
-        <p className="mt-2 text-xs leading-relaxed text-silver-dk">
+        <p className="mt-2 text-xs leading-relaxed text-silver">
           Select a Suggested Build candidate to compare ghost structures against the current Build Plan. Loading and Preview stay explicit.
         </p>
       ) : view === 'bodies' ? (
@@ -679,7 +679,7 @@ function ProjectionViewButton({
       onClick={() => onSelect(view)}
       className={[
         'rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors disabled:cursor-not-allowed disabled:opacity-45',
-        active ? 'border-orange/55 bg-orange/15 text-orange' : 'border-border/60 bg-bg3/45 text-silver-dk hover:border-cyan/45 hover:text-cyan',
+        active ? 'border-orange/55 bg-orange/15 text-orange' : 'border-border/60 bg-bg3/45 text-silver hover:border-cyan/45 hover:text-cyan',
       ].join(' ')}
     >
       {label}
@@ -718,13 +718,13 @@ function ProjectionEconomyView({ summary }: { summary: ProjectionComparisonSumma
               style={{ width: `${entry.projected > 0 && entry.total > 0 ? Math.max(8, (entry.projected / entry.total) * 100) : 0}%` }}
             />
           </span>
-          <span className="text-right text-silver-dk">
+          <span className="text-right text-silver">
             <span className="text-orange">{entry.planned}</span>
             <span className="text-cyan"> +{entry.projected}</span>
           </span>
         </div>
       )) : (
-        <p className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px] text-silver-dk">No economy metadata to compare.</p>
+        <p className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px] text-silver">No economy metadata to compare.</p>
       )}
     </div>
   );
@@ -750,7 +750,7 @@ function ProjectionMetric({ label, value, tone }: { label: string; value: number
   }[tone];
   return (
     <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono">
-      <div className="truncate text-[9px] uppercase tracking-[0.12em] text-silver-dk">{label}</div>
+      <div className="truncate text-[9px] uppercase tracking-[0.12em] text-silver">{label}</div>
       <div className={["mt-0.5 text-[13px] font-semibold", toneClass].join(' ')}>{value}</div>
     </div>
   );
@@ -759,7 +759,7 @@ function ProjectionMetric({ label, value, tone }: { label: string; value: number
 function ProjectionBodyList({ label, values }: { label: string; values: string[] }) {
   return (
     <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px]">
-      <div className="uppercase tracking-[0.12em] text-silver-dk">{label}</div>
+      <div className="uppercase tracking-[0.12em] text-silver">{label}</div>
       <div className="mt-0.5 truncate text-silver">{values.length > 0 ? values.join(', ') : 'None'}</div>
     </div>
   );
@@ -832,7 +832,7 @@ function SelectedStructureTelemetryCard({ detail }: { detail: StructureTelemetry
           ))
           : <TelemetryChip label="No economy metadata" tone="gold" />}
       </div>
-      <p className="mt-2 break-all font-mono text-[10px] text-silver-dk">{detail.templateId}</p>
+      <p className="mt-2 break-all font-mono text-[10px] text-silver">{detail.templateId}</p>
     </section>
   );
 }
@@ -855,7 +855,7 @@ function TelemetryField({
   }[tone];
   return (
     <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1">
-      <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">{label}</div>
+      <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-silver">{label}</div>
       <div className={["mt-0.5 truncate text-[11px] font-semibold", toneClass].join(' ')}>{value}</div>
     </div>
   );
@@ -869,7 +869,7 @@ function TelemetryChip({
   tone?: 'silver' | 'orange' | 'cyan' | 'green' | 'gold';
 }) {
   const toneClass = {
-    silver: 'border-border/60 bg-bg3/45 text-silver-dk',
+    silver: 'border-border/60 bg-bg3/45 text-silver',
     orange: 'border-orange/35 bg-orange/10 text-orange',
     cyan: 'border-cyan/35 bg-cyan/10 text-cyan',
     green: 'border-green/35 bg-green/10 text-green',
@@ -965,7 +965,7 @@ function countBodyPlacements(placements: SimulateBuildPlacement[], bodyId: strin
 function TelemetryMetric({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="grid grid-cols-[1fr_auto] items-baseline gap-2">
-      <div className="truncate font-mono text-[10px] uppercase tracking-[0.1em] text-silver-dk">{label}</div>
+      <div className="truncate font-mono text-[10px] uppercase tracking-[0.1em] text-silver">{label}</div>
       <div className="text-right font-display text-base text-silver">{value}</div>
     </div>
   );
@@ -982,7 +982,7 @@ function ZeroCenteredStatBar({ id, label, value }: { id: string; label: string; 
       data-direction={direction}
       className="grid grid-cols-[7.5rem_1fr_3.6rem] items-center gap-2 font-mono text-[11px]"
     >
-      <span className="truncate text-silver-dk">{label}</span>
+      <span className="truncate text-silver">{label}</span>
       <span className="relative h-4 overflow-hidden rounded-sm border border-border/60 bg-bg4/80 shadow-inner-soft">
         <span data-testid={`raven-stat-${id}-zero-axis`} aria-hidden className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-silver/55" />
         <span
@@ -1017,7 +1017,7 @@ function ZeroCenteredStatBar({ id, label, value }: { id: string; label: string; 
 
 function CanvasPill({ label, tone }: { label: string; tone: 'silver' | 'orange' | 'cyan' | 'green' | 'gold' }) {
   const toneClass = {
-    silver: 'border-border/60 bg-bg3/45 text-silver-dk',
+    silver: 'border-border/60 bg-bg3/45 text-silver',
     orange: 'border-orange/35 bg-orange/10 text-orange',
     cyan: 'border-cyan/35 bg-cyan/10 text-cyan',
     green: 'border-green/35 bg-green/10 text-green',
