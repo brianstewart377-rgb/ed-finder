@@ -62,11 +62,19 @@ export function SystemDetailModal({
         className="panel relative w-full max-w-6xl animate-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
+        <button
+          type="button"
+          onClick={onClose}
+          data-testid="system-detail-close"
+          aria-label="Close system details"
+          className="absolute right-4 top-4 z-50 grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-bg1/95 text-white shadow-[0_10px_30px_rgba(0,0,0,0.45)] transition-colors hover:border-orange/70 hover:bg-orange hover:text-bg1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+        >
+          <X size={19} strokeWidth={3} />
+        </button>
         <ModalHeader
           name={data?.name}
           id64={id64}
           loading={loading}
-          onClose={onClose}
         />
 
         <div className="px-5 sm:px-6 py-5 space-y-5 text-sm">
@@ -180,10 +188,10 @@ function ColonyPlannerEntryPoint({
 // ─── Header ────────────────────────────────────────────────────────────────
 
 function ModalHeader({
-  name, id64, loading, onClose,
-}: { name?: string; id64: number; loading: boolean; onClose: () => void }) {
+  name, id64, loading,
+}: { name?: string; id64: number; loading: boolean }) {
   return (
-    <header className="sticky top-0 z-10 flex items-start gap-3 px-5 sm:px-7 py-4 border-b border-border bg-bg2/85 backdrop-blur-md rounded-t-chunk-lg">
+    <header className="sticky top-0 z-10 flex items-start gap-3 px-5 py-4 pr-16 sm:px-7 sm:pr-20 border-b border-border bg-bg2/85 backdrop-blur-md rounded-t-chunk-lg">
       <div className="min-w-0 flex-1">
         <h2
           id="system-detail-title"
@@ -195,15 +203,6 @@ function ModalHeader({
           ID64 · <span className="tabular-nums text-silver">{id64}</span>
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onClose}
-        data-testid="system-detail-close"
-        aria-label="Close"
-        className="shrink-0 grid place-items-center w-9 h-9 rounded-full text-silver-dk hover:text-orange-lt hover:bg-orange/10 border border-border hover:border-orange/45 transition-colors"
-      >
-        <X size={16} />
-      </button>
     </header>
   );
 }

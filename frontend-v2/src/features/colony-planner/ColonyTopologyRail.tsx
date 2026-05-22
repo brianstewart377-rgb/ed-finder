@@ -18,6 +18,7 @@ import {
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import { buildPlanningEconomyLedger } from './planningEconomy';
+import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, hasEstimatedSlotFallback, resolveSlotCapacity } from './slotCapacityFallback';
 
 export type TopologySelection =
   | { type: 'system' }
@@ -85,6 +86,7 @@ export function ColonyTopologyRail({
   const buckets = bucketPlacements(snapshot.placements, snapshot.templates, bodies);
   const totalPlacements = snapshot.placements.length;
   const selectedIsSystem = selection.type === 'system';
+  const hasEstimatedSlots = hasEstimatedSlotFallback(system, snapshot);
   const projectedByBody = bucketProjectedPlacements(snapshot.projection?.placements ?? [], snapshot.templates, bodies);
   const projectedBodyIds = new Set(
     (snapshot.projection?.placements ?? [])
@@ -111,6 +113,14 @@ export function ColonyTopologyRail({
           <div className="text-cyan">Predicted slots</div>
           <div className="mt-0.5">{snapshot.slotPredictions.disclaimer}</div>
           <div className="mt-0.5 italic">{snapshot.slotPredictions.validation_note}</div>
+        </div>
+      )}
+      {hasEstimatedSlots && (
+        <div
+          data-testid="topology-slot-estimate-disclaimer"
+          className="mt-2 rounded border border-gold/30 bg-gold/10 px-2 py-1.5 font-mono text-[10px] italic text-gold"
+        >
+          {ESTIMATED_SLOT_LAYOUT_DISCLAIMER}
         </div>
       )}
 
@@ -246,8 +256,10 @@ function BodyTreeRow({
       ...projectedPlacements.map((item) => item.template).filter((template): template is FacilityTemplate => Boolean(template)),
     ],
   });
-  const orbitalCapacity = slotPrediction?.predicted_orbital_slots ?? null;
-  const groundCapacity = slotPrediction?.predicted_ground_slots ?? null;
+  const orbitalSlotCapacity = resolveSlotCapacity(node.body, slotPrediction, 'orbital');
+  const groundSlotCapacity = resolveSlotCapacity(node.body, slotPrediction, 'surface');
+  const orbitalCapacity = orbitalSlotCapacity.value;
+  const groundCapacity = groundSlotCapacity.value;
   const orbitalOverflow = orbitalCapacity == null ? 0 : Math.max(0, plannedOrbital.length + projectedOrbital.length - orbitalCapacity);
   const groundOverflow = groundCapacity == null ? 0 : Math.max(0, plannedGround.length + projectedGround.length - groundCapacity);
   const unknownOverflow = plannedUnknown.length + projectedUnknown.length;

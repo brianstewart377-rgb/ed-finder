@@ -10,6 +10,7 @@ import { BodyStructureSlot, type BodyStructureSlotItem } from './BodyStructureSl
 import { ProjectedStructureSlot } from './ProjectedStructureSlot';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import { buildPlanningEconomyLedger } from './planningEconomy';
+import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity } from './slotCapacityFallback';
 
 export type BodyPlannerLane = 'orbital' | 'surface';
 
@@ -59,8 +60,11 @@ export function BodySlotPlanner({
   const orbitalProjected = projectedPlacements.filter((item) => laneForTemplate(item.template, body) === 'orbital');
   const surfaceProjected = projectedPlacements.filter((item) => laneForTemplate(item.template, body) === 'surface');
 
-  const orbitalSlots = readLaneSlotCount(slotPrediction, 'orbital');
-  const surfaceSlots = readLaneSlotCount(slotPrediction, 'surface');
+  const orbitalCapacity = resolveSlotCapacity(body, slotPrediction, 'orbital');
+  const surfaceCapacity = resolveSlotCapacity(body, slotPrediction, 'surface');
+  const orbitalSlots = orbitalCapacity.value;
+  const surfaceSlots = surfaceCapacity.value;
+  const hasEstimatedSlots = orbitalCapacity.estimated || surfaceCapacity.estimated;
   const surfaceBlocked = body.is_water_world === true || body.is_landable === false;
   const surfaceBlockedReason = body.is_water_world
     ? 'Surface limited: water world.'
@@ -100,6 +104,11 @@ export function BodySlotPlanner({
                 testId="selected-body-slot-indicators"
               />
             </div>
+            {hasEstimatedSlots && (
+              <p data-testid="body-slot-estimated-disclaimer" className="mt-1 font-mono text-[10px] italic text-gold">
+                {ESTIMATED_SLOT_LAYOUT_DISCLAIMER}
+              </p>
+            )}
             <div className="mt-1 flex flex-wrap gap-1.5">
               <FactChip label={body.subtype ?? body.body_type ?? 'Body'} />
               {tags.map((tag) => <FactChip key={tag} label={tag} />)}
@@ -148,6 +157,7 @@ export function BodySlotPlanner({
             selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
             onSelectProjectedPlacement={onSelectProjectedPlacement}
+            onAddEmptySlot={hasTemplates ? () => onAddLaneStructure('orbital') : undefined}
           />
           <LaneSlots
             body={body}
@@ -180,6 +190,7 @@ export function BodySlotPlanner({
             selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
             onSelectProjectedPlacement={onSelectProjectedPlacement}
+            onAddEmptySlot={hasTemplates && !surfaceBlocked ? () => onAddLaneStructure('surface') : undefined}
           />
           <LaneSlots
             body={body}
@@ -239,11 +250,17 @@ function BodyRingMap({
   return (
     <section data-testid="body-slot-graph" className="mb-3 rounded border border-border/60 bg-bg3/35 px-2 py-3">
       <div className="relative mx-auto min-h-[18.5rem] max-w-[56rem]">
-        <div className="absolute left-1/2 top-[8.9rem] h-[16rem] w-[16rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan/35" />
-        <div className="absolute left-1/2 top-[8.9rem] h-[11.4rem] w-[11.4rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-green/35" />
-        <div className="absolute left-1/2 top-[8.9rem] h-[6.4rem] w-[6.4rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-orange/45 bg-orange/10 shadow-[0_0_30px_rgba(255,122,20,0.2)]" />
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 320 320"
+          className="pointer-events-none absolute left-1/2 top-[8.9rem] h-[16rem] w-[16rem] -translate-x-1/2 -translate-y-1/2 overflow-visible"
+        >
+          <circle cx="160" cy="160" r="130" fill="none" stroke="#9bdcff" strokeWidth="24" strokeOpacity="0.18" />
+          <circle cx="160" cy="160" r="92" fill="none" stroke="#d9aa72" strokeWidth="16" strokeOpacity="0.18" />
+        </svg>
+        <div className="pointer-events-none absolute left-1/2 top-[8.9rem] h-[6.4rem] w-[6.4rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-orange/45 bg-orange/10 shadow-[0_0_30px_rgba(255,122,20,0.2)]" />
 
-        <div className="absolute left-1/2 top-[8.9rem] -translate-x-1/2 -translate-y-1/2 text-center">
+        <div className="pointer-events-none absolute left-1/2 top-[8.9rem] -translate-x-1/2 -translate-y-1/2 text-center">
           <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Body core</div>
         </div>
 
@@ -290,8 +307,8 @@ function BodyRingMap({
           onAdd={() => onAddLaneStructure('surface')}
         />
 
-        <div className="absolute left-2 top-2 rounded border border-cyan/35 bg-cyan/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">Orbit ring</div>
-        <div className="absolute left-2 top-8 rounded border border-green/35 bg-green/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-green">Surface ring</div>
+        <div className="pointer-events-none absolute left-2 top-2 rounded border border-cyan/35 bg-cyan/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">Orbit band</div>
+        <div className="pointer-events-none absolute left-2 top-8 rounded border border-gold/35 bg-gold/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gold">Surface band</div>
       </div>
     </section>
   );
@@ -354,7 +371,7 @@ function RingPlacementToken({
         onClick={onClick}
         style={{ left, top, transform: 'translate(-50%, -50%)' }}
         className={[
-          'absolute z-10 grid h-8 w-8 place-items-center rounded-full border font-mono text-[9px] font-bold uppercase tracking-[0.08em] transition-transform hover:scale-105',
+          'absolute z-30 grid h-8 w-8 place-items-center rounded-full border font-mono text-[9px] font-bold uppercase tracking-[0.08em] transition-transform hover:scale-105',
           toneClass,
           selectedClass,
         ].join(' ')}
@@ -368,7 +385,7 @@ function RingPlacementToken({
     <div
       style={{ left, top, transform: 'translate(-50%, -50%)' }}
       className={[
-        'absolute z-10 grid h-8 w-8 place-items-center rounded-full border font-mono text-[9px] font-bold uppercase tracking-[0.08em]',
+        'absolute z-30 grid h-8 w-8 place-items-center rounded-full border font-mono text-[9px] font-bold uppercase tracking-[0.08em]',
         toneClass,
       ].join(' ')}
     >
@@ -404,7 +421,7 @@ function LaneAddNode({
       onClick={onAdd}
       style={{ left, top, transform: 'translate(-50%, -50%)' }}
       className={[
-        'absolute z-20 grid h-8 w-8 place-items-center rounded-full border text-sm font-bold transition-transform',
+        'absolute z-40 grid h-8 w-8 place-items-center rounded-full border text-sm font-bold transition-transform',
         enabled
           ? 'border-orange/55 bg-orange/18 text-orange hover:scale-110'
           : 'cursor-not-allowed border-gold/35 bg-gold/10 text-gold/70',
@@ -424,6 +441,7 @@ function LaneCapacityMap({
   selectedProjectedPlacementIndex,
   onSelectPlacement,
   onSelectProjectedPlacement,
+  onAddEmptySlot,
 }: {
   laneKey: BodyPlannerLane;
   capacity: number | null;
@@ -433,6 +451,7 @@ function LaneCapacityMap({
   selectedProjectedPlacementIndex: number | null;
   onSelectPlacement: (index: number) => void;
   onSelectProjectedPlacement: (index: number) => void;
+  onAddEmptySlot?: () => void;
 }) {
   const used = planned.length + projected.length;
   if (capacity == null) {
@@ -496,10 +515,12 @@ function LaneCapacityMap({
     return {
       key: `empty-${laneKey}-${index}`,
       label: '',
-      fullLabel: 'Empty slot',
+      fullLabel: onAddEmptySlot
+        ? `Add ${laneKey === 'orbital' ? 'orbit' : 'surface'} structure to empty slot`
+        : 'Empty slot',
       projected: false,
       selected: false,
-      onClick: undefined,
+      onClick: onAddEmptySlot,
     };
   });
   const overflow = Math.max(0, used - capacity);
@@ -657,19 +678,6 @@ function laneForTemplate(template: FacilityTemplate | undefined, body: SystemBod
 
 function fallbackLaneForBody(body: SystemBody): BodyPlannerLane {
   return body.is_landable === true && body.is_water_world !== true ? 'surface' : 'orbital';
-}
-
-function readLaneSlotCount(
-  prediction: BodySlotPrediction | null,
-  lane: 'orbital' | 'surface',
-): number | null {
-  const raw = lane === 'orbital'
-    ? prediction?.predicted_orbital_slots
-    : prediction?.predicted_ground_slots;
-  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) {
-    return null;
-  }
-  return Math.floor(raw);
 }
 
 function laneSlotStatusLabel(slotCount: number | null, plannedCount: number, projectedCount: number) {

@@ -304,7 +304,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect(screen.getByTestId('center-surface-slot-4')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('slot-lane-add-orbital'));
+    fireEvent.click(screen.getByTestId('center-orbital-slot-3'));
     fireEvent.click(await screen.findByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
@@ -313,7 +313,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect((screen.getByTestId('center-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByTestId('slot-lane-add-surface'));
+    fireEvent.click(screen.getByTestId('center-surface-slot-4'));
     fireEvent.click(await screen.findByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);

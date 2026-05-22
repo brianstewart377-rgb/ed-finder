@@ -13,6 +13,7 @@ import { templateLocationKind } from '@/features/system-detail/simulation-previe
 import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
 import { SlotCapacityDots } from './BodySlotPlanner';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
+import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity } from './slotCapacityFallback';
 import {
   buildPlanningEconomyLedger,
   normalisePlanningEconomy,
@@ -74,6 +75,8 @@ export interface RavenPlannerRow {
   bodyTags: string[];
   orbitalCapacity: number | null;
   groundCapacity: number | null;
+  orbitalCapacityEstimated: boolean;
+  groundCapacityEstimated: boolean;
   orbitalSlots: RavenStructureSlot[];
   groundSlots: RavenStructureSlot[];
   bodyEconomy: PlanningEconomyLedger;
@@ -142,6 +145,7 @@ export function RavenStylePlannerCanvas({
         ? placementBodyId(snapshot.projection?.placements[selection.placementIndex])
         : null;
   const selectedProjectedPlacementIndex = selection.type === 'projected-placement' ? selection.placementIndex : null;
+  const hasEstimatedSlots = rows.some((row) => row.orbitalCapacityEstimated || row.groundCapacityEstimated);
   const gridStyle: CSSProperties = {
     gridTemplateColumns: '280px minmax(300px,1fr) minmax(320px,1.05fr)',
   };
@@ -169,9 +173,14 @@ export function RavenStylePlannerCanvas({
           <CanvasPill label={`${rows.length} bodies`} tone="silver" />
           <CanvasPill label={`${snapshot.placements.length} planned`} tone={snapshot.placements.length > 0 ? 'orange' : 'silver'} />
           {snapshot.projection && <CanvasPill label={`${snapshot.projection.placements.length} projected`} tone="cyan" />}
-          <CanvasPill label={snapshot.slotPredictions ? 'slots loaded' : 'slots unknown'} tone={snapshot.slotPredictions ? 'green' : 'gold'} />
+          <CanvasPill label={hasEstimatedSlots ? 'slots estimated' : snapshot.slotPredictions ? 'slots loaded' : 'slots unknown'} tone={hasEstimatedSlots ? 'gold' : snapshot.slotPredictions ? 'green' : 'gold'} />
         </div>
       </header>
+      {hasEstimatedSlots && (
+        <div data-testid="raven-slot-estimate-disclaimer" className="border-b border-gold/25 bg-gold/8 px-3 py-2 font-mono text-[10px] italic text-gold">
+          {ESTIMATED_SLOT_LAYOUT_DISCLAIMER}
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <div className="min-w-[860px]">
@@ -1032,6 +1041,10 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
     const projected = projectedByBody.get(node.id) ?? emptyStructureBuckets();
     const orbitalStructures = [...planned.orbital, ...projected.orbital];
     const groundStructures = [...planned.ground, ...projected.ground];
+    const orbitalSlotCapacity = resolveSlotCapacity(node.body, prediction, 'orbital');
+    const groundSlotCapacity = resolveSlotCapacity(node.body, prediction, 'surface');
+    const orbitalCapacity = orbitalSlotCapacity.value;
+    const groundCapacity = groundSlotCapacity.value;
     const bodyLedger = buildPlanningEconomyLedger({
       placements: [...planned.orbital, ...planned.ground].map((item) => item.placement),
       projectedPlacements: [...projected.orbital, ...projected.ground].map((item) => item.placement),
@@ -1048,10 +1061,12 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
       compactName: compactBodyDisplayName(node.body, system.name),
       bodyKind: bodyKind(node.body),
       bodyTags: bodyTags(node.body),
-      orbitalCapacity: readSlotCount(prediction, 'orbital'),
-      groundCapacity: readSlotCount(prediction, 'ground'),
-      orbitalSlots: buildLaneSlots(node.id, 'orbital', readSlotCount(prediction, 'orbital'), orbitalStructures),
-      groundSlots: buildLaneSlots(node.id, 'ground', readSlotCount(prediction, 'ground'), groundStructures),
+      orbitalCapacity,
+      groundCapacity,
+      orbitalCapacityEstimated: orbitalSlotCapacity.estimated,
+      groundCapacityEstimated: groundSlotCapacity.estimated,
+      orbitalSlots: buildLaneSlots(node.id, 'orbital', orbitalCapacity, orbitalStructures),
+      groundSlots: buildLaneSlots(node.id, 'ground', groundCapacity, groundStructures),
       bodyEconomy: bodyLedger,
       projected: projectedBodyIds.has(node.id),
       warningCount: countRowWarnings(node.body, prediction, bodyLedger),
@@ -1353,12 +1368,6 @@ function laneForPlacement(template: FacilityTemplate | undefined, body: SystemBo
 
 function fallbackRavenLane(body: SystemBody | undefined): 'orbital' | 'ground' {
   return body?.is_landable === true && body.is_water_world !== true ? 'ground' : 'orbital';
-}
-
-function readSlotCount(prediction: BodySlotPrediction | null, lane: RavenLane): number | null {
-  const value = lane === 'orbital' ? prediction?.predicted_orbital_slots : prediction?.predicted_ground_slots;
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
-  return Math.floor(value);
 }
 
 function placementBodyId(placement: SimulateBuildPlacement | undefined): string | null {
