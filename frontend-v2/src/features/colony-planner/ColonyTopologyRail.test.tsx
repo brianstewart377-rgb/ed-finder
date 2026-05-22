@@ -232,6 +232,39 @@ describe('ColonyTopologyRail', () => {
     expect(screen.getByTestId('slot-lane-unknown-2-ground')).toBeTruthy();
   });
 
+  it('falls back to estimated slots from body data when canonical prediction is unknown', () => {
+    render(
+      <RailHarness
+        customSystem={{
+          ...system,
+          bodies: [
+            ...(system.bodies ?? []).slice(0, 2),
+            {
+              id: 2,
+              name: 'Tree System A 1 a',
+              body_type: 'Planet',
+              subtype: 'High metal content world',
+              parent_body_id: 1,
+              is_landable: true,
+              is_terraformable: true,
+              radius: 2_500_000,
+              geo_signal_count: 1,
+              bio_signal_count: 1,
+            },
+          ],
+        } as unknown as SystemDetail}
+      />,
+    );
+
+    expect(screen.getByTestId('topology-slot-estimate-disclaimer').textContent).toContain(
+      'Slot layout estimated from body data',
+    );
+    expect(screen.queryByTestId('slot-lane-unknown-2-orbital')).toBeNull();
+    expect(screen.queryByTestId('slot-lane-unknown-2-ground')).toBeNull();
+    expect(screen.getByTestId('2-orbital-slot-1')).toBeTruthy();
+    expect(screen.getByTestId('2-ground-slot-4')).toBeTruthy();
+  });
+
   it('shows overflow when structures exceed predicted capacity', () => {
     render(
       <RailHarness

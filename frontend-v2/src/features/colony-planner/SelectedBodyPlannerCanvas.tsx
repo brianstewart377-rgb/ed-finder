@@ -1,6 +1,6 @@
 import { PanelTopOpen, Sparkles, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { BodySlotPrediction, FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
+import type { FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 import {
   bodyDisplayName,
   bodyTags,
@@ -12,6 +12,7 @@ import { templateLocationKind } from '@/features/system-detail/simulation-previe
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { BodySlotPlanner, type BodyPlannerLane } from './BodySlotPlanner';
 import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
+import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity } from './slotCapacityFallback';
 
 interface PlacementViewItem {
   placement: SimulateBuildPlacement;
@@ -196,6 +197,7 @@ interface SystemOverviewItem {
   plannedSurface: number;
   projectedOrbital: number;
   projectedSurface: number;
+  slotLayoutEstimated: boolean;
   score: number;
 }
 
@@ -217,6 +219,7 @@ function SystemOverviewPlannerCanvas({
   const knownOrbitalCapacity = sumKnownCapacity(overviewItems, 'orbital');
   const knownSurfaceCapacity = sumKnownCapacity(overviewItems, 'surface');
   const unknownSurfaceCount = overviewItems.filter((item) => item.surfaceCapacity == null).length;
+  const hasEstimatedSlots = overviewItems.some((item) => item.slotLayoutEstimated);
   const plannedCount = snapshot.placements.length;
   const projectedCount = snapshot.projection?.placements.length ?? 0;
 
@@ -240,6 +243,11 @@ function SystemOverviewPlannerCanvas({
           <OverviewStat label="Surface cap" value={knownSurfaceCapacity > 0 ? String(knownSurfaceCapacity) : 'unknown'} tone="gold" />
         </div>
       </div>
+      {hasEstimatedSlots && (
+        <p data-testid="system-overview-slot-estimate-disclaimer" className="mt-2 font-mono text-[10px] italic text-gold">
+          {ESTIMATED_SLOT_LAYOUT_DISCLAIMER}
+        </p>
+      )}
 
       <div className="mt-4 rounded border border-border/60 bg-bg3/30 p-3" data-testid="system-overview-map">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -488,8 +496,10 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
       const slotPrediction = predictionsByBodyId.get(bodyId) ?? null;
       const planned = plannedCounts.get(bodyId) ?? emptyLaneCounts();
       const projected = projectedCounts.get(bodyId) ?? emptyLaneCounts();
-      const orbitalCapacity = readOverviewSlotCount(slotPrediction, 'orbital');
-      const surfaceCapacity = readOverviewSlotCount(slotPrediction, 'surface');
+      const orbitalSlotCapacity = resolveSlotCapacity(body, slotPrediction, 'orbital');
+      const surfaceSlotCapacity = resolveSlotCapacity(body, slotPrediction, 'surface');
+      const orbitalCapacity = orbitalSlotCapacity.value;
+      const surfaceCapacity = surfaceSlotCapacity.value;
       const tags = bodyTags(body);
       const score = overviewBodyScore(body, planned, projected, orbitalCapacity, surfaceCapacity, tags);
       return {
@@ -505,6 +515,7 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
         plannedSurface: planned.surface,
         projectedOrbital: projected.orbital,
         projectedSurface: projected.surface,
+        slotLayoutEstimated: orbitalSlotCapacity.estimated || surfaceSlotCapacity.estimated,
         score,
       };
     })
@@ -555,19 +566,6 @@ function overviewLaneForTemplate(template: FacilityTemplate | undefined, body: S
 
 function fallbackOverviewLane(body: SystemBody | undefined): BodyPlannerLane {
   return body?.is_landable === true && body.is_water_world !== true ? 'surface' : 'orbital';
-}
-
-function readOverviewSlotCount(
-  prediction: BodySlotPrediction | null,
-  lane: 'orbital' | 'surface',
-): number | null {
-  const raw = lane === 'orbital'
-    ? prediction?.predicted_orbital_slots
-    : prediction?.predicted_ground_slots;
-  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) {
-    return null;
-  }
-  return Math.floor(raw);
 }
 
 function overviewBodyScore(
