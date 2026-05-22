@@ -99,6 +99,7 @@ export function useSimulationPreviewPlan({
   ]);
 
   useEffect(() => {
+    if (initialRequest) return;
     if (!hasRecommendedBuild || autoLoadedRecommendation) return;
     if (placements.length > 0 || startMode === 'blank_advanced') return;
     setTargetArchetype(suggestedArchetype);
@@ -111,6 +112,7 @@ export function useSimulationPreviewPlan({
     autoLoadedRecommendation,
     clearOptimiserCandidateOrigin,
     hasRecommendedBuild,
+    initialRequest,
     placements.length,
     replacePlacements,
     recommendedPlacements,

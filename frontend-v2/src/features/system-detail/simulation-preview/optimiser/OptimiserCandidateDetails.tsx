@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
 import { PlanningEconomyStrip } from '@/features/colony-planner/PlanningEconomyStrip';
+import { bodyIdKey } from '../bodyIdUtils';
 import { buildPlanningEconomyLedger } from '@/features/colony-planner/planningEconomy';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
@@ -68,14 +69,15 @@ export function OptimiserCandidateDetails({
       .map((placement) => placement.local_body_id ?? '')
       .filter((bodyId) => Boolean(bodyId)),
   ));
-  const usedBodyNames = usedBodyIds.map((bodyId) => bodyLabelsById?.[bodyId] ?? `Body ${bodyId}`);
+  const labelForBodyId = (bodyId: string) => bodyLabelsById?.[bodyId] ?? bodyLabelsById?.[bodyIdKey(bodyId)] ?? `Body ${bodyId}`;
+  const usedBodyNames = usedBodyIds.map(labelForBodyId);
   const mainBodyId = candidate.placements.find((placement) => placement.is_primary_port)?.local_body_id
     ?? usedBodyIds[0]
     ?? null;
-  const mainBodyLabel = mainBodyId ? (bodyLabelsById?.[mainBodyId] ?? `Body ${mainBodyId}`) : null;
+  const mainBodyLabel = mainBodyId ? labelForBodyId(mainBodyId) : null;
   const supportBodyLabels = usedBodyIds
     .filter((bodyId) => bodyId !== mainBodyId)
-    .map((bodyId) => bodyLabelsById?.[bodyId] ?? `Body ${bodyId}`);
+    .map(labelForBodyId);
   const projectedEconomyLedger = buildPlanningEconomyLedger({
     projectedPlacements: candidate.placements.map((placement) => ({
       facility_template_id: placement.facility_template_id,

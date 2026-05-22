@@ -15,6 +15,7 @@ import {
   type BodyGroup,
   type GroupedPlacement,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
+import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import { buildPlanningEconomyLedger } from './planningEconomy';
 
@@ -22,6 +23,7 @@ export type TopologySelection =
   | { type: 'system' }
   | { type: 'body'; bodyId: string }
   | { type: 'placement'; placementIndex: number }
+  | { type: 'projected-placement'; placementIndex: number }
   | { type: 'group'; groupKey: 'unassigned' | 'unknown' };
 
 export interface TopologyPlanSnapshot {
@@ -86,7 +88,7 @@ export function ColonyTopologyRail({
   const projectedByBody = bucketProjectedPlacements(snapshot.projection?.placements ?? [], snapshot.templates, bodies);
   const projectedBodyIds = new Set(
     (snapshot.projection?.placements ?? [])
-      .map((placement) => placement.local_body_id != null ? String(placement.local_body_id) : '')
+      .map((placement) => bodyIdKey(placement.local_body_id))
       .filter(Boolean),
   );
   const projectedBodyLabels = bodyNodes
@@ -143,10 +145,10 @@ export function ColonyTopologyRail({
               key={node.id}
               node={node}
               systemName={system.name}
-              slotPrediction={snapshot.slotPredictions?.predictions?.find((item) => String(item.body_id) === node.id) ?? null}
+              slotPrediction={snapshot.slotPredictions?.predictions?.find((item) => sameBodyId(item.body_id, node.id)) ?? null}
               placements={buckets.knownByBody.get(node.id) ?? []}
               projectedPlacements={projectedByBody.get(node.id) ?? []}
-              selected={selection.type === 'body' && selection.bodyId === node.id}
+              selected={selection.type === 'body' && sameBodyId(selection.bodyId, node.id)}
               selectedPlacementIndex={selection.type === 'placement' ? selection.placementIndex : null}
               projected={projectedBodyIds.has(node.id)}
               onSelect={onSelect}
@@ -539,13 +541,14 @@ export function describeTopologySelection(
   const bodyById = new Map(
     bodies
       .filter((body) => body.id != null)
-      .map((body) => [String(body.id), body]),
+      .map((body) => [bodyIdKey(body.id), body]),
   );
 
   if (selection.type === 'body') {
-    const body = bodyById.get(selection.bodyId);
-    const placements = buckets.knownByBody.get(selection.bodyId) ?? [];
-    const warnings = body ? getBodyGroupWarnings({ key: selection.bodyId, body, placements }) : [];
+    const bodyId = bodyIdKey(selection.bodyId);
+    const body = bodyById.get(bodyId);
+    const placements = buckets.knownByBody.get(bodyId) ?? [];
+    const warnings = body ? getBodyGroupWarnings({ key: bodyId, body, placements }) : [];
     return {
       label: body ? bodyDisplayName(body) : 'Unknown body',
       kind: body?.subtype ?? body?.body_type ?? 'Body',
@@ -553,8 +556,8 @@ export function describeTopologySelection(
       warningCount: warnings.length,
       architectStatus: 'Architect flag not recorded',
       detail: placements.length > 0
-        ? 'Body selected. Review or add structures for this body in the central planner.'
-        : 'Body selected. Add the first structure for this body in the central planner.',
+        ? 'Body selected. Review or add structures in the inline canvas expansion.'
+        : 'Body selected. Add the first structure in the inline canvas expansion.',
     };
   }
 
@@ -569,6 +572,23 @@ export function describeTopologySelection(
       warningCount: warnings.length,
       architectStatus: item?.placement.is_primary_port ? 'Primary-port placement planned; Architect flag not recorded' : 'Architect flag not recorded',
       detail: body ? `Assigned to ${bodyDisplayName(body)}.` : item?.hasUnknownBody ? 'Assigned body is not in the loaded body list.' : 'No body assigned yet.',
+    };
+  }
+
+  if (selection.type === 'projected-placement') {
+    const placement = snapshot.projection?.placements[selection.placementIndex];
+    const template = placement
+      ? snapshot.templates.find((candidate) => candidate.id === placement.facility_template_id)
+      : undefined;
+    const bodyId = placement?.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
+    const body = bodyId ? bodyById.get(bodyId) ?? null : null;
+    return {
+      label: template?.name ?? placement?.facility_template_id ?? 'Projected placement',
+      kind: 'Projected Suggested Build placement',
+      placementCount: placement ? 1 : 0,
+      warningCount: placement && !body ? 1 : 0,
+      architectStatus: 'Projected only; not loaded into the Build Plan',
+      detail: body ? `Ghost structure projected for ${bodyDisplayName(body)}.` : 'Projected structure has no matched body.',
     };
   }
 
@@ -605,14 +625,14 @@ function bucketPlacements(
   const bodyIds = new Set(
     bodies
       .filter((body) => body.id != null)
-      .map((body) => String(body.id)),
+      .map((body) => bodyIdKey(body.id)),
   );
   const knownByBody = new Map<string, GroupedPlacement[]>();
   const unknown: GroupedPlacement[] = [];
   const unassigned: GroupedPlacement[] = [];
 
   placements.forEach((placement, index) => {
-    const bodyId = placement.local_body_id != null ? String(placement.local_body_id) : '';
+    const bodyId = bodyIdKey(placement.local_body_id);
     const item: GroupedPlacement = {
       placement,
       index,
@@ -645,12 +665,12 @@ function bucketProjectedPlacements(
   const bodyIds = new Set(
     bodies
       .filter((body) => body.id != null)
-      .map((body) => String(body.id)),
+      .map((body) => bodyIdKey(body.id)),
   );
   const templatesById = new Map(templates.map((template) => [template.id, template]));
   const buckets = new Map<string, ProjectedPlacementItem[]>();
   placements.forEach((placement, index) => {
-    const bodyId = placement.local_body_id != null ? String(placement.local_body_id) : null;
+    const bodyId = placement.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
     if (!bodyId || !bodyIds.has(bodyId)) return;
     const list = buckets.get(bodyId) ?? [];
     list.push({
@@ -666,7 +686,7 @@ function bucketProjectedPlacements(
 function buildBodyNodes(bodies: SystemBody[]): BodyNode[] {
   const withIds = bodies
     .filter((body) => body.id != null)
-    .map((body) => ({ body, id: String(body.id) }));
+    .map((body) => ({ body, id: bodyIdKey(body.id) }));
   const knownIds = new Set(withIds.map((item) => item.id));
   const children = new Map<string, Array<{ body: SystemBody; id: string }>>();
   const roots: Array<{ body: SystemBody; id: string }> = [];
@@ -704,7 +724,7 @@ function bodyParentId(body: SystemBody): string | null {
     ?? body.orbiting_body_id
     ?? body.orbitingBodyId
     ?? null;
-  if (typeof raw === 'number' || typeof raw === 'string') return String(raw);
+  if (typeof raw === 'number' || typeof raw === 'string') return bodyIdKey(raw);
   return null;
 }
 
@@ -730,7 +750,7 @@ function countWorkspaceWarnings(snapshot: TopologyPlanSnapshot, bodies: SystemBo
   const bodyById = new Map(
     bodies
       .filter((body) => body.id != null)
-      .map((body) => [String(body.id), body]),
+      .map((body) => [bodyIdKey(body.id), body]),
   );
   const bodyWarnings = Array.from(buckets.knownByBody.entries()).reduce((count, [bodyId, placements]) => {
     const body = bodyById.get(bodyId) ?? null;

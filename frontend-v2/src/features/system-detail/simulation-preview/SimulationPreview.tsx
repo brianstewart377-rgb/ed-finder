@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getFacilityTemplates, getSimulationSummary, getSlotPredictions, listObservedFacts } from '@/lib/api';
 import type {
   FacilityTemplate,
   OptimiserCandidate,
   RecommendedBuildPlan,
+  SimulateBuildPlacement,
   SimulateBuildRequest,
   SimulationSummary,
   SystemDetail,
@@ -16,6 +17,7 @@ import {
   buildRoleReview,
 } from '@/features/colony-planner/colonyRoleReview';
 import { getPlanningFocusLabel } from '@/features/colony-planner/workspaceUtils';
+import { bodyIdKey } from './bodyIdUtils';
 import type { PlannerWorkspaceCommand, ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
 import { compactBodyDisplayName, groupPlacementsByBody, type BodyGroup } from './buildPlanLayoutUtils';
 import { BuildPlanWorkspaceView } from './BuildPlanWorkspaceView';
@@ -124,7 +126,7 @@ export function SimulationPreview({
   const bodyLabelsById = useMemo(() => Object.fromEntries(
     bodies
       .filter((body) => body.id != null)
-      .map((body) => [String(body.id), compactBodyDisplayName(body, system.name)]),
+      .map((body) => [bodyIdKey(body.id), compactBodyDisplayName(body, system.name)]),
   ), [bodies, system.name]);
 
   const plan = useSimulationPreviewPlan({
@@ -162,25 +164,46 @@ export function SimulationPreview({
     () => buildRoleReview({ declaredRoles, observedRoles }),
     [declaredRoles, observedRoles],
   );
+  const lastEmittedPlanSnapshotFingerprintRef = useRef<string | null>(null);
+  const initialRequestHydrationRef = useRef<{ fingerprint: string | null; hydrated: boolean }>({
+    fingerprint: null,
+    hydrated: false,
+  });
 
   useEffect(() => {
-    onPlanSnapshotChange?.({
+    if (!onPlanSnapshotChange) return;
+    const projection: TopologyPlanSnapshot['projection'] = projectedCandidate ? {
+      candidateId: projectedCandidate.candidate_id,
+      label: projectedCandidate.label,
+      placements: projectedCandidate.placements.map((placement) => ({
+        facility_template_id: placement.facility_template_id,
+        local_body_id: placement.local_body_id ?? null,
+        is_primary_port: placement.is_primary_port,
+        build_order: placement.build_order,
+      })),
+    } : null;
+    const initialRequestFingerprint = initialRequest
+      ? planSnapshotEmissionFingerprint(initialRequest.placements, initialRequest.target_archetype, null)
+      : null;
+    const currentPlanFingerprint = planSnapshotEmissionFingerprint(plan.placements, plan.targetArchetype, null);
+    if (initialRequestHydrationRef.current.fingerprint !== initialRequestFingerprint) {
+      initialRequestHydrationRef.current = { fingerprint: initialRequestFingerprint, hydrated: false };
+    }
+    if (initialRequestFingerprint && !initialRequestHydrationRef.current.hydrated) {
+      if (currentPlanFingerprint !== initialRequestFingerprint) return;
+      initialRequestHydrationRef.current.hydrated = true;
+    }
+    const fingerprint = planSnapshotEmissionFingerprint(plan.placements, plan.targetArchetype, projection);
+    if (lastEmittedPlanSnapshotFingerprintRef.current === fingerprint) return;
+    lastEmittedPlanSnapshotFingerprintRef.current = fingerprint;
+    onPlanSnapshotChange({
       placements: plan.placements,
       templates,
       targetArchetype: plan.targetArchetype,
       slotPredictions: slotPredictionsQuery.data ?? null,
-      projection: projectedCandidate ? {
-        candidateId: projectedCandidate.candidate_id,
-        label: projectedCandidate.label,
-        placements: projectedCandidate.placements.map((placement) => ({
-          facility_template_id: placement.facility_template_id,
-          local_body_id: placement.local_body_id ?? null,
-          is_primary_port: placement.is_primary_port,
-          build_order: placement.build_order,
-        })),
-      } : null,
+      projection,
     });
-  }, [onPlanSnapshotChange, plan.placements, plan.targetArchetype, projectedCandidate, slotPredictionsQuery.data, templates]);
+  }, [initialRequest, onPlanSnapshotChange, plan.placements, plan.targetArchetype, projectedCandidate, slotPredictionsQuery.data, templates]);
 
   useEffect(() => {
     clearPreviewState();
@@ -253,9 +276,12 @@ export function SimulationPreview({
     }
   };
 
-  const handleSuggestedCandidateSelection = (candidate: OptimiserCandidate | null) => {
-    setProjectedCandidate(candidate);
-  };
+  const handleSuggestedCandidateSelection = useCallback((candidate: OptimiserCandidate | null) => {
+    setProjectedCandidate((current) => {
+      if (!candidate) return current ? null : current;
+      return current?.candidate_id === candidate.candidate_id ? current : candidate;
+    });
+  }, []);
 
   return (
     <div
@@ -452,6 +478,31 @@ function WorkspaceRoleContext({
       </p>
     </section>
   );
+}
+
+function planSnapshotEmissionFingerprint(
+  placements: SimulateBuildPlacement[],
+  targetArchetype: string,
+  projection: TopologyPlanSnapshot['projection'],
+): string {
+  return JSON.stringify({
+    targetArchetype,
+    placements: placements.map(snapshotPlacementFingerprint),
+    projection: projection ? {
+      candidateId: projection.candidateId,
+      label: projection.label,
+      placements: projection.placements.map(snapshotPlacementFingerprint),
+    } : null,
+  });
+}
+
+function snapshotPlacementFingerprint(placement: SimulateBuildPlacement) {
+  return {
+    facility_template_id: placement.facility_template_id,
+    local_body_id: placement.local_body_id ?? null,
+    is_primary_port: Boolean(placement.is_primary_port),
+    build_order: placement.build_order,
+  };
 }
 
 function buildWorkspaceRoleSummary(

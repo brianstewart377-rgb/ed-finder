@@ -1,8 +1,8 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FacilityTemplate, SlotPredictionResponse, SystemDetail } from '@/types/api';
 import type { TopologyPlanSnapshot, TopologySelectionContext } from './ColonyTopologyRail';
-import { RavenPlannerTelemetryPanel, RavenStylePlannerCanvas, buildRavenPlannerRows } from './RavenStylePlannerCanvas';
+import { RavenPlannerTelemetryPanel, RavenStylePlannerCanvas, buildProjectionComparison, buildRavenPlannerRows } from './RavenStylePlannerCanvas';
 import { buildPlanningEconomyLedger } from './planningEconomy';
 
 const system = {
@@ -147,6 +147,94 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.queryByText('Facilities and economy')).toBeNull();
   });
 
+  it('expands selected bodies inline and supports projected structure selection', () => {
+    render(
+      <RavenStylePlannerCanvas
+        system={system}
+        snapshot={snapshot}
+        selection={{ type: 'body', bodyId: '2' }}
+        expandedBodyDetail={<div data-testid="inline-body-test-detail">Inline body detail</div>}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('raven-real-body-row-2').getAttribute('data-expanded')).toBe('true');
+    expect(within(screen.getByTestId('raven-real-planner-canvas')).getByTestId('raven-inline-body-expansion-2')).toBeTruthy();
+    expect(screen.getByTestId('inline-body-test-detail')).toBeTruthy();
+  });
+
+  it('selects planned and projected structures from the main canvas', () => {
+    const onSelect = vi.fn();
+    render(<RavenStylePlannerCanvas system={system} snapshot={snapshot} selection={{ type: 'system' }} onSelect={onSelect} />);
+
+    fireEvent.click(screen.getByTestId('2-orbital-slot-0'));
+    expect(onSelect).toHaveBeenCalledWith({ type: 'placement', placementIndex: 0 });
+
+    fireEvent.click(screen.getByTestId('2-ground-slot-1'));
+    expect(onSelect).toHaveBeenCalledWith({ type: 'projected-placement', placementIndex: 0 });
+  });
+
+  it('matches projected structures to large numeric system body ids', () => {
+    const exactBodyId = '1044927859400806427';
+    const roundedBodyId = String(Number(exactBodyId));
+    const largeSystem = {
+      ...system,
+      bodies: [
+        { id: Number(exactBodyId), name: 'Real Data System A 1 a', body_type: 'Planet', subtype: 'Rocky body', is_landable: true, distance_from_star: 440 },
+      ],
+    } as unknown as SystemDetail;
+    const largeSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [],
+      slotPredictions: {
+        ...slotPredictions,
+        predictions: [
+          {
+            ...slotPredictions.predictions[0],
+            body_id: Number(exactBodyId),
+            body_name: 'Real Data System A 1 a',
+            predicted_orbital_slots: 1,
+            predicted_ground_slots: 2,
+          },
+        ],
+      },
+      projection: {
+        candidateId: 'large-id-candidate',
+        label: 'Large id candidate',
+        placements: [
+          { facility_template_id: 'surface_refinery', local_body_id: exactBodyId, build_order: 1 },
+        ],
+      },
+    };
+
+    const rows = buildRavenPlannerRows(largeSystem, largeSnapshot);
+    const row = rows.find((candidate) => candidate.id === roundedBodyId);
+
+    expect(row?.projected).toBe(true);
+    expect(row?.groundSlots[0]).toEqual(expect.objectContaining({ kind: 'projected', projectionIndex: 0 }));
+
+    render(<RavenStylePlannerCanvas system={largeSystem} snapshot={largeSnapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    expect(screen.getByTestId(`raven-real-body-row-${roundedBodyId}`).getAttribute('data-projected')).toBe('true');
+    expect(screen.getByText('Ghost Refinery Hub')).toBeTruthy();
+  });
+
+  it('summarises selected projection comparison against the current Build Plan', () => {
+    const ledger = buildPlanningEconomyLedger({
+      placements: snapshot.placements,
+      projectedPlacements: snapshot.projection?.placements ?? [],
+      templates,
+    });
+    const comparison = buildProjectionComparison(system, snapshot, ledger);
+
+    expect(comparison.hasProjection).toBe(true);
+    expect(comparison.plannedBodyCount).toBe(2);
+    expect(comparison.projectedBodyCount).toBe(1);
+    expect(comparison.sharedBodyCount).toBe(1);
+    expect(comparison.projectedGroundCount).toBe(1);
+    expect(comparison.economyDeltas.find((entry) => entry.economy === 'Refinery')).toEqual(expect.objectContaining({ planned: 1, projected: 1 }));
+  });
+
   it('renders telemetry with positive and negative zero-centered bars from live planner state', () => {
     const ledger = buildPlanningEconomyLedger({
       placements: snapshot.placements,
@@ -168,6 +256,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
         snapshot={snapshot}
         economyLedger={ledger}
         selectedContext={selectedContext}
+        selection={{ type: 'body', bodyId: '2' }}
       />,
     );
 
@@ -176,5 +265,11 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getByTestId('raven-stat-missing-economy-negative').dataset.tone).toBe('negative-red');
     expect(screen.getByTestId('raven-stat-missing-economy-negative').style.width).not.toBe('0%');
     expect(within(screen.getByTestId('raven-telemetry-economy-ledger')).getByText(/Ind/i)).toBeTruthy();
+    expect(screen.getByTestId('raven-projection-comparison')).toBeTruthy();
+    expect(screen.getByTestId('projection-comparison-bodies')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('projection-comparison-economy-toggle'));
+    expect(screen.getByTestId('projection-comparison-economy')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('projection-comparison-slots-toggle'));
+    expect(screen.getByTestId('projection-comparison-slots')).toBeTruthy();
   });
 });

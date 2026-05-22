@@ -256,6 +256,27 @@ Stage 17G boundaries:
 - no Architect Slot Survey storage
 - no RavenColonial API mutation or source/CSS/asset copying
 
+### Stage 17M Two-Region Raven Canvas
+
+Stage 17M removes the permanent middle selected-body column from the dedicated planner. The old three-region layout split the same task across a left whole-system map, a centre selected-body editor, and a right telemetry rail. That made the system canvas narrower and separated the selected body from its orbital/ground slots in the hierarchy.
+
+The planner route now has two primary regions:
+
+- main canvas: whole-system body tree, validated orbital/ground slots, planned structures, projected ghost structures, economy bars, and inline selected-body expansion
+- telemetry/context panel: system score/stat bars, system economy mix, selected body summary, selected planned/projected structure summary, projection status, warning/needs summary, and compact project controls
+
+Body selection expands the body row in place with larger slot lanes and add orbital/surface/flexible controls. Structure selection highlights the slot in the canvas and updates telemetry. Projected structures remain ghost/projection-only and do not auto-load.
+
+Boundaries remain unchanged: no backend mechanics changes, no slot algorithm changes, no optimiser changes, no RavenColonial API calls, no automatic generation, no automatic load, and no automatic Preview. Remaining gaps include drag/drop slot editing, richer projection affordances, observed Architect slot truth, and a full strategy-advisor workflow.
+
+### Stage 17N Docked Telemetry And Projection Compare
+
+Stage 17N tightens the Stage 17M right region instead of changing planner ownership. The telemetry/context region is now one sticky desktop stack, and below desktop it behaves as a bottom dock with a compact toggle and an expandable telemetry drawer. The dock reuses the same telemetry DOM rather than rendering a second hidden planner, so selection, project, and projection context remain singular.
+
+Telemetry now includes explicit Suggested Build comparison controls for bodies, economy, and slots. The comparison is read-only: it counts current Build Plan bodies against projected ghost bodies, shows economy planned-plus-projected deltas from frontend template metadata, and summarizes projected orbital/ground/unknown lane pressure. Selecting these comparison views does not load a candidate, run Preview, generate Suggested Builds, save projects, import layout, call RavenColonial, or change backend mechanics.
+
+The project summary beneath telemetry is denser by default: save state, planned/projected counts, warnings, focus, projection label, and economy strip remain visible without competing with the primary telemetry. Full local project controls still expand manually from the same summary card.
+
 ## Stage 6 - Observed vs Predicted Validation
 
 Stage 6A begins the validation layer as a backend-only observed facts foundation. It adds a passive `observed_facts` persistence contract, manual/test-fixture source support, CRUD API endpoints, and descriptive summaries. Observations record evidence; they do not mutate predictions, optimiser generation, ranking, Simulation Preview scoring, or CP/economy/service/buildability mechanics.

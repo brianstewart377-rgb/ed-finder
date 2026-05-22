@@ -411,3 +411,26 @@ Still not production-final:
 - strength values are only shown from available real template metadata; the UI does not invent RavenColonial-style bonus magnitudes when the data is missing.
 - project save/load remains browser-local.
 - Suggested Build generation, candidate load, and Preview remain explicit actions.
+
+## Stage 17M Two-Region Raven-Style Canvas
+
+Stage 17M removes the permanent three-column planner split. The previous left map + middle selected-body editor + right telemetry layout kept separating the selected body from the system topology, so the middle column did not justify its permanent width and made the planner feel like disconnected panels again.
+
+The dedicated planner route now uses two primary regions:
+
+- main whole-system build canvas: body tree, orbital/ground slots, planned structures, projected ghost structures, economy microbars, and inline selected-body expansion
+- right telemetry/context panel: system telemetry, economy mix, selected body context, selected planned/projected structure detail, projection status, warnings, and compact project summary
+
+Selecting a body keeps the whole-system canvas in view and expands that body row inline. The expansion reuses the body slot planner with larger lane maps, add orbital/surface/flexible actions, body economy, planned/projected structures, and overflow or compatibility warnings. Selecting another body moves the expansion instead of navigating to a separate middle surface.
+
+Selecting a structure highlights it in the canvas and updates the telemetry context. Planned structures show full template name, lane/body, economy contribution, CP strength, and build order where available. Projected Suggested Build structures are selectable as ghost/projected context but remain projection-only; they do not load into the Build Plan, run Preview, or trigger generation.
+
+Remaining RavenColonial gaps: no drag/drop slot editing, no true material/hauling workflow, no Architect-observed slot truth storage, no rich orbital path animation, and Suggested Builds remain deterministic editable starts rather than a full strategy advisor.
+
+## Stage 17N Right-Panel Density And Docking
+
+Stage 17N refines the Stage 17M shape without reopening the three-column split. The right region is now a single context stack: desktop keeps it sticky and scrollable, while narrower layouts present a bottom-docked Telemetry toggle that opens the same telemetry and summary content. This gives mobile/tablet users an intentional dock rather than relying on the right region falling below the canvas.
+
+The telemetry panel now has projection comparison controls for Bodies, Economy, and Slots. These controls make Suggested Build ghosts easier to evaluate before any load action: bodies compare current Build Plan coverage with projected ghost bodies, economy shows planned plus projected counts by template economy, and slots summarize projected orbital/ground/unknown lane pressure and overflow risk. The controls are read-only and do not run Preview, generate, load, save, import, mutate observations, or call RavenColonial.
+
+The summary rail is compact by default, showing save state, build counts, warning count, focus, projection label, and economy strip. Local project controls remain available only after manual expansion.

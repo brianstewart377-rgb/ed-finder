@@ -123,6 +123,31 @@ Slot-capacity boundary:
 - unknown values render as unknown lanes
 - frontend code must not derive fallback slot counts from radius, class, landability, body type, or hardcoded estimates
 
+
+## Stage 17M Dedicated Planner Shell
+
+Stage 17M changes the dedicated planner shell from three permanent regions to two. `WholeSystemColonyPlanner.tsx` now owns a main canvas region and a telemetry/context region. `RavenStylePlannerCanvas.tsx` remains the system canvas and receives the selected body editor as an inline row expansion instead of forcing a separate centre column.
+
+| Surface | Stage 17M responsibility |
+|---|---|
+| `WholeSystemColonyPlanner.tsx` | Two-region layout: main Raven canvas plus right telemetry/context. Advanced Planner stays below the main canvas behind its explicit toggle. |
+| `RavenStylePlannerCanvas.tsx` | Whole-system body tree, slot lanes, planned/projected slot pills, row highlighting, inline selected-body expansion, and selectable planned/projected structures. |
+| `SelectedBodyPlannerCanvas.tsx` / `BodySlotPlanner.tsx` | Body-local lane editor reused inline under the selected body row, including larger lanes, add orbital/surface/flexible actions, picker, body economy, and warnings. |
+| `RavenPlannerTelemetryPanel` | Selected-context panel for system telemetry, body summaries, planned structure details, projected ghost details, projection status, and warnings. |
+
+The reason for removing the middle column is architectural as much as visual: selected-body editing is part of the system canvas, while telemetry is a separate readout. Keeping body editing as a permanent sibling column narrowed the map and recreated a report-card workflow.
+
+Interaction boundaries remain explicit. Selecting bodies or structures does not run Preview, generate Suggested Builds, load candidates, import layout, call RavenColonial, or mutate backend mechanics.
+
+### Stage 17N Docked Context Region
+
+Stage 17N keeps the Stage 17M two-region ownership model and improves the right region. `WholeSystemColonyPlanner.tsx` owns a single responsive telemetry/context container: sticky and scrollable on desktop, bottom-docked below desktop with an explicit Telemetry toggle and expandable content. The dock contains the same telemetry and summary components rather than duplicate mobile/desktop panels.
+
+`RavenPlannerTelemetryPanel` now includes a read-only Projection comparison card with Bodies, Economy, and Slots controls. The card compares the selected Suggested Build projection against the current Build Plan using only existing frontend state: current placements, projected ghost placements, facility template economy/location metadata, slot predictions, and real system bodies. It does not call generation, load, Preview, persistence, validation, observed evidence, import, or RavenColonial endpoints.
+
+`WorkspaceSummaryRail.tsx` defaults to a denser compact state under telemetry. It keeps save status, planned/projected counts, warning count, current focus, projection label, and planning economy visible, while manual expansion still exposes local project save/load/rename/duplicate/archive controls.
+
+
 ## Stage 16E Role-Hint Workspace Integration
 
 Stage 16E keeps the Stage 16C workspace architecture but makes its persistent shell strategically aware at a glance.

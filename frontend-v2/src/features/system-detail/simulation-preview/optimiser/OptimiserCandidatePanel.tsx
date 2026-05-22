@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchOptimiserCandidates } from '@/lib/api';
 import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
@@ -60,6 +60,8 @@ export function OptimiserCandidatePanel({
     [allUsefulCandidates, scale],
   );
   const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selectedId) ?? candidates[0];
+  const selectedCandidateId = selectedCandidate?.candidate_id ?? null;
+  const lastNotifiedCandidateIdRef = useRef<string | null | undefined>(undefined);
   const currentParams: GeneratedCandidateParams = { targetArchetype, maxCandidates, allowEstimatedData, scale };
   const controlsChangedSinceGeneration = Boolean(generatedParams && (
     generatedParams.targetArchetype !== currentParams.targetArchetype
@@ -69,8 +71,11 @@ export function OptimiserCandidatePanel({
   ));
 
   useEffect(() => {
-    onCandidateSelect?.(selectedCandidate ?? null);
-  }, [onCandidateSelect, selectedCandidate]);
+    if (!onCandidateSelect) return;
+    if (lastNotifiedCandidateIdRef.current === selectedCandidateId) return;
+    lastNotifiedCandidateIdRef.current = selectedCandidateId;
+    onCandidateSelect(selectedCandidate ?? null);
+  }, [onCandidateSelect, selectedCandidate, selectedCandidateId]);
 
   const generateCandidates = async () => {
     setLoading(true);

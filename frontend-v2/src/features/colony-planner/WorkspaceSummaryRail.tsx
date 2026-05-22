@@ -2,6 +2,7 @@ import { PanelRight } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SystemDetail } from '@/types/api';
+import { bodyIdKey } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
 import type { ColonyProject } from './colonyProjectStore';
 import { ProjectControlsCard } from './ProjectControlsCard';
@@ -64,7 +65,7 @@ export function WorkspaceSummaryRail({
     <aside
       aria-label="Workspace summary"
       data-testid="planner-summary-panel"
-      className="panel space-y-3 p-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
+      className="panel space-y-3 p-3"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
@@ -86,6 +87,9 @@ export function WorkspaceSummaryRail({
           saveStatus={health.saveStatus}
           selectedContext={selectedContext}
           projectionLabel={snapshot.projection?.label ?? null}
+          placementCount={health.placementCount}
+          projectedCount={snapshot.projection?.placements.length ?? 0}
+          warningCount={health.warningCount}
           economyLedger={economyLedger}
         />
       ) : (
@@ -114,10 +118,10 @@ export function WorkspaceSummaryRail({
             placementCount={health.placementCount}
             unassignedCount={health.unassignedCount}
             warningCount={health.warningCount}
-          previewStatus={health.previewStatus}
-          saveStatus={health.saveStatus}
-          economyLedger={economyLedger}
-        />
+            previewStatus={health.previewStatus}
+            saveStatus={health.saveStatus}
+            economyLedger={economyLedger}
+          />
 
           <SelectionSummaryCard selectedContext={selectedContext} />
 
@@ -136,29 +140,53 @@ function CompactSummary({
   saveStatus,
   selectedContext,
   projectionLabel,
+  placementCount,
+  projectedCount,
+  warningCount,
   economyLedger,
 }: {
   saveStatus: string;
   selectedContext: TopologySelectionContext;
   projectionLabel: string | null;
+  placementCount: number;
+  projectedCount: number;
+  warningCount: number;
   economyLedger: PlanningEconomyLedger;
 }) {
   return (
     <section className="space-y-2" data-testid="summary-rail-compact-view">
-      <div className="rounded border border-cyan/25 bg-cyan/5 p-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Project</div>
-        <p className="mt-1 font-mono text-[10px] text-silver-dk">{saveStatus}</p>
+      <div className="grid grid-cols-2 gap-1.5">
+        <CompactMetric label="Save" value={saveStatus} tone={saveStatus === 'Saved' ? 'green' : 'gold'} />
+        <CompactMetric label="Builds" value={`${placementCount}${projectedCount > 0 ? ` +${projectedCount}` : ''}`} tone={projectedCount > 0 ? 'cyan' : 'orange'} />
+        <CompactMetric label="Warnings" value={String(warningCount)} tone={warningCount > 0 ? 'gold' : 'green'} />
+        <CompactMetric label="Focus" value={selectedContext.kind} tone="cyan" />
       </div>
-      <div className="rounded border border-cyan/25 bg-cyan/5 p-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Current focus</div>
-        <p className="mt-1 font-mono text-[10px] text-silver-dk">{selectedContext.label}</p>
-      </div>
-      <div className="rounded border border-cyan/25 bg-cyan/5 p-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Projection</div>
-        <p className="mt-1 font-mono text-[10px] text-silver-dk">{projectionLabel ?? 'No candidate selected'}</p>
+      <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px]">
+        <div className="flex items-center justify-between gap-2 uppercase tracking-[0.12em] text-silver-dk">
+          <span>Current focus</span>
+          <span className={projectionLabel ? 'text-cyan' : 'text-silver-dk'}>{projectionLabel ? 'Projection on' : 'No projection'}</span>
+        </div>
+        <div className="mt-0.5 truncate text-silver" title={selectedContext.label}>{selectedContext.label}</div>
+        {projectionLabel && <div className="mt-0.5 truncate text-cyan" title={projectionLabel}>{projectionLabel}</div>}
       </div>
       <PlanningEconomyStrip ledger={economyLedger} compact testId="summary-economy-ledger" />
     </section>
+  );
+}
+
+function CompactMetric({ label, value, tone }: { label: string; value: ReactNode; tone: 'orange' | 'cyan' | 'gold' | 'green' }) {
+  const toneClass = tone === 'orange'
+    ? 'text-orange'
+    : tone === 'gold'
+      ? 'text-gold'
+      : tone === 'green'
+        ? 'text-green'
+        : 'text-cyan';
+  return (
+    <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono">
+      <div className="truncate text-[9px] uppercase tracking-[0.12em] text-silver-dk">{label}</div>
+      <div className={["mt-0.5 truncate text-[12px] font-semibold", toneClass].join(' ')}>{value}</div>
+    </div>
   );
 }
 
@@ -227,7 +255,7 @@ function PreviewSuggestedCard({
 }) {
   const projectedBodyIds = Array.from(new Set(
     (snapshot.projection?.placements ?? [])
-      .map((placement) => placement.local_body_id != null ? String(placement.local_body_id) : '')
+      .map((placement) => bodyIdKey(placement.local_body_id))
       .filter(Boolean),
   ));
   return (
@@ -253,7 +281,7 @@ function PreviewSuggestedCard({
           {snapshot.projection.label}
         </p>
       )}
-      {selection.type === 'body' && snapshot.projection && projectedBodyIds.includes(selection.bodyId) && (
+      {selection.type === 'body' && snapshot.projection && projectedBodyIds.includes(bodyIdKey(selection.bodyId)) && (
         <p className="mt-1 rounded border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] text-cyan">
           Selected body is used by the projected suggested build.
         </p>

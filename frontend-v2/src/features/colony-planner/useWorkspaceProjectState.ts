@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SystemDetail } from '@/types/api';
+import { sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import type { TopologyPlanSnapshot } from './ColonyTopologyRail';
 import {
   addDeclaredRole,
@@ -90,7 +91,7 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
   }, [activeProject, archiveProject]);
 
   const handleAddDeclaredRole = useCallback((bodyId: string, roleId: DeclaredColonyRoleId) => {
-    const body = (system.bodies ?? []).find((candidate) => candidate.id != null && String(candidate.id) === bodyId);
+    const body = (system.bodies ?? []).find((candidate) => sameBodyId(candidate.id, bodyId));
     if (!body) return;
     setDeclaredRoles((current) => addDeclaredRole(current, body, roleId));
   }, [system.bodies]);

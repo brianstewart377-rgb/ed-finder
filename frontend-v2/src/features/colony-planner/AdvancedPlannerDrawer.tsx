@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
 import type { SimulateBuildRequest, SystemDetail } from '@/types/api';
@@ -30,11 +31,11 @@ export function AdvancedPlannerDrawer({
   onPlanSnapshotChange: (snapshot: TopologyPlanSnapshot) => void;
   onWorkspaceCommandHandled: (token: number) => void;
 }) {
-  const initialRequest: SimulateBuildRequest = {
+  const initialRequest = useMemo<SimulateBuildRequest>(() => ({
     system_id64: system.id64,
     target_archetype: snapshot.targetArchetype,
     placements: snapshot.placements,
-  };
+  }), [snapshot.placements, snapshot.targetArchetype, system.id64]);
 
   return (
     <section className="mt-3 rounded-chunk-lg border border-border/55 bg-bg2/35" data-testid="advanced-planner-drawer">

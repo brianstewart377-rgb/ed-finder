@@ -7,6 +7,7 @@ import {
   compactBodyDisplayName,
   getBodyGroupWarnings,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
+import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { BodySlotPlanner, type BodyPlannerLane } from './BodySlotPlanner';
@@ -32,6 +33,7 @@ export function SelectedBodyPlannerCanvas({
   snapshot,
   selection,
   selectedPlacementIndex,
+  selectedProjectedPlacementIndex,
   templatesLoading,
   templatesErrorMessage,
   onAddStructure,
@@ -39,12 +41,14 @@ export function SelectedBodyPlannerCanvas({
   onReviewStructures,
   onSelectBody,
   onSelectPlacement,
+  onSelectProjectedPlacement,
 }: {
   system: SystemDetail;
   body: SystemBody | null;
   snapshot: TopologyPlanSnapshot;
   selection: TopologySelection;
   selectedPlacementIndex: number | null;
+  selectedProjectedPlacementIndex: number | null;
   templatesLoading: boolean;
   templatesErrorMessage: string | null;
   onAddStructure: (bodyId: string, lane: BodyPlannerLane, templateId: string) => void;
@@ -52,17 +56,18 @@ export function SelectedBodyPlannerCanvas({
   onReviewStructures: (bodyId: string) => void;
   onSelectBody: (bodyId: string) => void;
   onSelectPlacement: (placementIndex: number) => void;
+  onSelectProjectedPlacement: (placementIndex: number) => void;
 }) {
   const [pickerContext, setPickerContext] = useState<{ bodyId: string; lane: BodyPlannerLane } | null>(null);
 
   useEffect(() => {
     if (!body?.id || !pickerContext) return;
-    if (String(body.id) !== pickerContext.bodyId) {
+    if (!sameBodyId(body.id, pickerContext.bodyId)) {
       setPickerContext(null);
     }
   }, [body?.id, pickerContext]);
 
-  const pickerBody = pickerContext && body?.id != null && String(body.id) === pickerContext.bodyId
+  const pickerBody = pickerContext && body?.id != null && sameBodyId(body.id, pickerContext.bodyId)
     ? body
     : null;
 
@@ -90,14 +95,14 @@ export function SelectedBodyPlannerCanvas({
     );
   }
 
-  const bodyId = String(body.id);
+  const bodyId = bodyIdKey(body.id);
   const templatesById = new Map(snapshot.templates.map((template) => [template.id, template]));
   const placements: PlacementViewItem[] = snapshot.placements
     .map((placement, index) => ({
       placement,
       index,
       template: templatesById.get(placement.facility_template_id),
-      bodyId: placement.local_body_id != null ? String(placement.local_body_id) : '',
+      bodyId: bodyIdKey(placement.local_body_id),
       hasUnknownBody: false,
     }))
     .filter((item) => item.bodyId === bodyId);
@@ -108,8 +113,8 @@ export function SelectedBodyPlannerCanvas({
       index,
       template: templatesById.get(placement.facility_template_id),
     }))
-    .filter((item) => item.placement.local_body_id != null && String(item.placement.local_body_id) === bodyId);
-  const slotPrediction = snapshot.slotPredictions?.predictions?.find((item) => String(item.body_id) === bodyId) ?? null;
+    .filter((item) => sameBodyId(item.placement.local_body_id, bodyId));
+  const slotPrediction = snapshot.slotPredictions?.predictions?.find((item) => sameBodyId(item.body_id, bodyId)) ?? null;
 
   return (
     <div data-testid="selected-body-planner-canvas" data-readability="stage17k" className="text-sm leading-relaxed">
@@ -119,8 +124,10 @@ export function SelectedBodyPlannerCanvas({
         placements={placements}
         projectedPlacements={projectedPlacements}
         selectedPlacementIndex={selectedPlacementIndex}
+        selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
         hasTemplates={snapshot.templates.length > 0}
         onSelectPlacement={onSelectPlacement}
+        onSelectProjectedPlacement={onSelectProjectedPlacement}
         onAddLaneStructure={(lane) => setPickerContext({ bodyId, lane })}
       />
 
@@ -456,7 +463,7 @@ function MiniLegend({
 function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSnapshot): SystemOverviewItem[] {
   const bodies = system.bodies ?? [];
   const predictionsByBodyId = new Map(
-    (snapshot.slotPredictions?.predictions ?? []).map((prediction) => [String(prediction.body_id), prediction]),
+    (snapshot.slotPredictions?.predictions ?? []).map((prediction) => [bodyIdKey(prediction.body_id), prediction]),
   );
   const templatesById = new Map(snapshot.templates.map((template) => [template.id, template]));
   const plannedCounts = countPlacementsByBody(snapshot.placements, templatesById);
@@ -465,7 +472,7 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
   return bodies
     .filter((body) => body.id != null)
     .map((body) => {
-      const bodyId = String(body.id);
+      const bodyId = bodyIdKey(body.id);
       const slotPrediction = predictionsByBodyId.get(bodyId) ?? null;
       const planned = plannedCounts.get(bodyId) ?? emptyLaneCounts();
       const projected = projectedCounts.get(bodyId) ?? emptyLaneCounts();
@@ -511,7 +518,7 @@ function countPlacementsByBody(
   const counts = new Map<string, LaneCounts>();
   for (const placement of placements) {
     if (placement.local_body_id == null) continue;
-    const bodyId = String(placement.local_body_id);
+    const bodyId = bodyIdKey(placement.local_body_id);
     const current = counts.get(bodyId) ?? emptyLaneCounts();
     const lane = overviewLaneForTemplate(templatesById.get(placement.facility_template_id));
     current[lane] += 1;

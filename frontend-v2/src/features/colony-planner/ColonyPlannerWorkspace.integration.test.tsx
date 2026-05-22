@@ -198,22 +198,24 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     expect((await screen.findAllByText('Passive Workspace')).length).toBeGreaterThan(0);
     expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
-    expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('raven-real-data-responsive');
+    expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();
+    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-layout')).toBe('telemetry-context-panel');
     expect(screen.getByRole('complementary', { name: /Workspace summary/i })).toBeTruthy();
     expect(screen.getByText('Whole-System Build Canvas')).toBeTruthy();
     expect(screen.getByText('Planner summary')).toBeTruthy();
     expect(await screen.findByText('Whole-System Planner')).toBeTruthy();
     expect(screen.getByTestId('raven-real-body-row-body1')).toBeTruthy();
     expect((await screen.findAllByText('Colony Planner Workspace')).length).toBeGreaterThan(0);
-    expect(screen.getByTestId('selected-body-planner-canvas')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Generate Suggested Build/i })).toBeTruthy();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Generate Suggested Build/i })).toBeNull();
     expect(screen.queryByTestId('suggested-builds-workspace-view')).toBeNull();
     expect(screen.queryByRole('button', { name: /Run Preview/i })).toBeNull();
     expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
 
     await waitFor(() => expect(mockedGetSimulationSummary).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
+    expect(screen.getByTestId('raven-inline-body-expansion-body1')).toBeTruthy();
     expect(screen.getByText('Body slot planner')).toBeTruthy();
     expect(screen.getByText(/No orbital structures yet/i)).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Add orbital structure' }).length).toBeGreaterThan(0);
@@ -234,7 +236,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.queryByRole('button', { name: /Copy to Build Plan/i })).toBeNull();
   });
 
-  it('keeps left and centre slot lanes aligned and updates both after explicit structure adds', async () => {
+  it('keeps main and inline slot lanes aligned and updates both after explicit structure adds', async () => {
     mockedApiSystem.mockResolvedValue(slotMapSystem);
     mockedGetFacilityTemplates.mockResolvedValue(templates);
     mockedGetSimulationSummary.mockResolvedValue({
@@ -292,6 +294,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     fireEvent.click(screen.getByTestId('topology-body-button-1'));
     await screen.findByText(/Planning focus:/i);
+    expect(screen.getByTestId('raven-inline-body-expansion-1')).toBeTruthy();
     await waitFor(() => {
       expect(screen.getByTestId('slot-lane-orbital')).toBeTruthy();
       expect(screen.getByTestId('slot-lane-surface')).toBeTruthy();

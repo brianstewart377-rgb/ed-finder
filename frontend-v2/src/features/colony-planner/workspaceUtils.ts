@@ -1,5 +1,6 @@
 import type { SimulateBuildPlacement, SystemDetail } from '@/types/api';
 import { bodyDisplayName } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
+import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
 import type { ColonyProject } from './colonyProjectStore';
 
@@ -58,11 +59,11 @@ export function getPlanHealthSummary({
   const bodyIds = new Set(
     (system.bodies ?? [])
       .filter((body) => body.id != null)
-      .map((body) => String(body.id)),
+      .map((body) => bodyIdKey(body.id)),
   );
   const unassignedCount = snapshot.placements.filter((placement) => !placement.local_body_id).length;
   const unknownBodyCount = snapshot.placements.filter((placement) => {
-    const bodyId = placement.local_body_id != null ? String(placement.local_body_id) : '';
+    const bodyId = bodyIdKey(placement.local_body_id);
     return Boolean(bodyId && !bodyIds.has(bodyId));
   }).length;
   return {
@@ -74,9 +75,25 @@ export function getPlanHealthSummary({
   };
 }
 
-export function getPlanningFocusLabel(selection: TopologySelection, system: SystemDetail): string | null {
-  if (selection.type !== 'body') return null;
-  const body = (system.bodies ?? []).find((candidate) => String(candidate.id) === selection.bodyId);
+export function getPlanningFocusLabel(
+  selection: TopologySelection,
+  system: SystemDetail,
+  snapshot?: TopologyPlanSnapshot,
+): string | null {
+  let bodyId: string | null = null;
+  if (selection.type === 'body') {
+    bodyId = selection.bodyId;
+  }
+  if (selection.type === 'placement') {
+    const placement = snapshot?.placements[selection.placementIndex];
+    bodyId = placement?.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
+  }
+  if (selection.type === 'projected-placement') {
+    const placement = snapshot?.projection?.placements[selection.placementIndex];
+    bodyId = placement?.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
+  }
+  if (!bodyId) return null;
+  const body = (system.bodies ?? []).find((candidate) => sameBodyId(candidate.id, bodyId));
   return body ? bodyDisplayName(body) : 'Unknown body reference';
 }
 

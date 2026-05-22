@@ -308,10 +308,18 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getAllByText('Workspace System').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Refinery').length).toBeGreaterThan(0);
     expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
-    expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('raven-real-data-responsive');
+    expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();
     expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
-    expect(screen.getByTestId('workspace-planner-content').getAttribute('data-readability')).toBe('stage17k');
+    expect(screen.getByTestId('workspace-planner-content').getAttribute('data-readability')).toBe('stage17n');
+    expect(screen.getByTestId('workspace-planner-content').getAttribute('data-layout')).toBe('main-system-canvas');
+    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-layout')).toBe('telemetry-context-panel');
+    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('closed');
+    expect(screen.getByTestId('planner-telemetry-dock-toggle')).toBeTruthy();
+    expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('false');
+    fireEvent.click(screen.getByTestId('planner-telemetry-dock-toggle'));
+    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('open');
+    expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('true');
     expect(screen.getByTestId('raven-real-telemetry-panel')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
     expect(screen.getByTestId('workspace-economy-ledger')).toBeTruthy();
@@ -320,10 +328,9 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByText('Whole-System Build Canvas')).toBeTruthy();
     expect(screen.getByTestId('raven-real-body-row-body1')).toBeTruthy();
     expect(await screen.findByText('Whole-System Planner')).toBeTruthy();
-    expect(screen.getByTestId('selected-body-planner-canvas')).toBeTruthy();
-    expect(screen.getByTestId('system-overview-planner-canvas')).toBeTruthy();
-    expect(screen.getByTestId('system-overview-map')).toBeTruthy();
-    expect(screen.getByText('Select a body from the system map')).toBeTruthy();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
+    expect(screen.queryByTestId('system-overview-planner-canvas')).toBeNull();
+    expect(screen.queryByTestId('system-overview-map')).toBeNull();
     expect(await screen.findByTestId('body1-orbital-slot-3')).toBeTruthy();
     expect(screen.getByTestId('body1-ground-slot-4')).toBeTruthy();
     expect(screen.getByTestId('advanced-workspace-toggle')).toBeTruthy();
@@ -350,9 +357,12 @@ describe('ColonyPlannerWorkspace', () => {
 
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
     expect(screen.getByText(/Planning focus: Workspace System A 1/i)).toBeTruthy();
+    expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-expanded')).toBe('true');
+    const inlineExpansion = screen.getByTestId('raven-inline-body-expansion-body1');
+    expect(within(screen.getByTestId('raven-real-planner-canvas')).getByTestId('raven-inline-body-expansion-body1')).toBeTruthy();
     expect(screen.queryByTestId('selected-role-summary-card')).toBeNull();
     expect(screen.queryByText('Body Hint')).toBeNull();
-    const bodySurface = screen.getByTestId('selected-body-planner-canvas');
+    const bodySurface = within(inlineExpansion).getByTestId('selected-body-planner-canvas');
     expect(within(bodySurface).getByText('Body slot planner')).toBeTruthy();
     expect(within(bodySurface).getByTestId('slot-lane-orbital')).toBeTruthy();
     expect(within(bodySurface).getByTestId('slot-lane-surface')).toBeTruthy();
@@ -393,7 +403,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
   });
 
-  it('opens body-aware structure picker and updates left and centre without mounting Advanced Planner', async () => {
+  it('opens body-aware structure picker from inline canvas without mounting Advanced Planner', async () => {
     mockedUseSystemDetail.mockReturnValue({
       data: system,
       loading: false,
@@ -544,7 +554,7 @@ describe('ColonyPlannerWorkspace', () => {
 
     fireEvent.click((await screen.findByTestId('summary-rail-collapse-toggle')));
     expect((await screen.findAllByText('Old project')).length).toBeGreaterThan(0);
-    expect(screen.getByTestId('selected-body-planner-canvas')).toBeTruthy();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
   });
 
   it('restores the latest saved local project into the workspace on reload', async () => {

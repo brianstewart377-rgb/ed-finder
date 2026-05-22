@@ -135,3 +135,21 @@ Current production-readiness caveat:
 - the real canvas uses ED-Finder's current template economy metadata and planning ledger only
 - missing economy or slot metadata is shown as unavailable rather than mocked
 - final validated economy outcome still requires explicit Preview
+
+## Stage 17M Real Route Follow-Up
+
+Stage 17M applies the prototype's central lesson to the real planner route: the system tree is the planning canvas, not a left navigation rail beside a permanent selected-body column.
+
+The real route now has one primary scrollable system build canvas plus a right telemetry/context panel. The former middle selected-body editor is rendered only as an inline expansion under the selected body row. This keeps the surrounding body tree, orbital slots, ground slots, planned structures, projected ghost structures, and economy microbars visible while the user edits one body.
+
+Structure context moved into the same interaction model. Clicking planned structures selects and highlights the structure in the canvas and shows full structure context in telemetry. Projected Suggested Build structures are selectable ghost structures; their telemetry explicitly identifies them as projected and projection-only.
+
+The Advanced Planner remains behind its explicit toggle. Stage 17M does not add automatic generation, automatic candidate loading, automatic Preview, RavenColonial API calls, or backend mechanics changes.
+
+## Stage 17N Real Route Follow-Up
+
+Stage 17N keeps the prototype lesson but improves the real route's context behavior. The right telemetry/context region is a single desktop sticky stack and a bottom-docked expandable Telemetry drawer below desktop. The dock does not duplicate planner state; it reveals the same telemetry and summary content.
+
+Projection affordances are now more deliberate. The telemetry panel includes Bodies, Economy, and Slots comparison controls for the selected Suggested Build projection, so ghost structures can be evaluated against the current Build Plan before the user chooses to load or preview anything. The comparison remains frontend-only and read-only.
+
+Stage 17N still does not add automatic generation, automatic candidate loading, automatic Preview, RavenColonial API calls, backend scoring/mechanics changes, or observed Architect slot storage.

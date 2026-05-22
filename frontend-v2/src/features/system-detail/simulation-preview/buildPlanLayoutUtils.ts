@@ -1,4 +1,5 @@
 import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
+import { bodyIdKey, sameBodyId } from './bodyIdUtils';
 import { ARCHETYPES } from './types';
 
 export interface GroupedPlacement {
@@ -47,11 +48,11 @@ export function groupPlacementsByBody(
   const bodiesById = new Map(
     bodies
       .filter((body) => body.id != null)
-      .map((body) => [String(body.id), body]),
+      .map((body) => [bodyIdKey(body.id), body]),
   );
   const bodyOrder = bodies
     .filter((body) => body.id != null)
-    .map((body) => String(body.id));
+    .map((body) => bodyIdKey(body.id));
   const groupsByKey = new Map<string, BodyGroup>();
 
   const ensureGroup = (key: string, body: SystemBody | null): BodyGroup => {
@@ -63,7 +64,7 @@ export function groupPlacementsByBody(
   };
 
   placements.forEach((placement, index) => {
-    const bodyId = placement.local_body_id != null ? String(placement.local_body_id) : '';
+    const bodyId = bodyIdKey(placement.local_body_id);
     const body = bodyId ? bodiesById.get(bodyId) ?? null : null;
     const key = body ? bodyId : 'unassigned';
     ensureGroup(key, body).placements.push({
@@ -111,8 +112,8 @@ export function getPlanSummary({
 }): PlanSummary {
   const templatesById = new Map(templates.map((template) => [template.id, template]));
   const assignedPlacements = placements.filter((placement) => {
-    const bodyId = placement.local_body_id != null ? String(placement.local_body_id) : '';
-    return bodyId && bodies.some((body) => body.id != null && String(body.id) === bodyId);
+    const bodyId = bodyIdKey(placement.local_body_id);
+    return Boolean(bodyId && bodies.some((body) => sameBodyId(body.id, bodyId)));
   }).length;
   const bodiesUsed = groups.filter((group) => group.body && group.placements.length > 0).length;
   const primaryCount = placements.filter((placement) => placement.is_primary_port).length;

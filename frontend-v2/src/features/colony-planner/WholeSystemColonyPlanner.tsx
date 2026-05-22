@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, PanelRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import type { FacilityTemplate, SimulateBuildPlacement, SimulationSummary, SystemBody, SystemDetail } from '@/types/api';
 import { getFacilityTemplates, getSimulationSummary, getSlotPredictions } from '@/lib/api';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
+import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import { archetypeFromEconomy, resequence } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import type { BodyPlannerLane } from './BodySlotPlanner';
 import {
@@ -28,6 +30,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   const [projection, setProjection] = useState<TopologyPlanSnapshot['projection']>(null);
   const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
   const [advancedInitialMode, setAdvancedInitialMode] = useState<SimulationWorkspaceMode>('build-plan');
+  const [telemetryDockOpen, setTelemetryDockOpen] = useState(false);
   const [workspaceCommand, setWorkspaceCommand] = useState<PlannerWorkspaceCommand | null>(null);
   const [lastHandledWorkspaceCommandToken, setLastHandledWorkspaceCommandToken] = useState(0);
   const workspaceCommandToken = useRef(0);
@@ -106,12 +109,13 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     [planSnapshot, selection, system],
   );
 
-  const planningFocusLabel = getPlanningFocusLabel(selection, system);
+  const planningFocusLabel = getPlanningFocusLabel(selection, system, planSnapshot);
   const selectedBody = useMemo(
-    () => selectedBodyFromSelection(selection, system.bodies ?? [], placements),
-    [placements, selection, system.bodies],
+    () => selectedBodyFromSelection(selection, system.bodies ?? [], placements, projection?.placements ?? []),
+    [placements, projection?.placements, selection, system.bodies],
   );
   const selectedPlacementIndex = selection.type === 'placement' ? selection.placementIndex : null;
+  const selectedProjectedPlacementIndex = selection.type === 'projected-placement' ? selection.placementIndex : null;
   const systemEconomyLedger = useMemo(() => buildPlanningEconomyLedger({
     placements,
     projectedPlacements: projection?.placements ?? [],
@@ -169,23 +173,15 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     <section
       aria-label="Whole-system colony planner"
       data-testid="whole-system-colony-planner"
-      data-layout="raven-real-data-responsive"
-      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,26rem)] 2xl:grid-cols-[minmax(0,1fr)_minmax(23rem,27rem)_minmax(24rem,28rem)] xl:items-start"
+      data-layout="stage17n-docked-context-canvas"
+      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)] xl:items-start"
     >
-      <div className="order-1 min-w-0">
-        <RavenStylePlannerCanvas
-          system={system}
-          snapshot={planSnapshot}
-          selection={selection}
-          onSelect={setSelection}
-        />
-      </div>
-
       <main
-        aria-label="Selected body planner surface"
+        aria-label="Whole-system build canvas surface"
         data-testid="workspace-planner-content"
-        data-readability="stage17k"
-        className="order-2 min-w-0 rounded-chunk-lg border border-orange/25 bg-bg1/78 p-3 shadow-metal xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
+        data-layout="main-system-canvas"
+        data-readability="stage17n"
+        className="order-1 min-w-0 space-y-3"
       >
         <PlannerStatusStrip
           selection={selection}
@@ -195,19 +191,29 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
           unsavedChanges={projectState.unsavedChanges}
           economyLedger={systemEconomyLedger}
         />
-        <SelectedBodyPlannerCanvas
+        <RavenStylePlannerCanvas
           system={system}
-          body={selectedBody}
           snapshot={planSnapshot}
           selection={selection}
-          selectedPlacementIndex={selectedPlacementIndex}
-          templatesLoading={templatesQuery.isLoading}
-          templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
-          onAddStructure={addStructure}
-          onOpenAdvanced={openAdvanced}
-          onReviewStructures={reviewBodyStructures}
-          onSelectBody={(bodyId) => setSelection({ type: 'body', bodyId })}
-          onSelectPlacement={(placementIndex) => setSelection({ type: 'placement', placementIndex })}
+          expandedBodyDetail={selectedBody ? (
+            <SelectedBodyPlannerCanvas
+              system={system}
+              body={selectedBody}
+              snapshot={planSnapshot}
+              selection={selection}
+              selectedPlacementIndex={selectedPlacementIndex}
+              selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
+              templatesLoading={templatesQuery.isLoading}
+              templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
+              onAddStructure={addStructure}
+              onOpenAdvanced={openAdvanced}
+              onReviewStructures={reviewBodyStructures}
+              onSelectBody={(bodyId) => setSelection({ type: 'body', bodyId })}
+              onSelectPlacement={(placementIndex) => setSelection({ type: 'placement', placementIndex })}
+              onSelectProjectedPlacement={(placementIndex) => setSelection({ type: 'projected-placement', placementIndex })}
+            />
+          ) : null}
+          onSelect={setSelection}
         />
         <AdvancedPlannerDrawer
           open={advancedPanelOpen}
@@ -227,53 +233,90 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
         />
       </main>
 
-      <div className="order-3 space-y-3 xl:col-span-2 2xl:col-span-1">
-        <RavenPlannerTelemetryPanel
-          system={system}
-          snapshot={planSnapshot}
-          economyLedger={systemEconomyLedger}
-          selectedContext={selectedContext}
-        />
-        <WorkspaceSummaryRail
-          system={system}
-          snapshot={planSnapshot}
-          economyLedger={systemEconomyLedger}
-          selection={selection}
-          selectedContext={selectedContext}
-          projects={projectState.projects}
-          activeProject={projectState.activeProject}
-          pendingProjectId={projectState.pendingProjectId}
-          projectName={projectState.projectName}
-          projectNotes={projectState.projectNotes}
-          unsavedChanges={projectState.unsavedChanges}
-          confirmArchive={projectState.confirmArchive}
-          onPendingProjectChange={projectState.setPendingProjectId}
-          onLoadProject={projectState.loadProject}
-          onProjectNameChange={projectState.setProjectName}
-          onProjectNotesChange={projectState.setProjectNotes}
-          onSaveProject={projectState.saveProject}
-          onRenameProject={projectState.renameProject}
-          onDuplicateProject={projectState.duplicateProject}
-          onArchiveProject={projectState.archiveProject}
-          onConfirmArchiveChange={projectState.setConfirmArchive}
-        />
+      <div
+        className="order-2 min-w-0 max-xl:sticky max-xl:bottom-3 max-xl:z-30 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
+        data-testid="planner-telemetry-region"
+        data-layout="telemetry-context-panel"
+        data-mobile-dock={telemetryDockOpen ? 'open' : 'closed'}
+      >
+        <button
+          type="button"
+          data-testid="planner-telemetry-dock-toggle"
+          aria-expanded={telemetryDockOpen}
+          aria-controls="planner-telemetry-dock-content"
+          onClick={() => setTelemetryDockOpen((open) => !open)}
+          className="flex w-full items-center justify-between gap-3 rounded-chunk-lg border border-cyan/35 bg-bg2/95 px-3 py-2 shadow-metal xl:hidden"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <PanelRight size={16} className="shrink-0 text-cyan" />
+            <span className="min-w-0 text-left">
+              <span className="block font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Telemetry</span>
+              <span className="block truncate text-[11px] text-silver-dk">
+                {selectedContext.label} / {placements.length} planned{projection ? ` / ${projection.placements.length} projected` : ''}
+              </span>
+            </span>
+          </span>
+          <ChevronDown
+            size={16}
+            className={['shrink-0 text-silver-dk transition-transform', telemetryDockOpen ? 'rotate-180' : ''].join(' ')}
+          />
+        </button>
+        <div
+          id="planner-telemetry-dock-content"
+          data-testid="planner-telemetry-dock-content"
+          data-open={telemetryDockOpen ? 'true' : 'false'}
+          className={[telemetryDockOpen ? 'block' : 'hidden xl:block', 'max-xl:mt-2 max-xl:max-h-[min(76vh,42rem)] max-xl:overflow-y-auto max-xl:rounded-chunk-lg max-xl:border max-xl:border-cyan/25 max-xl:bg-bg1/95 max-xl:p-2 max-xl:shadow-metal xl:space-y-3'].join(' ')}
+        >
+          <RavenPlannerTelemetryPanel
+            system={system}
+            snapshot={planSnapshot}
+            economyLedger={systemEconomyLedger}
+            selectedContext={selectedContext}
+            selection={selection}
+          />
+          <WorkspaceSummaryRail
+            system={system}
+            snapshot={planSnapshot}
+            economyLedger={systemEconomyLedger}
+            selection={selection}
+            selectedContext={selectedContext}
+            projects={projectState.projects}
+            activeProject={projectState.activeProject}
+            pendingProjectId={projectState.pendingProjectId}
+            projectName={projectState.projectName}
+            projectNotes={projectState.projectNotes}
+            unsavedChanges={projectState.unsavedChanges}
+            confirmArchive={projectState.confirmArchive}
+            onPendingProjectChange={projectState.setPendingProjectId}
+            onLoadProject={projectState.loadProject}
+            onProjectNameChange={projectState.setProjectName}
+            onProjectNotesChange={projectState.setProjectNotes}
+            onSaveProject={projectState.saveProject}
+            onRenameProject={projectState.renameProject}
+            onDuplicateProject={projectState.duplicateProject}
+            onArchiveProject={projectState.archiveProject}
+            onConfirmArchiveChange={projectState.setConfirmArchive}
+          />
+        </div>
       </div>
     </section>
   );
 }
-
 function selectedBodyFromSelection(
   selection: TopologySelection,
   bodies: SystemBody[],
   placements: SimulateBuildPlacement[],
+  projectedPlacements: SimulateBuildPlacement[],
 ): SystemBody | null {
   if (selection.type === 'body') {
-    return bodies.find((body) => body.id != null && String(body.id) === selection.bodyId) ?? null;
+    return bodies.find((body) => sameBodyId(body.id, selection.bodyId)) ?? null;
   }
-  if (selection.type === 'placement') {
-    const placement = placements[selection.placementIndex];
-    const bodyId = placement?.local_body_id != null ? String(placement.local_body_id) : null;
-    return bodyId ? bodies.find((body) => body.id != null && String(body.id) === bodyId) ?? null : null;
+  if (selection.type === 'placement' || selection.type === 'projected-placement') {
+    const placement = selection.type === 'placement'
+      ? placements[selection.placementIndex]
+      : projectedPlacements[selection.placementIndex];
+    const bodyId = placement?.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
+    return bodyId ? bodies.find((body) => sameBodyId(body.id, bodyId)) ?? null : null;
   }
   return null;
 }

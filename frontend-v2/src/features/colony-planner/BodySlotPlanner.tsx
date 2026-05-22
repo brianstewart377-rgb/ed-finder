@@ -33,8 +33,10 @@ export function BodySlotPlanner({
   placements,
   projectedPlacements,
   selectedPlacementIndex,
+  selectedProjectedPlacementIndex,
   hasTemplates,
   onSelectPlacement,
+  onSelectProjectedPlacement,
   onAddLaneStructure,
 }: {
   body: SystemBody;
@@ -42,8 +44,10 @@ export function BodySlotPlanner({
   placements: BodyPlannerPlacementItem[];
   projectedPlacements: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
+  selectedProjectedPlacementIndex: number | null;
   hasTemplates: boolean;
   onSelectPlacement: (index: number) => void;
+  onSelectProjectedPlacement: (index: number) => void;
   onAddLaneStructure: (lane: BodyPlannerLane) => void;
 }) {
   const tags = bodyTags(body).slice(0, 2);
@@ -104,9 +108,11 @@ export function BodySlotPlanner({
         surfaceProjected={surfaceProjected}
         flexProjected={flexProjected}
         selectedPlacementIndex={selectedPlacementIndex}
+        selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
         hasTemplates={hasTemplates}
         surfaceBlocked={surfaceBlocked}
         onSelectPlacement={onSelectPlacement}
+        onSelectProjectedPlacement={onSelectProjectedPlacement}
         onAddLaneStructure={onAddLaneStructure}
       />
 
@@ -130,7 +136,9 @@ export function BodySlotPlanner({
             planned={orbitalPlanned}
             projected={orbitalProjected}
             selectedPlacementIndex={selectedPlacementIndex}
+            selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
+            onSelectProjectedPlacement={onSelectProjectedPlacement}
           />
           <LaneSlots
             body={body}
@@ -138,7 +146,9 @@ export function BodySlotPlanner({
             planned={orbitalPlanned}
             projected={orbitalProjected}
             selectedPlacementIndex={selectedPlacementIndex}
+            selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
+            onSelectProjectedPlacement={onSelectProjectedPlacement}
             emptyText="No orbital structures yet."
           />
         </BodySlotLane>
@@ -158,7 +168,9 @@ export function BodySlotPlanner({
             planned={surfacePlanned}
             projected={surfaceProjected}
             selectedPlacementIndex={selectedPlacementIndex}
+            selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
+            onSelectProjectedPlacement={onSelectProjectedPlacement}
           />
           <LaneSlots
             body={body}
@@ -166,7 +178,9 @@ export function BodySlotPlanner({
             planned={surfacePlanned}
             projected={surfaceProjected}
             selectedPlacementIndex={selectedPlacementIndex}
+            selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
+            onSelectProjectedPlacement={onSelectProjectedPlacement}
             emptyText="No surface structures yet."
           />
         </BodySlotLane>
@@ -186,7 +200,9 @@ export function BodySlotPlanner({
             planned={flexPlanned}
             projected={flexProjected}
             selectedPlacementIndex={selectedPlacementIndex}
+            selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
+            onSelectProjectedPlacement={onSelectProjectedPlacement}
           />
           <LaneSlots
             body={body}
@@ -194,7 +210,9 @@ export function BodySlotPlanner({
             planned={flexPlanned}
             projected={flexProjected}
             selectedPlacementIndex={selectedPlacementIndex}
+            selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
+            onSelectProjectedPlacement={onSelectProjectedPlacement}
             emptyText="No flexible/unknown structures yet."
           />
         </BodySlotLane>
@@ -211,9 +229,11 @@ function BodyRingMap({
   surfaceProjected,
   flexProjected,
   selectedPlacementIndex,
+  selectedProjectedPlacementIndex,
   hasTemplates,
   surfaceBlocked,
   onSelectPlacement,
+  onSelectProjectedPlacement,
   onAddLaneStructure,
 }: {
   orbitalPlanned: BodyPlannerPlacementItem[];
@@ -223,9 +243,11 @@ function BodyRingMap({
   surfaceProjected: BodyPlannerProjectedPlacementItem[];
   flexProjected: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
+  selectedProjectedPlacementIndex: number | null;
   hasTemplates: boolean;
   surfaceBlocked: boolean;
   onSelectPlacement: (index: number) => void;
+  onSelectProjectedPlacement: (index: number) => void;
   onAddLaneStructure: (lane: BodyPlannerLane) => void;
 }) {
   const orbitalNodes = [
@@ -264,8 +286,8 @@ function BodyRingMap({
             top={`calc(8.9rem + ${orbitalSlots[index].y}px)`}
             label={slotLabel(node.item)}
             projected={node.kind === 'projected'}
-            selected={node.kind === 'planned' && selectedPlacementIndex === node.item.index}
-            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : undefined}
+            selected={node.kind === 'planned' ? selectedPlacementIndex === node.item.index : selectedProjectedPlacementIndex === node.item.index}
+            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : () => onSelectProjectedPlacement(node.item.index)}
           />
         ))}
 
@@ -277,8 +299,8 @@ function BodyRingMap({
             top={`calc(8.9rem + ${surfaceSlots[index].y}px)`}
             label={slotLabel(node.item)}
             projected={node.kind === 'projected'}
-            selected={node.kind === 'planned' && selectedPlacementIndex === node.item.index}
-            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : undefined}
+            selected={node.kind === 'planned' ? selectedPlacementIndex === node.item.index : selectedProjectedPlacementIndex === node.item.index}
+            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : () => onSelectProjectedPlacement(node.item.index)}
           />
         ))}
 
@@ -291,8 +313,8 @@ function BodyRingMap({
             top="20rem"
             label={slotLabel(node.item)}
             projected={node.kind === 'projected'}
-            selected={node.kind === 'planned' && selectedPlacementIndex === node.item.index}
-            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : undefined}
+            selected={node.kind === 'planned' ? selectedPlacementIndex === node.item.index : selectedProjectedPlacementIndex === node.item.index}
+            onClick={node.kind === 'planned' ? () => onSelectPlacement(node.item.index) : () => onSelectProjectedPlacement(node.item.index)}
           />
         ))}
 
@@ -466,14 +488,18 @@ function LaneCapacityMap({
   planned,
   projected,
   selectedPlacementIndex,
+  selectedProjectedPlacementIndex,
   onSelectPlacement,
+  onSelectProjectedPlacement,
 }: {
   laneKey: BodyPlannerLane;
   capacity: number | null;
   planned: BodyPlannerPlacementItem[];
   projected: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
+  selectedProjectedPlacementIndex: number | null;
   onSelectPlacement: (index: number) => void;
+  onSelectProjectedPlacement: (index: number) => void;
 }) {
   const used = planned.length + projected.length;
   if (capacity == null) {
@@ -499,8 +525,8 @@ function LaneCapacityMap({
                   label={slotLabel(item)}
                   fullLabel={item.template?.name ?? item.placement.facility_template_id}
                   projected={projectedItem}
-                  selected={!projectedItem && selectedPlacementIndex === plannedItem.index}
-                  onClick={!projectedItem ? () => onSelectPlacement(plannedItem.index) : undefined}
+                  selected={projectedItem ? selectedProjectedPlacementIndex === projectedPlacement.index : selectedPlacementIndex === plannedItem.index}
+                  onClick={projectedItem ? () => onSelectProjectedPlacement(projectedPlacement.index) : () => onSelectPlacement(plannedItem.index)}
                 />
               );
             })}
@@ -530,8 +556,8 @@ function LaneCapacityMap({
         label: slotLabel(item),
         fullLabel: item.template?.name ?? item.placement.facility_template_id,
         projected: true,
-        selected: false,
-        onClick: undefined,
+        selected: selectedProjectedPlacementIndex === item.index,
+        onClick: () => onSelectProjectedPlacement(item.index),
       };
     }
     return {
@@ -627,7 +653,9 @@ function LaneSlots({
   planned,
   projected,
   selectedPlacementIndex,
+  selectedProjectedPlacementIndex,
   onSelectPlacement,
+  onSelectProjectedPlacement,
   emptyText,
 }: {
   body: SystemBody;
@@ -635,7 +663,9 @@ function LaneSlots({
   planned: BodyPlannerPlacementItem[];
   projected: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
+  selectedProjectedPlacementIndex: number | null;
   onSelectPlacement: (index: number) => void;
+  onSelectProjectedPlacement: (index: number) => void;
   emptyText: string;
 }) {
   const hasAny = planned.length > 0 || projected.length > 0;
@@ -663,6 +693,8 @@ function LaneSlots({
         <ProjectedStructureSlot
           key={`projected-${laneKey}-${item.index}-${item.placement.facility_template_id}`}
           item={item}
+          selected={selectedProjectedPlacementIndex === item.index}
+          onSelect={() => onSelectProjectedPlacement(item.index)}
         />
       ))}
     </div>

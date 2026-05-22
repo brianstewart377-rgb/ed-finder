@@ -17,7 +17,7 @@ export function PlannerStatusStrip({
   unsavedChanges: boolean;
   economyLedger: PlanningEconomyLedger;
 }) {
-  const title = selection.type === 'body' || selection.type === 'placement'
+  const title = selection.type === 'body' || selection.type === 'placement' || selection.type === 'projected-placement'
     ? 'Body Planner'
     : 'Whole-System Planner';
   return (
