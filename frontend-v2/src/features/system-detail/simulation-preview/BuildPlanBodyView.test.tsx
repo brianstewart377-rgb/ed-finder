@@ -139,7 +139,7 @@ describe('BuildPlanBodyView', () => {
     expect(within(firstBody).getByText('Body: known')).toBeTruthy();
     expect(within(firstBody).getByText('Orbital planned: 1')).toBeTruthy();
     expect(within(firstBody).getByText('Ground planned: 0')).toBeTruthy();
-    expect(within(firstBody).getByText('Ground capability: landable')).toBeTruthy();
+    expect(within(firstBody).getByText('Surface capability: landable')).toBeTruthy();
     expect(within(firstBody).getByText('Architect survey: not observed')).toBeTruthy();
     expect(within(firstBody).getByText('Orbital slots: unknown')).toBeTruthy();
     expect(within(firstBody).getByText('Role hints')).toBeTruthy();
@@ -272,7 +272,7 @@ describe('BuildPlanBodyView', () => {
     expect(within(panel).getByText((content) => content.includes('#2') && content.includes('Extraction Hub'))).toBeTruthy();
     expect(within(panel).getByText('May be invalid: surface facility on water world')).toBeTruthy();
     expect(within(panel).getByText('Topology readout')).toBeTruthy();
-    expect(within(panel).getByText('Ground capability: review water world')).toBeTruthy();
+    expect(within(panel).getByText('Surface capability: review water world')).toBeTruthy();
     expect(within(panel).getByText('Ground planned: 1')).toBeTruthy();
     expect(within(panel).getByText('Strategic topology')).toBeTruthy();
     expect(within(panel).getByText('Good support body: current plan keeps this body support-focused away from the main station candidate.')).toBeTruthy();

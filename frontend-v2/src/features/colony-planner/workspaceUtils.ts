@@ -102,7 +102,7 @@ export function projectRequestFromProject(project: ColonyProject | null) {
   return {
     system_id64: project.system_id64,
     target_archetype: project.target_archetype,
-    placements: project.build_plan_placements,
+    placements: Array.isArray(project.build_plan_placements) ? project.build_plan_placements : [],
   };
 }
 

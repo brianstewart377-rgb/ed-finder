@@ -120,7 +120,14 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
 export function activeProjectsForSystem(projects: ColonyProject[], systemId64: number) {
   return projects
     .filter((project) => project.system_id64 === systemId64 && !project.archived_at)
-    .map((project) => ({ ...project, declared_roles: normaliseDeclaredRoles(project.declared_roles) }))
+    .map((project) => ({
+      ...project,
+      build_plan_placements: clonePlacements(project.build_plan_placements),
+      selected_body_assignments: project.selected_body_assignments && typeof project.selected_body_assignments === 'object'
+        ? project.selected_body_assignments
+        : {},
+      declared_roles: normaliseDeclaredRoles(project.declared_roles),
+    }))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
@@ -141,7 +148,24 @@ export function projectMatchesSnapshot(
 }
 
 function clonePlacements(placements: SimulateBuildPlacement[]) {
-  return placements.map((placement) => ({ ...placement }));
+  if (!Array.isArray(placements)) return [];
+  return placements
+    .map<SimulateBuildPlacement | null>((placement, index) => {
+      if (!placement || typeof placement !== 'object') return null;
+      const candidate = placement as Partial<SimulateBuildPlacement>;
+      if (typeof candidate.facility_template_id !== 'string' || !candidate.facility_template_id.trim()) return null;
+      const buildOrder = typeof candidate.build_order === 'number' && Number.isFinite(candidate.build_order)
+        ? candidate.build_order
+        : index + 1;
+      const normalised: SimulateBuildPlacement = {
+        facility_template_id: candidate.facility_template_id,
+        local_body_id: candidate.local_body_id == null ? null : String(candidate.local_body_id),
+        is_primary_port: Boolean(candidate.is_primary_port),
+        build_order: buildOrder,
+      };
+      return normalised;
+    })
+    .filter((placement): placement is SimulateBuildPlacement => Boolean(placement));
 }
 
 function bodyAssignments(placements: SimulateBuildPlacement[]) {

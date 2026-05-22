@@ -35,6 +35,15 @@ const templates: FacilityTemplate[] = [
     green_cp_generated: 240,
     yellow_cp_cost: 0,
     green_cp_cost: 0,
+    stat_effects: {
+      population: 72,
+      max_population: 10,
+      security: -20.9,
+      tech_level: 18.6,
+      wealth: 20.25,
+      standard_of_living: 30.4,
+      development_level: 27.6,
+    },
   } as FacilityTemplate & { display_name: string },
   {
     id: 'surface_refinery',
@@ -235,7 +244,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(comparison.economyDeltas.find((entry) => entry.economy === 'Refinery')).toEqual(expect.objectContaining({ planned: 1, projected: 1 }));
   });
 
-  it('renders telemetry with positive and negative zero-centered bars from live planner state', () => {
+  it('renders exact BGS telemetry deltas with positive and negative zero-centered bars from live planner state', () => {
     const ledger = buildPlanningEconomyLedger({
       placements: snapshot.placements,
       projectedPlacements: snapshot.projection?.placements ?? [],
@@ -261,9 +270,14 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     );
 
     expect(screen.getByTestId('raven-real-telemetry-panel')).toBeTruthy();
-    expect(screen.getByTestId('raven-stat-planned-builds-positive').dataset.tone).toBe('positive-green');
-    expect(screen.getByTestId('raven-stat-missing-economy-negative').dataset.tone).toBe('negative-red');
-    expect(screen.getByTestId('raven-stat-missing-economy-negative').style.width).not.toBe('0%');
+    expect(screen.getByText('Max population')).toBeTruthy();
+    expect(screen.getByText('Standard of living')).toBeTruthy();
+    expect(screen.getByText('Development level')).toBeTruthy();
+    expect(screen.getByTestId('raven-stat-population-positive').dataset.tone).toBe('positive-green');
+    expect(screen.getByTestId('raven-stat-security-negative').dataset.tone).toBe('negative-red');
+    expect(screen.getByTestId('raven-stat-security-negative').style.width).not.toBe('0%');
+    expect(screen.getByText('+72')).toBeTruthy();
+    expect(screen.getByText('-20.9')).toBeTruthy();
     expect(within(screen.getByTestId('raven-telemetry-economy-ledger')).getByText(/Ind/i)).toBeTruthy();
     expect(screen.getByTestId('raven-projection-comparison')).toBeTruthy();
     expect(screen.getByTestId('projection-comparison-bodies')).toBeTruthy();

@@ -11,6 +11,7 @@ import {
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
+import { SlotCapacityDots } from './BodySlotPlanner';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import {
   buildPlanningEconomyLedger,
@@ -43,6 +44,23 @@ export interface RavenStructureSlot {
   buildOrder: number | null;
   status: 'planned' | 'projected' | 'unknown';
 }
+
+interface BgsTelemetryStat {
+  id: string;
+  label: string;
+  field: string;
+  value: number;
+}
+
+const BGS_TELEMETRY_FIELDS: Array<Omit<BgsTelemetryStat, 'value'>> = [
+  { id: 'population', label: 'Population', field: 'population' },
+  { id: 'max-population', label: 'Max population', field: 'max_population' },
+  { id: 'security', label: 'Security', field: 'security' },
+  { id: 'tech-level', label: 'Tech level', field: 'tech_level' },
+  { id: 'wealth', label: 'Wealth', field: 'wealth' },
+  { id: 'standard-of-living', label: 'Standard of living', field: 'standard_of_living' },
+  { id: 'development-level', label: 'Development level', field: 'development_level' },
+];
 
 export interface RavenPlannerRow {
   id: string;
@@ -162,8 +180,8 @@ export function RavenStylePlannerCanvas({
             style={gridStyle}
           >
             <div className="text-cyan">System tree</div>
-            <div>Orbital lane</div>
-            <div>Ground lane</div>
+            <div>Orbit</div>
+            <div>Surface</div>
           </div>
 
           <div className="divide-y divide-border/45">
@@ -202,7 +220,7 @@ export function RavenPlannerTelemetryPanel({
   selection: TopologySelection;
 }) {
   const [projectionView, setProjectionView] = useState<ProjectionComparisonView>('bodies');
-  const stats = buildPlannerTelemetryStats(system, snapshot, economyLedger);
+  const stats = buildPlannerTelemetryStats(snapshot);
   const population = system.population && system.population > 0 ? formatPopulation(system.population) : 'Uncolonised';
   const score = typeof system.score === 'number' ? Math.round(system.score) : 'n/a';
   const rows = buildRavenPlannerRows(system, snapshot);
@@ -398,12 +416,23 @@ function TreeCell({
             <span className="truncate text-sm font-semibold leading-snug text-silver">{row.compactName}</span>
             {row.warningCount > 0 && <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] text-gold">!</span>}
             {row.projected && <span className="rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[10px] text-cyan">ghost</span>}
+            <SlotCapacityDots
+              orbitalCapacity={row.orbitalCapacity}
+              surfaceCapacity={row.groundCapacity}
+              occupiedOrbital={occupiedSlotCount(row.orbitalSlots)}
+              occupiedSurface={occupiedSlotCount(row.groundSlots)}
+              testId={`raven-body-slot-indicators-${row.id}`}
+            />
           </span>
           <span className="mt-0.5 block truncate text-xs leading-snug text-silver-dk">{row.bodyKind}</span>
         </span>
       </button>
     </div>
   );
+}
+
+function occupiedSlotCount(slots: RavenStructureSlot[]) {
+  return slots.filter((slot) => slot.kind === 'planned' || slot.kind === 'projected').length;
 }
 
 function RavenSlotLane({
@@ -424,7 +453,7 @@ function RavenSlotLane({
   onSelect: (selection: TopologySelection) => void;
 }) {
   const knownCount = capacity == null ? '?' : String(capacity);
-  const laneLabel = lane === 'orbital' ? `O${knownCount}` : `G${knownCount}`;
+  const laneLabel = lane === 'orbital' ? `O${knownCount}` : `S${knownCount}`;
 
   return (
     <div data-testid={`${bodyId}-${lane}-lane`} className="flex min-w-0 items-center gap-2 pr-2">
@@ -690,9 +719,8 @@ function ProjectionEconomyView({ summary }: { summary: ProjectionComparisonSumma
 function ProjectionSlotsView({ summary }: { summary: ProjectionComparisonSummary }) {
   return (
     <div className="mt-2 grid grid-cols-2 gap-1.5" data-testid="projection-comparison-slots">
-      <ProjectionMetric label="Ghost orbital" value={summary.projectedOrbitalCount} tone="cyan" />
-      <ProjectionMetric label="Ghost ground" value={summary.projectedGroundCount} tone="cyan" />
-      <ProjectionMetric label="Unknown lane" value={summary.projectedUnknownLaneCount} tone={summary.projectedUnknownLaneCount > 0 ? 'gold' : 'silver'} />
+      <ProjectionMetric label="Ghost orbit" value={summary.projectedOrbitalCount} tone="cyan" />
+      <ProjectionMetric label="Ghost surface" value={summary.projectedGroundCount} tone="cyan" />
       <ProjectionMetric label="Overflow risks" value={summary.slotOverflowCount} tone={summary.slotOverflowCount > 0 ? 'gold' : 'green'} />
     </div>
   );
@@ -734,7 +762,7 @@ interface StructureTelemetryDetail {
   name: string;
   templateId: string;
   status: 'planned' | 'projected';
-  lane: 'orbital' | 'ground' | 'unknown';
+  lane: 'orbital' | 'ground';
   bodyName: string;
   category: string;
   buildOrder: number | null;
@@ -774,7 +802,7 @@ function SelectedStructureTelemetryCard({ detail }: { detail: StructureTelemetry
       </div>
       <div className="mt-2 text-sm font-semibold leading-snug text-silver">{detail.name}</div>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        <TelemetryField label="Lane" value={`${detail.lane} / ${detail.bodyName}`} tone="cyan" />
+        <TelemetryField label="Lane" value={`${detail.lane === 'ground' ? 'surface' : 'orbit'} / ${detail.bodyName}`} tone="cyan" />
         <TelemetryField label="Build order" value={detail.buildOrder == null ? 'n/a' : `#${detail.buildOrder}`} />
         <TelemetryField label="Variant" value={detail.category} />
         <TelemetryField label="Strength" value={detail.strength == null ? 'n/a' : `+${detail.strength} CP`} tone={detail.strength ? 'green' : 'silver'} />
@@ -851,7 +879,7 @@ function buildSelectedBodyTelemetryDetail(
     row,
     plannedCount,
     projectedCount,
-    capacityLabel: `O${row.orbitalCapacity ?? '?'} / G${row.groundCapacity ?? '?'}`,
+    capacityLabel: `O${row.orbitalCapacity ?? '?'} / S${row.groundCapacity ?? '?'}`,
   };
 }
 
@@ -1003,10 +1031,10 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
     const planned = plannedByBody.get(node.id) ?? emptyStructureBuckets();
     const projected = projectedByBody.get(node.id) ?? emptyStructureBuckets();
     const orbitalStructures = [...planned.orbital, ...projected.orbital];
-    const groundStructures = [...planned.ground, ...planned.unknown, ...projected.ground, ...projected.unknown];
+    const groundStructures = [...planned.ground, ...projected.ground];
     const bodyLedger = buildPlanningEconomyLedger({
-      placements: [...planned.orbital, ...planned.ground, ...planned.unknown].map((item) => item.placement),
-      projectedPlacements: [...projected.orbital, ...projected.ground, ...projected.unknown].map((item) => item.placement),
+      placements: [...planned.orbital, ...planned.ground].map((item) => item.placement),
+      projectedPlacements: [...projected.orbital, ...projected.ground].map((item) => item.placement),
       templates: snapshot.templates,
     });
 
@@ -1031,26 +1059,31 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
   });
 }
 
-export function buildPlannerTelemetryStats(
-  system: SystemDetail,
-  snapshot: TopologyPlanSnapshot,
-  economyLedger: PlanningEconomyLedger,
-) {
-  const bodies = system.bodies ?? [];
-  const predictedBodyIds = new Set((snapshot.slotPredictions?.predictions ?? []).map((prediction) => bodyIdKey(prediction.body_id)));
-  const unknownSlotBodies = bodies.filter((body) => body.id != null && !predictedBodyIds.has(bodyIdKey(body.id))).length;
-  const unassigned = snapshot.placements.filter((placement) => placement.local_body_id == null).length;
-  const projected = snapshot.projection?.placements.length ?? 0;
-  const knownSlots = (snapshot.slotPredictions?.predicted_orbital_slots_total ?? 0) + (snapshot.slotPredictions?.predicted_ground_slots_total ?? 0);
+export function buildPlannerTelemetryStats(snapshot: TopologyPlanSnapshot): BgsTelemetryStat[] {
+  const templatesById = new Map(snapshot.templates.map((template) => [template.id, template]));
+  return BGS_TELEMETRY_FIELDS.map((stat) => ({
+    ...stat,
+    value: snapshot.placements.reduce((sum, placement) => (
+      sum + readTemplateStat(templatesById.get(placement.facility_template_id), stat.field)
+    ), 0),
+  }));
+}
 
-  return [
-    { id: 'planned-builds', label: 'Planned', value: snapshot.placements.length },
-    { id: 'projected-builds', label: 'Projected', value: projected },
-    { id: 'known-slots', label: 'Known slots', value: knownSlots > 0 ? Math.min(12, knownSlots) : 0 },
-    { id: 'unassigned', label: 'Unassigned', value: unassigned > 0 ? -unassigned : 0 },
-    { id: 'missing-economy', label: 'No economy', value: economyLedger.unknownCount > 0 ? -economyLedger.unknownCount : 0 },
-    { id: 'unknown-slots', label: 'Slot gaps', value: unknownSlotBodies > 0 ? -Math.min(12, unknownSlotBodies) : 0 },
-  ];
+function readTemplateStat(template: FacilityTemplate | undefined, field: string): number {
+  if (!template) return 0;
+  const direct = numericValue((template as unknown as Record<string, unknown>)[field]);
+  if (direct != null) return direct;
+  const effects = template.stat_effects ?? (template as unknown as { statEffects?: Record<string, unknown> }).statEffects;
+  return numericValue(effects?.[field]) ?? 0;
+}
+
+function numericValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 
@@ -1077,10 +1110,9 @@ export function buildProjectionComparison(
     const template = templatesById.get(placement.facility_template_id);
     const lane = laneForPlacement(template, bodyId ? bodyById.get(bodyId) : undefined);
     if (lane === 'orbital') counts.orbital += 1;
-    else if (lane === 'ground') counts.ground += 1;
-    else counts.unknown += 1;
+    else counts.ground += 1;
     return counts;
-  }, { orbital: 0, ground: 0, unknown: 0 });
+  }, { orbital: 0, ground: 0 });
   const slotOverflowCount = rows.reduce((sum, row) => (
     sum
       + row.orbitalSlots.filter((slot) => slot.kind === 'overflow').length
@@ -1099,7 +1131,7 @@ export function buildProjectionComparison(
     plannedOnlyBodyLabels: bodyLabelsForIds(plannedOnlyBodyIds, bodyById, system.name),
     projectedOrbitalCount: laneCounts.orbital,
     projectedGroundCount: laneCounts.ground,
-    projectedUnknownLaneCount: laneCounts.unknown,
+    projectedUnknownLaneCount: 0,
     slotOverflowCount,
     economyDeltas: economyLedger.entries.map((entry) => ({
       economy: entry.economy,
@@ -1156,7 +1188,6 @@ function emptyStructureBuckets() {
   return {
     orbital: [] as StructureBucketItem[],
     ground: [] as StructureBucketItem[],
-    unknown: [] as StructureBucketItem[],
   };
 }
 
@@ -1242,12 +1273,13 @@ function emptySlot(bodyId: string, lane: RavenLane, index: number, label = ''): 
 }
 
 function overflowSlot(bodyId: string, lane: RavenLane, count: number): RavenStructureSlot {
+  const laneLabel = lane === 'ground' ? 'surface' : 'orbit';
   return {
     id: `${bodyId}-${lane}-overflow-${count}`,
     kind: 'overflow',
     label: `+${count} overflow`,
     fullName: `${count} overflow or unconfirmed structures`,
-    title: `${count} structure${count === 1 ? '' : 's'} exceed known ${lane} slot capacity or need confirmation.`,
+    title: `${count} structure${count === 1 ? '' : 's'} exceed known ${laneLabel} slot capacity or need confirmation.`,
     economySegments: [],
     placementIndex: null,
     projectionIndex: null,
@@ -1310,13 +1342,17 @@ function readableTemplateId(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function laneForPlacement(template: FacilityTemplate | undefined, body: SystemBody | undefined): 'orbital' | 'ground' | 'unknown' {
-  if (!template) return 'unknown';
+function laneForPlacement(template: FacilityTemplate | undefined, body: SystemBody | undefined): 'orbital' | 'ground' {
+  if (!template) return fallbackRavenLane(body);
   const location = templateLocationKind(template);
   if (location === 'orbital') return 'orbital';
   if (location === 'surface') return 'ground';
-  if (location === 'both') return template.is_port ? 'orbital' : body?.is_landable === true ? 'ground' : 'orbital';
-  return 'unknown';
+  if (location === 'both') return template.is_port ? 'orbital' : body?.is_landable === true && body.is_water_world !== true ? 'ground' : 'orbital';
+  return fallbackRavenLane(body);
+}
+
+function fallbackRavenLane(body: SystemBody | undefined): 'orbital' | 'ground' {
+  return body?.is_landable === true && body.is_water_world !== true ? 'ground' : 'orbital';
 }
 
 function readSlotCount(prediction: BodySlotPrediction | null, lane: RavenLane): number | null {

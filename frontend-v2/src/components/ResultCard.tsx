@@ -47,6 +47,16 @@ export function ResultCard({
   const inhabited  = isInhabited(system);
   const dist       = system.distance != null ? system.distance.toFixed(2) : '?';
   const popLabel   = formatPopulation(system.population);
+  const systemId64 = Number(system.id64);
+  const hasValidSystemId = Number.isFinite(systemId64) && systemId64 > 0;
+  const openColonyPlanner = () => {
+    if (!hasValidSystemId) return;
+    if (onOpenColonyPlanner) {
+      onOpenColonyPlanner(systemId64);
+    } else {
+      onOpenDetail?.(systemId64, { focus: 'colony-planner' });
+    }
+  };
 
   return (
     <article
@@ -225,12 +235,9 @@ export function ResultCard({
             {(onOpenColonyPlanner || onOpenDetail) && (
               <ActionButton
                 onClick={() => {
-                  if (onOpenColonyPlanner) {
-                    onOpenColonyPlanner(system.id64);
-                  } else {
-                    onOpenDetail?.(system.id64, { focus: 'colony-planner' });
-                  }
+                  openColonyPlanner();
                 }}
+                disabled={!hasValidSystemId}
               >
                 <Rocket size={13} className="mr-1.5" /> Evaluate in Colony Planner
               </ActionButton>
@@ -294,17 +301,23 @@ function IconToggle({
 }
 
 function ActionButton({
-  onClick, children, primary,
+  onClick, children, primary, disabled = false,
 }: {
   onClick: () => void;
   children: React.ReactNode;
   primary?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className={primary ? 'btn-primary inline-flex items-center text-[11px] py-1.5 px-3' : 'btn-metal inline-flex items-center text-[11px] py-1.5 px-3'}
+      className={[
+        primary ? 'btn-primary' : 'btn-metal',
+        'inline-flex items-center text-[11px] py-1.5 px-3',
+        disabled ? 'cursor-not-allowed opacity-45' : '',
+      ].join(' ')}
     >
       {children}
     </button>

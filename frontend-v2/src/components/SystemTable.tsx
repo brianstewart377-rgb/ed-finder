@@ -93,39 +93,14 @@ export function SystemTable({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr
+            <SystemTableRow
               key={row.id64}
-              data-testid={rowTestIdPrefix ? `${rowTestIdPrefix}${row.id64}` : undefined}
-              onClick={onRowClick ? () => onRowClick(row.id64) : undefined}
-              className={[
-                'border-t border-border/50 hover:bg-orange/5 transition-colors',
-                onRowClick ? 'cursor-pointer' : '',
-              ].join(' ')}
-            >
-              {columns.map((col) => (
-                <td
-                  key={col}
-                  className={[
-                    'px-3 py-2',
-                    col === 'coords' || col === 'population' || col === 'distanceRef' || col === 'timestamp'
-                      ? 'text-right'
-                      : col === 'score'
-                        ? 'text-center'
-                        : 'text-left',
-                  ].join(' ')}
-                >
-                  {renderCell(col, row)}
-                </td>
-              ))}
-              {renderActions && (
-                <td
-                  className="px-3 py-2 text-right space-x-1 whitespace-nowrap"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {renderActions(row)}
-                </td>
-              )}
-            </tr>
+              row={row}
+              columns={columns}
+              renderActions={renderActions}
+              rowTestIdPrefix={rowTestIdPrefix}
+              onRowClick={onRowClick}
+            />
           ))}
         </tbody>
       </table>
@@ -134,6 +109,58 @@ export function SystemTable({
 }
 
 // ─── Column renderers ──────────────────────────────────────────────────────
+
+function SystemTableRow({
+  row,
+  columns,
+  renderActions,
+  rowTestIdPrefix,
+  onRowClick,
+}: {
+  row: SystemRow;
+  columns: SystemTableColumn[];
+  renderActions?: (row: SystemRow) => ReactNode;
+  rowTestIdPrefix?: string;
+  onRowClick?: (id64: number) => void;
+}) {
+  const systemId64 = Number(row.id64);
+  const canOpenRow = Boolean(onRowClick && Number.isFinite(systemId64) && systemId64 > 0);
+
+  return (
+    <tr
+      data-testid={rowTestIdPrefix ? `${rowTestIdPrefix}${row.id64}` : undefined}
+      onClick={canOpenRow ? () => onRowClick?.(systemId64) : undefined}
+      className={[
+        'border-t border-border/50 hover:bg-orange/5 transition-colors',
+        canOpenRow ? 'cursor-pointer' : '',
+      ].join(' ')}
+    >
+      {columns.map((col) => (
+        <td
+          key={col}
+          className={[
+            'px-3 py-2',
+            col === 'coords' || col === 'population' || col === 'distanceRef' || col === 'timestamp'
+              ? 'text-right'
+              : col === 'score'
+                ? 'text-center'
+                : 'text-left',
+          ].join(' ')}
+        >
+          {renderCell(col, row)}
+        </td>
+      ))}
+      {renderActions && (
+        <td
+          className="px-3 py-2 text-right space-x-1 whitespace-nowrap"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {renderActions(row)}
+        </td>
+      )}
+    </tr>
+  );
+}
 
 function headerLabel(col: SystemTableColumn, timestampLabel: string): string {
   switch (col) {

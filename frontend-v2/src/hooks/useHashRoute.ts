@@ -118,7 +118,9 @@ export function useHashRoute(): HashRoute {
   };
 
   const openColonyPlanner = (id64: number) => {
-    window.location.hash = buildPlannerHash(id64);
+    const systemId64 = Number(id64);
+    if (!Number.isFinite(systemId64) || systemId64 <= 0) return;
+    window.location.hash = buildPlannerHash(systemId64);
   };
 
   const closeSystem = () => {

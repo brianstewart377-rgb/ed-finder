@@ -1069,6 +1069,7 @@ class FacilityTemplateResponse(BaseModel):
     green_cp_generated:  int = 0
     yellow_cp_cost:      int = 0
     green_cp_cost:       int = 0
+    stat_effects:        dict[str, Any] = Field(default_factory=dict)
 
 
 SimulationSource = Literal['precomputed', 'computed', 'insufficient_data']

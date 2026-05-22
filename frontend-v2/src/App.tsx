@@ -98,8 +98,10 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   };
 
   const openColonyPlannerWorkspace = (id64: number) => {
+    const systemId64 = Number(id64);
+    if (!Number.isFinite(systemId64) || systemId64 <= 0) return;
     setDetailFocus(null);
-    openColonyPlanner(id64);
+    openColonyPlanner(systemId64);
   };
 
   const closeSystemDetail = () => {

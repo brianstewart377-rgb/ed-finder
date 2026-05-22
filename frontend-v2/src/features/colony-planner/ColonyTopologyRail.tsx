@@ -309,14 +309,14 @@ function BodyTreeRow({
         <div className="ml-3 mt-1 rounded border border-border/45 bg-bg3/35 px-2 py-1.5">
           <SlotLaneRow
             laneKey={`${node.id}-orbital`}
-            label="Orbital"
+            label="Orbit"
             capacity={orbitalCapacity}
             planned={plannedOrbital.map((item) => item.template?.name ?? item.placement.facility_template_id)}
             projected={projectedOrbital.map((item) => item.template?.name ?? item.placement.facility_template_id)}
           />
           <SlotLaneRow
             laneKey={`${node.id}-ground`}
-            label="Ground"
+            label="Surface"
             capacity={groundCapacity}
             planned={plannedGround.map((item) => item.template?.name ?? item.placement.facility_template_id)}
             projected={projectedGround.map((item) => item.template?.name ?? item.placement.facility_template_id)}

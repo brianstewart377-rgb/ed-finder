@@ -10,7 +10,7 @@ export function BodySlotLane({
   onAdd,
   children,
 }: {
-  laneKey: 'orbital' | 'surface' | 'flex';
+  laneKey: 'orbital' | 'surface';
   label: string;
   helper: string;
   slotStatus: string;
@@ -20,10 +20,8 @@ export function BodySlotLane({
   children: ReactNode;
 }) {
   const addLabel = laneKey === 'orbital'
-    ? 'Add orbital structure'
-    : laneKey === 'surface'
-      ? 'Add surface structure'
-      : 'Add flexible/unknown structure';
+    ? 'Add orbit structure'
+    : 'Add surface structure';
 
   return (
     <section
@@ -34,9 +32,7 @@ export function BodySlotLane({
           ? 'border-gold/35 bg-gold/6'
           : laneKey === 'orbital'
             ? 'border-cyan/35 bg-cyan/5'
-            : laneKey === 'surface'
-              ? 'border-green/35 bg-green/5'
-              : 'border-border/60 bg-bg3/35',
+            : 'border-green/35 bg-green/5',
       ].join(' ')}
     >
       <div
@@ -47,9 +43,7 @@ export function BodySlotLane({
             ? 'bg-gold/50'
             : laneKey === 'orbital'
               ? 'bg-cyan/55'
-              : laneKey === 'surface'
-                ? 'bg-green/55'
-                : 'bg-silver/35',
+              : 'bg-green/55',
         ].join(' ')}
       />
       <div className="flex flex-wrap items-start justify-between gap-2">

@@ -1897,6 +1897,13 @@ export interface components {
              * @default 0
              */
             green_cp_cost: number;
+            /**
+             * Stat Effects
+             * @default
+             */
+            stat_effects: {
+                [key: string]: unknown;
+            };
         };
         /** GalaxySearchRequest */
         GalaxySearchRequest: {

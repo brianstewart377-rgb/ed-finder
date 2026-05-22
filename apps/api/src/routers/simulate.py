@@ -52,6 +52,7 @@ async def get_facility_templates(
             green_cp_generated=f.green_cp_generated,
             yellow_cp_cost=f.yellow_cp_cost,
             green_cp_cost=f.green_cp_cost,
+            stat_effects=f.stat_effects if isinstance(f.stat_effects, dict) else {},
         )
         for f in sorted(catalogue.values(), key=lambda item: (item.tier, item.category, item.name))
     ]

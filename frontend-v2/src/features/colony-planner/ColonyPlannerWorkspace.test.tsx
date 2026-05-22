@@ -366,13 +366,14 @@ describe('ColonyPlannerWorkspace', () => {
     expect(within(bodySurface).getByText('Body slot planner')).toBeTruthy();
     expect(within(bodySurface).getByTestId('slot-lane-orbital')).toBeTruthy();
     expect(within(bodySurface).getByTestId('slot-lane-surface')).toBeTruthy();
-    expect(within(bodySurface).getByTestId('slot-lane-flex')).toBeTruthy();
+    expect(within(bodySurface).queryByTestId('slot-lane-flex')).toBeNull();
     expect(within(bodySurface).getByTestId('body-planning-economy')).toBeTruthy();
     expect(within(bodySurface).getByTestId('slot-lane-add-orbital')).toBeTruthy();
     expect((within(bodySurface).getByTestId('slot-lane-add-surface') as HTMLButtonElement).disabled).toBe(true);
-    expect(within(bodySurface).getByTestId('slot-lane-add-flex')).toBeTruthy();
-    expect(within(bodySurface).getByText(/surface lane limited: water world/i)).toBeTruthy();
+    expect(within(bodySurface).queryByTestId('slot-lane-add-flex')).toBeNull();
+    expect(within(bodySurface).getByText(/surface limited: water world/i)).toBeTruthy();
     expect(within(bodySurface).getByRole('button', { name: 'Review structures' })).toBeTruthy();
+    expect(within(bodySurface).getByRole('button', { name: /Close/i })).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
 
@@ -418,7 +419,7 @@ describe('ColonyPlannerWorkspace', () => {
 
     const picker = screen.getByTestId('body-structure-picker');
     expect(picker).toBeTruthy();
-    expect(within(picker).getByText(/Add orbital structure/i)).toBeTruthy();
+    expect(within(picker).getByText(/Add orbit structure/i)).toBeTruthy();
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
     expect(screen.getByTestId('body-structure-template-flex_lab')).toBeTruthy();
     fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));

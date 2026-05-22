@@ -1,4 +1,4 @@
-import { PanelTopOpen, Sparkles } from 'lucide-react';
+import { PanelTopOpen, Sparkles, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { BodySlotPrediction, FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 import {
@@ -39,6 +39,7 @@ export function SelectedBodyPlannerCanvas({
   onAddStructure,
   onOpenAdvanced,
   onReviewStructures,
+  onClose,
   onSelectBody,
   onSelectPlacement,
   onSelectProjectedPlacement,
@@ -54,6 +55,7 @@ export function SelectedBodyPlannerCanvas({
   onAddStructure: (bodyId: string, lane: BodyPlannerLane, templateId: string) => void;
   onOpenAdvanced: (mode?: SimulationWorkspaceMode) => void;
   onReviewStructures: (bodyId: string) => void;
+  onClose: () => void;
   onSelectBody: (bodyId: string) => void;
   onSelectPlacement: (placementIndex: number) => void;
   onSelectProjectedPlacement: (placementIndex: number) => void;
@@ -118,6 +120,17 @@ export function SelectedBodyPlannerCanvas({
 
   return (
     <div data-testid="selected-body-planner-canvas" data-readability="stage17k" className="text-sm leading-relaxed">
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          data-testid="selected-body-close"
+          onClick={onClose}
+          className="inline-flex items-center gap-1 rounded border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-orange/45 hover:text-orange"
+        >
+          <X size={12} />
+          Close
+        </button>
+      </div>
       <BodySlotPlanner
         body={body}
         slotPrediction={slotPrediction}
@@ -181,10 +194,8 @@ interface SystemOverviewItem {
   surfaceCapacity: number | null;
   plannedOrbital: number;
   plannedSurface: number;
-  plannedFlex: number;
   projectedOrbital: number;
   projectedSurface: number;
-  projectedFlex: number;
   score: number;
 }
 
@@ -225,8 +236,8 @@ function SystemOverviewPlannerCanvas({
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           <OverviewStat label="Bodies" value={String(bodies.length)} />
           <OverviewStat label="Landable" value={String(landableCount)} tone="green" />
-          <OverviewStat label="Orbital cap" value={knownOrbitalCapacity > 0 ? String(knownOrbitalCapacity) : 'unknown'} tone="cyan" />
-          <OverviewStat label="Ground cap" value={knownSurfaceCapacity > 0 ? String(knownSurfaceCapacity) : 'unknown'} tone="gold" />
+          <OverviewStat label="Orbit cap" value={knownOrbitalCapacity > 0 ? String(knownOrbitalCapacity) : 'unknown'} tone="cyan" />
+          <OverviewStat label="Surface cap" value={knownSurfaceCapacity > 0 ? String(knownSurfaceCapacity) : 'unknown'} tone="gold" />
         </div>
       </div>
 
@@ -236,7 +247,7 @@ function SystemOverviewPlannerCanvas({
           <div className="flex flex-wrap gap-1.5">
             <MiniLegend label={`${plannedCount} planned`} tone={plannedCount > 0 ? 'orange' : 'silver'} />
             {projectedCount > 0 && <MiniLegend label={`${projectedCount} projected`} tone="cyan" />}
-            {unknownSurfaceCount > 0 && <MiniLegend label={`${unknownSurfaceCount} ground unknown`} tone="gold" />}
+            {unknownSurfaceCount > 0 && <MiniLegend label={`${unknownSurfaceCount} surface unknown`} tone="gold" />}
           </div>
         </div>
 
@@ -293,8 +304,8 @@ function SystemOverviewBodyButton({
   item: SystemOverviewItem;
   onSelect: () => void;
 }) {
-  const plannedTotal = item.plannedOrbital + item.plannedSurface + item.plannedFlex;
-  const projectedTotal = item.projectedOrbital + item.projectedSurface + item.projectedFlex;
+  const plannedTotal = item.plannedOrbital + item.plannedSurface;
+  const projectedTotal = item.projectedOrbital + item.projectedSurface;
 
   return (
     <button
@@ -317,13 +328,13 @@ function SystemOverviewBodyButton({
       </div>
       <div className="mt-2 grid gap-1.5">
         <OverviewLane
-          label="Orbital"
+          label="Orbit"
           capacity={item.orbitalCapacity}
           planned={item.plannedOrbital}
           projected={item.projectedOrbital}
         />
         <OverviewLane
-          label="Ground"
+          label="Surface"
           capacity={item.surfaceCapacity}
           planned={item.plannedSurface}
           projected={item.projectedSurface}
@@ -466,8 +477,9 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
     (snapshot.slotPredictions?.predictions ?? []).map((prediction) => [bodyIdKey(prediction.body_id), prediction]),
   );
   const templatesById = new Map(snapshot.templates.map((template) => [template.id, template]));
-  const plannedCounts = countPlacementsByBody(snapshot.placements, templatesById);
-  const projectedCounts = countPlacementsByBody(snapshot.projection?.placements ?? [], templatesById);
+  const bodiesById = new Map(bodies.filter((body) => body.id != null).map((body) => [bodyIdKey(body.id), body]));
+  const plannedCounts = countPlacementsByBody(snapshot.placements, templatesById, bodiesById);
+  const projectedCounts = countPlacementsByBody(snapshot.projection?.placements ?? [], templatesById, bodiesById);
 
   return bodies
     .filter((body) => body.id != null)
@@ -491,10 +503,8 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
         surfaceCapacity,
         plannedOrbital: planned.orbital,
         plannedSurface: planned.surface,
-        plannedFlex: planned.flex,
         projectedOrbital: projected.orbital,
         projectedSurface: projected.surface,
-        projectedFlex: projected.flex,
         score,
       };
     })
@@ -508,19 +518,19 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
 interface LaneCounts {
   orbital: number;
   surface: number;
-  flex: number;
 }
 
 function countPlacementsByBody(
   placements: SimulateBuildPlacement[],
   templatesById: Map<string, FacilityTemplate>,
+  bodiesById: Map<string, SystemBody>,
 ) {
   const counts = new Map<string, LaneCounts>();
   for (const placement of placements) {
     if (placement.local_body_id == null) continue;
     const bodyId = bodyIdKey(placement.local_body_id);
     const current = counts.get(bodyId) ?? emptyLaneCounts();
-    const lane = overviewLaneForTemplate(templatesById.get(placement.facility_template_id));
+    const lane = overviewLaneForTemplate(templatesById.get(placement.facility_template_id), bodiesById.get(bodyId));
     current[lane] += 1;
     counts.set(bodyId, current);
   }
@@ -528,15 +538,23 @@ function countPlacementsByBody(
 }
 
 function emptyLaneCounts(): LaneCounts {
-  return { orbital: 0, surface: 0, flex: 0 };
+  return { orbital: 0, surface: 0 };
 }
 
-function overviewLaneForTemplate(template: FacilityTemplate | undefined): BodyPlannerLane {
-  if (!template) return 'flex';
+function overviewLaneForTemplate(template: FacilityTemplate | undefined, body: SystemBody | undefined): BodyPlannerLane {
+  if (!template) return fallbackOverviewLane(body);
   const location = templateLocationKind(template);
   if (location === 'orbital') return 'orbital';
   if (location === 'surface') return 'surface';
-  return 'flex';
+  if (location === 'both') {
+    if (template.is_port) return 'orbital';
+    return body?.is_landable === true && body.is_water_world !== true ? 'surface' : 'orbital';
+  }
+  return fallbackOverviewLane(body);
+}
+
+function fallbackOverviewLane(body: SystemBody | undefined): BodyPlannerLane {
+  return body?.is_landable === true && body.is_water_world !== true ? 'surface' : 'orbital';
 }
 
 function readOverviewSlotCount(
@@ -560,8 +578,8 @@ function overviewBodyScore(
   surfaceCapacity: number | null,
   tags: string[],
 ) {
-  const plannedTotal = planned.orbital + planned.surface + planned.flex;
-  const projectedTotal = projected.orbital + projected.surface + projected.flex;
+  const plannedTotal = planned.orbital + planned.surface;
+  const projectedTotal = projected.orbital + projected.surface;
   const type = `${body.body_type ?? ''} ${body.subtype ?? ''}`.toLowerCase();
   const isBarycentre = type.includes('barycentre');
   if (isBarycentre && plannedTotal === 0 && projectedTotal === 0) return 0;
@@ -627,7 +645,7 @@ function BodyStructurePickerDrawer({
   if (!body || body.id == null || !lane) return null;
 
   const bodyName = bodyDisplayName(body);
-  const laneLabel = lane === 'orbital' ? 'orbital' : lane === 'surface' ? 'surface' : 'flexible/unknown';
+  const laneLabel = lane === 'orbital' ? 'orbit' : 'surface';
   const filtered = templates
     .filter((template) => templateMatchesLane(template, lane))
     .filter((template) => templateCanFitBody(template, body, lane))
@@ -722,8 +740,7 @@ function templateCanFitBody(template: FacilityTemplate, body: SystemBody, lane: 
 function templateMatchesLane(template: FacilityTemplate, lane: BodyPlannerLane) {
   const location = templateLocationKind(template);
   if (lane === 'orbital') return location === 'orbital' || location === 'both';
-  if (lane === 'surface') return location === 'surface' || location === 'both';
-  return location === 'both' || location === 'unknown';
+  return location === 'surface' || location === 'both' || location === 'unknown';
 }
 
 function BodyStartAction({ label, detail }: { label: string; detail: string }) {

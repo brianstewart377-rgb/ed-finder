@@ -217,10 +217,10 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
     expect(screen.getByTestId('raven-inline-body-expansion-body1')).toBeTruthy();
     expect(screen.getByText('Body slot planner')).toBeTruthy();
-    expect(screen.getByText(/No orbital structures yet/i)).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Add orbital structure' }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/No orbit structures yet/i)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Add orbit structure' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: 'Add surface structure' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: 'Add flexible/unknown structure' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Add flexible/unknown structure' })).toBeNull();
 
     expect(mockedApiSystem).toHaveBeenCalledWith(123);
     expect(mockedGetFacilityTemplates).toHaveBeenCalled();

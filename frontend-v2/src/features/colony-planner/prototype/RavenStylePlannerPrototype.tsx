@@ -763,8 +763,8 @@ function CanvasColumnHeader() {
       style={gridStyle}
     >
       <div className="text-cyan">System tree</div>
-      <div>Orbital lane</div>
-      <div>Ground lane</div>
+      <div>Orbit</div>
+      <div>Surface</div>
     </div>
   );
 }

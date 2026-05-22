@@ -132,6 +132,14 @@ export interface FacilityTemplate {
   green_cp_generated: number;
   yellow_cp_cost: number;
   green_cp_cost: number;
+  stat_effects?: Record<string, unknown>;
+  population?: number | null;
+  max_population?: number | null;
+  security?: number | null;
+  tech_level?: number | null;
+  wealth?: number | null;
+  standard_of_living?: number | null;
+  development_level?: number | null;
 }
 
 export interface SimulateBuildPlacement {

@@ -65,7 +65,7 @@ describe('layoutTopologyUtils', () => {
     expect(readout.bodyState).toBe('known');
     expect(readout.orbitalPlanned).toBe(1);
     expect(readout.groundPlanned).toBe(1);
-    expect(readout.groundCapabilityLabel).toBe('Ground capability: landable');
+    expect(readout.groundCapabilityLabel).toBe('Surface capability: landable');
     expect(readout.orbitalSlotLabel).toBe('Orbital slots: unknown');
     expect(readout.groundSlotLabel).toBe('Ground slots: unknown');
     expect(readout.primaryPortContextLabel).toBe('Primary-port plan: on this body');
@@ -75,20 +75,20 @@ describe('layoutTopologyUtils', () => {
     const nonLandable = buildLayoutTopologyReadout(groupFor([
       { facility_template_id: 'surface_hub', local_body_id: '2', build_order: 1 },
     ], '2'));
-    expect(nonLandable.groundCapabilityLabel).toBe('Ground capability: not landable');
+    expect(nonLandable.groundCapabilityLabel).toBe('Surface capability: not landable');
     expect(nonLandable.groundCapabilityTone).toBe('warn');
 
     const waterWorld = buildLayoutTopologyReadout(groupFor([
       { facility_template_id: 'surface_hub', local_body_id: '3', build_order: 1 },
     ], '3'));
-    expect(waterWorld.groundCapabilityLabel).toBe('Ground capability: review water world');
+    expect(waterWorld.groundCapabilityLabel).toBe('Surface capability: review water world');
 
     const unknown = buildLayoutTopologyReadout(groupFor([
       { facility_template_id: 'surface_hub', local_body_id: '404', build_order: 1 },
     ], 'unassigned'));
     expect(unknown.bodyState).toBe('unknown');
     expect(unknown.bodyLabel).toBe('Unknown body reference');
-    expect(unknown.groundCapabilityLabel).toBe('Ground capability: unknown');
+    expect(unknown.groundCapabilityLabel).toBe('Surface capability: unknown');
 
     const unassigned = buildLayoutTopologyReadout(groupFor([
       { facility_template_id: 'surface_hub', local_body_id: null, build_order: 1 },

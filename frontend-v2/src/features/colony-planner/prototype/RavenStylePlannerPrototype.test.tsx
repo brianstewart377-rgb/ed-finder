@@ -8,8 +8,8 @@ describe('RavenStylePlannerPrototype', () => {
 
     expect(screen.getByTestId('raven-style-continuous-canvas')).toBeTruthy();
     expect(screen.getByText('System tree')).toBeTruthy();
-    expect(screen.getByText('Orbital lane')).toBeTruthy();
-    expect(screen.getByText('Ground lane')).toBeTruthy();
+    expect(screen.getByText('Orbit')).toBeTruthy();
+    expect(screen.getByText('Surface')).toBeTruthy();
     expect(screen.queryByText('Attached Structures')).toBeNull();
     expect(screen.queryByText('Facilities and economy')).toBeNull();
   });

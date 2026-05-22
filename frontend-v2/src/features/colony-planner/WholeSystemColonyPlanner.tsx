@@ -208,6 +208,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
               onAddStructure={addStructure}
               onOpenAdvanced={openAdvanced}
               onReviewStructures={reviewBodyStructures}
+              onClose={() => setSelection({ type: 'system' })}
               onSelectBody={(bodyId) => setSelection({ type: 'body', bodyId })}
               onSelectPlacement={(placementIndex) => setSelection({ type: 'placement', placementIndex })}
               onSelectProjectedPlacement={(placementIndex) => setSelection({ type: 'projected-placement', placementIndex })}

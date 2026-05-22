@@ -101,11 +101,11 @@ function getBodyState(group: BodyGroup): LayoutTopologyReadout['bodyState'] {
 }
 
 function getGroundCapability(group: BodyGroup): { label: string; tone: TopologyTone } {
-  if (!group.body) return { label: 'Ground capability: unknown', tone: 'warn' };
-  if (group.body.is_water_world) return { label: 'Ground capability: review water world', tone: 'warn' };
-  if (group.body.is_landable === false) return { label: 'Ground capability: not landable', tone: 'warn' };
-  if (group.body.is_landable === true) return { label: 'Ground capability: landable', tone: 'good' };
-  return { label: 'Ground capability: unknown', tone: 'default' };
+  if (!group.body) return { label: 'Surface capability: unknown', tone: 'warn' };
+  if (group.body.is_water_world) return { label: 'Surface capability: review water world', tone: 'warn' };
+  if (group.body.is_landable === false) return { label: 'Surface capability: not landable', tone: 'warn' };
+  if (group.body.is_landable === true) return { label: 'Surface capability: landable', tone: 'good' };
+  return { label: 'Surface capability: unknown', tone: 'default' };
 }
 
 function getPrimaryPortContext(group: BodyGroup, observedLabel: string | null): { label: string; tone: TopologyTone } {
