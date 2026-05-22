@@ -947,8 +947,8 @@ export interface paths {
          *
          *     Data source priority:
          *       1. buildability_analysis (pre-computed, fastest)
-         *       2. system_slot_topology + body_scan_facts (compute on demand)
-         *       3. system_archetype_traits (fallback, lower confidence)
+         *       2. canonical slot prediction + topology traits (compute on demand)
+         *       3. insufficient data response (no slot fallback estimates)
          */
         get: operations["get_buildability_api_systems__id64__buildability_get"];
         put?: never;
@@ -1542,8 +1542,9 @@ export interface components {
             /**
              * Prediction Status
              * @default unknown
+             * @enum {string}
              */
-            prediction_status?: "predicted" | "unknown" | "observed";
+            prediction_status: "predicted" | "unknown" | "observed";
             /** Confidence Label */
             confidence_label?: string | null;
             /** Prediction Version */
@@ -1556,26 +1557,14 @@ export interface components {
             missing_inputs?: string[];
             /** Source Label */
             source_label?: string | null;
-            /**
-             * Estimated Surface Slots
-             * @default 0
-             */
-            estimated_surface_slots: number;
-            /**
-             * Estimated Orbital Slots
-             * @default 0
-             */
-            estimated_orbital_slots: number;
-            /**
-             * Slot Confidence
-             * @default 0
-             */
-            slot_confidence: number;
-            /**
-             * Slot Source
-             * @default estimated
-             */
-            slot_source: string;
+            /** Estimated Surface Slots */
+            estimated_surface_slots?: number | null;
+            /** Estimated Orbital Slots */
+            estimated_orbital_slots?: number | null;
+            /** Slot Confidence */
+            slot_confidence?: number | null;
+            /** Slot Source */
+            slot_source?: string | null;
             /** Reasons */
             reasons?: components["schemas"]["SlotReason"][];
             /** Is Ringed */
@@ -1897,13 +1886,8 @@ export interface components {
              * @default 0
              */
             green_cp_cost: number;
-            /**
-             * Stat Effects
-             * @default
-             */
-            stat_effects: {
-                [key: string]: unknown;
-            };
+            /** Stat Effects */
+            stat_effects?: Record<string, never>;
         };
         /** GalaxySearchRequest */
         GalaxySearchRequest: {
@@ -3250,16 +3234,17 @@ export interface components {
             /**
              * Prediction Status
              * @default unknown
+             * @enum {string}
              */
-            prediction_status?: "predicted" | "unknown" | "observed";
+            prediction_status: "predicted" | "unknown" | "observed";
             /** Prediction Version */
-            prediction_version?: string;
+            prediction_version: string;
             /** Confidence Label */
             confidence_label?: string | null;
             /** Disclaimer */
-            disclaimer?: string;
+            disclaimer: string;
             /** Validation Note */
-            validation_note?: string;
+            validation_note: string;
             /** Required Input Missing */
             required_input_missing?: string[];
             /** Missing Inputs */
@@ -3267,13 +3252,13 @@ export interface components {
             /** Source Label */
             source_label?: string | null;
             /** Estimated Orbital Slots */
-            estimated_orbital_slots: number;
+            estimated_orbital_slots?: number | null;
             /** Estimated Ground Slots */
-            estimated_ground_slots: number;
+            estimated_ground_slots?: number | null;
             /** Slot Confidence */
-            slot_confidence: number;
+            slot_confidence?: number | null;
             /** Slot Confidence Label */
-            slot_confidence_label: string;
+            slot_confidence_label?: string | null;
             /** Predictions */
             predictions?: components["schemas"]["BodySlotPrediction"][];
             /** Note */
