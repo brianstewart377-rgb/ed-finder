@@ -9,16 +9,31 @@ export interface ResolvedSlotCapacity {
   estimated: boolean;
 }
 
+export interface BodyDataSlotEstimate {
+  bodyId: string;
+  bodyName: string | null;
+  orbital: number;
+  surface: number | null;
+}
+
 export const ESTIMATED_SLOT_LAYOUT_DISCLAIMER = 'Slot layout estimated from body data (Not 100% verified).';
 
 export function resolveSlotCapacity(
   body: SystemBody,
   prediction: BodySlotPrediction | null,
   lane: SlotCapacityLane,
+  bodyDataEstimate?: BodyDataSlotEstimate | null,
 ): ResolvedSlotCapacity {
+  if (bodyDataEstimate) {
+    return {
+      value: lane === 'orbital' ? bodyDataEstimate.orbital : bodyDataEstimate.surface,
+      estimated: true,
+    };
+  }
+
   const predicted = normaliseSlotCount(lane === 'orbital'
-    ? prediction?.predicted_orbital_slots
-    : prediction?.predicted_ground_slots);
+    ? prediction?.predicted_orbital_slots ?? prediction?.estimated_orbital_slots
+    : prediction?.predicted_ground_slots ?? prediction?.estimated_surface_slots);
 
   if (prediction?.prediction_status === 'observed') {
     return { value: predicted, estimated: false };
@@ -37,12 +52,58 @@ export function resolveSlotCapacity(
   return { value: predicted, estimated: false };
 }
 
+export function buildBodyDataSlotEstimateMap(
+  system: SystemDetail,
+  confirmedSlots: BodySlotPrediction[] | null | undefined,
+): Map<string, BodyDataSlotEstimate> {
+  const bodyData = systemBodyData(system);
+  if (!shouldUseBodyDataSlotFallback(system, confirmedSlots)) return new Map();
+
+  const calculatedArray = bodyData
+    .filter((body) => body.id != null)
+    .map((body) => {
+      const slots = estimateBodySlots(body, { allowMinimalBodyDataEstimate: true });
+      if (!slots) return null;
+      return {
+        bodyId: bodyIdKey(body.id),
+        bodyName: body.name ?? null,
+        orbital: slots.orbital,
+        surface: slots.surface,
+      };
+    })
+    .filter((estimate): estimate is BodyDataSlotEstimate => estimate != null);
+
+  console.log('Calculated Slots:', calculatedArray);
+
+  return new Map(calculatedArray.map((estimate) => [estimate.bodyId, estimate]));
+}
+
+export function shouldUseBodyDataSlotFallback(
+  system: SystemDetail,
+  confirmedSlots: BodySlotPrediction[] | null | undefined,
+): boolean {
+  const bodyData = systemBodyData(system);
+  return (!confirmedSlots || confirmedSlots.length === 0) && bodyData.length > 0;
+}
+
+export function systemBodyData(system: SystemDetail): SystemBody[] {
+  const directBodies = system.bodies;
+  if (Array.isArray(directBodies)) return directBodies;
+
+  const bodyData = (system as { bodyData?: unknown }).bodyData
+    ?? (system as { body_data?: unknown }).body_data;
+  return Array.isArray(bodyData) ? (bodyData as SystemBody[]) : [];
+}
+
 export function hasEstimatedSlotFallback(system: SystemDetail, snapshot: TopologyPlanSnapshot): boolean {
+  const bodyDataSlotEstimates = buildBodyDataSlotEstimateMap(system, snapshot.slotPredictions?.predictions);
+  if (bodyDataSlotEstimates.size > 0) return true;
+
   const predictionsByBodyId = new Map(
     (snapshot.slotPredictions?.predictions ?? []).map((prediction) => [bodyIdKey(prediction.body_id), prediction]),
   );
 
-  return (system.bodies ?? []).some((body) => {
+  return systemBodyData(system).some((body) => {
     if (body.id == null) return false;
     const prediction = predictionsByBodyId.get(bodyIdKey(body.id)) ?? null;
     return resolveSlotCapacity(body, prediction, 'orbital').estimated
@@ -50,13 +111,16 @@ export function hasEstimatedSlotFallback(system: SystemDetail, snapshot: Topolog
   });
 }
 
-function estimateBodySlots(body: SystemBody): { orbital: number; surface: number | null } | null {
+function estimateBodySlots(
+  body: SystemBody,
+  options: { allowMinimalBodyDataEstimate?: boolean } = {},
+): { orbital: number; surface: number | null } | null {
   if (!isBuildableBodyCandidate(body)) return null;
 
   const radiusKm = readRadiusKm(body);
-  if (radiusKm == null) return null;
+  if (radiusKm == null && !options.allowMinimalBodyDataEstimate) return null;
 
-  const orbitalBase = radiusBaseSlots(radiusKm);
+  const orbitalBase = radiusKm == null ? 1 : radiusBaseSlots(radiusKm);
   const orbital = clampSlotCount(orbitalBase + (readBoolean(body, 'is_ringed') ? 1 : 0), 1, 4);
 
   if (body.is_landable !== true || body.is_water_world === true) {
@@ -81,7 +145,8 @@ function estimateBodySlots(body: SystemBody): { orbital: number; surface: number
   if ((body.bio_signal_count ?? 0) > 0) bonus += 1;
   bonus += atmosphereBonus(body);
 
-  const surface = Math.min(radiusBaseSlots(radiusKm) + Math.min(bonus, 3), 7);
+  const surfaceBase = radiusKm == null ? 1 : radiusBaseSlots(radiusKm);
+  const surface = Math.min(surfaceBase + Math.min(bonus, 3), 7);
   return { orbital, surface };
 }
 
