@@ -265,6 +265,49 @@ describe('ColonyTopologyRail', () => {
     expect(screen.getByTestId('2-ground-slot-4')).toBeTruthy();
   });
 
+  it('forces calculated body-data slots when confirmed slot predictions are empty', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const customSystem = {
+      ...system,
+      bodies: [
+        { id: 0, name: 'Tree System A', body_type: 'Star', subtype: 'K' },
+        {
+          id: 2,
+          name: 'Tree System A 1 a',
+          body_type: 'Planet',
+          subtype: 'Rocky body',
+          parent_body_id: 1,
+          is_landable: true,
+        },
+      ],
+    } as unknown as SystemDetail;
+
+    try {
+      render(
+        <ColonyTopologyRail
+          system={customSystem}
+          snapshot={{ placements: [], templates, targetArchetype: 'refinery_industrial', slotPredictions: null }}
+          selection={{ type: 'system' }}
+          onSelect={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('topology-slot-estimate-disclaimer').textContent).toContain(
+        'Slot layout estimated from body data',
+      );
+      expect(screen.getByTestId('2-orbital-slot-0')).toBeTruthy();
+      expect(screen.getByTestId('2-ground-slot-0')).toBeTruthy();
+      expect(logSpy).toHaveBeenCalledWith(
+        'Calculated Slots:',
+        expect.arrayContaining([
+          expect.objectContaining({ bodyId: '2', orbital: 1, surface: 1 }),
+        ]),
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('shows overflow when structures exceed predicted capacity', () => {
     render(
       <RailHarness

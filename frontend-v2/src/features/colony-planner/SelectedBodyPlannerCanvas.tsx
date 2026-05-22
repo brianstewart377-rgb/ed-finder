@@ -12,7 +12,12 @@ import { templateLocationKind } from '@/features/system-detail/simulation-previe
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { BodySlotPlanner, type BodyPlannerLane } from './BodySlotPlanner';
 import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
-import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity } from './slotCapacityFallback';
+import {
+  ESTIMATED_SLOT_LAYOUT_DISCLAIMER,
+  buildBodyDataSlotEstimateMap,
+  resolveSlotCapacity,
+  systemBodyData,
+} from './slotCapacityFallback';
 
 interface PlacementViewItem {
   placement: SimulateBuildPlacement;
@@ -99,6 +104,8 @@ export function SelectedBodyPlannerCanvas({
   }
 
   const bodyId = bodyIdKey(body.id);
+  const bodyDataSlotEstimates = buildBodyDataSlotEstimateMap(system, snapshot.slotPredictions?.predictions);
+  const bodyDataSlotEstimate = bodyDataSlotEstimates.get(bodyId) ?? null;
   const templatesById = new Map(snapshot.templates.map((template) => [template.id, template]));
   const placements: PlacementViewItem[] = snapshot.placements
     .map((placement, index) => ({
@@ -135,6 +142,7 @@ export function SelectedBodyPlannerCanvas({
       <BodySlotPlanner
         body={body}
         slotPrediction={slotPrediction}
+        bodyDataSlotEstimate={bodyDataSlotEstimate}
         placements={placements}
         projectedPlacements={projectedPlacements}
         selectedPlacementIndex={selectedPlacementIndex}
@@ -214,7 +222,7 @@ function SystemOverviewPlannerCanvas({
 }) {
   const overviewItems = buildSystemOverviewItems(system, snapshot);
   const featuredItems = overviewItems.slice(0, 18);
-  const bodies = system.bodies ?? [];
+  const bodies = systemBodyData(system);
   const landableCount = bodies.filter((candidate) => candidate.is_landable === true).length;
   const knownOrbitalCapacity = sumKnownCapacity(overviewItems, 'orbital');
   const knownSurfaceCapacity = sumKnownCapacity(overviewItems, 'surface');
@@ -480,7 +488,8 @@ function MiniLegend({
 }
 
 function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSnapshot): SystemOverviewItem[] {
-  const bodies = system.bodies ?? [];
+  const bodies = systemBodyData(system);
+  const bodyDataSlotEstimates = buildBodyDataSlotEstimateMap(system, snapshot.slotPredictions?.predictions);
   const predictionsByBodyId = new Map(
     (snapshot.slotPredictions?.predictions ?? []).map((prediction) => [bodyIdKey(prediction.body_id), prediction]),
   );
@@ -494,10 +503,11 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
     .map((body) => {
       const bodyId = bodyIdKey(body.id);
       const slotPrediction = predictionsByBodyId.get(bodyId) ?? null;
+      const bodyDataSlotEstimate = bodyDataSlotEstimates.get(bodyId) ?? null;
       const planned = plannedCounts.get(bodyId) ?? emptyLaneCounts();
       const projected = projectedCounts.get(bodyId) ?? emptyLaneCounts();
-      const orbitalSlotCapacity = resolveSlotCapacity(body, slotPrediction, 'orbital');
-      const surfaceSlotCapacity = resolveSlotCapacity(body, slotPrediction, 'surface');
+      const orbitalSlotCapacity = resolveSlotCapacity(body, slotPrediction, 'orbital', bodyDataSlotEstimate);
+      const surfaceSlotCapacity = resolveSlotCapacity(body, slotPrediction, 'surface', bodyDataSlotEstimate);
       const orbitalCapacity = orbitalSlotCapacity.value;
       const surfaceCapacity = surfaceSlotCapacity.value;
       const tags = bodyTags(body);

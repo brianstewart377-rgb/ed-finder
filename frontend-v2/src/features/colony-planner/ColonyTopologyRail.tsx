@@ -18,7 +18,14 @@ import {
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import { buildPlanningEconomyLedger } from './planningEconomy';
-import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, hasEstimatedSlotFallback, resolveSlotCapacity } from './slotCapacityFallback';
+import {
+  ESTIMATED_SLOT_LAYOUT_DISCLAIMER,
+  buildBodyDataSlotEstimateMap,
+  hasEstimatedSlotFallback,
+  resolveSlotCapacity,
+  systemBodyData,
+  type BodyDataSlotEstimate,
+} from './slotCapacityFallback';
 
 export type TopologySelection =
   | { type: 'system' }
@@ -81,12 +88,13 @@ export function ColonyTopologyRail({
   selection,
   onSelect,
 }: ColonyTopologyRailProps) {
-  const bodies = system.bodies ?? [];
+  const bodies = systemBodyData(system);
+  const bodyDataSlotEstimates = buildBodyDataSlotEstimateMap(system, snapshot.slotPredictions?.predictions);
   const bodyNodes = buildBodyNodes(bodies);
   const buckets = bucketPlacements(snapshot.placements, snapshot.templates, bodies);
   const totalPlacements = snapshot.placements.length;
   const selectedIsSystem = selection.type === 'system';
-  const hasEstimatedSlots = hasEstimatedSlotFallback(system, snapshot);
+  const hasEstimatedSlots = bodyDataSlotEstimates.size > 0 || hasEstimatedSlotFallback(system, snapshot);
   const projectedByBody = bucketProjectedPlacements(snapshot.projection?.placements ?? [], snapshot.templates, bodies);
   const projectedBodyIds = new Set(
     (snapshot.projection?.placements ?? [])
@@ -156,6 +164,7 @@ export function ColonyTopologyRail({
               node={node}
               systemName={system.name}
               slotPrediction={snapshot.slotPredictions?.predictions?.find((item) => sameBodyId(item.body_id, node.id)) ?? null}
+              bodyDataSlotEstimate={bodyDataSlotEstimates.get(node.id) ?? null}
               placements={buckets.knownByBody.get(node.id) ?? []}
               projectedPlacements={projectedByBody.get(node.id) ?? []}
               selected={selection.type === 'body' && sameBodyId(selection.bodyId, node.id)}
@@ -217,6 +226,7 @@ function BodyTreeRow({
   node,
   systemName,
   slotPrediction,
+  bodyDataSlotEstimate,
   placements,
   projectedPlacements,
   selected,
@@ -227,6 +237,7 @@ function BodyTreeRow({
   node: BodyNode;
   systemName?: string | null;
   slotPrediction: NonNullable<TopologyPlanSnapshot['slotPredictions']>['predictions'][number] | null;
+  bodyDataSlotEstimate?: BodyDataSlotEstimate | null;
   placements: GroupedPlacement[];
   projectedPlacements: ProjectedPlacementItem[];
   selected: boolean;
@@ -256,8 +267,8 @@ function BodyTreeRow({
       ...projectedPlacements.map((item) => item.template).filter((template): template is FacilityTemplate => Boolean(template)),
     ],
   });
-  const orbitalSlotCapacity = resolveSlotCapacity(node.body, slotPrediction, 'orbital');
-  const groundSlotCapacity = resolveSlotCapacity(node.body, slotPrediction, 'surface');
+  const orbitalSlotCapacity = resolveSlotCapacity(node.body, slotPrediction, 'orbital', bodyDataSlotEstimate);
+  const groundSlotCapacity = resolveSlotCapacity(node.body, slotPrediction, 'surface', bodyDataSlotEstimate);
   const orbitalCapacity = orbitalSlotCapacity.value;
   const groundCapacity = groundSlotCapacity.value;
   const orbitalOverflow = orbitalCapacity == null ? 0 : Math.max(0, plannedOrbital.length + projectedOrbital.length - orbitalCapacity);
@@ -548,7 +559,7 @@ export function describeTopologySelection(
   system: SystemDetail,
   snapshot: TopologyPlanSnapshot,
 ): TopologySelectionContext {
-  const bodies = system.bodies ?? [];
+  const bodies = systemBodyData(system);
   const buckets = bucketPlacements(snapshot.placements, snapshot.templates, bodies);
   const bodyById = new Map(
     bodies

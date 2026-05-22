@@ -13,7 +13,12 @@ import { templateLocationKind } from '@/features/system-detail/simulation-previe
 import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
 import { SlotCapacityDots } from './BodySlotPlanner';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
-import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity } from './slotCapacityFallback';
+import {
+  ESTIMATED_SLOT_LAYOUT_DISCLAIMER,
+  buildBodyDataSlotEstimateMap,
+  resolveSlotCapacity,
+  systemBodyData,
+} from './slotCapacityFallback';
 import {
   buildPlanningEconomyLedger,
   normalisePlanningEconomy,
@@ -906,7 +911,7 @@ function buildSelectedStructureTelemetryDetail(
   const template = snapshot.templates.find((candidate) => candidate.id === placement.facility_template_id);
   const bodyId = placement.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
   const body = bodyId
-    ? (system.bodies ?? []).find((candidate) => sameBodyId(candidate.id, bodyId))
+    ? systemBodyData(system).find((candidate) => sameBodyId(candidate.id, bodyId))
     : null;
   const lane = laneForPlacement(template, body ?? undefined);
   const strength = template ? Math.max(0, (template.yellow_cp_generated ?? 0) + (template.green_cp_generated ?? 0)) : null;
@@ -929,13 +934,14 @@ function buildTelemetryWarningItems(
   economyLedger: PlanningEconomyLedger,
   selectedContext: TopologySelectionContext,
 ): string[] {
-  const bodyIds = new Set((system.bodies ?? []).filter((body) => body.id != null).map((body) => bodyIdKey(body.id)));
+  const bodies = systemBodyData(system);
+  const bodyIds = new Set(bodies.filter((body) => body.id != null).map((body) => bodyIdKey(body.id)));
   const unassigned = snapshot.placements.filter((placement) => placement.local_body_id == null).length;
   const unknownBodies = snapshot.placements.filter((placement) => {
     const bodyId = placement.local_body_id != null ? bodyIdKey(placement.local_body_id) : '';
     return Boolean(bodyId && !bodyIds.has(bodyId));
   }).length;
-  const slotGaps = (system.bodies ?? []).filter((body) => body.id != null && !snapshot.slotPredictions?.predictions?.some((prediction) => sameBodyId(prediction.body_id, body.id))).length;
+  const slotGaps = bodies.filter((body) => body.id != null && !snapshot.slotPredictions?.predictions?.some((prediction) => sameBodyId(prediction.body_id, body.id))).length;
   return [
     selectedContext.warningCount > 0 ? `${selectedContext.warningCount} selected warning${selectedContext.warningCount === 1 ? '' : 's'}` : null,
     unassigned > 0 ? `${unassigned} unassigned` : null,
@@ -1021,7 +1027,8 @@ function CanvasPill({ label, tone }: { label: string; tone: 'silver' | 'orange' 
 }
 
 export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPlanSnapshot): RavenPlannerRow[] {
-  const bodies = system.bodies ?? [];
+  const bodies = systemBodyData(system);
+  const bodyDataSlotEstimates = buildBodyDataSlotEstimateMap(system, snapshot.slotPredictions?.predictions);
   const predictionsByBodyId = new Map(
     (snapshot.slotPredictions?.predictions ?? []).map((prediction) => [bodyIdKey(prediction.body_id), prediction]),
   );
@@ -1037,12 +1044,13 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
 
   return flattenBodyNodes(bodies).map((node) => {
     const prediction = predictionsByBodyId.get(node.id) ?? null;
+    const bodyDataSlotEstimate = bodyDataSlotEstimates.get(node.id) ?? null;
     const planned = plannedByBody.get(node.id) ?? emptyStructureBuckets();
     const projected = projectedByBody.get(node.id) ?? emptyStructureBuckets();
     const orbitalStructures = [...planned.orbital, ...projected.orbital];
     const groundStructures = [...planned.ground, ...projected.ground];
-    const orbitalSlotCapacity = resolveSlotCapacity(node.body, prediction, 'orbital');
-    const groundSlotCapacity = resolveSlotCapacity(node.body, prediction, 'surface');
+    const orbitalSlotCapacity = resolveSlotCapacity(node.body, prediction, 'orbital', bodyDataSlotEstimate);
+    const groundSlotCapacity = resolveSlotCapacity(node.body, prediction, 'surface', bodyDataSlotEstimate);
     const orbitalCapacity = orbitalSlotCapacity.value;
     const groundCapacity = groundSlotCapacity.value;
     const bodyLedger = buildPlanningEconomyLedger({
@@ -1108,7 +1116,7 @@ export function buildProjectionComparison(
   economyLedger: PlanningEconomyLedger,
   rows = buildRavenPlannerRows(system, snapshot),
 ): ProjectionComparisonSummary {
-  const bodies = system.bodies ?? [];
+  const bodies = systemBodyData(system);
   const bodyById = new Map(
     bodies
       .filter((body) => body.id != null)
