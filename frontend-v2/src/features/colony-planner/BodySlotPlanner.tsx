@@ -245,9 +245,11 @@ function BodyRingMap({
 }) {
   const orbitRadius = scaledBandRadius(ORBIT_BAND_RADIUS);
   const surfaceRadius = scaledBandRadius(SURFACE_BAND_RADIUS);
+  const orbitalSlotCount = slotIconCount(orbitalCapacity);
+  const surfaceSlotCount = slotIconCount(surfaceCapacity);
   const orbitalNodes = buildRingNodes({
     lane: 'orbital',
-    capacity: orbitalCapacity,
+    slotCount: orbitalSlotCount,
     planned: orbitalPlanned,
     projected: orbitalProjected,
     selectedPlacementIndex,
@@ -259,7 +261,7 @@ function BodyRingMap({
   });
   const surfaceNodes = buildRingNodes({
     lane: 'surface',
-    capacity: surfaceCapacity,
+    slotCount: surfaceSlotCount,
     planned: surfacePlanned,
     projected: surfaceProjected,
     selectedPlacementIndex,
@@ -269,10 +271,8 @@ function BodyRingMap({
     onSelectPlacement,
     onSelectProjectedPlacement,
   });
-  const orbitalSlots = ringSlots(orbitalNodes.length, orbitRadius);
-  const surfaceSlots = ringSlots(surfaceNodes.length, surfaceRadius);
-  const orbitAddPoint = polarPoint(orbitRadius, -90);
-  const surfaceAddPoint = polarPoint(surfaceRadius, 0);
+  const orbitalSlots = ringSlots(orbitalSlotCount, orbitRadius);
+  const surfaceSlots = ringSlots(surfaceSlotCount, surfaceRadius);
 
   return (
     <section data-testid="body-slot-graph" className="mb-3 rounded border border-border/60 bg-bg3/35 px-2 py-3">
@@ -282,13 +282,13 @@ function BodyRingMap({
           viewBox="0 0 320 320"
           className="pointer-events-none absolute left-1/2 top-[8.9rem] h-[16rem] w-[16rem] -translate-x-1/2 -translate-y-1/2 overflow-visible"
         >
-          <circle cx="160" cy="160" r={ORBIT_BAND_RADIUS} fill="none" stroke="#00c8ff" strokeWidth="24" strokeOpacity="0.46" />
-          <circle cx="160" cy="160" r={SURFACE_BAND_RADIUS} fill="none" stroke="#ff9f1a" strokeWidth="16" strokeOpacity="0.48" />
+          <circle cx="160" cy="160" r={ORBIT_BAND_RADIUS} fill="none" stroke="#00c8ff" strokeWidth="40" strokeOpacity="0.46" />
+          <circle cx="160" cy="160" r={SURFACE_BAND_RADIUS} fill="none" stroke="#ff9f1a" strokeWidth="40" strokeOpacity="0.48" />
         </svg>
         <div className="pointer-events-none absolute left-1/2 top-[8.9rem] h-[6.4rem] w-[6.4rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-orange/45 bg-orange/10 shadow-[0_0_30px_rgba(255,122,20,0.2)]" />
 
         <div className="pointer-events-none absolute left-1/2 top-[8.9rem] -translate-x-1/2 -translate-y-1/2 text-center">
-          <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Body core</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Body core</div>
         </div>
 
         {orbitalNodes.map((node, index) => (
@@ -321,27 +321,6 @@ function BodyRingMap({
           />
         ))}
 
-        {orbitalNodes.length === 0 && (
-          <LaneAddNode
-            lane="orbital"
-            left={ringLeft(orbitAddPoint.x)}
-            top={ringTop(orbitAddPoint.y)}
-            enabled={hasTemplates}
-            disabledReason={!hasTemplates ? 'Facility catalogue loading.' : undefined}
-            onAdd={() => onAddLaneStructure('orbital')}
-          />
-        )}
-        {surfaceNodes.length === 0 && (
-          <LaneAddNode
-            lane="surface"
-            left={ringLeft(surfaceAddPoint.x)}
-            top={ringTop(surfaceAddPoint.y)}
-            enabled={hasTemplates && !surfaceBlocked}
-            disabledReason={surfaceBlocked ? 'Surface blocked for this body.' : (!hasTemplates ? 'Facility catalogue loading.' : undefined)}
-            onAdd={() => onAddLaneStructure('surface')}
-          />
-        )}
-
         <div className="pointer-events-none absolute left-2 top-2 rounded border border-cyan/35 bg-cyan/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">Orbit band</div>
         <div className="pointer-events-none absolute left-2 top-8 rounded border border-gold/35 bg-gold/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gold">Surface band</div>
       </div>
@@ -368,7 +347,7 @@ interface RingNode {
 
 function buildRingNodes({
   lane,
-  capacity,
+  slotCount,
   planned,
   projected,
   selectedPlacementIndex,
@@ -379,7 +358,7 @@ function buildRingNodes({
   onSelectProjectedPlacement,
 }: {
   lane: BodyPlannerLane;
-  capacity: number | null;
+  slotCount: number;
   planned: BodyPlannerPlacementItem[];
   projected: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
@@ -394,26 +373,21 @@ function buildRingNodes({
     ...projected.map((item) => structureRingNode(lane, item, selectedProjectedPlacementIndex === item.index, () => onSelectProjectedPlacement(item.index), true)),
   ];
 
-  if (capacity == null) return structures;
-  if (capacity <= 0) return structures;
+  if (slotCount <= 0) return [];
 
-  const nodes = Array.from({ length: capacity }, (_unused, index) => {
+  return Array.from({ length: slotCount }, (_unused, index) => {
     if (index < structures.length) return structures[index];
     return {
       id: `${lane}-empty-${index}`,
       kind: 'empty' as const,
-      label: '+',
+      label: String(index + 1),
       title: canAdd
-        ? `Add ${lane === 'orbital' ? 'orbit' : 'surface'} structure to empty slot`
+        ? `Add ${lane === 'orbital' ? 'orbit' : 'surface'} structure to slot ${index + 1}`
         : 'Empty slot',
       selected: false,
       onClick: canAdd ? onAdd : undefined,
     };
   });
-
-  return structures.length > capacity
-    ? [...nodes, ...structures.slice(capacity)]
-    : nodes;
 }
 
 function structureRingNode(
@@ -445,13 +419,15 @@ function polarPoint(radius: number, angleDegrees: number) {
   };
 }
 
+function slotIconCount(capacity: number | null) {
+  return capacity == null ? 0 : Math.max(0, capacity);
+}
+
 function ringSlots(count: number, radius: number) {
   if (count <= 0) return [];
-  if (count === 1) return [polarPoint(radius, -90)];
-  const spread = Math.min(320, Math.max(140, 50 * count));
-  const start = -90 - spread / 2;
-  const step = spread / (count - 1);
-  return new Array(count).fill(null).map((_, index) => polarPoint(radius, start + step * index));
+  return Array.from({ length: count }, (_unused, index) => (
+    polarPoint(radius, (360 / count) * index)
+  ));
 }
 
 function ringLeft(x: number) {
@@ -520,7 +496,7 @@ function RingPlacementToken({
         onClick={onClick}
         style={{ left, top, transform: 'translate(-50%, -50%)' }}
         className={[
-          'absolute z-30 grid h-8 w-8 place-items-center rounded-full border font-mono text-[9px] font-bold uppercase tracking-[0.08em] transition-transform hover:scale-105',
+          'absolute z-30 grid h-8 w-8 place-items-center rounded-full border font-mono text-base font-bold uppercase leading-none tracking-normal transition-transform hover:scale-105',
           toneClass,
           selectedClass,
         ].join(' ')}
@@ -536,50 +512,12 @@ function RingPlacementToken({
       title={title}
       style={{ left, top, transform: 'translate(-50%, -50%)' }}
       className={[
-        'absolute z-30 grid h-8 w-8 place-items-center rounded-full border font-mono text-[9px] font-bold uppercase tracking-[0.08em]',
+        'absolute z-30 grid h-8 w-8 place-items-center rounded-full border font-mono text-base font-bold uppercase leading-none tracking-normal',
         toneClass,
       ].join(' ')}
     >
       {label}
     </div>
-  );
-}
-
-function LaneAddNode({
-  lane,
-  left,
-  top,
-  enabled,
-  disabledReason,
-  onAdd,
-}: {
-  lane: BodyPlannerLane;
-  left: string;
-  top: string;
-  enabled: boolean;
-  disabledReason?: string;
-  onAdd: () => void;
-}) {
-  const label = lane === 'orbital'
-    ? 'Add orbit structure'
-    : 'Add surface structure';
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={enabled ? label : disabledReason ?? label}
-      disabled={!enabled}
-      onClick={onAdd}
-      style={{ left, top, transform: 'translate(-50%, -50%)' }}
-      className={[
-        'absolute z-40 grid h-8 w-8 place-items-center rounded-full border text-sm font-bold transition-transform',
-        enabled
-          ? 'border-orange/55 bg-orange/18 text-orange hover:scale-110'
-          : 'cursor-not-allowed border-gold/35 bg-gold/10 text-gold/70',
-      ].join(' ')}
-    >
-      +
-    </button>
   );
 }
 
@@ -679,7 +617,7 @@ function LaneCapacityMap({
   return (
     <div className="mb-2 rounded border border-border/55 bg-bg3/30 px-2 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px]">
-        <span className="uppercase tracking-[0.14em] text-silver-dk">Predicted capacity</span>
+        <span className="uppercase tracking-[0.14em] text-silver">Predicted capacity</span>
         <span className="text-silver">{used}/{capacity} slots including projection</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -725,7 +663,7 @@ function CapacityCell({
       ? projected
         ? 'border-cyan/45 bg-cyan/10 text-cyan'
         : 'border-orange/55 bg-orange/16 text-orange'
-      : 'border-border/60 bg-bg2/45 text-silver-dk',
+      : 'border-border/60 bg-bg2/45 text-silver',
     selected ? 'ring-2 ring-orange/70' : '',
     onClick ? 'cursor-pointer hover:border-orange/75' : '',
   ].join(' ');
@@ -778,7 +716,7 @@ function LaneSlots({
     return (
       <div
         data-testid={`slot-lane-empty-${laneKey}`}
-        className="rounded border border-dashed border-border/55 bg-bg3/30 px-3 py-2 font-mono text-[10px] text-silver-dk"
+        className="rounded border border-dashed border-border/55 bg-bg3/30 px-3 py-2 font-mono text-[10px] text-silver"
       >
         {emptyText}
       </div>
@@ -934,7 +872,7 @@ function FactChip({
               ? 'border-green/35 bg-green/10 text-green'
               : tone === 'gold'
                 ? 'border-gold/35 bg-gold/10 text-gold'
-                : 'border-border/60 bg-bg2/60 text-silver-dk',
+                : 'border-border/60 bg-bg2/60 text-silver',
       ].join(' ')}
     >
       {label}

@@ -141,6 +141,26 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(missingPredictionBody?.groundSlots[1].title).toContain('No economy metadata');
   });
 
+  it('excludes Barycentre and Null entries from the real system tree rows', () => {
+    const rows = buildRavenPlannerRows({
+      ...system,
+      bodies: [
+        ...(system.bodies ?? []),
+        { id: 90, name: 'Real Data System Barycentre', body_type: 'Barycentre', subtype: 'Barycentre' },
+        { id: 91, name: 'Null Body', body_type: 'Planet', subtype: 'Null' },
+      ],
+    } as unknown as SystemDetail, {
+      ...snapshot,
+      placements: [],
+      projection: null,
+      slotPredictions: null,
+    });
+
+    expect(rows.find((row) => row.id === '90')).toBeUndefined();
+    expect(rows.find((row) => row.id === '91')).toBeUndefined();
+    expect(rows.map((row) => row.displayName).join(' ')).not.toMatch(/Barycentre|Null Body/i);
+  });
+
   it('renders real planner lanes without static mock bodies or attached-structure column', () => {
     render(<RavenStylePlannerCanvas system={system} snapshot={snapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
 

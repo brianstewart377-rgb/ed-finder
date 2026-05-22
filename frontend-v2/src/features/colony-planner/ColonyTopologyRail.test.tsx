@@ -163,6 +163,55 @@ describe('ColonyTopologyRail', () => {
     expect(screen.getByTestId('topology-body-button-2').getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('filters non-physical Barycentre and Null entries from the system tree and slot calculations', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const customSystem = {
+      ...system,
+      bodies: [
+        { id: 0, name: 'Tree System A', body_type: 'Star', subtype: 'K' },
+        { id: 1, name: 'Tree System A 1', body_type: 'Planet', subtype: 'High metal content world', is_landable: true },
+        { id: 99, name: 'Tree System Barycentre', body_type: 'Barycentre', subtype: 'Barycentre' },
+        { id: 100, name: 'Null Body', body_type: 'Planet', subtype: 'Null' },
+      ],
+    } as unknown as SystemDetail;
+
+    try {
+      render(
+        <ColonyTopologyRail
+          system={customSystem}
+          snapshot={{ placements: [], templates, targetArchetype: 'refinery_industrial', slotPredictions: null }}
+          selection={{ type: 'system' }}
+          onSelect={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('topology-body-0')).toBeTruthy();
+      expect(screen.getByTestId('topology-body-1')).toBeTruthy();
+      expect(screen.queryByText(/Barycentre/i)).toBeNull();
+      expect(screen.queryByText(/Null Body/i)).toBeNull();
+      expect(logSpy).toHaveBeenCalledWith(
+        'Calculated Slots:',
+        expect.arrayContaining([
+          expect.objectContaining({ bodyId: '1' }),
+        ]),
+      );
+      expect(logSpy).not.toHaveBeenCalledWith(
+        'Calculated Slots:',
+        expect.arrayContaining([
+          expect.objectContaining({ bodyId: '99' }),
+        ]),
+      );
+      expect(logSpy).not.toHaveBeenCalledWith(
+        'Calculated Slots:',
+        expect.arrayContaining([
+          expect.objectContaining({ bodyId: '100' }),
+        ]),
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('renders unknown and unassigned placement groups without exposing raw IDs by default', () => {
     render(<RailHarness />);
 

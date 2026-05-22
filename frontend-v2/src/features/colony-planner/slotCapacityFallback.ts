@@ -88,11 +88,11 @@ export function shouldUseBodyDataSlotFallback(
 
 export function systemBodyData(system: SystemDetail): SystemBody[] {
   const directBodies = system.bodies;
-  if (Array.isArray(directBodies)) return directBodies;
+  if (Array.isArray(directBodies)) return directBodies.filter(isRenderablePhysicalBody);
 
   const bodyData = (system as { bodyData?: unknown }).bodyData
     ?? (system as { body_data?: unknown }).body_data;
-  return Array.isArray(bodyData) ? (bodyData as SystemBody[]) : [];
+  return Array.isArray(bodyData) ? (bodyData as SystemBody[]).filter(isRenderablePhysicalBody) : [];
 }
 
 export function hasEstimatedSlotFallback(system: SystemDetail, snapshot: TopologyPlanSnapshot): boolean {
@@ -153,6 +153,11 @@ function estimateBodySlots(
 function isBuildableBodyCandidate(body: SystemBody): boolean {
   const type = `${body.body_type ?? ''} ${body.subtype ?? ''}`.toLowerCase();
   return !type.includes('star') && !type.includes('barycentre');
+}
+
+function isRenderablePhysicalBody(body: SystemBody): boolean {
+  const text = `${body.body_type ?? ''} ${body.subtype ?? ''} ${body.name ?? ''}`.toLowerCase();
+  return !text.includes('barycentre') && !text.includes('null');
 }
 
 function readRadiusKm(body: SystemBody): number | null {

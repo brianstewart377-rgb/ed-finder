@@ -117,7 +117,7 @@ export function ColonyTopologyRail({
         Whole-system slot map
       </div>
       {snapshot.slotPredictions && (
-        <div className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-silver-dk">
+        <div className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-silver">
           <div className="text-cyan">Predicted slots</div>
           <div className="mt-0.5">{snapshot.slotPredictions.disclaimer}</div>
           <div className="mt-0.5 italic">{snapshot.slotPredictions.validation_note}</div>
@@ -144,7 +144,7 @@ export function ColonyTopologyRail({
           <div className="truncate font-mono text-[11px] font-bold text-silver">
             {system.name || 'Unknown system'}
           </div>
-          <div className="mt-0.5 font-mono text-[10px] text-silver-dk">
+          <div className="mt-0.5 font-mono text-[10px] text-silver">
             System root
           </div>
         </div>
@@ -153,7 +153,7 @@ export function ColonyTopologyRail({
       </button>
 
       {bodies.length === 0 ? (
-        <p className="mt-3 rounded border border-border/45 bg-bg2/45 px-2 py-2 font-mono text-[10px] leading-snug text-silver-dk">
+        <p className="mt-3 rounded border border-border/45 bg-bg2/45 px-2 py-2 font-mono text-[10px] leading-snug text-silver">
           No body layout imported yet. Use the planner tools to import/refresh layout when available.
         </p>
       ) : (
@@ -209,13 +209,13 @@ export function ColonyTopologyRail({
           className="mt-3 rounded border border-cyan/30 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-cyan"
         >
           <div className="uppercase tracking-[0.14em]">Projected plan</div>
-          <div className="mt-1 text-silver-dk">
+          <div className="mt-1 text-silver">
             This plan uses: <span className="text-silver">{projectedBodyLabels.join(', ')}</span>
           </div>
         </div>
       )}
 
-      <div className="mt-3 rounded border border-border/45 bg-bg3/30 px-2 py-1.5 font-mono text-[10px] text-silver-dk">
+      <div className="mt-3 rounded border border-border/45 bg-bg3/30 px-2 py-1.5 font-mono text-[10px] text-silver">
         Click a body to plan there.
       </div>
     </aside>
@@ -303,7 +303,7 @@ function BodyTreeRow({
             <div className="truncate font-mono text-[11px] font-bold text-silver">
               {compactName}
             </div>
-            <div className="mt-0.5 truncate font-mono text-[10px] text-silver-dk">
+            <div className="mt-0.5 truncate font-mono text-[10px] text-silver">
               {compactBodyKind(node.body)}
             </div>
           </div>
@@ -317,7 +317,7 @@ function BodyTreeRow({
       </div>
       {placements.length > 0 && (
         <div className="ml-3 mt-1 space-y-1 border-l border-border/50 pl-2">
-          <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">Planned</div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-silver">Planned</div>
           {placements.map((item) => (
             <PlacementButton
               key={`${item.index}-${item.placement.facility_template_id}`}
@@ -401,7 +401,7 @@ function PlacementGroupRow({
         <span className="mt-0.5 w-4 shrink-0 text-center text-gold" aria-hidden="true">?</span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-mono text-[11px] text-gold">{title}</div>
-          <div className="mt-0.5 truncate font-mono text-[10px] text-silver-dk">{description}</div>
+          <div className="mt-0.5 truncate font-mono text-[10px] text-silver">{description}</div>
         </div>
         <CountChip>{placements.length}</CountChip>
       </button>
@@ -441,7 +441,7 @@ function PlacementButton({
         'flex w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded border px-2 py-1 text-left font-mono text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70',
         selected
           ? 'border-orange/55 bg-orange/15 text-orange'
-          : 'border-border/45 bg-bg2/45 text-silver-dk hover:border-orange/35 hover:text-silver',
+          : 'border-border/45 bg-bg2/45 text-silver hover:border-orange/35 hover:text-white',
       ].join(' ')}
     >
       <span className="min-w-0 truncate">#{item.placement.build_order} {label}</span>
@@ -474,7 +474,7 @@ function SlotLaneRow({
 }) {
   if (capacity == null) {
     return (
-      <div className="flex items-center gap-1.5 font-mono text-[9px] text-silver-dk">
+      <div className="flex items-center gap-1.5 font-mono text-[9px] text-silver">
         <span className="w-10 uppercase tracking-[0.12em]">{label}</span>
         <span className="rounded border border-gold/35 bg-gold/10 px-1 text-gold" data-testid={`slot-lane-unknown-${laneKey}`}>[?]</span>
       </div>
@@ -507,7 +507,7 @@ function SlotLaneRow({
   });
 
   return (
-    <div className="flex items-center gap-1.5 font-mono text-[9px] text-silver-dk">
+    <div className="flex items-center gap-1.5 font-mono text-[9px] text-silver">
       <span className="w-10 uppercase tracking-[0.12em]">{label}</span>
       <div className="flex min-w-0 flex-wrap gap-1">
         {cells.map((cell, index) => (
@@ -520,7 +520,7 @@ function SlotLaneRow({
                 ? 'border-orange/55 bg-orange/15 text-orange'
                 : cell.tone === 'projected'
                   ? 'border-cyan/45 bg-cyan/10 text-cyan'
-                  : 'border-border/60 bg-bg2/45 text-silver-dk',
+                  : 'border-border/60 bg-bg2/45 text-silver',
             ].join(' ')}
             title={cell.label || 'Empty slot'}
           >
@@ -835,7 +835,7 @@ function Marker({
           ? 'border-gold/40 bg-gold/10 text-gold'
           : tone === 'cyan'
             ? 'border-cyan/35 bg-cyan/10 text-cyan'
-            : 'border-border/60 bg-bg2/60 text-silver-dk',
+            : 'border-border/60 bg-bg2/60 text-silver',
       ].join(' ')}
     >
       {children}
@@ -849,7 +849,7 @@ function Chip({ children, tone = 'silver' }: { children: React.ReactNode; tone?:
     cyan: 'border-cyan/30 bg-cyan/5 text-cyan',
     green: 'border-green/35 bg-green/10 text-green',
     gold: 'border-gold/35 bg-gold/10 text-gold',
-    silver: 'border-border/60 bg-bg2/60 text-silver-dk',
+    silver: 'border-border/60 bg-bg2/60 text-silver',
   }[tone];
   return (
     <span className={['shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]', toneClass].join(' ')}>
