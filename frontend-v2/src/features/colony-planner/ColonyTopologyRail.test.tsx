@@ -250,4 +250,40 @@ describe('ColonyTopologyRail', () => {
     );
     expect(screen.getByTestId('topology-overflow-1').textContent).toContain('overflow / unconfirmed');
   });
+
+  it('renders canonical slot lane counts and occupancy for a 4 orbital / 5 ground body', () => {
+    render(<RailHarness />);
+
+    expect(screen.getByText(/Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode./)).toBeTruthy();
+    expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
+    expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
+
+    const firstBody = screen.getByTestId('topology-body-1');
+    expect(within(firstBody).getByTestId('1-orbital-slot-0').textContent?.trim().length).toBeGreaterThan(0);
+  });
+
+  it('shows unknown slot lane when canonical prediction is unknown', () => {
+    render(<RailHarness />);
+    expect(screen.getByTestId('slot-lane-unknown-2-orbital')).toBeTruthy();
+    expect(screen.getByTestId('slot-lane-unknown-2-ground')).toBeTruthy();
+  });
+
+  it('shows overflow when structures exceed predicted capacity', () => {
+    render(
+      <RailHarness
+        projection={{
+          candidateId: 'candidate-overflow',
+          label: 'Overflow candidate',
+          placements: [
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 5 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 6 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 7 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 8 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 9 },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByTestId('topology-overflow-1').textContent).toContain('overflow / unconfirmed');
+  });
 });
