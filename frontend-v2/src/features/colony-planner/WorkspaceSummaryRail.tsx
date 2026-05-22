@@ -9,10 +9,13 @@ import {
   getPlanHealthSummary,
   humanizeArchetype,
 } from './workspaceUtils';
+import { PlanningEconomyStrip } from './PlanningEconomyStrip';
+import type { PlanningEconomyLedger } from './planningEconomy';
 
 export function WorkspaceSummaryRail({
   system,
   snapshot,
+  economyLedger,
   selection,
   selectedContext,
   projects,
@@ -34,6 +37,7 @@ export function WorkspaceSummaryRail({
 }: {
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
+  economyLedger: PlanningEconomyLedger;
   selection: TopologySelection;
   selectedContext: TopologySelectionContext;
   projects: ColonyProject[];
@@ -82,6 +86,7 @@ export function WorkspaceSummaryRail({
           saveStatus={health.saveStatus}
           selectedContext={selectedContext}
           projectionLabel={snapshot.projection?.label ?? null}
+          economyLedger={economyLedger}
         />
       ) : (
         <>
@@ -109,9 +114,10 @@ export function WorkspaceSummaryRail({
             placementCount={health.placementCount}
             unassignedCount={health.unassignedCount}
             warningCount={health.warningCount}
-            previewStatus={health.previewStatus}
-            saveStatus={health.saveStatus}
-          />
+          previewStatus={health.previewStatus}
+          saveStatus={health.saveStatus}
+          economyLedger={economyLedger}
+        />
 
           <SelectionSummaryCard selectedContext={selectedContext} />
 
@@ -130,10 +136,12 @@ function CompactSummary({
   saveStatus,
   selectedContext,
   projectionLabel,
+  economyLedger,
 }: {
   saveStatus: string;
   selectedContext: TopologySelectionContext;
   projectionLabel: string | null;
+  economyLedger: PlanningEconomyLedger;
 }) {
   return (
     <section className="space-y-2" data-testid="summary-rail-compact-view">
@@ -142,13 +150,14 @@ function CompactSummary({
         <p className="mt-1 font-mono text-[10px] text-silver-dk">{saveStatus}</p>
       </div>
       <div className="rounded border border-cyan/25 bg-cyan/5 p-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Current body</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Current focus</div>
         <p className="mt-1 font-mono text-[10px] text-silver-dk">{selectedContext.label}</p>
       </div>
       <div className="rounded border border-cyan/25 bg-cyan/5 p-2">
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Projection</div>
         <p className="mt-1 font-mono text-[10px] text-silver-dk">{projectionLabel ?? 'No candidate selected'}</p>
       </div>
+      <PlanningEconomyStrip ledger={economyLedger} compact testId="summary-economy-ledger" />
     </section>
   );
 }
@@ -160,6 +169,7 @@ function PlanHealthCard({
   warningCount,
   previewStatus,
   saveStatus,
+  economyLedger,
 }: {
   targetArchetype: string;
   placementCount: number;
@@ -167,6 +177,7 @@ function PlanHealthCard({
   warningCount: number;
   previewStatus: string;
   saveStatus: string;
+  economyLedger: PlanningEconomyLedger;
 }) {
   return (
     <section className="rounded border border-orange/25 bg-orange/5 p-2" data-testid="plan-health-card">
@@ -181,6 +192,9 @@ function PlanHealthCard({
         <SummaryRow label="Preview" value={previewStatus} tone="cyan" />
         <SummaryRow label="Save" value={saveStatus} tone={saveStatus === 'Saved' ? 'green' : 'gold'} />
       </dl>
+      <div className="mt-2">
+        <PlanningEconomyStrip ledger={economyLedger} compact testId="plan-health-economy-ledger" />
+      </div>
     </section>
   );
 }

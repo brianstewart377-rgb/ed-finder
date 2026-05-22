@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOptimiserCandidates } from '@/lib/api';
-import type { OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking, SimulateBuildPlacement } from '@/types/api';
+import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking, SimulateBuildPlacement } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
@@ -15,6 +15,43 @@ vi.mock('@/lib/api', () => ({
 }));
 
 const mockedFetchOptimiserCandidates = vi.mocked(fetchOptimiserCandidates);
+
+const templates: FacilityTemplate[] = [
+  {
+    id: 'generic_port_alpha',
+    name: 'Generic Port Alpha',
+    category: 'port',
+    tier: 1,
+    economy: null,
+    is_port: true,
+    is_support_facility: false,
+    allowed_location: 'orbital',
+    pad_size: 'large',
+    confidence: 'inferred',
+    notes: null,
+    yellow_cp_generated: 0,
+    green_cp_generated: 0,
+    yellow_cp_cost: 0,
+    green_cp_cost: 0,
+  },
+  {
+    id: 'agri_support_a',
+    name: 'Agriculture Support A',
+    category: 'support',
+    tier: 1,
+    economy: 'Agriculture',
+    is_port: false,
+    is_support_facility: true,
+    allowed_location: 'surface',
+    pad_size: 'medium',
+    confidence: 'inferred',
+    notes: null,
+    yellow_cp_generated: 0,
+    green_cp_generated: 0,
+    yellow_cp_cost: 0,
+    green_cp_cost: 0,
+  },
+];
 
 function candidate(id: string, label = id): OptimiserCandidate {
   return {
@@ -299,6 +336,7 @@ describe('optimiser candidate comparison UI', () => {
         currentPreviewPlacements={currentPlacements}
         currentTargetArchetype="refinery_industrial"
         onLoadCandidate={load}
+        templates={templates}
       />,
     );
 
@@ -313,6 +351,8 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.getByText('Target archetype')).toBeTruthy();
     expect(screen.getByText(/Changes from Refinery \/ Industrial Plan to Tourism \/ Agriculture Plan/)).toBeTruthy();
     expect(screen.getByText('Facility count changes')).toBeTruthy();
+    expect(screen.getByTestId('candidate-projected-economy')).toBeTruthy();
+    expect(within(screen.getByTestId('candidate-projected-economy')).getByText(/Agri/i)).toBeTruthy();
     expect(screen.getByText(/agri_support_a: 0 → 1/)).toBeTruthy();
     expect(screen.getByText(/legacy_support: removed/)).toBeTruthy();
     expect(screen.getByText('Preview summary deltas')).toBeTruthy();

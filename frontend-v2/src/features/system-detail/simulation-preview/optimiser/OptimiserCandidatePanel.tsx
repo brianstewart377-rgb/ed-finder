@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchOptimiserCandidates } from '@/lib/api';
-import type { OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
+import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserEmptyState } from './OptimiserEmptyState';
@@ -28,6 +28,7 @@ export function OptimiserCandidatePanel({
   currentPreviewPlacements,
   currentTargetArchetype,
   currentPreviewLabel,
+  templates = [],
 }: {
   systemId64: number;
   targetArchetype: string;
@@ -38,6 +39,7 @@ export function OptimiserCandidatePanel({
   currentPreviewPlacements?: SimulateBuildPlacement[];
   currentTargetArchetype?: string | null;
   currentPreviewLabel?: string;
+  templates?: FacilityTemplate[];
 }) {
   const [maxCandidates, setMaxCandidates] = useState(5);
   const [allowEstimatedData, setAllowEstimatedData] = useState(true);
@@ -243,6 +245,7 @@ export function OptimiserCandidatePanel({
             generatedTargetArchetype={generatedParams?.targetArchetype ?? null}
             currentControlTargetArchetype={currentParams.targetArchetype}
             bodyLabelsById={bodyLabelsById}
+            templates={templates}
           />
         </div>
       )}

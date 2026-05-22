@@ -1,0 +1,105 @@
+# RavenColonial Clean-Room Economy Reference (Stage 17G/17H)
+
+## Boundary
+
+RavenColonial was used only as a clean-room functional reference from the local Stage 17F evidence pack.
+
+Used evidence:
+
+- `.codex-context/stage17f/stage17f_codex_evidence/README.md`
+- `.codex-context/stage17f/stage17f_codex_evidence/docs/stage_17f_codex_prompt.md`
+- RavenColonial walkthrough video and extracted frames
+- ED-Finder current-interface walkthrough video and extracted frames
+- RavenColonial screenshots
+- ED-Finder screenshots
+
+RavenColonial API was not required for this implementation. The temporary local key was not read, printed, echoed, logged, committed, or used.
+
+## Observed Functional Behaviours
+
+Clean-room product behaviours observed from the local evidence:
+
+- RavenColonial makes the left/system surface the primary build map, not a simple text list.
+- The user can scroll the whole system and see useful build state without clicking every body.
+- Per-body orbital/ground capacity and placements are attached directly to body rows.
+- Planned structures occupy visible body-local slots.
+- Candidate/projected structures are visually distinct from committed/current structures.
+- Economy/stat consequences are visible while planning, before an explicit final action.
+- A compact persistent stats/economy panel supports planning without becoming the main editor.
+
+## ED-Finder Stage 17G Interpretation
+
+ED-Finder implements equivalent functional behaviour in its own code and visual language:
+
+- whole-system left slot map in `ColonyTopologyRail.tsx`
+- selected-body slot editor in `BodySlotPlanner.tsx`
+- compact economy strips in `PlanningEconomyStrip.tsx`
+- deterministic economy ledger from ED-Finder facility-template metadata in `planningEconomy.ts`
+- Suggested Build projection into left map, centre lanes, summary rail, and candidate details
+
+No RavenColonial source code, CSS, assets, icons, de-minified code, or proprietary implementation details are copied.
+
+## Stage 17H Replacement Interpretation
+
+Stage 17H exists because Stage 17F/17G still allowed the old ED-Finder report/card stack to define the default experience. The clean-room functional comparison made the gap clear:
+
+- RavenColonial's left side acts as the whole-system build map.
+- ED-Finder's prior default still felt like a planner dashboard with an advanced card stack.
+- RavenColonial lets users understand body capacity and planned/proposed structures without clicking every body.
+- ED-Finder needed visible orbital/ground lanes, planned occupancy, ghost projection, overflow, and economy strips directly in the left panel.
+
+Stage 17H ED-Finder mapping:
+
+- default route: `WholeSystemColonyPlanner.tsx`
+- left system map: `SystemSlotMapPanel.tsx` / `ColonyTopologyRail.tsx`
+- centre body editor: `SelectedBodyPlannerCanvas.tsx` / `BodySlotPlanner.tsx`
+- compact status/economy: `PlannerStatusStrip.tsx`
+- old stack demotion: `AdvancedPlannerDrawer.tsx`
+
+This is a functional adaptation only. ED-Finder keeps its own dark sci-fi/orange/silver style, component structure, copy, CSS, icons, and data model.
+
+Remaining clean-room gaps after Stage 17H:
+
+- no drag/drop slot movement
+- no permanent Architect-observed slot survey storage
+- no RavenColonial logistics/project sync
+- no advanced cargo/commander/project mutation flows
+- no automatic plan synthesis or AI mutation
+
+## Planning Economy Ledger
+
+Stage 17G planning economy is intentionally lightweight:
+
+- each planned structure contributes one count to its facility template `economy`, where metadata exists
+- each projected Suggested Build structure contributes one projected count to its template `economy`, where metadata exists
+- planned and projected contributions are visually distinct
+- structures without economy metadata are counted as unknown metadata in expanded ledgers
+
+Required wording:
+
+`Planning economy mix — run Preview for validated outcome.`
+
+The ledger does not replace Simulation Preview:
+
+- no CP formula changes
+- no port economy propagation changes
+- no service graph changes
+- no optimiser scoring/ranking changes
+- no automatic Preview execution
+- Preview remains explicit and authoritative
+
+## RavenColonial API Notes Kept For Future Work
+
+The user-provided RavenColonial API concepts are recorded only as future reference for logistics/project interop:
+
+- `buildId` is primary project key
+- projects can be queried by `systemAddress` and/or `marketId`
+- commodity names are lower-case and language agnostic
+- commander names are lower-cased internally
+- OpenAPI is available at `/openapi/v1.json`
+- project APIs cover create/get/update/link/assign/contribute/supply/ready/complete/stats
+- system APIs can find active/completed projects
+- commander APIs can link commanders and assigned commodities
+- fleet carrier APIs can manage carrier/cargo data
+
+Stage 17G does not implement RavenColonial logistics sync and must not make mutating RavenColonial calls.

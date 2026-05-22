@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
  *   #colony-planner/system/123    → route='colony-planner', plannerSystemId=123
  *   #colony-planner               → route='colony-planner', plannerSystemId=null
+ *   #colony-planner-prototype     → route='colony-planner-prototype', static visual prototype
  *   <empty> or unknown            → route='finder',    selectedSystemId=null
  *
  * Modal system sub-routes are intentionally a **child** of each tab so
@@ -25,8 +26,8 @@ import { useEffect, useState } from 'react';
  * The route set is still simple enough that this hand-rolled parser beats
  * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
  */
-export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'colony-planner';
-const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'colony-planner'];
+export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'colony-planner' | 'colony-planner-prototype';
+const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'colony-planner', 'colony-planner-prototype'];
 
 export interface ParsedHash {
   route:            Route;

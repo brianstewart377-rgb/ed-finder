@@ -15,6 +15,8 @@ import {
   type BodyGroup,
   type GroupedPlacement,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
+import { PlanningEconomyStrip } from './PlanningEconomyStrip';
+import { buildPlanningEconomyLedger } from './planningEconomy';
 
 export type TopologySelection =
   | { type: 'system' }
@@ -94,13 +96,13 @@ export function ColonyTopologyRail({
 
   return (
     <aside
-      aria-label="Topology body tree"
+      aria-label="Whole-system slot map"
       data-testid="planner-topology-sidebar"
       className="panel p-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
     >
       <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
         <Network size={13} />
-        System topology
+        Whole-system slot map
       </div>
       {snapshot.slotPredictions && (
         <div className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-silver-dk">
@@ -234,12 +236,24 @@ function BodyTreeRow({
   const projectedOrbital = projectedPlacements.filter((item) => placementLaneKind(item.template) === 'orbital');
   const projectedGround = projectedPlacements.filter((item) => placementLaneKind(item.template) === 'ground');
   const projectedUnknown = projectedPlacements.filter((item) => placementLaneKind(item.template) === 'unknown');
+  const economyLedger = buildPlanningEconomyLedger({
+    placements: placements.map((item) => item.placement),
+    projectedPlacements: projectedPlacements.map((item) => item.placement),
+    templates: [
+      ...placements.map((item) => item.template).filter((template): template is FacilityTemplate => Boolean(template)),
+      ...projectedPlacements.map((item) => item.template).filter((template): template is FacilityTemplate => Boolean(template)),
+    ],
+  });
   const orbitalCapacity = slotPrediction?.predicted_orbital_slots ?? null;
   const groundCapacity = slotPrediction?.predicted_ground_slots ?? null;
   const orbitalOverflow = orbitalCapacity == null ? 0 : Math.max(0, plannedOrbital.length + projectedOrbital.length - orbitalCapacity);
   const groundOverflow = groundCapacity == null ? 0 : Math.max(0, plannedGround.length + projectedGround.length - groundCapacity);
   const unknownOverflow = plannedUnknown.length + projectedUnknown.length;
   const totalOverflow = orbitalOverflow + groundOverflow + unknownOverflow;
+  const hasSlotOrPlanSignal = placements.length > 0
+    || projectedPlacements.length > 0
+    || (orbitalCapacity != null && orbitalCapacity > 0)
+    || (groundCapacity != null && groundCapacity > 0);
 
   return (
     <div data-testid={`topology-body-${node.id}`}>
@@ -289,30 +303,41 @@ function BodyTreeRow({
           ))}
         </div>
       )}
-      <div className="ml-3 mt-1 rounded border border-border/45 bg-bg3/35 px-2 py-1.5">
-        <SlotLaneRow
-          laneKey={`${node.id}-orbital`}
-          label="Orbital"
-          capacity={orbitalCapacity}
-          planned={plannedOrbital.map((item) => item.template?.name ?? item.placement.facility_template_id)}
-          projected={projectedOrbital.map((item) => item.template?.name ?? item.placement.facility_template_id)}
-        />
-        <SlotLaneRow
-          laneKey={`${node.id}-ground`}
-          label="Ground"
-          capacity={groundCapacity}
-          planned={plannedGround.map((item) => item.template?.name ?? item.placement.facility_template_id)}
-          projected={projectedGround.map((item) => item.template?.name ?? item.placement.facility_template_id)}
-        />
-        {totalOverflow > 0 && (
-          <div
-            data-testid={`topology-overflow-${node.id}`}
-            className="mt-1 font-mono text-[9px] text-gold"
-          >
-            +{totalOverflow} overflow / unconfirmed
-          </div>
-        )}
-      </div>
+      {hasSlotOrPlanSignal && (
+        <div className="ml-3 mt-1 rounded border border-border/45 bg-bg3/35 px-2 py-1.5">
+          <SlotLaneRow
+            laneKey={`${node.id}-orbital`}
+            label="Orbital"
+            capacity={orbitalCapacity}
+            planned={plannedOrbital.map((item) => item.template?.name ?? item.placement.facility_template_id)}
+            projected={projectedOrbital.map((item) => item.template?.name ?? item.placement.facility_template_id)}
+          />
+          <SlotLaneRow
+            laneKey={`${node.id}-ground`}
+            label="Ground"
+            capacity={groundCapacity}
+            planned={plannedGround.map((item) => item.template?.name ?? item.placement.facility_template_id)}
+            projected={projectedGround.map((item) => item.template?.name ?? item.placement.facility_template_id)}
+          />
+          {totalOverflow > 0 && (
+            <div
+              data-testid={`topology-overflow-${node.id}`}
+              className="mt-1 font-mono text-[9px] text-gold"
+            >
+              +{totalOverflow} overflow / unconfirmed
+            </div>
+          )}
+          {economyLedger.total > 0 && (
+            <div className="mt-1">
+              <PlanningEconomyStrip
+                ledger={economyLedger}
+                compact
+                testId={`topology-economy-${node.id}`}
+              />
+            </div>
+          )}
+        </div>
+      )}
       {projectedPlacements.length > 0 && (
         <div
           data-testid={`topology-projected-group-${node.id}`}

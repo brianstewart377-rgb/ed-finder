@@ -54,11 +54,11 @@ export function BodySlotLane({
       />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver">{label}</div>
-          <p className="mt-0.5 font-mono text-[10px] text-silver-dk">{helper}</p>
+          <div className="font-mono text-[11px] uppercase tracking-[0.1em] text-silver">{label}</div>
+          <p className="mt-0.5 text-xs leading-relaxed text-silver-dk">{helper}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="rounded border border-border/55 bg-bg2/60 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
+          <span className="rounded border border-border/55 bg-bg2/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-silver-dk">
             {slotStatus}
           </span>
           <button
@@ -67,7 +67,7 @@ export function BodySlotLane({
             disabled={disabled}
             data-testid={`slot-lane-add-${laneKey}`}
             className={[
-              'rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em]',
+              'rounded border px-2 py-1 font-mono text-[11px] uppercase tracking-[0.1em]',
               disabled
                 ? 'cursor-not-allowed border-gold/35 bg-gold/10 text-gold/70'
                 : 'border-orange/45 bg-orange/12 text-orange hover:bg-orange/20',
@@ -79,7 +79,7 @@ export function BodySlotLane({
       </div>
 
       {disabled && disabledReason && (
-        <p className="mt-2 rounded border border-gold/30 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
+        <p className="mt-2 rounded border border-gold/30 bg-gold/10 px-2 py-1 text-xs leading-relaxed text-gold">
           {disabledReason}
         </p>
       )}

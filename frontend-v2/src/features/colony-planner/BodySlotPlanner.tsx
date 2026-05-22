@@ -8,6 +8,8 @@ import { templateLocationKind } from '@/features/system-detail/simulation-previe
 import { BodySlotLane } from './BodySlotLane';
 import { BodyStructureSlot, type BodyStructureSlotItem } from './BodyStructureSlot';
 import { ProjectedStructureSlot } from './ProjectedStructureSlot';
+import { PlanningEconomyStrip } from './PlanningEconomyStrip';
+import { buildPlanningEconomyLedger } from './planningEconomy';
 
 export type BodyPlannerLane = 'orbital' | 'surface' | 'flex';
 
@@ -63,17 +65,26 @@ export function BodySlotPlanner({
     : body.is_landable === false
       ? 'Surface lane limited: non-landable body.'
       : null;
+  const economyLedger = buildPlanningEconomyLedger({
+    placements: placements.map((item) => item.placement),
+    projectedPlacements: projectedPlacements.map((item) => item.placement),
+    templates: [
+      ...placements.map((item) => item.template).filter((template): template is FacilityTemplate => Boolean(template)),
+      ...projectedPlacements.map((item) => item.template).filter((template): template is FacilityTemplate => Boolean(template)),
+    ],
+  });
 
   return (
     <section
       data-testid="body-slot-planner"
-      className="mb-3 rounded-chunk-lg border border-orange/35 bg-bg2/60 px-3 py-3"
+      data-readability="stage17k"
+      className="mb-3 rounded-chunk-lg border border-orange/35 bg-bg2/60 px-3 py-3 text-sm leading-relaxed"
     >
       <header className="mb-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Body slot planner</div>
-            <h3 className="mt-0.5 truncate text-sm font-bold text-silver">{bodyDisplayName(body)}</h3>
+            <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-orange">Body slot planner</div>
+            <h3 className="mt-0.5 truncate text-base font-semibold text-silver" data-testid="selected-body-readable-title">{bodyDisplayName(body)}</h3>
             <div className="mt-1 flex flex-wrap gap-1.5">
               <FactChip label={body.subtype ?? body.body_type ?? 'Body'} />
               {tags.map((tag) => <FactChip key={tag} label={tag} />)}
@@ -99,6 +110,10 @@ export function BodySlotPlanner({
         onAddLaneStructure={onAddLaneStructure}
       />
 
+      <div className="mb-3">
+        <PlanningEconomyStrip ledger={economyLedger} testId="body-planning-economy" />
+      </div>
+
       <div className="space-y-2.5">
         <BodySlotLane
           laneKey="orbital"
@@ -109,6 +124,14 @@ export function BodySlotPlanner({
           disabled={!hasTemplates}
           disabledReason={!hasTemplates ? 'Facility catalogue loading.' : undefined}
         >
+          <LaneCapacityMap
+            laneKey="orbital"
+            capacity={orbitalSlots}
+            planned={orbitalPlanned}
+            projected={orbitalProjected}
+            selectedPlacementIndex={selectedPlacementIndex}
+            onSelectPlacement={onSelectPlacement}
+          />
           <LaneSlots
             body={body}
             laneKey="orbital"
@@ -129,6 +152,14 @@ export function BodySlotPlanner({
           disabled={!hasTemplates || surfaceBlocked}
           disabledReason={!hasTemplates ? 'Facility catalogue loading.' : surfaceBlockedReason ?? undefined}
         >
+          <LaneCapacityMap
+            laneKey="surface"
+            capacity={surfaceSlots}
+            planned={surfacePlanned}
+            projected={surfaceProjected}
+            selectedPlacementIndex={selectedPlacementIndex}
+            onSelectPlacement={onSelectPlacement}
+          />
           <LaneSlots
             body={body}
             laneKey="surface"
@@ -149,6 +180,14 @@ export function BodySlotPlanner({
           disabled={!hasTemplates}
           disabledReason={!hasTemplates ? 'Facility catalogue loading.' : undefined}
         >
+          <LaneCapacityMap
+            laneKey="flex"
+            capacity={null}
+            planned={flexPlanned}
+            projected={flexProjected}
+            selectedPlacementIndex={selectedPlacementIndex}
+            onSelectPlacement={onSelectPlacement}
+          />
           <LaneSlots
             body={body}
             laneKey="flex"
@@ -418,6 +457,167 @@ function LaneAddNode({
     >
       +
     </button>
+  );
+}
+
+function LaneCapacityMap({
+  laneKey,
+  capacity,
+  planned,
+  projected,
+  selectedPlacementIndex,
+  onSelectPlacement,
+}: {
+  laneKey: BodyPlannerLane;
+  capacity: number | null;
+  planned: BodyPlannerPlacementItem[];
+  projected: BodyPlannerProjectedPlacementItem[];
+  selectedPlacementIndex: number | null;
+  onSelectPlacement: (index: number) => void;
+}) {
+  const used = planned.length + projected.length;
+  if (capacity == null) {
+    return (
+      <div className="mb-2 rounded border border-gold/30 bg-gold/5 px-2 py-2">
+        <div className="flex items-center gap-2 font-mono text-[10px] text-gold">
+          <span className="uppercase tracking-[0.14em]">Predicted capacity</span>
+          <span data-testid={`center-slot-unknown-${laneKey}`} className="rounded border border-gold/40 bg-gold/10 px-1">[?]</span>
+        </div>
+        {used > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {[...planned, ...projected].map((item, index) => {
+              const projectedItem = index >= planned.length;
+              const plannedItem = item as BodyPlannerPlacementItem;
+              const projectedPlacement = item as BodyPlannerProjectedPlacementItem;
+              const key = projectedItem
+                ? `unknown-projected-${laneKey}-${projectedPlacement.index}-${projectedPlacement.placement.facility_template_id}`
+                : `unknown-planned-${laneKey}-${plannedItem.index}-${plannedItem.placement.facility_template_id}`;
+              return (
+                <CapacityCell
+                  key={key}
+                  testId={`center-${laneKey}-unknown-item-${index}`}
+                  label={slotLabel(item)}
+                  fullLabel={item.template?.name ?? item.placement.facility_template_id}
+                  projected={projectedItem}
+                  selected={!projectedItem && selectedPlacementIndex === plannedItem.index}
+                  onClick={!projectedItem ? () => onSelectPlacement(plannedItem.index) : undefined}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const cells = Array.from({ length: capacity }, (_unused, index) => {
+    if (index < planned.length) {
+      const item = planned[index];
+      return {
+        key: `planned-${laneKey}-${item.index}`,
+        label: slotLabel(item),
+        fullLabel: item.template?.name ?? item.placement.facility_template_id,
+        projected: false,
+        selected: selectedPlacementIndex === item.index,
+        onClick: () => onSelectPlacement(item.index),
+      };
+    }
+    const projectedIndex = index - planned.length;
+    if (projectedIndex >= 0 && projectedIndex < projected.length) {
+      const item = projected[projectedIndex];
+      return {
+        key: `projected-${laneKey}-${item.index}`,
+        label: slotLabel(item),
+        fullLabel: item.template?.name ?? item.placement.facility_template_id,
+        projected: true,
+        selected: false,
+        onClick: undefined,
+      };
+    }
+    return {
+      key: `empty-${laneKey}-${index}`,
+      label: '',
+      fullLabel: 'Empty slot',
+      projected: false,
+      selected: false,
+      onClick: undefined,
+    };
+  });
+  const overflow = Math.max(0, used - capacity);
+
+  return (
+    <div className="mb-2 rounded border border-border/55 bg-bg3/30 px-2 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px]">
+        <span className="uppercase tracking-[0.14em] text-silver-dk">Predicted capacity</span>
+        <span className="text-silver">{used}/{capacity} slots including projection</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {cells.map((cell, index) => (
+          <CapacityCell
+            key={cell.key}
+            testId={`center-${laneKey}-slot-${index}`}
+            label={cell.label}
+            fullLabel={cell.fullLabel}
+            projected={cell.projected}
+            selected={cell.selected}
+            onClick={cell.onClick}
+          />
+        ))}
+      </div>
+      {overflow > 0 && (
+        <div data-testid={`center-${laneKey}-overflow`} className="mt-2 font-mono text-[10px] text-gold">
+          +{overflow} overflow / unconfirmed
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CapacityCell({
+  testId,
+  label,
+  fullLabel,
+  projected,
+  selected,
+  onClick,
+}: {
+  testId: string;
+  label: string;
+  fullLabel: string;
+  projected: boolean;
+  selected: boolean;
+  onClick?: () => void;
+}) {
+  const className = [
+    'inline-flex h-9 min-w-9 max-w-[5.5rem] items-center justify-center rounded border px-2 font-mono text-[10px] font-bold uppercase leading-none',
+    label
+      ? projected
+        ? 'border-cyan/45 bg-cyan/10 text-cyan'
+        : 'border-orange/55 bg-orange/16 text-orange'
+      : 'border-border/60 bg-bg2/45 text-silver-dk',
+    selected ? 'ring-2 ring-orange/70' : '',
+    onClick ? 'cursor-pointer hover:border-orange/75' : '',
+  ].join(' ');
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        data-testid={testId}
+        title={fullLabel}
+        onClick={onClick}
+        aria-label={fullLabel}
+        className={className}
+      >
+        {label || ' '}
+      </button>
+    );
+  }
+
+  return (
+    <span data-testid={testId} title={fullLabel} className={className}>
+      {label || ' '}
+    </span>
   );
 }
 

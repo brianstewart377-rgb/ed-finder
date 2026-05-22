@@ -134,6 +134,8 @@ async def get_slot_predictions(
             'disclaimer': PREDICTION_DISCLAIMER,
             'validation_note': VALIDATION_NOTE,
             'required_input_missing': ['body_scan_facts'],
+            'missing_inputs': ['body_scan_facts'],
+            'source_label': 'unknown',
             'estimated_orbital_slots': None,
             'estimated_ground_slots': None,
             'slot_confidence': None,
@@ -168,6 +170,8 @@ async def get_slot_predictions(
         'disclaimer': PREDICTION_DISCLAIMER,
         'validation_note': prediction.get('validation_note', VALIDATION_NOTE),
         'required_input_missing': prediction.get('required_input_missing') or [],
+        'missing_inputs': prediction.get('required_input_missing') or [],
+        'source_label': _slot_source_label(str(prediction.get('prediction_status', 'unknown'))),
         'estimated_orbital_slots': prediction.get('predicted_orbital_slots_total'),
         'estimated_ground_slots': prediction.get('predicted_ground_slots_total'),
         'slot_confidence': round(float(slot_confidence), 3) if slot_confidence is not None else None,
@@ -674,6 +678,8 @@ def _slot_prediction_to_api(pred: Any, fact: dict[str, Any]) -> dict[str, Any]:
         'prediction_version': pred.prediction_version,
         'validation_note': pred.validation_note,
         'required_input_missing': list(pred.required_input_missing or []),
+        'missing_inputs': list(pred.required_input_missing or []),
+        'source_label': pred.slot_source,
         'estimated_surface_slots': pred.predicted_ground_slots,
         'estimated_orbital_slots': pred.predicted_orbital_slots,
         'slot_confidence': round(float(pred.confidence or 0), 3) if pred.prediction_status == 'predicted' else None,
@@ -683,6 +689,14 @@ def _slot_prediction_to_api(pred: Any, fact: dict[str, Any]) -> dict[str, Any]:
         'is_landable':    _maybe_bool(fact.get('is_landable')),
         'radius':         _maybe_float(fact.get('radius')),
     }
+
+
+def _slot_source_label(prediction_status: str) -> str:
+    if prediction_status == 'observed':
+        return 'observed'
+    if prediction_status == 'predicted':
+        return 'validated_prediction'
+    return 'unknown'
 
 
 def _normalise_slot_reason(reason: dict[str, Any]) -> dict[str, Any]:

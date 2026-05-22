@@ -99,6 +99,8 @@ Top-level slot-prediction response fields:
 - `disclaimer`
 - `validation_note`
 - `required_input_missing`
+- `missing_inputs`
+- `source_label`
 
 Per-body slot-prediction fields:
 
@@ -109,6 +111,8 @@ Per-body slot-prediction fields:
 - `confidence_label`
 - `validation_note`
 - `required_input_missing`
+- `missing_inputs`
+- `source_label`
 - `reasons`
 
 Unknown handling rule:
@@ -120,6 +124,8 @@ Unknown handling rule:
 Compatibility note:
 
 - `estimated_*` and `slot_confidence*` fields may still appear for legacy clients, but they mirror canonical predictor output; they are not an alternate slot source.
+- `missing_inputs` mirrors `required_input_missing` for clearer client naming.
+- `source_label` is `validated_prediction`, `observed`, or `unknown`.
 
 Buildability/simulation summary fields still use:
 

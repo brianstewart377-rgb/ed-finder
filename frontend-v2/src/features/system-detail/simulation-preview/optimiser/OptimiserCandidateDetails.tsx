@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
-import type { OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
+import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
+import { PlanningEconomyStrip } from '@/features/colony-planner/PlanningEconomyStrip';
+import { buildPlanningEconomyLedger } from '@/features/colony-planner/planningEconomy';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { OptimiserComparisonPanel, compareBuildSources, sourceFromCurrentPreview, sourceFromOptimiserCandidate } from './comparison';
@@ -19,6 +21,7 @@ export function OptimiserCandidateDetails({
   generatedTargetArchetype,
   currentControlTargetArchetype,
   bodyLabelsById,
+  templates = [],
 }: {
   candidate?: OptimiserCandidate;
   ranking?: RankedOptimiserCandidate;
@@ -32,6 +35,7 @@ export function OptimiserCandidateDetails({
   generatedTargetArchetype?: string | null;
   currentControlTargetArchetype?: string | null;
   bodyLabelsById?: Record<string, string>;
+  templates?: FacilityTemplate[];
 }) {
   const [loadConfirmation, setLoadConfirmation] = useState<'replace' | 'stale' | 'stale_replace' | null>(null);
   const comparison = useMemo(() => {
@@ -72,6 +76,15 @@ export function OptimiserCandidateDetails({
   const supportBodyLabels = usedBodyIds
     .filter((bodyId) => bodyId !== mainBodyId)
     .map((bodyId) => bodyLabelsById?.[bodyId] ?? `Body ${bodyId}`);
+  const projectedEconomyLedger = buildPlanningEconomyLedger({
+    projectedPlacements: candidate.placements.map((placement) => ({
+      facility_template_id: placement.facility_template_id,
+      local_body_id: placement.local_body_id,
+      is_primary_port: placement.is_primary_port,
+      build_order: placement.build_order,
+    })),
+    templates,
+  });
 
   const requestLoad = () => {
     if (!onLoadCandidate) return;
@@ -153,6 +166,13 @@ export function OptimiserCandidateDetails({
             Support bodies: <span className="text-silver">{supportBodyLabels.join(', ')}</span>
           </p>
         )}
+        <div className="mt-2">
+          <PlanningEconomyStrip
+            ledger={projectedEconomyLedger}
+            compact
+            testId="candidate-projected-economy"
+          />
+        </div>
       </div>
 
       <Section title="Rationale" items={candidate.rationale} empty="No rationale was returned for this suggested build." />

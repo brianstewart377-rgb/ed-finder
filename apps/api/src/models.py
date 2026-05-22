@@ -1100,6 +1100,8 @@ class BodySlotPrediction(BaseModel):
     prediction_version: Optional[str] = None
     validation_note: Optional[str] = None
     required_input_missing: list[str] = Field(default_factory=list)
+    missing_inputs: list[str] = Field(default_factory=list)
+    source_label: Optional[str] = None
     estimated_surface_slots: Optional[int] = None
     estimated_orbital_slots: Optional[int] = None
     slot_confidence: Optional[float] = None
@@ -1124,6 +1126,8 @@ class SlotPredictionResponse(BaseModel):
     disclaimer: str
     validation_note: str
     required_input_missing: list[str] = Field(default_factory=list)
+    missing_inputs: list[str] = Field(default_factory=list)
+    source_label: Optional[str] = None
     estimated_orbital_slots: Optional[int] = None
     estimated_ground_slots:  Optional[int] = None
     slot_confidence:         Optional[float] = None

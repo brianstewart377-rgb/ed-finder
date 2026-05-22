@@ -153,11 +153,13 @@ describe('ColonyTopologyRail', () => {
     expect(within(firstBody).getByText('Planned')).toBeTruthy();
     expect(within(firstBody).getByLabelText('Primary-port placement')).toBeTruthy();
     expect(within(firstBody).getAllByText('primary').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('topology-economy-1')).toBeNull();
 
     const moonBody = screen.getByTestId('topology-body-2');
-    expect(within(moonBody).getByText('1')).toBeTruthy();
+    expect(within(moonBody).getAllByText('1').length).toBeGreaterThan(0);
     expect(within(moonBody).queryByText(/Inferred:/i)).toBeNull();
     expect(within(moonBody).queryByText('1 surface')).toBeNull();
+    expect(within(screen.getByTestId('topology-economy-2')).getByText(/Ext/i)).toBeTruthy();
     expect(screen.getByTestId('topology-body-button-2').getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -210,6 +212,43 @@ describe('ColonyTopologyRail', () => {
     expect(screen.getByTestId('topology-projected-group-2')).toBeTruthy();
     expect(within(screen.getByTestId('topology-projected-group-2')).getByText('Projected')).toBeTruthy();
     expect(screen.getByTestId('topology-projected-placement-0')).toBeTruthy();
+    expect(within(screen.getByTestId('topology-economy-2')).getByText(/\+1/i)).toBeTruthy();
+  });
+
+  it('renders canonical slot lane counts and occupancy for a 4 orbital / 5 ground body', () => {
+    render(<RailHarness />);
+
+    expect(screen.getByText(/Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode./)).toBeTruthy();
+    expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
+    expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
+
+    const firstBody = screen.getByTestId('topology-body-1');
+    expect(within(firstBody).getByTestId('1-orbital-slot-0').textContent?.trim().length).toBeGreaterThan(0);
+  });
+
+  it('shows unknown slot lane when canonical prediction is unknown', () => {
+    render(<RailHarness />);
+    expect(screen.getByTestId('slot-lane-unknown-2-orbital')).toBeTruthy();
+    expect(screen.getByTestId('slot-lane-unknown-2-ground')).toBeTruthy();
+  });
+
+  it('shows overflow when structures exceed predicted capacity', () => {
+    render(
+      <RailHarness
+        projection={{
+          candidateId: 'candidate-overflow',
+          label: 'Overflow candidate',
+          placements: [
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 5 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 6 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 7 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 8 },
+            { facility_template_id: 'orbital_port', local_body_id: '1', is_primary_port: false, build_order: 9 },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByTestId('topology-overflow-1').textContent).toContain('overflow / unconfirmed');
   });
 
   it('renders canonical slot lane counts and occupancy for a 4 orbital / 5 ground body', () => {

@@ -197,19 +197,20 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     renderWorkspace();
 
     expect((await screen.findAllByText('Passive Workspace')).length).toBeGreaterThan(0);
-    expect(screen.getByTestId('planner-workspace-shell-v2')).toBeTruthy();
-    expect(screen.getByRole('complementary', { name: /Topology body tree/i })).toBeTruthy();
+    expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
+    expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('raven-real-data-responsive');
+    expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();
     expect(screen.getByRole('complementary', { name: /Workspace summary/i })).toBeTruthy();
-    expect(screen.getByText('System topology')).toBeTruthy();
+    expect(screen.getByText('Whole-System Build Canvas')).toBeTruthy();
     expect(screen.getByText('Planner summary')).toBeTruthy();
-    expect(await screen.findByText('Body Planner')).toBeTruthy();
-    expect(screen.getByTestId('topology-root-row')).toBeTruthy();
-    expect(screen.getByTestId('topology-body-body1')).toBeTruthy();
-    expect((await screen.findAllByText('Colony Planner')).length).toBeGreaterThan(0);
-    expect(screen.getByTestId('body-planning-surface')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Suggested Builds/i })).toBeTruthy();
+    expect(await screen.findByText('Whole-System Planner')).toBeTruthy();
+    expect(screen.getByTestId('raven-real-body-row-body1')).toBeTruthy();
+    expect((await screen.findAllByText('Colony Planner Workspace')).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('selected-body-planner-canvas')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Generate Suggested Build/i })).toBeTruthy();
     expect(screen.queryByTestId('suggested-builds-workspace-view')).toBeNull();
-    expect(screen.getByRole('button', { name: /Run Preview/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Run Preview/i })).toBeNull();
+    expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
 
     await waitFor(() => expect(mockedGetSimulationSummary).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
@@ -283,7 +284,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     renderWorkspace();
 
-    await screen.findByTestId('topology-body-1');
+    await screen.findByTestId('raven-real-body-row-1');
     await waitFor(() => {
       expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
       expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
@@ -296,6 +297,8 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect(screen.getByTestId('slot-lane-surface')).toBeTruthy();
       expect(within(screen.getByTestId('slot-lane-orbital')).getByText('0/4 planned')).toBeTruthy();
       expect(within(screen.getByTestId('slot-lane-surface')).getByText('0/5 planned')).toBeTruthy();
+      expect(screen.getByTestId('center-orbital-slot-3')).toBeTruthy();
+      expect(screen.getByTestId('center-surface-slot-4')).toBeTruthy();
     });
 
     fireEvent.click(screen.getByTestId('slot-lane-add-orbital'));
@@ -304,6 +307,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
       expect(within(screen.getByTestId('slot-lane-items-orbital')).getByText(/Orbital Port/i)).toBeTruthy();
+      expect((screen.getByTestId('center-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
     });
 
     fireEvent.click(screen.getByTestId('slot-lane-add-surface'));
@@ -312,6 +316,8 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('slot-lane-surface')).getByText('1/5 planned')).toBeTruthy();
       expect(within(screen.getByTestId('slot-lane-items-surface')).getByText(/Surface Hub/i)).toBeTruthy();
+      expect(within(screen.getByTestId('workspace-economy-ledger')).getByText(/Agri/i)).toBeTruthy();
+      expect(within(screen.getByTestId('body-planning-economy')).getByText(/Agri/i)).toBeTruthy();
     });
   });
 });

@@ -101,8 +101,10 @@ async def test_slot_prediction_endpoint_uses_canonical_predictor(monkeypatch):
     assert result['prediction_status'] == 'predicted'
     assert result['prediction_version'] == 'validated-slot-v1'
     assert result['disclaimer'].startswith('Predicted slots — high-accuracy algorithm')
+    assert result['source_label'] == 'validated_prediction'
     assert result['predictions'][0]['predicted_orbital_slots'] == 4
     assert result['predictions'][0]['predicted_ground_slots'] == 5
+    assert result['predictions'][0]['source_label'] == 'validated_prediction'
 
 
 @pytest.mark.asyncio
@@ -144,4 +146,7 @@ async def test_slot_prediction_endpoint_reports_unknown_without_fallback(monkeyp
     assert result['predicted_orbital_slots_total'] is None
     assert result['predicted_ground_slots_total'] is None
     assert result['predictions'][0]['prediction_status'] == 'unknown'
+    assert result['predictions'][0]['predicted_orbital_slots'] is None
     assert result['predictions'][0]['predicted_ground_slots'] is None
+    assert result['predictions'][0]['missing_inputs'] == ['radius']
+    assert result['predictions'][0]['source_label'] == 'unknown'

@@ -34,7 +34,7 @@ export function BodyStructureSlot({
           : 'border-border/60 bg-bg3/45 hover:border-orange/45 hover:bg-orange/8',
       ].join(' ')}
     >
-      <div className="truncate text-[11px] font-bold text-silver">
+      <div className="truncate text-sm font-semibold leading-snug text-silver">
         #{item.placement.build_order || item.index + 1} {label}
       </div>
       <div className="mt-1 flex flex-wrap gap-1">
@@ -58,7 +58,7 @@ function SlotChip({
   return (
     <span
       className={[
-        'rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]',
+        'rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em]',
         tone === 'cyan'
           ? 'border-cyan/35 bg-cyan/10 text-cyan'
           : tone === 'gold'

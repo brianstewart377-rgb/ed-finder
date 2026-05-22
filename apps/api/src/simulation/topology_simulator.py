@@ -122,36 +122,13 @@ def topology_from_row(topo_row: Optional[dict]) -> TopologyContext:
 
 def topology_from_traits(traits_row: Optional[dict]) -> TopologyContext:
     """
-    Build a TopologyContext from a system_archetype_traits row.
-    Fallback when system_slot_topology is not yet computed.
-    Lower confidence than topology_from_row().
+    Do not derive slot counts from system_archetype_traits.
+
+    Stage 17G makes the validated slot predictor the only runtime source for
+    predicted capacity. This legacy adapter remains as a safe compatibility
+    no-op so an accidental caller cannot reintroduce trait-derived estimates.
     """
-    if not traits_row:
-        return TopologyContext()
-
-    def _i(key: str, default: int = 0) -> int:
-        v = traits_row.get(key)
-        try:
-            return int(v) if v is not None else default
-        except (TypeError, ValueError):
-            return default
-
-    def _b(key: str) -> bool:
-        return bool(traits_row.get(key, False))
-
-    # Traits store est_orbital_slots / est_ground_slots
-    orbital_slots = _i('est_orbital_slots')
-    surface_slots = _i('est_ground_slots')
-    has_data = orbital_slots > 0 or surface_slots > 0
-
-    return TopologyContext(
-        orbital_slots=orbital_slots,
-        surface_slots=surface_slots,
-        has_ringed_body=_b('has_ringed_body'),
-        has_viable_surface=True,    # conservative default
-        has_deep_anchor=False,
-        slot_confidence=0.50 if has_data else 0.25,
-    )
+    return TopologyContext(slot_confidence=0.0)
 
 
 def summarise_topology(ctx: TopologyContext) -> list[str]:

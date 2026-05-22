@@ -82,6 +82,8 @@ export interface BodySlotPrediction {
   prediction_version?: string | null;
   validation_note?: string | null;
   required_input_missing?: string[];
+  missing_inputs?: string[];
+  source_label?: string | null;
   estimated_orbital_slots?: number | null;
   estimated_surface_slots?: number | null;
   slot_confidence?: number | null;
@@ -104,6 +106,8 @@ export interface SlotPredictionResponse {
   disclaimer: string;
   validation_note: string;
   required_input_missing?: string[];
+  missing_inputs?: string[];
+  source_label?: string | null;
   estimated_orbital_slots?: number | null;
   estimated_ground_slots?: number | null;
   slot_confidence?: number | null;
