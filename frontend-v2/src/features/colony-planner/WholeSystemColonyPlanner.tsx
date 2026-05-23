@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, PanelRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import type { FacilityTemplate, SimulateBuildPlacement, SimulationSummary, SystemBody, SystemDetail } from '@/types/api';
+import type { FacilityTemplate, SimulateBuildPlacement, SimulationSummary, SystemDetail } from '@/types/api';
 import { getFacilityTemplates, getSimulationSummary, getSlotPredictions } from '@/lib/api';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
-import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
+import { sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import { archetypeFromEconomy, resequence } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import type { BodyPlannerLane } from './BodySlotPlanner';
 import { CanvasStructurePicker } from './CanvasStructurePicker';
@@ -13,7 +13,6 @@ import {
   type TopologyPlanSnapshot,
   type TopologySelection,
 } from './ColonyTopologyRail';
-import { SelectedBodyPlannerCanvas } from './SelectedBodyPlannerCanvas';
 import { PlannerStatusStrip } from './PlannerStatusStrip';
 import { WorkspaceSummaryRail } from './WorkspaceSummaryRail';
 import { useWorkspaceProjectState } from './useWorkspaceProjectState';
@@ -45,7 +44,6 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   const [lastHandledWorkspaceCommandToken, setLastHandledWorkspaceCommandToken] = useState(0);
   const [structurePicker, setStructurePicker] = useState<{ bodyId: string; lane: BodyPlannerLane } | null>(null);
   const [structureAddFeedback, setStructureAddFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
-  const workspaceCommandToken = useRef(0);
   const appliedProjectFingerprint = useRef<string | null>(null);
 
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
@@ -133,12 +131,6 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   );
 
   const planningFocusLabel = getPlanningFocusLabel(selection, system, planSnapshot);
-  const selectedBody = useMemo(
-    () => selectedBodyFromSelection(selection, system.bodies ?? [], placements, projection?.placements ?? []),
-    [placements, projection?.placements, selection, system.bodies],
-  );
-  const selectedPlacementIndex = selection.type === 'placement' ? selection.placementIndex : null;
-  const selectedProjectedPlacementIndex = selection.type === 'projected-placement' ? selection.placementIndex : null;
   const pickerBody = useMemo(() => {
     if (!structurePicker) return null;
     return (system.bodies ?? []).find((body) => sameBodyId(body.id, structurePicker.bodyId)) ?? null;
@@ -149,11 +141,6 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     templates,
   }), [placements, projection?.placements, templates]);
   const prerequisiteIssues = useMemo(() => buildPlanPrerequisiteIssues(placements, templates), [placements, templates]);
-
-  const openAdvanced = useCallback((mode: SimulationWorkspaceMode = 'build-plan') => {
-    setAdvancedInitialMode(mode);
-    setAdvancedPanelOpen(true);
-  }, []);
 
   const requestAddStructure = useCallback((bodyId: string, lane: BodyPlannerLane) => {
     setSelection({ type: 'body', bodyId });
@@ -205,22 +192,6 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
       setStructurePicker(null);
     }
   }, [addStructure, structurePicker]);
-
-  const issueWorkspaceCommand = useCallback((kind: PlannerWorkspaceCommand['kind'], bodyId: string, templateId?: string | null) => {
-    workspaceCommandToken.current += 1;
-    setWorkspaceCommand({
-      token: workspaceCommandToken.current,
-      kind,
-      bodyId,
-      templateId: templateId ?? null,
-    });
-  }, []);
-
-  const reviewBodyStructures = useCallback((bodyId: string) => {
-    setSelection({ type: 'body', bodyId });
-    openAdvanced('build-plan');
-    issueWorkspaceCommand('review-structures', bodyId);
-  }, [issueWorkspaceCommand, openAdvanced]);
 
   const handleWorkspaceCommandHandled = useCallback((token: number) => {
     setLastHandledWorkspaceCommandToken((current) => (token > current ? token : current));
@@ -292,25 +263,6 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
           system={system}
           snapshot={planSnapshot}
           selection={selection}
-          expandedBodyDetail={selectedBody ? (
-            <SelectedBodyPlannerCanvas
-              system={system}
-              body={selectedBody}
-              snapshot={planSnapshot}
-              selection={selection}
-              selectedPlacementIndex={selectedPlacementIndex}
-              selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
-              templatesLoading={templatesQuery.isLoading}
-              templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
-              onRequestAddStructure={requestAddStructure}
-              onOpenAdvanced={openAdvanced}
-              onReviewStructures={reviewBodyStructures}
-              onClose={() => setSelection({ type: 'system' })}
-              onSelectBody={(bodyId) => setSelection({ type: 'body', bodyId })}
-              onSelectPlacement={(placementIndex) => setSelection({ type: 'placement', placementIndex })}
-              onSelectProjectedPlacement={(placementIndex) => setSelection({ type: 'projected-placement', placementIndex })}
-            />
-          ) : null}
           onSelect={setSelection}
           onRequestAddStructure={requestAddStructure}
           prerequisiteIssues={prerequisiteIssues}
@@ -404,25 +356,6 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     </section>
   );
 }
-function selectedBodyFromSelection(
-  selection: TopologySelection,
-  bodies: SystemBody[],
-  placements: SimulateBuildPlacement[],
-  projectedPlacements: SimulateBuildPlacement[],
-): SystemBody | null {
-  if (selection.type === 'body') {
-    return bodies.find((body) => sameBodyId(body.id, selection.bodyId)) ?? null;
-  }
-  if (selection.type === 'placement' || selection.type === 'projected-placement') {
-    const placement = selection.type === 'placement'
-      ? placements[selection.placementIndex]
-      : projectedPlacements[selection.placementIndex];
-    const bodyId = placement?.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
-    return bodyId ? bodies.find((body) => sameBodyId(body.id, bodyId)) ?? null : null;
-  }
-  return null;
-}
-
 function placementsEqual(a: SimulateBuildPlacement[], b: SimulateBuildPlacement[]) {
   if (a === b) return true;
   if (a.length !== b.length) return false;

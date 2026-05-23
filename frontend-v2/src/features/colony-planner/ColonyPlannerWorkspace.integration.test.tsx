@@ -216,11 +216,11 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     await waitFor(() => expect(mockedGetSimulationSummary).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
-    expect(screen.getByTestId('raven-inline-body-expansion-body1')).toBeTruthy();
-    expect(screen.getByText('Body slot planner')).toBeTruthy();
-    expect(screen.getByText(/No orbit structures yet/i)).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Add orbit structure' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: 'Add surface structure' }).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-selected')).toBe('true');
+    expect(screen.queryByTestId('raven-inline-body-expansion-body1')).toBeNull();
+    expect(screen.queryByText('Body slot planner')).toBeNull();
+    expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
+    expect(screen.getByTestId('body1-ground-add')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add flexible/unknown structure' })).toBeNull();
 
     expect(mockedApiSystem).toHaveBeenCalledWith(123);
@@ -237,7 +237,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.queryByRole('button', { name: /Copy to Build Plan/i })).toBeNull();
   });
 
-  it('keeps main and inline slot lanes aligned and updates both after explicit structure adds', async () => {
+  it('keeps main row slot lanes aligned and updates them after explicit structure adds', async () => {
     mockedApiSystem.mockResolvedValue(slotMapSystem);
     mockedGetFacilityTemplates.mockResolvedValue(templates);
     mockedGetSimulationSummary.mockResolvedValue({
@@ -295,33 +295,25 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     });
 
     await screen.findByText(/Planning focus:/i);
-    expect(screen.getByTestId('raven-inline-body-expansion-1')).toBeTruthy();
+    expect(screen.queryByTestId('raven-inline-body-expansion-1')).toBeNull();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
     await waitFor(() => {
-      expect(screen.getByTestId('slot-lane-orbital')).toBeTruthy();
-      expect(screen.getByTestId('slot-lane-surface')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-orbital')).getByText('0/4 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-surface')).getByText('0/5 planned')).toBeTruthy();
-      expect(screen.getByTestId('center-orbital-slot-3')).toBeTruthy();
-      expect(screen.getByTestId('center-surface-slot-4')).toBeTruthy();
+      expect(screen.getByTestId('1-orbital-add')).toBeTruthy();
+      expect(screen.getByTestId('1-ground-add')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('center-orbital-slot-3'));
+    fireEvent.click(screen.getByTestId('1-orbital-add'));
     fireEvent.click(await screen.findByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
-      expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-items-orbital')).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);
-      expect((screen.getByTestId('center-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
+      expect(screen.getByTestId('1-orbital-slot-0').textContent).toMatch(/Orbital|Port/i);
     });
 
-    fireEvent.click(screen.getByTestId('center-surface-slot-4'));
+    fireEvent.click(screen.getByTestId('1-ground-add'));
     fireEvent.click(await screen.findByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
-      expect(within(screen.getByTestId('slot-lane-surface')).getByText('1/5 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-items-surface')).getAllByText(/Surface Hub/i).length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('workspace-economy-ledger')).getByText(/Agri/i)).toBeTruthy();
-      expect(within(screen.getByTestId('body-planning-economy')).getByText(/Agri/i)).toBeTruthy();
     });
   });
 
@@ -384,27 +376,23 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.getByTestId('body-structure-template-surface_hub')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Close structure picker/i }));
 
-    fireEvent.click(screen.getByTestId('1-orbital-slot-3'));
+    fireEvent.click(screen.getByTestId('1-orbital-add'));
     expect(within(await screen.findByTestId('body-structure-picker')).getAllByText(/Orbit lane/i).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Added Orbital Port to Body 1 / Orbit.');
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '')).toMatch(/Orbital|Port/i);
-      expect(screen.getByTestId('raven-inline-body-expansion-1')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-items-orbital')).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);
+      expect(screen.queryByTestId('raven-inline-body-expansion-1')).toBeNull();
       expect(within(screen.getByTestId('planner-status-strip')).getByText('1 planned')).toBeTruthy();
       expect(within(screen.getByTestId('planner-status-strip')).getByText('Unsaved changes')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('1-ground-slot-4'));
+    fireEvent.click(screen.getByTestId('1-ground-add'));
     expect(within(await screen.findByTestId('body-structure-picker')).getAllByText(/Surface lane/i).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '')).toMatch(/Surface|Hub/i);
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Body 1 / Surface');
-      expect(within(screen.getByTestId('slot-lane-surface')).getByText('1/5 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-items-surface')).getAllByText(/Surface Hub/i).length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('planner-status-strip')).getByText('2 planned')).toBeTruthy();
     });
 
