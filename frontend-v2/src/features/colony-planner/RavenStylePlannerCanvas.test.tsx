@@ -215,6 +215,37 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(onSelect).toHaveBeenCalledWith({ type: 'projected-placement', placementIndex: 0 });
   });
 
+  it('requests lane-aware adds from row add controls and empty slots', () => {
+    const onRequestAddStructure = vi.fn();
+    render(
+      <RavenStylePlannerCanvas
+        system={system}
+        snapshot={{
+          ...snapshot,
+          projection: null,
+          placements: [
+            { facility_template_id: 'dodec_starport', local_body_id: '2', is_primary_port: true, build_order: 1 },
+          ],
+        }}
+        selection={{ type: 'system' }}
+        onSelect={vi.fn()}
+        onRequestAddStructure={onRequestAddStructure}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('2-orbital-add'));
+    expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'orbital');
+
+    fireEvent.click(screen.getByTestId('2-ground-add'));
+    expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'surface');
+
+    fireEvent.click(screen.getByTestId('2-orbital-slot-1'));
+    expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'orbital');
+
+    fireEvent.click(screen.getByTestId('2-ground-slot-0'));
+    expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'surface');
+  });
+
   it('matches projected structures to large numeric system body ids', () => {
     const exactBodyId = '1044927859400806427';
     const roundedBodyId = String(Number(exactBodyId));

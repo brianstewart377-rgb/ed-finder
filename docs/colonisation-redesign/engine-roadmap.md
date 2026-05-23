@@ -1727,6 +1727,36 @@ Remaining gap:
 
 - real economy display is limited to ED-Finder's current template metadata and planning ledger. It does not yet have validated RavenColonial-equivalent per-facility bonus magnitudes unless such data is present in ED-Finder's own model.
 
+## Stage 17N.1 - Core Interaction Repair: Raven Canvas Add Building (Implemented)
+
+Stage 17N.1 repairs the blocker where the visible Raven-style canvas could show slots and selected-body lanes but main-canvas add actions did not open a usable structure picker.
+
+Delivered:
+
+- a whole-system `CanvasStructurePicker` owned by `WholeSystemColonyPlanner`
+- Raven row add buttons for orbital and surface lanes
+- empty Raven slot clicks now select the body and open the lane-aware picker
+- selected-body lane add controls now use the same whole-system picker path
+- selecting a template appends a resequenced Build Plan placement through the existing local placement state path
+- the added placement appears immediately in the Raven slot lane, inline selected-body detail, planner status count, project unsaved state, and Advanced Planner initial Build Plan state
+- successful adds show visible feedback; invalid surface lanes show visible disabled reasons
+
+Lane filtering boundary:
+
+- orbital shows templates that will render into orbital placement lanes with the current placement model
+- surface shows templates that will render into surface/ground placement lanes and blocks clear water-world/non-landable cases
+- incompatible templates are hidden and counted in the picker summary
+- flexible/unknown structures remain a later manual-editing gap because the current Build Plan wire model has no per-placement lane field and backend simulation requests forbid extra placement properties
+
+Safety boundary:
+
+- no auto Preview
+- no auto Suggested Build generation
+- no candidate auto-load
+- no drag/drop slot editing
+- no Architect-observed slot storage
+- no CP/economy/scoring/backend changes
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:

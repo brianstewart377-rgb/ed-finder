@@ -1,5 +1,4 @@
 import { PanelTopOpen, Sparkles, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 import {
   bodyDisplayName,
@@ -42,7 +41,7 @@ export function SelectedBodyPlannerCanvas({
   selectedProjectedPlacementIndex,
   templatesLoading,
   templatesErrorMessage,
-  onAddStructure,
+  onRequestAddStructure,
   onOpenAdvanced,
   onReviewStructures,
   onClose,
@@ -58,7 +57,7 @@ export function SelectedBodyPlannerCanvas({
   selectedProjectedPlacementIndex: number | null;
   templatesLoading: boolean;
   templatesErrorMessage: string | null;
-  onAddStructure: (bodyId: string, lane: BodyPlannerLane, templateId: string) => void;
+  onRequestAddStructure: (bodyId: string, lane: BodyPlannerLane) => void;
   onOpenAdvanced: (mode?: SimulationWorkspaceMode) => void;
   onReviewStructures: (bodyId: string) => void;
   onClose: () => void;
@@ -66,25 +65,6 @@ export function SelectedBodyPlannerCanvas({
   onSelectPlacement: (placementIndex: number) => void;
   onSelectProjectedPlacement: (placementIndex: number) => void;
 }) {
-  const [pickerContext, setPickerContext] = useState<{ bodyId: string; lane: BodyPlannerLane } | null>(null);
-
-  useEffect(() => {
-    if (!body?.id || !pickerContext) return;
-    if (!sameBodyId(body.id, pickerContext.bodyId)) {
-      setPickerContext(null);
-    }
-  }, [body?.id, pickerContext]);
-
-  const pickerBody = pickerContext && body?.id != null && sameBodyId(body.id, pickerContext.bodyId)
-    ? body
-    : null;
-
-  const pickTemplateForBody = (templateId: string) => {
-    if (!pickerContext) return;
-    onAddStructure(pickerContext.bodyId, pickerContext.lane, templateId);
-    setPickerContext(null);
-  };
-
   if (!body || body.id == null) {
     return (
       <section data-testid="selected-body-planner-canvas" data-readability="stage17k" className="text-sm leading-relaxed">
@@ -150,7 +130,7 @@ export function SelectedBodyPlannerCanvas({
         hasTemplates={snapshot.templates.length > 0}
         onSelectPlacement={onSelectPlacement}
         onSelectProjectedPlacement={onSelectProjectedPlacement}
-        onAddLaneStructure={(lane) => setPickerContext({ bodyId, lane })}
+        onAddLaneStructure={(lane) => onRequestAddStructure(bodyId, lane)}
       />
 
       {warnings.length > 0 && (
@@ -181,13 +161,6 @@ export function SelectedBodyPlannerCanvas({
         </button>
       </div>
 
-      <BodyStructurePickerDrawer
-        body={pickerBody}
-        lane={pickerContext?.lane ?? null}
-        templates={snapshot.templates}
-        onClose={() => setPickerContext(null)}
-        onPickTemplate={pickTemplateForBody}
-      />
     </div>
   );
 }
@@ -633,122 +606,6 @@ function sumKnownCapacity(items: SystemOverviewItem[], lane: 'orbital' | 'surfac
     const value = lane === 'orbital' ? item.orbitalCapacity : item.surfaceCapacity;
     return sum + (value ?? 0);
   }, 0);
-}
-
-function BodyStructurePickerDrawer({
-  body,
-  lane,
-  templates,
-  onClose,
-  onPickTemplate,
-}: {
-  body: SystemBody | null;
-  lane: BodyPlannerLane | null;
-  templates: FacilityTemplate[];
-  onClose: () => void;
-  onPickTemplate: (templateId: string) => void;
-}) {
-  const [query, setQuery] = useState('');
-
-  if (!body || body.id == null || !lane) return null;
-
-  const bodyName = bodyDisplayName(body);
-  const laneLabel = lane === 'orbital' ? 'orbit' : 'surface';
-  const filtered = templates
-    .filter((template) => templateMatchesLane(template, lane))
-    .filter((template) => templateCanFitBody(template, body, lane))
-    .filter((template) => {
-      const text = `${template.name} ${template.id} ${template.category} ${template.economy ?? ''}`.toLowerCase();
-      return text.includes(query.trim().toLowerCase());
-    })
-    .sort((a, b) => (a.tier - b.tier) || a.name.localeCompare(b.name));
-
-  return (
-    <section
-      data-testid="body-structure-picker"
-      className="mb-3 rounded-chunk-lg border border-orange/35 bg-bg2/75 px-3 py-3"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
-            Add {laneLabel} structure
-          </div>
-          <h4 className="mt-0.5 text-sm font-bold text-silver">{bodyName}</h4>
-          <p className="mt-0.5 font-mono text-[10px] text-silver-dk">
-            Filtered to {laneLabel}-compatible templates for this body.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-orange/45 hover:text-orange"
-        >
-          Close
-        </button>
-      </div>
-
-      <label className="mt-3 block">
-        <span className="block text-[10px] uppercase tracking-[0.14em] text-silver-dk">Filter structures</span>
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by name, economy, or category"
-          className="mt-1 w-full"
-        />
-      </label>
-
-      {templates.length === 0 ? (
-        <p className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2 text-[11px] text-gold">
-          Facility catalogue is loading.
-        </p>
-      ) : filtered.length === 0 ? (
-        <p className="mt-3 rounded border border-border/55 bg-bg3/35 px-3 py-2 text-[11px] text-silver-dk">
-          No matching {laneLabel} structures for this body and filter.
-        </p>
-      ) : (
-        <div className="mt-3 grid max-h-72 gap-1.5 overflow-y-auto">
-          {filtered.map((template) => (
-            <button
-              key={template.id}
-              type="button"
-              data-testid={`body-structure-template-${template.id}`}
-              onClick={() => onPickTemplate(template.id)}
-              className="flex items-center justify-between gap-2 rounded border border-border/55 bg-bg3/35 px-3 py-2 text-left hover:border-orange/45 hover:bg-orange/8"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-[11px] font-bold text-silver">{template.name}</div>
-                <div className="mt-0.5 flex flex-wrap gap-1.5">
-                  <BodyFact label={`tier ${template.tier}`} />
-                  <BodyFact label={template.category} />
-                  {template.economy && <BodyFact label={template.economy} />}
-                  <BodyFact label={templateLocationKind(template)} tone="cyan" />
-                </div>
-              </div>
-              <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-orange">
-                Add
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function templateCanFitBody(template: FacilityTemplate, body: SystemBody, lane: BodyPlannerLane) {
-  const location = templateLocationKind(template);
-  if (lane === 'surface') {
-    if (body.is_water_world) return false;
-    if (body.is_landable === false) return false;
-  }
-  if (location === 'surface') return Boolean(body.is_landable) && !body.is_water_world;
-  return true;
-}
-
-function templateMatchesLane(template: FacilityTemplate, lane: BodyPlannerLane) {
-  const location = templateLocationKind(template);
-  if (lane === 'orbital') return location === 'orbital' || location === 'both';
-  return location === 'surface' || location === 'both' || location === 'unknown';
 }
 
 function BodyStartAction({ label, detail }: { label: string; detail: string }) {

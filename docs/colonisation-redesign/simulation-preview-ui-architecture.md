@@ -1059,6 +1059,36 @@ Safety boundary:
 - no CP/economy/scoring mechanic changes
 - no RavenColonial API/code/CSS/assets usage
 
+## Stage 17N.1 Raven Canvas Add Flow
+
+The Raven-style canvas now owns a direct manual add flow:
+
+1. User selects a body, clicks a Raven row add control, or clicks an empty orbital/surface slot.
+2. `WholeSystemColonyPlanner` stores `{ bodyId, lane }` picker context and keeps the selected body active.
+3. `CanvasStructurePicker` renders outside Advanced Planner with the selected body name, requested lane, compatible count, and facility metadata.
+4. Selecting a template calls the existing local `addStructure(bodyId, lane, templateId)` placement path.
+5. The Build Plan placements are resequenced and the same snapshot feeds Raven canvas, selected-body inline detail, planner status, local project unsaved state, and Advanced Planner when it is later opened.
+
+Compatibility rules:
+
+- orbital picker shows orbital templates and dual-location port templates that the current renderer will place in orbit
+- surface picker shows surface templates and dual-location non-port templates that the current renderer will place on a valid landable surface
+- water-world and non-landable surface lanes are disabled with visible reasons
+- incompatible templates are hidden and counted in the picker
+- empty catalogue/loading and no-compatible-template states are explicit
+
+Passivity guarantees:
+
+- picker open does not mount Advanced Planner
+- template selection does not run Preview
+- template selection does not generate Suggested Builds
+- template selection does not load a projected candidate
+- projected ghost slot click remains selection/context only
+
+Known limitation:
+
+- the simulation request model still has no per-placement lane or slot index field and backend request validation forbids extra placement properties, so flexible/unknown structure placement remains a later manual-editing gap rather than being faked in Stage 17N.1.
+
 ## Stage 18 Assistant Foundation Boundary
 
 Planned assistant layer should sit above this architecture:

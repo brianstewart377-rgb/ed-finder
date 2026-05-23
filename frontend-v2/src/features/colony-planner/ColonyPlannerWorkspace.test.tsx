@@ -426,7 +426,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(picker).toBeTruthy();
     expect(within(picker).getByText(/Add orbit structure/i)).toBeTruthy();
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
-    expect(screen.getByTestId('body-structure-template-flex_lab')).toBeTruthy();
+    expect(screen.queryByTestId('body-structure-template-flex_lab')).toBeNull();
+    expect(within(picker).getByTestId('canvas-picker-compatibility-summary').textContent).toContain('2 incompatible hidden');
     fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
 
     expect((screen.getByTestId('body1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
