@@ -492,3 +492,41 @@ Remaining manual editing gaps:
 - missing-prerequisite warnings do not yet include a one-click prerequisite insertion action
 - slot index and explicit lane storage are still absent from the simulation request model
 - prerequisite matching is based on catalogue descriptions/tokens until normalized prerequisite target IDs are available
+
+## Stage 17N.1c Graphical Declutter And Lane Correctness
+
+Stage 17N.1c keeps the same manual Raven add flow but changes how the canvas communicates it. The goal is that the build map can be scanned visually before the user has to read detail copy.
+
+Implemented behavior:
+
+- unselected body rows are primarily passive map rows: body marker, body name, compact slot indicators, planned/projected structure pills, and warnings
+- selected body rows expose the clear add targets for manual editing: `Add Orbit`, `Add Surface`, and selected empty-slot `+` targets
+- passive empty capacity is represented by compact dots or no visible box; inert empty boxes do not look like buttons
+- zero-slot lanes render no fake empty boxes and no add target; selected rows show a compact no-slot state when useful
+- the canvas and selected-body detail share the same lane classifier
+- orbital-only templates are displayed only in orbit lanes, surface-only templates only in surface lanes
+- dual-location placements added from the Raven picker keep the selected lane as a local lane hint
+- dual-location placements without a reliable lane hint are shown as `Needs lane` rather than guessed into ground
+- selected-structure telemetry reports `needs lane` for unresolved flexible placements
+- the picker now uses `Add to [body]`, lane chips, compatible counts, and search across display name, variant/name, family, category, economy, tier, pad, location, and prerequisite text
+
+RavenColonial visual direction adopted:
+
+- structure state is carried by slot pills, small status chips, economy micro-bars, warning chips, and tree/slot geometry rather than long repeated sentences
+- longer explanations such as contextual station economy and prerequisite details remain available in tooltips, selected structure detail, telemetry, or plan health
+- compact `CTX` and `REQ` chips mark contextual economy and prerequisite warning states on the main canvas
+
+Safety and passivity:
+
+- clicking projected ghost slots selects projection context only
+- opening the picker does not open Advanced Planner
+- adding from the picker does not run Preview, generate a Suggested Build, or load a projected candidate
+- prerequisites remain warnings, not blockers
+- hard-invalid physical placement remains blocked by lane/body compatibility checks
+
+Remaining manual editing gaps:
+
+- no drag/drop or slot index persistence
+- no backend-persisted per-placement lane field
+- no one-click prerequisite insertion action
+- no Architect observed slot storage

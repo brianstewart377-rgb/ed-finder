@@ -26,6 +26,7 @@ import {
   systemBodyData,
   type BodyDataSlotEstimate,
 } from './slotCapacityFallback';
+import type { BodyPlannerLane } from './BodySlotPlanner';
 
 export type TopologySelection =
   | { type: 'system' }
@@ -39,10 +40,12 @@ export interface TopologyPlanSnapshot {
   templates: FacilityTemplate[];
   targetArchetype: string;
   slotPredictions?: SlotPredictionResponse | null;
+  placementLaneHints?: Record<number, BodyPlannerLane>;
   projection?: {
     candidateId: string;
     label: string;
     placements: SimulateBuildPlacement[];
+    placementLaneHints?: Record<number, BodyPlannerLane>;
   } | null;
 }
 

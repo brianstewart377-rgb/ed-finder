@@ -4,14 +4,13 @@ import {
   bodyTags,
   getPlacementWarnings,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
-import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import { BodySlotLane } from './BodySlotLane';
 import { BodyStructureSlot, type BodyStructureSlotItem } from './BodyStructureSlot';
 import { ProjectedStructureSlot } from './ProjectedStructureSlot';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import { buildPlanningEconomyLedger } from './planningEconomy';
 import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity, type BodyDataSlotEstimate } from './slotCapacityFallback';
-import { laneDisabledReason, missingPrerequisitesForPlacement } from './structurePlanningRules';
+import { laneDisabledReason, missingPrerequisitesForPlacement, placementLaneForTemplate, type PlacementLaneAssignment } from './structurePlanningRules';
 
 export type BodyPlannerLane = 'orbital' | 'surface';
 
@@ -35,6 +34,8 @@ export function BodySlotPlanner({
   bodyDataSlotEstimate,
   placements,
   projectedPlacements,
+  placementLaneHints = {},
+  projectedPlacementLaneHints = {},
   selectedPlacementIndex,
   selectedProjectedPlacementIndex,
   hasTemplates,
@@ -47,6 +48,8 @@ export function BodySlotPlanner({
   bodyDataSlotEstimate?: BodyDataSlotEstimate | null;
   placements: BodyPlannerPlacementItem[];
   projectedPlacements: BodyPlannerProjectedPlacementItem[];
+  placementLaneHints?: Record<number, BodyPlannerLane>;
+  projectedPlacementLaneHints?: Record<number, BodyPlannerLane>;
   selectedPlacementIndex: number | null;
   selectedProjectedPlacementIndex: number | null;
   hasTemplates: boolean;
@@ -57,11 +60,13 @@ export function BodySlotPlanner({
   const tags = bodyTags(body).slice(0, 2);
   const flags = bodyFlags(body);
 
-  const orbitalPlanned = placements.filter((item) => laneForTemplate(item.template, body) === 'orbital');
-  const surfacePlanned = placements.filter((item) => laneForTemplate(item.template, body) === 'surface');
+  const orbitalPlanned = placements.filter((item) => laneForItem(item, body, placementLaneHints) === 'orbital');
+  const surfacePlanned = placements.filter((item) => laneForItem(item, body, placementLaneHints) === 'surface');
+  const unassignedPlanned = placements.filter((item) => laneForItem(item, body, placementLaneHints) === 'unassigned');
 
-  const orbitalProjected = projectedPlacements.filter((item) => laneForTemplate(item.template, body) === 'orbital');
-  const surfaceProjected = projectedPlacements.filter((item) => laneForTemplate(item.template, body) === 'surface');
+  const orbitalProjected = projectedPlacements.filter((item) => laneForItem(item, body, projectedPlacementLaneHints) === 'orbital');
+  const surfaceProjected = projectedPlacements.filter((item) => laneForItem(item, body, projectedPlacementLaneHints) === 'surface');
+  const unassignedProjected = projectedPlacements.filter((item) => laneForItem(item, body, projectedPlacementLaneHints) === 'unassigned');
 
   const orbitalCapacity = resolveSlotCapacity(body, slotPrediction, 'orbital', bodyDataSlotEstimate);
   const surfaceCapacity = resolveSlotCapacity(body, slotPrediction, 'surface', bodyDataSlotEstimate);
@@ -70,6 +75,14 @@ export function BodySlotPlanner({
   const hasEstimatedSlots = orbitalCapacity.estimated || surfaceCapacity.estimated;
   const surfaceBlockedReason = laneDisabledReason(body, 'surface');
   const surfaceBlocked = Boolean(surfaceBlockedReason);
+  const orbitalAddDisabledReason = !hasTemplates
+    ? 'Facility catalogue loading.'
+    : orbitalSlots === 0
+      ? 'No orbital slots.'
+      : undefined;
+  const surfaceAddDisabledReason = !hasTemplates
+    ? 'Facility catalogue loading.'
+    : surfaceBlockedReason ?? (surfaceSlots === 0 ? 'No surface slots.' : undefined);
   const occupiedSlots = {
     orbital: orbitalPlanned.length + orbitalProjected.length,
     surface: surfacePlanned.length + surfaceProjected.length,
@@ -143,11 +156,11 @@ export function BodySlotPlanner({
         <BodySlotLane
           laneKey="orbital"
           label="Orbit"
-          helper="Ports, stations, and facilities in orbit."
+          helper="Stations and orbital facilities."
           slotStatus={laneSlotStatusLabel(orbitalSlots, orbitalPlanned.length, orbitalProjected.length)}
           onAdd={() => onAddLaneStructure('orbital')}
-          disabled={!hasTemplates}
-          disabledReason={!hasTemplates ? 'Facility catalogue loading.' : undefined}
+          disabled={Boolean(orbitalAddDisabledReason)}
+          disabledReason={orbitalAddDisabledReason}
         >
           <LaneCapacityMap
             laneKey="orbital"
@@ -158,11 +171,12 @@ export function BodySlotPlanner({
             selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
             onSelectProjectedPlacement={onSelectProjectedPlacement}
-            onAddEmptySlot={hasTemplates ? () => onAddLaneStructure('orbital') : undefined}
+            onAddEmptySlot={!orbitalAddDisabledReason ? () => onAddLaneStructure('orbital') : undefined}
           />
           <LaneSlots
             body={body}
             laneKey="orbital"
+            placementLane="orbital"
             allPlacements={placements}
             planned={orbitalPlanned}
             projected={orbitalProjected}
@@ -177,11 +191,11 @@ export function BodySlotPlanner({
         <BodySlotLane
           laneKey="surface"
           label="Surface"
-          helper="Planetary outposts and ground facilities."
+          helper="Ground ports and surface facilities."
           slotStatus={laneSlotStatusLabel(surfaceSlots, surfacePlanned.length, surfaceProjected.length)}
           onAdd={() => onAddLaneStructure('surface')}
-          disabled={!hasTemplates || surfaceBlocked}
-          disabledReason={!hasTemplates ? 'Facility catalogue loading.' : surfaceBlockedReason ?? undefined}
+          disabled={Boolean(surfaceAddDisabledReason)}
+          disabledReason={surfaceAddDisabledReason}
         >
           <LaneCapacityMap
             laneKey="surface"
@@ -192,11 +206,12 @@ export function BodySlotPlanner({
             selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
             onSelectPlacement={onSelectPlacement}
             onSelectProjectedPlacement={onSelectProjectedPlacement}
-            onAddEmptySlot={hasTemplates && !surfaceBlocked ? () => onAddLaneStructure('surface') : undefined}
+            onAddEmptySlot={!surfaceAddDisabledReason ? () => onAddLaneStructure('surface') : undefined}
           />
           <LaneSlots
             body={body}
             laneKey="surface"
+            placementLane="surface"
             allPlacements={placements}
             planned={surfacePlanned}
             projected={surfaceProjected}
@@ -208,6 +223,34 @@ export function BodySlotPlanner({
           />
         </BodySlotLane>
 
+        {(unassignedPlanned.length > 0 || unassignedProjected.length > 0) && (
+          <section data-testid="slot-lane-unassigned" className="rounded border border-gold/35 bg-gold/6 p-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-gold">Needs lane</div>
+              <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] text-gold">
+                {unassignedPlanned.length + unassignedProjected.length} unassigned
+              </span>
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {unassignedPlanned.map((item) => (
+                <BodyStructureSlot
+                  key={`unassigned-planned-${item.index}-${item.placement.facility_template_id}`}
+                  item={toStructureSlotItem(item, body, placements, 'unassigned')}
+                  selected={selectedPlacementIndex === item.index}
+                  onSelect={() => onSelectPlacement(item.index)}
+                />
+              ))}
+              {unassignedProjected.map((item) => (
+                <ProjectedStructureSlot
+                  key={`unassigned-projected-${item.index}-${item.placement.facility_template_id}`}
+                  item={{ ...item, lane: 'unassigned' }}
+                  selected={selectedProjectedPlacementIndex === item.index}
+                  onSelect={() => onSelectProjectedPlacement(item.index)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </section>
   );
@@ -379,7 +422,7 @@ function buildRingNodes({
     return {
       id: `${lane}-empty-${index}`,
       kind: 'empty' as const,
-      label: String(index + 1),
+      label: canAdd ? '+' : String(index + 1),
       title: canAdd
         ? `Add ${lane === 'orbital' ? 'orbit' : 'surface'} structure to slot ${index + 1}`
         : 'Empty slot',
@@ -624,7 +667,7 @@ function LaneCapacityMap({
           <CapacityCell
             key={cell.key}
             testId={`center-${laneKey}-slot-${index}`}
-            label={cell.label}
+            label={cell.label || (cell.onClick ? '+' : '')}
             fullLabel={cell.fullLabel}
             projected={cell.projected}
             selected={cell.selected}
@@ -692,6 +735,7 @@ function CapacityCell({
 function LaneSlots({
   body,
   laneKey,
+  placementLane,
   allPlacements,
   planned,
   projected,
@@ -703,6 +747,7 @@ function LaneSlots({
 }: {
   body: SystemBody;
   laneKey: BodyPlannerLane;
+  placementLane: BodyPlannerLane;
   allPlacements: BodyPlannerPlacementItem[];
   planned: BodyPlannerPlacementItem[];
   projected: BodyPlannerProjectedPlacementItem[];
@@ -728,7 +773,7 @@ function LaneSlots({
       {planned.map((item) => (
         <BodyStructureSlot
           key={`planned-${laneKey}-${item.index}-${item.placement.facility_template_id}`}
-          item={toStructureSlotItem(item, body, allPlacements)}
+          item={toStructureSlotItem(item, body, allPlacements, placementLane)}
           selected={selectedPlacementIndex === item.index}
           onSelect={() => onSelectPlacement(item.index)}
         />
@@ -736,7 +781,7 @@ function LaneSlots({
       {projected.map((item) => (
         <ProjectedStructureSlot
           key={`projected-${laneKey}-${item.index}-${item.placement.facility_template_id}`}
-          item={item}
+          item={{ ...item, lane: placementLane }}
           selected={selectedProjectedPlacementIndex === item.index}
           onSelect={() => onSelectProjectedPlacement(item.index)}
         />
@@ -745,7 +790,12 @@ function LaneSlots({
   );
 }
 
-function toStructureSlotItem(item: BodyPlannerPlacementItem, body: SystemBody, allPlacements: BodyPlannerPlacementItem[]): BodyStructureSlotItem {
+function toStructureSlotItem(
+  item: BodyPlannerPlacementItem,
+  body: SystemBody,
+  allPlacements: BodyPlannerPlacementItem[],
+  lane: BodyPlannerLane | 'unassigned',
+): BodyStructureSlotItem {
   const templates = allPlacements.map((candidate) => candidate.template).filter((template): template is FacilityTemplate => Boolean(template));
   const placementModels = allPlacements.map((candidate) => candidate.placement);
   const prerequisiteWarnings = missingPrerequisitesForPlacement(item.placement, placementModels, templates);
@@ -753,24 +803,18 @@ function toStructureSlotItem(item: BodyPlannerPlacementItem, body: SystemBody, a
     placement: item.placement,
     index: item.index,
     template: item.template,
+    lane,
     warningCount: getPlacementWarnings(item, body).length + prerequisiteWarnings.length,
     warningLabels: prerequisiteWarnings,
   };
 }
 
-function laneForTemplate(template: FacilityTemplate | undefined, body: SystemBody): BodyPlannerLane {
-  if (!template) return fallbackLaneForBody(body);
-  const location = templateLocationKind(template);
-  if (location === 'orbital') return 'orbital';
-  if (location === 'surface') return 'surface';
-  if (location === 'both') {
-    return fallbackLaneForBody(body);
-  }
-  return fallbackLaneForBody(body);
-}
-
-function fallbackLaneForBody(body: SystemBody): BodyPlannerLane {
-  return body.is_landable === true && body.is_water_world !== true ? 'surface' : 'orbital';
+function laneForItem(
+  item: BodyPlannerPlacementItem | BodyPlannerProjectedPlacementItem,
+  body: SystemBody,
+  laneHints: Record<number, BodyPlannerLane>,
+): PlacementLaneAssignment {
+  return placementLaneForTemplate(item.template, body, laneHints[item.index]);
 }
 
 function laneSlotStatusLabel(slotCount: number | null, plannedCount: number, projectedCount: number) {

@@ -1798,6 +1798,45 @@ Remaining manual editing gaps:
 - no per-placement lane storage for truly flexible/unknown structures
 - prerequisite matching is catalogue-token based until the API provides normalized prerequisite target identifiers
 
+## Stage 17N.1c - Graphical Raven Canvas Declutter And Slot Correctness (Implemented)
+
+Stage 17N.1c tightens the manual Raven canvas after live review showed that the add flow worked but still looked too text-heavy and ambiguous.
+
+Delivered:
+
+- the whole-system Raven row is more graphical first:
+  - compact body tree markers and lane capacity chips carry the scan state
+  - selected rows expose the primary `Add Orbit` and `Add Surface` controls
+  - unselected rows suppress competing empty-slot add controls
+  - empty selected slots show a simple `+` add target instead of verbose repeated text
+  - station contextual economy is reduced to a compact `CTX` chip on the canvas, with the full explanation kept in tooltip/detail surfaces
+- lane correctness is shared between picker, Raven rows, selected-body detail, and overview summaries:
+  - orbital-only structures render only in orbital lanes
+  - surface-only structures render only in surface lanes
+  - dual-location/flexible placements use the selected add lane when the user added them directly
+  - dual-location/flexible placements without a lane hint render as compact `Needs lane` instead of being guessed into ground/surface
+- zero-slot lanes no longer create fake empty slot boxes; selected rows show compact `No orbital slots` or `No surface slots` state when useful
+- the picker heading is task-oriented (`Add to [body]`) with lane/count chips and search now includes family, tier, pad, economy, location, variant/name, and prerequisite text
+- selected-body detail uses the same lane hints and exposes unassigned/flexible placements separately instead of misclassifying them
+- projected ghost structures remain selectable context only and are never auto-loaded
+
+Preserved from 17N.1/17N.1b:
+
+- no Advanced Planner requirement for direct manual adds
+- no automatic Preview
+- no automatic Suggested Build generation
+- no projected candidate auto-load
+- prerequisite gaps warn but do not block planning
+- station/port economy remains contextual when direct template economy metadata is absent
+- no fake economy values
+
+Remaining manual editing gaps:
+
+- no drag/drop or slot index persistence
+- no normalized persisted lane field in the simulation request model
+- no one-click prerequisite insertion action yet
+- Architect observed slot truth remains a later stage
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:

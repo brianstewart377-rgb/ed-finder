@@ -337,8 +337,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
     expect(screen.queryByTestId('system-overview-planner-canvas')).toBeNull();
     expect(screen.queryByTestId('system-overview-map')).toBeNull();
-    expect(await screen.findByTestId('body1-orbital-slot-3')).toBeTruthy();
-    expect(screen.getByTestId('body1-ground-slot-4')).toBeTruthy();
+    expect(screen.queryByTestId('body1-orbital-slot-3')).toBeNull();
+    expect(screen.queryByTestId('body1-ground-slot-4')).toBeNull();
     expect(screen.getByTestId('advanced-workspace-toggle')).toBeTruthy();
     expect(screen.getByTestId('advanced-workspace-toggle').textContent).toContain('Open');
     expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
@@ -365,6 +365,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByText(/Planning focus: Workspace System A 1/i)).toBeTruthy();
     expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-expanded')).toBe('true');
     const inlineExpansion = screen.getByTestId('raven-inline-body-expansion-body1');
+    expect(await screen.findByTestId('body1-orbital-slot-3')).toBeTruthy();
     expect(within(screen.getByTestId('raven-real-planner-canvas')).getByTestId('raven-inline-body-expansion-body1')).toBeTruthy();
     expect(screen.queryByTestId('selected-role-summary-card')).toBeNull();
     expect(screen.queryByText('Body Hint')).toBeNull();
@@ -425,7 +426,8 @@ describe('ColonyPlannerWorkspace', () => {
 
     const picker = screen.getByTestId('body-structure-picker');
     expect(picker).toBeTruthy();
-    expect(within(picker).getByText(/Add orbit structure/i)).toBeTruthy();
+    expect(within(picker).getByRole('heading', { name: /Add to Workspace System A 1/i })).toBeTruthy();
+    expect(within(picker).getAllByText(/Orbit lane/i).length).toBeGreaterThan(0);
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
     expect(screen.getByTestId('body-structure-template-flex_lab')).toBeTruthy();
     expect(within(picker).getByTestId('canvas-picker-compatibility-summary').textContent).toContain('1 incompatible hidden');
