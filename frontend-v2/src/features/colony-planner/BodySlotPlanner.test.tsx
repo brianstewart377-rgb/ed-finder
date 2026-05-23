@@ -53,12 +53,12 @@ describe('BodySlotPlanner', () => {
     expect(orbitSlot.style.left).toContain('px');
     expect(orbitSlot.style.top).toContain('8.9rem');
     expect(orbitSlot.style.left).not.toContain('130px');
-    expect(orbitSlot.textContent).toBe('1');
+    expect(orbitSlot.textContent).toBe('+');
     expect(surfaceSlot.style.left).toContain('calc(50%');
     expect(surfaceSlot.style.left).toContain('px');
     expect(surfaceSlot.style.top).toContain('8.9rem');
     expect(surfaceSlot.style.left).not.toContain('92px');
-    expect(surfaceSlot.textContent).toBe('1');
+    expect(surfaceSlot.textContent).toBe('+');
     expect(screen.getByTestId('ring-orbital-slot-3')).toBeTruthy();
     expect(screen.getByTestId('ring-surface-slot-4')).toBeTruthy();
   });

@@ -10,7 +10,6 @@ import {
   compactBodyDisplayName,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
 import { SlotCapacityDots, type BodyPlannerLane } from './BodySlotPlanner';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
@@ -31,12 +30,14 @@ import {
   contextualRoleLabel,
   laneDisabledReason,
   missingPrerequisitesForPlacement,
+  placementLaneForTemplate,
   prerequisiteSummaryLabel,
   templateDisplayName,
   type PrerequisiteIssue,
 } from './structurePlanningRules';
 
-type RavenLane = 'orbital' | 'ground';
+type RavenLane = 'orbital' | 'ground' | 'unassigned';
+type VisibleRavenLane = Exclude<RavenLane, 'unassigned'>;
 type RavenSlotKind = 'empty' | 'planned' | 'projected' | 'unknown' | 'overflow';
 type ProjectionComparisonView = 'bodies' | 'economy' | 'slots';
 
@@ -95,6 +96,7 @@ export interface RavenPlannerRow {
   groundCapacityEstimated: boolean;
   orbitalSlots: RavenStructureSlot[];
   groundSlots: RavenStructureSlot[];
+  unassignedSlots: RavenStructureSlot[];
   bodyEconomy: PlanningEconomyLedger;
   projected: boolean;
   warningCount: number;
@@ -206,7 +208,7 @@ export function RavenStylePlannerCanvas({
       <div className="overflow-x-auto">
         <div className="min-w-[860px]">
           <div
-            className="mb-4 grid border-b border-orange/20 bg-bg2/70 px-3 py-4 font-mono text-2xl font-bold uppercase tracking-wide text-silver"
+            className="grid border-b border-orange/20 bg-bg2/70 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-silver-dk"
             style={gridStyle}
           >
             <div className="text-cyan">System Tree</div>
@@ -387,6 +389,7 @@ function RavenPlannerBodyRow({
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
           onSelect={onSelect}
           onRequestAddStructure={onRequestAddStructure}
+          selectedBody={selected}
           prerequisiteIssues={prerequisiteIssues}
         />
         <RavenSlotLane
@@ -400,9 +403,38 @@ function RavenPlannerBodyRow({
           onSelect={onSelect}
           onRequestAddStructure={onRequestAddStructure}
           disabledReason={surfaceDisabledReason}
+          selectedBody={selected}
           prerequisiteIssues={prerequisiteIssues}
         />
       </div>
+      {row.unassignedSlots.length > 0 && (
+        <div
+          data-testid={`${row.id}-unassigned-lane`}
+          className="grid border-t border-gold/20 bg-gold/5 px-3 py-2"
+          style={gridStyle}
+        >
+          <div />
+          <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-2">
+            <span className="rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-gold">
+              Needs lane
+            </span>
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              {row.unassignedSlots.map((slot, index) => (
+                <RavenSlotBox
+                  key={slot.id}
+                  slot={slot}
+                  lane="unassigned"
+                  bodyName={row.displayName}
+                  testId={`${row.id}-unassigned-slot-${index}`}
+                  selected={(slot.placementIndex != null && slot.placementIndex === selectedPlacementIndex) || (slot.projectionIndex != null && slot.projectionIndex === selectedProjectedPlacementIndex)}
+                  onSelect={onSelect}
+                  warningCount={slot.placementIndex != null ? prerequisiteIssues.find((issue) => issue.placementIndex === slot.placementIndex)?.missing.length ?? 0 : 0}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {selected && expandedDetail && (
         <div
           data-testid={`raven-inline-body-expansion-${row.id}`}
@@ -494,11 +526,12 @@ function RavenSlotLane({
   onSelect,
   onRequestAddStructure,
   disabledReason,
+  selectedBody,
   prerequisiteIssues,
 }: {
   bodyId: string;
   bodyName: string;
-  lane: RavenLane;
+  lane: VisibleRavenLane;
   capacity: number | null;
   slots: RavenStructureSlot[];
   selectedPlacementIndex: number | null;
@@ -506,6 +539,7 @@ function RavenSlotLane({
   onSelect: (selection: TopologySelection) => void;
   onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
   disabledReason?: string | null;
+  selectedBody: boolean;
   prerequisiteIssues: PrerequisiteIssue[];
 }) {
   const knownCount = capacity == null ? '?' : String(capacity);
@@ -514,30 +548,35 @@ function RavenSlotLane({
   const addLabel = lane === 'orbital'
     ? `Add orbit structure to ${bodyName}`
     : `Add surface structure to ${bodyName}`;
-  const requestAdd = onRequestAddStructure && !disabledReason
+  const hasKnownZeroCapacity = capacity === 0;
+  const showAddControl = Boolean(selectedBody && onRequestAddStructure && !hasKnownZeroCapacity);
+  const requestAdd = showAddControl && onRequestAddStructure && !disabledReason
     ? () => onRequestAddStructure(bodyId, plannerLane)
     : undefined;
+  const visibleSlots = selectedBody ? slots : slots.filter((slot) => slot.kind !== 'empty');
+  const laneName = lane === 'orbital' ? 'orbital' : 'surface';
 
   return (
     <div data-testid={`${bodyId}-${lane}-lane`} data-disabled={disabledReason ? 'true' : 'false'} className="flex min-w-0 items-center gap-2 pr-2">
-      <span className="flex w-14 shrink-0 items-center gap-1 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">
-        <span>{laneLabel}</span>
-        {onRequestAddStructure && (
+      <span className="flex min-w-[7rem] shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">
+        <span className="rounded border border-cyan/25 bg-cyan/5 px-1.5 py-1">{laneLabel}</span>
+        {showAddControl && (
           <button
             type="button"
             data-testid={`${bodyId}-${lane}-add`}
             aria-label={addLabel}
-            title={disabledReason ?? `Quick ${addLabel.toLowerCase()}`}
+            title={disabledReason ?? addLabel}
             disabled={Boolean(disabledReason)}
             onClick={requestAdd}
-            className="grid h-5 w-5 place-items-center rounded border border-orange/45 bg-orange/10 text-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
+            className="inline-flex items-center gap-1 rounded border border-orange/45 bg-orange/10 px-2 py-1 text-[10px] text-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
           >
             <Plus size={12} />
+            {lane === 'orbital' ? 'Add Orbit' : 'Add Surface'}
           </button>
         )}
       </span>
       <div className="flex min-w-0 flex-wrap gap-1.5">
-        {slots.map((slot, index) => (
+        {visibleSlots.length > 0 ? visibleSlots.map((slot, index) => (
           <RavenSlotBox
             key={slot.id}
             slot={slot}
@@ -549,14 +588,67 @@ function RavenSlotLane({
             onAdd={slot.kind === 'empty' ? requestAdd : undefined}
             warningCount={slot.placementIndex != null ? prerequisiteIssues.find((issue) => issue.placementIndex === slot.placementIndex)?.missing.length ?? 0 : 0}
           />
-        ))}
-        {disabledReason && (
+        )) : (
+          <LaneCompactState
+            laneName={laneName}
+            capacity={capacity}
+            selectedBody={selectedBody}
+            disabledReason={disabledReason}
+            testId={`${bodyId}-${lane}-compact-state`}
+          />
+        )}
+        {selectedBody && disabledReason && (
           <span data-testid={`${bodyId}-${lane}-disabled-reason`} className="rounded border border-gold/35 bg-gold/10 px-1.5 py-1 font-mono text-[10px] text-gold">
             {disabledReason}
           </span>
         )}
       </div>
     </div>
+  );
+}
+
+function LaneCompactState({
+  laneName,
+  capacity,
+  selectedBody,
+  disabledReason,
+  testId,
+}: {
+  laneName: string;
+  capacity: number | null;
+  selectedBody: boolean;
+  disabledReason?: string | null;
+  testId: string;
+}) {
+  if (disabledReason && !selectedBody) {
+    return <span data-testid={testId} className="sr-only">{disabledReason}</span>;
+  }
+  if (capacity == null) {
+    return (
+      <span data-testid={testId} title={`${laneName} slot count unknown`} className="rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
+        ? slots
+      </span>
+    );
+  }
+  if (capacity <= 0) {
+    return selectedBody ? (
+      <span data-testid={testId} className="rounded border border-border/45 bg-bg3/30 px-2 py-1 font-mono text-[10px] text-silver-dk">
+        No {laneName} slots
+      </span>
+    ) : <span data-testid={testId} className="sr-only">No {laneName} slots</span>;
+  }
+  const dotCount = Math.min(capacity, 5);
+  return (
+    <span
+      data-testid={testId}
+      title={`${capacity} open ${laneName} slot${capacity === 1 ? '' : 's'}`}
+      className="inline-flex items-center gap-1 rounded border border-border/35 bg-bg3/25 px-2 py-1"
+    >
+      {Array.from({ length: dotCount }, (_unused, index) => (
+        <span key={index} className="h-1.5 w-1.5 rounded-full bg-silver-dk/70" />
+      ))}
+      {capacity > dotCount && <span className="font-mono text-[9px] text-silver-dk">+{capacity - dotCount}</span>}
+    </span>
   );
 }
 
@@ -602,10 +694,10 @@ function RavenSlotBox({
         </span>
       )}
       <span data-testid={isStructure ? 'raven-structure-slot-pill' : undefined} className="max-w-full truncate">
-        {slot.kind === 'empty' && onAdd ? '+ Add' : slot.label}
+        {slot.kind === 'empty' && onAdd ? '+' : slot.label}
       </span>
       {slot.economySegments.length > 0 && <StructureEconomyMicroBar segments={slot.economySegments} />}
-      {slot.economyContextLabel && <span data-testid="raven-contextual-economy-chip" className="absolute bottom-0.5 left-1 right-1 truncate text-[8px] text-cyan">Contextual economy</span>}
+      {slot.economyContextLabel && <span data-testid="raven-contextual-economy-chip" className="absolute bottom-0.5 left-1 right-1 truncate text-[8px] text-cyan">CTX</span>}
       {(warningCount > 0 || slot.warningLabels.length > 0) && (
         <span data-testid="raven-prerequisite-warning-chip" className="absolute left-1 top-0.5 text-[8px] text-gold">REQ</span>
       )}
@@ -672,7 +764,7 @@ function RavenSlotBox({
   );
 }
 
-function ravenLaneToPlannerLane(lane: RavenLane): BodyPlannerLane {
+function ravenLaneToPlannerLane(lane: VisibleRavenLane): BodyPlannerLane {
   return lane === 'ground' ? 'surface' : 'orbital';
 }
 
@@ -844,6 +936,7 @@ function ProjectionSlotsView({ summary }: { summary: ProjectionComparisonSummary
     <div className="mt-2 grid grid-cols-2 gap-1.5" data-testid="projection-comparison-slots">
       <ProjectionMetric label="Ghost orbit" value={summary.projectedOrbitalCount} tone="cyan" />
       <ProjectionMetric label="Ghost surface" value={summary.projectedGroundCount} tone="cyan" />
+      <ProjectionMetric label="Needs lane" value={summary.projectedUnknownLaneCount} tone={summary.projectedUnknownLaneCount > 0 ? 'gold' : 'green'} />
       <ProjectionMetric label="Overflow risks" value={summary.slotOverflowCount} tone={summary.slotOverflowCount > 0 ? 'gold' : 'green'} />
     </div>
   );
@@ -885,7 +978,7 @@ interface StructureTelemetryDetail {
   name: string;
   templateId: string;
   status: 'planned' | 'projected';
-  lane: 'orbital' | 'ground';
+  lane: RavenLane;
   bodyName: string;
   category: string;
   buildOrder: number | null;
@@ -928,7 +1021,7 @@ function SelectedStructureTelemetryCard({ detail }: { detail: StructureTelemetry
       </div>
       <div className="mt-2 text-sm font-semibold leading-snug text-silver">{detail.name}</div>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        <TelemetryField label="Lane" value={`${detail.lane === 'ground' ? 'surface' : 'orbit'} / ${detail.bodyName}`} tone="cyan" />
+        <TelemetryField label="Lane" value={`${detail.lane === 'unassigned' ? 'needs lane' : detail.lane === 'ground' ? 'surface' : 'orbit'} / ${detail.bodyName}`} tone="cyan" />
         <TelemetryField label="Build order" value={detail.buildOrder == null ? 'n/a' : `#${detail.buildOrder}`} />
         <TelemetryField label="Variant" value={detail.category} />
         <TelemetryField label="Strength" value={detail.strength == null ? 'n/a' : `+${detail.strength} CP`} tone={detail.strength ? 'green' : 'silver'} />
@@ -1038,7 +1131,11 @@ function buildSelectedStructureTelemetryDetail(
   const body = bodyId
     ? systemBodyData(system).find((candidate) => sameBodyId(candidate.id, bodyId))
     : null;
-  const lane = laneForPlacement(template, body ?? undefined);
+  const lane = ravenLaneForPlacement(
+    template,
+    body ?? undefined,
+    projected ? snapshot.projection?.placementLaneHints?.[selection.placementIndex] : snapshot.placementLaneHints?.[selection.placementIndex],
+  );
   const strength = template ? Math.max(0, (template.yellow_cp_generated ?? 0) + (template.green_cp_generated ?? 0)) : null;
   return {
     name: structureDisplayName(template, placement.facility_template_id),
@@ -1320,8 +1417,8 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
       .filter((body) => body.id != null)
       .map((body) => [bodyIdKey(body.id), body]),
   );
-  const plannedByBody = bucketStructures(snapshot.placements, templatesById, bodyById, false);
-  const projectedByBody = bucketStructures(snapshot.projection?.placements ?? [], templatesById, bodyById, true);
+  const plannedByBody = bucketStructures(snapshot.placements, templatesById, bodyById, false, snapshot.placementLaneHints);
+  const projectedByBody = bucketStructures(snapshot.projection?.placements ?? [], templatesById, bodyById, true, snapshot.projection?.placementLaneHints);
   const projectedBodyIds = new Set(Array.from(projectedByBody.keys()));
 
   return flattenBodyNodes(bodies).map((node) => {
@@ -1331,13 +1428,14 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
     const projected = projectedByBody.get(node.id) ?? emptyStructureBuckets();
     const orbitalStructures = [...planned.orbital, ...projected.orbital];
     const groundStructures = [...planned.ground, ...projected.ground];
+    const unassignedStructures = [...planned.unassigned, ...projected.unassigned];
     const orbitalSlotCapacity = resolveSlotCapacity(node.body, prediction, 'orbital', bodyDataSlotEstimate);
     const groundSlotCapacity = resolveSlotCapacity(node.body, prediction, 'surface', bodyDataSlotEstimate);
     const orbitalCapacity = orbitalSlotCapacity.value;
     const groundCapacity = groundSlotCapacity.value;
     const bodyLedger = buildPlanningEconomyLedger({
-      placements: [...planned.orbital, ...planned.ground].map((item) => item.placement),
-      projectedPlacements: [...projected.orbital, ...projected.ground].map((item) => item.placement),
+      placements: [...planned.orbital, ...planned.ground, ...planned.unassigned].map((item) => item.placement),
+      projectedPlacements: [...projected.orbital, ...projected.ground, ...projected.unassigned].map((item) => item.placement),
       templates: snapshot.templates,
     });
 
@@ -1357,10 +1455,11 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
       groundCapacityEstimated: groundSlotCapacity.estimated,
       orbitalSlots: buildLaneSlots(node.id, 'orbital', orbitalCapacity, orbitalStructures),
       groundSlots: buildLaneSlots(node.id, 'ground', groundCapacity, groundStructures),
+      unassignedSlots: unassignedStructures.map((item, index) => structureSlot(node.id, 'unassigned', item, index)),
       bodyEconomy: bodyLedger,
       projected: projectedBodyIds.has(node.id),
       warningCount: countRowWarnings(node.body, prediction, bodyLedger)
-        + [...planned.orbital, ...planned.ground].filter((item) => item.warningLabels.length > 0).length,
+        + [...planned.orbital, ...planned.ground, ...planned.unassigned].filter((item) => item.warningLabels.length > 0).length,
     };
   });
 }
@@ -1414,11 +1513,17 @@ export function buildProjectionComparison(
   const laneCounts = (snapshot.projection?.placements ?? []).reduce((counts, placement) => {
     const bodyId = placementBodyId(placement);
     const template = templatesById.get(placement.facility_template_id);
-    const lane = laneForPlacement(template, bodyId ? bodyById.get(bodyId) : undefined);
+    const lane = ravenLaneForPlacement(
+      template,
+      bodyId ? bodyById.get(bodyId) : undefined,
+      snapshot.projection?.placementLaneHints?.[counts.index],
+    );
     if (lane === 'orbital') counts.orbital += 1;
-    else counts.ground += 1;
+    else if (lane === 'ground') counts.ground += 1;
+    else counts.unknown += 1;
+    counts.index += 1;
     return counts;
-  }, { orbital: 0, ground: 0 });
+  }, { orbital: 0, ground: 0, unknown: 0, index: 0 });
   const slotOverflowCount = rows.reduce((sum, row) => (
     sum
       + row.orbitalSlots.filter((slot) => slot.kind === 'overflow').length
@@ -1437,7 +1542,7 @@ export function buildProjectionComparison(
     plannedOnlyBodyLabels: bodyLabelsForIds(plannedOnlyBodyIds, bodyById, system.name),
     projectedOrbitalCount: laneCounts.orbital,
     projectedGroundCount: laneCounts.ground,
-    projectedUnknownLaneCount: 0,
+    projectedUnknownLaneCount: laneCounts.unknown,
     slotOverflowCount,
     economyDeltas: economyLedger.entries.map((entry) => ({
       economy: entry.economy,
@@ -1474,6 +1579,7 @@ function bucketStructures(
   templatesById: Map<string, FacilityTemplate>,
   bodyById: Map<string, SystemBody>,
   projected: boolean,
+  laneHints: Record<number, BodyPlannerLane> = {},
 ) {
   const buckets = new Map<string, ReturnType<typeof emptyStructureBuckets>>();
 
@@ -1481,7 +1587,7 @@ function bucketStructures(
     const bodyId = placementBodyId(placement);
     if (!bodyId || !bodyById.has(bodyId)) return;
     const template = templatesById.get(placement.facility_template_id);
-    const lane = laneForPlacement(template, bodyById.get(bodyId));
+    const lane = ravenLaneForPlacement(template, bodyById.get(bodyId), laneHints[index]);
     const current = buckets.get(bodyId) ?? emptyStructureBuckets();
     current[lane].push({
       placement,
@@ -1500,6 +1606,7 @@ function emptyStructureBuckets() {
   return {
     orbital: [] as StructureBucketItem[],
     ground: [] as StructureBucketItem[],
+    unassigned: [] as StructureBucketItem[],
   };
 }
 
@@ -1517,7 +1624,7 @@ function buildLaneSlots(
   }
 
   if (capacity <= 0) {
-    if (structures.length === 0) return [emptySlot(bodyId, lane, 0, '0')];
+    if (structures.length === 0) return [];
     return [overflowSlot(bodyId, lane, structures.length)];
   }
 
@@ -1663,17 +1770,14 @@ function readableTemplateId(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function laneForPlacement(template: FacilityTemplate | undefined, body: SystemBody | undefined): 'orbital' | 'ground' {
-  if (!template) return fallbackRavenLane(body);
-  const location = templateLocationKind(template);
-  if (location === 'orbital') return 'orbital';
-  if (location === 'surface') return 'ground';
-  if (location === 'both') return fallbackRavenLane(body);
-  return fallbackRavenLane(body);
-}
-
-function fallbackRavenLane(body: SystemBody | undefined): 'orbital' | 'ground' {
-  return body?.is_landable === true && body.is_water_world !== true ? 'ground' : 'orbital';
+function ravenLaneForPlacement(
+  template: FacilityTemplate | undefined,
+  body: SystemBody | undefined,
+  laneHint?: BodyPlannerLane | null,
+): RavenLane {
+  const lane = placementLaneForTemplate(template, body, laneHint);
+  if (lane === 'surface') return 'ground';
+  return lane;
 }
 
 function placementBodyId(placement: SimulateBuildPlacement | undefined): string | null {

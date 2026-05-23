@@ -126,6 +126,23 @@ const templates: FacilityTemplate[] = [
     yellow_cp_cost: 0,
     green_cp_cost: 0,
   },
+  {
+    id: 'flexible_support',
+    name: 'Flexible Support Array',
+    category: 'support',
+    tier: 1,
+    economy: 'HighTech',
+    is_port: false,
+    is_support_facility: true,
+    allowed_location: 'surface_or_orbit',
+    pad_size: null,
+    confidence: 'estimated',
+    notes: null,
+    yellow_cp_generated: 1,
+    green_cp_generated: 0,
+    yellow_cp_cost: 0,
+    green_cp_cost: 0,
+  },
 ];
 
 const slotPredictions: SlotPredictionResponse = {
@@ -232,6 +249,75 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.queryByText('Facilities and economy')).toBeNull();
   });
 
+  it('keeps lane display strict and leaves dual-location placements unassigned until a lane is known', () => {
+    const flexibleSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [
+        { facility_template_id: 'flexible_support', local_body_id: '2', build_order: 1 },
+      ],
+      projection: null,
+    };
+
+    const unassignedRow = buildRavenPlannerRows(system, flexibleSnapshot).find((row) => row.id === '2');
+    expect(unassignedRow?.orbitalSlots.some((slot) => slot.fullName === 'Flexible Support Array')).toBe(false);
+    expect(unassignedRow?.groundSlots.some((slot) => slot.fullName === 'Flexible Support Array')).toBe(false);
+    expect(unassignedRow?.unassignedSlots[0]).toEqual(expect.objectContaining({ fullName: 'Flexible Support Array' }));
+
+    const orbitalRow = buildRavenPlannerRows(system, {
+      ...flexibleSnapshot,
+      placementLaneHints: { 0: 'orbital' },
+    }).find((row) => row.id === '2');
+    expect(orbitalRow?.orbitalSlots[0]).toEqual(expect.objectContaining({ fullName: 'Flexible Support Array' }));
+    expect(orbitalRow?.groundSlots.some((slot) => slot.fullName === 'Flexible Support Array')).toBe(false);
+
+    const surfaceRow = buildRavenPlannerRows(system, {
+      ...flexibleSnapshot,
+      placementLaneHints: { 0: 'surface' },
+    }).find((row) => row.id === '2');
+    expect(surfaceRow?.groundSlots[0]).toEqual(expect.objectContaining({ fullName: 'Flexible Support Array' }));
+    expect(surfaceRow?.orbitalSlots.some((slot) => slot.fullName === 'Flexible Support Array')).toBe(false);
+  });
+
+  it('renders zero-slot lanes compactly without fake empty slot boxes or add targets', () => {
+    const zeroSlotSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [],
+      projection: null,
+      slotPredictions: {
+        ...slotPredictions,
+        predictions: [
+          {
+            ...slotPredictions.predictions[0],
+            predicted_orbital_slots: 0,
+            predicted_ground_slots: 0,
+          },
+        ],
+      },
+    };
+    const rows = buildRavenPlannerRows(system, zeroSlotSnapshot);
+    const row = rows.find((candidate) => candidate.id === '2');
+
+    expect(row?.orbitalSlots).toHaveLength(0);
+    expect(row?.groundSlots).toHaveLength(0);
+
+    render(
+      <RavenStylePlannerCanvas
+        system={system}
+        snapshot={zeroSlotSnapshot}
+        selection={{ type: 'body', bodyId: '2' }}
+        onSelect={vi.fn()}
+        onRequestAddStructure={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('2-orbital-slot-0')).toBeNull();
+    expect(screen.queryByTestId('2-ground-slot-0')).toBeNull();
+    expect(screen.getByTestId('2-orbital-compact-state').textContent).toContain('No orbital slots');
+    expect(screen.getByTestId('2-ground-compact-state').textContent).toContain('No surface slots');
+    expect(screen.queryByTestId('2-orbital-add')).toBeNull();
+    expect(screen.queryByTestId('2-ground-add')).toBeNull();
+  });
+
   it('expands selected bodies inline and supports projected structure selection', () => {
     render(
       <RavenStylePlannerCanvas
@@ -271,7 +357,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
             { facility_template_id: 'dodec_starport', local_body_id: '2', is_primary_port: true, build_order: 1 },
           ],
         }}
-        selection={{ type: 'system' }}
+        selection={{ type: 'body', bodyId: '2' }}
         onSelect={vi.fn()}
         onRequestAddStructure={onRequestAddStructure}
       />,
@@ -290,7 +376,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'surface');
 
     expect(screen.getByRole('button', { name: /Add orbit structure to Real Data System A 1 from empty slot/i })).toBeTruthy();
-    expect(screen.getByTestId('2-orbital-slot-1').textContent).toContain('+ Add');
+    expect(screen.getByTestId('2-orbital-slot-1').textContent).toContain('+');
   });
 
   it('keeps passive display slots from presenting button or hover affordances', () => {
@@ -303,7 +389,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
 
   it('shows disabled surface lane reasons directly in the canvas', () => {
     const onRequestAddStructure = vi.fn();
-    render(<RavenStylePlannerCanvas system={system} snapshot={{ ...snapshot, placements: [], projection: null }} selection={{ type: 'system' }} onSelect={vi.fn()} onRequestAddStructure={onRequestAddStructure} />);
+    render(<RavenStylePlannerCanvas system={system} snapshot={{ ...snapshot, placements: [], projection: null }} selection={{ type: 'body', bodyId: '3' }} onSelect={vi.fn()} onRequestAddStructure={onRequestAddStructure} />);
 
     expect(screen.getByTestId('3-ground-disabled-reason').textContent).toContain('Surface limited: non-landable body.');
     expect((screen.getByTestId('3-ground-add') as HTMLButtonElement).disabled).toBe(true);

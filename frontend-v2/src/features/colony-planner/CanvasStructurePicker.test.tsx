@@ -191,9 +191,9 @@ describe('CanvasStructurePicker', () => {
       />,
     );
 
-    expect(screen.getByRole('heading', { name: 'Body 1' })).toBeTruthy();
-    expect(screen.getByText(/Add orbit structure/i)).toBeTruthy();
-    expect(screen.getByText(/1 compatible option shown/i)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Add to Body 1' })).toBeTruthy();
+    expect(screen.getAllByText(/Orbit lane/i).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('canvas-picker-compatible-count').textContent).toContain('1 compatible option');
     expect(screen.getByTestId('canvas-picker-compatibility-summary').textContent).toContain('1 incompatible hidden');
     expect(screen.getByTestId('body-structure-template-orbital_port')).toBeTruthy();
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
@@ -217,7 +217,8 @@ describe('CanvasStructurePicker', () => {
       />,
     );
 
-    expect(screen.getByText(/Add surface structure/i)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Add to Water World' })).toBeTruthy();
+    expect(screen.getAllByText(/Surface lane/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId('canvas-picker-disabled-reason').textContent).toContain('Surface limited: water world.');
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
   });

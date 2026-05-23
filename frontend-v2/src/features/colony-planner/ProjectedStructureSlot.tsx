@@ -1,5 +1,6 @@
 import type { FacilityTemplate, SimulateBuildPlacement } from '@/types/api';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
+import type { BodyPlannerLane } from './BodySlotPlanner';
 import { normalisePlanningEconomy, type PlanningEconomyName } from './planningEconomy';
 import { contextualEconomyLabel, structureFamilyLabel, templateDisplayName } from './structurePlanningRules';
 
@@ -12,18 +13,25 @@ export function ProjectedStructureSlot({
     placement: SimulateBuildPlacement;
     index: number;
     template?: FacilityTemplate;
+    lane?: BodyPlannerLane | 'unassigned';
   };
   selected?: boolean;
   onSelect?: () => void;
 }) {
   const location = item.template ? templateLocationKind(item.template) : 'unknown';
-  const locationLabel = location === 'orbital'
+  const locationLabel = item.lane === 'orbital'
     ? 'Orbit'
-    : location === 'surface'
+    : item.lane === 'surface'
       ? 'Surface'
-      : location === 'both'
-        ? 'Orbit or Surface'
-        : 'Unknown';
+      : item.lane === 'unassigned'
+        ? 'Needs lane'
+        : location === 'orbital'
+          ? 'Orbit'
+          : location === 'surface'
+            ? 'Surface'
+            : location === 'both'
+              ? 'Orbit or Surface'
+              : 'Unknown';
   const label = item.template ? templateDisplayName(item.template) : item.placement.facility_template_id;
   const economy = normalisePlanningEconomy(item.template?.economy);
   const economyContext = contextualEconomyLabel(item.template);

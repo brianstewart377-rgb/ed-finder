@@ -1116,6 +1116,51 @@ Advanced Planner contract:
 - Raven adds write the same Build Plan state Advanced Planner reads.
 - Existing Simulation Preview picker views should use the same structure display language where practical, especially family labels, prerequisite warnings, and contextual station economy copy.
 
+## Stage 17N.1c Graphical Raven Canvas Contract
+
+Stage 17N.1c updates the manual Raven canvas toward the RavenColonial visual model: graphical slots and status markers first, text detail second.
+
+Canvas interaction contract:
+
+- unselected rows are scan-first and do not show competing add buttons or clickable-looking empty slots
+- selected rows show the primary add targets for each valid lane
+- empty selected slots use an unmistakable `+` target
+- occupied planned slots select planned placement context
+- projected ghost slots select projected placement context and never load the candidate
+- display-only capacity indicators must not use pointer/hover-lift treatment
+- zero-slot lanes render no fake empty boxes and no add target
+
+Lane correctness contract:
+
+- orbital-only templates render only in orbit lanes
+- surface-only templates render only in surface lanes
+- dual-location templates added from the Raven picker carry the chosen lane in local planner state
+- dual-location or unknown placements without a reliable lane hint render as `Needs lane`, including in selected-body detail and telemetry
+- picker filtering and canvas rendering must use the same compatibility/classification helpers so visible options and final slot placement agree
+
+Picker contract:
+
+- heading: `Add to [body]`
+- visible lane chip and compatible count
+- search covers display name, template name/variant, family, category, economy, tier, pad size, location, and prerequisite text
+- station/port templates without direct economy metadata show contextual economy language and do not invent values
+- missing prerequisites are warnings that allow selection, while hard-invalid lane/body placements remain blocked
+
+Safety boundary:
+
+- no Advanced Planner requirement for manual adds
+- no automatic Preview
+- no automatic Suggested Build generation
+- no candidate auto-load
+- no fake economy values
+- no drag/drop or Architect observed slot truth storage in this pass
+
+Remaining manual editing gaps:
+
+- no one-click add prerequisite action yet
+- no explicit persisted slot index
+- no normalized persisted lane field in backend simulation requests
+
 ## Stage 18 Assistant Foundation Boundary
 
 Planned assistant layer should sit above this architecture:

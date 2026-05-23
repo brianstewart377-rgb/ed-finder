@@ -11,6 +11,8 @@ export interface PrerequisiteIssue {
   missing: string[];
 }
 
+export type PlacementLaneAssignment = BodyPlannerLane | 'unassigned';
+
 export function laneDisabledReason(body: SystemBody, lane: BodyPlannerLane): string | null {
   if (lane !== 'surface') return null;
   if (body.is_water_world === true) return 'Surface limited: water world.';
@@ -32,6 +34,25 @@ export function templateCanFitBody(template: FacilityTemplate, body: SystemBody,
     return body.is_landable === true && body.is_water_world !== true;
   }
   return true;
+}
+
+export function placementLaneForTemplate(
+  template: FacilityTemplate | undefined,
+  body: SystemBody | undefined,
+  laneHint?: BodyPlannerLane | null,
+): PlacementLaneAssignment {
+  if (!template) return 'unassigned';
+  const location = templateLocationKind(template);
+  if (location === 'orbital') return 'orbital';
+  if (location === 'surface') return 'surface';
+  if (location === 'both') {
+    if (laneHint && templateMatchesLane(template, laneHint)) {
+      if (laneHint === 'surface' && body && laneDisabledReason(body, 'surface')) return 'unassigned';
+      return laneHint;
+    }
+    return 'unassigned';
+  }
+  return 'unassigned';
 }
 
 export function templateDisplayName(template: FacilityTemplate): string {

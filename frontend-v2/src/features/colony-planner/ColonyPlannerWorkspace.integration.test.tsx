@@ -288,12 +288,12 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     renderWorkspace();
 
     await screen.findByTestId('raven-real-body-row-1');
+    fireEvent.click(screen.getByTestId('topology-body-button-1'));
     await waitFor(() => {
       expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
       expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('topology-body-button-1'));
     await screen.findByText(/Planning focus:/i);
     expect(screen.getByTestId('raven-inline-body-expansion-1')).toBeTruthy();
     await waitFor(() => {
@@ -361,6 +361,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     renderWorkspace();
 
     await screen.findByTestId('raven-real-body-row-1');
+    fireEvent.click(screen.getByTestId('topology-body-button-1'));
     await waitFor(() => {
       expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
       expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
@@ -369,9 +370,9 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     fireEvent.click(screen.getByTestId('1-orbital-add'));
     const orbitalPicker = await screen.findByTestId('body-structure-picker');
     expect(orbitalPicker).toBeTruthy();
-    expect(within(orbitalPicker).getByRole('heading', { name: 'Body 1' })).toBeTruthy();
-    expect(within(orbitalPicker).getByText(/Add orbit structure/i)).toBeTruthy();
-    expect(within(orbitalPicker).getByText(/1 compatible option shown/i)).toBeTruthy();
+    expect(within(orbitalPicker).getByRole('heading', { name: 'Add to Body 1' })).toBeTruthy();
+    expect(within(orbitalPicker).getAllByText(/Orbit lane/i).length).toBeGreaterThan(0);
+    expect(within(orbitalPicker).getByTestId('canvas-picker-compatible-count').textContent).toContain('1 compatible option');
     expect(screen.getByTestId('body-structure-template-orbital_port')).toBeTruthy();
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Close structure picker/i }));
@@ -379,12 +380,12 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     fireEvent.click(screen.getByTestId('1-ground-add'));
     const surfaceAddPicker = await screen.findByTestId('body-structure-picker');
     expect(surfaceAddPicker).toBeTruthy();
-    expect(within(surfaceAddPicker).getByText(/Add surface structure/i)).toBeTruthy();
+    expect(within(surfaceAddPicker).getAllByText(/Surface lane/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId('body-structure-template-surface_hub')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Close structure picker/i }));
 
     fireEvent.click(screen.getByTestId('1-orbital-slot-3'));
-    expect(within(await screen.findByTestId('body-structure-picker')).getByText(/Add orbit structure/i)).toBeTruthy();
+    expect(within(await screen.findByTestId('body-structure-picker')).getAllByText(/Orbit lane/i).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Added Orbital Port to Body 1 / Orbit.');
@@ -397,7 +398,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     });
 
     fireEvent.click(screen.getByTestId('1-ground-slot-4'));
-    expect(within(await screen.findByTestId('body-structure-picker')).getByText(/Add surface structure/i)).toBeTruthy();
+    expect(within(await screen.findByTestId('body-structure-picker')).getAllByText(/Surface lane/i).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '')).toMatch(/Surface|Hub/i);

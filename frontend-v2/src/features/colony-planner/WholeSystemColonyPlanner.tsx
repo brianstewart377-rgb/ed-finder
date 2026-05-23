@@ -33,6 +33,7 @@ import {
 export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
   const [placements, setPlacements] = useState<SimulateBuildPlacement[]>([]);
+  const [placementLaneHints, setPlacementLaneHints] = useState<Record<number, BodyPlannerLane>>({});
   const [targetArchetype, setTargetArchetype] = useState(() => (
     archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy) ?? 'refinery_industrial'
   ));
@@ -74,6 +75,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   useEffect(() => {
     setSelection({ type: 'system' });
     setPlacements([]);
+    setPlacementLaneHints({});
     setProjection(null);
     setStructurePicker(null);
     setStructureAddFeedback(null);
@@ -97,8 +99,9 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     templates,
     targetArchetype,
     slotPredictions: slotPredictionsQuery.data ?? null,
+    placementLaneHints,
     projection,
-  }), [placements, projection, slotPredictionsQuery.data, targetArchetype, templates]);
+  }), [placementLaneHints, placements, projection, slotPredictionsQuery.data, targetArchetype, templates]);
 
   const projectState = useWorkspaceProjectState(system, planSnapshot);
   const projectRequestFingerprint = useMemo(
@@ -120,6 +123,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     appliedProjectFingerprint.current = projectRequestFingerprint;
     setTargetArchetype(projectState.projectRequest.target_archetype);
     setPlacements(resequence(projectState.projectRequest.placements));
+    setPlacementLaneHints({});
     setProjection(null);
   }, [projectRequestFingerprint, projectState.projectRequest]);
 
@@ -174,15 +178,19 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
       return { ok: false as const, message: `${templateDisplayName(template)} is not compatible with this ${lane === 'orbital' ? 'orbit' : 'surface'} lane.` };
     }
     setSelection({ type: 'body', bodyId });
-    setPlacements((current) => resequence([
-      ...current,
-      {
-        facility_template_id: template.id,
-        local_body_id: bodyId,
-        is_primary_port: template.is_port && !current.some((placement) => placement.is_primary_port),
-        build_order: current.length + 1,
-      },
-    ]));
+    setPlacements((current) => {
+      const next = resequence([
+        ...current,
+        {
+          facility_template_id: template.id,
+          local_body_id: bodyId,
+          is_primary_port: template.is_port && !current.some((placement) => placement.is_primary_port),
+          build_order: current.length + 1,
+        },
+      ]);
+      setPlacementLaneHints((currentHints) => ({ ...currentHints, [next.length - 1]: lane }));
+      return next;
+    });
     return {
       ok: true as const,
       message: `Added ${templateDisplayName(template)} to ${describePlacementTarget(body, lane)}.`,
@@ -220,7 +228,11 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   }, []);
 
   const handleAdvancedPlanSnapshotChange = useCallback((snapshot: TopologyPlanSnapshot) => {
-    setPlacements((current) => placementsEqual(current, snapshot.placements) ? current : resequence(snapshot.placements));
+    setPlacements((current) => {
+      if (placementsEqual(current, snapshot.placements)) return current;
+      setPlacementLaneHints({});
+      return resequence(snapshot.placements);
+    });
     setTargetArchetype((current) => current === snapshot.targetArchetype ? current : snapshot.targetArchetype);
     setProjection((current) => projectionEqual(current, snapshot.projection) ? current : snapshot.projection ?? null);
   }, []);

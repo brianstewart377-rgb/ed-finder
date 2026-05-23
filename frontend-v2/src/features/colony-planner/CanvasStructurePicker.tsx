@@ -64,10 +64,13 @@ export function CanvasStructurePicker({
           templateDisplayName(template),
           template.name,
           template.id,
+          structureFamilyLabel(template),
           template.category,
           template.economy ?? '',
           template.allowed_location,
           template.pad_size ?? '',
+          `tier ${template.tier}`,
+          ...templatePrerequisiteDescriptions(template),
         ].join(' ').toLowerCase().includes(normalisedQuery);
       })
       .sort((a, b) => (a.tier - b.tier) || templateDisplayName(a).localeCompare(templateDisplayName(b)))
@@ -88,13 +91,18 @@ export function CanvasStructurePicker({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
-            Add {laneLabel} structure
-          </div>
-          <h3 id="canvas-structure-picker-title" className="mt-0.5 text-base font-bold text-silver">
-            {bodyName}
+          <h3 id="canvas-structure-picker-title" className="text-base font-bold text-silver">
+            Add to {bodyName}
           </h3>
-          <p className="mt-0.5 font-mono text-[10px] text-silver-dk">
+          <p className="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-silver-dk">
+            <PickerFact label={laneLabel === 'orbit' ? 'Orbit lane' : 'Surface lane'} tone="cyan" />
+            <span data-testid="canvas-picker-compatible-count">
+              {canSelectTemplate
+                ? `${visibleTemplates.length} compatible option${visibleTemplates.length === 1 ? '' : 's'}`
+                : `Picker is disabled for this ${laneLabel} lane.`}
+            </span>
+          </p>
+          <p className="sr-only">
             {canSelectTemplate
               ? `${visibleTemplates.length} compatible option${visibleTemplates.length === 1 ? '' : 's'} shown for this ${laneLabel} lane.`
               : `Picker is disabled for this ${laneLabel} lane.`}

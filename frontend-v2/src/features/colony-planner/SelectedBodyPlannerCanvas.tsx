@@ -7,7 +7,6 @@ import {
   getBodyGroupWarnings,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { BodySlotPlanner, type BodyPlannerLane } from './BodySlotPlanner';
 import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
@@ -17,6 +16,7 @@ import {
   resolveSlotCapacity,
   systemBodyData,
 } from './slotCapacityFallback';
+import { placementLaneForTemplate, type PlacementLaneAssignment } from './structurePlanningRules';
 
 interface PlacementViewItem {
   placement: SimulateBuildPlacement;
@@ -125,6 +125,8 @@ export function SelectedBodyPlannerCanvas({
         bodyDataSlotEstimate={bodyDataSlotEstimate}
         placements={placements}
         projectedPlacements={projectedPlacements}
+        placementLaneHints={snapshot.placementLaneHints}
+        projectedPlacementLaneHints={snapshot.projection?.placementLaneHints}
         selectedPlacementIndex={selectedPlacementIndex}
         selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
         hasTemplates={snapshot.templates.length > 0}
@@ -178,6 +180,8 @@ interface SystemOverviewItem {
   plannedSurface: number;
   projectedOrbital: number;
   projectedSurface: number;
+  plannedUnassigned: number;
+  projectedUnassigned: number;
   slotLayoutEstimated: boolean;
   score: number;
 }
@@ -293,8 +297,8 @@ function SystemOverviewBodyButton({
   item: SystemOverviewItem;
   onSelect: () => void;
 }) {
-  const plannedTotal = item.plannedOrbital + item.plannedSurface;
-  const projectedTotal = item.projectedOrbital + item.projectedSurface;
+  const plannedTotal = item.plannedOrbital + item.plannedSurface + item.plannedUnassigned;
+  const projectedTotal = item.projectedOrbital + item.projectedSurface + item.projectedUnassigned;
 
   return (
     <button
@@ -314,6 +318,7 @@ function SystemOverviewBodyButton({
         </div>
         {plannedTotal > 0 && <MiniLegend label={String(plannedTotal)} tone="orange" />}
         {projectedTotal > 0 && <MiniLegend label={`+${projectedTotal}`} tone="cyan" />}
+        {item.plannedUnassigned + item.projectedUnassigned > 0 && <MiniLegend label="lane ?" tone="gold" />}
       </div>
       <div className="mt-2 grid gap-1.5">
         <OverviewLane
@@ -468,8 +473,8 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
   );
   const templatesById = new Map(snapshot.templates.map((template) => [template.id, template]));
   const bodiesById = new Map(bodies.filter((body) => body.id != null).map((body) => [bodyIdKey(body.id), body]));
-  const plannedCounts = countPlacementsByBody(snapshot.placements, templatesById, bodiesById);
-  const projectedCounts = countPlacementsByBody(snapshot.projection?.placements ?? [], templatesById, bodiesById);
+  const plannedCounts = countPlacementsByBody(snapshot.placements, templatesById, bodiesById, snapshot.placementLaneHints);
+  const projectedCounts = countPlacementsByBody(snapshot.projection?.placements ?? [], templatesById, bodiesById, snapshot.projection?.placementLaneHints);
 
   return bodies
     .filter((body) => body.id != null)
@@ -498,6 +503,8 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
         plannedSurface: planned.surface,
         projectedOrbital: projected.orbital,
         projectedSurface: projected.surface,
+        plannedUnassigned: planned.unassigned,
+        projectedUnassigned: projected.unassigned,
         slotLayoutEstimated: orbitalSlotCapacity.estimated || surfaceSlotCapacity.estimated,
         score,
       };
@@ -512,42 +519,37 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
 interface LaneCounts {
   orbital: number;
   surface: number;
+  unassigned: number;
 }
 
 function countPlacementsByBody(
   placements: SimulateBuildPlacement[],
   templatesById: Map<string, FacilityTemplate>,
   bodiesById: Map<string, SystemBody>,
+  laneHints: Record<number, BodyPlannerLane> = {},
 ) {
   const counts = new Map<string, LaneCounts>();
-  for (const placement of placements) {
-    if (placement.local_body_id == null) continue;
+  placements.forEach((placement, index) => {
+    if (placement.local_body_id == null) return;
     const bodyId = bodyIdKey(placement.local_body_id);
     const current = counts.get(bodyId) ?? emptyLaneCounts();
-    const lane = overviewLaneForTemplate(templatesById.get(placement.facility_template_id), bodiesById.get(bodyId));
+    const lane = overviewLaneForTemplate(templatesById.get(placement.facility_template_id), bodiesById.get(bodyId), laneHints[index]);
     current[lane] += 1;
     counts.set(bodyId, current);
-  }
+  });
   return counts;
 }
 
 function emptyLaneCounts(): LaneCounts {
-  return { orbital: 0, surface: 0 };
+  return { orbital: 0, surface: 0, unassigned: 0 };
 }
 
-function overviewLaneForTemplate(template: FacilityTemplate | undefined, body: SystemBody | undefined): BodyPlannerLane {
-  if (!template) return fallbackOverviewLane(body);
-  const location = templateLocationKind(template);
-  if (location === 'orbital') return 'orbital';
-  if (location === 'surface') return 'surface';
-  if (location === 'both') {
-    return fallbackOverviewLane(body);
-  }
-  return fallbackOverviewLane(body);
-}
-
-function fallbackOverviewLane(body: SystemBody | undefined): BodyPlannerLane {
-  return body?.is_landable === true && body.is_water_world !== true ? 'surface' : 'orbital';
+function overviewLaneForTemplate(
+  template: FacilityTemplate | undefined,
+  body: SystemBody | undefined,
+  laneHint?: BodyPlannerLane | null,
+): PlacementLaneAssignment {
+  return placementLaneForTemplate(template, body, laneHint);
 }
 
 function overviewBodyScore(
@@ -558,8 +560,8 @@ function overviewBodyScore(
   surfaceCapacity: number | null,
   tags: string[],
 ) {
-  const plannedTotal = planned.orbital + planned.surface;
-  const projectedTotal = projected.orbital + projected.surface;
+  const plannedTotal = planned.orbital + planned.surface + planned.unassigned;
+  const projectedTotal = projected.orbital + projected.surface + projected.unassigned;
   const type = `${body.body_type ?? ''} ${body.subtype ?? ''}`.toLowerCase();
   const isBarycentre = type.includes('barycentre');
   if (isBarycentre && plannedTotal === 0 && projectedTotal === 0) return 0;
