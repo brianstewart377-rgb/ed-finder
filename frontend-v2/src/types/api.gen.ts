@@ -1867,9 +1867,9 @@ export interface components {
             /** Notes */
             notes?: string | null;
             /** Prerequisites */
-            prerequisites?: Record<string, unknown>[];
+            prerequisites?: Record<string, never>[];
             /** Economy Effects */
-            economy_effects?: Record<string, unknown>;
+            economy_effects?: Record<string, never>;
             /**
              * Yellow Cp Generated
              * @default 0
