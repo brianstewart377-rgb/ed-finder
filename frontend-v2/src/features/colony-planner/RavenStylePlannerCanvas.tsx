@@ -1,4 +1,4 @@
-import { Network, Sparkles, Target } from 'lucide-react';
+import { Network, Plus, Sparkles, Target } from 'lucide-react';
 import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { displayRationale } from '@/lib/rationale';
@@ -12,7 +12,7 @@ import {
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
-import { SlotCapacityDots } from './BodySlotPlanner';
+import { SlotCapacityDots, type BodyPlannerLane } from './BodySlotPlanner';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import {
   ESTIMATED_SLOT_LAYOUT_DISCLAIMER,
@@ -135,12 +135,14 @@ export function RavenStylePlannerCanvas({
   selection,
   expandedBodyDetail,
   onSelect,
+  onRequestAddStructure,
 }: {
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
   selection: TopologySelection;
   expandedBodyDetail?: ReactNode;
   onSelect: (selection: TopologySelection) => void;
+  onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
 }) {
   const rows = buildRavenPlannerRows(system, snapshot);
   const selectedBodyId = selection.type === 'body'
@@ -212,6 +214,7 @@ export function RavenStylePlannerCanvas({
                 selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
                 gridStyle={gridStyle}
                 onSelect={onSelect}
+                onRequestAddStructure={onRequestAddStructure}
               />
             ))}
           </div>
@@ -323,6 +326,7 @@ function RavenPlannerBodyRow({
   selectedProjectedPlacementIndex,
   gridStyle,
   onSelect,
+  onRequestAddStructure,
 }: {
   row: RavenPlannerRow;
   selected: boolean;
@@ -331,6 +335,7 @@ function RavenPlannerBodyRow({
   selectedProjectedPlacementIndex: number | null;
   gridStyle: CSSProperties;
   onSelect: (selection: TopologySelection) => void;
+  onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
 }) {
   const rowTone = selected
     ? 'bg-orange/10 shadow-[inset_3px_0_0_rgba(255,122,20,0.95)]'
@@ -355,21 +360,25 @@ function RavenPlannerBodyRow({
         <TreeCell row={row} selected={selected} onSelect={() => onSelect({ type: 'body', bodyId: row.id })} />
         <RavenSlotLane
           bodyId={row.id}
+          bodyName={row.displayName}
           lane="orbital"
           capacity={row.orbitalCapacity}
           slots={row.orbitalSlots}
           selectedPlacementIndex={selectedPlacementIndex}
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
           onSelect={onSelect}
+          onRequestAddStructure={onRequestAddStructure}
         />
         <RavenSlotLane
           bodyId={row.id}
+          bodyName={row.displayName}
           lane="ground"
           capacity={row.groundCapacity}
           slots={row.groundSlots}
           selectedPlacementIndex={selectedPlacementIndex}
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
           onSelect={onSelect}
+          onRequestAddStructure={onRequestAddStructure}
         />
       </div>
       {selected && expandedDetail && (
@@ -454,35 +463,63 @@ function occupiedSlotCount(slots: RavenStructureSlot[]) {
 
 function RavenSlotLane({
   bodyId,
+  bodyName,
   lane,
   capacity,
   slots,
   selectedPlacementIndex,
   selectedProjectedPlacementIndex,
   onSelect,
+  onRequestAddStructure,
 }: {
   bodyId: string;
+  bodyName: string;
   lane: RavenLane;
   capacity: number | null;
   slots: RavenStructureSlot[];
   selectedPlacementIndex: number | null;
   selectedProjectedPlacementIndex: number | null;
   onSelect: (selection: TopologySelection) => void;
+  onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
 }) {
   const knownCount = capacity == null ? '?' : String(capacity);
   const laneLabel = lane === 'orbital' ? `O${knownCount}` : `S${knownCount}`;
+  const plannerLane = ravenLaneToPlannerLane(lane);
+  const addLabel = lane === 'orbital'
+    ? `Add orbit structure to ${bodyName}`
+    : `Add surface structure to ${bodyName}`;
+  const requestAdd = onRequestAddStructure
+    ? () => onRequestAddStructure(bodyId, plannerLane)
+    : undefined;
 
   return (
     <div data-testid={`${bodyId}-${lane}-lane`} className="flex min-w-0 items-center gap-2 pr-2">
-      <span className="w-10 shrink-0 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">{laneLabel}</span>
+      <span className="flex w-14 shrink-0 items-center gap-1 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">
+        <span>{laneLabel}</span>
+        {requestAdd && (
+          <button
+            type="button"
+            data-testid={`${bodyId}-${lane}-add`}
+            aria-label={addLabel}
+            title={addLabel}
+            onClick={requestAdd}
+            className="grid h-5 w-5 place-items-center rounded border border-orange/45 bg-orange/10 text-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70"
+          >
+            <Plus size={12} />
+          </button>
+        )}
+      </span>
       <div className="flex min-w-0 flex-wrap gap-1.5">
         {slots.map((slot, index) => (
           <RavenSlotBox
             key={slot.id}
             slot={slot}
+            lane={lane}
+            bodyName={bodyName}
             testId={`${bodyId}-${lane}-slot-${index}`}
             selected={(slot.placementIndex != null && slot.placementIndex === selectedPlacementIndex) || (slot.projectionIndex != null && slot.projectionIndex === selectedProjectedPlacementIndex)}
             onSelect={onSelect}
+            onAdd={slot.kind === 'empty' ? requestAdd : undefined}
           />
         ))}
       </div>
@@ -492,14 +529,20 @@ function RavenSlotLane({
 
 function RavenSlotBox({
   slot,
+  lane,
+  bodyName,
   testId,
   selected,
   onSelect,
+  onAdd,
 }: {
   slot: RavenStructureSlot;
+  lane: RavenLane;
+  bodyName: string;
   testId: string;
   selected: boolean;
   onSelect: (selection: TopologySelection) => void;
+  onAdd?: () => void;
 }) {
   const primaryEconomy = slot.economySegments[0]?.economy;
   const color = primaryEconomy ? ECONOMY_COLORS[primaryEconomy] : undefined;
@@ -547,6 +590,25 @@ function RavenSlotBox({
       ? { type: 'projected-placement' as const, placementIndex: slot.projectionIndex }
       : null;
 
+  if (!selectionTarget && slot.kind === 'empty' && onAdd) {
+    const addLabel = lane === 'orbital'
+      ? `Add orbit structure to ${bodyName} from empty slot`
+      : `Add surface structure to ${bodyName} from empty slot`;
+    return (
+      <button
+        type="button"
+        data-testid={testId}
+        title={addLabel}
+        aria-label={addLabel}
+        onClick={onAdd}
+        className={className}
+        style={slotStyle}
+      >
+        {content}
+      </button>
+    );
+  }
+
   if (!selectionTarget) {
     return (
       <span data-testid={testId} title={slot.title} className={className} style={slotStyle}>
@@ -568,6 +630,10 @@ function RavenSlotBox({
       {content}
     </button>
   );
+}
+
+function ravenLaneToPlannerLane(lane: RavenLane): BodyPlannerLane {
+  return lane === 'ground' ? 'surface' : 'orbital';
 }
 
 function StructureEconomyMicroBar({ segments }: { segments: RavenEconomySegment[] }) {

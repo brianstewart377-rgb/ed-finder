@@ -5,8 +5,15 @@ import type { FacilityTemplate, SimulateBuildPlacement, SimulationSummary, Syste
 import { getFacilityTemplates, getSimulationSummary, getSlotPredictions } from '@/lib/api';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
+import { bodyDisplayName } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
 import { archetypeFromEconomy, resequence } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import type { BodyPlannerLane } from './BodySlotPlanner';
+import {
+  CanvasStructurePicker,
+  laneDisabledReason,
+  templateCanFitBody,
+  templateMatchesLane,
+} from './CanvasStructurePicker';
 import {
   describeTopologySelection,
   type TopologyPlanSnapshot,
@@ -33,6 +40,8 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   const [telemetryDockOpen, setTelemetryDockOpen] = useState(false);
   const [workspaceCommand, setWorkspaceCommand] = useState<PlannerWorkspaceCommand | null>(null);
   const [lastHandledWorkspaceCommandToken, setLastHandledWorkspaceCommandToken] = useState(0);
+  const [structurePicker, setStructurePicker] = useState<{ bodyId: string; lane: BodyPlannerLane } | null>(null);
+  const [structureAddFeedback, setStructureAddFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const workspaceCommandToken = useRef(0);
   const appliedProjectFingerprint = useRef<string | null>(null);
 
@@ -64,6 +73,8 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     setSelection({ type: 'system' });
     setPlacements([]);
     setProjection(null);
+    setStructurePicker(null);
+    setStructureAddFeedback(null);
     setTargetArchetype(archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy) ?? 'refinery_industrial');
     appliedProjectFingerprint.current = null;
   }, [system.economy_suggestion, system.id64, system.primary_economy]);
@@ -116,6 +127,10 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   );
   const selectedPlacementIndex = selection.type === 'placement' ? selection.placementIndex : null;
   const selectedProjectedPlacementIndex = selection.type === 'projected-placement' ? selection.placementIndex : null;
+  const pickerBody = useMemo(() => {
+    if (!structurePicker) return null;
+    return (system.bodies ?? []).find((body) => sameBodyId(body.id, structurePicker.bodyId)) ?? null;
+  }, [structurePicker, system.bodies]);
   const systemEconomyLedger = useMemo(() => buildPlanningEconomyLedger({
     placements,
     projectedPlacements: projection?.placements ?? [],
@@ -127,9 +142,28 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     setAdvancedPanelOpen(true);
   }, []);
 
-  const addStructure = useCallback((bodyId: string, _lane: BodyPlannerLane, templateId: string) => {
+  const requestAddStructure = useCallback((bodyId: string, lane: BodyPlannerLane) => {
+    setSelection({ type: 'body', bodyId });
+    setStructureAddFeedback(null);
+    setStructurePicker({ bodyId, lane });
+  }, []);
+
+  const addStructure = useCallback((bodyId: string, lane: BodyPlannerLane, templateId: string) => {
     const template = templates.find((candidate) => candidate.id === templateId);
-    if (!template) return;
+    if (!template) {
+      return { ok: false as const, message: 'Facility template is no longer available.' };
+    }
+    const body = (system.bodies ?? []).find((candidate) => sameBodyId(candidate.id, bodyId));
+    if (!body) {
+      return { ok: false as const, message: 'Selected body is no longer available.' };
+    }
+    const disabledReason = laneDisabledReason(body, lane);
+    if (disabledReason) {
+      return { ok: false as const, message: disabledReason };
+    }
+    if (!templateMatchesLane(template, lane) || !templateCanFitBody(template, body, lane)) {
+      return { ok: false as const, message: `${templateDisplayName(template)} is not compatible with this ${lane === 'orbital' ? 'orbit' : 'surface'} lane.` };
+    }
     setSelection({ type: 'body', bodyId });
     setPlacements((current) => resequence([
       ...current,
@@ -140,7 +174,20 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
         build_order: current.length + 1,
       },
     ]));
-  }, [templates]);
+    return {
+      ok: true as const,
+      message: `Added ${templateDisplayName(template)} to ${bodyDisplayName(body)}.`,
+    };
+  }, [system.bodies, templates]);
+
+  const pickStructureTemplate = useCallback((templateId: string) => {
+    if (!structurePicker) return;
+    const result = addStructure(structurePicker.bodyId, structurePicker.lane, templateId);
+    setStructureAddFeedback({ tone: result.ok ? 'success' : 'error', message: result.message });
+    if (result.ok) {
+      setStructurePicker(null);
+    }
+  }, [addStructure, structurePicker]);
 
   const issueWorkspaceCommand = useCallback((kind: PlannerWorkspaceCommand['kind'], bodyId: string, templateId?: string | null) => {
     workspaceCommandToken.current += 1;
@@ -191,6 +238,33 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
           unsavedChanges={projectState.unsavedChanges}
           economyLedger={systemEconomyLedger}
         />
+        {(structurePicker || structureAddFeedback) && (
+          <div className="space-y-2" data-testid="canvas-structure-picker-region">
+            {structureAddFeedback && (
+              <p
+                role={structureAddFeedback.tone === 'error' ? 'alert' : 'status'}
+                data-testid="canvas-add-structure-feedback"
+                className={[
+                  'rounded border px-3 py-2 text-sm leading-relaxed',
+                  structureAddFeedback.tone === 'error'
+                    ? 'border-gold/35 bg-gold/10 text-gold'
+                    : 'border-green/35 bg-green/10 text-green',
+                ].join(' ')}
+              >
+                {structureAddFeedback.message}
+              </p>
+            )}
+            <CanvasStructurePicker
+              body={pickerBody}
+              lane={structurePicker?.lane ?? null}
+              templates={templates}
+              templatesLoading={templatesQuery.isLoading}
+              templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
+              onClose={() => setStructurePicker(null)}
+              onPickTemplate={pickStructureTemplate}
+            />
+          </div>
+        )}
         <RavenStylePlannerCanvas
           system={system}
           snapshot={planSnapshot}
@@ -205,7 +279,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
               selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
               templatesLoading={templatesQuery.isLoading}
               templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
-              onAddStructure={addStructure}
+              onRequestAddStructure={requestAddStructure}
               onOpenAdvanced={openAdvanced}
               onReviewStructures={reviewBodyStructures}
               onClose={() => setSelection({ type: 'system' })}
@@ -215,6 +289,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
             />
           ) : null}
           onSelect={setSelection}
+          onRequestAddStructure={requestAddStructure}
         />
         <AdvancedPlannerDrawer
           open={advancedPanelOpen}
@@ -345,4 +420,9 @@ function projectionEqual(
   if (a.candidateId !== b.candidateId) return false;
   if (a.label !== b.label) return false;
   return placementsEqual(a.placements, b.placements);
+}
+
+function templateDisplayName(template: FacilityTemplate): string {
+  const displayName = (template as unknown as { display_name?: unknown }).display_name;
+  return typeof displayName === 'string' && displayName.trim() ? displayName.trim() : template.name;
 }

@@ -434,3 +434,31 @@ Stage 17N refines the Stage 17M shape without reopening the three-column split. 
 The telemetry panel now has projection comparison controls for Bodies, Economy, and Slots. These controls make Suggested Build ghosts easier to evaluate before any load action: bodies compare current Build Plan coverage with projected ghost bodies, economy shows planned plus projected counts by template economy, and slots summarize projected orbital/ground/unknown lane pressure and overflow risk. The controls are read-only and do not run Preview, generate, load, save, import, mutate observations, or call RavenColonial.
 
 The summary rail is compact by default, showing save state, build counts, warning count, focus, projection label, and economy strip. Local project controls remain available only after manual expansion.
+
+## Stage 17N.1 Core Interaction Repair
+
+Stage 17N.1 makes the Raven-style whole-system canvas a working manual editing surface, not only a viewer.
+
+Implemented behavior:
+
+- visible Raven row add controls and empty slot clicks open a lane-aware structure picker
+- the picker displays the selected body, requested orbit/surface lane, compatible count, structure name, category/type, economy, tier, pad, and location metadata
+- water-world and non-landable surface attempts show disabled reasons instead of silently doing nothing
+- incompatible templates are hidden and counted
+- template selection writes through the same local Build Plan placement state used by Advanced Planner
+- added structures immediately render in the Raven whole-system lane and the selected-body inline detail
+- project unsaved state updates from the same placement snapshot
+
+Explicit non-behavior:
+
+- opening the picker does not mount Advanced Planner
+- adding a structure does not run Preview
+- adding a structure does not generate Suggested Builds
+- projected ghost slot clicks remain selection/context only and do not load a candidate
+
+Remaining manual editing gaps:
+
+- no drag/drop placement movement
+- no explicit slot index persistence
+- no per-placement lane storage for truly flexible/unknown structures; lane-specific pickers therefore only show templates that the current placement model can render reliably into that lane
+- no Architect observed slot storage

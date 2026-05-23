@@ -323,4 +323,99 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect(within(screen.getByTestId('body-planning-economy')).getByText(/Agri/i)).toBeTruthy();
     });
   });
+
+  it('adds structures directly from Raven canvas slots without Preview, generation, or Advanced Planner dependency', async () => {
+    mockedApiSystem.mockResolvedValue(slotMapSystem);
+    mockedGetFacilityTemplates.mockResolvedValue(templates);
+    mockedGetSimulationSummary.mockResolvedValue({
+      classification: { primary_archetype: 'refinery_industrial' },
+      buildability: { recommended_build_order: [] },
+      regional_context: null,
+    } as unknown as SimulationSummary);
+    mockedGetSlotPredictions.mockResolvedValue({
+      system_id64: 123,
+      data_source: 'eddn',
+      body_count: 1,
+      predicted_orbital_slots_total: 4,
+      predicted_ground_slots_total: 5,
+      prediction_status: 'predicted',
+      prediction_version: 'validated-slot-v1',
+      confidence_label: 'validated_high_accuracy',
+      disclaimer: 'Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode.',
+      validation_note: 'Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.',
+      required_input_missing: [],
+      predictions: [
+        {
+          system_address: 123,
+          body_id: 1,
+          body_name: 'Body 1',
+          predicted_orbital_slots: 4,
+          predicted_ground_slots: 5,
+          prediction_status: 'predicted',
+          reasons: [],
+        },
+      ],
+    } as any);
+
+    renderWorkspace();
+
+    await screen.findByTestId('raven-real-body-row-1');
+    await waitFor(() => {
+      expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
+      expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId('1-orbital-add'));
+    const orbitalPicker = await screen.findByTestId('body-structure-picker');
+    expect(orbitalPicker).toBeTruthy();
+    expect(within(orbitalPicker).getByRole('heading', { name: 'Body 1' })).toBeTruthy();
+    expect(within(orbitalPicker).getByText(/Add orbit structure/i)).toBeTruthy();
+    expect(within(orbitalPicker).getByText(/1 compatible option shown/i)).toBeTruthy();
+    expect(screen.getByTestId('body-structure-template-orbital_port')).toBeTruthy();
+    expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Close structure picker/i }));
+
+    fireEvent.click(screen.getByTestId('1-ground-add'));
+    const surfaceAddPicker = await screen.findByTestId('body-structure-picker');
+    expect(surfaceAddPicker).toBeTruthy();
+    expect(within(surfaceAddPicker).getByText(/Add surface structure/i)).toBeTruthy();
+    expect(screen.getByTestId('body-structure-template-surface_hub')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Close structure picker/i }));
+
+    fireEvent.click(screen.getByTestId('1-orbital-slot-3'));
+    expect(within(await screen.findByTestId('body-structure-picker')).getByText(/Add orbit structure/i)).toBeTruthy();
+    fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Added Orbital Port to Body 1.');
+      expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '')).toMatch(/Orbital|Port/i);
+      expect(screen.getByTestId('raven-inline-body-expansion-1')).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-items-orbital')).getByText(/Orbital Port/i)).toBeTruthy();
+      expect(within(screen.getByTestId('planner-status-strip')).getByText('1 planned')).toBeTruthy();
+      expect(within(screen.getByTestId('planner-status-strip')).getByText('Unsaved changes')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId('1-ground-slot-4'));
+    expect(within(await screen.findByTestId('body-structure-picker')).getByText(/Add surface structure/i)).toBeTruthy();
+    fireEvent.click(screen.getByTestId('body-structure-template-surface_hub'));
+    await waitFor(() => {
+      expect((screen.getByTestId('1-ground-slot-0').textContent ?? '')).toMatch(/Surface|Hub/i);
+      expect(within(screen.getByTestId('slot-lane-surface')).getByText('1/5 planned')).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-items-surface')).getByText(/Surface Hub/i)).toBeTruthy();
+      expect(within(screen.getByTestId('planner-status-strip')).getByText('2 planned')).toBeTruthy();
+    });
+
+    expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Copy to Build Plan/i })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('advanced-workspace-toggle'));
+    const advanced = await screen.findByTestId('advanced-planner-content');
+    expect(within(advanced).getByText('2 placements in Build Plan')).toBeTruthy();
+    expect(within(advanced).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);
+    expect(within(advanced).getAllByText(/Surface Hub/i).length).toBeGreaterThan(0);
+    expect(mockedSimulateBuild).not.toHaveBeenCalled();
+    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
 });
