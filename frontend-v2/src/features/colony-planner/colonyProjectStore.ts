@@ -33,11 +33,12 @@ export interface ColonyProjectInput {
 }
 
 interface ColonyProjectState {
-  projects: ColonyProject[];
+  projects: Record<string, ColonyProject>;
   saveProject: (projectId: string | null, input: ColonyProjectInput) => ColonyProject;
   renameProject: (projectId: string, name: string) => void;
   duplicateProject: (projectId: string) => ColonyProject | null;
   archiveProject: (projectId: string) => void;
+  deleteProject: (projectId: string) => void;
 }
 
 const STORAGE_KEY = 'ed_colony_projects_v1';
@@ -45,10 +46,10 @@ const STORAGE_KEY = 'ed_colony_projects_v1';
 export const useColonyProjectStore = create<ColonyProjectState>()(
   persist(
     (set, get) => ({
-      projects: [],
+      projects: {},
       saveProject: (projectId, input) => {
         const now = new Date().toISOString();
-        const existing = projectId ? get().projects.find((project) => project.id === projectId) ?? null : null;
+        const existing = projectId ? get().projects[projectId] ?? null : null;
         const project: ColonyProject = {
           id: existing?.id ?? createProjectId(input.system_id64),
           system_id64: input.system_id64,
@@ -64,26 +65,24 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
           updated_at: now,
           archived_at: null,
         };
-        set({
-          projects: [
-            project,
-            ...get().projects.filter((item) => item.id !== project.id),
-          ],
-        });
+        set((state) => ({ projects: { ...state.projects, [project.id]: project } }));
         return project;
       },
       renameProject: (projectId, name) => {
         const trimmed = name.trim();
         if (!trimmed) return;
+        const project = get().projects[projectId];
+        if (!project) return;
         const now = new Date().toISOString();
-        set({
-          projects: get().projects.map((project) => (
-            project.id === projectId ? { ...project, project_name: trimmed, updated_at: now } : project
-          )),
-        });
+        set((state) => ({
+          projects: {
+            ...state.projects,
+            [projectId]: { ...project, project_name: trimmed, updated_at: now },
+          },
+        }));
       },
       duplicateProject: (projectId) => {
-        const source = get().projects.find((project) => project.id === projectId);
+        const source = get().projects[projectId];
         if (!source) return null;
         const now = new Date().toISOString();
         const duplicate: ColonyProject = {
@@ -98,21 +97,41 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
           updated_at: now,
           archived_at: null,
         };
-        set({ projects: [duplicate, ...get().projects] });
+        set((state) => ({ projects: { ...state.projects, [duplicate.id]: duplicate } }));
         return duplicate;
       },
       archiveProject: (projectId) => {
+        const project = get().projects[projectId];
+        if (!project) return;
         const now = new Date().toISOString();
-        set({
-          projects: get().projects.map((project) => (
-            project.id === projectId ? { ...project, archived_at: now, updated_at: now } : project
-          )),
+        set((state) => ({
+          projects: {
+            ...state.projects,
+            [projectId]: { ...project, archived_at: now, updated_at: now },
+          },
+        }));
+      },
+      deleteProject: (projectId) => {
+        set((state) => {
+          const projects = { ...state.projects };
+          delete projects[projectId];
+          return { projects };
         });
       },
     }),
     {
       name: STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
+      version: 2,
+      migrate: (persistedState) => ({
+        ...(persistedState as Partial<ColonyProjectState> | undefined),
+        projects: normaliseProjectRecord((persistedState as { projects?: unknown } | undefined)?.projects),
+      }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...(persistedState as Partial<ColonyProjectState> | undefined),
+        projects: normaliseProjectRecord((persistedState as { projects?: unknown } | undefined)?.projects),
+      }),
     },
   ),
 );
@@ -172,6 +191,30 @@ function bodyAssignments(placements: SimulateBuildPlacement[]) {
   return placements.reduce<Record<number, string | null>>((assignments, placement, index) => {
     assignments[index] = placement.local_body_id ?? null;
     return assignments;
+  }, {});
+}
+
+function normaliseProjectRecord(projects: unknown): Record<string, ColonyProject> {
+  const entries = Array.isArray(projects)
+    ? projects
+    : projects && typeof projects === 'object'
+      ? Object.values(projects)
+      : [];
+
+  return entries.reduce<Record<string, ColonyProject>>((record, project) => {
+    if (!project || typeof project !== 'object') return record;
+    const candidate = project as ColonyProject;
+    if (!candidate.id) return record;
+    record[candidate.id] = {
+      ...candidate,
+      build_plan_placements: clonePlacements(candidate.build_plan_placements),
+      selected_body_assignments: candidate.selected_body_assignments && typeof candidate.selected_body_assignments === 'object'
+        ? candidate.selected_body_assignments
+        : {},
+      declared_roles: normaliseDeclaredRoles(candidate.declared_roles),
+      archived_at: candidate.archived_at ?? null,
+    };
+    return record;
   }, {});
 }
 

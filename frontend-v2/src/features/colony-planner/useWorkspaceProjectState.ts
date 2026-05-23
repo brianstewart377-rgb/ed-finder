@@ -17,12 +17,13 @@ import {
 import { projectRequestFromProject } from './workspaceUtils';
 
 export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: TopologyPlanSnapshot) {
-  const projects = useColonyProjectStore((state) => state.projects);
+  const projectRecord = useColonyProjectStore((state) => state.projects);
   const saveProject = useColonyProjectStore((state) => state.saveProject);
   const renameProject = useColonyProjectStore((state) => state.renameProject);
   const duplicateProject = useColonyProjectStore((state) => state.duplicateProject);
   const archiveProject = useColonyProjectStore((state) => state.archiveProject);
 
+  const projects = useMemo(() => Object.values(projectRecord), [projectRecord]);
   const systemProjects = useMemo(() => activeProjectsForSystem(projects, system.id64), [projects, system.id64]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => systemProjects[0]?.id ?? null);
   const [pendingProjectId, setPendingProjectId] = useState<string>('');

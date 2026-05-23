@@ -215,10 +215,15 @@ function renderPlanner(props?: Partial<Parameters<typeof ColonyPlannerWorkspace>
   );
 }
 
+function storedProjectByName(projectName: string) {
+  return Object.values(useColonyProjectStore.getState().projects)
+    .find((project) => project.project_name === projectName) ?? null;
+}
+
 describe('ColonyPlannerWorkspace', () => {
   beforeEach(() => {
     localStorage.clear();
-    useColonyProjectStore.setState({ projects: [] });
+    useColonyProjectStore.setState({ projects: {} });
     mockedSimulationPreviewPanel.mockClear();
     mockedUseSystemDetail.mockReturnValue({
       data: null,
@@ -242,7 +247,7 @@ describe('ColonyPlannerWorkspace', () => {
     mockedGetSimulationSummary.mockReset();
     mockedGetSlotPredictions.mockReset();
     localStorage.clear();
-    useColonyProjectStore.setState({ projects: [] });
+    useColonyProjectStore.setState({ projects: {} });
   });
 
   it('renders a no-system state for direct #colony-planner visits', () => {
@@ -509,40 +514,41 @@ describe('ColonyPlannerWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
 
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');
-    expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Local starter');
-    expect(useColonyProjectStore.getState().projects[0].build_plan_placements).toHaveLength(1);
-    expect(useColonyProjectStore.getState().projects[0].declared_roles).toEqual([]);
+    expect(storedProjectByName('Local starter')?.build_plan_placements).toHaveLength(1);
+    expect(storedProjectByName('Local starter')?.declared_roles).toEqual([]);
 
     fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Renamed local starter' } });
     fireEvent.click(screen.getByRole('button', { name: 'Rename project' }));
-    expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Renamed local starter');
+    expect(storedProjectByName('Renamed local starter')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Duplicate project' }));
-    expect(useColonyProjectStore.getState().projects[0].project_name).toBe('Renamed local starter copy');
-    expect(useColonyProjectStore.getState().projects[0].declared_roles).toEqual([]);
+    expect(storedProjectByName('Renamed local starter copy')).toBeTruthy();
+    expect(storedProjectByName('Renamed local starter copy')?.declared_roles).toEqual([]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete / archive project' }));
     expect(screen.getByText(/Archive this local project/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Archive project' }));
-    expect(useColonyProjectStore.getState().projects[0].archived_at).toBeTruthy();
+    expect(storedProjectByName('Renamed local starter copy')?.archived_at).toBeTruthy();
   });
 
   it('loads old local projects without declared roles safely', async () => {
     useColonyProjectStore.setState({
-      projects: [{
-        id: 'old-project',
-        system_id64: 123,
-        system_name: 'Workspace System',
-        project_name: 'Old project',
-        build_plan_placements: [],
-        selected_body_assignments: {},
-        target_archetype: 'refinery_industrial',
-        notes: 'No role field.',
-        status: 'draft',
-        created_at: '2026-05-01T00:00:00.000Z',
-        updated_at: '2026-05-01T00:00:00.000Z',
-        archived_at: null,
-      } as never],
+      projects: {
+        'old-project': {
+          id: 'old-project',
+          system_id64: 123,
+          system_name: 'Workspace System',
+          project_name: 'Old project',
+          build_plan_placements: [],
+          selected_body_assignments: {},
+          target_archetype: 'refinery_industrial',
+          notes: 'No role field.',
+          status: 'draft',
+          created_at: '2026-05-01T00:00:00.000Z',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          archived_at: null,
+        } as never,
+      },
     });
     mockedUseSystemDetail.mockReturnValue({
       data: system,
