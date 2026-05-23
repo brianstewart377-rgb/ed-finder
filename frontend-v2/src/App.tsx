@@ -29,6 +29,57 @@ import { EddnTicker } from '@/features/eddn/EddnTicker';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
 import './index.css';
 
+const COALSACK_BG_VERSION = 'v=2';
+const COALSACK_BG_2560 = 'coalsack-2560.jpg';
+const COALSACK_BG_1600 = 'coalsack-1600.jpg';
+
+function coalsackBackgroundCandidates(fileName: string): string[] {
+  const base = import.meta.env.BASE_URL || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return Array.from(new Set([
+    // Production can serve the app bundle from / while the v2 image assets live under /v2.
+    `/v2/bg/${fileName}?${COALSACK_BG_VERSION}`,
+    `${normalizedBase}bg/${fileName}?${COALSACK_BG_VERSION}`,
+    `/bg/${fileName}?${COALSACK_BG_VERSION}`,
+  ]));
+}
+
+async function resolveCoalsackBackgroundUrl(fileName: string): Promise<string> {
+  const candidates = coalsackBackgroundCandidates(fileName);
+  if (typeof fetch !== 'function') return candidates[0];
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(candidate, { method: 'HEAD', cache: 'no-cache' });
+      const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+      if (response.ok && contentType.startsWith('image/')) {
+        return candidate;
+      }
+    } catch {
+      // Try the next known deployment path.
+    }
+  }
+
+  return candidates[0];
+}
+
+function setCoalsackBackgroundVariables(): () => void {
+  let cancelled = false;
+  const root = document.documentElement;
+
+  void resolveCoalsackBackgroundUrl(COALSACK_BG_2560).then((url) => {
+    if (!cancelled) root.style.setProperty('--coalsack-bg-2560', `url("${url}")`);
+  });
+
+  void resolveCoalsackBackgroundUrl(COALSACK_BG_1600).then((url) => {
+    if (!cancelled) root.style.setProperty('--coalsack-bg-1600', `url("${url}")`);
+  });
+
+  return () => {
+    cancelled = true;
+  };
+}
+
 /**
  * v2 root: NavBar + tab content + system-detail modal overlay.
  *
@@ -53,12 +104,7 @@ export default function App() {
 function AppInner() {
   const hashRoute = useHashRoute();
 
-  useEffect(() => {
-    const base = import.meta.env.BASE_URL || '/';
-    const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-    document.documentElement.style.setProperty('--coalsack-bg-2560', `url("${normalizedBase}bg/coalsack-2560.jpg?v=2")`);
-    document.documentElement.style.setProperty('--coalsack-bg-1600', `url("${normalizedBase}bg/coalsack-1600.jpg?v=2")`);
-  }, []);
+  useEffect(() => setCoalsackBackgroundVariables(), []);
 
   if (hashRoute.route === 'colony-planner-prototype') {
     return <PrototypeAppShell navigate={hashRoute.navigate} />;
