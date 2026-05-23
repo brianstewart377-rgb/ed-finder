@@ -1,6 +1,7 @@
 import type { FacilityTemplate, SimulateBuildPlacement } from '@/types/api';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import { normalisePlanningEconomy, type PlanningEconomyName } from './planningEconomy';
+import { contextualEconomyLabel, structureFamilyLabel, templateDisplayName } from './structurePlanningRules';
 
 export function ProjectedStructureSlot({
   item,
@@ -23,8 +24,9 @@ export function ProjectedStructureSlot({
       : location === 'both'
         ? 'Orbit or Surface'
         : 'Unknown';
-  const label = item.template?.name ?? item.placement.facility_template_id;
+  const label = item.template ? templateDisplayName(item.template) : item.placement.facility_template_id;
   const economy = normalisePlanningEconomy(item.template?.economy);
+  const economyContext = contextualEconomyLabel(item.template);
   const className = [
     'relative flex min-h-[3.75rem] min-w-[11rem] flex-col justify-between overflow-hidden rounded border border-cyan/35 bg-cyan/8 px-2 py-2 pb-3 text-left',
     selected ? 'ring-2 ring-cyan/70 shadow-[0_0_18px_rgba(125,211,252,0.18)]' : '',
@@ -37,9 +39,16 @@ export function ProjectedStructureSlot({
       </div>
       <div className="mt-1 flex flex-wrap gap-1">
         <SlotChip label={locationLabel} />
+        {item.template && <SlotChip label={structureFamilyLabel(item.template)} />}
         {item.template?.economy && <SlotChip label={item.template.economy} />}
+        {!item.template?.economy && economyContext && <SlotChip label="contextual economy" />}
         <SlotChip label="projected" tone="strong" />
       </div>
+      {economyContext && (
+        <div data-testid="projected-structure-contextual-economy" className="mt-1 text-[10px] leading-snug text-cyan">
+          {economyContext}
+        </div>
+      )}
       {economy && <StructureEconomyMicroBar economy={economy} />}
     </>
   );

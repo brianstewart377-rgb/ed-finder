@@ -15,7 +15,6 @@ import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext 
 import { SlotCapacityDots, type BodyPlannerLane } from './BodySlotPlanner';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import {
-  ESTIMATED_SLOT_LAYOUT_DISCLAIMER,
   buildBodyDataSlotEstimateMap,
   resolveSlotCapacity,
   systemBodyData,
@@ -27,6 +26,15 @@ import {
   type PlanningEconomyLedger,
   type PlanningEconomyName,
 } from './planningEconomy';
+import {
+  contextualEconomyLabel,
+  contextualRoleLabel,
+  laneDisabledReason,
+  missingPrerequisitesForPlacement,
+  prerequisiteSummaryLabel,
+  templateDisplayName,
+  type PrerequisiteIssue,
+} from './structurePlanningRules';
 
 type RavenLane = 'orbital' | 'ground';
 type RavenSlotKind = 'empty' | 'planned' | 'projected' | 'unknown' | 'overflow';
@@ -50,6 +58,8 @@ export interface RavenStructureSlot {
   projectionIndex: number | null;
   buildOrder: number | null;
   status: 'planned' | 'projected' | 'unknown';
+  economyContextLabel: string | null;
+  warningLabels: string[];
 }
 
 interface BgsTelemetryStat {
@@ -109,6 +119,7 @@ interface StructureBucketItem {
   template?: FacilityTemplate;
   index: number;
   projected: boolean;
+  warningLabels: string[];
 }
 
 const ECONOMY_COLORS: Record<PlanningEconomyName, string> = {
@@ -136,6 +147,7 @@ export function RavenStylePlannerCanvas({
   expandedBodyDetail,
   onSelect,
   onRequestAddStructure,
+  prerequisiteIssues = [],
 }: {
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
@@ -143,6 +155,7 @@ export function RavenStylePlannerCanvas({
   expandedBodyDetail?: ReactNode;
   onSelect: (selection: TopologySelection) => void;
   onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
+  prerequisiteIssues?: PrerequisiteIssue[];
 }) {
   const rows = buildRavenPlannerRows(system, snapshot);
   const selectedBodyId = selection.type === 'body'
@@ -171,9 +184,9 @@ export function RavenStylePlannerCanvas({
             <Network size={16} />
           </div>
           <div className="min-w-0">
-            <h2 className="font-display text-lg text-orange">Whole-System Build Canvas</h2>
+            <h2 className="font-display text-lg text-orange">System Build Map</h2>
             <p className="truncate text-xs leading-relaxed text-silver">
-              Real bodies, validated slot predictions, Build Plan placements, and selected Suggested Build projection.
+              Plan structures directly into predicted orbital and surface slots.
             </p>
           </div>
         </div>
@@ -186,7 +199,7 @@ export function RavenStylePlannerCanvas({
       </header>
       {hasEstimatedSlots && (
         <div data-testid="raven-slot-estimate-disclaimer" className="border-b border-gold/25 bg-gold/8 px-3 py-2 font-mono text-[10px] italic text-gold">
-          {ESTIMATED_SLOT_LAYOUT_DISCLAIMER}
+          Predicted slots - verify in Architect Mode.
         </div>
       )}
 
@@ -215,6 +228,7 @@ export function RavenStylePlannerCanvas({
                 gridStyle={gridStyle}
                 onSelect={onSelect}
                 onRequestAddStructure={onRequestAddStructure}
+                prerequisiteIssues={prerequisiteIssues}
               />
             ))}
           </div>
@@ -228,12 +242,14 @@ export function RavenPlannerTelemetryPanel({
   system,
   snapshot,
   economyLedger,
+  prerequisiteIssues = [],
   selectedContext,
   selection,
 }: {
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
   economyLedger: PlanningEconomyLedger;
+  prerequisiteIssues?: PrerequisiteIssue[];
   selectedContext: TopologySelectionContext;
   selection: TopologySelection;
 }) {
@@ -247,7 +263,7 @@ export function RavenPlannerTelemetryPanel({
   const selectedProjectedCount = selectedBodyId ? countBodyPlacements(snapshot.projection?.placements ?? [], selectedBodyId) : 0;
   const bodyDetail = buildSelectedBodyTelemetryDetail(rows, snapshot, selection);
   const structureDetail = buildSelectedStructureTelemetryDetail(system, snapshot, selection);
-  const warningItems = buildTelemetryWarningItems(system, snapshot, economyLedger, selectedContext);
+  const warningItems = buildTelemetryWarningItems(system, snapshot, economyLedger, selectedContext, prerequisiteIssues);
 
   return (
     <aside
@@ -327,6 +343,7 @@ function RavenPlannerBodyRow({
   gridStyle,
   onSelect,
   onRequestAddStructure,
+  prerequisiteIssues,
 }: {
   row: RavenPlannerRow;
   selected: boolean;
@@ -336,12 +353,14 @@ function RavenPlannerBodyRow({
   gridStyle: CSSProperties;
   onSelect: (selection: TopologySelection) => void;
   onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
+  prerequisiteIssues: PrerequisiteIssue[];
 }) {
   const rowTone = selected
     ? 'bg-orange/10 shadow-[inset_3px_0_0_rgba(255,122,20,0.95)]'
     : row.projected
-      ? 'bg-cyan/5 hover:bg-cyan/10'
-      : 'bg-transparent hover:bg-bg3/35';
+      ? 'bg-cyan/5'
+      : 'bg-transparent';
+  const surfaceDisabledReason = laneDisabledReason(row.body, 'surface');
 
   return (
     <div
@@ -368,6 +387,7 @@ function RavenPlannerBodyRow({
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
           onSelect={onSelect}
           onRequestAddStructure={onRequestAddStructure}
+          prerequisiteIssues={prerequisiteIssues}
         />
         <RavenSlotLane
           bodyId={row.id}
@@ -379,6 +399,8 @@ function RavenPlannerBodyRow({
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
           onSelect={onSelect}
           onRequestAddStructure={onRequestAddStructure}
+          disabledReason={surfaceDisabledReason}
+          prerequisiteIssues={prerequisiteIssues}
         />
       </div>
       {selected && expandedDetail && (
@@ -471,6 +493,8 @@ function RavenSlotLane({
   selectedProjectedPlacementIndex,
   onSelect,
   onRequestAddStructure,
+  disabledReason,
+  prerequisiteIssues,
 }: {
   bodyId: string;
   bodyName: string;
@@ -481,6 +505,8 @@ function RavenSlotLane({
   selectedProjectedPlacementIndex: number | null;
   onSelect: (selection: TopologySelection) => void;
   onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
+  disabledReason?: string | null;
+  prerequisiteIssues: PrerequisiteIssue[];
 }) {
   const knownCount = capacity == null ? '?' : String(capacity);
   const laneLabel = lane === 'orbital' ? `O${knownCount}` : `S${knownCount}`;
@@ -488,22 +514,23 @@ function RavenSlotLane({
   const addLabel = lane === 'orbital'
     ? `Add orbit structure to ${bodyName}`
     : `Add surface structure to ${bodyName}`;
-  const requestAdd = onRequestAddStructure
+  const requestAdd = onRequestAddStructure && !disabledReason
     ? () => onRequestAddStructure(bodyId, plannerLane)
     : undefined;
 
   return (
-    <div data-testid={`${bodyId}-${lane}-lane`} className="flex min-w-0 items-center gap-2 pr-2">
+    <div data-testid={`${bodyId}-${lane}-lane`} data-disabled={disabledReason ? 'true' : 'false'} className="flex min-w-0 items-center gap-2 pr-2">
       <span className="flex w-14 shrink-0 items-center gap-1 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">
         <span>{laneLabel}</span>
-        {requestAdd && (
+        {onRequestAddStructure && (
           <button
             type="button"
             data-testid={`${bodyId}-${lane}-add`}
             aria-label={addLabel}
-            title={addLabel}
+            title={disabledReason ?? `Quick ${addLabel.toLowerCase()}`}
+            disabled={Boolean(disabledReason)}
             onClick={requestAdd}
-            className="grid h-5 w-5 place-items-center rounded border border-orange/45 bg-orange/10 text-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70"
+            className="grid h-5 w-5 place-items-center rounded border border-orange/45 bg-orange/10 text-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
           >
             <Plus size={12} />
           </button>
@@ -520,8 +547,14 @@ function RavenSlotLane({
             selected={(slot.placementIndex != null && slot.placementIndex === selectedPlacementIndex) || (slot.projectionIndex != null && slot.projectionIndex === selectedProjectedPlacementIndex)}
             onSelect={onSelect}
             onAdd={slot.kind === 'empty' ? requestAdd : undefined}
+            warningCount={slot.placementIndex != null ? prerequisiteIssues.find((issue) => issue.placementIndex === slot.placementIndex)?.missing.length ?? 0 : 0}
           />
         ))}
+        {disabledReason && (
+          <span data-testid={`${bodyId}-${lane}-disabled-reason`} className="rounded border border-gold/35 bg-gold/10 px-1.5 py-1 font-mono text-[10px] text-gold">
+            {disabledReason}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -535,6 +568,7 @@ function RavenSlotBox({
   selected,
   onSelect,
   onAdd,
+  warningCount = 0,
 }: {
   slot: RavenStructureSlot;
   lane: RavenLane;
@@ -543,10 +577,12 @@ function RavenSlotBox({
   selected: boolean;
   onSelect: (selection: TopologySelection) => void;
   onAdd?: () => void;
+  warningCount?: number;
 }) {
   const primaryEconomy = slot.economySegments[0]?.economy;
   const color = primaryEconomy ? ECONOMY_COLORS[primaryEconomy] : undefined;
   const isStructure = slot.kind === 'planned' || slot.kind === 'projected' || slot.kind === 'overflow';
+  const interactive = Boolean(onAdd || slot.placementIndex != null || slot.projectionIndex != null);
   const slotStyle: CSSProperties = {};
   if (slot.kind === 'planned' && color) {
     slotStyle.borderColor = color;
@@ -566,18 +602,22 @@ function RavenSlotBox({
         </span>
       )}
       <span data-testid={isStructure ? 'raven-structure-slot-pill' : undefined} className="max-w-full truncate">
-        {slot.label}
+        {slot.kind === 'empty' && onAdd ? '+ Add' : slot.label}
       </span>
       {slot.economySegments.length > 0 && <StructureEconomyMicroBar segments={slot.economySegments} />}
+      {slot.economyContextLabel && <span data-testid="raven-contextual-economy-chip" className="absolute bottom-0.5 left-1 right-1 truncate text-[8px] text-cyan">Contextual economy</span>}
+      {(warningCount > 0 || slot.warningLabels.length > 0) && (
+        <span data-testid="raven-prerequisite-warning-chip" className="absolute left-1 top-0.5 text-[8px] text-gold">REQ</span>
+      )}
     </>
   );
 
   const className = [
     'group/slot relative flex overflow-hidden rounded border px-1.5 text-center font-mono text-[10px] font-bold uppercase leading-tight transition',
     isStructure ? 'h-10 min-w-[94px] max-w-[138px] items-start justify-center pb-2.5 pt-3' : 'h-8 min-w-[74px] max-w-[112px] items-center justify-center',
-    'hover:-translate-y-0.5 hover:border-orange-lt hover:shadow-brand-glow',
+    interactive && 'hover:-translate-y-0.5 hover:border-orange-lt hover:shadow-brand-glow',
     selected && 'ring-2 ring-orange/70',
-    slot.kind === 'empty' && 'border-border/70 bg-bg2/75 text-silver-2',
+    slot.kind === 'empty' && (onAdd ? 'border-orange/45 bg-orange/10 text-orange' : 'border-border/70 bg-bg2/45 text-silver-2'),
     slot.kind === 'planned' && 'text-silver',
     slot.kind === 'projected' && 'border-dashed text-cyan opacity-80',
     slot.kind === 'unknown' && 'border-dashed border-gold/65 bg-gold/10 text-gold',
@@ -850,6 +890,9 @@ interface StructureTelemetryDetail {
   category: string;
   buildOrder: number | null;
   economySegments: RavenEconomySegment[];
+  economyContextLabel: string | null;
+  roleLabel: string | null;
+  prerequisiteWarnings: string[];
   strength: number | null;
 }
 
@@ -899,8 +942,21 @@ function SelectedStructureTelemetryCard({ detail }: { detail: StructureTelemetry
               tone={detail.status === 'projected' ? 'cyan' : 'orange'}
             />
           ))
-          : <TelemetryChip label="No economy metadata" tone="gold" />}
+          : detail.economyContextLabel
+            ? <TelemetryChip label="Contextual economy" tone="cyan" />
+            : <TelemetryChip label="No economy metadata" tone="gold" />}
+        {detail.roleLabel && <TelemetryChip label={detail.roleLabel} tone="cyan" />}
       </div>
+      {detail.economyContextLabel && (
+        <p data-testid="raven-telemetry-contextual-economy" className="mt-2 rounded border border-cyan/30 bg-cyan/8 px-2 py-1 font-mono text-[10px] leading-snug text-cyan">
+          {detail.economyContextLabel}
+        </p>
+      )}
+      {detail.prerequisiteWarnings.length > 0 && (
+        <p data-testid="raven-telemetry-prerequisite-warning" className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
+          Missing prerequisite: {detail.prerequisiteWarnings.join('; ')}
+        </p>
+      )}
       <p className="mt-2 break-all font-mono text-[10px] text-silver">{detail.templateId}</p>
     </section>
   );
@@ -993,6 +1049,9 @@ function buildSelectedStructureTelemetryDetail(
     category: template?.category ?? 'unknown variant',
     buildOrder: placement.build_order ?? null,
     economySegments: structureEconomySegments(template, projected),
+    economyContextLabel: contextualEconomyLabel(template),
+    roleLabel: contextualRoleLabel(template, placement),
+    prerequisiteWarnings: projected ? [] : missingPrerequisitesForPlacement(placement, snapshot.placements, snapshot.templates),
     strength,
   };
 }
@@ -1002,6 +1061,7 @@ function buildTelemetryWarningItems(
   snapshot: TopologyPlanSnapshot,
   economyLedger: PlanningEconomyLedger,
   selectedContext: TopologySelectionContext,
+  prerequisiteIssues: PrerequisiteIssue[] = [],
 ): string[] {
   const bodies = systemBodyData(system);
   const bodyIds = new Set(bodies.filter((body) => body.id != null).map((body) => bodyIdKey(body.id)));
@@ -1016,6 +1076,7 @@ function buildTelemetryWarningItems(
     unassigned > 0 ? `${unassigned} unassigned` : null,
     unknownBodies > 0 ? `${unknownBodies} unmatched body` : null,
     economyLedger.unknownCount > 0 ? `${economyLedger.unknownCount} no economy metadata` : null,
+    prerequisiteIssues.length > 0 ? prerequisiteSummaryLabel(prerequisiteIssues.length) : null,
     slotGaps > 0 ? `${Math.min(slotGaps, 99)} slot gap${slotGaps === 1 ? '' : 's'}` : null,
   ].filter((item): item is string => Boolean(item)).slice(0, 5);
 }
@@ -1298,7 +1359,8 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
       groundSlots: buildLaneSlots(node.id, 'ground', groundCapacity, groundStructures),
       bodyEconomy: bodyLedger,
       projected: projectedBodyIds.has(node.id),
-      warningCount: countRowWarnings(node.body, prediction, bodyLedger),
+      warningCount: countRowWarnings(node.body, prediction, bodyLedger)
+        + [...planned.orbital, ...planned.ground].filter((item) => item.warningLabels.length > 0).length,
     };
   });
 }
@@ -1421,7 +1483,13 @@ function bucketStructures(
     const template = templatesById.get(placement.facility_template_id);
     const lane = laneForPlacement(template, bodyById.get(bodyId));
     const current = buckets.get(bodyId) ?? emptyStructureBuckets();
-    current[lane].push({ placement, template, index, projected });
+    current[lane].push({
+      placement,
+      template,
+      index,
+      projected,
+      warningLabels: projected ? [] : missingPrerequisitesForPlacement(placement, placements, Array.from(templatesById.values())),
+    });
     buckets.set(bodyId, current);
   });
 
@@ -1465,8 +1533,10 @@ function structureSlot(bodyId: string, lane: RavenLane, item: StructureBucketIte
   const fullName = structureDisplayName(item.template, item.placement.facility_template_id);
   const segments = structureEconomySegments(item.template, item.projected);
   const status = item.projected ? 'projected' : 'planned';
+  const economyContext = contextualEconomyLabel(item.template);
+  const prerequisiteWarnings = item.warningLabels;
   const economyText = segments.length === 0
-    ? 'No economy metadata'
+    ? economyContext ?? 'No economy metadata'
     : segments.map((segment) => {
       const strength = segment.strength == null ? 'strength unavailable' : `+${segment.strength} CP strength`;
       return `${segment.economy} ${segment.share}% share | ${strength}`;
@@ -1477,12 +1547,17 @@ function structureSlot(bodyId: string, lane: RavenLane, item: StructureBucketIte
     kind: item.projected ? 'projected' : 'planned',
     label: `${item.projected ? 'Ghost ' : ''}${compactStructureName(fullName)}`,
     fullName,
-    title: `${fullName} | Status: ${item.projected ? 'Projected Suggested Build' : 'Planned Build Plan'} | ${economyText}`,
+    title: [
+      `${fullName} | Status: ${item.projected ? 'Projected Suggested Build' : 'Planned Build Plan'} | ${economyText}`,
+      prerequisiteWarnings.length > 0 ? `Missing prerequisite: ${prerequisiteWarnings.join('; ')}` : null,
+    ].filter(Boolean).join(' | '),
     economySegments: segments,
     placementIndex: item.projected ? null : item.index,
     projectionIndex: item.projected ? item.index : null,
     buildOrder: item.placement.build_order ?? null,
     status,
+    economyContextLabel: economyContext,
+    warningLabels: prerequisiteWarnings,
   };
 }
 
@@ -1498,6 +1573,8 @@ function unknownSlot(bodyId: string, lane: RavenLane): RavenStructureSlot {
     projectionIndex: null,
     buildOrder: null,
     status: 'unknown',
+    economyContextLabel: null,
+    warningLabels: [],
   };
 }
 
@@ -1513,6 +1590,8 @@ function emptySlot(bodyId: string, lane: RavenLane, index: number, label = ''): 
     projectionIndex: null,
     buildOrder: null,
     status: 'unknown',
+    economyContextLabel: null,
+    warningLabels: [],
   };
 }
 
@@ -1529,6 +1608,8 @@ function overflowSlot(bodyId: string, lane: RavenLane, count: number): RavenStru
     projectionIndex: null,
     buildOrder: null,
     status: 'unknown',
+    economyContextLabel: null,
+    warningLabels: [],
   };
 }
 
@@ -1545,11 +1626,7 @@ function structureEconomySegments(template: FacilityTemplate | undefined, projec
 }
 
 function structureDisplayName(template: FacilityTemplate | undefined, fallback: string): string {
-  const displayCarrier = template as unknown as { display_name?: unknown } | undefined;
-  const displayName = typeof displayCarrier?.display_name === 'string'
-    ? displayCarrier.display_name.trim()
-    : '';
-  return displayName || template?.name || readableTemplateId(fallback);
+  return template ? templateDisplayName(template) : readableTemplateId(fallback);
 }
 
 function compactStructureName(name: string): string {
@@ -1591,7 +1668,7 @@ function laneForPlacement(template: FacilityTemplate | undefined, body: SystemBo
   const location = templateLocationKind(template);
   if (location === 'orbital') return 'orbital';
   if (location === 'surface') return 'ground';
-  if (location === 'both') return template.is_port ? 'orbital' : body?.is_landable === true && body.is_water_world !== true ? 'ground' : 'orbital';
+  if (location === 'both') return fallbackRavenLane(body);
   return fallbackRavenLane(body);
 }
 

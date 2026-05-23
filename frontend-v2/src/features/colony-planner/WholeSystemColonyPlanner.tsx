@@ -5,15 +5,9 @@ import type { FacilityTemplate, SimulateBuildPlacement, SimulationSummary, Syste
 import { getFacilityTemplates, getSimulationSummary, getSlotPredictions } from '@/lib/api';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import { bodyDisplayName } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
 import { archetypeFromEconomy, resequence } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import type { BodyPlannerLane } from './BodySlotPlanner';
-import {
-  CanvasStructurePicker,
-  laneDisabledReason,
-  templateCanFitBody,
-  templateMatchesLane,
-} from './CanvasStructurePicker';
+import { CanvasStructurePicker } from './CanvasStructurePicker';
 import {
   describeTopologySelection,
   type TopologyPlanSnapshot,
@@ -27,6 +21,14 @@ import { getPlanningFocusLabel, type PlannerWorkspaceCommand } from './workspace
 import { buildPlanningEconomyLedger } from './planningEconomy';
 import { AdvancedPlannerDrawer } from './AdvancedPlannerDrawer';
 import { RavenPlannerTelemetryPanel, RavenStylePlannerCanvas } from './RavenStylePlannerCanvas';
+import {
+  buildPlanPrerequisiteIssues,
+  describePlacementTarget,
+  laneDisabledReason,
+  templateCanFitBody,
+  templateDisplayName,
+  templateMatchesLane,
+} from './structurePlanningRules';
 
 export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
@@ -84,6 +86,12 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     setTargetArchetype((current) => current || suggestedArchetype);
   }, [placements.length, suggestedArchetype]);
 
+  useEffect(() => {
+    if (!structureAddFeedback || structureAddFeedback.tone !== 'success') return undefined;
+    const timeout = window.setTimeout(() => setStructureAddFeedback(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [structureAddFeedback]);
+
   const planSnapshot = useMemo<TopologyPlanSnapshot>(() => ({
     placements,
     templates,
@@ -136,6 +144,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     projectedPlacements: projection?.placements ?? [],
     templates,
   }), [placements, projection?.placements, templates]);
+  const prerequisiteIssues = useMemo(() => buildPlanPrerequisiteIssues(placements, templates), [placements, templates]);
 
   const openAdvanced = useCallback((mode: SimulationWorkspaceMode = 'build-plan') => {
     setAdvancedInitialMode(mode);
@@ -176,7 +185,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     ]));
     return {
       ok: true as const,
-      message: `Added ${templateDisplayName(template)} to ${bodyDisplayName(body)}.`,
+      message: `Added ${templateDisplayName(template)} to ${describePlacementTarget(body, lane)}.`,
     };
   }, [system.bodies, templates]);
 
@@ -237,6 +246,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
           projectedCount={projection?.placements.length ?? 0}
           unsavedChanges={projectState.unsavedChanges}
           economyLedger={systemEconomyLedger}
+          prerequisiteIssueCount={prerequisiteIssues.length}
         />
         {(structurePicker || structureAddFeedback) && (
           <div className="space-y-2" data-testid="canvas-structure-picker-region">
@@ -258,6 +268,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
               body={pickerBody}
               lane={structurePicker?.lane ?? null}
               templates={templates}
+              placements={placements}
               templatesLoading={templatesQuery.isLoading}
               templatesErrorMessage={templatesQuery.isError ? templatesQuery.error?.message ?? 'Facility catalogue failed to load.' : null}
               onClose={() => setStructurePicker(null)}
@@ -290,6 +301,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
           ) : null}
           onSelect={setSelection}
           onRequestAddStructure={requestAddStructure}
+          prerequisiteIssues={prerequisiteIssues}
         />
         <AdvancedPlannerDrawer
           open={advancedPanelOpen}
@@ -347,6 +359,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
             system={system}
             snapshot={planSnapshot}
             economyLedger={systemEconomyLedger}
+            prerequisiteIssues={prerequisiteIssues}
             selectedContext={selectedContext}
             selection={selection}
           />
@@ -354,6 +367,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
             system={system}
             snapshot={planSnapshot}
             economyLedger={systemEconomyLedger}
+            prerequisiteIssues={prerequisiteIssues}
             selection={selection}
             selectedContext={selectedContext}
             projects={projectState.projects}
@@ -420,9 +434,4 @@ function projectionEqual(
   if (a.candidateId !== b.candidateId) return false;
   if (a.label !== b.label) return false;
   return placementsEqual(a.placements, b.placements);
-}
-
-function templateDisplayName(template: FacilityTemplate): string {
-  const displayName = (template as unknown as { display_name?: unknown }).display_name;
-  return typeof displayName === 'string' && displayName.trim() ? displayName.trim() : template.name;
 }

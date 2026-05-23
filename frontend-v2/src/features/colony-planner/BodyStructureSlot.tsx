@@ -1,12 +1,14 @@
 import type { FacilityTemplate, SimulateBuildPlacement } from '@/types/api';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import { normalisePlanningEconomy, type PlanningEconomyName } from './planningEconomy';
+import { contextualEconomyLabel, contextualRoleLabel, structureFamilyLabel, templateDisplayName } from './structurePlanningRules';
 
 export interface BodyStructureSlotItem {
   placement: SimulateBuildPlacement;
   index: number;
   template?: FacilityTemplate;
   warningCount?: number;
+  warningLabels?: string[];
 }
 
 export function BodyStructureSlot({
@@ -26,8 +28,11 @@ export function BodyStructureSlot({
       : location === 'both'
         ? 'Orbit or Surface'
         : 'Unknown';
-  const label = item.template?.name ?? item.placement.facility_template_id;
+  const label = item.template ? templateDisplayName(item.template) : item.placement.facility_template_id;
   const economy = normalisePlanningEconomy(item.template?.economy);
+  const economyContext = contextualEconomyLabel(item.template);
+  const roleLabel = contextualRoleLabel(item.template, item.placement);
+  const warningLabels = item.warningLabels ?? [];
 
   return (
     <button
@@ -47,11 +52,24 @@ export function BodyStructureSlot({
       </div>
       <div className="mt-1 flex flex-wrap gap-1">
         <SlotChip label={locationLabel} tone="cyan" />
+        {item.template && <SlotChip label={structureFamilyLabel(item.template)} />}
         {item.template?.category && <SlotChip label={item.template.category} />}
         {item.template?.economy && <SlotChip label={item.template.economy} />}
+        {!item.template?.economy && economyContext && <SlotChip label="contextual economy" tone="cyan" />}
+        {roleLabel && <SlotChip label={roleLabel} tone="cyan" />}
         {item.placement.is_primary_port && <SlotChip label="primary" tone="gold" />}
         {(item.warningCount ?? 0) > 0 && <SlotChip label={`${item.warningCount} warn`} tone="gold" />}
       </div>
+      {economyContext && (
+        <div data-testid="body-structure-contextual-economy" className="mt-1 text-[10px] leading-snug text-cyan">
+          {economyContext}
+        </div>
+      )}
+      {warningLabels.length > 0 && (
+        <div data-testid="body-structure-prerequisite-warning" className="mt-1 text-[10px] leading-snug text-gold">
+          Missing prerequisite: {warningLabels.join('; ')}
+        </div>
+      )}
       {economy && <StructureEconomyMicroBar economy={economy} />}
     </button>
   );

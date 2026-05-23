@@ -462,3 +462,33 @@ Remaining manual editing gaps:
 - no explicit slot index persistence
 - no per-placement lane storage for truly flexible/unknown structures; lane-specific pickers therefore only show templates that the current placement model can render reliably into that lane
 - no Architect observed slot storage
+
+## Stage 17N.1b Add Flow UX And Catalogue Coverage
+
+Stage 17N.1b keeps the Stage 17N.1 direct-add architecture and makes the interaction clearer and more complete.
+
+Implemented behavior:
+
+- the Raven canvas title is now `System Build Map`; the subtitle is `Plan structures directly into predicted orbital and surface slots.`
+- body controls select bodies, occupied planned slots select placements, projected ghost slots select projected placement context, and visible `+ Add` controls open the structure picker
+- passive slot/capacity boxes no longer use misleading hover or pointer-style treatment
+- the picker no longer treats `both + is_port` as orbital-only or `both + !is_port` as surface-only, so valid outposts, installations, hubs, settlements, ports, and variants remain available for compatible lanes
+- facility template responses now include catalogue prerequisite metadata and economy-effect metadata for frontend display and warnings
+- missing prerequisites are shown as warnings in the picker, structure slots, selected structure context, status/telemetry, and plan health, but they do not block adding planned structures
+- true invalid placement still blocks with a visible reason, including surface builds on water worlds and non-landable bodies
+- station/port templates without direct economy metadata show contextual economy and role copy instead of blank economy fields
+- successful adds report the structure, body, and lane in the canvas feedback message
+
+Explicit non-behavior:
+
+- no Advanced Planner requirement for manual Raven adds
+- no automatic Preview run
+- no automatic Suggested Build generation
+- no projected candidate auto-load
+- no invented station economy values
+
+Remaining manual editing gaps:
+
+- missing-prerequisite warnings do not yet include a one-click prerequisite insertion action
+- slot index and explicit lane storage are still absent from the simulation request model
+- prerequisite matching is based on catalogue descriptions/tokens until normalized prerequisite target IDs are available

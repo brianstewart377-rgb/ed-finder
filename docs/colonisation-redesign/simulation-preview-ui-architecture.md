@@ -1071,8 +1071,8 @@ The Raven-style canvas now owns a direct manual add flow:
 
 Compatibility rules:
 
-- orbital picker shows orbital templates and dual-location port templates that the current renderer will place in orbit
-- surface picker shows surface templates and dual-location non-port templates that the current renderer will place on a valid landable surface
+- orbital picker shows orbital and dual-location templates that the current renderer can place in orbit
+- surface picker shows surface and dual-location templates that the current renderer can place on a valid landable surface
 - water-world and non-landable surface lanes are disabled with visible reasons
 - incompatible templates are hidden and counted in the picker
 - empty catalogue/loading and no-compatible-template states are explicit
@@ -1088,6 +1088,33 @@ Passivity guarantees:
 Known limitation:
 
 - the simulation request model still has no per-placement lane or slot index field and backend request validation forbids extra placement properties, so flexible/unknown structure placement remains a later manual-editing gap rather than being faked in Stage 17N.1.
+
+## Stage 17N.1b Add Flow UX, Catalogue, And Prerequisites
+
+Stage 17N.1b keeps the Stage 17N.1 ownership model but tightens the user-facing behavior:
+
+- Raven canvas copy is `System Build Map` with a concise predicted-slot disclaimer.
+- Body controls select bodies; occupied planned slots select placements; projected slots select projection context without loading; visible add controls open the lane-aware picker.
+- Passive capacity boxes and passive empty slots do not use button-like hover or pointer affordances.
+- The picker uses shared compatibility helpers and no longer splits dual-location templates by `is_port`; valid orbital outposts/installations and valid surface ports/hubs/settlements remain visible when the body/lane allows them.
+- Facility template API responses include `prerequisites` and `economy_effects` from the catalogue so the frontend can display full family, variant, economy, and warning context.
+- Prerequisites warn but do not block. The user can plan a future structure with missing support, and the picker, slots, selected-structure context, status strip, and plan health surface the unresolved prerequisite.
+- Hard-invalid physical placement still blocks with a visible reason.
+- Stations and ports without direct economy metadata render contextual copy: economy is inherited from body/system/plan context and requires explicit Preview for validation. The UI must not invent fake economy values.
+- Successful adds show structure, body, and lane feedback while preserving the no-auto-preview/no-auto-generation/no-auto-load guarantees.
+
+Remaining manual editing gaps:
+
+- no one-click add-prerequisite action from warnings yet
+- no explicit slot index persistence
+- no per-placement lane storage for truly flexible/unknown structures
+- prerequisite matching is description/token based until normalized prerequisite target identifiers are available in the API
+
+Advanced Planner contract:
+
+- Advanced Planner remains secondary and explicitly opened.
+- Raven adds write the same Build Plan state Advanced Planner reads.
+- Existing Simulation Preview picker views should use the same structure display language where practical, especially family labels, prerequisite warnings, and contextual station economy copy.
 
 ## Stage 18 Assistant Foundation Boundary
 

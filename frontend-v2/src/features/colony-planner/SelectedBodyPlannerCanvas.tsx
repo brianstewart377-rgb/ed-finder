@@ -541,8 +541,7 @@ function overviewLaneForTemplate(template: FacilityTemplate | undefined, body: S
   if (location === 'orbital') return 'orbital';
   if (location === 'surface') return 'surface';
   if (location === 'both') {
-    if (template.is_port) return 'orbital';
-    return body?.is_landable === true && body.is_water_world !== true ? 'surface' : 'orbital';
+    return fallbackOverviewLane(body);
   }
   return fallbackOverviewLane(body);
 }

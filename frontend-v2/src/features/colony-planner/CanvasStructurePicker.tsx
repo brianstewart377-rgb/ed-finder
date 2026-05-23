@@ -1,14 +1,26 @@
 import { Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type { FacilityTemplate, SystemBody } from '@/types/api';
+import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
 import { bodyDisplayName } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import type { BodyPlannerLane } from './BodySlotPlanner';
+import {
+  contextualEconomyLabel,
+  isContextualEconomyTemplate,
+  laneDisabledReason,
+  missingPrerequisitesForTemplate,
+  structureFamilyLabel,
+  templateCanFitBody,
+  templateDisplayName,
+  templateMatchesLane,
+  templatePrerequisiteDescriptions,
+} from './structurePlanningRules';
 
 export function CanvasStructurePicker({
   body,
   lane,
   templates,
+  placements = [],
   templatesLoading,
   templatesErrorMessage,
   onClose,
@@ -17,6 +29,7 @@ export function CanvasStructurePicker({
   body: SystemBody | null;
   lane: BodyPlannerLane | null;
   templates: FacilityTemplate[];
+  placements?: SimulateBuildPlacement[];
   templatesLoading: boolean;
   templatesErrorMessage?: string | null;
   onClose: () => void;
@@ -156,11 +169,30 @@ export function CanvasStructurePicker({
                 <span className="block truncate text-[11px] font-bold text-silver">{templateDisplayName(template)}</span>
                 <span className="mt-1 flex flex-wrap gap-1.5">
                   <PickerFact label={`tier ${template.tier}`} />
+                  <PickerFact label={structureFamilyLabel(template)} />
                   <PickerFact label={template.category || 'unknown type'} />
-                  {template.economy && <PickerFact label={template.economy} />}
+                  {template.economy ? <PickerFact label={template.economy} /> : isContextualEconomyTemplate(template) ? <PickerFact label="contextual economy" tone="gold" /> : null}
                   {template.pad_size && <PickerFact label={`${template.pad_size} pad`} />}
                   <PickerFact label={templateLocationKind(template)} tone="cyan" />
+                  {templatePrerequisiteDescriptions(template).length > 0 && (
+                    <PickerFact
+                      label={missingPrerequisitesForTemplate(template, placements, templates).length > 0
+                        ? `${missingPrerequisitesForTemplate(template, placements, templates).length} prerequisite missing`
+                        : 'prerequisites satisfied'}
+                      tone={missingPrerequisitesForTemplate(template, placements, templates).length > 0 ? 'gold' : 'green'}
+                    />
+                  )}
                 </span>
+                {isContextualEconomyTemplate(template) && (
+                  <span data-testid={`canvas-picker-contextual-economy-${template.id}`} className="mt-1 block text-[10px] leading-snug text-cyan">
+                    {contextualEconomyLabel(template)}
+                  </span>
+                )}
+                {missingPrerequisitesForTemplate(template, placements, templates).length > 0 && (
+                  <span data-testid={`canvas-picker-prerequisite-warning-${template.id}`} className="mt-1 block text-[10px] leading-snug text-gold">
+                    Missing prerequisite: {missingPrerequisitesForTemplate(template, placements, templates).join('; ')}. Planning can continue.
+                  </span>
+                )}
               </span>
               <span className="shrink-0 rounded border border-orange/35 bg-orange/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-orange">
                 Add
@@ -173,39 +205,18 @@ export function CanvasStructurePicker({
   );
 }
 
-export function laneDisabledReason(body: SystemBody, lane: BodyPlannerLane): string | null {
-  if (lane !== 'surface') return null;
-  if (body.is_water_world === true) return 'Surface limited: water world.';
-  if (body.is_landable === false) return 'Surface limited: non-landable body.';
-  return null;
-}
-
-export function templateMatchesLane(template: FacilityTemplate, lane: BodyPlannerLane): boolean {
-  const location = templateLocationKind(template);
-  if (lane === 'orbital') return location === 'orbital' || (location === 'both' && template.is_port);
-  return location === 'surface' || (location === 'both' && !template.is_port);
-}
-
-export function templateCanFitBody(template: FacilityTemplate, body: SystemBody, lane: BodyPlannerLane): boolean {
-  if (laneDisabledReason(body, lane)) return false;
-  const location = templateLocationKind(template);
-  if (location === 'surface') return body.is_landable === true && body.is_water_world !== true;
-  return true;
-}
-
-function templateDisplayName(template: FacilityTemplate): string {
-  const displayName = (template as unknown as { display_name?: unknown }).display_name;
-  return typeof displayName === 'string' && displayName.trim() ? displayName.trim() : template.name;
-}
-
-function PickerFact({ label, tone = 'silver' }: { label: string; tone?: 'silver' | 'cyan' }) {
+function PickerFact({ label, tone = 'silver' }: { label: string; tone?: 'silver' | 'cyan' | 'gold' | 'green' }) {
   return (
     <span
       className={[
         'rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em]',
         tone === 'cyan'
           ? 'border-cyan/35 bg-cyan/10 text-cyan'
-          : 'border-border/60 bg-bg2/60 text-silver-dk',
+          : tone === 'gold'
+            ? 'border-gold/35 bg-gold/10 text-gold'
+            : tone === 'green'
+              ? 'border-green/35 bg-green/10 text-green'
+              : 'border-border/60 bg-bg2/60 text-silver-dk',
       ].join(' ')}
     >
       {label}

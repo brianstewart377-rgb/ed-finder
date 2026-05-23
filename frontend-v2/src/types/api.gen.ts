@@ -1866,6 +1866,10 @@ export interface components {
             confidence?: string | null;
             /** Notes */
             notes?: string | null;
+            /** Prerequisites */
+            prerequisites?: Record<string, unknown>[];
+            /** Economy Effects */
+            economy_effects?: Record<string, unknown>;
             /**
              * Yellow Cp Generated
              * @default 0

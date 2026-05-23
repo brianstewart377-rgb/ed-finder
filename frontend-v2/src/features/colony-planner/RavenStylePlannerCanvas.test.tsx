@@ -91,6 +91,41 @@ const templates: FacilityTemplate[] = [
     yellow_cp_cost: 0,
     green_cp_cost: 0,
   },
+  {
+    id: 'contextual_station',
+    name: 'Contextual Station',
+    category: 'port',
+    tier: 2,
+    economy: null,
+    is_port: true,
+    is_support_facility: false,
+    allowed_location: 'orbital',
+    pad_size: 'large',
+    confidence: 'observed',
+    notes: null,
+    yellow_cp_generated: 4,
+    green_cp_generated: 1,
+    yellow_cp_cost: 0,
+    green_cp_cost: 0,
+  },
+  {
+    id: 'research_station',
+    name: 'Research Station',
+    category: 'hightech',
+    tier: 2,
+    economy: 'HighTech',
+    is_port: false,
+    is_support_facility: true,
+    allowed_location: 'orbital',
+    pad_size: null,
+    confidence: 'observed',
+    notes: null,
+    prerequisites: [{ description: 'Settlement - Research Bio' }],
+    yellow_cp_generated: 2,
+    green_cp_generated: 1,
+    yellow_cp_cost: 0,
+    green_cp_cost: 0,
+  },
 ];
 
 const slotPredictions: SlotPredictionResponse = {
@@ -137,6 +172,15 @@ const snapshot: TopologyPlanSnapshot = {
 };
 
 describe('RavenStylePlannerCanvas real data adapter', () => {
+  it('renders user-facing build map copy and concise slot disclaimer', () => {
+    render(<RavenStylePlannerCanvas system={system} snapshot={snapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    expect(screen.getByText('System Build Map')).toBeTruthy();
+    expect(screen.getByText('Plan structures directly into predicted orbital and surface slots.')).toBeTruthy();
+    expect(screen.queryByText('Whole-System Build Canvas')).toBeNull();
+    expect(screen.queryByText(/Real bodies, validated slot predictions/i)).toBeNull();
+  });
+
   it('maps real bodies, slot predictions, placements, projections, and economy metadata into rows', () => {
     const rows = buildRavenPlannerRows(system, snapshot);
     const body = rows.find((row) => row.id === '2');
@@ -244,6 +288,42 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
 
     fireEvent.click(screen.getByTestId('2-ground-slot-0'));
     expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'surface');
+
+    expect(screen.getByRole('button', { name: /Add orbit structure to Real Data System A 1 from empty slot/i })).toBeTruthy();
+    expect(screen.getByTestId('2-orbital-slot-1').textContent).toContain('+ Add');
+  });
+
+  it('keeps passive display slots from presenting button or hover affordances', () => {
+    render(<RavenStylePlannerCanvas system={system} snapshot={{ ...snapshot, placements: [], projection: null }} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    const unknownSlot = screen.getByTestId('3-orbital-slot-0');
+    expect(unknownSlot.tagName.toLowerCase()).toBe('span');
+    expect(unknownSlot.className).not.toContain('hover:-translate-y');
+  });
+
+  it('shows disabled surface lane reasons directly in the canvas', () => {
+    const onRequestAddStructure = vi.fn();
+    render(<RavenStylePlannerCanvas system={system} snapshot={{ ...snapshot, placements: [], projection: null }} selection={{ type: 'system' }} onSelect={vi.fn()} onRequestAddStructure={onRequestAddStructure} />);
+
+    expect(screen.getByTestId('3-ground-disabled-reason').textContent).toContain('Surface limited: non-landable body.');
+    expect((screen.getByTestId('3-ground-add') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('renders contextual station economy and prerequisite warnings on added structures', () => {
+    const contextualSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [
+        { facility_template_id: 'contextual_station', local_body_id: '2', is_primary_port: true, build_order: 1 },
+        { facility_template_id: 'research_station', local_body_id: '2', build_order: 2 },
+      ],
+      projection: null,
+    };
+
+    render(<RavenStylePlannerCanvas system={system} snapshot={contextualSnapshot} selection={{ type: 'placement', placementIndex: 0 }} onSelect={vi.fn()} />);
+
+    expect(screen.getByTestId('raven-contextual-economy-chip')).toBeTruthy();
+    expect(screen.getByTitle(/Contextual - inherits from body\/system plan/i)).toBeTruthy();
+    expect(screen.getByTestId('raven-prerequisite-warning-chip')).toBeTruthy();
   });
 
   it('matches projected structures to large numeric system body ids', () => {

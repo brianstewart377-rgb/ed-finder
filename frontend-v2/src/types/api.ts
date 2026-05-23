@@ -128,6 +128,8 @@ export interface FacilityTemplate {
   pad_size?: string | null;
   confidence?: string | null;
   notes?: string | null;
+  prerequisites?: Array<Record<string, unknown>> | null;
+  economy_effects?: Record<string, unknown> | null;
   yellow_cp_generated: number;
   green_cp_generated: number;
   yellow_cp_cost: number;
