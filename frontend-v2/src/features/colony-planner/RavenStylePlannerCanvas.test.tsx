@@ -318,20 +318,19 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.queryByTestId('2-ground-add')).toBeNull();
   });
 
-  it('expands selected bodies inline and supports projected structure selection', () => {
+  it('highlights selected bodies without rendering an inline body planner', () => {
     render(
       <RavenStylePlannerCanvas
         system={system}
         snapshot={snapshot}
         selection={{ type: 'body', bodyId: '2' }}
-        expandedBodyDetail={<div data-testid="inline-body-test-detail">Inline body detail</div>}
         onSelect={vi.fn()}
       />,
     );
 
-    expect(screen.getByTestId('raven-real-body-row-2').getAttribute('data-expanded')).toBe('true');
-    expect(within(screen.getByTestId('raven-real-planner-canvas')).getByTestId('raven-inline-body-expansion-2')).toBeTruthy();
-    expect(screen.getByTestId('inline-body-test-detail')).toBeTruthy();
+    expect(screen.getByTestId('raven-real-body-row-2').getAttribute('data-selected')).toBe('true');
+    expect(screen.queryByTestId('raven-inline-body-expansion-2')).toBeNull();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
   });
 
   it('selects planned and projected structures from the main canvas', () => {
@@ -345,7 +344,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(onSelect).toHaveBeenCalledWith({ type: 'projected-placement', placementIndex: 0 });
   });
 
-  it('requests lane-aware adds from row add controls and empty slots', () => {
+  it('requests lane-aware adds from one row add control per selected lane', () => {
     const onRequestAddStructure = vi.fn();
     render(
       <RavenStylePlannerCanvas
@@ -369,14 +368,9 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     fireEvent.click(screen.getByTestId('2-ground-add'));
     expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'surface');
 
-    fireEvent.click(screen.getByTestId('2-orbital-slot-1'));
-    expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'orbital');
-
-    fireEvent.click(screen.getByTestId('2-ground-slot-0'));
-    expect(onRequestAddStructure).toHaveBeenCalledWith('2', 'surface');
-
-    expect(screen.getByRole('button', { name: /Add orbit structure to Real Data System A 1 from empty slot/i })).toBeTruthy();
-    expect(screen.getByTestId('2-orbital-slot-1').textContent).toContain('+');
+    expect(onRequestAddStructure).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: /from empty slot/i })).toBeNull();
+    expect(screen.getByTestId('2-orbital-slot-1').tagName.toLowerCase()).toBe('span');
   });
 
   it('keeps passive display slots from presenting button or hover affordances', () => {

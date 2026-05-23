@@ -363,24 +363,18 @@ describe('ColonyPlannerWorkspace', () => {
 
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
     expect(screen.getByText(/Planning focus: Workspace System A 1/i)).toBeTruthy();
-    expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-expanded')).toBe('true');
-    const inlineExpansion = screen.getByTestId('raven-inline-body-expansion-body1');
+    expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-selected')).toBe('true');
     expect(await screen.findByTestId('body1-orbital-slot-3')).toBeTruthy();
-    expect(within(screen.getByTestId('raven-real-planner-canvas')).getByTestId('raven-inline-body-expansion-body1')).toBeTruthy();
+    expect(within(screen.getByTestId('raven-real-planner-canvas')).queryByTestId('raven-inline-body-expansion-body1')).toBeNull();
     expect(screen.queryByTestId('selected-role-summary-card')).toBeNull();
     expect(screen.queryByText('Body Hint')).toBeNull();
-    const bodySurface = within(inlineExpansion).getByTestId('selected-body-planner-canvas');
-    expect(within(bodySurface).getByText('Body slot planner')).toBeTruthy();
-    expect(within(bodySurface).getByTestId('slot-lane-orbital')).toBeTruthy();
-    expect(within(bodySurface).getByTestId('slot-lane-surface')).toBeTruthy();
-    expect(within(bodySurface).queryByTestId('slot-lane-flex')).toBeNull();
-    expect(within(bodySurface).getByTestId('body-planning-economy')).toBeTruthy();
-    expect(within(bodySurface).getByTestId('slot-lane-add-orbital')).toBeTruthy();
-    expect((within(bodySurface).getByTestId('slot-lane-add-surface') as HTMLButtonElement).disabled).toBe(true);
-    expect(within(bodySurface).queryByTestId('slot-lane-add-flex')).toBeNull();
-    expect(within(bodySurface).getByText(/surface limited: water world/i)).toBeTruthy();
-    expect(within(bodySurface).getByRole('button', { name: 'Review structures' })).toBeTruthy();
-    expect(within(bodySurface).getByRole('button', { name: /Close/i })).toBeTruthy();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
+    expect(screen.queryByText('Body slot planner')).toBeNull();
+    expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
+    expect((screen.getByTestId('body1-ground-add') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId('slot-lane-flex')).toBeNull();
+    expect(screen.queryByTestId('slot-lane-add-flex')).toBeNull();
+    expect(screen.getByTestId('body1-ground-disabled-reason').textContent).toMatch(/surface limited: water world/i);
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
 
@@ -390,7 +384,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect((await screen.findAllByTestId('raven-projected-ghost-structure')).length).toBeGreaterThan(0);
     expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-projected')).toBe('true');
     expect((screen.getByTestId('body1-ground-slot-0').textContent ?? '')).toMatch(/Surfa|Surface/i);
-    expect((within(screen.getByTestId('slot-lane-items-surface')).getByTestId('slot-projected-0').textContent ?? '')).toMatch(/Surface Hub/i);
+    expect((screen.getByTestId('body1-ground-slot-0').textContent ?? '')).toMatch(/Surface Hub/i);
     expect((screen.getByTestId('workspace-economy-ledger').textContent ?? '')).toMatch(/\+1/);
     expect(mockedSimulationPreviewPanel).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -422,7 +416,7 @@ describe('ColonyPlannerWorkspace', () => {
     renderPlanner();
 
     fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
-    fireEvent.click(screen.getByTestId('slot-lane-add-orbital'));
+    fireEvent.click(screen.getByTestId('body1-orbital-add'));
 
     const picker = screen.getByTestId('body-structure-picker');
     expect(picker).toBeTruthy();
@@ -434,8 +428,7 @@ describe('ColonyPlannerWorkspace', () => {
     fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
 
     expect((screen.getByTestId('body1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
-    expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
-    expect(within(screen.getByTestId('slot-lane-items-orbital')).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('body1-orbital-slot-0').textContent).toMatch(/Orbital|Port/i);
     expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
@@ -451,8 +444,10 @@ describe('ColonyPlannerWorkspace', () => {
     renderPlanner();
 
     fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
-    const surface = screen.getByTestId('selected-body-planner-canvas');
-    expect(within(surface).getByText('Body slot planner')).toBeTruthy();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
+    expect(screen.queryByText('Body slot planner')).toBeNull();
+    expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-selected')).toBe('true');
+    expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add role' })).toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByText('Observed: Primary Port')).toBeNull();
@@ -513,7 +508,7 @@ describe('ColonyPlannerWorkspace', () => {
     fireEvent.click(screen.getByTestId('project-details-toggle'));
     fireEvent.change(screen.getByLabelText('Project notes'), { target: { value: 'Check Architect mode before final placement.' } });
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
-    fireEvent.click(screen.getByTestId('slot-lane-add-orbital'));
+    fireEvent.click(screen.getByTestId('body1-orbital-add'));
     fireEvent.click(await screen.findByTestId('body-structure-template-orbital_port'));
     fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
 
@@ -591,7 +586,7 @@ describe('ColonyPlannerWorkspace', () => {
     fireEvent.click((await screen.findByTestId('summary-rail-collapse-toggle')));
     expect((await screen.findAllByText('Reloaded project')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByTestId('topology-body-button-body1'));
-    expect(within(await screen.findByTestId('slot-lane-items-surface')).getByText(/Surface Hub/i)).toBeTruthy();
+    expect((await screen.findByTestId('body1-ground-slot-0')).textContent).toMatch(/Surface Hub/i);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 });

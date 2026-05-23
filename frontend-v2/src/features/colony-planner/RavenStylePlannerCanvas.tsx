@@ -146,7 +146,6 @@ export function RavenStylePlannerCanvas({
   system,
   snapshot,
   selection,
-  expandedBodyDetail,
   onSelect,
   onRequestAddStructure,
   prerequisiteIssues = [],
@@ -154,7 +153,6 @@ export function RavenStylePlannerCanvas({
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
   selection: TopologySelection;
-  expandedBodyDetail?: ReactNode;
   onSelect: (selection: TopologySelection) => void;
   onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
   prerequisiteIssues?: PrerequisiteIssue[];
@@ -224,7 +222,6 @@ export function RavenStylePlannerCanvas({
                 key={row.id}
                 row={row}
                 selected={selectedBodyId === row.id}
-                expandedDetail={selectedBodyId === row.id ? expandedBodyDetail : null}
                 selectedPlacementIndex={selection.type === 'placement' ? selection.placementIndex : null}
                 selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
                 gridStyle={gridStyle}
@@ -339,7 +336,6 @@ export function RavenPlannerTelemetryPanel({
 function RavenPlannerBodyRow({
   row,
   selected,
-  expandedDetail,
   selectedPlacementIndex,
   selectedProjectedPlacementIndex,
   gridStyle,
@@ -349,7 +345,6 @@ function RavenPlannerBodyRow({
 }: {
   row: RavenPlannerRow;
   selected: boolean;
-  expandedDetail?: ReactNode | null;
   selectedPlacementIndex: number | null;
   selectedProjectedPlacementIndex: number | null;
   gridStyle: CSSProperties;
@@ -368,7 +363,7 @@ function RavenPlannerBodyRow({
     <div
       data-testid={`raven-real-body-row-${row.id}`}
       data-projected={row.projected ? 'true' : 'false'}
-      data-expanded={selected && expandedDetail ? 'true' : 'false'}
+      data-selected={selected ? 'true' : 'false'}
       className={row.projected ? 'bg-cyan/5' : undefined}
     >
       <div
@@ -433,14 +428,6 @@ function RavenPlannerBodyRow({
               ))}
             </div>
           </div>
-        </div>
-      )}
-      {selected && expandedDetail && (
-        <div
-          data-testid={`raven-inline-body-expansion-${row.id}`}
-          className="border-t border-orange/25 bg-bg1/92 px-3 pb-3 pt-3 shadow-[inset_3px_0_0_rgba(255,122,20,0.6)]"
-        >
-          {expandedDetail}
         </div>
       )}
     </div>
@@ -585,7 +572,6 @@ function RavenSlotLane({
             testId={`${bodyId}-${lane}-slot-${index}`}
             selected={(slot.placementIndex != null && slot.placementIndex === selectedPlacementIndex) || (slot.projectionIndex != null && slot.projectionIndex === selectedProjectedPlacementIndex)}
             onSelect={onSelect}
-            onAdd={slot.kind === 'empty' ? requestAdd : undefined}
             warningCount={slot.placementIndex != null ? prerequisiteIssues.find((issue) => issue.placementIndex === slot.placementIndex)?.missing.length ?? 0 : 0}
           />
         )) : (
