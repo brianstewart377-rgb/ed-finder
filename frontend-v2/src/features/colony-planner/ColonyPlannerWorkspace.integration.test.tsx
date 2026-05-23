@@ -202,7 +202,8 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();
     expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-layout')).toBe('telemetry-context-panel');
     expect(screen.getByRole('complementary', { name: /Workspace summary/i })).toBeTruthy();
-    expect(screen.getByText('Whole-System Build Canvas')).toBeTruthy();
+    expect(screen.getByText('System Build Map')).toBeTruthy();
+    expect(screen.queryByText('Whole-System Build Canvas')).toBeNull();
     expect(screen.getByText('Planner summary')).toBeTruthy();
     expect(await screen.findByText('Whole-System Planner')).toBeTruthy();
     expect(screen.getByTestId('raven-real-body-row-body1')).toBeTruthy();
@@ -309,7 +310,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     await waitFor(() => {
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-items-orbital')).getByText(/Orbital Port/i)).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-items-orbital')).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);
       expect((screen.getByTestId('center-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
     });
 
@@ -318,7 +319,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('slot-lane-surface')).getByText('1/5 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-items-surface')).getByText(/Surface Hub/i)).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-items-surface')).getAllByText(/Surface Hub/i).length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('workspace-economy-ledger')).getByText(/Agri/i)).toBeTruthy();
       expect(within(screen.getByTestId('body-planning-economy')).getByText(/Agri/i)).toBeTruthy();
     });
@@ -386,11 +387,11 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(within(await screen.findByTestId('body-structure-picker')).getByText(/Add orbit structure/i)).toBeTruthy();
     fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
-      expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Added Orbital Port to Body 1.');
+      expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Added Orbital Port to Body 1 / Orbit.');
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '')).toMatch(/Orbital|Port/i);
       expect(screen.getByTestId('raven-inline-body-expansion-1')).toBeTruthy();
       expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-items-orbital')).getByText(/Orbital Port/i)).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-items-orbital')).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('planner-status-strip')).getByText('1 planned')).toBeTruthy();
       expect(within(screen.getByTestId('planner-status-strip')).getByText('Unsaved changes')).toBeTruthy();
     });
@@ -400,8 +401,9 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     fireEvent.click(screen.getByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '')).toMatch(/Surface|Hub/i);
+      expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Body 1 / Surface');
       expect(within(screen.getByTestId('slot-lane-surface')).getByText('1/5 planned')).toBeTruthy();
-      expect(within(screen.getByTestId('slot-lane-items-surface')).getByText(/Surface Hub/i)).toBeTruthy();
+      expect(within(screen.getByTestId('slot-lane-items-surface')).getAllByText(/Surface Hub/i).length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('planner-status-strip')).getByText('2 planned')).toBeTruthy();
     });
 

@@ -1065,6 +1065,8 @@ class FacilityTemplateResponse(BaseModel):
     pad_size:            Optional[str] = None
     confidence:          Optional[str] = None
     notes:               Optional[str] = None
+    prerequisites:       list[dict[str, Any]] = Field(default_factory=list)
+    economy_effects:     dict[str, Any] = Field(default_factory=dict)
     yellow_cp_generated: int = 0
     green_cp_generated:  int = 0
     yellow_cp_cost:      int = 0

@@ -12,11 +12,13 @@ import {
 } from './workspaceUtils';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import type { PlanningEconomyLedger } from './planningEconomy';
+import type { PrerequisiteIssue } from './structurePlanningRules';
 
 export function WorkspaceSummaryRail({
   system,
   snapshot,
   economyLedger,
+  prerequisiteIssues = [],
   selection,
   selectedContext,
   projects,
@@ -39,6 +41,7 @@ export function WorkspaceSummaryRail({
   system: SystemDetail;
   snapshot: TopologyPlanSnapshot;
   economyLedger: PlanningEconomyLedger;
+  prerequisiteIssues?: PrerequisiteIssue[];
   selection: TopologySelection;
   selectedContext: TopologySelectionContext;
   projects: ColonyProject[];
@@ -90,6 +93,7 @@ export function WorkspaceSummaryRail({
           placementCount={health.placementCount}
           projectedCount={snapshot.projection?.placements.length ?? 0}
           warningCount={health.warningCount}
+          prerequisiteIssueCount={prerequisiteIssues.length}
           economyLedger={economyLedger}
         />
       ) : (
@@ -121,6 +125,7 @@ export function WorkspaceSummaryRail({
             previewStatus={health.previewStatus}
             saveStatus={health.saveStatus}
             economyLedger={economyLedger}
+            prerequisiteIssues={prerequisiteIssues}
           />
 
           <SelectionSummaryCard selectedContext={selectedContext} />
@@ -143,6 +148,7 @@ function CompactSummary({
   placementCount,
   projectedCount,
   warningCount,
+  prerequisiteIssueCount,
   economyLedger,
 }: {
   saveStatus: string;
@@ -151,6 +157,7 @@ function CompactSummary({
   placementCount: number;
   projectedCount: number;
   warningCount: number;
+  prerequisiteIssueCount: number;
   economyLedger: PlanningEconomyLedger;
 }) {
   return (
@@ -158,7 +165,7 @@ function CompactSummary({
       <div className="grid grid-cols-2 gap-1.5">
         <CompactMetric label="Save" value={saveStatus} tone={saveStatus === 'Saved' ? 'green' : 'gold'} />
         <CompactMetric label="Builds" value={`${placementCount}${projectedCount > 0 ? ` +${projectedCount}` : ''}`} tone={projectedCount > 0 ? 'cyan' : 'orange'} />
-        <CompactMetric label="Warnings" value={String(warningCount)} tone={warningCount > 0 ? 'gold' : 'green'} />
+        <CompactMetric label="Warnings" value={prerequisiteIssueCount > 0 ? `${warningCount} / ${prerequisiteIssueCount} prereq` : String(warningCount)} tone={warningCount > 0 || prerequisiteIssueCount > 0 ? 'gold' : 'green'} />
         <CompactMetric label="Focus" value={selectedContext.kind} tone="cyan" />
       </div>
       <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px]">
@@ -198,6 +205,7 @@ function PlanHealthCard({
   previewStatus,
   saveStatus,
   economyLedger,
+  prerequisiteIssues,
 }: {
   targetArchetype: string;
   placementCount: number;
@@ -206,6 +214,7 @@ function PlanHealthCard({
   previewStatus: string;
   saveStatus: string;
   economyLedger: PlanningEconomyLedger;
+  prerequisiteIssues: PrerequisiteIssue[];
 }) {
   return (
     <section className="rounded border border-orange/25 bg-orange/5 p-2" data-testid="plan-health-card">
@@ -217,9 +226,15 @@ function PlanHealthCard({
         <SummaryRow label="Placements" value={String(placementCount)} tone="orange" />
         <SummaryRow label="Unassigned" value={String(unassignedCount)} tone={unassignedCount > 0 ? 'gold' : 'green'} />
         <SummaryRow label="Warnings" value={String(warningCount)} tone={warningCount > 0 ? 'gold' : 'green'} />
+        <SummaryRow label="Prerequisites" value={String(prerequisiteIssues.length)} tone={prerequisiteIssues.length > 0 ? 'gold' : 'green'} />
         <SummaryRow label="Preview" value={previewStatus} tone="cyan" />
         <SummaryRow label="Save" value={saveStatus} tone={saveStatus === 'Saved' ? 'green' : 'gold'} />
       </dl>
+      {prerequisiteIssues.length > 0 && (
+        <div data-testid="plan-health-prerequisite-warnings" className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
+          Missing prerequisite: {prerequisiteIssues.slice(0, 3).map((issue) => `${issue.templateName}: ${issue.missing.join('; ')}`).join(' / ')}
+        </div>
+      )}
       <div className="mt-2">
         <PlanningEconomyStrip ledger={economyLedger} compact testId="plan-health-economy-ledger" />
       </div>

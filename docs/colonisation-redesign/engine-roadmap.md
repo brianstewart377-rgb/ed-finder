@@ -1757,6 +1757,47 @@ Safety boundary:
 - no Architect-observed slot storage
 - no CP/economy/scoring/backend changes
 
+## Stage 17N.1b - Raven Canvas Add Flow UX Cleanup (Implemented)
+
+Stage 17N.1b cleans up the direct Raven add flow after the Stage 17N.1 functional repair. The canvas now separates body selection, placement selection, projected placement selection, and add actions more clearly.
+
+Delivered:
+
+- the main canvas heading is user-facing: `System Build Map` with concise slot-disclaimer copy
+- body rows remain selectable through body controls, occupied planned slots select placements, projected ghost slots select projection context only, and add actions are visibly marked as add actions
+- display-only capacity and passive slot boxes no longer use fake hover/lift affordances
+- Raven row add controls and selected-body lane add controls share the same picker state and Build Plan placement path
+- the picker uses lane/body compatibility without splitting dual-location templates by `is_port`, so orbital outposts/installations and surface ports/hubs/settlements remain visible when valid
+- facility template API responses expose prerequisite and economy-effect metadata from the domain catalogue
+- unmet prerequisites warn in the picker, Raven slots, selected-body detail, telemetry, and plan health, but they do not block planning
+- hard-invalid placements still block with visible reasons, including surface builds on water worlds or non-landable bodies
+- station/port templates without direct economy metadata show contextual economy copy instead of appearing blank or broken
+- successful adds show a short feedback message with structure, body, and lane
+
+Catalogue and prerequisite boundary:
+
+- the picker must preserve readable display names and variants from the facility catalogue
+- catalogue families include stations/ports, orbital outposts, orbital installations, planetary ports, settlements, hubs, extraction, refinery, industrial, agriculture, tourism, military/security, high-tech/research, support/logistics, and named variants where present
+- prerequisites are treated as planning warnings, not physical incompatibilities
+- Preview/validation remains the authoritative unresolved-prerequisite and economy outcome surface
+
+Safety boundary:
+
+- no auto Preview
+- no auto Suggested Build generation
+- no candidate auto-load
+- no fake economy values for station templates without direct economy metadata
+- no drag/drop slot editing
+- no Architect-observed slot storage
+- no economy-strength backend ledger changes
+
+Remaining manual editing gaps:
+
+- no quick-add prerequisite action from the warning chip yet
+- no explicit slot index persistence
+- no per-placement lane storage for truly flexible/unknown structures
+- prerequisite matching is catalogue-token based until the API provides normalized prerequisite target identifiers
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:

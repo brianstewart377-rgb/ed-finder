@@ -9,6 +9,7 @@ export function PlannerStatusStrip({
   projectedCount,
   unsavedChanges,
   economyLedger,
+  prerequisiteIssueCount = 0,
 }: {
   selection: TopologySelection;
   planningFocusLabel: string | null;
@@ -16,6 +17,7 @@ export function PlannerStatusStrip({
   projectedCount: number;
   unsavedChanges: boolean;
   economyLedger: PlanningEconomyLedger;
+  prerequisiteIssueCount?: number;
 }) {
   const title = selection.type === 'body' || selection.type === 'placement' || selection.type === 'projected-placement'
     ? 'Body Planner'
@@ -36,6 +38,7 @@ export function PlannerStatusStrip({
         <div className="flex flex-wrap gap-1.5" aria-label="Planner status">
           <StatusChip label={`${placementCount} planned`} tone={placementCount > 0 ? 'orange' : 'silver'} />
           {projectedCount > 0 && <StatusChip label={`${projectedCount} projected`} tone="cyan" />}
+          {prerequisiteIssueCount > 0 && <StatusChip label={`${prerequisiteIssueCount} prerequisite warning${prerequisiteIssueCount === 1 ? '' : 's'}`} tone="gold" />}
           <StatusChip label={unsavedChanges ? 'Unsaved changes' : 'Saved locally'} tone={unsavedChanges ? 'gold' : 'silver'} />
         </div>
       </div>

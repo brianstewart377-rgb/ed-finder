@@ -11,6 +11,7 @@ import { ProjectedStructureSlot } from './ProjectedStructureSlot';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import { buildPlanningEconomyLedger } from './planningEconomy';
 import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity, type BodyDataSlotEstimate } from './slotCapacityFallback';
+import { laneDisabledReason, missingPrerequisitesForPlacement } from './structurePlanningRules';
 
 export type BodyPlannerLane = 'orbital' | 'surface';
 
@@ -67,12 +68,8 @@ export function BodySlotPlanner({
   const orbitalSlots = orbitalCapacity.value;
   const surfaceSlots = surfaceCapacity.value;
   const hasEstimatedSlots = orbitalCapacity.estimated || surfaceCapacity.estimated;
-  const surfaceBlocked = body.is_water_world === true || body.is_landable === false;
-  const surfaceBlockedReason = body.is_water_world
-    ? 'Surface limited: water world.'
-    : body.is_landable === false
-      ? 'Surface limited: non-landable body.'
-      : null;
+  const surfaceBlockedReason = laneDisabledReason(body, 'surface');
+  const surfaceBlocked = Boolean(surfaceBlockedReason);
   const occupiedSlots = {
     orbital: orbitalPlanned.length + orbitalProjected.length,
     surface: surfacePlanned.length + surfaceProjected.length,
@@ -166,6 +163,7 @@ export function BodySlotPlanner({
           <LaneSlots
             body={body}
             laneKey="orbital"
+            allPlacements={placements}
             planned={orbitalPlanned}
             projected={orbitalProjected}
             selectedPlacementIndex={selectedPlacementIndex}
@@ -199,6 +197,7 @@ export function BodySlotPlanner({
           <LaneSlots
             body={body}
             laneKey="surface"
+            allPlacements={placements}
             planned={surfacePlanned}
             projected={surfaceProjected}
             selectedPlacementIndex={selectedPlacementIndex}
@@ -693,6 +692,7 @@ function CapacityCell({
 function LaneSlots({
   body,
   laneKey,
+  allPlacements,
   planned,
   projected,
   selectedPlacementIndex,
@@ -703,6 +703,7 @@ function LaneSlots({
 }: {
   body: SystemBody;
   laneKey: BodyPlannerLane;
+  allPlacements: BodyPlannerPlacementItem[];
   planned: BodyPlannerPlacementItem[];
   projected: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
@@ -727,7 +728,7 @@ function LaneSlots({
       {planned.map((item) => (
         <BodyStructureSlot
           key={`planned-${laneKey}-${item.index}-${item.placement.facility_template_id}`}
-          item={toStructureSlotItem(item, body)}
+          item={toStructureSlotItem(item, body, allPlacements)}
           selected={selectedPlacementIndex === item.index}
           onSelect={() => onSelectPlacement(item.index)}
         />
@@ -744,12 +745,16 @@ function LaneSlots({
   );
 }
 
-function toStructureSlotItem(item: BodyPlannerPlacementItem, body: SystemBody): BodyStructureSlotItem {
+function toStructureSlotItem(item: BodyPlannerPlacementItem, body: SystemBody, allPlacements: BodyPlannerPlacementItem[]): BodyStructureSlotItem {
+  const templates = allPlacements.map((candidate) => candidate.template).filter((template): template is FacilityTemplate => Boolean(template));
+  const placementModels = allPlacements.map((candidate) => candidate.placement);
+  const prerequisiteWarnings = missingPrerequisitesForPlacement(item.placement, placementModels, templates);
   return {
     placement: item.placement,
     index: item.index,
     template: item.template,
-    warningCount: getPlacementWarnings(item, body).length,
+    warningCount: getPlacementWarnings(item, body).length + prerequisiteWarnings.length,
+    warningLabels: prerequisiteWarnings,
   };
 }
 
@@ -759,8 +764,7 @@ function laneForTemplate(template: FacilityTemplate | undefined, body: SystemBod
   if (location === 'orbital') return 'orbital';
   if (location === 'surface') return 'surface';
   if (location === 'both') {
-    if (template.is_port) return 'orbital';
-    return body.is_landable === true && body.is_water_world !== true ? 'surface' : 'orbital';
+    return fallbackLaneForBody(body);
   }
   return fallbackLaneForBody(body);
 }

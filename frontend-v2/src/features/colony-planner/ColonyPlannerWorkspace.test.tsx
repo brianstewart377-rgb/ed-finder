@@ -330,7 +330,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('workspace-economy-ledger')).toBeTruthy();
     expect(screen.getByTestId('summary-economy-ledger')).toBeTruthy();
     expect(screen.getByRole('region', { name: /Raven-style real planner canvas/i })).toBeTruthy();
-    expect(screen.getByText('Whole-System Build Canvas')).toBeTruthy();
+    expect(screen.getByText('System Build Map')).toBeTruthy();
+    expect(screen.queryByText('Whole-System Build Canvas')).toBeNull();
     expect(screen.getByTestId('raven-real-body-row-body1')).toBeTruthy();
     expect(await screen.findByText('Whole-System Planner')).toBeTruthy();
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
@@ -426,13 +427,13 @@ describe('ColonyPlannerWorkspace', () => {
     expect(picker).toBeTruthy();
     expect(within(picker).getByText(/Add orbit structure/i)).toBeTruthy();
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
-    expect(screen.queryByTestId('body-structure-template-flex_lab')).toBeNull();
-    expect(within(picker).getByTestId('canvas-picker-compatibility-summary').textContent).toContain('2 incompatible hidden');
+    expect(screen.getByTestId('body-structure-template-flex_lab')).toBeTruthy();
+    expect(within(picker).getByTestId('canvas-picker-compatibility-summary').textContent).toContain('1 incompatible hidden');
     fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
 
     expect((screen.getByTestId('body1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
     expect(within(screen.getByTestId('slot-lane-orbital')).getByText('1/4 planned')).toBeTruthy();
-    expect(within(screen.getByTestId('slot-lane-items-orbital')).getByText(/Orbital Port/i)).toBeTruthy();
+    expect(within(screen.getByTestId('slot-lane-items-orbital')).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);
     expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });

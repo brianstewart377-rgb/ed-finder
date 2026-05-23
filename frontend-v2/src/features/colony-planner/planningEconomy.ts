@@ -64,8 +64,10 @@ export function buildPlanningEconomyLedger({
   let unknownCount = 0;
 
   const add = (placement: SimulateBuildPlacement, kind: 'planned' | 'projected') => {
-    const economy = normalisePlanningEconomy(templatesById.get(placement.facility_template_id)?.economy);
+    const template = templatesById.get(placement.facility_template_id);
+    const economy = normalisePlanningEconomy(template?.economy);
     if (!economy) {
+      if (template?.is_port) return;
       unknownCount += 1;
       return;
     }

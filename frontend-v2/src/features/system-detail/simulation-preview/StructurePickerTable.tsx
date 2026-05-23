@@ -15,6 +15,13 @@ import {
   deriveStructurePickerGroupLabel,
   groupStructurePickerTemplates,
 } from './structurePickerGroupingUtils';
+import {
+  contextualEconomyLabel,
+  isContextualEconomyTemplate,
+  structureFamilyLabel,
+  templateDisplayName,
+  templatePrerequisiteDescriptions,
+} from '@/features/colony-planner/structurePlanningRules';
 
 export function StructurePickerTable({
   templates,
@@ -46,9 +53,11 @@ export function StructurePickerTable({
       if (!normalizedQuery) return true;
       return [
         template.name,
+        templateDisplayName(template),
         template.category,
         template.economy ?? '',
         template.allowed_location,
+        structureFamilyLabel(template),
         deriveStructurePickerGroupLabel(template),
       ].join(' ').toLowerCase().includes(normalizedQuery);
     });
@@ -172,17 +181,27 @@ export function StructurePickerTable({
                         ].join(' ')}
                       >
                         <td className="px-2 py-2 text-silver">
-                          <div className="font-semibold">{template.name}</div>
+                          <div className="font-semibold">{templateDisplayName(template)}</div>
                           <div className="mt-1 flex flex-wrap gap-1">
                             {template.is_port ? <Chip>Port</Chip> : null}
+                            <Chip>{structureFamilyLabel(template)}</Chip>
                             {isSelected ? <Chip tone="good">Current</Chip> : null}
                             {isProposed ? <Chip tone="warn">Proposed</Chip> : null}
+                            {templatePrerequisiteDescriptions(template).length > 0 ? <Chip tone="warn">Prerequisites</Chip> : null}
                           </div>
+                          {contextualEconomyLabel(template) && (
+                            <div className="mt-1 text-[10px] leading-snug text-cyan">{contextualEconomyLabel(template)}</div>
+                          )}
+                          {templatePrerequisiteDescriptions(template).length > 0 && (
+                            <div className="mt-1 text-[10px] leading-snug text-gold">
+                              Requires: {templatePrerequisiteDescriptions(template).join('; ')}
+                            </div>
+                          )}
                         </td>
                         <td className="px-2 py-2 text-silver-dk">{formatLocation(template.allowed_location)}</td>
                         <td className="px-2 py-2 text-silver-dk">{template.tier}</td>
                         <td className="px-2 py-2 text-silver-dk">{template.pad_size ?? 'Unknown'}</td>
-                        <td className="px-2 py-2 text-silver-dk">{template.economy ?? 'Unknown'}</td>
+                        <td className="px-2 py-2 text-silver-dk">{template.economy ?? (isContextualEconomyTemplate(template) ? 'Contextual' : 'Unknown')}</td>
                         <td className="px-2 py-2 text-silver-dk">{template.category}</td>
                         <td className="px-2 py-2 text-silver-dk">Y+{template.yellow_cp_generated} G+{template.green_cp_generated}</td>
                         <td className="px-2 py-2 text-silver-dk">Y{template.yellow_cp_cost} G{template.green_cp_cost}</td>
