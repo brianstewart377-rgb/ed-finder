@@ -131,6 +131,7 @@ afterEach(() => {
   window.location.hash = '';
   document.documentElement.style.removeProperty('--coalsack-bg-2560');
   document.documentElement.style.removeProperty('--coalsack-bg-1600');
+  vi.unstubAllGlobals();
 });
 
 describe('App Advanced Search Tuning route', () => {
@@ -147,6 +148,16 @@ describe('App Advanced Search Tuning route', () => {
 
 describe('App Colony Planner workspace route', () => {
   it('sets base-aware Coalsack background image URLs', async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => ({
+      ok: String(url).startsWith('/v2/bg/'),
+      headers: {
+        get: (name: string) => {
+          if (name.toLowerCase() !== 'content-type') return null;
+          return String(url).startsWith('/v2/bg/') ? 'image/jpeg' : 'text/html';
+        },
+      },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
     window.location.hash = '#finder';
 
     render(<App />);
@@ -155,8 +166,12 @@ describe('App Colony Planner workspace route', () => {
       expect(screen.getByText('Search form')).toBeTruthy();
     });
 
-    expect(document.documentElement.style.getPropertyValue('--coalsack-bg-2560')).toContain('bg/coalsack-2560.jpg');
-    expect(document.documentElement.style.getPropertyValue('--coalsack-bg-1600')).toContain('bg/coalsack-1600.jpg');
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--coalsack-bg-2560')).toContain('/v2/bg/coalsack-2560.jpg');
+      expect(document.documentElement.style.getPropertyValue('--coalsack-bg-1600')).toContain('/v2/bg/coalsack-1600.jpg');
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/v2/bg/coalsack-2560.jpg?v=2', { method: 'HEAD', cache: 'no-cache' });
+    expect(fetchMock).toHaveBeenCalledWith('/v2/bg/coalsack-1600.jpg?v=2', { method: 'HEAD', cache: 'no-cache' });
   });
 
   it('renders the dedicated workspace without opening the System Detail modal', async () => {
