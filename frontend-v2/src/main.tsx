@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) {
@@ -42,7 +43,9 @@ async function bootstrap() {
     const { default: RedesignApp } = await import('./_redesign/RedesignApp.jsx');
     root.render(
       <StrictMode>
-        <RedesignApp />
+        <ErrorBoundary>
+          <RedesignApp />
+        </ErrorBoundary>
       </StrictMode>,
     );
   } else {
@@ -50,7 +53,9 @@ async function bootstrap() {
     const { default: App } = await import('./App');
     root.render(
       <StrictMode>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </StrictMode>,
     );
   }
