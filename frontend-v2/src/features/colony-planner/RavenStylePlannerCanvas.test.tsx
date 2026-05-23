@@ -10,6 +10,18 @@ const system = {
   name: 'Real Data System',
   population: 1250000,
   score: 72,
+  score_agriculture: 38,
+  score_refinery: 83,
+  score_industrial: 71,
+  score_hightech: 44,
+  score_military: 52,
+  score_tourism: 29,
+  score_extraction: 68,
+  economy_suggestion: 'Refinery',
+  terraforming_potential: 23,
+  body_diversity: 18,
+  confidence: 0.82,
+  rationale: 'Strong Refinery; dense HMC and rocky body stack with solid slot capacity.',
   bodies: [
     { id: 1, name: 'Real Data System A', body_type: 'Star', subtype: 'K' },
     { id: 2, name: 'Real Data System A 1', body_type: 'Planet', subtype: 'High metal content world', is_landable: true, parent_body_id: 1, distance_from_star: 220 },
@@ -298,6 +310,12 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getByTestId('raven-stat-security-negative').style.width).not.toBe('0%');
     expect(screen.getByText('+72')).toBeTruthy();
     expect(screen.getByText('-20.9')).toBeTruthy();
+    expect(screen.getByTestId('raven-rating-profile-card')).toBeTruthy();
+    expect(screen.getByTestId('raven-rating-overall-score').textContent).toContain('72');
+    expect(screen.getByTestId('raven-rating-economy-breakdown')).toBeTruthy();
+    expect(screen.getByTestId('raven-rating-axis-refinery').textContent).toContain('83');
+    expect(screen.getByText(/High 82%/)).toBeTruthy();
+    expect(screen.getByTestId('raven-rating-rationale').textContent).toContain('Strong Refinery');
     expect(within(screen.getByTestId('raven-telemetry-economy-ledger')).getByText(/Ind/i)).toBeTruthy();
     expect(screen.getByTestId('raven-projection-comparison')).toBeTruthy();
     expect(screen.getByTestId('projection-comparison-bodies')).toBeTruthy();

@@ -53,6 +53,13 @@ export default function App() {
 function AppInner() {
   const hashRoute = useHashRoute();
 
+  useEffect(() => {
+    const base = import.meta.env.BASE_URL || '/';
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+    document.documentElement.style.setProperty('--coalsack-bg-2560', `url("${normalizedBase}bg/coalsack-2560.jpg?v=2")`);
+    document.documentElement.style.setProperty('--coalsack-bg-1600', `url("${normalizedBase}bg/coalsack-1600.jpg?v=2")`);
+  }, []);
+
   if (hashRoute.route === 'colony-planner-prototype') {
     return <PrototypeAppShell navigate={hashRoute.navigate} />;
   }

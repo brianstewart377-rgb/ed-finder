@@ -129,6 +129,8 @@ vi.mock('@/features/colony-planner/ColonyPlannerWorkspace', () => ({
 
 afterEach(() => {
   window.location.hash = '';
+  document.documentElement.style.removeProperty('--coalsack-bg-2560');
+  document.documentElement.style.removeProperty('--coalsack-bg-1600');
 });
 
 describe('App Advanced Search Tuning route', () => {
@@ -144,6 +146,19 @@ describe('App Advanced Search Tuning route', () => {
 });
 
 describe('App Colony Planner workspace route', () => {
+  it('sets base-aware Coalsack background image URLs', async () => {
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Search form')).toBeTruthy();
+    });
+
+    expect(document.documentElement.style.getPropertyValue('--coalsack-bg-2560')).toContain('bg/coalsack-2560.jpg');
+    expect(document.documentElement.style.getPropertyValue('--coalsack-bg-1600')).toContain('bg/coalsack-1600.jpg');
+  });
+
   it('renders the dedicated workspace without opening the System Detail modal', async () => {
     window.location.hash = '#colony-planner/system/123';
 

@@ -13,6 +13,8 @@
 
 :root {
   color-scheme: dark;
+  --coalsack-bg-2560: url('/bg/coalsack-2560.jpg?v=2');
+  --coalsack-bg-1600: url('/bg/coalsack-1600.jpg?v=2');
 }
 
 html {
@@ -48,7 +50,7 @@ body {
         rgba(8, 10, 14, 0.55) 55%,
         rgba(8, 10, 14, 0.82) 100%),
     /* the nebula itself */
-    url('/bg/coalsack-2560.jpg?v=2');
+    var(--coalsack-bg-2560);
   background-size: cover, cover, cover;
   background-position: top right, center center, center center;
   background-attachment: fixed, fixed, fixed;
@@ -62,7 +64,7 @@ body {
           rgba(8, 10, 14, 0.22) 0%,
           rgba(8, 10, 14, 0.62) 55%,
           rgba(8, 10, 14, 0.88) 100%),
-      url('/bg/coalsack-1600.jpg?v=2');
+      var(--coalsack-bg-1600);
     background-attachment: scroll, scroll;
   }
 }
