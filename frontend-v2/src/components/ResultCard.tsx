@@ -4,6 +4,7 @@ import {
   ratingTier,
   formatPopulation,
   formatConfidence,
+  formatDistance,
   isInhabited,
 } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
@@ -45,7 +46,7 @@ export function ResultCard({
   const scoreLabel = `Rating score: ${score ?? '—'}/100`;
   const conf       = formatConfidence(rating?.confidence);
   const inhabited  = isInhabited(system);
-  const dist       = system.distance != null ? system.distance.toFixed(2) : '?';
+  const dist       = formatDistance(system.distance) ?? '—';
   const popLabel   = formatPopulation(system.population);
   const systemId64 = Number(system.id64);
   const hasValidSystemId = Number.isFinite(systemId64) && systemId64 > 0;
@@ -109,7 +110,7 @@ export function ResultCard({
 
         {/* Distance */}
         <span className="font-mono text-xs tabular-nums text-silver px-2 py-0.5 rounded-md bg-bg3/60 border border-border">
-          {dist} <span className="text-silver-dk">LY</span>
+          {dist === '—' ? <span className="text-silver-dk">— LY</span> : <>{dist.replace(/ LY$/, '')} <span className="text-silver-dk">LY</span></>}
         </span>
 
         {/* Colonised pill */}

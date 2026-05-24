@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ratingTier, formatPopulation } from '@/lib/format';
+import { ratingTier, formatPopulation, formatDistance } from '@/lib/format';
 
 /**
  * Minimal row shape that every "list of systems" feature shares (Watchlist,
@@ -232,7 +232,7 @@ function renderCell(col: SystemTableColumn, row: SystemRow): ReactNode {
     case 'distanceRef':
       return (
         <span className="text-text-dim text-xs tabular-nums">
-          {row.distance != null ? `${row.distance.toFixed(2)} LY` : '—'}
+          {formatDistance(row.distance) ?? '—'}
         </span>
       );
 

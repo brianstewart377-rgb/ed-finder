@@ -94,3 +94,31 @@ describe('ResultCard Colony Planner action', () => {
     expect(screen.getByRole('button', { name: /Copy name/i })).toBeTruthy();
   });
 });
+
+describe('ResultCard distance display (Stage 17N.2)', () => {
+  it('shows valid distance with LY suffix', () => {
+    render(<ResultCard system={system} index={0} />);
+    expect(screen.getByText('12.34')).toBeTruthy();
+    expect(screen.getByText('LY')).toBeTruthy();
+  });
+
+  it('shows dash for null distance instead of 0.00', () => {
+    const nullDist = { ...system, distance: null } as unknown as SystemResult;
+    render(<ResultCard system={nullDist} index={0} />);
+    expect(screen.getByText('— LY')).toBeTruthy();
+    expect(screen.queryByText('0.00')).toBeNull();
+  });
+
+  it('shows dash for undefined distance', () => {
+    const noDist = { ...system, distance: undefined } as unknown as SystemResult;
+    render(<ResultCard system={noDist} index={0} />);
+    expect(screen.getByText('— LY')).toBeTruthy();
+  });
+
+  it('shows dash for zero distance (galaxy-wide fake zero)', () => {
+    const zeroDist = { ...system, distance: 0 } as unknown as SystemResult;
+    render(<ResultCard system={zeroDist} index={0} />);
+    expect(screen.getByText('— LY')).toBeTruthy();
+    expect(screen.queryByText('0.00')).toBeNull();
+  });
+});

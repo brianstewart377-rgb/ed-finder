@@ -39,6 +39,25 @@ export function formatConfidence(c: number | null | undefined):
   return            { tier: 'Low',     pct, symbol: '○' };
 }
 
+/**
+ * Format a distance value for display. Returns `null` when the distance
+ * is unknown/unavailable so callers can render `—` or a fallback label.
+ *
+ * Rules:
+ *  - null / undefined / NaN → null (unknown)
+ *  - 0.00 is only considered valid when `allowZero` is true (same-system
+ *    reference). Otherwise treated as unknown (backend may emit 0.0 for
+ *    galaxy-wide searches where no reference is set).
+ */
+export function formatDistance(
+  d: number | null | undefined,
+  opts?: { allowZero?: boolean },
+): string | null {
+  if (d == null || !Number.isFinite(d)) return null;
+  if (d === 0 && !opts?.allowZero) return null;
+  return `${d.toFixed(2)} LY`;
+}
+
 /** Multi-signal "is this system colonised" check.
  * Spansh's `is_colonised` flag is unreliable for old systems, so we OR a
  * few correlated signals together — same logic the vanilla app uses. */

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { SystemResult } from '@/types/api';
 import type { UseCompare } from './useCompare';
 import { COMPARE_MAX } from './useCompare';
-import { ratingTier, formatPopulation, formatConfidence } from '@/lib/format';
+import { ratingTier, formatPopulation, formatConfidence, formatDistance } from '@/lib/format';
 
 export interface CompareTabProps {
   compare: UseCompare;
@@ -262,7 +262,10 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     numericRow(
       'Distance from ref',
       (s) => s.distance,
-      (v) => (v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v.toFixed(2)} LY</span>),
+      (v) => {
+        const fmt = formatDistance(v);
+        return fmt ? <span className="tabular-nums">{fmt}</span> : <span className="text-text-dim">—</span>;
+      },
       false, // lower is better
     ),
     numericRow(

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { GalacticMap } from './GalacticMap';
 import type { SystemResult } from '@/types/api';
-import { ratingTier, formatPopulation } from '@/lib/format';
+import { ratingTier, formatPopulation, formatDistance } from '@/lib/format';
 
 /**
  * Map tab — wraps the GalacticMap with a selection-detail side panel.
@@ -106,8 +106,8 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
         )}
         {system.allegiance && <Row label="Allegiance" value={system.allegiance} />}
         {system.security   && <Row label="Security"   value={system.security} />}
-        {system.distance != null && (
-          <Row label="Distance" value={`${system.distance.toFixed(2)} LY`} />
+        {formatDistance(system.distance) && (
+          <Row label="Distance" value={formatDistance(system.distance)!} />
         )}
       </dl>
       {system._rating?.rationale && (

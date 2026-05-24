@@ -57,6 +57,26 @@ def _economy_str(val: Any) -> str:
     return s
 
 
+def _safe_distance(val: Any) -> float | None:
+    """Return a valid positive distance or None.
+
+    Galaxy-wide searches set ``dist_expr = "0.0"`` when there is no reference
+    coordinate. Converting that to ``float(0.0)`` on the wire makes the
+    frontend show ``0.00 LY`` for every system — clearly wrong. We treat
+    ``None``, non-finite, and zero dist as *unknown* so the UI can render
+    ``—`` instead.
+    """
+    if val is None:
+        return None
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return None
+    if not __import__('math').isfinite(f) or f <= 0:
+        return None
+    return round(f, 2)
+
+
 def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dict:
     bodies = bodies or []
 
@@ -74,7 +94,7 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
             "y": float(row["y"]),
             "z": float(row["z"]),
         },
-        "distance":          float(row.get("dist", 0) or 0),
+        "distance":          _safe_distance(row.get("dist")),
         # main_star_class is a generated column (= main_star_type) — always present
         "main_star":         row.get("main_star_class") or row.get("main_star_type"),
         "needs_permit":      bool(row.get("needs_permit", False)),
@@ -401,7 +421,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     results: list = []
     for row in rows:
         rec = _build_system_record(row)
-        rec["distance"] = round(float(row["dist"]), 2)
+        rec["distance"] = _safe_distance(row["dist"])
         results.append(rec)
 
     elapsed = round((time.time() - t0) * 1000)
