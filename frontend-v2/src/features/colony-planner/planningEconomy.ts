@@ -1,4 +1,4 @@
-import type { FacilityTemplate, SimulateBuildPlacement } from '@/types/api';
+import type { FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 
 export const PLANNING_ECONOMY_NOTE = 'Planning economy mix — run Preview for validated outcome.';
 
@@ -116,6 +116,76 @@ export function compactEconomyLabel(economy: PlanningEconomyName): string {
   if (economy === 'Extraction') return 'Ext';
   if (economy === 'HighTech') return 'HiTech';
   return economy.slice(0, 4);
+}
+
+export interface InferredEconomyShare {
+  economy: PlanningEconomyName;
+  share: number;
+  source: 'system' | 'body';
+}
+
+const BODY_SUBTYPE_LEANS: Array<{ tokens: string[]; economies: PlanningEconomyName[] }> = [
+  { tokens: ['high metal content', 'metal rich'], economies: ['Refinery', 'Extraction'] },
+  { tokens: ['icy body', 'ice'], economies: ['Extraction'] },
+  { tokens: ['rocky body', 'rocky ice'], economies: ['Extraction'] },
+  { tokens: ['earth-like', 'earthlike', 'earth like'], economies: ['Agriculture', 'Tourism'] },
+  { tokens: ['water world'], economies: ['Tourism'] },
+  { tokens: ['ammonia world'], economies: ['HighTech'] },
+  { tokens: ['gas giant'], economies: ['Industrial'] },
+];
+
+/**
+ * Build a coarse inherited economy baseline for a station/port placed over a body
+ * before any additional buildings are added. Mirrors RavenColonial's contextual
+ * baseline behaviour: weighted picks from the surrounding system + body context.
+ *
+ * Anything more precise (final composition shares, CP, contamination) still
+ * requires running Preview — this is only the inherited contextual baseline.
+ */
+export function inferredStationBaselineShares(
+  body: SystemBody | null | undefined,
+  system: Pick<SystemDetail, 'primary_economy' | 'secondary_economy'> | null | undefined,
+): InferredEconomyShare[] {
+  const out: InferredEconomyShare[] = [];
+  const seen = new Set<PlanningEconomyName>();
+  const pushShare = (
+    economy: PlanningEconomyName | null,
+    share: number,
+    source: 'system' | 'body',
+  ) => {
+    if (!economy || share <= 0) return;
+    if (seen.has(economy)) {
+      const existing = out.find((entry) => entry.economy === economy);
+      if (existing) existing.share += share;
+      return;
+    }
+    seen.add(economy);
+    out.push({ economy, share, source });
+  };
+
+  if (system) {
+    pushShare(normalisePlanningEconomy(system.primary_economy), 60, 'system');
+    pushShare(normalisePlanningEconomy(system.secondary_economy), 25, 'system');
+  }
+
+  if (body) {
+    const subtype = `${body.subtype ?? ''} ${body.body_type ?? ''}`.toLowerCase();
+    BODY_SUBTYPE_LEANS.forEach((entry) => {
+      if (entry.tokens.some((token) => subtype.includes(token))) {
+        entry.economies.forEach((economy) => pushShare(economy, 15, 'body'));
+      }
+    });
+    if ((body.geo_signal_count ?? 0) > 0) pushShare('Extraction', 10, 'body');
+    if ((body.bio_signal_count ?? 0) > 0) pushShare('Agriculture', 10, 'body');
+    if (body.is_terraformable === true) pushShare('Agriculture', 10, 'body');
+  }
+
+  if (out.length === 0) return [];
+
+  const total = out.reduce((sum, entry) => sum + entry.share, 0);
+  return out
+    .map((entry) => ({ ...entry, share: Math.round((entry.share / total) * 100) }))
+    .filter((entry) => entry.share > 0);
 }
 
 export function economyToneClass(economy: PlanningEconomyName): string {

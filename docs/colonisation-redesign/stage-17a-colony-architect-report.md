@@ -530,3 +530,34 @@ Remaining manual editing gaps:
 - no backend-persisted per-placement lane field
 - no one-click prerequisite insertion action
 - no Architect observed slot storage
+
+## Stage 17N.1e Slot Box Truth, Physical Compatibility, And Inherited Station Baseline
+
+Stage 17N.1e cleans up the residual visual ambiguity in the Raven whole-system canvas, separates physical compatibility from free-text prerequisites, and gives contextual stations a usable inherited economy baseline before Preview is run.
+
+Implemented behavior:
+
+- the default Raven canvas no longer renders the small cyan/green dot strip next to body names; the helper `SlotCapacityDots` is retained only for the Advanced drawer
+- every body row renders real, capacity-accurate slot boxes on both selected and unselected rows; empty slots stay passive `<span>` elements and only the row-level `Add Orbit` / `Add Surface` controls open the picker
+- lane capacity chips use the format `Orbit N` and `Surface N` with the count rendered in a larger display font and `tabular-nums`, so the count is unambiguous and never reads as a padded `02`
+- known-zero and unknown lanes still fall through to the compact `No orbital slots` / `No surface slots` / `? slots` state; known positive capacity always renders boxes
+- physical compatibility is now first-class: `templatePhysicalIncompatibilityReason(template, body, lane)` in `structurePlanningRules.ts` is the single source of hard-invalid placements
+  - Asteroid Station templates (detected via id/name/category tokens) require `is_ringed === true` and are hidden by the picker on non-ringed bodies, never surfacing as a missing prerequisite
+  - water-world and non-landable surface rules route through the same helper
+- catalogue free-text prerequisite descriptions that describe slot/lane/ringed-body conditions (for example `orbital slot available`, `requires a ringed body`, `landable body`, `water world`) are filtered out of structure prerequisite warnings; slot/lane truth is enforced by capacity and physical-compat rules instead, eliminating the false `needs orbital slot` warning class
+- the overflow slot now reports `Orbital capacity exceeded` / `Surface capacity exceeded` copy in its tooltip and adds to the row warning indicator, recommending Architect Mode verification rather than blocking planning
+- contextual stations and ports without direct economy metadata now show an inherited baseline economy micro-bar derived from `system.primary_economy`, `system.secondary_economy`, and body subtype/atmosphere/signal heuristics; the `CTX` chip and tooltip continue to flag the value as inherited and not a CP-validated outcome
+
+Explicit non-behavior:
+
+- no automatic Preview, Suggested Build, or projected candidate load
+- no Advanced Planner requirement for direct manual adds
+- no invented CP magnitudes — the inherited baseline reports only share weights
+- prerequisites remain warnings, not blockers
+- empty slot boxes stay passive — only the row-level `Add Orbit` / `Add Surface` controls open the picker
+
+Remaining manual editing gaps:
+
+- baseline economy still does not include CP yellow/green magnitudes, contamination risk, weak/strong link analysis, or pass-through composition; those continue to require Preview
+- backend prerequisite metadata is not yet typed for "structure prerequisite" vs "slot/lane condition" — the frontend filter is a token allow-list and should migrate to a typed field once the catalogue exposes it
+- Architect observed slot truth and a first-class ringed-body field remain a later stage

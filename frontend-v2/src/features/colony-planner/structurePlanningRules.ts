@@ -26,14 +26,61 @@ export function templateMatchesLane(template: FacilityTemplate, lane: BodyPlanne
   return location === 'surface' || location === 'both';
 }
 
+const ASTEROID_STATION_TOKENS = ['asteroid_station', 'asteroid station', 'asteroid_base', 'asteroid base'];
+
+export function isAsteroidStationTemplate(template: FacilityTemplate): boolean {
+  const haystack = [template.id, template.name, template.category]
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.toLowerCase())
+    .join(' | ');
+  return ASTEROID_STATION_TOKENS.some((token) => haystack.includes(token));
+}
+
+export function templatePhysicalIncompatibilityReason(
+  template: FacilityTemplate,
+  body: SystemBody,
+  lane: BodyPlannerLane,
+): string | null {
+  const laneReason = laneDisabledReason(body, lane);
+  if (laneReason) return laneReason;
+  if (lane === 'orbital' && isAsteroidStationTemplate(template) && body.is_ringed !== true) {
+    return 'Asteroid Station requires a ringed body.';
+  }
+  return null;
+}
+
 export function templateCanFitBody(template: FacilityTemplate, body: SystemBody, lane: BodyPlannerLane): boolean {
-  if (laneDisabledReason(body, lane)) return false;
+  if (templatePhysicalIncompatibilityReason(template, body, lane)) return false;
   if (!templateMatchesLane(template, lane)) return false;
   const location = templateLocationKind(template);
   if (location === 'surface' || lane === 'surface') {
     return body.is_landable === true && body.is_water_world !== true;
   }
   return true;
+}
+
+const SLOT_LANE_PREREQUISITE_TOKENS = [
+  'orbital slot',
+  'orbit slot',
+  'orbit pad',
+  'orbital pad',
+  'surface slot',
+  'ground slot',
+  'surface pad',
+  'landing pad',
+  'ringed body',
+  'landable body',
+  'water world',
+  'atmospheric body',
+  'orbit lane',
+  'surface lane',
+  'lane available',
+  'slot available',
+];
+
+export function isSlotOrLaneRequirementDescription(description: string): boolean {
+  const value = description.toLowerCase();
+  return SLOT_LANE_PREREQUISITE_TOKENS.some((token) => value.includes(token));
 }
 
 export function placementLaneForTemplate(
@@ -111,7 +158,8 @@ export function missingPrerequisitesForTemplate(
   placements: SimulateBuildPlacement[],
   templates: FacilityTemplate[],
 ): string[] {
-  const prerequisites = templatePrerequisiteDescriptions(template);
+  const prerequisites = templatePrerequisiteDescriptions(template)
+    .filter((description) => !isSlotOrLaneRequirementDescription(description));
   if (prerequisites.length === 0) return [];
   const placedTemplates = placements
     .map((placement) => templates.find((candidate) => candidate.id === placement.facility_template_id))

@@ -1161,6 +1161,37 @@ Remaining manual editing gaps:
 - no explicit persisted slot index
 - no normalized persisted lane field in backend simulation requests
 
+## Stage 17N.1e Slot Box, Physical Compatibility, And Inherited Baseline Contract
+
+Stage 17N.1e tightens the canvas truth model so visible state matches the underlying capacity and physical rules.
+
+Canvas display contract:
+
+- every body row renders capacity-accurate slot boxes for both selected and unselected rows
+- the body name header uses inline lane chips (`Orbit N`, `Surface N`) with unpadded counts; dot-based slot indicators are no longer used on the default canvas (`SlotCapacityDots` is retained only for the Advanced drawer)
+- known-zero or unknown lanes keep the compact `No orbital slots` / `No surface slots` / `? slots` fallback; known positive capacity always renders boxes
+- overflow above predicted capacity surfaces as `Orbital capacity exceeded` / `Surface capacity exceeded` tooltip copy on the overflow slot and increments the row warning indicator
+
+Compatibility rules:
+
+- physical incompatibility uses `templatePhysicalIncompatibilityReason(template, body, lane)` as the single source for hard-invalid placements, covering surface limits (water world, non-landable) and orbital-specific rules (Asteroid Station requires a ringed body)
+- the picker hides physically incompatible templates rather than warning about them
+- catalogue free-text prerequisite descriptions that describe slot/lane/ringed-body conditions are filtered out of structure prerequisite warnings; capacity and physical-compat rules are the single source of truth for those constraints
+
+Inherited baseline economy:
+
+- contextual stations and ports without direct economy metadata render a baseline economy micro-bar derived from `system.primary_economy`, `system.secondary_economy`, and body subtype/atmosphere/signal heuristics
+- the `CTX` chip and tooltip continue to flag the value as inherited and not a CP-validated outcome
+- baseline shares are reported without CP magnitudes; full composition, CP yellow/green totals, contamination, and pass-through analysis still require Preview
+
+Safety boundary:
+
+- no Advanced Planner requirement
+- no automatic Preview, Suggested Build, or candidate load
+- no invented CP magnitudes
+- empty slot boxes remain passive — only the row-level `Add Orbit` / `Add Surface` controls open the picker
+- prerequisite gaps remain warnings, not blockers
+
 ## Stage 18 Assistant Foundation Boundary
 
 Planned assistant layer should sit above this architecture:

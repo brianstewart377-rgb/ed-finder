@@ -292,6 +292,93 @@ describe('CanvasStructurePicker', () => {
     expect(screen.queryByTestId('body-structure-template-surface_settlement_tourism_t1_s')).toBeNull();
   });
 
+  it('hides Asteroid Station templates from non-ringed bodies (physical compatibility, not a prerequisite warning)', () => {
+    const asteroidTemplates: FacilityTemplate[] = [
+      {
+        id: 'asteroid_station',
+        name: 'Asteroid Station',
+        category: 'port',
+        tier: 3,
+        economy: null,
+        is_port: true,
+        is_support_facility: false,
+        allowed_location: 'orbital',
+        pad_size: 'L',
+        confidence: 'observed',
+        notes: null,
+        prerequisites: [{ description: 'Requires a ringed body' }],
+        yellow_cp_generated: 6,
+        green_cp_generated: 2,
+        yellow_cp_cost: 0,
+        green_cp_cost: 0,
+      } as FacilityTemplate,
+      templates[0],
+    ];
+
+    const ringedBody: SystemBody = { ...landableBody, id: 11, name: 'Ringed Body', is_ringed: true } as SystemBody;
+    const plainBody: SystemBody = { ...landableBody, id: 12, name: 'Plain Body' } as SystemBody;
+
+    const { rerender } = render(
+      <CanvasStructurePicker
+        body={plainBody}
+        lane="orbital"
+        templates={asteroidTemplates}
+        templatesLoading={false}
+        onClose={vi.fn()}
+        onPickTemplate={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('body-structure-template-asteroid_station')).toBeNull();
+    expect(screen.queryByText(/Requires a ringed body/i)).toBeNull();
+
+    rerender(
+      <CanvasStructurePicker
+        body={ringedBody}
+        lane="orbital"
+        templates={asteroidTemplates}
+        templatesLoading={false}
+        onClose={vi.fn()}
+        onPickTemplate={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('body-structure-template-asteroid_station')).toBeTruthy();
+  });
+
+  it('does not surface slot/lane wording as a missing prerequisite (slot rules are not structure prereqs)', () => {
+    const slotPrereqTemplate: FacilityTemplate = {
+      id: 'orbital_research_lab',
+      name: 'Orbital Research Lab',
+      category: 'hightech',
+      tier: 2,
+      economy: 'HighTech',
+      is_port: false,
+      is_support_facility: true,
+      allowed_location: 'orbital',
+      pad_size: null,
+      confidence: 'observed',
+      notes: null,
+      prerequisites: [{ description: 'Orbital slot available' }],
+      yellow_cp_generated: 1,
+      green_cp_generated: 0,
+      yellow_cp_cost: 0,
+      green_cp_cost: 0,
+    } as FacilityTemplate;
+
+    render(
+      <CanvasStructurePicker
+        body={landableBody}
+        lane="orbital"
+        templates={[slotPrereqTemplate]}
+        templatesLoading={false}
+        onClose={vi.fn()}
+        onPickTemplate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('body-structure-template-orbital_research_lab')).toBeTruthy();
+    expect(screen.queryByTestId('canvas-picker-prerequisite-warning-orbital_research_lab')).toBeNull();
+  });
+
   it('shows ground settlements, hubs, flexible templates, and missing prerequisites without disabling selection', () => {
     const onPickTemplate = vi.fn();
     render(
