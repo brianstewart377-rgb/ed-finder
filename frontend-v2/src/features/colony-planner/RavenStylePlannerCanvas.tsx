@@ -361,7 +361,7 @@ function RavenPlannerBodyRow({
   prerequisiteIssues: PrerequisiteIssue[];
 }) {
   const rowTone = selected
-    ? 'bg-orange/10 shadow-[inset_3px_0_0_rgba(255,122,20,0.95)]'
+    ? 'bg-orange/10 shadow-[inset_4px_0_0_rgba(255,122,20,0.95)]'
     : row.projected
       ? 'bg-cyan/5'
       : 'bg-transparent';
@@ -488,7 +488,7 @@ function TreeCell({
         />
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-semibold leading-snug text-silver">{row.compactName}</span>
+            <span className="truncate text-sm font-semibold leading-snug text-silver-lt">{row.compactName}</span>
             {row.warningCount > 0 && <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] text-gold">!</span>}
             {row.projected && <span className="rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[10px] text-cyan">ghost</span>}
             <BodyCapacitySummary
@@ -497,7 +497,7 @@ function TreeCell({
               groundCapacity={row.groundCapacity}
             />
           </span>
-          <span className="mt-0.5 block truncate text-xs leading-snug text-silver">{row.bodyKind}</span>
+          <span className="mt-0.5 block truncate text-xs leading-snug text-silver/85">{row.bodyKind}</span>
         </span>
       </button>
     </div>
@@ -590,10 +590,10 @@ function RavenSlotLane({
         <span
           data-testid={`${bodyId}-${lane}-capacity-badge`}
           data-capacity={knownCount}
-          className="inline-flex items-baseline gap-1 rounded border border-cyan/30 bg-cyan/5 px-2 py-0.5 text-cyan"
+          className="inline-flex items-baseline gap-0.5 rounded border border-cyan/35 bg-cyan/8 px-2 py-0.5 text-cyan"
         >
-          <span className="text-[10px]">{laneFullName}</span>
-          <span className="font-display text-base leading-none tabular-nums">{knownCount}</span>
+          <span className="text-[11px] font-semibold tracking-wide">{laneFullName}</span>
+          <span className="font-display text-[15px] font-bold leading-none tabular-nums">{knownCount}</span>
         </span>
         {showAddControl && (
           <button
@@ -603,7 +603,7 @@ function RavenSlotLane({
             title={disabledReason ?? addLabel}
             disabled={Boolean(disabledReason)}
             onClick={requestAdd}
-            className="inline-flex items-center gap-1 rounded border border-orange/45 bg-orange/10 px-2 py-1 text-[10px] text-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
+            className="inline-flex items-center gap-1 rounded border border-orange/55 bg-orange/15 px-2.5 py-1 text-[11px] font-semibold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
           >
             <Plus size={12} />
             {lane === 'orbital' ? 'Add Orbit' : 'Add Surface'}
@@ -620,6 +620,7 @@ function RavenSlotLane({
             testId={`${bodyId}-${lane}-slot-${index}`}
             selected={(slot.placementIndex != null && slot.placementIndex === selectedPlacementIndex) || (slot.projectionIndex != null && slot.projectionIndex === selectedProjectedPlacementIndex)}
             onSelect={onSelect}
+            onAdd={undefined}
             warningCount={slot.placementIndex != null ? prerequisiteIssues.find((issue) => issue.placementIndex === slot.placementIndex)?.missing.length ?? 0 : 0}
           />
         )) : (
@@ -722,30 +723,25 @@ function RavenSlotBox({
   const content = (
     <>
       {slot.kind === 'projected' && <span data-testid="raven-projected-ghost-structure" className="sr-only">{slot.fullName}</span>}
-      {slot.status !== 'unknown' && (
-        <span className={slot.kind === 'projected' ? 'absolute right-1 top-0.5 text-[8px] text-cyan' : 'absolute right-1 top-0.5 text-[8px] text-silver'}>
-          {slot.kind === 'projected' ? 'PROJ' : slot.kind === 'overflow' ? 'OVER' : 'PLAN'}
-        </span>
-      )}
       <span data-testid={isStructure ? 'raven-structure-slot-pill' : undefined} className="max-w-full truncate">
         {slot.kind === 'empty' && onAdd ? '+' : slot.label}
       </span>
       {slot.economySegments.length > 0 && <StructureEconomyMicroBar segments={slot.economySegments} />}
-      {slot.economyContextLabel && <span data-testid="raven-contextual-economy-chip" className="absolute bottom-0.5 left-1 right-1 truncate text-[8px] text-cyan">CTX</span>}
+      {slot.economyContextLabel && <span data-testid="raven-contextual-economy-chip" className="sr-only">{slot.economyContextLabel}</span>}
       {(warningCount > 0 || slot.warningLabels.length > 0) && (
-        <span data-testid="raven-prerequisite-warning-chip" className="absolute left-1 top-0.5 text-[8px] text-gold">REQ</span>
+        <span data-testid="raven-prerequisite-warning-chip" className="sr-only">Prerequisite warning</span>
       )}
     </>
   );
 
   const className = [
-    'group/slot relative flex overflow-hidden rounded border px-1.5 text-center font-mono text-[10px] font-bold uppercase leading-tight transition',
-    isStructure ? 'h-10 min-w-[94px] max-w-[138px] items-start justify-center pb-2.5 pt-3' : 'h-8 min-w-[74px] max-w-[112px] items-center justify-center',
+    'group/slot relative flex overflow-hidden rounded border px-1.5 text-center font-mono text-[11px] font-bold uppercase leading-tight transition',
+    isStructure ? 'h-11 min-w-[94px] max-w-[148px] items-start justify-center pb-3 pt-1.5' : 'h-8 min-w-[74px] max-w-[112px] items-center justify-center',
     interactive && 'hover:-translate-y-0.5 hover:border-orange-lt hover:shadow-brand-glow',
     selected && 'ring-2 ring-orange/70',
-    slot.kind === 'empty' && (onAdd ? 'border-orange/45 bg-orange/10 text-orange' : 'border-border/70 bg-bg2/45 text-silver-2'),
-    slot.kind === 'planned' && 'text-silver',
-    slot.kind === 'projected' && 'border-dashed text-cyan opacity-80',
+    slot.kind === 'empty' && (onAdd ? 'border-orange/55 bg-orange/15 text-orange font-semibold' : 'border-border/70 bg-bg2/45 text-silver-2'),
+    slot.kind === 'planned' && 'text-silver-lt',
+    slot.kind === 'projected' && 'border-dashed text-cyan/90 opacity-75',
     slot.kind === 'unknown' && 'border-dashed border-gold/65 bg-gold/10 text-gold',
     slot.kind === 'overflow' && 'border-orange bg-orange/20 text-orange-lt',
   ].filter(Boolean).join(' ');
@@ -820,7 +816,7 @@ function StructureEconomyMicroBar({ segments }: { segments: RavenEconomySegment[
       data-testid="raven-structure-economy-micro-bar"
       aria-label={title}
       title={title}
-      className="absolute inset-x-0 bottom-0 flex h-1 overflow-hidden bg-bg4/80"
+      className="absolute inset-x-0 bottom-0 flex h-2 overflow-hidden bg-bg4/80"
     >
       {renderSegments.map((segment) => (
         <span

@@ -1192,6 +1192,22 @@ Safety boundary:
 - empty slot boxes remain passive — only the row-level `Add Orbit` / `Add Surface` controls open the picker
 - prerequisite gaps remain warnings, not blockers
 
+## Stage 17N.1f Micro-Polish Display Contract
+
+Canvas display changes:
+
+- `PLAN`, `CTX`, `REQ` visible text labels removed from structure boxes; structure kind communicated through styling (border, gradient, dashing); underlying testids and `sr-only` elements preserved
+- body name contrast: `text-silver-lt`; body kind: `text-silver/85`; structure labels: `text-[11px] text-silver-lt`
+- lane chip: label `text-[11px] font-semibold`, count `text-[15px] font-bold` — coherent unit, not dwarfed label
+- selected row: `shadow-[inset_4px_0_0_...]`; add buttons: `text-[11px] font-semibold` with `border-orange/55 bg-orange/15`
+- economy micro-bar: `h-2` (8px) — readable segments, reliable hover target; tooltip preserved
+
+Slot interaction contract:
+
+- empty slots on all rows remain passive `<span>` — no button styling, no pointer cursor
+- lane-level `Add Orbit` / `Add Surface` is the only add entry point on selected rows
+- planned/projected structure slots remain selectable buttons with economy bar and tooltip
+
 ## Stage 18 Assistant Foundation Boundary
 
 Planned assistant layer should sit above this architecture:

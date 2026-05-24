@@ -561,3 +561,19 @@ Remaining manual editing gaps:
 - baseline economy still does not include CP yellow/green magnitudes, contamination risk, weak/strong link analysis, or pass-through composition; those continue to require Preview
 - backend prerequisite metadata is not yet typed for "structure prerequisite" vs "slot/lane condition" — the frontend filter is a token allow-list and should migrate to a typed field once the catalogue exposes it
 - Architect observed slot truth and a first-class ringed-body field remain a later stage
+
+## Stage 17N.1f Raven Canvas Micro-Polish
+
+Implemented behaviours:
+
+- visible `PLAN`, `CTX`, and `REQ` text labels removed from structure boxes on the main canvas; structure kind is communicated through styling (border colour, gradient, dashing) not label clutter; underlying testids and `sr-only` content preserved for accessibility
+- body names now use `text-silver-lt` for better contrast; body subtype uses `text-silver/85`; structure labels use `text-[11px]` with `text-silver-lt`
+- Orbit/Surface lane chip label upsized to `text-[11px] font-semibold`, count to `text-[15px] font-bold` so both scan as one coherent unit
+- selected row inset border widened to 4px; Add Orbit / Add Surface buttons use `text-[11px] font-semibold` with increased padding/opacity for clear primary action affordance
+- economy micro-bar height increased from `h-1` (4px) to `h-2` (8px) for readable segmented colours and reliable hover target; tooltip preserved for both direct and inherited baseline bars
+
+Explicit non-behaviour:
+
+- empty slot boxes remain passive `<span>` elements on all rows — they do not present hover/click button styling
+- no new visible labels introduced as replacements for removed PLAN/CTX/REQ
+- no layout changes: map dominance, no inline body expansion, no stacked panels above map

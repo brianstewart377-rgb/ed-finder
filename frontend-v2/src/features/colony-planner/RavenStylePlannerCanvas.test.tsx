@@ -511,6 +511,91 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(body?.warningCount ?? 0).toBeGreaterThan(0);
   });
 
+  it('does not render visible PLAN or CTX labels on main canvas structure boxes (17N.1f)', () => {
+    const contextualSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [
+        { facility_template_id: 'contextual_station', local_body_id: '2', is_primary_port: true, build_order: 1 },
+        { facility_template_id: 'research_station', local_body_id: '2', build_order: 2 },
+      ],
+      projection: null,
+    };
+    render(<RavenStylePlannerCanvas system={system} snapshot={contextualSnapshot} selection={{ type: 'placement', placementIndex: 0 }} onSelect={vi.fn()} />);
+
+    const allSlotPills = screen.getAllByTestId('raven-structure-slot-pill');
+    allSlotPills.forEach((pill) => {
+      expect(pill.textContent).not.toContain('PLAN');
+      expect(pill.textContent).not.toContain('CTX');
+    });
+
+    const structureBoxes = screen.getAllByTestId(/^2-(orbital|ground)-slot-\d+$/);
+    structureBoxes.forEach((box) => {
+      const visibleText = box.textContent ?? '';
+      expect(visibleText).not.toMatch(/\bPLAN\b/);
+      expect(visibleText).not.toMatch(/\bCTX\b/);
+    });
+
+    expect(screen.getByTestId('raven-contextual-economy-chip')).toBeTruthy();
+    expect(screen.getByTestId('raven-prerequisite-warning-chip')).toBeTruthy();
+    expect(screen.getByTestId('raven-contextual-economy-chip').className).toContain('sr-only');
+    expect(screen.getByTestId('raven-prerequisite-warning-chip').className).toContain('sr-only');
+  });
+
+  it('renders economy micro-bars at a readable thickness and preserves tooltip (17N.1f)', () => {
+    render(<RavenStylePlannerCanvas system={system} snapshot={snapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    const bars = screen.getAllByTestId('raven-structure-economy-micro-bar');
+    expect(bars.length).toBeGreaterThan(0);
+    bars.forEach((bar) => {
+      expect(bar.className).toContain('h-2');
+      expect(bar.className).not.toContain('h-1 ');
+      expect(bar.getAttribute('title') ?? '').not.toBe('');
+    });
+  });
+
+  it('renders lane chips with visually balanced label and count at readable size (17N.1f)', () => {
+    render(<RavenStylePlannerCanvas system={system} snapshot={snapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    const badge = screen.getByTestId('2-orbital-capacity-badge');
+    expect(badge.textContent).toMatch(/Orbit\s*2/);
+    const label = badge.querySelector('[class*="font-semibold"]');
+    const count = badge.querySelector('[class*="font-bold"]');
+    expect(label).toBeTruthy();
+    expect(count).toBeTruthy();
+  });
+
+  it('shows prominent selected row highlight and Add controls at readable size (17N.1f)', () => {
+    render(
+      <RavenStylePlannerCanvas
+        system={system}
+        snapshot={{ ...snapshot, placements: [], projection: null }}
+        selection={{ type: 'body', bodyId: '2' }}
+        onSelect={vi.fn()}
+        onRequestAddStructure={vi.fn()}
+      />,
+    );
+
+    const selectedRow = screen.getByTestId('raven-real-body-row-2');
+    expect(selectedRow.getAttribute('data-selected')).toBe('true');
+
+    const addOrbit = screen.getByTestId('2-orbital-add');
+    expect(addOrbit.className).toContain('font-semibold');
+    expect(addOrbit.textContent).toContain('Add Orbit');
+
+    const emptySlot = screen.getByTestId('2-orbital-slot-0');
+    expect(emptySlot.tagName.toLowerCase()).toBe('span');
+    expect(emptySlot.className).not.toContain('cursor-pointer');
+  });
+
+  it('uses readable contrast classes for body names and structure labels (17N.1f)', () => {
+    render(<RavenStylePlannerCanvas system={system} snapshot={snapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    const bodyButton = screen.getByTestId('topology-body-button-2');
+    const bodyName = bodyButton.querySelector('[class*="text-silver-lt"]');
+    expect(bodyName).toBeTruthy();
+    expect(bodyName?.textContent).toContain('A 1');
+  });
+
   it('matches projected structures to large numeric system body ids', () => {
     const exactBodyId = '1044927859400806427';
     const roundedBodyId = String(Number(exactBodyId));

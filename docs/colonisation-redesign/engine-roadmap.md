@@ -1868,6 +1868,24 @@ Remaining manual editing gaps:
 - backend prerequisite metadata is not yet typed for "structure prerequisite" vs "slot/lane condition" — the frontend filter is a token allow-list and should migrate to a typed field once available
 - Architect observed slot truth and ringed-body explicit field flow remain a later stage
 
+## Stage 17N.1f - Raven Canvas Micro-Polish — Readability, Add Affordance, and Economy Bar Usability (Implemented)
+
+Delivered:
+
+- **PLAN/CTX label removal**: visible `PLAN`, `CTX`, and `REQ` text labels removed from main canvas structure boxes; underlying testids and screen-reader-only elements preserved for accessibility and testing; structure kind is communicated through styling (border, gradient, dashing) not label clutter
+- **Text contrast improvements**: body names upgraded to `text-silver-lt`, body kind to `text-silver/85`, structure labels to `text-[11px]` with `text-silver-lt`; lane chips and add buttons use `font-semibold` and stronger border/background opacity
+- **Lane chip visual balance**: Orbit/Surface label upsized to `text-[11px] font-semibold`, count adjusted to `text-[15px] font-bold` so label and number scan as one coherent unit instead of tiny label dwarfed by large number
+- **Selected row highlight**: inset border widened to 4px for stronger affordance; Add Orbit / Add Surface buttons use `text-[11px] font-semibold` with increased padding and border opacity
+- **Economy bar thickness**: micro-bar height increased from `h-1` (4px) to `h-2` (8px) making segmented economy colours readable and the hover target usable at normal desktop resolution; tooltip titles preserved for both direct and inherited baseline bars
+- **Passive empty slot preservation**: empty slot boxes on all rows remain passive `<span>` elements; only the lane-level `Add Orbit` / `Add Surface` buttons open the picker on selected rows
+
+Preserved from 17N.1e and earlier:
+
+- map dominance, no inline selected-body expansion, no stacked Orbit/Surface panels above map
+- slot boxes (not dots), unpadded lane capacity chips, station baseline qualitative economy
+- asteroid station physical compatibility, prerequisite warnings as warnings not blockers
+- no auto-preview, no auto-generation, no auto-load
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:
