@@ -1837,6 +1837,37 @@ Remaining manual editing gaps:
 - no one-click prerequisite insertion action yet
 - Architect observed slot truth remains a later stage
 
+## Stage 17N.1e - Slot Box Truth, Physical Compatibility, And Inherited Station Baseline (Implemented)
+
+Stage 17N.1e replaces the residual dot-based slot indicators in the Raven canvas with real slot boxes, fixes the false "needs slot" warning class, separates physical compatibility from prerequisite warnings, and gives contextual stations a usable inherited economy baseline before Preview is run.
+
+Delivered:
+
+- whole-system Raven rows now show real, capacity-accurate slot boxes on every row (selected and unselected); the small cyan/green name-badge dot strip (`SlotCapacityDots`) is no longer used on the default canvas
+- per-row capacity badges render unpadded counts as `Orbit N` and `Surface N` chips with a larger display number, replacing the small `O2`/`S2` chip that read as a padded `02`
+- lane capacity zero or unknown still falls back to a compact `No orbital slots` / `No surface slots` / `? slots` state; known positive capacity always renders boxes
+- physical incompatibility is split out from prerequisites:
+  - `templatePhysicalIncompatibilityReason(template, body, lane)` is the single source for hard-invalid placements
+  - Asteroid Station templates are hidden from non-ringed bodies in the picker and never produce a "missing prerequisite" warning string
+  - water-world and non-landable surface rules now route through the same helper
+- catalogue free-text prerequisites that describe slot/lane/ringed-body conditions (`orbital slot`, `surface slot`, `ringed body`, `landable body`, `water world`, etc.) are filtered out of structure prerequisite warnings; slot/lane truth is enforced by capacity and physical-compat rules instead
+- lane capacity overflow now surfaces as `Orbital capacity exceeded` / `Surface capacity exceeded` copy on the overflow slot tooltip and increments the row warning indicator; the message is honest about predicted-vs-planned and continues to recommend Architect Mode verification
+- contextual stations and ports without direct economy metadata now show an inherited baseline economy micro-bar derived from `system.primary_economy`, `system.secondary_economy`, and body subtype/atmosphere/signal heuristics; the bar is **qualitative only** (equal-weight categorical segments) — no synthetic `%` or `+X CP` magnitudes are ever shown for inherited baselines, and the tooltip reads `Inherited baseline economies: Refinery / Industrial — run Preview for validated outcome.` so the user knows it is a baseline and not a CP-validated outcome
+
+Preserved from 17N.1/17N.1b/17N.1c/17N.1d:
+
+- no Advanced Planner requirement for direct manual adds
+- no automatic Preview, no automatic Suggested Builds, no projected candidate auto-load
+- prerequisite gaps remain warnings, not blockers
+- empty slot boxes stay passive — only the row-level `Add Orbit` / `Add Surface` controls open the picker
+- no fake economy CP magnitudes and no synthetic `%` shares; inherited baseline reports a categorical list of economy names plus a categorical bar only
+
+Remaining manual editing gaps:
+
+- baseline economy still does not include CP yellow/green magnitudes, contamination risk, weak/strong link analysis, or pass-through composition — those still require Preview
+- backend prerequisite metadata is not yet typed for "structure prerequisite" vs "slot/lane condition" — the frontend filter is a token allow-list and should migrate to a typed field once available
+- Architect observed slot truth and ringed-body explicit field flow remain a later stage
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:

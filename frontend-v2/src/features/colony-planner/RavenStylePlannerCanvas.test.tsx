@@ -406,6 +406,111 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getByTestId('raven-prerequisite-warning-chip')).toBeTruthy();
   });
 
+  it('renders unpadded lane capacity chips and drops dot indicators on body rows (17N.1e)', () => {
+    render(<RavenStylePlannerCanvas system={system} snapshot={snapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    const orbitBadge = screen.getByTestId('2-orbital-capacity-badge');
+    const surfaceBadge = screen.getByTestId('2-ground-capacity-badge');
+    expect(orbitBadge.dataset.capacity).toBe('2');
+    expect(surfaceBadge.dataset.capacity).toBe('2');
+    expect(orbitBadge.textContent).toMatch(/Orbit\s*2/);
+    expect(orbitBadge.textContent).not.toMatch(/0\s*2/);
+    expect(surfaceBadge.textContent).toMatch(/Surface\s*2/);
+
+    expect(screen.queryByTestId('raven-body-slot-indicators-2')).toBeNull();
+    const bodyChip = screen.getByTestId('raven-body-capacity-2');
+    expect(within(bodyChip).getByTestId('raven-body-capacity-2-orbital').dataset.capacity).toBe('2');
+    expect(within(bodyChip).getByTestId('raven-body-capacity-2-ground').dataset.capacity).toBe('2');
+  });
+
+  it('shows passive empty slot boxes on unselected bodies instead of dot fallback (17N.1e)', () => {
+    const emptySnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [],
+      projection: null,
+    };
+    render(<RavenStylePlannerCanvas system={system} snapshot={emptySnapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    const orbital0 = screen.getByTestId('2-orbital-slot-0');
+    const orbital1 = screen.getByTestId('2-orbital-slot-1');
+    expect(orbital0.tagName.toLowerCase()).toBe('span');
+    expect(orbital1.tagName.toLowerCase()).toBe('span');
+    expect(screen.queryByTestId('2-orbital-compact-state')).toBeNull();
+  });
+
+  it('infers an inherited baseline economy bar for contextual stations placed over a body (17N.1e)', () => {
+    const baselineSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [
+        { facility_template_id: 'contextual_station', local_body_id: '2', is_primary_port: true, build_order: 1 },
+      ],
+      projection: null,
+    };
+
+    render(<RavenStylePlannerCanvas system={system} snapshot={baselineSnapshot} selection={{ type: 'placement', placementIndex: 0 }} onSelect={vi.fn()} />);
+
+    expect(screen.getByTestId('raven-structure-economy-micro-bar')).toBeTruthy();
+    // Inherited baseline must be qualitative — never synthetic % values.
+    expect(screen.queryAllByTitle(/Refinery \d+% share/i)).toHaveLength(0);
+    expect(screen.getAllByTitle(/Inherited baseline economies:.*Refinery/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle(/Baseline \(inherited\): .* run Preview/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle(/Contextual - inherits from body\/system plan/i).length).toBeGreaterThan(0);
+  });
+
+  it('does not surface slot/lane wording from prerequisites as a structure warning (17N.1e)', () => {
+    const slotPrereqTemplates: FacilityTemplate[] = [
+      ...templates,
+      {
+        id: 'orbital_lab_with_slot_prereq',
+        name: 'Slot-Required Lab',
+        category: 'hightech',
+        tier: 2,
+        economy: 'HighTech',
+        is_port: false,
+        is_support_facility: true,
+        allowed_location: 'orbital',
+        pad_size: null,
+        confidence: 'observed',
+        notes: null,
+        prerequisites: [{ description: 'Orbital slot available' }],
+        yellow_cp_generated: 1,
+        green_cp_generated: 0,
+        yellow_cp_cost: 0,
+        green_cp_cost: 0,
+      } as FacilityTemplate,
+    ];
+    const slotPrereqSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      templates: slotPrereqTemplates,
+      placements: [
+        { facility_template_id: 'orbital_lab_with_slot_prereq', local_body_id: '2', build_order: 1 },
+      ],
+      projection: null,
+    };
+
+    const rows = buildRavenPlannerRows(system, slotPrereqSnapshot);
+    const body = rows.find((row) => row.id === '2');
+    expect(body?.orbitalSlots[0].warningLabels).toEqual([]);
+    expect(body?.orbitalSlots[0].title ?? '').not.toMatch(/orbital slot/i);
+  });
+
+  it('flags lane capacity overflow with capacity-exceeded warning copy (17N.1e)', () => {
+    const overflowSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [
+        { facility_template_id: 'dodec_starport', local_body_id: '2', build_order: 1 },
+        { facility_template_id: 'dodec_starport', local_body_id: '2', build_order: 2 },
+        { facility_template_id: 'dodec_starport', local_body_id: '2', build_order: 3 },
+      ],
+      projection: null,
+    };
+    const rows = buildRavenPlannerRows(system, overflowSnapshot);
+    const body = rows.find((row) => row.id === '2');
+    const overflowSlot = body?.orbitalSlots.find((slot) => slot.kind === 'overflow');
+    expect(overflowSlot?.title).toMatch(/Orbital capacity exceeded/i);
+    expect(body?.warningCount ?? 0).toBeGreaterThan(0);
+  });
+
   it('matches projected structures to large numeric system body ids', () => {
     const exactBodyId = '1044927859400806427';
     const roundedBodyId = String(Number(exactBodyId));
