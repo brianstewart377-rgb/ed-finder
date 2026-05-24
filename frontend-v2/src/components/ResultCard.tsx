@@ -2,9 +2,12 @@ import { useState } from 'react';
 import type { SystemResult } from '@/types/api';
 import {
   ratingTier,
-  formatPopulation,
+  formatPopulationForSystem,
   formatConfidence,
+  formatDistance,
+  formatCoords,
   isInhabited,
+  systemStatusLabel,
 } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
 import {
@@ -45,8 +48,9 @@ export function ResultCard({
   const scoreLabel = `Rating score: ${score ?? '—'}/100`;
   const conf       = formatConfidence(rating?.confidence);
   const inhabited  = isInhabited(system);
-  const dist       = system.distance != null ? system.distance.toFixed(2) : '?';
-  const popLabel   = formatPopulation(system.population);
+  const dist       = formatDistance(system.distance) ?? '—';
+  const popLabel   = formatPopulationForSystem(system);
+  const status     = systemStatusLabel(system);
   const systemId64 = Number(system.id64);
   const hasValidSystemId = Number.isFinite(systemId64) && systemId64 > 0;
   const openColonyPlanner = () => {
@@ -109,7 +113,7 @@ export function ResultCard({
 
         {/* Distance */}
         <span className="font-mono text-xs tabular-nums text-silver px-2 py-0.5 rounded-md bg-bg3/60 border border-border">
-          {dist} <span className="text-silver-dk">LY</span>
+          {dist === '—' ? <span className="text-silver-dk">— LY</span> : <>{dist.replace(/ LY$/, '')} <span className="text-silver-dk">LY</span></>}
         </span>
 
         {/* Colonised pill */}
@@ -124,7 +128,7 @@ export function ResultCard({
             background: 'linear-gradient(180deg, rgba(74,222,128,0.18), rgba(74,222,128,0.08))',
           }}
         >
-          {inhabited ? 'COL' : 'FREE'}
+          {status === 'Colonised' ? 'COL' : status === 'Colonising' ? 'BUILD' : 'FREE'}
         </span>
 
         {/* Population */}
@@ -206,12 +210,10 @@ export function ResultCard({
             {system.primaryEconomy && <Row label="Economy"    value={system.primaryEconomy} highlight />}
             {system.allegiance     && <Row label="Allegiance" value={system.allegiance} />}
             {system.security       && <Row label="Security"   value={system.security} />}
-            {system.coords && (
-              <Row
-                label="Coords"
-                value={`${system.coords.x.toFixed(2)}, ${system.coords.y.toFixed(2)}, ${system.coords.z.toFixed(2)}`}
-              />
-            )}
+            <Row
+              label="Coords"
+              value={formatCoords(system.coords, system.id64)}
+            />
           </dl>
 
           {(system.elw_count || system.ww_count || system.ammonia_count ||

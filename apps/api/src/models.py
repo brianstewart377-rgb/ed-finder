@@ -135,9 +135,9 @@ EconomyNameField = Annotated[
 # Shared mixins / sub-models
 # ══════════════════════════════════════════════════════════════════════
 class CoordsModel(BaseModel):
-    x: float
-    y: float
-    z: float
+    x: Optional[float] = None
+    y: Optional[float] = None
+    z: Optional[float] = None
 
 
 class RangeFilter(BaseModel):
@@ -208,6 +208,7 @@ class RatingModel(BaseModel):
     scoreExtraction:        Optional[float] = None
     economySuggestion:      Optional[str]   = None
     breakdown:              Optional[Any]   = None  # opaque rationale payload
+    ratingVersion:          Optional[str]   = None
     # v3.1 fields — mirrored in camelCase for frontend parity.
     terraformingPotential:  Optional[float] = None
     bodyDiversity:          Optional[float] = None
@@ -326,9 +327,9 @@ class SystemDetailRow(BaseModel):
 
     id64:               int
     name:               str
-    x:                  float = 0
-    y:                  float = 0
-    z:                  float = 0
+    x:                  Optional[float] = None
+    y:                  Optional[float] = None
+    z:                  Optional[float] = None
     population:         int   = 0
     primary_economy:    Optional[str]  = None
     secondary_economy:  Optional[str]  = None
@@ -349,6 +350,7 @@ class SystemDetailRow(BaseModel):
     score_tourism:          Optional[float] = None
     score_extraction:       Optional[float] = None
     economy_suggestion:     Optional[str]   = None
+    rating_version:         Optional[str]   = None
 
     # Flat body counts.
     elw_count:              Optional[int] = None
@@ -428,9 +430,9 @@ class AutocompleteHit(BaseModel):
 
     id64:           int
     name:           str
-    x:              float = 0
-    y:              float = 0
-    z:              float = 0
+    x:              Optional[float] = None
+    y:              Optional[float] = None
+    z:              Optional[float] = None
     population:     int = 0
     primaryEconomy: Optional[str] = None
 

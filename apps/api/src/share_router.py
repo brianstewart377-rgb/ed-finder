@@ -203,7 +203,7 @@ async def og_image(id64: int, request: Request):
             log.debug(f"og redis read failed: {e}")
 
     # 2. Live fetch system data.
-    name, score, conf, rationale, x, y, z = None, None, None, None, 0.0, 0.0, 0.0
+    name, score, conf, rationale, x, y, z = None, None, None, None, None, None, None
     try:
         pool = request.app.state.pool  # type: ignore[attr-defined]
         async with pool.acquire() as conn:
@@ -219,7 +219,12 @@ async def og_image(id64: int, request: Request):
                 score     = row["score"]
                 conf      = row["confidence"]
                 rationale = row["rationale"]
-                x, y, z   = float(row["x"] or 0), float(row["y"] or 0), float(row["z"] or 0)
+                _rx, _ry, _rz = row["x"], row["y"], row["z"]
+                if _rx is not None and _ry is not None and _rz is not None:
+                    x, y, z = float(_rx), float(_ry), float(_rz)
+                    # Detect fake (0,0,0) for non-Sol systems
+                    if x == 0.0 and y == 0.0 and z == 0.0 and id64 != 10477373803:
+                        x, y, z = None, None, None
     except Exception as e:
         log.warning(f"og system lookup failed for {id64}: {e}")
 

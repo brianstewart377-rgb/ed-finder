@@ -461,9 +461,9 @@ export function reviewPredictionValidation(
 export interface WatchlistEntry {
   system_id64:        number;
   name:               string;
-  x:                  number;
-  y:                  number;
-  z:                  number;
+  x:                  number | null;
+  y:                  number | null;
+  z:                  number | null;
   population:         number;
   is_colonised:       boolean;
   added_at:           string;

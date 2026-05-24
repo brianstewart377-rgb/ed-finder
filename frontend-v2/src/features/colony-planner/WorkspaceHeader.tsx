@@ -1,6 +1,6 @@
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { formatPopulation } from '@/lib/format';
+import { formatCoords, formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
 import type { SystemDetail } from '@/types/api';
 
 export function WorkspaceHeaderSkeleton({
@@ -44,15 +44,9 @@ export function WorkspaceHeader({
   onBackToFinder: () => void;
   onOpenSystemDetail: (id64: number) => void;
 }) {
-  const population = system.population && system.population > 0
-    ? formatPopulation(system.population)
-    : 'Uncolonised';
-  const status = system.is_colonised ? 'Colonised' : 'Free';
-  const coords = [
-    system.x?.toFixed(2),
-    system.y?.toFixed(2),
-    system.z?.toFixed(2),
-  ].filter((value): value is string => value != null).join(', ');
+  const population = formatPopulationForSystem(system);
+  const status = systemStatusLabel(system);
+  const coords = formatCoords(system, system.id64);
 
   return (
     <header className="panel overflow-hidden p-4 sm:p-5">
@@ -73,7 +67,7 @@ export function WorkspaceHeader({
             </div>
           </div>
           <dl className="mt-3 flex flex-wrap gap-2 text-[10px] font-mono">
-            <HeaderPill label="Coords" value={coords || 'Unknown'} tone="cyan" />
+            <HeaderPill label="Coords" value={coords} tone="cyan" />
             <HeaderPill label="Economy" value={system.economy_suggestion ?? system.primary_economy ?? 'Unknown'} tone="orange" />
             <HeaderPill label="Population" value={population} />
           </dl>

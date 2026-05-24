@@ -35,6 +35,15 @@ import local_search as _ls
 router = APIRouter(tags=['search'])
 
 
+def _complete_coords(coords) -> dict | None:
+    if not coords:
+        return None
+    dumped = coords.model_dump()
+    if all(dumped.get(axis) is not None for axis in ('x', 'y', 'z')):
+        return dumped
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Internal: RFC 7807 503 response
 # ---------------------------------------------------------------------------
@@ -71,7 +80,7 @@ async def autocomplete(
     if len(q) < 2:
         return {'results': []}
 
-    cache_key = f'ac:{q.lower()[:20]}'
+    cache_key = f'ac:v2:{q.lower()[:20]}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -110,9 +119,15 @@ async def local_search_endpoint(
     # `Optional[dict]` to real Pydantic types so the OpenAPI schema is
     # portable across Pydantic versions; downstream still works on dicts.)
     _filters = (req.filters or SearchFilters())
+    reference_coords = _complete_coords(req.reference_coords)
+    if not req.galaxy_wide and reference_coords is None:
+        raise HTTPException(
+            status_code=422,
+            detail='reference_coords must include x, y, z unless galaxy_wide is true.',
+        )
+
     body_dict = {
-        'reference_coords': (req.reference_coords.model_dump()
-                             if req.reference_coords else {'x': 0, 'y': 0, 'z': 0}),
+        'reference_coords': reference_coords,
         'filters': {
             'distance':   (_filters.distance.model_dump()   if _filters.distance   else {}),
             'population': (_filters.population.model_dump() if _filters.population else {}),
@@ -136,7 +151,7 @@ async def local_search_endpoint(
     # otherwise the cache silently serves stale data when sliders move
     # (this was the original bug behind the inline-fallback's existence).
     cache_key = (
-        f"search:v2:{json.dumps(body_dict, sort_keys=True, default=str)}"
+        f"search:v3:{json.dumps(body_dict, sort_keys=True, default=str)}"
     )
     cached = await cache_get(cache_key, redis)
     if cached:
@@ -180,7 +195,7 @@ async def galaxy_search(
     min_score = req.min_score
     limit     = min(req.limit, 500)
 
-    cache_key = f'galaxy:v2:{economy}:{min_score}:{limit}:{req.offset}'
+    cache_key = f'galaxy:v3:{economy}:{min_score}:{limit}:{req.offset}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -222,7 +237,9 @@ async def cluster_search(
         raise HTTPException(400, 'Maximum 6 economy requirements')
 
     reqs_json = json.dumps([r.model_dump() for r in req.requirements], sort_keys=True)
-    cache_key = f'cluster:v2:{reqs_json}:{req.limit}:{req.offset}'
+    reference_coords = _complete_coords(req.reference_coords)
+    ref_json = json.dumps(reference_coords, sort_keys=True, default=str)
+    cache_key = f'cluster:v3:{reqs_json}:{req.limit}:{req.offset}:{ref_json}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -230,8 +247,7 @@ async def cluster_search(
     body_dict = {
         'requirements':     [r.model_dump() for r in req.requirements],
         'limit':            req.limit,
-        'reference_coords': (req.reference_coords.model_dump()
-                             if req.reference_coords else None),
+        'reference_coords': reference_coords,
     }
     try:
         result = await _ls.local_db_cluster_search(body_dict, pool)

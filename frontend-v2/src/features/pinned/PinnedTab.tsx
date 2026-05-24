@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { PinnedEntry, UsePinned } from './usePinned';
 import { SystemTable, type SystemRow } from '@/components/SystemTable';
+import { distanceFromSol } from '@/lib/format';
 
 export interface PinnedTabProps {
   pinned:       UsePinned;
@@ -18,8 +19,8 @@ export function PinnedTab({ pinned, onShowOnMap, onOpenDetail }: PinnedTabProps)
       case 'name':   return a.name.localeCompare(b.name);
       case 'rating': return (b.rating ?? -1) - (a.rating ?? -1);
       case 'distance': {
-        const da = Math.hypot(a.x, a.y, a.z);
-        const db = Math.hypot(b.x, b.y, b.z);
+        const da = distanceFromSol(a, a.id64) ?? Number.POSITIVE_INFINITY;
+        const db = distanceFromSol(b, b.id64) ?? Number.POSITIVE_INFINITY;
         return da - db;
       }
       case 'pinned_at':
@@ -142,7 +143,7 @@ export function PinnedTab({ pinned, onShowOnMap, onOpenDetail }: PinnedTabProps)
 export function toPinnedEntry(sys: {
   id64:         number;
   name:         string;
-  coords?:      { x: number; y: number; z: number } | null;
+  coords?:      { x?: number | null; y?: number | null; z?: number | null } | null;
   distance?:    number | null;
   population:   number;
   is_colonised?: boolean | null;
@@ -151,9 +152,9 @@ export function toPinnedEntry(sys: {
   return {
     id64:         sys.id64,
     name:         sys.name,
-    x:            sys.coords?.x ?? 0,
-    y:            sys.coords?.y ?? 0,
-    z:            sys.coords?.z ?? 0,
+    x:            sys.coords?.x ?? null,
+    y:            sys.coords?.y ?? null,
+    z:            sys.coords?.z ?? null,
     population:   sys.population,
     is_colonised: !!sys.is_colonised,
     distance:     sys.distance ?? null,

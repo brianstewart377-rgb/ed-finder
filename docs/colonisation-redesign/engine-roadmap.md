@@ -1886,6 +1886,61 @@ Preserved from 17N.1e and earlier:
 - asteroid station physical compatibility, prerequisite warnings as warnings not blockers
 - no auto-preview, no auto-generation, no auto-load
 
+## Stage 17N.2 — Rating and Distance Trust Recovery
+
+Goal: restore trust in system rating and distance displays so users understand
+what a system is good for, why it scored that way, and when distance is unknown.
+
+### Rating display (Parts A–C)
+
+- **Headline relabelled**: centre hex "Overall" → "Best-build potential" with
+  explanation copy ("Based on body mix, economy fit, strategic value, and slot
+  potential. Run planner / Preview to validate an actual build.")
+- **Extraction added**: 7th radar axis (EXTR) and economy suitability bar.
+- **Top pair surfaced**: "Top pair: Refinery + Industrial (82)" chip when
+  `score_breakdown.top_pair` is present.
+- **Primary / secondary economy chips**: from breakdown or system fields.
+- **Confidence badge**: High / Medium / Low with colour + percentage, or
+  "Confidence unknown" when the field is null.
+- **Rationale**: shown as border-left blockquote when available.
+- **Expandable dimension breakdown**: Slots, Strategic, Safety, Terraforming,
+  Diversity bars behind a toggle.
+- **Stale-rating awareness**: documented limitation — no `rating_version` field
+  exists yet. Frontend uses conservative "Best-build potential" wording. TODO
+  added for future `rating_version` column.
+
+### Distance display (Parts D–E)
+
+- **Backend root cause**: `local_search.py::_build_system_record` coerced
+  `None`/`0` dist to `float(0.0)`. Galaxy-wide searches emitted `dist_expr =
+  "0.0"`, making every result show `0.00 LY`.
+- **Backend fix**: added `_safe_distance()` — returns `None` for
+  `None`/non-finite/`≤ 0`. Only valid positive distances pass through.
+- **Frontend root cause**: `ResultCard` rendered `0` as `0.00`, and used `?` as
+  fallback — inconsistent with the rest of the UI.
+- **Frontend fix**: added `formatDistance()` in `lib/format.ts`. All distance
+  display sites (ResultCard, SystemTable, MapTab, CompareTab) now use
+  `formatDistance(distance) ?? '—'`. Zero distance is treated as unknown unless
+  `allowZero: true` (same-system reference).
+
+### Planner canvas (Part F)
+
+No changes to Raven canvas layout, slot boxes, add flow, station economy
+baseline, picker compatibility, or map dominance.
+
+### Tests added
+
+- `lib/format.test.ts`: formatDistance, formatConfidence, ratingTier
+- `RatingRadar.test.tsx`: headline, Extraction, top pair, confidence,
+  confidence-missing, rationale, breakdown toggle, graceful degradation, all-zero
+- `ResultCard.test.tsx`: valid distance, null distance, undefined distance, zero
+  distance (galaxy-wide fake)
+
+### Docs added
+
+- `docs/colonisation-redesign/rating-system-current-contract.md`
+- `docs/colonisation-redesign/distance-display-contract.md`
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:

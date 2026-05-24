@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 
+from helpers import SOL_ID64, safe_coords_from_row
 from search_economies import (
     ratings_score_column,
     cluster_count_column,
@@ -57,6 +58,29 @@ def _economy_str(val: Any) -> str:
     return s
 
 
+def _safe_coords(row: Any) -> dict:
+    return safe_coords_from_row(row)
+
+
+def _safe_distance(val: Any) -> float | None:
+    """Return a valid positive distance or None.
+
+    Older galaxy-wide searches projected ``0.0`` when there was no reference.
+    Converting that to ``float(0.0)`` on the wire made the frontend show
+    ``0.00 LY`` for every system. Treat ``None``, non-finite, and zero as
+    unknown so the UI can render ``—`` instead.
+    """
+    if val is None:
+        return None
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return None
+    if not __import__('math').isfinite(f) or f <= 0:
+        return None
+    return round(f, 2)
+
+
 def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dict:
     bodies = bodies or []
 
@@ -69,12 +93,8 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
         "id64":              row["id64"],
         "id":                str(row["id64"]),
         "name":              row["name"],
-        "coords":            {
-            "x": float(row["x"]),
-            "y": float(row["y"]),
-            "z": float(row["z"]),
-        },
-        "distance":          float(row.get("dist", 0) or 0),
+        "coords":            _safe_coords(row),
+        "distance":          _safe_distance(row.get("dist")),
         # main_star_class is a generated column (= main_star_type) — always present
         "main_star":         row.get("main_star_class") or row.get("main_star_type"),
         "needs_permit":      bool(row.get("needs_permit", False)),
@@ -112,7 +132,9 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
             "scoreHightech":      row.get("score_hightech"),
             "scoreMilitary":      row.get("score_military"),
             "scoreTourism":       row.get("score_tourism"),
+            "scoreExtraction":    row.get("score_extraction"),
             "economySuggestion":  row.get("economy_suggestion"),
+            "ratingVersion":      row.get("rating_version"),
             "elw_count":          row.get("elw_count"),
             "ww_count":           row.get("ww_count"),
             "ammonia_count":      row.get("ammonia_count"),
@@ -151,10 +173,14 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     size          = min(int(body.get("size", DEFAULT_PAGE_SIZE)), MAX_PAGE_SIZE)
     from_idx      = int(body.get("from", 0))
     sort_by       = body.get("sort_by", "rating")
+    galaxy_wide   = bool(body.get("galaxy_wide", False))
 
-    rx = float(ref.get("x", 0))
-    ry = float(ref.get("y", 0))
-    rz = float(ref.get("z", 0))
+    ref_has_coords = all(ref.get(axis) is not None for axis in ("x", "y", "z"))
+    if not galaxy_wide and not ref_has_coords:
+        raise ValueError("reference_coords must include x, y, z for distance-bounded search")
+    rx = float(ref["x"]) if ref_has_coords else 0.0
+    ry = float(ref["y"]) if ref_has_coords else 0.0
+    rz = float(ref["z"]) if ref_has_coords else 0.0
 
     dist_filter   = filters.get("distance", {})
     min_dist      = float(dist_filter.get("min", 0))
@@ -175,7 +201,6 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     min_rating    = int(body.get("min_rating", 0))
     economy_filter   = body.get("economy") or body.get("filters", {}).get("economy")
     sec_econ_filter  = body.get("secondary_economy")
-    galaxy_wide      = bool(body.get("galaxy_wide", False))
     galaxy_region_id = body.get("galaxy_region_id")  # NEW: named region filter
 
     # Determine which score column to use for display and sorting.
@@ -218,6 +243,10 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
     # ── Distance filter ───────────────────────────────────────────────────
     if not galaxy_wide:
+        wheres.append(
+            f"(s.x IS NOT NULL AND s.y IS NOT NULL AND s.z IS NOT NULL "
+            f"AND NOT (s.x = 0 AND s.y = 0 AND s.z = 0 AND s.id64 != {SOL_ID64}))"
+        )
         wheres.append(f"s.x BETWEEN {add(rx - max_dist)} AND {add(rx + max_dist)}")
         wheres.append(f"s.y BETWEEN {add(ry - max_dist)} AND {add(ry + max_dist)}")
         wheres.append(f"s.z BETWEEN {add(rz - max_dist)} AND {add(rz + max_dist)}")
@@ -300,14 +329,23 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
     # Distance expression — projected, not filtered. Uses add_select()
     # so its placeholders are NOT replayed against count_sql.
+    #
+    # Guard: systems with (0,0,0) that aren't Sol have fake/missing coords.
+    # After migration 019 they will be NULL in the DB, but pre-migration
+    # they still exist as (0,0,0). The CASE ensures dist is NULL so
+    # _safe_distance() returns None and the UI shows "—".
+    _COORD_GUARD = (
+        f"CASE WHEN s.x = 0 AND s.y = 0 AND s.z = 0 AND s.id64 != {SOL_ID64} "
+        "THEN NULL::float "
+    )
     if not galaxy_wide:
         dist_expr = (
-            f"SQRT((s.x-{add_select(rx)})*(s.x-{add_select(rx)}) + "
+            f"{_COORD_GUARD}ELSE SQRT((s.x-{add_select(rx)})*(s.x-{add_select(rx)}) + "
             f"(s.y-{add_select(ry)})*(s.y-{add_select(ry)}) + "
-            f"(s.z-{add_select(rz)})*(s.z-{add_select(rz)}))"
+            f"(s.z-{add_select(rz)})*(s.z-{add_select(rz)})) END"
         )
     else:
-        dist_expr = "0.0"
+        dist_expr = "NULL::float"
 
     # Sort by the display score (economy-specific when filtering, overall otherwise)
     order_sql = (
@@ -377,6 +415,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
             r.bio_signal_total, r.geo_signal_total,
             r.terraforming_potential, r.body_diversity,
             r.confidence, r.rationale,
+            r.rating_version,
             {dist_expr} AS dist
         FROM systems s
         LEFT JOIN ratings r ON r.system_id64 = s.id64
@@ -401,7 +440,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     results: list = []
     for row in rows:
         rec = _build_system_record(row)
-        rec["distance"] = round(float(row["dist"]), 2)
+        rec["distance"] = _safe_distance(row["dist"])
         results.append(rec)
 
     elapsed = round((time.time() - t0) * 1000)
@@ -476,10 +515,10 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
     requirements    = body.get("requirements", [])
     limit           = min(int(body.get("limit", 50)), 200)
     ref             = body.get("reference_coords") or {}
-    has_ref         = bool(ref.get("x") is not None)
-    rx              = float(ref.get("x", 0))
-    ry              = float(ref.get("y", 0))
-    rz              = float(ref.get("z", 0))
+    has_ref         = all(ref.get(axis) is not None for axis in ("x", "y", "z"))
+    rx              = float(ref["x"]) if has_ref else 0.0
+    ry              = float(ref["y"]) if has_ref else 0.0
+    rz              = float(ref["z"]) if has_ref else 0.0
     galaxy_region   = body.get("galaxy_region_id")
 
     if not requirements:
@@ -513,8 +552,12 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
     where_sql = "WHERE " + " AND ".join(where_parts) + " AND cs.coverage_score IS NOT NULL"
 
     # Distance expression for sorting
+    _COORD_GUARD = (
+        f"CASE WHEN s.x = 0 AND s.y = 0 AND s.z = 0 AND s.id64 != {SOL_ID64} "
+        "THEN NULL::float ELSE "
+    )
     if has_ref:
-        dist_expr    = f"SQRT(POWER(s.x - {rx}, 2) + POWER(s.y - {ry}, 2) + POWER(s.z - {rz}, 2))"
+        dist_expr    = f"{_COORD_GUARD}SQRT(POWER(s.x - {rx}, 2) + POWER(s.y - {ry}, 2) + POWER(s.z - {rz}, 2)) END"
         order_clause = f"{dist_expr} ASC"
     else:
         dist_expr    = "NULL::float"
@@ -554,18 +597,20 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
     clusters = []
     for row in rows:
         dist_ly = float(row["distance_ly"]) if row["distance_ly"] is not None else None
+        anchor_coords = _safe_coords({
+            "id64": row["anchor_id64"],
+            "x":    row["anchor_x"],
+            "y":    row["anchor_y"],
+            "z":    row["anchor_z"],
+        })
         clusters.append({
             "anchor_id64":          row["anchor_id64"],
             "system_id64":          row["anchor_id64"],  # alias for compatibility
             "anchor_name":          row["anchor_name"],
-            "anchor_x":             float(row["anchor_x"]),
-            "anchor_y":             float(row["anchor_y"]),
-            "anchor_z":             float(row["anchor_z"]),
-            "anchor_coords": {
-                "x": float(row["anchor_x"]),
-                "y": float(row["anchor_y"]),
-                "z": float(row["anchor_z"]),
-            },
+            "anchor_x":             anchor_coords["x"],
+            "anchor_y":             anchor_coords["y"],
+            "anchor_z":             anchor_coords["z"],
+            "anchor_coords":        anchor_coords,
             "galaxy_region_id":     row["galaxy_region_id"],
             "galaxy_region":        row["galaxy_region_name"],
             "coverage_score":       row["coverage_score"],
@@ -649,8 +694,8 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
                 r.bio_signal_total, r.geo_signal_total,
                 r.score_breakdown,
                 r.terraforming_potential, r.body_diversity,
-                r.confidence, r.rationale,
-                0.0                   AS dist
+                r.confidence, r.rationale, r.rating_version,
+                NULL::float           AS dist
             FROM systems s
             LEFT JOIN ratings r ON r.system_id64 = s.id64
             LEFT JOIN galaxy_regions gr ON gr.id = s.galaxy_region_id
@@ -796,24 +841,25 @@ async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
             seen_ids = {r["id64"] for r in rows}
             rows = list(rows) + [r for r in trgm_rows if r["id64"] not in seen_ids]
 
-    return [
-        {
+    results = []
+    for r in rows[:10]:
+        coords = _safe_coords(r)
+        results.append({
             "name":              r["name"],
             "id64":              r["id64"],
-            "x":                 float(r["x"]),
-            "y":                 float(r["y"]),
-            "z":                 float(r["z"]),
+            "x":                 coords["x"],
+            "y":                 coords["y"],
+            "z":                 coords["z"],
             "galaxy_region_id":  r["galaxy_region_id"],
             "record": {
                 "id64": r["id64"],
                 "name": r["name"],
-                "x":    float(r["x"]),
-                "y":    float(r["y"]),
-                "z":    float(r["z"]),
+                "x":    coords["x"],
+                "y":    coords["y"],
+                "z":    coords["z"],
             },
-        }
-        for r in rows[:10]
-    ]
+        })
+    return results
 
 
 # ---------------------------------------------------------------------------

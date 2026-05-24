@@ -1399,21 +1399,12 @@ export interface components {
             id64: number;
             /** Name */
             name: string;
-            /**
-             * X
-             * @default 0
-             */
-            x: number;
-            /**
-             * Y
-             * @default 0
-             */
-            y: number;
-            /**
-             * Z
-             * @default 0
-             */
-            z: number;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
             /**
              * Population
              * @default 0
@@ -1798,11 +1789,11 @@ export interface components {
         /** CoordsModel */
         CoordsModel: {
             /** X */
-            x: number;
+            x?: number | null;
             /** Y */
-            y: number;
+            y?: number | null;
             /** Z */
-            z: number;
+            z?: number | null;
         };
         /**
          * EconomyPairDetail
@@ -2646,6 +2637,8 @@ export interface components {
             economySuggestion?: string | null;
             /** Breakdown */
             breakdown?: unknown | null;
+            /** Ratingversion */
+            ratingVersion?: string | null;
             /** Terraformingpotential */
             terraformingPotential?: number | null;
             /** Bodydiversity */
@@ -3482,21 +3475,12 @@ export interface components {
             id64: number;
             /** Name */
             name: string;
-            /**
-             * X
-             * @default 0
-             */
-            x: number;
-            /**
-             * Y
-             * @default 0
-             */
-            y: number;
-            /**
-             * Z
-             * @default 0
-             */
-            z: number;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
             /**
              * Population
              * @default 0
@@ -3536,6 +3520,8 @@ export interface components {
             score_extraction?: number | null;
             /** Economy Suggestion */
             economy_suggestion?: string | null;
+            /** Rating Version */
+            rating_version?: string | null;
             /** Elw Count */
             elw_count?: number | null;
             /** Ww Count */

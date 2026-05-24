@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ratingTier } from '@/lib/format';
+import { hasKnownCoords, ratingTier } from '@/lib/format';
 import type { SystemResult } from '@/types/api';
 
 /**
@@ -37,20 +37,25 @@ export function GalacticMap({
   });
   const autoFitSignature = useMemo(
     () => systems
-      .map((system) => `${system.id64}:${system.coords?.x ?? ''}:${system.coords?.z ?? ''}`)
+      .map((system) => `${system.id64}:${system.coords?.x ?? ''}:${system.coords?.y ?? ''}:${system.coords?.z ?? ''}`)
       .join('|'),
+    [systems],
+  );
+
+  const plottableSystems = useMemo(
+    () => systems.filter((system) => hasKnownCoords(system.coords, system.id64)),
     [systems],
   );
 
   // ── Auto-fit on first render & when systems list size changes a lot ─
   useEffect(() => {
-    if (systems.length === 0) return;
+    if (plottableSystems.length === 0) return;
     const radius =
       initialRadius ??
       Math.max(
         20,
-        ...systems.map((s) =>
-          Math.hypot((s.coords?.x ?? 0) - reference.x, (s.coords?.z ?? 0) - reference.z),
+        ...plottableSystems.map((s) =>
+          Math.hypot(s.coords!.x! - reference.x, s.coords!.z! - reference.z),
         ),
       ) * 1.1;
     const el = canvasRef.current;
@@ -58,7 +63,7 @@ export function GalacticMap({
     const h = el?.clientHeight ?? 400;
     const fit = Math.min(w, h) / (2 * radius);
     setView({ cx: reference.x, cz: reference.z, scale: Math.max(0.5, fit) });
-  }, [autoFitSignature, systems, reference.x, reference.z, initialRadius]);
+  }, [autoFitSignature, plottableSystems, reference.x, reference.z, initialRadius]);
 
   // ── Render loop. Re-runs on view/systems/selection changes. ────────
   useEffect(() => {
@@ -154,10 +159,10 @@ export function GalacticMap({
     ctx.fillText(reference.name.toUpperCase(), rx + 14, rz - 10);
 
     // ── Systems ─────────────────────────────────────────────────────
-    for (const sys of systems) {
-      if (!sys.coords) continue;
-      const px = wx(sys.coords.x);
-      const py = wz(sys.coords.z);
+    for (const sys of plottableSystems) {
+      const coords = sys.coords!;
+      const px = wx(coords.x!);
+      const py = wz(coords.z!);
       if (px < -10 || py < -10 || px > w + 10 || py > h + 10) continue;
       const tier = ratingTier(sys._rating?.score ?? null);
       const isSel = sys.id64 === selectedId64;
@@ -194,7 +199,7 @@ export function GalacticMap({
     ctx.fillStyle = 'rgba(200,204,209,0.65)';   // silver-dk
     ctx.font = '600 11px JetBrains Mono, ui-monospace, monospace';
     ctx.fillText(
-      `${systems.length} SYSTEMS · ${view.scale.toFixed(1)} PX/LY`,
+      `${plottableSystems.length} SYSTEMS · ${view.scale.toFixed(1)} PX/LY`,
       10, h - 10,
     );
     // 50-LY scale bar
@@ -213,7 +218,7 @@ export function GalacticMap({
       ctx.fillStyle = 'rgba(200,204,209,0.65)';
       ctx.fillText(`${barLy} LY`, bx, by - 8);
     }
-  }, [systems, view, reference.x, reference.z, reference.name, selectedId64]);
+  }, [plottableSystems, view, reference.x, reference.z, reference.name, selectedId64]);
 
   // ── Pointer handlers ───────────────────────────────────────────────
   const drag = useRef<{ x: number; y: number; cx: number; cz: number } | null>(null);
@@ -243,10 +248,10 @@ export function GalacticMap({
     const wx = (x: number) => (x - view.cx) * view.scale + w / 2;
     const wz = (z: number) => -(z - view.cz) * view.scale + h / 2;
     let best: { sys: SystemResult; d: number } | null = null;
-    for (const sys of systems) {
-      if (!sys.coords) continue;
-      const dx = wx(sys.coords.x) - px;
-      const dy = wz(sys.coords.z) - py;
+    for (const sys of plottableSystems) {
+      const coords = sys.coords!;
+      const dx = wx(coords.x!) - px;
+      const dy = wz(coords.z!) - py;
       const d  = Math.hypot(dx, dy);
       if (d < 8 && (best == null || d < best.d)) best = { sys, d };
     }

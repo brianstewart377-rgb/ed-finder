@@ -577,3 +577,35 @@ Explicit non-behaviour:
 - empty slot boxes remain passive `<span>` elements on all rows — they do not present hover/click button styling
 - no new visible labels introduced as replacements for removed PLAN/CTX/REQ
 - no layout changes: map dominance, no inline body expansion, no stacked panels above map
+
+---
+
+## Stage 17N.2 — Rating and Distance Trust Recovery
+
+### Rating display
+
+The `RatingRadar` component was rewritten to surface the full rating contract:
+
+- **Headline**: "Best-build potential" with overall score (replaces bare "Overall" hex centre)
+- **Score explanation**: "Based on body mix, economy fit, strategic value, and slot potential."
+- **Extraction**: 7th radar axis and economy bar (was missing from original 6-axis display)
+- **Top pair**: "Top pair: Refinery + Industrial (82)" chip parsed from `score_breakdown.top_pair`
+- **Primary / secondary economy**: chips from breakdown or system-level fields
+- **Confidence**: coloured tier badge (High/Medium/Low + percentage) or "Confidence unknown"
+- **Rationale**: border-left blockquote when available
+- **Expandable dimensions**: Slots, Strategic, Safety, Terraforming, Diversity bars behind toggle
+- **Graceful degradation**: missing breakdown → no toggle; missing top pair → no chip; all-zero scores → render nothing
+
+### Distance display
+
+**Backend root cause**: `_build_system_record` used `float(row.get("dist", 0) or 0)` — galaxy-wide searches emitted `dist_expr = "0.0"` for every row, coercing unknown distance to `0.00 LY`.
+
+**Backend fix**: `_safe_distance()` returns `None` for `None`, non-finite, and `≤ 0` values.
+
+**Frontend root cause**: `ResultCard` passed `0` through `toFixed(2)` as `0.00`; fallback was `?` instead of consistent `—`.
+
+**Frontend fix**: `formatDistance()` in `lib/format.ts` — returns `null` for unknown, used by all distance display sites. Zero treated as unknown unless `allowZero: true`.
+
+### Planner canvas
+
+No changes to Raven canvas layout, slot boxes, add flow, station economy baseline, picker compatibility, or map dominance. Existing planner tests pass unchanged.

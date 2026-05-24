@@ -13,6 +13,45 @@ from typing import Any
 
 log = logging.getLogger('ed_finder')
 
+SOL_ID64 = 10477373803
+
+
+def safe_coords_from_row(row: Any) -> dict[str, float | None]:
+    """Return a trusted coordinate triple from a DB/API row.
+
+    The systems table historically used NOT NULL DEFAULT 0 for x/y/z, so
+    import paths without coordinates produced fake origin records. Sol is the
+    only real system at (0,0,0); every other all-zero triple is unknown.
+    """
+    if row is None:
+        return {'x': None, 'y': None, 'z': None}
+    get = row.get if hasattr(row, 'get') else row.__getitem__
+    try:
+        x = get('x')
+        y = get('y')
+        z = get('z')
+        id64 = get('id64')
+    except Exception:
+        return {'x': None, 'y': None, 'z': None}
+
+    if x is None or y is None or z is None:
+        return {'x': None, 'y': None, 'z': None}
+
+    try:
+        fx, fy, fz = float(x), float(y), float(z)
+    except (TypeError, ValueError):
+        return {'x': None, 'y': None, 'z': None}
+
+    try:
+        numeric_id64 = int(id64) if id64 is not None else None
+    except (TypeError, ValueError):
+        numeric_id64 = None
+
+    if fx == 0.0 and fy == 0.0 and fz == 0.0 and numeric_id64 != SOL_ID64:
+        return {'x': None, 'y': None, 'z': None}
+
+    return {'x': fx, 'y': fy, 'z': fz}
+
 
 # ---------------------------------------------------------------------------
 # DB-row flattening
@@ -26,9 +65,13 @@ def sys_row_to_dict(r: Any) -> dict:
     if r is None:
         return {}
     d = dict(r)
+    coords = safe_coords_from_row(d)
     d['id64']        = d.get('id64')
     d['name']        = d.get('name', 'Unknown')
-    d['coords']      = {'x': d.get('x', 0), 'y': d.get('y', 0), 'z': d.get('z', 0)}
+    d['x']           = coords['x']
+    d['y']           = coords['y']
+    d['z']           = coords['z']
+    d['coords']      = coords
     d['distance']    = d.get('distance')
     d['population']  = d.get('population', 0)
     d['primaryEconomy']   = d.get('primary_economy',   'Unknown')
@@ -49,6 +92,7 @@ def sys_row_to_dict(r: Any) -> dict:
         'scoreExtraction':   d.get('score_extraction'),
         'economySuggestion': d.get('economy_suggestion'),
         'breakdown':         d.get('score_breakdown'),
+        'ratingVersion':     d.get('rating_version'),
         # v3.1 fields — mirrored in camelCase for frontend parity.
         'terraformingPotential': d.get('terraforming_potential'),
         'bodyDiversity':         d.get('body_diversity'),

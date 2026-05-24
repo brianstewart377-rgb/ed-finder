@@ -93,7 +93,7 @@ class TestRateSystem(unittest.TestCase):
             'score_industrial', 'score_hightech', 'score_military',
             'score_tourism', 'economy_suggestion', 'elw_count',
             'ww_count', 'neutron_count', 'black_hole_count',
-            'score_breakdown',
+            'score_breakdown', 'rating_version',
         )
         for key in required:
             self.assertIn(key, result, f"Missing key: {key}")

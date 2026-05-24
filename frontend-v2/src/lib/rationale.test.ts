@@ -13,7 +13,9 @@ describe('displayRationale', () => {
 
     expect(text).not.toContain('ELW');
     expect(text).not.toContain('WW');
-    expect(text).toContain('rebuild');
+    expect(text).not.toContain('legacy contributors');
+    expect(text).not.toContain('rebuild this system rating');
+    expect(text).toContain('detailed drivers unavailable');
     expect(text).toContain('Strong Refinery');
   });
 

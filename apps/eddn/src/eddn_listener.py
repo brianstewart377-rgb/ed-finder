@@ -240,12 +240,13 @@ async def handle_fss_discovery(pool: asyncpg.Pool, header: dict, message: dict):
     id64 = safe_int(body.get('SystemAddress') or body.get('id64'))
     if not id64: return
 
+    star_pos = body.get('StarPos')
     _pending_systems[id64] = {
         'id64':    id64,
         'name':    body.get('StarSystem') or body.get('name', 'Unknown'),
-        'x':       safe_float((body.get('StarPos') or [0, 0, 0])[0]),
-        'y':       safe_float((body.get('StarPos') or [0, 0, 0])[1]),
-        'z':       safe_float((body.get('StarPos') or [0, 0, 0])[2]),
+        'x':       safe_float(star_pos[0]) if star_pos and len(star_pos) >= 3 else None,
+        'y':       safe_float(star_pos[1]) if star_pos and len(star_pos) >= 3 else None,
+        'z':       safe_float(star_pos[2]) if star_pos and len(star_pos) >= 3 else None,
         'economy': norm_economy(body.get('SystemEconomy') or body.get('primaryEconomy')),
         'pop':     safe_int(body.get('Population', 0)),
         'updated': utcnow(),
@@ -426,9 +427,9 @@ async def flush_pending(pool: asyncpg.Pool):
                         """,
                             sys['id64'],
                             sys.get('name', 'Unknown'),
-                            sys.get('x', 0),
-                            sys.get('y', 0),
-                            sys.get('z', 0),
+                            sys.get('x'),
+                            sys.get('y'),
+                            sys.get('z'),
                             sys.get('economy', 'Unknown'),
                             sys.get('pop', 0),
                         )

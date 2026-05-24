@@ -32,7 +32,7 @@ async def get_system(
     pool: asyncpg.Pool = Depends(get_pool),
     redis: Optional[aioredis.Redis] = Depends(get_redis),
 ):
-    cache_key = f'sys:{id64}'
+    cache_key = f'sys:v2:{id64}'
     cached = await cache_get(cache_key, redis)
     if cached: return cached
 
@@ -49,7 +49,7 @@ async def get_system(
                 r.neutron_count, r.black_hole_count, r.white_dwarf_count,
                 r.score_breakdown,
                 r.terraforming_potential, r.body_diversity,
-                r.confidence, r.rationale
+                r.confidence, r.rationale, r.rating_version
             FROM systems s
             LEFT JOIN ratings r ON r.system_id64 = s.id64
             WHERE s.id64 = $1
@@ -144,7 +144,7 @@ async def batch_systems(
     result: dict[str, Any] = {}
     missing: list[int] = []
     for id64 in id64s:
-        cached = await cache_get(f'sys:{id64}', redis)
+        cached = await cache_get(f'sys:v2:{id64}', redis)
         if cached:
             result[str(id64)] = cached.get('record') or cached
         else:
@@ -155,6 +155,7 @@ async def batch_systems(
             rows = await conn.fetch("""
                 SELECT s.*,
                     r.score, r.score_breakdown, r.economy_suggestion,
+                    r.rating_version,
                     r.elw_count, r.ww_count, r.ammonia_count,
                     r.gas_giant_count, r.landable_count,
                     r.bio_signal_total, r.geo_signal_total,
@@ -184,6 +185,6 @@ async def batch_systems(
             d = sys_row_to_dict(row)
             d['bodies'] = bodies_by_system.get(d['id64'], [])
             result[str(d['id64'])] = d
-            await cache_set(f'sys:{d["id64"]}', {'record': d}, settings.ttl_system, redis)
+            await cache_set(f'sys:v2:{d["id64"]}', {'record': d}, settings.ttl_system, redis)
 
     return {'systems': result}

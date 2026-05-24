@@ -2,7 +2,14 @@ import type { ReactNode } from 'react';
 import type { SystemResult } from '@/types/api';
 import type { UseCompare } from './useCompare';
 import { COMPARE_MAX } from './useCompare';
-import { ratingTier, formatPopulation, formatConfidence } from '@/lib/format';
+import {
+  ratingTier,
+  formatPopulationForSystem,
+  formatConfidence,
+  formatDistance,
+  systemStatusLabel,
+} from '@/lib/format';
+import { displayRationale } from '@/lib/rationale';
 
 export interface CompareTabProps {
   compare: UseCompare;
@@ -254,7 +261,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     }),
     plainRow('Rationale', (s) => (
       <span className="text-text-dim text-[11px] italic leading-snug block">
-        {s._rating?.rationale || '—'}
+        {displayRationale(s._rating?.rationale) || '—'}
       </span>
     )),
     plainRow('Primary economy',   (s) => <span className="text-text">{s.primaryEconomy ?? '—'}</span>),
@@ -262,20 +269,23 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     numericRow(
       'Distance from ref',
       (s) => s.distance,
-      (v) => (v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v.toFixed(2)} LY</span>),
+      (v) => {
+        const fmt = formatDistance(v);
+        return fmt ? <span className="tabular-nums">{fmt}</span> : <span className="text-text-dim">—</span>;
+      },
       false, // lower is better
     ),
-    numericRow(
-      'Population',
-      (s) => s.population,
-      (v) => (v == null || v === 0
-        ? <span className="text-text-dim">—</span>
-        : <span>{formatPopulation(v)}</span>),
-    ),
+    plainRow('Population', (s) => (
+      <span className={s.population ? 'text-text' : 'text-text-dim'}>
+        {formatPopulationForSystem(s)}
+      </span>
+    )),
     plainRow('Status', (s) => (
-      s.is_colonised
+      systemStatusLabel(s) === 'Colonised'
         ? <span className="text-red">Colonised</span>
-        : <span className="text-green">Available</span>
+        : systemStatusLabel(s) === 'Colonising'
+          ? <span className="text-gold">Colonising</span>
+          : <span className="text-green">Available</span>
     )),
     plainRow('Main star', (s) => (
       <span className="text-text-dim text-xs">
