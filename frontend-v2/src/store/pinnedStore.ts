@@ -19,9 +19,9 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 export interface PinnedEntry {
   id64:          number;
   name:          string;
-  x:             number;
-  y:             number;
-  z:             number;
+  x:             number | null;
+  y:             number | null;
+  z:             number | null;
   population:    number;
   is_colonised:  boolean;
   /** Distance (LY) from the reference at the moment it was pinned. */

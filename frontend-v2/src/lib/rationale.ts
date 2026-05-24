@@ -3,7 +3,7 @@ export function displayRationale(rationale?: string | null): string | null {
   let text = rationale;
   text = text.replace(
     /Strong Refinery;\s*via\s*([^;]*?)(?=(?:;|$))/i,
-    'Strong Refinery; rationale uses an older format and may cite legacy contributors; rebuild this system rating to refresh this rationale',
+    'Strong Refinery; detailed drivers unavailable for this saved rating',
   );
   text = text.replace(
     /Industrial\s+via\s+[^;]*ELW[^;]*/gi,

@@ -674,12 +674,16 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 try:
                     coords = sys_obj.get('coords') or {}
                     coords = coords if isinstance(coords, dict) else {}
-                    sx = float(coords.get('x') or sys_obj.get('x') or 0)
-                    sy = float(coords.get('y') or sys_obj.get('y') or 0)
-                    sz = float(coords.get('z') or sys_obj.get('z') or 0)
-                    region_id = find_galaxy_region(sx, sz)
+                    _cx = coords.get('x') if coords.get('x') is not None else sys_obj.get('x')
+                    _cy = coords.get('y') if coords.get('y') is not None else sys_obj.get('y')
+                    _cz = coords.get('z') if coords.get('z') is not None else sys_obj.get('z')
+                    if _cx is not None and _cy is not None and _cz is not None:
+                        sx, sy, sz = float(_cx), float(_cy), float(_cz)
+                    else:
+                        sx, sy, sz = None, None, None
+                    region_id = find_galaxy_region(sx, sz) if sx is not None else None
                 except Exception:
-                    sx, sy, sz = 0.0, 0.0, 0.0
+                    sx, sy, sz = None, None, None
                     region_id = None
 
                 # ── Controlling faction ────────────────────────────────────
@@ -1310,12 +1314,16 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 try:
                     coords = sys_obj.get('coords') or {}
                     coords = coords if isinstance(coords, dict) else {}
-                    sx = float(coords.get('x') or sys_obj.get('x') or 0)
-                    sy = float(coords.get('y') or sys_obj.get('y') or 0)
-                    sz = float(coords.get('z') or sys_obj.get('z') or 0)
-                    region_id = find_galaxy_region(sx, sz)
+                    _cx = coords.get('x') if coords.get('x') is not None else sys_obj.get('x')
+                    _cy = coords.get('y') if coords.get('y') is not None else sys_obj.get('y')
+                    _cz = coords.get('z') if coords.get('z') is not None else sys_obj.get('z')
+                    if _cx is not None and _cy is not None and _cz is not None:
+                        sx, sy, sz = float(_cx), float(_cy), float(_cz)
+                    else:
+                        sx, sy, sz = None, None, None
+                    region_id = find_galaxy_region(sx, sz) if sx is not None else None
                 except Exception:
-                    sx, sy, sz = 0.0, 0.0, 0.0
+                    sx, sy, sz = None, None, None
                     region_id = None
 
                 sys_batch.append((

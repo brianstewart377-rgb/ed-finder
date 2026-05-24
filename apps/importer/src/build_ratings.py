@@ -1063,7 +1063,7 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
     counts = classify_bodies(bodies)
 
     # ── Compute all economy scores ─────────────────────────────────────────
-    scores = {
+    raw_scores = {
         'Agriculture': score_agriculture(counts, main_star_type),
         'Refinery':    score_refinery(counts),
         'Industrial':  score_industrial(counts),
@@ -1072,6 +1072,23 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         'Tourism':     score_tourism(counts),
         'Extraction':  score_extraction(counts),
     }
+
+    # ── v3.4: Cross-economy attenuation ─────────────────────────────────────
+    # A system cannot simultaneously be exceptional at 5+ economies.
+    # The top two economies keep full score; the 3rd is reduced 15%,
+    # 4th+ reduced 30%. This preserves discriminative power and prevents
+    # the "everything is 100" saturation problem.
+    sorted_scores = sorted(raw_scores.items(), key=lambda kv: kv[1], reverse=True)
+    scores: dict[str, int] = {}
+    for rank, (eco, sc) in enumerate(sorted_scores):
+        if rank == 0 or rank == 1:
+            scores[eco] = sc          # primary / secondary keep full score
+        elif rank == 2:
+            scores[eco] = int(sc * 0.85)   # 3rd: 15% penalty
+        else:
+            scores[eco] = int(sc * 0.70)   # 4th+: 30% penalty
+    # Clamp to valid range
+    scores = {k: max(0, min(100, v)) for k, v in scores.items()}
 
     # ── Compute dimensional scores ─────────────────────────────────────────
     slot_score      = compute_slot_score(counts)
@@ -1230,6 +1247,7 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         'has_standout':      has_standout,
         'rationale':         rationale,
         'confidence':        confidence,
+        'rating_version':    '3.4',
     }
 
     return {
@@ -1274,6 +1292,7 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         'confidence':             confidence,
         'rationale':              rationale,
         'score_breakdown':        breakdown,
+        'rating_version':         '3.4',
     }
 
 
@@ -1445,6 +1464,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
         r.get('confidence'),
         r.get('rationale'),
         json.dumps(r['score_breakdown']),
+        r.get('rating_version'),
         now_iso,
     ) for r in batch]
 
@@ -1464,7 +1484,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
             slots, body_quality, compactness, signal_quality, orbital_safety, star_bonus,
             score_extraction, terraforming_potential, body_diversity,
             confidence, rationale,
-            score_breakdown, updated_at
+            score_breakdown, rating_version, updated_at
         ) VALUES %s
         ON CONFLICT (system_id64) DO UPDATE SET
             score               = EXCLUDED.score,
@@ -1503,6 +1523,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
             confidence             = EXCLUDED.confidence,
             rationale              = EXCLUDED.rationale,
             score_breakdown     = EXCLUDED.score_breakdown,
+            rating_version      = EXCLUDED.rating_version,
             updated_at          = NOW()
         """,
         rows,

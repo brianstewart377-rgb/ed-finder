@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { WatchlistEntry } from '@/lib/api';
 import { SystemTable, type SystemRow } from '@/components/SystemTable';
+import { distanceFromSol } from '@/lib/format';
 
 export interface WatchlistTabProps {
   entries:    WatchlistEntry[];
@@ -24,8 +25,8 @@ export function WatchlistTab({
       case 'name':  return a.name.localeCompare(b.name);
       case 'score': return (b.score ?? -1) - (a.score ?? -1);
       case 'distance': {
-        const da = Math.hypot(a.x, a.y, a.z);
-        const db = Math.hypot(b.x, b.y, b.z);
+        const da = distanceFromSol(a, a.system_id64) ?? Number.POSITIVE_INFINITY;
+        const db = distanceFromSol(b, b.system_id64) ?? Number.POSITIVE_INFINITY;
         return da - db;
       }
       case 'added':

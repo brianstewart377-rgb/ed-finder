@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Rocket, X } from 'lucide-react';
 import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
-import { formatPopulation } from '@/lib/format';
+import { distanceFromSol, formatCoords, formatPopulationForSystem } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
 import { useSystemDetail } from './useSystemDetail';
 import { RatingRadar } from './RatingRadar';
@@ -104,7 +104,7 @@ export function SystemDetailModal({
                 system={data}
                 onOpen={onOpenColonyPlanner}
               />
-              <Section title="Rating profile">
+              <Section title="Rating signals">
                 <RatingRadar sys={data} />
               </Section>
               <SystemInfoGrid sys={data} />
@@ -210,16 +210,18 @@ function ModalHeader({
 // ─── Sections ──────────────────────────────────────────────────────────────
 
 function SystemInfoGrid({ sys }: { sys: SystemDetail }) {
-  const dSol = Math.hypot(sys.x ?? 0, sys.y ?? 0, sys.z ?? 0);
+  const dSol = distanceFromSol(sys, sys.id64);
   const fields: Array<{ label: string; value: React.ReactNode } | null> = [
     {
       label: 'Coordinates',
       value: (
         <span className="tabular-nums text-cyan">
-          {sys.x?.toFixed(2)}, {sys.y?.toFixed(2)}, {sys.z?.toFixed(2)}
-          <span className="text-text-dim text-[10px] ml-2">
-            ({dSol.toFixed(1)} LY from Sol)
-          </span>
+          {formatCoords(sys, sys.id64)}
+          {dSol != null && (
+            <span className="text-text-dim text-[10px] ml-2">
+              ({dSol.toFixed(1)} LY from Sol)
+            </span>
+          )}
         </span>
       ),
     },
@@ -234,9 +236,7 @@ function SystemInfoGrid({ sys }: { sys: SystemDetail }) {
       : null,
     {
       label: 'Population',
-      value: sys.population && sys.population > 0
-        ? formatPopulation(sys.population)
-        : <span className="text-green">Uncolonised</span>,
+      value: formatPopulationForSystem(sys),
     },
     sys.security    ? { label: 'Security',    value: sys.security } : null,
     sys.allegiance  ? { label: 'Allegiance',  value: sys.allegiance } : null,

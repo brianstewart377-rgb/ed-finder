@@ -10,10 +10,12 @@ The overall `score` (0–100) represents **best-build potential** — the theore
 
 ## Economy scores
 
-Each economy (Agriculture, Refinery, Industrial, HighTech, Military, Tourism, **Extraction**) receives an independent 0–100 suitability score based on how well the system's body mix supports that economy's mechanics.
+Each economy (Agriculture, Refinery, Industrial, HighTech, Military, Tourism, **Extraction**) receives a 0–100 suitability score based on how well the system's body mix supports that economy's mechanics.
 
 - Extraction was added in rating v3.1 and must be shown in the UI alongside the other six.
 - The suggested economy (`economy_suggestion`) is the highest-scoring economy.
+- Rating v3.4 attenuates cross-economy saturation: the top two economies keep their raw score, the third is reduced, and the fourth-plus are reduced further. Current recalculations should not produce four or more simultaneous 100 scores.
+- Existing rows with `rating_version IS NULL` may still carry pre-v3.4 saturated scores until they are rebuilt.
 
 ## Top complementary pair
 
@@ -58,12 +60,10 @@ Stored in `score_breakdown.dimensions`:
 ## Stale rating / rebuild limitation
 
 - Ratings are built offline by `build_ratings.py` and stored in the `ratings` table with an `updated_at` timestamp.
-- There is **no** `rating_version` field exposed to the frontend. The frontend cannot determine whether a rating was built with v3.0 or v3.1 scoring.
+- `rating_version` is stored in the `ratings` table and mirrored to the API. Current `build_ratings.py` writes `3.4`.
 - The `confidence` field reflects data freshness, not rating algorithm version.
-- If a rating appears stale or uses legacy rationale wording, the operational remedy is to re-run `build_ratings.py` for the affected systems.
-- The frontend shows conservative wording ("Best-build potential") rather than definitive claims to account for possible staleness.
-
-**TODO:** Add a `rating_version` or `scoring_version` field to the `ratings` table and surface it in the API so the frontend can detect stale-algorithm ratings and show appropriate caveats.
+- If a rating appears stale, has `rating_version = NULL`, or shows three-plus capped economy scores, the operational remedy is to re-run `build_ratings.py` for the affected systems.
+- The frontend shows conservative wording ("Best-build potential") and a caveat for saturated/stale economy scores rather than definitive claims.
 
 ## Frontend display contract
 

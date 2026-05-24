@@ -30,6 +30,7 @@ interface RatingBreakdown {
   has_standout?: boolean;
   rationale?: string;
   confidence?: number;
+  rating_version?: string;
 }
 
 function parseBreakdown(raw: unknown): RatingBreakdown | null {
@@ -74,6 +75,8 @@ export function RatingRadar({ sys }: { sys: SystemDetail }) {
   // SystemDetail uses snake_case; the field comes through as an indexed
   // property via the `& { [key: string]: unknown }` intersection.
   const bd = parseBreakdown((sys as Record<string, unknown>).score_breakdown);
+  const ratingVersion = sys.rating_version ?? bd?.rating_version ?? null;
+  const cappedEconomies = economyScores.filter((d) => d.value >= 100).length;
   const topPair = bd?.top_pair;
   const dims = bd?.dimensions;
   const primaryEco = bd?.primary_economy ?? sys.primary_economy;
@@ -118,6 +121,14 @@ export function RatingRadar({ sys }: { sys: SystemDetail }) {
       <p className="font-mono text-[10px] text-silver-dk leading-snug">
         Based on body mix, economy fit, strategic value, and slot potential. Run planner / Preview to validate an actual build.
       </p>
+
+      {(cappedEconomies >= 3 || !ratingVersion) && (
+        <p data-testid="rating-caveat" className="font-mono text-[10px] leading-snug text-gold">
+          {cappedEconomies >= 3
+            ? 'Several economy scores are capped; treat their exact ordering as uncertain until the rating is refreshed.'
+            : 'This rating predates the current scoring contract; treat the economy order as approximate.'}
+        </p>
+      )}
 
       {/* ── Top pair + primary/secondary ──────────────────────────── */}
       <div className="flex flex-wrap gap-3 text-[11px] font-mono">

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatDistance, formatConfidence, ratingTier } from './format';
+import {
+  formatDistance,
+  formatConfidence,
+  ratingTier,
+  formatCoords,
+  formatPopulationForSystem,
+  systemStatusLabel,
+} from './format';
 
 describe('formatDistance', () => {
   it('returns null for null distance', () => {
@@ -58,6 +65,28 @@ describe('formatConfidence', () => {
   it('returns Low for < 0.50', () => {
     const c = formatConfidence(0.3);
     expect(c?.tier).toBe('Low');
+  });
+});
+
+describe('formatCoords', () => {
+  it('returns Unknown for null coordinates', () => {
+    expect(formatCoords({ x: null, y: 1, z: 2 }, 123)).toBe('Unknown');
+  });
+
+  it('treats non-Sol 0,0,0 as unknown', () => {
+    expect(formatCoords({ x: 0, y: 0, z: 0 }, 123)).toBe('Unknown');
+  });
+
+  it('allows Sol at 0,0,0', () => {
+    expect(formatCoords({ x: 0, y: 0, z: 0 }, 10477373803)).toBe('0.00, 0.00, 0.00');
+  });
+});
+
+describe('system population/status display', () => {
+  it('does not call a colonised zero-population system uninhabited', () => {
+    const sys = { is_colonised: true, population: 0 };
+    expect(systemStatusLabel(sys)).toBe('Colonised');
+    expect(formatPopulationForSystem(sys)).toBe('Population unknown');
   });
 });
 

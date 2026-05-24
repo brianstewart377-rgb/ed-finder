@@ -1,5 +1,12 @@
 import type { ReactNode } from 'react';
-import { ratingTier, formatPopulation, formatDistance } from '@/lib/format';
+import {
+  ratingTier,
+  formatPopulationForSystem,
+  formatDistance,
+  formatCoords,
+  distanceFromSol,
+  systemStatusLabel,
+} from '@/lib/format';
 
 /**
  * Minimal row shape that every "list of systems" feature shares (Watchlist,
@@ -10,11 +17,12 @@ import { ratingTier, formatPopulation, formatDistance } from '@/lib/format';
 export interface SystemRow {
   id64:         number;
   name:         string;
-  x:            number;
-  y:            number;
-  z:            number;
+  x:            number | null;
+  y:            number | null;
+  z:            number | null;
   population:   number;
   is_colonised: boolean;
+  is_being_colonised?: boolean | null;
   score:        number | null;
   economy:      string | null;
   /** ISO timestamp for the "added" / "pinned at" column. null = hide. */
@@ -181,22 +189,24 @@ function renderCell(col: SystemTableColumn, row: SystemRow): ReactNode {
       return (
         <>
           <span className="text-orange font-bold">{row.name}</span>
-          {row.is_colonised && (
+          {systemStatusLabel(row) !== 'Available' && (
             <span className="ml-2 text-[9px] px-1 py-0.5 rounded bg-red/20 text-red border border-red/40">
-              COL
+              {systemStatusLabel(row) === 'Colonised' ? 'COL' : 'BUILD'}
             </span>
           )}
         </>
       );
 
     case 'coords': {
-      const dist = Math.hypot(row.x, row.y, row.z);
+      const dist = distanceFromSol(row, row.id64);
       return (
         <span className="text-text-dim text-xs tabular-nums">
-          {row.x.toFixed(0)}, {row.y.toFixed(0)}, {row.z.toFixed(0)}
-          <div className="text-[10px] text-text-dim/70">
-            {dist.toFixed(1)} LY from Sol
-          </div>
+          {formatCoords(row, row.id64)}
+          {dist != null && (
+            <div className="text-[10px] text-text-dim/70">
+              {dist.toFixed(1)} LY from Sol
+            </div>
+          )}
         </span>
       );
     }
@@ -204,7 +214,7 @@ function renderCell(col: SystemTableColumn, row: SystemRow): ReactNode {
     case 'population':
       return (
         <span className="text-text-dim text-xs">
-          {formatPopulation(row.population)}
+          {formatPopulationForSystem(row)}
         </span>
       );
 

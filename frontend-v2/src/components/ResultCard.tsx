@@ -2,10 +2,12 @@ import { useState } from 'react';
 import type { SystemResult } from '@/types/api';
 import {
   ratingTier,
-  formatPopulation,
+  formatPopulationForSystem,
   formatConfidence,
   formatDistance,
+  formatCoords,
   isInhabited,
+  systemStatusLabel,
 } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
 import {
@@ -47,7 +49,8 @@ export function ResultCard({
   const conf       = formatConfidence(rating?.confidence);
   const inhabited  = isInhabited(system);
   const dist       = formatDistance(system.distance) ?? '—';
-  const popLabel   = formatPopulation(system.population);
+  const popLabel   = formatPopulationForSystem(system);
+  const status     = systemStatusLabel(system);
   const systemId64 = Number(system.id64);
   const hasValidSystemId = Number.isFinite(systemId64) && systemId64 > 0;
   const openColonyPlanner = () => {
@@ -125,7 +128,7 @@ export function ResultCard({
             background: 'linear-gradient(180deg, rgba(74,222,128,0.18), rgba(74,222,128,0.08))',
           }}
         >
-          {inhabited ? 'COL' : 'FREE'}
+          {status === 'Colonised' ? 'COL' : status === 'Colonising' ? 'BUILD' : 'FREE'}
         </span>
 
         {/* Population */}
@@ -207,12 +210,10 @@ export function ResultCard({
             {system.primaryEconomy && <Row label="Economy"    value={system.primaryEconomy} highlight />}
             {system.allegiance     && <Row label="Allegiance" value={system.allegiance} />}
             {system.security       && <Row label="Security"   value={system.security} />}
-            {system.coords && (
-              <Row
-                label="Coords"
-                value={`${system.coords.x.toFixed(2)}, ${system.coords.y.toFixed(2)}, ${system.coords.z.toFixed(2)}`}
-              />
-            )}
+            <Row
+              label="Coords"
+              value={formatCoords(system.coords, system.id64)}
+            />
           </dl>
 
           {(system.elw_count || system.ww_count || system.ammonia_count ||

@@ -28,6 +28,8 @@ export function formatPopulation(pop: number): string {
   return String(pop);
 }
 
+const SOL_ID64 = 10477373803;
+
 /** Confidence number → displayable summary. Null = field absent. */
 export function formatConfidence(c: number | null | undefined):
   | { tier: 'High' | 'Medium' | 'Low'; pct: number; symbol: '●' | '◐' | '○' }
@@ -58,6 +60,35 @@ export function formatDistance(
   return `${d.toFixed(2)} LY`;
 }
 
+export function hasKnownCoords(
+  c: { x?: number | null; y?: number | null; z?: number | null; id64?: number | string | null } | null | undefined,
+  id64?: number | string | null,
+): c is { x: number; y: number; z: number } {
+  if (!c || c.x == null || c.y == null || c.z == null) return false;
+  if (!Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) return false;
+  const systemId = id64 ?? c.id64;
+  const numericId = systemId == null ? null : Number(systemId);
+  if (c.x === 0 && c.y === 0 && c.z === 0 && numericId !== SOL_ID64) return false;
+  return true;
+}
+
+/** Format coordinates for display. Unknown means not trusted, not zero. */
+export function formatCoords(
+  c: { x?: number | null; y?: number | null; z?: number | null; id64?: number | string | null } | null | undefined,
+  id64?: number | string | null,
+): string {
+  if (!hasKnownCoords(c, id64)) return 'Unknown';
+  return `${c.x.toFixed(2)}, ${c.y.toFixed(2)}, ${c.z.toFixed(2)}`;
+}
+
+export function distanceFromSol(
+  c: { x?: number | null; y?: number | null; z?: number | null; id64?: number | string | null } | null | undefined,
+  id64?: number | string | null,
+): number | null {
+  if (!hasKnownCoords(c, id64)) return null;
+  return Math.hypot(c.x, c.y, c.z);
+}
+
 /** Multi-signal "is this system colonised" check.
  * Spansh's `is_colonised` flag is unreliable for old systems, so we OR a
  * few correlated signals together — same logic the vanilla app uses. */
@@ -67,4 +98,24 @@ export function isInhabited(sys: {
   population?:          number | null;
 }): boolean {
   return !!(sys.is_colonised || sys.is_being_colonised || (sys.population ?? 0) > 0);
+}
+
+export function formatPopulationForSystem(sys: {
+  is_colonised?:        boolean | null;
+  is_being_colonised?:  boolean | null;
+  population?:          number | null;
+}): string {
+  const pop = sys.population ?? 0;
+  if (pop > 0) return formatPopulation(pop);
+  return isInhabited(sys) ? 'Population unknown' : 'Uninhabited';
+}
+
+export function systemStatusLabel(sys: {
+  is_colonised?:        boolean | null;
+  is_being_colonised?:  boolean | null;
+  population?:          number | null;
+}): 'Colonised' | 'Colonising' | 'Available' {
+  if (sys.is_colonised || (sys.population ?? 0) > 0) return 'Colonised';
+  if (sys.is_being_colonised) return 'Colonising';
+  return 'Available';
 }

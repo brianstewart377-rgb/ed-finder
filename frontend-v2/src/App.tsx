@@ -319,11 +319,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
                 type="button"
                 disabled={!sys}
                 onClick={() => sys && pinned.toggle({
-                  id64:         sys.id64,
-                  name:         sys.name,
-                  x:            sys.x,
-                  y:            sys.y,
-                  z:            sys.z,
+	                  id64:         sys.id64,
+	                  name:         sys.name,
+	                  x:            sys.x ?? null,
+	                  y:            sys.y ?? null,
+	                  z:            sys.z ?? null,
                   population:   sys.population,
                   is_colonised: !!sys.is_colonised,
                   rating:       sys.score ?? null,
@@ -495,9 +495,9 @@ function FinderView({
                       isCompared={compare.has(sys.id64)}
                       onWatch={(id) => void watchlist.add(id, {
                         name:       sys.name,
-                        x:          sys.coords?.x ?? 0,
-                        y:          sys.coords?.y ?? 0,
-                        z:          sys.coords?.z ?? 0,
+                        x:          sys.coords?.x ?? null,
+                        y:          sys.coords?.y ?? null,
+                        z:          sys.coords?.z ?? null,
                         population: sys.population,
                         is_colonised: !!sys.is_colonised,
                         score:      sys._rating?.score ?? null,

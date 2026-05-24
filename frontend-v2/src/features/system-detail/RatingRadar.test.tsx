@@ -159,4 +159,16 @@ describe('RatingRadar (Stage 17N.2)', () => {
     render(<RatingRadar sys={baseSys} />);
     expect(screen.getByText(/body mix, economy fit, strategic value/i)).toBeTruthy();
   });
+
+  it('caveats saturated stored economy scores', () => {
+    const sys = {
+      ...baseSys,
+      score_refinery: 100,
+      score_industrial: 100,
+      score_hightech: 100,
+      score_military: 100,
+    } as unknown as SystemDetail;
+    render(<RatingRadar sys={sys} />);
+    expect(screen.getByTestId('rating-caveat').textContent).toContain('Several economy scores are capped');
+  });
 });

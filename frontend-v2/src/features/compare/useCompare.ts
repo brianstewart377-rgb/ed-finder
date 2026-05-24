@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SystemResult } from '@/types/api';
+import { displayRationale } from '@/lib/rationale';
+import { formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
 
 /**
  * Compare state. Client-only, persisted to localStorage as full snapshots.
@@ -109,12 +111,12 @@ export function useCompare(): UseCompare {
     const rows: Array<[string, Array<string | number | null | undefined>]> = [
       ['Score (overall)',      snapshot.map((s) => s._rating?.score ?? '')],
       ['Confidence',           snapshot.map((s) => s._rating?.confidence ?? '')],
-      ['Rationale',            snapshot.map((s) => s._rating?.rationale ?? '')],
+      ['Rationale',            snapshot.map((s) => displayRationale(s._rating?.rationale) ?? '')],
       ['Primary economy',      snapshot.map((s) => s.primaryEconomy ?? '')],
       ['Suggested economy',    snapshot.map((s) => s._rating?.economySuggestion ?? '')],
       ['Distance from ref LY', snapshot.map((s) => s.distance ?? '')],
-      ['Population',           snapshot.map((s) => s.population)],
-      ['Colonised',            snapshot.map((s) => (s.is_colonised ? 'Yes' : 'No'))],
+      ['Population',           snapshot.map((s) => formatPopulationForSystem(s))],
+      ['Status',               snapshot.map((s) => systemStatusLabel(s))],
       ['Main star',            snapshot.map((s) => s.main_star_subtype ?? s.main_star_type ?? '')],
       ['Security',             snapshot.map((s) => s.security ?? '')],
       ['Allegiance',           snapshot.map((s) => s.allegiance ?? '')],

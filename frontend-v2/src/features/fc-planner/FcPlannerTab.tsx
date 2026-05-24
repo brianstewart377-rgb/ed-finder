@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { FcConfig, UseFcPlanner } from './useFcPlanner';
 import { useAutocomplete } from '@/features/search/useAutocomplete';
+import { formatCoords } from '@/lib/format';
 
 export interface FcPlannerTabProps {
   fc: UseFcPlanner;
@@ -114,7 +115,7 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    add({ name: h.name, x: h.x, y: h.y, z: h.z, id64: h.id64 });
+                    add({ name: h.name, x: h.x ?? null, y: h.y ?? null, z: h.z ?? null, id64: h.id64 });
                     setQuery('');
                   }}
                   data-testid={`fc-add-hit-${h.id64}`}
@@ -122,7 +123,7 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
                 >
                   <span className="text-orange-lt">{h.name}</span>
                   <span className="text-silver-dk text-[10px] ml-2">
-                    {h.x.toFixed(0)}, {h.y.toFixed(0)}, {h.z.toFixed(0)}
+                    {formatCoords(h, h.id64)}
                   </span>
                 </button>
               </li>

@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
 from config import limiter
 from deps   import get_pool
+from helpers import safe_coords_from_row
 from models import WatchlistAlert
 
 router = APIRouter(tags=['watchlist'])
@@ -75,11 +76,12 @@ async def add_watchlist(
         )
         if not sys_row:
             raise HTTPException(404, f'System {id64} not found')
+        coords = safe_coords_from_row({'id64': id64, **dict(sys_row)})
         await conn.execute("""
             INSERT INTO watchlist (sync_key, system_id64, name, x, y, z, population, is_colonised)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (sync_key, system_id64) DO NOTHING
-        """, sync_key, id64, sys_row['name'], sys_row['x'], sys_row['y'], sys_row['z'],
+        """, sync_key, id64, sys_row['name'], coords['x'], coords['y'], coords['z'],
              sys_row['population'], sys_row['is_colonised'])
     return {'ok': True, 'sync_key': sync_key}
 

@@ -2,7 +2,7 @@ import { Network, Plus, Sparkles, Target } from 'lucide-react';
 import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { displayRationale } from '@/lib/rationale';
-import { formatConfidence, formatPopulation, ratingTier } from '@/lib/format';
+import { formatConfidence, formatPopulationForSystem, ratingTier } from '@/lib/format';
 import type { BodySlotPrediction, FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 import {
   bodyDisplayName,
@@ -262,7 +262,7 @@ export function RavenPlannerTelemetryPanel({
 }) {
   const [projectionView, setProjectionView] = useState<ProjectionComparisonView>('bodies');
   const stats = buildPlannerTelemetryStats(snapshot);
-  const population = system.population && system.population > 0 ? formatPopulation(system.population) : 'Uncolonised';
+  const population = formatPopulationForSystem(system);
   const score = typeof system.score === 'number' ? Math.round(system.score) : 'n/a';
   const rows = buildRavenPlannerRows(system, snapshot);
   const projectionComparison = buildProjectionComparison(system, snapshot, economyLedger, rows);
@@ -1253,9 +1253,9 @@ function RatingProfileCard({ system }: { system: SystemDetail }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-orange">Rating profile</h3>
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-orange">Rating signals</h3>
           <div className="mt-1 text-[10px] leading-relaxed text-silver">
-            Stored colonisation suitability from the ratings engine.
+            Saved scoring signals. Validate a build plan before treating capped economy scores as exact.
           </div>
         </div>
         <div

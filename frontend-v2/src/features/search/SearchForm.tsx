@@ -7,6 +7,7 @@ import { useAutocomplete } from './useAutocomplete';
 import type { AutocompleteHit } from '@/types/api';
 import { DualSlider } from '@/components/DualSlider';
 import { ChevronDown, Sparkles } from 'lucide-react';
+import { formatCoords, hasKnownCoords } from '@/lib/format';
 
 /**
  * Search form. Stateless w.r.t. results — emits filter changes through
@@ -38,10 +39,13 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
       <Section title="Reference System">
         <RefSystemPicker
           value={filters.refName}
-          onPick={(hit) => onChange({
-            refName:   hit.name,
-            refCoords: { x: hit.x, y: hit.y, z: hit.z },
-          })}
+          onPick={(hit) => {
+            if (!hasKnownCoords(hit, hit.id64)) return;
+            onChange({
+              refName:   hit.name,
+              refCoords: { x: hit.x, y: hit.y, z: hit.z },
+            });
+          }}
         />
         <p className="font-mono text-[10px] text-text-dim">
           {filters.refCoords.x.toFixed(2)}, {filters.refCoords.y.toFixed(2)}, {filters.refCoords.z.toFixed(2)}
@@ -383,27 +387,36 @@ function RefSystemPicker({
           {!loading && hits.length === 0 && (
             <li className="px-3 py-2 text-text-dim italic">No matches</li>
           )}
-          {hits.map((h) => (
-            <li
-              key={h.id64}
-              role="option"
-              aria-selected={false}
-              data-testid={`ref-system-option-${h.id64}`}
-              onMouseDown={(e) => e.preventDefault()}   // keep input focused
-              onClick={() => {
-                if (blurT.current) window.clearTimeout(blurT.current);
-                setText(h.name);
-                setOpen(false);
-                onPick(h);
-              }}
-              className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-bg4"
-            >
-              <span className="text-orange flex-1 truncate">{h.name}</span>
-              <span className="text-text-dim text-[10px] tabular-nums">
-                {h.x.toFixed(0)},{h.y.toFixed(0)},{h.z.toFixed(0)}
-              </span>
-            </li>
-          ))}
+          {hits.map((h) => {
+            const hasCoords = hasKnownCoords(h, h.id64);
+            return (
+              <li
+                key={h.id64}
+                role="option"
+                aria-selected={false}
+                aria-disabled={!hasCoords}
+                title={hasCoords ? undefined : 'Reference system coordinates are unknown'}
+                data-testid={`ref-system-option-${h.id64}`}
+                onMouseDown={(e) => e.preventDefault()}   // keep input focused
+                onClick={() => {
+                  if (!hasCoords) return;
+                  if (blurT.current) window.clearTimeout(blurT.current);
+                  setText(h.name);
+                  setOpen(false);
+                  onPick(h);
+                }}
+                className={[
+                  'flex items-center gap-3 px-3 py-1.5 hover:bg-bg4',
+                  hasCoords ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
+                ].join(' ')}
+              >
+                <span className="text-orange flex-1 truncate">{h.name}</span>
+                <span className="text-text-dim text-[10px] tabular-nums">
+                  {hasCoords ? formatCoords(h, h.id64) : 'Unknown'}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

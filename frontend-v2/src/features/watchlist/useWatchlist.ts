@@ -67,9 +67,9 @@ export function useWatchlist(): UseWatchlist {
       const optimistic: WatchlistEntry = {
         system_id64:  id64,
         name:         hint?.name ?? `System ${id64}`,
-        x:            hint?.x ?? 0,
-        y:            hint?.y ?? 0,
-        z:            hint?.z ?? 0,
+        x:            hint?.x ?? null,
+        y:            hint?.y ?? null,
+        z:            hint?.z ?? null,
         population:   hint?.population ?? 0,
         is_colonised: hint?.is_colonised ?? false,
         added_at:     new Date().toISOString(),

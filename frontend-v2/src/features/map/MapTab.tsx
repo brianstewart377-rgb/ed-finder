@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { GalacticMap } from './GalacticMap';
 import type { SystemResult } from '@/types/api';
-import { ratingTier, formatPopulation, formatDistance } from '@/lib/format';
+import { ratingTier, formatPopulationForSystem, formatDistance, formatCoords } from '@/lib/format';
+import { displayRationale } from '@/lib/rationale';
 
 /**
  * Map tab — wraps the GalacticMap with a selection-detail side panel.
@@ -70,6 +71,7 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
     );
   }
   const tier = ratingTier(system._rating?.score ?? null);
+  const rationale = displayRationale(system._rating?.rationale);
   return (
     <aside
       data-testid="map-selection-panel"
@@ -77,11 +79,9 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
     >
       <div>
         <div className="text-orange-lt font-bold text-sm">{system.name}</div>
-        {system.coords && (
-          <div className="text-text-dim text-[10px]">
-            {system.coords.x.toFixed(2)}, {system.coords.y.toFixed(2)}, {system.coords.z.toFixed(2)}
-          </div>
-        )}
+        <div className="text-text-dim text-[10px]">
+          {formatCoords(system.coords, system.id64)}
+        </div>
       </div>
       <div className="flex gap-2 items-center">
         <span
@@ -97,7 +97,7 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
           {tier.label} {system._rating?.score ?? '—'}
         </span>
         <span className="text-text-dim">
-          {formatPopulation(system.population)}
+          {formatPopulationForSystem(system)}
         </span>
       </div>
       <dl className="space-y-1 text-[11px]">
@@ -110,9 +110,9 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
           <Row label="Distance" value={formatDistance(system.distance)!} />
         )}
       </dl>
-      {system._rating?.rationale && (
+      {rationale && (
         <p className="text-text-dim italic leading-snug border-t border-border pt-2">
-          {system._rating.rationale}
+          {rationale}
         </p>
       )}
     </aside>
