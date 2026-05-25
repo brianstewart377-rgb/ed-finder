@@ -88,6 +88,40 @@ The ledger does not replace Simulation Preview:
 - no automatic Preview execution
 - Preview remains explicit and authoritative
 
+## Stage 17N.2e Economy Bar Contract
+
+Stage 17N.2e keeps RavenColonial as a functional reference only: readable,
+body-local economy bars and useful hover breakdowns. ED-Finder implements this
+with its own code, colours, and mechanics.
+
+Central colour mapping:
+
+| Economy | Colour |
+| --- | --- |
+| Agriculture | `#4ade80` |
+| Refinery | `#fbbf24` |
+| Industrial | `#ff7a14` |
+| HighTech | `#7dd3fc` |
+| Military | `#f87171` |
+| Tourism | `#c084fc` |
+| Extraction | `#94a3b8` |
+| Terraforming | `#2dd4bf` |
+| Contextual / Unknown | neutral blue-grey/grey |
+
+Planner bar rules:
+
+- per-structure bars are 8-10px tall so they can be scanned and hovered
+- all planner bars, projected bars, selected-body slots, RatingRadar economy
+  bars, and the retained prototype use the same central mapping
+- direct facility economy comes from ED-Finder catalogue/template metadata
+- direct CP totals are shown only from real template `yellow_cp_generated` and
+  `green_cp_generated` values
+- station/port baseline bars are calculated from ED-Finder's own Mega
+  Guide-derived body economy profile formula, not copied RavenColonial logic
+- if no documented formula can produce a baseline, no fake percentage is shown
+- Preview remains the final validation step for economy order, CP, links,
+  services, pass-through, contamination, and build-order effects
+
 ## RavenColonial API Notes Kept For Future Work
 
 The user-provided RavenColonial API concepts are recorded only as future reference for logistics/project interop:

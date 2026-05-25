@@ -223,6 +223,64 @@ Unsafe assumptions avoided:
 - `stations.id` is exposed as `market_id` for diagnostics but still needs
   backend verification before it is treated as a separate canonical identity
 
+## Stage 17N.2d-H Normalized Occupied-Slot Source
+
+Stage 17N.2d-H adds the data contract behind the Stage 17N.2d UI:
+
+- `station_body_links` is the normalized source for station/body/lane
+  association
+- association status is explicit: `confirmed`, `inferred`, or `unresolved`
+- confidence/source are explicit: exact/manual/import/EDDN/resolver body-name or
+  distance, strong inference, unresolved
+- the resolver never invents body ids and never lets ambiguous distance matches
+  become inferred occupancy
+- the manual backfill script supports dry-run, limit, system targeting, apply,
+  and preserving confirmed links by default
+- `/api/system/{id64}` exposes association metadata so the planner can render
+  confirmed, inferred, and unresolved infrastructure honestly
+
+Planner behaviour:
+
+- confirmed links occupy slots normally
+- inferred links occupy the displayed lane but are marked `verify`
+- unresolved or unknown-lane links remain visible outside body lanes
+- planned/projected/existing distinctions remain separate
+
+This still does not mean every station can be perfectly mapped. It establishes
+the source-of-truth foundation and keeps unknowns visible until source data or
+manual/Architect-observed correction can confirm them.
+
+## Stage 17N.2e Economy Bar Correctness
+
+Stage 17N.2e tightens the Raven planner's economy display without changing
+slot prediction, Preview mechanics, rating weights, or occupied-slot source of
+truth.
+
+Implemented changes:
+
+- economy colours are centralized in `economyVisuals.ts` and shared by Raven
+  slot bars, selected-body structure slots, projected slots, planning economy
+  strips, RatingRadar economy bars, and the retained prototype
+- supported visual economies are Agriculture, Refinery, Industrial, HighTech,
+  Military, Tourism, Extraction, Terraforming, Civilian, Support, Contextual,
+  and Unknown
+- per-structure bars are readable 8-10px hover targets instead of hairline
+  decoration
+- direct facility bars show catalogue/template economy metadata and real CP
+  generated totals where template data provides them
+- station/port inherited baseline bars use the same body economy profile rules
+  as the backend Preview foundation: base economies weighted `1.0` then `0.8`,
+  modifier economies weighted `0.45`, then normalized into percentages
+- no fallback invents equal 50/50 shares or fake CP; if the body profile cannot
+  produce a baseline, the UI reports it as unavailable and points to Preview
+
+Remaining limitation:
+
+- `/api/system/{id64}` bodies expose enough fields for the common body profile
+  cases, but Preview can still use richer scan facts where available. The
+  planner baseline is therefore a calculation-backed pre-Preview estimate, not
+  a replacement for Preview validation.
+
 ## Stage 17G Validated Slot Algorithm Everywhere + System-Wide Slot Map
 
 Stage 17G standardises slot prediction on one canonical backend algorithm and changes the dedicated planner from a body list plus report cards into a whole-system slot/economy map.
@@ -582,13 +640,13 @@ Implemented behavior:
   - water-world and non-landable surface rules route through the same helper
 - catalogue free-text prerequisite descriptions that describe slot/lane/ringed-body conditions (for example `orbital slot available`, `requires a ringed body`, `landable body`, `water world`) are filtered out of structure prerequisite warnings; slot/lane truth is enforced by capacity and physical-compat rules instead, eliminating the false `needs orbital slot` warning class
 - the overflow slot now reports `Orbital capacity exceeded` / `Surface capacity exceeded` copy in its tooltip and adds to the row warning indicator, recommending Architect Mode verification rather than blocking planning
-- contextual stations and ports without direct economy metadata now show an inherited baseline economy micro-bar derived from `system.primary_economy`, `system.secondary_economy`, and body subtype/atmosphere/signal heuristics; the `CTX` chip and tooltip continue to flag the value as inherited and not a CP-validated outcome
+- contextual stations and ports without direct economy metadata now show an inherited baseline economy micro-bar. Stage 17N.2e replaces the original system-economy/body heuristic with ED-Finder's Mega Guide-derived body economy profile formula and Preview body-profile weights; the chip and tooltip continue to flag the value as inherited/contextual and not a final Preview outcome
 
 Explicit non-behavior:
 
 - no automatic Preview, Suggested Build, or projected candidate load
 - no Advanced Planner requirement for direct manual adds
-- no invented CP magnitudes — the inherited baseline reports only share weights
+- no invented CP magnitudes. Inherited baseline percentages are shown only when the body-profile formula can derive them from available body data; no-rule cases remain unavailable instead of fabricating values
 - prerequisites remain warnings, not blockers
 - empty slot boxes stay passive — only the row-level `Add Orbit` / `Add Surface` controls open the picker
 

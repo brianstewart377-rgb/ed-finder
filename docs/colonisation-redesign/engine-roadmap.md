@@ -1852,7 +1852,7 @@ Delivered:
   - water-world and non-landable surface rules now route through the same helper
 - catalogue free-text prerequisites that describe slot/lane/ringed-body conditions (`orbital slot`, `surface slot`, `ringed body`, `landable body`, `water world`, etc.) are filtered out of structure prerequisite warnings; slot/lane truth is enforced by capacity and physical-compat rules instead
 - lane capacity overflow now surfaces as `Orbital capacity exceeded` / `Surface capacity exceeded` copy on the overflow slot tooltip and increments the row warning indicator; the message is honest about predicted-vs-planned and continues to recommend Architect Mode verification
-- contextual stations and ports without direct economy metadata now show an inherited baseline economy micro-bar derived from `system.primary_economy`, `system.secondary_economy`, and body subtype/atmosphere/signal heuristics; the bar is **qualitative only** (equal-weight categorical segments) — no synthetic `%` or `+X CP` magnitudes are ever shown for inherited baselines, and the tooltip reads `Inherited baseline economies: Refinery / Industrial — run Preview for validated outcome.` so the user knows it is a baseline and not a CP-validated outcome
+- contextual stations and ports without direct economy metadata show an inherited baseline economy micro-bar. Stage 17N.2e replaces the original frontend heuristic with ED-Finder's Mega Guide-derived body economy profile formula, shared with the Preview foundation. The values are body-profile percentages only; Preview remains the final validator for CP, links, services, and final economy order.
 
 Preserved from 17N.1/17N.1b/17N.1c/17N.1d:
 
@@ -1860,7 +1860,7 @@ Preserved from 17N.1/17N.1b/17N.1c/17N.1d:
 - no automatic Preview, no automatic Suggested Builds, no projected candidate auto-load
 - prerequisite gaps remain warnings, not blockers
 - empty slot boxes stay passive — only the row-level `Add Orbit` / `Add Surface` controls open the picker
-- no fake economy CP magnitudes and no synthetic `%` shares; inherited baseline reports a categorical list of economy names plus a categorical bar only
+- no fake economy CP magnitudes; inherited baseline percentages are shown only when the body-profile formula can derive them, otherwise the planner falls back to unavailable/qualitative copy and directs the user to Preview
 
 Remaining manual editing gaps:
 
@@ -2046,6 +2046,83 @@ Follow-up:
 - Backfill `body_id` where journal/Spansh data can provide it exactly.
 - Add backend diagnostics for unresolved station/body matches so production data
   can be improved without frontend guesses.
+
+## Stage 17N.2d-H - Occupied Slot Source Of Truth
+
+Goal: move existing-infrastructure occupancy from frontend best-effort matching
+to a backend/data contract with explicit status, confidence, and source.
+
+Delivered:
+
+- added `sql/021_station_body_links.sql`, a normalized station/body association
+  table separate from `stations`
+- added `apps/api/src/station_body_resolver.py`, a conservative resolver that
+  emits `confirmed`, `inferred`, or `unresolved` association records
+- added `apps/importer/src/backfill_station_body_links.py`, a manual dry-run /
+  apply backfill script with `--limit`, `--system-id64`, and confirmed-link
+  preservation by default
+- expanded `/api/system/{id64}` station payloads with `body_id`, `lane`,
+  `association_status`, `association_confidence`, `association_source`, and
+  `resolver_notes`
+- updated the Raven planner to consume backend association metadata first:
+  confirmed and inferred links can occupy lanes, inferred links are visibly
+  marked `verify`, and unresolved/unknown-lane infrastructure remains in the
+  compact unresolved area
+
+Resolver rules:
+
+1. verified/existing `body_id`
+2. exact `body_name` match in the same system
+3. unique `distance_from_star` match within `0.01 ls` as inferred only
+4. unresolved
+
+Fleet carriers, megaships, carriers, and unknown station types are not treated
+as permanent colony-slot occupants. They can have confirmed body association,
+but their lane remains `unknown` unless a future model explicitly supports
+them.
+
+See `docs/colonisation-redesign/occupied-slot-source-of-truth.md`.
+
+## Stage 17N.2e - Economy Bar Correctness And Baseline Calculation
+
+Goal: make the Raven-style planner economy bars trustworthy and readable
+without changing planner layout, rating weights, slot prediction, or Preview
+mechanics.
+
+Delivered:
+
+- centralized planner/rating economy colours in
+  `frontend-v2/src/features/colony-planner/economyVisuals.ts`
+- supported visual economies: Agriculture, Refinery, Industrial, HighTech,
+  Military, Tourism, Extraction, Terraforming, Civilian, Support, Contextual,
+  and Unknown
+- Raven slot bars, selected-body planned/projected slot bars, the planning
+  economy strip, the static prototype, and RatingRadar economy bars now use the
+  same colour mapping
+- per-structure bars use a readable `h-2` / `h-2.5` class instead of hairline
+  strips; hover/title text is attached to the bar or structure slot
+- direct facility economy tooltips identify catalogue/template metadata and
+  show real CP generated totals only from template `yellow_cp_generated` plus
+  `green_cp_generated`
+- contextual station/port baseline calculation now mirrors the backend
+  `domain.colonisation_rules.profile_body` logic and Preview body-profile
+  weights:
+  - first base economy: `1.0`
+  - later base economies: `0.8`
+  - modifier economies: `0.45`
+  - percentages are normalized from those weights
+- unavailable baseline cases do not invent numbers. If no documented body rule
+  matches, the planner shows no fake percentage and keeps Preview as the
+  validation path.
+
+Known gaps:
+
+- system-detail bodies do not expose every scan-fact field used by Preview
+  (`atmosphere`, full volcanism details, richer ring facts), so frontend
+  baseline remains a pre-Preview body-profile estimate from available fields.
+- Preview remains authoritative for final port economy composition, strong/weak
+  links, pass-through, service graph, CP, contamination, and order-dependent
+  economy flips.
 
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 

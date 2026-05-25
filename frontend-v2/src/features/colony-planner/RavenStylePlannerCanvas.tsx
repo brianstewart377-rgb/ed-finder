@@ -20,12 +20,13 @@ import {
 } from './slotCapacityFallback';
 import {
   buildPlanningEconomyLedger,
-  inferredStationBaselineShares,
   normalisePlanningEconomy,
   PLANNING_ECONOMY_NOTE,
   type PlanningEconomyLedger,
   type PlanningEconomyName,
 } from './planningEconomy';
+import { economyColor, economySoftColor } from './economyVisuals';
+import { calculateStationBaselineEconomy, describeStationBaselineEconomy } from './stationBaselineEconomy';
 import {
   existingStructureDisplayType,
   resolveExistingInfrastructure,
@@ -54,11 +55,13 @@ export interface RavenEconomySegment {
   projected: boolean;
   /**
    * True when this segment represents an inherited contextual baseline derived
-   * from body/system context, not a CP-validated value. Inherited segments
-   * never display synthetic `%` strength numbers; their share is used only to
-   * render a categorical, equally-weighted micro-bar for scan.
+   * from ED-Finder's body economy profile formula. It is still pre-Preview:
+   * Preview remains the final validator for CP, links, services, and final
+   * economy order.
    */
   inherited?: boolean;
+  calculationSource?: string;
+  caveats?: string[];
 }
 
 export interface RavenStructureSlot {
@@ -115,6 +118,7 @@ export interface RavenPlannerRow {
   projected: boolean;
   warningCount: number;
   existingCount: number;
+  inferredExistingCount: number;
   plannedCount: number;
   projectedCount: number;
   emptySlotCount: number;
@@ -154,16 +158,6 @@ interface ExistingStructureBucketItem {
 }
 
 type RavenStructureBucketItem = StructureBucketItem | ExistingStructureBucketItem;
-
-const ECONOMY_COLORS: Record<PlanningEconomyName, string> = {
-  Agriculture: '#4ade80',
-  Refinery: '#fbbf24',
-  Industrial: '#ff7a14',
-  HighTech: '#7dd3fc',
-  Military: '#f87171',
-  Tourism: '#a78bfa',
-  Extraction: '#c8ccd1',
-};
 
 const BODY_MARKER_COLORS: Record<string, { fill: string; ring: string; size: string }> = {
   star: { fill: 'radial-gradient(circle at 35% 30%, #ffd18c, #ff9f1a 55%, #9a4d00)', ring: 'rgba(255, 122, 20, 0.58)', size: 'h-8 w-8' },
@@ -226,6 +220,7 @@ export function RavenStylePlannerCanvas({
         <div className="flex flex-wrap gap-1.5 text-[11px]">
           <CanvasPill label={`${rows.length} bodies`} tone="silver" />
           <CanvasPill label={`${occupancySummary.existingCount} existing`} tone={occupancySummary.existingCount > 0 ? 'green' : 'silver'} />
+          {occupancySummary.inferredExistingCount > 0 && <CanvasPill label={`${occupancySummary.inferredExistingCount} inferred`} tone="gold" />}
           <CanvasPill label={`${snapshot.placements.length} planned`} tone={snapshot.placements.length > 0 ? 'orange' : 'silver'} />
           <CanvasPill label={`${snapshot.projection?.placements.length ?? 0} projected`} tone={snapshot.projection ? 'cyan' : 'silver'} />
           <CanvasPill label={`${occupancySummary.emptySlotCount} empty`} tone="silver" />
@@ -777,8 +772,9 @@ function RavenSlotBox({
   warningCount?: number;
 }) {
   const primaryEconomy = slot.economySegments[0]?.economy;
-  const color = primaryEconomy ? ECONOMY_COLORS[primaryEconomy] : undefined;
+  const color = primaryEconomy ? economyColor(primaryEconomy) : undefined;
   const isStructure = slot.kind === 'existing' || slot.kind === 'planned' || slot.kind === 'projected' || slot.kind === 'overflow';
+  const inferredExisting = slot.kind === 'existing' && slot.warningLabels.includes('Inferred association');
   const interactive = Boolean(onAdd || slot.placementIndex != null || slot.projectionIndex != null);
   const slotStyle: CSSProperties = {};
   if (slot.kind === 'existing') {
@@ -786,11 +782,11 @@ function RavenSlotBox({
   }
   if (slot.kind === 'planned' && color) {
     slotStyle.borderColor = color;
-    slotStyle.background = `linear-gradient(180deg, ${color}24, rgba(18,20,24,0.9))`;
+    slotStyle.background = `linear-gradient(180deg, ${economySoftColor(primaryEconomy)}, rgba(18,20,24,0.9))`;
   }
   if (slot.kind === 'projected' && color) {
     slotStyle.borderColor = color;
-    slotStyle.background = `linear-gradient(180deg, ${color}1f, rgba(18,20,24,0.48))`;
+    slotStyle.background = `linear-gradient(180deg, ${economySoftColor(primaryEconomy)}, rgba(18,20,24,0.48))`;
   }
 
   const content = (
@@ -800,6 +796,11 @@ function RavenSlotBox({
       <span data-testid={isStructure ? 'raven-structure-slot-pill' : undefined} className="max-w-full truncate">
         {slot.kind === 'empty' && onAdd ? '+' : slot.label}
       </span>
+      {inferredExisting && (
+        <span data-testid="raven-inferred-existing-marker" className="absolute right-1 top-1 rounded border border-gold/45 bg-gold/15 px-1 text-[8px] leading-tight text-gold">
+          verify
+        </span>
+      )}
       {slot.economySegments.length > 0 && <StructureEconomyMicroBar segments={slot.economySegments} />}
       {slot.economyContextLabel && <span data-testid="raven-contextual-economy-chip" className="sr-only">{slot.economyContextLabel}</span>}
       {(warningCount > 0 || slot.warningLabels.length > 0) && (
@@ -814,7 +815,7 @@ function RavenSlotBox({
     interactive && 'hover:-translate-y-0.5 hover:border-orange-lt hover:shadow-brand-glow',
     selected && 'ring-2 ring-orange/70',
     slot.kind === 'empty' && (onAdd ? 'border-orange/55 bg-orange/15 text-orange font-semibold' : 'border-border/70 bg-bg2/45 text-silver-2'),
-    slot.kind === 'existing' && 'border-green/65 text-green',
+    slot.kind === 'existing' && (inferredExisting ? 'border-dashed border-gold/65 text-gold' : 'border-green/65 text-green'),
     slot.kind === 'planned' && 'text-silver-lt',
     slot.kind === 'projected' && 'border-dashed text-cyan/90 opacity-75',
     slot.kind === 'unknown' && 'border-dashed border-gold/65 bg-gold/10 text-gold',
@@ -875,15 +876,12 @@ function ravenLaneToPlannerLane(lane: VisibleRavenLane): BodyPlannerLane {
 
 function StructureEconomyMicroBar({ segments }: { segments: RavenEconomySegment[] }) {
   const hasInherited = segments.some((segment) => segment.inherited);
-  const renderSegments = hasInherited
-    ? segments.map((segment) => ({ ...segment, share: 1 }))
-    : segments;
-  const total = Math.max(1, renderSegments.reduce((sum, segment) => sum + segment.share, 0));
+  const total = Math.max(1, segments.reduce((sum, segment) => sum + segment.share, 0));
   const title = hasInherited
-    ? `Inherited baseline economies: ${segments.map((segment) => segment.economy).join(' / ')} — run Preview for validated outcome.`
+    ? `Inherited/contextual baseline: ${segments.map((segment) => `${segment.economy} ${formatShare(segment.share)}`).join(' / ')}. Source: ${segments[0]?.calculationSource ?? 'ED-Finder body economy profile'}. Run Preview for validated outcome.`
     : segments.map((segment) => {
-      const strength = segment.strength == null ? 'strength unavailable' : `+${segment.strength} CP strength`;
-      return `${segment.economy} ${segment.share}% share | ${strength}`;
+      const strength = segment.strength == null ? 'CP generated unavailable' : `CP generated +${segment.strength}`;
+      return `Direct facility economy: ${segment.economy} ${formatShare(segment.share)} | ${strength} | Source: catalogue/template`;
     }).join(' / ');
 
   return (
@@ -891,20 +889,26 @@ function StructureEconomyMicroBar({ segments }: { segments: RavenEconomySegment[
       data-testid="raven-structure-economy-micro-bar"
       aria-label={title}
       title={title}
-      className="absolute inset-x-0 bottom-0 flex h-2 overflow-hidden bg-bg4/80"
+      className="absolute inset-x-0 bottom-0 flex h-2.5 overflow-hidden bg-bg4/80"
     >
-      {renderSegments.map((segment) => (
+      {segments.map((segment) => (
         <span
           key={segment.economy}
+          data-economy={segment.economy}
+          data-economy-color={economyColor(segment.economy)}
           className={segment.projected ? 'opacity-60' : ''}
           style={{
             width: `${(segment.share / total) * 100}%`,
-            backgroundColor: ECONOMY_COLORS[segment.economy],
+            backgroundColor: economyColor(segment.economy),
           }}
         />
       ))}
     </span>
   );
+}
+
+function formatShare(value: number): string {
+  return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
 }
 
 interface ProjectionEconomyDelta {
@@ -1143,7 +1147,9 @@ function SelectedStructureTelemetryCard({ detail }: { detail: StructureTelemetry
           ? detail.economySegments.map((segment) => (
             <TelemetryChip
               key={segment.economy}
-              label={`${segment.economy} ${segment.share}%${segment.strength == null ? '' : ` / +${segment.strength}`}`}
+              label={segment.inherited
+                ? `${segment.economy} ${formatShare(segment.share)} baseline`
+                : `${segment.economy} direct${segment.strength == null ? '' : ` / +${segment.strength}`}`}
               tone={detail.status === 'projected' ? 'cyan' : 'orange'}
             />
           ))
@@ -1592,6 +1598,8 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
         const placementWarningCount = [...planned.orbital, ...planned.ground, ...planned.unassigned]
           .filter((item) => item.warningLabels.length > 0).length;
         const existingCount = existing.orbital.length + existing.surface.length;
+        const inferredExistingCount = [...existing.orbital, ...existing.surface]
+          .filter((structure) => structure.association_status === 'inferred').length;
         const plannedCount = planned.orbital.length + planned.ground.length + planned.unassigned.length;
         const projectedCount = projected.orbital.length + projected.ground.length + projected.unassigned.length;
         const emptySlotCount = [...orbitalSlots, ...groundSlots].filter((slot) => slot.kind === 'empty').length;
@@ -1602,6 +1610,7 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
           bodyEconomy: bodyLedger,
           projected: projectedBodyIds.has(node.id),
           existingCount,
+          inferredExistingCount,
           plannedCount,
           projectedCount,
           emptySlotCount,
@@ -1616,6 +1625,7 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
 
 export interface RavenPlannerOccupancySummary {
   existingCount: number;
+  inferredExistingCount: number;
   plannedCount: number;
   projectedCount: number;
   emptySlotCount: number;
@@ -1686,12 +1696,14 @@ export function getRavenLaneCapacityState(
 function summarizeRavenPlannerRows(rows: RavenPlannerRow[], unresolvedExistingCount: number): RavenPlannerOccupancySummary {
   return rows.reduce<RavenPlannerOccupancySummary>((summary, row) => ({
     existingCount: summary.existingCount + row.existingCount,
+    inferredExistingCount: summary.inferredExistingCount + row.inferredExistingCount,
     plannedCount: summary.plannedCount + row.plannedCount,
     projectedCount: summary.projectedCount + row.projectedCount,
     emptySlotCount: summary.emptySlotCount + row.emptySlotCount,
     unresolvedExistingCount,
   }), {
     existingCount: 0,
+    inferredExistingCount: 0,
     plannedCount: 0,
     projectedCount: 0,
     emptySlotCount: 0,
@@ -1939,11 +1951,11 @@ function structureSlot(
   const economyContext = contextualEconomyLabel(item.template);
   const prerequisiteWarnings = item.warningLabels;
   const directEconomyText = directSegments.map((segment) => {
-    const strength = segment.strength == null ? 'strength unavailable' : `+${segment.strength} CP strength`;
-    return `${segment.economy} ${segment.share}% share | ${strength}`;
+    const strength = segment.strength == null ? 'CP generated unavailable' : `CP generated +${segment.strength}`;
+    return `Direct facility economy: ${segment.economy} ${formatShare(segment.share)} | ${strength} | Source: catalogue/template`;
   }).join(' / ');
   const baselineEconomyText = baselineSegments.length > 0
-    ? `Baseline (inherited): ${baselineSegments.map((segment) => segment.economy).join(' / ')} — run Preview for validated outcome.`
+    ? `Baseline (inherited/contextual): ${baselineSegments.map((segment) => `${segment.economy} ${formatShare(segment.share)}`).join(' / ')} | Source: ${baselineSegments[0]?.calculationSource ?? 'ED-Finder body economy profile'} | Run Preview for validated outcome.`
     : '';
   const economyText = directSegments.length > 0
     ? directEconomyText
@@ -1988,15 +2000,15 @@ function existingStructureSlot(
     : [];
   const segments = directSegments.length > 0 ? directSegments : baselineSegments;
   const type = existingStructureDisplayType(structure);
-  const bodyMatch = structure.body_match_confidence === 'inferred'
-    ? 'Body match inferred'
-    : structure.body_match_confidence === 'exact'
-      ? 'Body match exact'
-      : 'Body match unresolved';
+  const bodyMatch = structure.association_status === 'inferred'
+    ? `Body match inferred (${structure.association_source})`
+    : structure.association_status === 'confirmed'
+      ? `Body match confirmed (${structure.association_source})`
+      : `Body match unresolved (${structure.association_source})`;
   const economyText = directSegments.length > 0
-    ? `Existing economy: ${directSegments.map((segment) => segment.economy).join(' / ')}`
+    ? `Existing direct economy: ${directSegments.map((segment) => segment.economy).join(' / ')} | Source: station economy metadata`
     : baselineSegments.length > 0
-      ? `Baseline (inherited): ${baselineSegments.map((segment) => segment.economy).join(' / ')} - run Preview for validated outcome.`
+      ? `Baseline (inherited/contextual): ${baselineSegments.map((segment) => `${segment.economy} ${formatShare(segment.share)}`).join(' / ')} | Source: ${baselineSegments[0]?.calculationSource ?? 'ED-Finder body economy profile'} | Run Preview for validated outcome.`
       : 'No economy metadata';
 
   return {
@@ -2016,8 +2028,8 @@ function existingStructureSlot(
     existingStructureId: structure.id,
     buildOrder: null,
     status: 'existing',
-    economyContextLabel: baselineSegments.length > 0 ? 'Economy: inherited baseline - run Preview for validated outcome.' : null,
-    warningLabels: structure.body_match_confidence === 'inferred' ? ['Body match inferred'] : [],
+    economyContextLabel: baselineSegments.length > 0 ? 'Economy: inherited/contextual baseline - run Preview for validated outcome.' : null,
+    warningLabels: structure.association_status === 'inferred' ? ['Inferred association'] : [],
   };
 }
 
@@ -2082,30 +2094,33 @@ function stationBaselineSegments(
   system: SystemDetail | null | undefined,
   projected: boolean,
 ): RavenEconomySegment[] {
-  const shares = inferredStationBaselineShares(body ?? null, system ?? null);
-  if (shares.length === 0) return [];
-  return shares.map((share) => ({
-    economy: share.economy,
-    // share is retained only as a positive weight for the categorical micro-bar;
-    // it is never surfaced as a numeric `%` value because no real mechanic
-    // backs that magnitude. See `StructureEconomyMicroBar` for the inherited
-    // rendering path.
-    share: share.share,
+  void system;
+  const baseline = calculateStationBaselineEconomy(body ?? null);
+  if (baseline.segments.length === 0) return [];
+  const description = describeStationBaselineEconomy(baseline, { projected });
+  return baseline.segments.map((segment) => ({
+    economy: segment.economy,
+    share: segment.percent,
     strength: null,
     projected,
     inherited: true,
+    calculationSource: baseline.calculationSource,
+    caveats: description ? [description, ...baseline.caveats] : baseline.caveats,
   }));
 }
 
 function structureEconomySegments(template: FacilityTemplate | undefined, projected: boolean): RavenEconomySegment[] {
   const economy = normalisePlanningEconomy(template?.economy);
   if (!economy) return [];
-  const strength = template ? Math.max(0, (template.yellow_cp_generated ?? 0) + (template.green_cp_generated ?? 0)) : null;
+  const yellow = typeof template?.yellow_cp_generated === 'number' ? template.yellow_cp_generated : 0;
+  const green = typeof template?.green_cp_generated === 'number' ? template.green_cp_generated : 0;
+  const strength = template ? Math.max(0, yellow + green) : null;
   return [{
     economy,
     share: 100,
     strength,
     projected,
+    calculationSource: 'catalogue/template economy metadata',
   }];
 }
 
@@ -2117,6 +2132,7 @@ function existingStructureEconomySegments(structure: ExistingStructure): RavenEc
     share: 100,
     strength: null,
     projected: false,
+    calculationSource: 'station economy metadata',
   }];
 }
 

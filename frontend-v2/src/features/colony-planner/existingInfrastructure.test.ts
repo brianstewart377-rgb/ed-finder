@@ -38,8 +38,72 @@ describe('existing infrastructure resolver', () => {
       body_id: '2',
       body_match_confidence: 'exact',
       lane: 'orbital',
+      association_status: 'confirmed',
+      association_confidence: 'exact',
       economy: 'Refinery',
     }));
+  });
+
+  it('uses backend association metadata as the planner source of truth', () => {
+    const resolution = resolveExistingInfrastructure({
+      ...baseSystem,
+      stations: [
+        {
+          id: 1004,
+          market_id: 1004,
+          name: 'Linked Orbital',
+          station_type: 'Coriolis',
+          body_name: 'Occupied Test A 2',
+          station_body_name: 'Raw Body Name',
+          body_id: 3,
+          lane: 'orbital',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'resolver_body_id',
+          resolver_notes: 'Matched exact body id.',
+        },
+      ],
+    } as unknown as SystemDetail);
+
+    expect(resolution.mapped[0]).toEqual(expect.objectContaining({
+      body_id: '3',
+      body_name: 'Occupied Test A 2',
+      association_status: 'confirmed',
+      association_source: 'resolver_body_id',
+      body_match_reason: 'Matched exact body id.',
+    }));
+  });
+
+  it('keeps backend unresolved and unknown-lane associations out of occupied capacity', () => {
+    const resolution = resolveExistingInfrastructure({
+      ...baseSystem,
+      stations: [
+        {
+          id: 1005,
+          name: 'Unresolved Megaship',
+          station_type: 'MegaShip',
+          body_name: 'Occupied Test A 1',
+          body_id: 2,
+          lane: 'unknown',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'resolver_body_name',
+          resolver_notes: 'MegaShip is not treated as permanent colony-slot infrastructure.',
+        },
+        {
+          id: 1006,
+          name: 'Unresolved Station',
+          station_type: 'Outpost',
+          lane: 'orbital',
+          association_status: 'unresolved',
+          association_confidence: 'unresolved',
+          association_source: 'unknown',
+        },
+      ],
+    } as unknown as SystemDetail);
+
+    expect(resolution.mapped).toHaveLength(0);
+    expect(resolution.unresolved.map((item) => item.name)).toEqual(['Unresolved Megaship', 'Unresolved Station']);
   });
 
   it('prefers exact body ids when present', () => {

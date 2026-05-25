@@ -3284,8 +3284,22 @@ export interface components {
             station_type?: string | null;
             /** Distance From Star */
             distance_from_star?: number | null;
+            /** Body Id */
+            body_id?: number | null;
             /** Body Name */
             body_name?: string | null;
+            /** Station Body Name */
+            station_body_name?: string | null;
+            /** Lane */
+            lane?: string | null;
+            /** Association Status */
+            association_status?: string | null;
+            /** Association Confidence */
+            association_confidence?: string | null;
+            /** Association Source */
+            association_source?: string | null;
+            /** Resolver Notes */
+            resolver_notes?: string | null;
             /** Landing Pad Size */
             landing_pad_size?: string | null;
             /** Primary Economy */

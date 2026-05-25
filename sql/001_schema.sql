@@ -147,9 +147,9 @@ CREATE TABLE IF NOT EXISTS systems (
     name                TEXT            NOT NULL,
 
     -- Coordinates (Elite internal units, 1:1 with light years from Sol)
-    x                   REAL            DEFAULT NULL,
-    y                   REAL            DEFAULT NULL,
-    z                   REAL            DEFAULT NULL,
+    x                   REAL            NOT NULL DEFAULT 0,
+    y                   REAL            NOT NULL DEFAULT 0,
+    z                   REAL            NOT NULL DEFAULT 0,
 
     -- Economy
     primary_economy     economy_type    NOT NULL DEFAULT 'Unknown',
@@ -407,10 +407,6 @@ CREATE TABLE IF NOT EXISTS ratings (
 
     -- Full score breakdown JSON (for popover display)
     score_breakdown     JSONB           DEFAULT NULL,
-
-    -- Rating algorithm version (e.g. '3.4'). Helps the frontend detect
-    -- stale ratings after algorithm changes.
-    rating_version      TEXT            DEFAULT NULL,
 
     -- Timestamps
     computed_at         TIMESTAMPTZ     NOT NULL DEFAULT NOW(),

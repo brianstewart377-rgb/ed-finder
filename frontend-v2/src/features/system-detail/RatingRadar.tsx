@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import type { SystemDetail } from '@/types/api';
 import { formatConfidence } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
+import { economyColor, economySoftColor, normaliseCoreEconomy } from '@/features/colony-planner/economyVisuals';
 
 /**
  * Rating breakdown JSON shape produced by `build_ratings.py`. Stored in
@@ -209,6 +210,8 @@ export function RatingRadar({ sys }: { sys: SystemDetail }) {
           {economyScores.map((d) => {
             const pct = Math.max(0, Math.min(100, d.value));
             const isSuggested = suggested && d.label === suggested;
+            const economy = normaliseCoreEconomy(d.label);
+            const color = economyColor(economy);
             return (
               <div key={d.axis} className="grid grid-cols-[88px_1fr_28px] items-center gap-2 text-[11px] font-mono">
                 <span
@@ -221,20 +224,20 @@ export function RatingRadar({ sys }: { sys: SystemDetail }) {
                   {isSuggested && '★ '}{d.label}
                 </span>
                 <span
-                  className="block h-1.5 rounded-full overflow-hidden"
+                  data-testid={`rating-economy-bar-${d.label.toLowerCase()}`}
+                  className="block h-2 rounded-full overflow-hidden"
                   style={{
-                    background: 'linear-gradient(180deg, hsl(216 10% 12%), hsl(218 11% 8%))',
-                    border: '1px solid hsl(216 10% 24%)',
+                    background: economySoftColor(economy),
+                    border: `1px solid ${color}66`,
                   }}
                 >
                   <span
+                    data-economy-color={color}
                     className="block h-full"
                     style={{
                       width: `${pct}%`,
-                      background: isSuggested
-                        ? 'linear-gradient(90deg, #ffb074, #ff7a14)'
-                        : 'linear-gradient(90deg, #8a8f96, #c8ccd1)',
-                      boxShadow: isSuggested ? '0 0 8px rgba(255,122,20,0.6)' : 'none',
+                      background: color,
+                      boxShadow: isSuggested ? `0 0 8px ${color}99` : 'none',
                     }}
                   />
                 </span>

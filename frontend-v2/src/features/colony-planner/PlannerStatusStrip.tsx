@@ -8,6 +8,7 @@ export function PlannerStatusStrip({
   placementCount,
   projectedCount,
   existingCount = 0,
+  inferredExistingCount = 0,
   emptySlotCount = 0,
   unresolvedExistingCount = 0,
   unsavedChanges,
@@ -19,6 +20,7 @@ export function PlannerStatusStrip({
   placementCount: number;
   projectedCount: number;
   existingCount?: number;
+  inferredExistingCount?: number;
   emptySlotCount?: number;
   unresolvedExistingCount?: number;
   unsavedChanges: boolean;
@@ -43,6 +45,7 @@ export function PlannerStatusStrip({
         </div>
         <div className="flex flex-wrap gap-1.5" aria-label="Planner status">
           <StatusChip label={`${existingCount} existing`} tone={existingCount > 0 ? 'green' : 'silver'} />
+          {inferredExistingCount > 0 && <StatusChip label={`${inferredExistingCount} inferred existing`} tone="gold" />}
           <StatusChip label={`${placementCount} planned`} tone={placementCount > 0 ? 'orange' : 'silver'} />
           <StatusChip label={`${projectedCount} projected`} tone={projectedCount > 0 ? 'cyan' : 'silver'} />
           <StatusChip label={`${emptySlotCount} empty slots`} tone="silver" />

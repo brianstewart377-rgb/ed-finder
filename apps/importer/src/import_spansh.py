@@ -482,16 +482,37 @@ def norm_government(v) -> str:
 def norm_station_type(v) -> str:
     if not v:
         return 'Unknown'
+    token = str(v).lower().replace(' ', '').replace('-', '')
     mapping = {
         'coriolis': 'Coriolis', 'orbis': 'Orbis', 'ocellus': 'Ocellus',
         'outpost': 'Outpost', 'planetaryport': 'PlanetaryPort',
         'planetaryoutpost': 'PlanetaryOutpost', 'megaship': 'MegaShip',
         'asteroidbase': 'AsteroidBase', 'fleetcarrier': 'FleetCarrier',
+        'coriolisstarport': 'Coriolis',
+        'orbisstarport': 'Orbis',
+        'ocellusstarport': 'Ocellus',
+        'planetarysettlement': 'PlanetaryOutpost',
         'surfacestation': 'PlanetaryPort', 'craterport': 'PlanetaryPort',
         'crateroutpost': 'PlanetaryOutpost',
         'unknown': 'Unknown',
     }
-    return mapping.get(str(v).lower().replace(' ', '').replace('-', ''), 'Unknown')
+    if token in mapping:
+        return mapping[token]
+    if 'coriolis' in token:
+        return 'Coriolis'
+    if 'orbis' in token:
+        return 'Orbis'
+    if 'ocellus' in token:
+        return 'Ocellus'
+    if 'asteroidbase' in token:
+        return 'AsteroidBase'
+    if 'planetary' in token and ('settlement' in token or 'outpost' in token):
+        return 'PlanetaryOutpost'
+    if 'planetary' in token or 'surface' in token:
+        return 'PlanetaryPort'
+    if 'outpost' in token:
+        return 'Outpost'
+    return 'Unknown'
 
 
 def parse_ts(v) -> Optional[str]:
