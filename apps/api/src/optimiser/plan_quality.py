@@ -90,6 +90,7 @@ def validate_generated_plan_quality(
     *,
     options: PlanQualityOptions | None = None,
     body_slots: list[PlanBodySlotState] | None = None,
+    placement_lanes: dict[int, Literal['orbital', 'ground']] | None = None,
 ) -> PlanQualityReport:
     """Validate a generated candidate against the Guided Planner contract.
 
@@ -131,6 +132,7 @@ def validate_generated_plan_quality(
         plan=plan,
         catalogue=catalogue,
         body_slots=body_slots or [],
+        placement_lanes=placement_lanes or {},
         warnings=warnings,
         rejections=rejections,
         suggested_fixes=suggested_fixes,
@@ -323,6 +325,7 @@ def _validate_body_slots(
     plan: OptimiserCandidate,
     catalogue: dict[str, FacilityTemplate],
     body_slots: list[PlanBodySlotState],
+    placement_lanes: dict[int, Literal['orbital', 'ground']],
     warnings: list[str],
     rejections: list[str],
     suggested_fixes: list[str],
@@ -334,7 +337,7 @@ def _validate_body_slots(
     known_usage: dict[str, Counter[str]] = defaultdict(Counter)
     unknown_lane_usage: Counter[str] = Counter()
 
-    for placement in plan.placements:
+    for index, placement in enumerate(plan.placements, start=1):
         body_id = placement.local_body_id
         if not body_id:
             continue
@@ -342,7 +345,7 @@ def _validate_body_slots(
         if template is None:
             warnings.append(f'Placement {placement.facility_template_id} is not in the facility catalogue.')
             continue
-        lane = _placement_lane(template)
+        lane = placement_lanes.get(index) or _placement_lane(template)
         if lane is None:
             warnings.append(
                 f'Placement {template.name} can use orbital or ground slots; generated plan does not choose a lane.'

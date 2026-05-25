@@ -345,26 +345,58 @@ The helper is not connected to production routes yet. It can evaluate:
 - raw IDs in user-facing explanation
 - unresolved infrastructure and inferred association warnings
 
+## Stage 17N.3-B Prototype Generator
+
+Stage 17N.3-B adds a backend/test-first prototype generator:
+
+- `optimiser.guided_planner.GuidedPlanRequest`
+- `optimiser.guided_planner.GuidedSystemContext`
+- `optimiser.guided_planner.GuidedBodyContext`
+- `optimiser.guided_planner.generate_guided_plan_report(...)`
+
+The generator is intentionally not wired to a production route or frontend UI.
+It accepts explicit system/body context, facility templates, occupied-slot
+counts, target economies, preset, requested count, preferred bodies, avoided
+bodies, and avoided economies. It returns a structured report with:
+
+- preset and target economy pair
+- title and summary
+- lane-specific placements
+- body roles
+- warnings
+- missing prerequisite report
+- occupied-slot conflicts
+- unresolved infrastructure warnings
+- economy discipline result
+- `plan_quality` quality-gate result
+- explanation fields for body, structure, and tradeoff reasoning
+- "No strong coherent plan found" response when capacity, catalogue, or body
+  data cannot satisfy the requested preset
+
+The prototype proves report shape and quality-gate behaviour without changing
+the existing Suggested Builds route, Recommended Builds route, Simulation
+Preview route, Raven canvas, slot prediction, ratings, imports, or production
+data.
+
 ## What Is Missing Before Light/Medium/High/Maxed Are Safe
 
 The future Guided Planner still needs:
 
-- a first-class plan model with preset, intent, risk tolerance, target economy
-  pair, and body role map
-- lane-specific placement model for generated structures
-- occupied-slot source-of-truth integration into backend generation
-- prerequisite planner that can add missing supports or explain deferral
+- a public API model and route if/when the prototype graduates
+- direct database context loading for occupied slots and station/body
+  confidence, using `station_body_links`
+- richer prerequisite planner that can resolve more non-literal catalogue
+  prerequisite descriptions
 - quality-gated candidate filtering before ranking/return
-- full-system body role assignment rather than anchor-plus-cycle placement
-- "No strong coherent plan found" response shape
+- comparison against current optimiser candidates and Recommended Builds
 - richer Preview integration for candidate search, not just summary attachment
 - frontend cards that show quality report, warnings, and suggested fixes
 - persistence/export decision for generated guided plans
 
 ## Recommended Next Stage
 
-Stage 17N.3-B should wire the pure quality helper into a non-production
-Guided Planner prototype endpoint or test-only generator path. That stage
-should return structured Light/Medium/High/Maxed candidate reports without
-changing the Raven canvas UI, then compare quality-gated output against the
-current optimiser candidates.
+Stage 17N.3-C should create a non-production backend API surface or service
+adapter for the prototype report, still hidden from the frontend by default.
+It should load body, slot, station/body association, and existing infrastructure
+context from the database, then compare quality-gated output against current
+optimiser candidates without changing the Raven canvas UI.

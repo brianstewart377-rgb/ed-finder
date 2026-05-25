@@ -2124,6 +2124,40 @@ Known gaps:
   links, pass-through, service graph, CP, contamination, and order-dependent
   economy flips.
 
+## Stage 17N.3-A - Guided Planner Quality Contract
+
+Stage 17N.3-A audits the existing Advanced Planner, Suggested Builds,
+recommended-build, optimiser, and Simulation Preview flow before any Guided
+Planner UI work. It adds the documented Guided Planner quality contract and a
+pure backend quality helper in `apps/api/src/optimiser/plan_quality.py`.
+
+The contract requires generated plans to declare intent, target economy
+discipline, body roles, occupied-slot awareness, prerequisite awareness,
+warnings, and user-facing explanations. It also defines the Light, Medium,
+High, and Maxed preset count ranges and economy-soup rejection rules.
+
+Stage 17N.3-A does not change production generation, ranking, Preview,
+ratings, slot prediction, imports, Raven canvas layout, or frontend workflow.
+
+## Stage 17N.3-B - Guided Planner Prototype Generator
+
+Stage 17N.3-B adds a backend/test-first Guided Planner prototype generator in
+`apps/api/src/optimiser/guided_planner.py`. It produces structured candidate
+reports for Light, Medium, High, and Maxed presets from explicit test/system
+context, body slot data, occupied-slot counts, target economy pair, avoided
+economies, preferred/avoided bodies, and facility templates.
+
+The report includes title, summary, lane-specific placements, body roles,
+warnings, missing prerequisites, occupied-slot conflicts, unresolved
+infrastructure warnings, economy-discipline status, the Stage 17N.3-A quality
+report, and "No strong coherent plan found" responses when the requested plan
+would require padding or unsafe capacity use.
+
+This is still not a public API route and not a frontend Guided Planner. It does
+not auto-load plans, auto-run Preview from the frontend, alter the current
+Suggested Builds route, change slot prediction, change ratings, or touch
+production imports/data.
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:
