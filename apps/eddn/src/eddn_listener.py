@@ -349,13 +349,13 @@ async def handle_location_or_jump(pool: asyncpg.Pool, header: dict, message: dic
     pop    = safe_int(message.get('Population', 0))
     eco    = norm_economy(message.get('SystemEconomy'))
     name   = message.get('StarSystem')
-    coords = message.get('StarPos', [None, None, None])
+    coords = message.get('StarPos')
 
     upd = {'id64': id64, 'dirty': True, 'updated': utcnow()}
     if pop is not None: upd['pop'] = pop
     if eco != 'Unknown': upd['economy'] = eco
     if name: upd['name'] = name
-    if coords[0] is not None:
+    if isinstance(coords, (list, tuple)) and len(coords) >= 3 and coords[0] is not None:
         upd['x'] = safe_float(coords[0])
         upd['y'] = safe_float(coords[1])
         upd['z'] = safe_float(coords[2])

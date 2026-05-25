@@ -81,6 +81,21 @@ def _json_dumps(obj) -> Optional[str]:
         raise TypeError(f"Not serializable: {type(o)}")
     return json.dumps(obj, default=_default)
 
+
+def _extract_system_coords(sys_obj: dict) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """Return x/y/z when all coordinates are present; otherwise preserve unknown as NULL."""
+    coords = sys_obj.get('coords') or {}
+    coords = coords if isinstance(coords, dict) else {}
+    cx = coords.get('x') if coords.get('x') is not None else sys_obj.get('x')
+    cy = coords.get('y') if coords.get('y') is not None else sys_obj.get('y')
+    cz = coords.get('z') if coords.get('z') is not None else sys_obj.get('z')
+    if cx is None or cy is None or cz is None:
+        return None, None, None
+    try:
+        return float(cx), float(cy), float(cz)
+    except (TypeError, ValueError):
+        return None, None, None
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -672,15 +687,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                 # ── Galaxy region lookup ───────────────────────────────────
                 try:
-                    coords = sys_obj.get('coords') or {}
-                    coords = coords if isinstance(coords, dict) else {}
-                    _cx = coords.get('x') if coords.get('x') is not None else sys_obj.get('x')
-                    _cy = coords.get('y') if coords.get('y') is not None else sys_obj.get('y')
-                    _cz = coords.get('z') if coords.get('z') is not None else sys_obj.get('z')
-                    if _cx is not None and _cy is not None and _cz is not None:
-                        sx, sy, sz = float(_cx), float(_cy), float(_cz)
-                    else:
-                        sx, sy, sz = None, None, None
+                    sx, sy, sz = _extract_system_coords(sys_obj)
                     region_id = find_galaxy_region(sx, sz) if sx is not None else None
                 except Exception:
                     sx, sy, sz = None, None, None
@@ -1044,12 +1051,11 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     controlling = sys_obj.get('controllingFaction')
 
                 try:
+                    sx, sy, sz = _extract_system_coords(sys_obj)
                     sys_batch.append((
                         id64,
                         sys_obj.get('name', ''),
-                        float(sys_obj.get('coords', {}).get('x', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('x', 0)),
-                        float(sys_obj.get('coords', {}).get('y', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('y', 0)),
-                        float(sys_obj.get('coords', {}).get('z', 0) if isinstance(sys_obj.get('coords'), dict) else sys_obj.get('z', 0)),
+                        sx, sy, sz,
                         norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                         norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
                         int(sys_obj.get('population') or 0),
@@ -1312,15 +1318,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             break
 
                 try:
-                    coords = sys_obj.get('coords') or {}
-                    coords = coords if isinstance(coords, dict) else {}
-                    _cx = coords.get('x') if coords.get('x') is not None else sys_obj.get('x')
-                    _cy = coords.get('y') if coords.get('y') is not None else sys_obj.get('y')
-                    _cz = coords.get('z') if coords.get('z') is not None else sys_obj.get('z')
-                    if _cx is not None and _cy is not None and _cz is not None:
-                        sx, sy, sz = float(_cx), float(_cy), float(_cz)
-                    else:
-                        sx, sy, sz = None, None, None
+                    sx, sy, sz = _extract_system_coords(sys_obj)
                     region_id = find_galaxy_region(sx, sz) if sx is not None else None
                 except Exception:
                     sx, sy, sz = None, None, None

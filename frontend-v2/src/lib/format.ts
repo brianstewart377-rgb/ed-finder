@@ -20,8 +20,9 @@ export function ratingTier(score: number | null | undefined): {
 }
 
 /** Compact human-readable population (12.3M, 800K, 250). */
-export function formatPopulation(pop: number): string {
-  if (!pop || pop <= 0) return 'Uninhabited';
+export function formatPopulation(pop: number | null | undefined): string {
+  if (pop == null || Number.isNaN(pop)) return 'Unknown';
+  if (pop <= 0) return 'Uninhabited';
   if (pop >= 1_000_000_000) return `${(pop / 1e9).toFixed(1)}B`;
   if (pop >= 1_000_000)     return `${(pop / 1e6).toFixed(1)}M`;
   if (pop >= 1_000)         return `${(pop / 1e3).toFixed(1)}K`;
@@ -105,7 +106,8 @@ export function formatPopulationForSystem(sys: {
   is_being_colonised?:  boolean | null;
   population?:          number | null;
 }): string {
-  const pop = sys.population ?? 0;
+  if (sys.population == null || Number.isNaN(sys.population)) return 'Unknown';
+  const pop = sys.population;
   if (pop > 0) return formatPopulation(pop);
   return isInhabited(sys) ? 'Population unknown' : 'Uninhabited';
 }

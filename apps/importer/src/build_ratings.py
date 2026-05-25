@@ -88,6 +88,7 @@ def _connect_with_retry(dsn: str, label: str = 'ratings', retries: int = 10,
                 options=(
                     f"-c application_name={label} "
                     f"-c statement_timeout=0 "
+                    f"-c lock_timeout=0 "
                     f"-c idle_in_transaction_session_timeout=3600000"
                 )
             )
@@ -119,6 +120,59 @@ logging.basicConfig(
     ]
 )
 log = logging.getLogger('build_ratings')
+
+RATING_VERSION = '3.4'
+
+RATING_INSERT_COLUMNS = (
+    'system_id64', 'score',
+    'score_agriculture', 'score_refinery', 'score_industrial',
+    'score_hightech', 'score_military', 'score_tourism',
+    'economy_suggestion',
+    'elw_count', 'ww_count', 'ammonia_count', 'gas_giant_count',
+    'rocky_count', 'metal_rich_count', 'icy_count', 'rocky_ice_count',
+    'hmc_count', 'landable_count', 'terraformable_count',
+    'bio_signal_total', 'geo_signal_total',
+    'neutron_count', 'black_hole_count', 'white_dwarf_count',
+    'slots', 'body_quality', 'compactness', 'signal_quality',
+    'orbital_safety', 'star_bonus',
+    'score_extraction', 'terraforming_potential', 'body_diversity',
+    'confidence', 'rationale',
+    'score_breakdown', 'rating_version', 'updated_at',
+)
+
+RATING_VALUES_TEMPLATE = (
+    "(%s,%s,%s,%s,%s,%s,%s,%s,"
+    "%s::economy_type,"
+    "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+    "%s,%s,%s,%s,%s,%s,"
+    "%s,%s,%s,%s,%s,"
+    "%s,%s,%s)"
+)
+
+RATING_CONFLICT_UPDATE_COLUMNS = tuple(
+    c for c in RATING_INSERT_COLUMNS
+    if c not in {'system_id64', 'updated_at'}
+)
+RATING_CONFLICT_SET_SQL = ",\n            ".join(
+    f"{c:<22} = EXCLUDED.{c}" for c in RATING_CONFLICT_UPDATE_COLUMNS
+) + ",\n            updated_at              = NOW()"
+
+DIRTY_CLEANUP_CHUNK_SIZE = int(os.getenv(
+    'RATING_DIRTY_CLEANUP_CHUNK',
+    os.getenv('DIRTY_CLEANUP_CHUNK_SIZE', '1000'),
+))
+DIRTY_CLEANUP_RETRIES = int(os.getenv('RATING_DIRTY_CLEANUP_RETRIES', '3'))
+
+
+def _rating_template_placeholder_count(template: str = RATING_VALUES_TEMPLATE) -> int:
+    return template.count('%s')
+
+
+assert len(RATING_INSERT_COLUMNS) == _rating_template_placeholder_count(), (
+    "ratings INSERT shape drifted: columns and execute_values template differ"
+)
+assert 'rating_version' in RATING_INSERT_COLUMNS
+assert 'rating_version' in RATING_CONFLICT_UPDATE_COLUMNS
 
 # ---------------------------------------------------------------------------
 # Body classification
@@ -659,6 +713,20 @@ def score_extraction(counts: dict) -> int:
     return min(int(score), 100)
 
 
+def attenuate_economy_scores(raw_scores: dict) -> dict:
+    """Apply v3.4 cross-economy attenuation to final stored scores."""
+    sorted_scores = sorted(raw_scores.items(), key=lambda kv: kv[1], reverse=True)
+    scores: dict[str, int] = {}
+    for rank, (eco, sc) in enumerate(sorted_scores):
+        if rank == 0 or rank == 1:
+            scores[eco] = sc
+        elif rank == 2:
+            scores[eco] = int(sc * 0.85)
+        else:
+            scores[eco] = int(sc * 0.70)
+    return {k: max(0, min(100, v)) for k, v in scores.items()}
+
+
 # ---------------------------------------------------------------------------
 # Overall score and system profile
 # ---------------------------------------------------------------------------
@@ -1078,17 +1146,7 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
     # The top two economies keep full score; the 3rd is reduced 15%,
     # 4th+ reduced 30%. This preserves discriminative power and prevents
     # the "everything is 100" saturation problem.
-    sorted_scores = sorted(raw_scores.items(), key=lambda kv: kv[1], reverse=True)
-    scores: dict[str, int] = {}
-    for rank, (eco, sc) in enumerate(sorted_scores):
-        if rank == 0 or rank == 1:
-            scores[eco] = sc          # primary / secondary keep full score
-        elif rank == 2:
-            scores[eco] = int(sc * 0.85)   # 3rd: 15% penalty
-        else:
-            scores[eco] = int(sc * 0.70)   # 4th+: 30% penalty
-    # Clamp to valid range
-    scores = {k: max(0, min(100, v)) for k, v in scores.items()}
+    scores = attenuate_economy_scores(raw_scores)
 
     # ── Compute dimensional scores ─────────────────────────────────────────
     slot_score      = compute_slot_score(counts)
@@ -1247,7 +1305,7 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         'has_standout':      has_standout,
         'rationale':         rationale,
         'confidence':        confidence,
-        'rating_version':    '3.4',
+        'rating_version':    RATING_VERSION,
     }
 
     return {
@@ -1292,7 +1350,7 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         'confidence':             confidence,
         'rationale':              rationale,
         'score_breakdown':        breakdown,
-        'rating_version':         '3.4',
+        'rating_version':         RATING_VERSION,
     }
 
 
@@ -1300,13 +1358,119 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
 # Worker function (runs in separate process)
 # ---------------------------------------------------------------------------
 
+def _chunks(items: list, chunk_size: int):
+    for start in range(0, len(items), max(1, chunk_size)):
+        yield items[start:start + chunk_size]
+
+
+def _clean_ids_for_batch(id64s: list, failed_ids: set) -> list:
+    return [i for i in id64s if i not in failed_ids]
+
+
+def _is_transient_dirty_cleanup_error(exc: Exception) -> bool:
+    if isinstance(exc, (psycopg2.OperationalError, psycopg2.InterfaceError)):
+        return True
+    query_canceled = getattr(psycopg2.errors, 'QueryCanceled', None)
+    if query_canceled is not None and isinstance(exc, query_canceled):
+        return True
+    msg = str(exc).lower()
+    return any(token in msg for token in (
+        'statement timeout',
+        'canceling statement due to statement timeout',
+        'server closed the connection',
+        'connection already closed',
+        'could not receive data from server',
+    ))
+
+
+def _set_session_replication_role(conn, cur, role: str, worker_id: int) -> bool:
+    try:
+        cur.execute(f"SET session_replication_role = {role}")
+        conn.commit()
+        return True
+    except Exception as e:
+        log.warning(
+            f"Worker {worker_id}: could not SET session_replication_role={role}; "
+            f"continuing with default trigger behavior: {e}"
+        )
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
+
+
+def _mark_ratings_clean(conn, cur, clean_ids: list, worker_id: int,
+                        chunk_size: int = DIRTY_CLEANUP_CHUNK_SIZE,
+                        retries: int = DIRTY_CLEANUP_RETRIES,
+                        retry_delay: float = 0.5) -> tuple[int, int]:
+    """Clear systems.rating_dirty after ratings writes have committed.
+
+    Returns (rows_marked_clean, ids_left_dirty). Failures here intentionally do
+    not roll back successful rating upserts; dirty rows can be retried next run.
+    """
+    if not clean_ids:
+        return 0, 0
+
+    role_changed = _set_session_replication_role(conn, cur, 'replica', worker_id)
+    marked = 0
+    left_dirty = 0
+
+    try:
+        for chunk in _chunks(clean_ids, chunk_size):
+            for attempt in range(1, retries + 1):
+                try:
+                    cur.execute("SET LOCAL statement_timeout = 0")
+                    cur.execute("SET LOCAL lock_timeout = 0")
+                    cur.execute("SET LOCAL idle_in_transaction_session_timeout = 3600000")
+                    cur.execute("""
+                        UPDATE systems s
+                           SET rating_dirty = FALSE
+                          FROM (SELECT unnest(%s::bigint[]) AS id64) clean
+                         WHERE s.id64 = clean.id64
+                           AND s.rating_dirty = TRUE
+                    """, (chunk,))
+                    marked += max(cur.rowcount, 0)
+                    conn.commit()
+                    break
+                except Exception as e:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    if attempt < retries and _is_transient_dirty_cleanup_error(e):
+                        wait = retry_delay * attempt
+                        log.warning(
+                            f"Worker {worker_id}: dirty cleanup chunk "
+                            f"{len(chunk)} failed transiently "
+                            f"(attempt {attempt}/{retries}): {e}; retrying in {wait:.1f}s"
+                        )
+                        time.sleep(wait)
+                        continue
+                    left_dirty += len(chunk)
+                    log.error(
+                        f"Worker {worker_id}: dirty cleanup chunk failed; "
+                        f"{len(chunk)} systems remain dirty: {e}"
+                    )
+                    break
+    finally:
+        if role_changed:
+            _set_session_replication_role(conn, cur, 'DEFAULT', worker_id)
+
+    log.info(
+        f"Worker {worker_id}: marked {fmt_num(marked)} systems clean "
+        f"in chunks of {fmt_num(chunk_size)}; {fmt_num(left_dirty)} left dirty"
+    )
+    return marked, left_dirty
+
+
 def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
     """
     Process a chunk of systems.
     v3.0: Uses new classify_bodies() which fetches is_tidal_lock and has_rings
     in addition to the existing body fields.
     """
-    conn = psycopg2.connect(db_dsn)
+    conn = _connect_with_retry(db_dsn, label=f'ratings-worker-{worker_id}')
     conn.autocommit = False
     cur  = conn.cursor()
 
@@ -1383,6 +1547,7 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
             processed += 1
         except Exception as e:
             errors += 1
+            failed_ids.add(system_id64)
             log.debug(f"Worker {worker_id}: rating error for {system_id64}: {e}")
             continue
 
@@ -1409,33 +1574,27 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                 failed_ids.add(r['system_id64'])
 
     # Mark systems clean — disable RI triggers to avoid 17-trigger overhead
-    clean_ids = [i for i in id64s if i not in failed_ids]
+    clean_ids = _clean_ids_for_batch(id64s, failed_ids)
     if failed_ids:
         log.warning(
             f"Worker {worker_id}: {len(failed_ids)} systems kept dirty "
             f"(write failed) — will retry next run"
         )
     if clean_ids:
-        try:
-            cur.execute("SET session_replication_role = replica")
-            cur.execute(
-                "UPDATE systems SET rating_dirty = FALSE WHERE id64 = ANY(%s)",
-                (clean_ids,)
+        marked, left_dirty = _mark_ratings_clean(conn, cur, clean_ids, worker_id)
+        if left_dirty:
+            log.warning(
+                f"Worker {worker_id}: rating writes committed, but "
+                f"{fmt_num(left_dirty)} dirty flags remain uncleared"
             )
-            conn.commit()
-        except Exception as e:
-            log.error(f"Worker {worker_id}: dirty-flag update error: {e}")
-            conn.rollback()
 
     cur.close()
     conn.close()
     return processed, errors
 
 
-def _write_ratings(conn, cur, batch: list) -> None:
-    """Upsert a batch of rating records — single commit per call."""
-    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    rows = [(
+def _rating_row_tuple(r: dict, now_iso: str) -> tuple:
+    return (
         r['system_id64'],
         r['score'],
         r['score_agriculture'], r['score_refinery'],
@@ -1464,77 +1623,36 @@ def _write_ratings(conn, cur, batch: list) -> None:
         r.get('confidence'),
         r.get('rationale'),
         json.dumps(r['score_breakdown']),
-        r.get('rating_version'),
+        r.get('rating_version', RATING_VERSION),
         now_iso,
-    ) for r in batch]
+    )
+
+
+def _ratings_insert_sql() -> str:
+    columns_sql = ",\n            ".join(RATING_INSERT_COLUMNS)
+    return f"""
+        INSERT INTO ratings (
+            {columns_sql}
+        ) VALUES %s
+        ON CONFLICT (system_id64) DO UPDATE SET
+            {RATING_CONFLICT_SET_SQL}
+        """
+
+
+def _write_ratings(conn, cur, batch: list) -> None:
+    """Upsert a batch of rating records — single commit per call."""
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    rows = [_rating_row_tuple(r, now_iso) for r in batch]
+    expected_len = len(RATING_INSERT_COLUMNS)
+    assert all(len(row) == expected_len for row in rows), (
+        "ratings INSERT shape drifted: row tuple and column list differ"
+    )
 
     psycopg2.extras.execute_values(
         cur,
-        """
-        INSERT INTO ratings (
-            system_id64, score,
-            score_agriculture, score_refinery, score_industrial,
-            score_hightech, score_military, score_tourism,
-            economy_suggestion,
-            elw_count, ww_count, ammonia_count, gas_giant_count,
-            rocky_count, metal_rich_count, icy_count, rocky_ice_count,
-            hmc_count, landable_count, terraformable_count,
-            bio_signal_total, geo_signal_total,
-            neutron_count, black_hole_count, white_dwarf_count,
-            slots, body_quality, compactness, signal_quality, orbital_safety, star_bonus,
-            score_extraction, terraforming_potential, body_diversity,
-            confidence, rationale,
-            score_breakdown, rating_version, updated_at
-        ) VALUES %s
-        ON CONFLICT (system_id64) DO UPDATE SET
-            score               = EXCLUDED.score,
-            score_agriculture   = EXCLUDED.score_agriculture,
-            score_refinery      = EXCLUDED.score_refinery,
-            score_industrial    = EXCLUDED.score_industrial,
-            score_hightech      = EXCLUDED.score_hightech,
-            score_military      = EXCLUDED.score_military,
-            score_tourism       = EXCLUDED.score_tourism,
-            economy_suggestion  = EXCLUDED.economy_suggestion,
-            elw_count           = EXCLUDED.elw_count,
-            ww_count            = EXCLUDED.ww_count,
-            ammonia_count       = EXCLUDED.ammonia_count,
-            gas_giant_count     = EXCLUDED.gas_giant_count,
-            rocky_count         = EXCLUDED.rocky_count,
-            metal_rich_count    = EXCLUDED.metal_rich_count,
-            icy_count           = EXCLUDED.icy_count,
-            rocky_ice_count     = EXCLUDED.rocky_ice_count,
-            hmc_count           = EXCLUDED.hmc_count,
-            landable_count      = EXCLUDED.landable_count,
-            terraformable_count = EXCLUDED.terraformable_count,
-            bio_signal_total    = EXCLUDED.bio_signal_total,
-            geo_signal_total    = EXCLUDED.geo_signal_total,
-            neutron_count       = EXCLUDED.neutron_count,
-            black_hole_count    = EXCLUDED.black_hole_count,
-            white_dwarf_count   = EXCLUDED.white_dwarf_count,
-            slots               = EXCLUDED.slots,
-            body_quality        = EXCLUDED.body_quality,
-            compactness         = EXCLUDED.compactness,
-            signal_quality      = EXCLUDED.signal_quality,
-            orbital_safety      = EXCLUDED.orbital_safety,
-            star_bonus          = EXCLUDED.star_bonus,
-            score_extraction       = EXCLUDED.score_extraction,
-            terraforming_potential = EXCLUDED.terraforming_potential,
-            body_diversity         = EXCLUDED.body_diversity,
-            confidence             = EXCLUDED.confidence,
-            rationale              = EXCLUDED.rationale,
-            score_breakdown     = EXCLUDED.score_breakdown,
-            rating_version      = EXCLUDED.rating_version,
-            updated_at          = NOW()
-        """,
+        _ratings_insert_sql(),
         rows,
-        template=(
-            "(%s,%s,%s,%s,%s,%s,%s,%s,"
-            "%s::economy_type,"
-            "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-            "%s,%s,%s,%s,%s,%s,"
-            "%s,%s,%s,%s,%s,"
-            "%s,%s)"
-        ),
+        template=RATING_VALUES_TEMPLATE,
         page_size=BATCH_SIZE,
     )
     conn.commit()

@@ -329,7 +329,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_URL:  postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
       DUMP_DIR:     /data/dumps
-      BATCH_SIZE:   50000
+      BATCH_SIZE:   ${BATCH_SIZE:-50000}
+      RATING_DIRTY_CLEANUP_CHUNK:   ${RATING_DIRTY_CLEANUP_CHUNK:-1000}
+      RATING_DIRTY_CLEANUP_RETRIES: ${RATING_DIRTY_CLEANUP_RETRIES:-3}
       LOG_LEVEL:    INFO
       LOG_FILE:     /data/logs/import.log
     volumes:

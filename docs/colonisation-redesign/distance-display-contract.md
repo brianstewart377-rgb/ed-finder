@@ -29,6 +29,10 @@
 
 **Fix**: `sql/019_nullable_coords.sql` makes `systems.x/y/z` nullable and converts existing non-Sol `(0,0,0)` rows to `NULL`. Backend response helpers treat non-Sol origin triples as unknown before and after that migration, and frontend coordinate formatters do the same for cached/persisted records.
 
+Stage 17N.2c hardening also removed the remaining low-risk Spansh populated-system importer fallback that coerced missing coordinates to `0`. Import paths must now pass `NULL` when any coordinate axis is missing or invalid. EDDN live updates only write coordinates when a complete `StarPos` triple is present.
+
+Production verification and recovery steps live in `docs/operations/stage17n2c-data-trust-runbook.md`.
+
 ## Frontend fix (Stage 17N.2)
 
 **Root cause**: `ResultCard` used `system.distance != null ? system.distance.toFixed(2) : '?'` — any non-null value including `0` would show as `0.00`. The `'?'` fallback was also not consistent with the rest of the UI.

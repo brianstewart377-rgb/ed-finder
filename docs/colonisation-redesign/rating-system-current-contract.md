@@ -16,6 +16,7 @@ Each economy (Agriculture, Refinery, Industrial, HighTech, Military, Tourism, **
 - The suggested economy (`economy_suggestion`) is the highest-scoring economy.
 - Rating v3.4 attenuates cross-economy saturation: the top two economies keep their raw score, the third is reduced, and the fourth-plus are reduced further. Current recalculations should not produce four or more simultaneous 100 scores.
 - Existing rows with `rating_version IS NULL` may still carry pre-v3.4 saturated scores until they are rebuilt.
+- `score_breakdown.rating_version` must match the row-level `ratings.rating_version` for newly written ratings.
 
 ## Top complementary pair
 
@@ -61,9 +62,15 @@ Stored in `score_breakdown.dimensions`:
 
 - Ratings are built offline by `build_ratings.py` and stored in the `ratings` table with an `updated_at` timestamp.
 - `rating_version` is stored in the `ratings` table and mirrored to the API. Current `build_ratings.py` writes `3.4`.
+- `build_ratings.py` keeps the INSERT column list, row tuple, and `execute_values` template in test-covered lockstep. `rating_version` is part of the INSERT shape and the `ON CONFLICT` update list.
+- Ratings workers connect through the timeout-disabled helper (`statement_timeout=0`, `lock_timeout=0`) instead of inheriting production defaults.
+- Dirty flags are cleared only after rating writes commit, in chunks. If dirty cleanup fails, successful rating rows remain committed and the affected systems stay dirty for a retry.
 - The `confidence` field reflects data freshness, not rating algorithm version.
 - If a rating appears stale, has `rating_version = NULL`, or shows three-plus capped economy scores, the operational remedy is to re-run `build_ratings.py` for the affected systems.
 - The frontend shows conservative wording ("Best-build potential") and a caveat for saturated/stale economy scores rather than definitive claims.
+
+Operational recovery steps for Stage 17N.2c are documented in
+`docs/operations/stage17n2c-data-trust-runbook.md`.
 
 ## Frontend display contract
 

@@ -4,6 +4,7 @@ import {
   formatConfidence,
   ratingTier,
   formatCoords,
+  formatPopulation,
   formatPopulationForSystem,
   systemStatusLabel,
 } from './format';
@@ -83,6 +84,11 @@ describe('formatCoords', () => {
 });
 
 describe('system population/status display', () => {
+  it('renders unknown population as Unknown', () => {
+    expect(formatPopulation(null)).toBe('Unknown');
+    expect(formatPopulationForSystem({ population: null })).toBe('Unknown');
+  });
+
   it('does not call a colonised zero-population system uninhabited', () => {
     const sys = { is_colonised: true, population: 0 };
     expect(systemStatusLabel(sys)).toBe('Colonised');

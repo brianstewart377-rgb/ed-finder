@@ -28,6 +28,7 @@ const baseSys = {
   economy_suggestion: 'Refinery',
   confidence: 0.85,
   rationale: 'Strong Refinery potential with 4 clean Rocky bodies.',
+  rating_version: '3.4',
   primary_economy: 'Refinery',
   secondary_economy: 'Industrial',
   score_breakdown: {
@@ -58,6 +59,7 @@ const baseSys = {
     secondary_economy: 'Industrial',
     has_standout: true,
     confidence: 0.85,
+    rating_version: '3.4',
   },
 } as unknown as SystemDetail;
 
@@ -170,5 +172,17 @@ describe('RatingRadar (Stage 17N.2)', () => {
     } as unknown as SystemDetail;
     render(<RatingRadar sys={sys} />);
     expect(screen.getByTestId('rating-caveat').textContent).toContain('Several economy scores are capped');
+  });
+
+  it('caveats missing rating version conservatively', () => {
+    const sys = {
+      ...baseSys,
+      rating_version: null,
+      score_breakdown: { ...baseSys.score_breakdown as Record<string, unknown>, rating_version: null },
+    } as unknown as SystemDetail;
+
+    render(<RatingRadar sys={sys} />);
+
+    expect(screen.getByTestId('rating-caveat').textContent).toContain('predates the current scoring contract');
   });
 });

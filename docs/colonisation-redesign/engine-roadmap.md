@@ -1905,9 +1905,8 @@ what a system is good for, why it scored that way, and when distance is unknown.
 - **Rationale**: shown as border-left blockquote when available.
 - **Expandable dimension breakdown**: Slots, Strategic, Safety, Terraforming,
   Diversity bars behind a toggle.
-- **Stale-rating awareness**: documented limitation — no `rating_version` field
-  exists yet. Frontend uses conservative "Best-build potential" wording. TODO
-  added for future `rating_version` column.
+- **Stale-rating awareness**: frontend uses conservative "Best-build potential"
+  wording and now treats missing `rating_version` as a legacy-rating warning.
 
 ### Distance display (Parts D–E)
 
@@ -1940,6 +1939,26 @@ baseline, picker compatibility, or map dominance.
 
 - `docs/colonisation-redesign/rating-system-current-contract.md`
 - `docs/colonisation-redesign/distance-display-contract.md`
+
+## Stage 17N.2c - Overnight Data Trust Hardening
+
+Goal: make the production continuation safer after the first nullable-coordinate
+and v3.4 rating-version deployment.
+
+- **Ratings INSERT safety**: `build_ratings.py` now exposes one tested INSERT
+  shape contract. The ratings column list, row tuple, and `execute_values`
+  template must have the same count, and `rating_version` must be present in the
+  returned rating dict, `score_breakdown`, INSERT columns, and conflict update.
+- **Worker connection safety**: ratings workers use the shared retry helper with
+  `statement_timeout=0` and `lock_timeout=0` instead of direct `psycopg2.connect`
+  calls that can inherit production defaults.
+- **Dirty cleanup safety**: `systems.rating_dirty = FALSE` is chunked, retried on
+  transient timeout/connection errors, and committed independently from rating
+  writes. Failed cleanup leaves systems dirty for the next run.
+- **Coordinate trust**: importer paths no longer default missing Spansh
+  coordinates to origin. Missing or partial coordinates remain unknown/null.
+- **Operational runbook**:
+  `docs/operations/stage17n2c-data-trust-runbook.md`.
 
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
