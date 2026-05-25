@@ -98,7 +98,7 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
         # main_star_class is a generated column (= main_star_type) — always present
         "main_star":         row.get("main_star_class") or row.get("main_star_type"),
         "needs_permit":      bool(row.get("needs_permit", False)),
-        "population":        row.get("population") or 0,
+        "population":        row.get("population"),
         "is_colonised":      int(bool(row.get("is_colonised", False))),
         "is_being_colonised": int(bool(row.get("is_being_colonised", False))),
         "controlling_minor_faction": row.get("controlling_faction"),
@@ -753,6 +753,7 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
                 id, name,
                 station_type::text AS type,
                 distance_from_star,
+                body_name,
                 landing_pad_size::text AS landing_pad_size,
                 primary_economy::text AS primary_economy,
                 secondary_economy::text AS secondary_economy,
@@ -788,6 +789,7 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
             "name":                 st["name"],
             "type":                 st["type"],
             "distance_to_arrival":  st["distance_from_star"],
+            "body_name":            st["body_name"],
             "landingPads":          {"large": 1 if st["landing_pad_size"] == "L" else 0},
             "economies":            [
                 {"name": st["primary_economy"]} if st["primary_economy"] else None,

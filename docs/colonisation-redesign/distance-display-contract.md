@@ -31,6 +31,15 @@
 
 Stage 17N.2c hardening also removed the remaining low-risk Spansh populated-system importer fallback that coerced missing coordinates to `0`. Import paths must now pass `NULL` when any coordinate axis is missing or invalid. EDDN live updates only write coordinates when a complete `StarPos` triple is present.
 
+Stage 17N.2d tightened EDDN ingestion further:
+
+- partial `StarPos` triples are all-null, never partial coordinates
+- missing EDDN `Population` means "do not update population", not "set to 0"
+- API/search response models allow nullable `population`, so "unknown" can stay
+  unknown once the DB schema can represent it
+- cache versions were bumped so old coordinate/distance payloads are not reused
+  after deploy
+
 Production verification and recovery steps live in `docs/operations/stage17n2c-data-trust-runbook.md`.
 
 ## Frontend fix (Stage 17N.2)

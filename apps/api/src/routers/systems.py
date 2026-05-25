@@ -19,6 +19,8 @@ except ImportError:
 
 router = APIRouter(tags=['systems'])
 
+SYSTEM_CACHE_VERSION = 'v3'
+BODY_CACHE_VERSION = 'v2'
 
 
 
@@ -32,7 +34,7 @@ async def get_system(
     pool: asyncpg.Pool = Depends(get_pool),
     redis: Optional[aioredis.Redis] = Depends(get_redis),
 ):
-    cache_key = f'sys:v2:{id64}'
+    cache_key = f'sys:{SYSTEM_CACHE_VERSION}:{id64}'
     cached = await cache_get(cache_key, redis)
     if cached: return cached
 
@@ -72,8 +74,10 @@ async def get_system(
         """, id64)
 
         stations = await conn.fetch("""
-            SELECT id, name, station_type, distance_from_star,
-                   landing_pad_size, has_market, has_shipyard, has_outfitting
+            SELECT id, id AS market_id, name, station_type, distance_from_star, body_name,
+                   landing_pad_size, primary_economy, secondary_economy,
+                   has_market, has_shipyard, has_outfitting,
+                   has_refuel, has_repair, has_rearm
             FROM stations WHERE system_id64 = $1
         """, id64)
 
@@ -113,7 +117,7 @@ async def get_body(
     pool: asyncpg.Pool = Depends(get_pool),
     redis: Optional[aioredis.Redis] = Depends(get_redis),
 ):
-    cache_key = f'body:{body_id}'
+    cache_key = f'body:{BODY_CACHE_VERSION}:{body_id}'
     cached = await cache_get(cache_key, redis)
     if cached: return cached
 
@@ -144,7 +148,7 @@ async def batch_systems(
     result: dict[str, Any] = {}
     missing: list[int] = []
     for id64 in id64s:
-        cached = await cache_get(f'sys:v2:{id64}', redis)
+        cached = await cache_get(f'sys:{SYSTEM_CACHE_VERSION}:{id64}', redis)
         if cached:
             result[str(id64)] = cached.get('record') or cached
         else:
@@ -185,6 +189,6 @@ async def batch_systems(
             d = sys_row_to_dict(row)
             d['bodies'] = bodies_by_system.get(d['id64'], [])
             result[str(d['id64'])] = d
-            await cache_set(f'sys:v2:{d["id64"]}', {'record': d}, settings.ttl_system, redis)
+            await cache_set(f'sys:{SYSTEM_CACHE_VERSION}:{d["id64"]}', {'record': d}, settings.ttl_system, redis)
 
     return {'systems': result}

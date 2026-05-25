@@ -22,7 +22,7 @@ export interface PinnedEntry {
   x:             number | null;
   y:             number | null;
   z:             number | null;
-  population:    number;
+  population:    number | null;
   is_colonised:  boolean;
   /** Distance (LY) from the reference at the moment it was pinned. */
   distance?:     number | null;

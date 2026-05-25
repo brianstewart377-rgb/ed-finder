@@ -34,6 +34,11 @@ import local_search as _ls
 
 router = APIRouter(tags=['search'])
 
+AUTOCOMPLETE_CACHE_VERSION = 'v3'
+SEARCH_CACHE_VERSION = 'v4'
+GALAXY_CACHE_VERSION = 'v4'
+CLUSTER_CACHE_VERSION = 'v4'
+
 
 def _complete_coords(coords) -> dict | None:
     if not coords:
@@ -80,7 +85,7 @@ async def autocomplete(
     if len(q) < 2:
         return {'results': []}
 
-    cache_key = f'ac:v2:{q.lower()[:20]}'
+    cache_key = f'ac:{AUTOCOMPLETE_CACHE_VERSION}:{q.lower()[:20]}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -151,7 +156,7 @@ async def local_search_endpoint(
     # otherwise the cache silently serves stale data when sliders move
     # (this was the original bug behind the inline-fallback's existence).
     cache_key = (
-        f"search:v3:{json.dumps(body_dict, sort_keys=True, default=str)}"
+        f"search:{SEARCH_CACHE_VERSION}:{json.dumps(body_dict, sort_keys=True, default=str)}"
     )
     cached = await cache_get(cache_key, redis)
     if cached:
@@ -195,7 +200,7 @@ async def galaxy_search(
     min_score = req.min_score
     limit     = min(req.limit, 500)
 
-    cache_key = f'galaxy:v3:{economy}:{min_score}:{limit}:{req.offset}'
+    cache_key = f'galaxy:{GALAXY_CACHE_VERSION}:{economy}:{min_score}:{limit}:{req.offset}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -239,7 +244,7 @@ async def cluster_search(
     reqs_json = json.dumps([r.model_dump() for r in req.requirements], sort_keys=True)
     reference_coords = _complete_coords(req.reference_coords)
     ref_json = json.dumps(reference_coords, sort_keys=True, default=str)
-    cache_key = f'cluster:v3:{reqs_json}:{req.limit}:{req.offset}:{ref_json}'
+    cache_key = f'cluster:{CLUSTER_CACHE_VERSION}:{reqs_json}:{req.limit}:{req.offset}:{ref_json}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached

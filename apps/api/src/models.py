@@ -246,13 +246,20 @@ class StationModel(BaseModel):
     model_config = ConfigDict(extra='allow')
 
     id:                 Optional[int]   = None
+    market_id:          Optional[int]   = None
     name:               Optional[str]   = None
     station_type:       Optional[str]   = None
     distance_from_star: Optional[float] = None
+    body_name:          Optional[str]   = None
     landing_pad_size:   Optional[str]   = None
+    primary_economy:    Optional[str]   = None
+    secondary_economy:  Optional[str]   = None
     has_market:         Optional[bool]  = None
     has_shipyard:       Optional[bool]  = None
     has_outfitting:     Optional[bool]  = None
+    has_refuel:         Optional[bool]  = None
+    has_repair:         Optional[bool]  = None
+    has_rearm:          Optional[bool]  = None
 
 
 class ExplorationValueModel(BaseModel):
@@ -278,7 +285,7 @@ class SystemRow(BaseModel):
     name:                str                   = 'Unknown'
     coords:              Optional[CoordsModel] = None
     distance:            Optional[float]       = None
-    population:          int                   = 0
+    population:          Optional[int]         = None
     primaryEconomy:      Optional[str]         = None
     secondaryEconomy:    Optional[str]         = None
     security:            Optional[str]         = None
@@ -330,7 +337,7 @@ class SystemDetailRow(BaseModel):
     x:                  Optional[float] = None
     y:                  Optional[float] = None
     z:                  Optional[float] = None
-    population:         int   = 0
+    population:         Optional[int] = None
     primary_economy:    Optional[str]  = None
     secondary_economy:  Optional[str]  = None
     security:           Optional[str]  = None
@@ -433,7 +440,7 @@ class AutocompleteHit(BaseModel):
     x:              Optional[float] = None
     y:              Optional[float] = None
     z:              Optional[float] = None
-    population:     int = 0
+    population:     Optional[int] = None
     primaryEconomy: Optional[str] = None
 
 

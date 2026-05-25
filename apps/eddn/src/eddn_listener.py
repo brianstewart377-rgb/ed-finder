@@ -231,24 +231,38 @@ def is_scoopable(spectral: Optional[str]) -> Optional[bool]:
     return spectral[0].upper() in SCOOPABLE
 
 
+def _extract_star_pos(value) -> tuple[float | None, float | None, float | None]:
+    """Return a complete StarPos triple, or all-null when any axis is missing."""
+    if not isinstance(value, (list, tuple)) or len(value) < 3:
+        return None, None, None
+    x = safe_float(value[0])
+    y = safe_float(value[1])
+    z = safe_float(value[2])
+    if x is None or y is None or z is None:
+        return None, None, None
+    return x, y, z
+
+
 # ---------------------------------------------------------------------------
 # Event handlers
 # ---------------------------------------------------------------------------
 async def handle_fss_discovery(pool: asyncpg.Pool, header: dict, message: dict):
     """FSSDiscoveryScan — new system found via FSS."""
-    body = message.get('StarSystem') or message
+    star_system = message.get('StarSystem')
+    body = star_system if isinstance(star_system, dict) else message
     id64 = safe_int(body.get('SystemAddress') or body.get('id64'))
     if not id64: return
 
     star_pos = body.get('StarPos')
+    x, y, z = _extract_star_pos(star_pos)
     _pending_systems[id64] = {
         'id64':    id64,
-        'name':    body.get('StarSystem') or body.get('name', 'Unknown'),
-        'x':       safe_float(star_pos[0]) if star_pos and len(star_pos) >= 3 else None,
-        'y':       safe_float(star_pos[1]) if star_pos and len(star_pos) >= 3 else None,
-        'z':       safe_float(star_pos[2]) if star_pos and len(star_pos) >= 3 else None,
+        'name':    body.get('StarSystem') if isinstance(body.get('StarSystem'), str) else body.get('name', 'Unknown'),
+        'x':       x,
+        'y':       y,
+        'z':       z,
         'economy': norm_economy(body.get('SystemEconomy') or body.get('primaryEconomy')),
-        'pop':     safe_int(body.get('Population', 0)),
+        'pop':     safe_int(body.get('Population')),
         'updated': utcnow(),
     }
 
@@ -346,7 +360,7 @@ async def handle_location_or_jump(pool: asyncpg.Pool, header: dict, message: dic
     id64 = safe_int(message.get('SystemAddress'))
     if not id64: return
 
-    pop    = safe_int(message.get('Population', 0))
+    pop    = safe_int(message.get('Population'))
     eco    = norm_economy(message.get('SystemEconomy'))
     name   = message.get('StarSystem')
     coords = message.get('StarPos')
@@ -355,10 +369,11 @@ async def handle_location_or_jump(pool: asyncpg.Pool, header: dict, message: dic
     if pop is not None: upd['pop'] = pop
     if eco != 'Unknown': upd['economy'] = eco
     if name: upd['name'] = name
-    if isinstance(coords, (list, tuple)) and len(coords) >= 3 and coords[0] is not None:
-        upd['x'] = safe_float(coords[0])
-        upd['y'] = safe_float(coords[1])
-        upd['z'] = safe_float(coords[2])
+    x, y, z = _extract_star_pos(coords)
+    if x is not None:
+        upd['x'] = x
+        upd['y'] = y
+        upd['z'] = z
 
     existing = _pending_systems.get(id64, {})
     existing.update(upd)
@@ -410,7 +425,7 @@ async def flush_pending(pool: asyncpg.Pool):
                                 primary_economy, population,
                                 rating_dirty, cluster_dirty,
                                 eddn_updated_at, updated_at
-                            ) VALUES ($1,$2,$3,$4,$5,$6::economy_type,$7,TRUE,TRUE,NOW(),NOW())
+                            ) VALUES ($1,$2,$3,$4,$5,$6::economy_type,COALESCE($7::bigint, 0),TRUE,TRUE,NOW(),NOW())
                             ON CONFLICT (id64) DO UPDATE SET
                                 name            = COALESCE(NULLIF($2,'Unknown'), systems.name),
                                 x               = COALESCE($3, systems.x),
@@ -419,7 +434,7 @@ async def flush_pending(pool: asyncpg.Pool):
                                 primary_economy = CASE WHEN $6 != 'Unknown'
                                                        THEN $6::economy_type
                                                        ELSE systems.primary_economy END,
-                                population      = COALESCE($7, systems.population),
+                                population      = COALESCE($7::bigint, systems.population),
                                 rating_dirty    = TRUE,
                                 cluster_dirty   = TRUE,
                                 eddn_updated_at = NOW(),
@@ -431,7 +446,7 @@ async def flush_pending(pool: asyncpg.Pool):
                             sys.get('y'),
                             sys.get('z'),
                             sys.get('economy', 'Unknown'),
-                            sys.get('pop', 0),
+                            sys.get('pop'),
                         )
                         flushed_systems += 1
                         _stats['systems_upserted'] += 1

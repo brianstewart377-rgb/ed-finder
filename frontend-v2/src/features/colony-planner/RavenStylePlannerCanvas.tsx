@@ -27,6 +27,11 @@ import {
   type PlanningEconomyName,
 } from './planningEconomy';
 import {
+  existingStructureDisplayType,
+  resolveExistingInfrastructure,
+  type ExistingStructure,
+} from './existingInfrastructure';
+import {
   contextualEconomyLabel,
   contextualRoleLabel,
   laneDisabledReason,
@@ -39,7 +44,7 @@ import {
 
 type RavenLane = 'orbital' | 'ground' | 'unassigned';
 type VisibleRavenLane = Exclude<RavenLane, 'unassigned'>;
-type RavenSlotKind = 'empty' | 'planned' | 'projected' | 'unknown' | 'overflow';
+type RavenSlotKind = 'empty' | 'existing' | 'planned' | 'projected' | 'unknown' | 'overflow';
 type ProjectionComparisonView = 'bodies' | 'economy' | 'slots';
 
 export interface RavenEconomySegment {
@@ -65,8 +70,9 @@ export interface RavenStructureSlot {
   economySegments: RavenEconomySegment[];
   placementIndex: number | null;
   projectionIndex: number | null;
+  existingStructureId: string | null;
   buildOrder: number | null;
-  status: 'planned' | 'projected' | 'unknown';
+  status: 'existing' | 'planned' | 'projected' | 'unknown';
   economyContextLabel: string | null;
   warningLabels: string[];
 }
@@ -108,6 +114,12 @@ export interface RavenPlannerRow {
   bodyEconomy: PlanningEconomyLedger;
   projected: boolean;
   warningCount: number;
+  existingCount: number;
+  plannedCount: number;
+  projectedCount: number;
+  emptySlotCount: number;
+  orbitalAddDisabledReason: string | null;
+  groundAddDisabledReason: string | null;
 }
 
 interface BodyNode {
@@ -125,12 +137,23 @@ interface FlatBodyNode {
 }
 
 interface StructureBucketItem {
+  kind: 'placement';
   placement: SimulateBuildPlacement;
   template?: FacilityTemplate;
   index: number;
   projected: boolean;
   warningLabels: string[];
 }
+
+interface ExistingStructureBucketItem {
+  kind: 'existing';
+  structure: ExistingStructure;
+  index: number;
+  projected: false;
+  warningLabels: string[];
+}
+
+type RavenStructureBucketItem = StructureBucketItem | ExistingStructureBucketItem;
 
 const ECONOMY_COLORS: Record<PlanningEconomyName, string> = {
   Agriculture: '#4ade80',
@@ -166,6 +189,8 @@ export function RavenStylePlannerCanvas({
   prerequisiteIssues?: PrerequisiteIssue[];
 }) {
   const rows = buildRavenPlannerRows(system, snapshot);
+  const existingResolution = resolveExistingInfrastructure(system);
+  const occupancySummary = summarizeRavenPlannerRows(rows, existingResolution.unresolved.length);
   const selectedBodyId = selection.type === 'body'
     ? selection.bodyId
     : selection.type === 'placement'
@@ -200,11 +225,19 @@ export function RavenStylePlannerCanvas({
         </div>
         <div className="flex flex-wrap gap-1.5 text-[11px]">
           <CanvasPill label={`${rows.length} bodies`} tone="silver" />
+          <CanvasPill label={`${occupancySummary.existingCount} existing`} tone={occupancySummary.existingCount > 0 ? 'green' : 'silver'} />
           <CanvasPill label={`${snapshot.placements.length} planned`} tone={snapshot.placements.length > 0 ? 'orange' : 'silver'} />
-          {snapshot.projection && <CanvasPill label={`${snapshot.projection.placements.length} projected`} tone="cyan" />}
+          <CanvasPill label={`${snapshot.projection?.placements.length ?? 0} projected`} tone={snapshot.projection ? 'cyan' : 'silver'} />
+          <CanvasPill label={`${occupancySummary.emptySlotCount} empty`} tone="silver" />
+          {occupancySummary.unresolvedExistingCount > 0 && <CanvasPill label={`${occupancySummary.unresolvedExistingCount} unresolved`} tone="gold" />}
           <CanvasPill label={hasEstimatedSlots ? 'slots estimated' : snapshot.slotPredictions ? 'slots loaded' : 'slots unknown'} tone={hasEstimatedSlots ? 'gold' : snapshot.slotPredictions ? 'green' : 'gold'} />
         </div>
       </header>
+      {occupancySummary.existingCount > 0 && (
+        <div data-testid="raven-existing-infrastructure-summary" className="border-b border-green/25 bg-green/8 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-green">
+          Existing infrastructure detected: {occupancySummary.existingCount} matched slot occupant{occupancySummary.existingCount === 1 ? '' : 's'}.
+        </div>
+      )}
       {hasEstimatedSlots && (
         <div data-testid="raven-slot-estimate-disclaimer" className="border-b border-gold/25 bg-gold/8 px-3 py-2 font-mono text-[10px] italic text-gold">
           Predicted slots - verify in Architect Mode.
@@ -241,6 +274,9 @@ export function RavenStylePlannerCanvas({
           </div>
         </div>
       </div>
+      {existingResolution.unresolved.length > 0 && (
+        <UnresolvedExistingInfrastructure structures={existingResolution.unresolved} />
+      )}
     </section>
   );
 }
@@ -365,7 +401,6 @@ function RavenPlannerBodyRow({
     : row.projected
       ? 'bg-cyan/5'
       : 'bg-transparent';
-  const surfaceDisabledReason = laneDisabledReason(row.body, 'surface');
 
   return (
     <div
@@ -392,6 +427,7 @@ function RavenPlannerBodyRow({
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
           onSelect={onSelect}
           onRequestAddStructure={onRequestAddStructure}
+          disabledReason={row.orbitalAddDisabledReason}
           selectedBody={selected}
           prerequisiteIssues={prerequisiteIssues}
         />
@@ -405,7 +441,7 @@ function RavenPlannerBodyRow({
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
           onSelect={onSelect}
           onRequestAddStructure={onRequestAddStructure}
-          disabledReason={surfaceDisabledReason}
+          disabledReason={row.groundAddDisabledReason}
           selectedBody={selected}
           prerequisiteIssues={prerequisiteIssues}
         />
@@ -439,6 +475,40 @@ function RavenPlannerBodyRow({
         </div>
       )}
     </div>
+  );
+}
+
+function UnresolvedExistingInfrastructure({ structures }: { structures: ExistingStructure[] }) {
+  const visible = structures.slice(0, 5);
+  const extra = Math.max(0, structures.length - visible.length);
+  return (
+    <section
+      data-testid="raven-unresolved-existing-infrastructure"
+      className="border-t border-gold/25 bg-gold/6 px-3 py-2"
+      aria-label="Existing infrastructure not matched to body"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-gold">
+          Existing infrastructure not matched to body
+        </span>
+        <div className="flex min-w-0 flex-wrap gap-1.5">
+          {visible.map((structure) => (
+            <span
+              key={structure.id}
+              title={`${structure.name} | ${existingStructureDisplayType(structure)} | ${structure.unresolved_reason ?? structure.body_match_reason}`}
+              className="max-w-[14rem] truncate rounded border border-gold/30 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver"
+            >
+              {structure.name} / {existingStructureDisplayType(structure)}
+            </span>
+          ))}
+          {extra > 0 && (
+            <span className="rounded border border-gold/30 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-gold">
+              +{extra} more
+            </span>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -708,9 +778,12 @@ function RavenSlotBox({
 }) {
   const primaryEconomy = slot.economySegments[0]?.economy;
   const color = primaryEconomy ? ECONOMY_COLORS[primaryEconomy] : undefined;
-  const isStructure = slot.kind === 'planned' || slot.kind === 'projected' || slot.kind === 'overflow';
+  const isStructure = slot.kind === 'existing' || slot.kind === 'planned' || slot.kind === 'projected' || slot.kind === 'overflow';
   const interactive = Boolean(onAdd || slot.placementIndex != null || slot.projectionIndex != null);
   const slotStyle: CSSProperties = {};
+  if (slot.kind === 'existing') {
+    slotStyle.background = 'linear-gradient(180deg, rgba(74,222,128,0.18), rgba(18,20,24,0.9))';
+  }
   if (slot.kind === 'planned' && color) {
     slotStyle.borderColor = color;
     slotStyle.background = `linear-gradient(180deg, ${color}24, rgba(18,20,24,0.9))`;
@@ -722,6 +795,7 @@ function RavenSlotBox({
 
   const content = (
     <>
+      {slot.kind === 'existing' && <span data-testid="raven-existing-structure" className="sr-only">{slot.fullName}</span>}
       {slot.kind === 'projected' && <span data-testid="raven-projected-ghost-structure" className="sr-only">{slot.fullName}</span>}
       <span data-testid={isStructure ? 'raven-structure-slot-pill' : undefined} className="max-w-full truncate">
         {slot.kind === 'empty' && onAdd ? '+' : slot.label}
@@ -740,6 +814,7 @@ function RavenSlotBox({
     interactive && 'hover:-translate-y-0.5 hover:border-orange-lt hover:shadow-brand-glow',
     selected && 'ring-2 ring-orange/70',
     slot.kind === 'empty' && (onAdd ? 'border-orange/55 bg-orange/15 text-orange font-semibold' : 'border-border/70 bg-bg2/45 text-silver-2'),
+    slot.kind === 'existing' && 'border-green/65 text-green',
     slot.kind === 'planned' && 'text-silver-lt',
     slot.kind === 'projected' && 'border-dashed text-cyan/90 opacity-75',
     slot.kind === 'unknown' && 'border-dashed border-gold/65 bg-gold/10 text-gold',
@@ -1008,6 +1083,7 @@ interface BodyTelemetryDetail {
   plannedCount: number;
   projectedCount: number;
   capacityLabel: string;
+  emptySlotCount: number;
 }
 
 interface StructureTelemetryDetail {
@@ -1031,9 +1107,9 @@ function SelectedBodyTelemetryCard({ detail }: { detail: BodyTelemetryDetail }) 
       <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-cyan">Selected body summary</div>
       <div className="mt-2 grid grid-cols-2 gap-2">
         <TelemetryField label="Capacity" value={detail.capacityLabel} />
-        <TelemetryField label="Staged" value={`${detail.plannedCount} planned / ${detail.projectedCount} projected`} />
+        <TelemetryField label="Slots" value={`${detail.row.existingCount} existing / ${detail.plannedCount} planned / ${detail.projectedCount} projected`} />
         <TelemetryField label="Kind" value={detail.row.bodyKind} />
-        <TelemetryField label="Warnings" value={String(detail.row.warningCount)} tone={detail.row.warningCount > 0 ? 'gold' : 'green'} />
+        <TelemetryField label="Empty" value={String(detail.emptySlotCount)} tone={detail.emptySlotCount > 0 ? 'green' : 'silver'} />
       </div>
       <div className="mt-2">
         <PlanningEconomyStrip ledger={detail.row.bodyEconomy} compact testId="raven-telemetry-body-economy" />
@@ -1148,6 +1224,7 @@ function buildSelectedBodyTelemetryDetail(
     plannedCount,
     projectedCount,
     capacityLabel: `O${row.orbitalCapacity ?? '?'} / S${row.groundCapacity ?? '?'}`,
+    emptySlotCount: row.emptySlotCount,
   };
 }
 
@@ -1199,6 +1276,7 @@ function buildTelemetryWarningItems(
   const bodies = systemBodyData(system);
   const bodyIds = new Set(bodies.filter((body) => body.id != null).map((body) => bodyIdKey(body.id)));
   const unassigned = snapshot.placements.filter((placement) => placement.local_body_id == null).length;
+  const unresolvedExisting = resolveExistingInfrastructure(system).unresolved.length;
   const unknownBodies = snapshot.placements.filter((placement) => {
     const bodyId = placement.local_body_id != null ? bodyIdKey(placement.local_body_id) : '';
     return Boolean(bodyId && !bodyIds.has(bodyId));
@@ -1207,6 +1285,7 @@ function buildTelemetryWarningItems(
   return [
     selectedContext.warningCount > 0 ? `${selectedContext.warningCount} selected warning${selectedContext.warningCount === 1 ? '' : 's'}` : null,
     unassigned > 0 ? `${unassigned} unassigned` : null,
+    unresolvedExisting > 0 ? `${unresolvedExisting} unresolved existing` : null,
     unknownBodies > 0 ? `${unknownBodies} unmatched body` : null,
     economyLedger.unknownCount > 0 ? `${economyLedger.unknownCount} no economy metadata` : null,
     prerequisiteIssues.length > 0 ? prerequisiteSummaryLabel(prerequisiteIssues.length) : null,
@@ -1443,6 +1522,7 @@ function CanvasPill({ label, tone }: { label: string; tone: 'silver' | 'orange' 
 
 export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPlanSnapshot): RavenPlannerRow[] {
   const bodies = systemBodyData(system);
+  const existingResolution = resolveExistingInfrastructure(system);
   const bodyDataSlotEstimates = buildBodyDataSlotEstimateMap(system, snapshot.slotPredictions?.predictions);
   const predictionsByBodyId = new Map(
     (snapshot.slotPredictions?.predictions ?? []).map((prediction) => [bodyIdKey(prediction.body_id), prediction]),
@@ -1462,8 +1542,23 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
     const bodyDataSlotEstimate = bodyDataSlotEstimates.get(node.id) ?? null;
     const planned = plannedByBody.get(node.id) ?? emptyStructureBuckets();
     const projected = projectedByBody.get(node.id) ?? emptyStructureBuckets();
-    const orbitalStructures = [...planned.orbital, ...projected.orbital];
-    const groundStructures = [...planned.ground, ...projected.ground];
+    const existing = existingResolution.byBodyId.get(node.id) ?? emptyExistingStructureBuckets();
+    const existingOrbital = existing.orbital.map((structure, index): ExistingStructureBucketItem => ({
+      kind: 'existing',
+      structure,
+      index,
+      projected: false,
+      warningLabels: [],
+    }));
+    const existingGround = existing.surface.map((structure, index): ExistingStructureBucketItem => ({
+      kind: 'existing',
+      structure,
+      index,
+      projected: false,
+      warningLabels: [],
+    }));
+    const orbitalStructures = [...existingOrbital, ...planned.orbital, ...projected.orbital];
+    const groundStructures = [...existingGround, ...planned.ground, ...projected.ground];
     const unassignedStructures = [...planned.unassigned, ...projected.unassigned];
     const orbitalSlotCapacity = resolveSlotCapacity(node.body, prediction, 'orbital', bodyDataSlotEstimate);
     const groundSlotCapacity = resolveSlotCapacity(node.body, prediction, 'surface', bodyDataSlotEstimate);
@@ -1496,17 +1591,145 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
         const overflowCount = [...orbitalSlots, ...groundSlots].filter((slot) => slot.kind === 'overflow').length;
         const placementWarningCount = [...planned.orbital, ...planned.ground, ...planned.unassigned]
           .filter((item) => item.warningLabels.length > 0).length;
+        const existingCount = existing.orbital.length + existing.surface.length;
+        const plannedCount = planned.orbital.length + planned.ground.length + planned.unassigned.length;
+        const projectedCount = projected.orbital.length + projected.ground.length + projected.unassigned.length;
+        const emptySlotCount = [...orbitalSlots, ...groundSlots].filter((slot) => slot.kind === 'empty').length;
         return {
           orbitalSlots,
           groundSlots,
           unassignedSlots,
           bodyEconomy: bodyLedger,
           projected: projectedBodyIds.has(node.id),
+          existingCount,
+          plannedCount,
+          projectedCount,
+          emptySlotCount,
+          orbitalAddDisabledReason: addDisabledReasonForLane(node.body, 'orbital', orbitalCapacity, existing.orbital.length, planned.orbital.length),
+          groundAddDisabledReason: addDisabledReasonForLane(node.body, 'surface', groundCapacity, existing.surface.length, planned.ground.length),
           warningCount: countRowWarnings(node.body, prediction, bodyLedger, overflowCount) + placementWarningCount,
         };
       })(),
     };
   });
+}
+
+export interface RavenPlannerOccupancySummary {
+  existingCount: number;
+  plannedCount: number;
+  projectedCount: number;
+  emptySlotCount: number;
+  unresolvedExistingCount: number;
+}
+
+export interface RavenLaneCapacityState {
+  capacity: number | null;
+  existingCount: number;
+  plannedCount: number;
+  projectedCount: number;
+  remaining: number | null;
+  disabledReason: string | null;
+}
+
+export function buildRavenPlannerOccupancySummary(system: SystemDetail, snapshot: TopologyPlanSnapshot): RavenPlannerOccupancySummary {
+  const rows = buildRavenPlannerRows(system, snapshot);
+  const unresolvedExistingCount = resolveExistingInfrastructure(system).unresolved.length;
+  return summarizeRavenPlannerRows(rows, unresolvedExistingCount);
+}
+
+export function getRavenLaneCapacityState(
+  system: SystemDetail,
+  snapshot: TopologyPlanSnapshot,
+  bodyId: string,
+  lane: BodyPlannerLane,
+): RavenLaneCapacityState {
+  const bodies = systemBodyData(system);
+  const body = bodies.find((candidate) => sameBodyId(candidate.id, bodyId));
+  if (!body) {
+    return {
+      capacity: null,
+      existingCount: 0,
+      plannedCount: 0,
+      projectedCount: 0,
+      remaining: null,
+      disabledReason: 'Selected body is no longer available.',
+    };
+  }
+
+  const bodyKey = bodyIdKey(body.id);
+  const bodyDataSlotEstimates = buildBodyDataSlotEstimateMap(system, snapshot.slotPredictions?.predictions);
+  const prediction = (snapshot.slotPredictions?.predictions ?? []).find((candidate) => sameBodyId(candidate.body_id, body.id)) ?? null;
+  const capacity = resolveSlotCapacity(
+    body,
+    prediction,
+    lane,
+    bodyDataSlotEstimates.get(bodyKey) ?? null,
+  ).value;
+  const bodyById = new Map(bodies.filter((candidate) => candidate.id != null).map((candidate) => [bodyIdKey(candidate.id), candidate]));
+  const templatesById = new Map(snapshot.templates.map((template) => [template.id, template]));
+  const existingBuckets = resolveExistingInfrastructure(system).byBodyId.get(bodyKey) ?? emptyExistingStructureBuckets();
+  const existingCount = lane === 'orbital' ? existingBuckets.orbital.length : existingBuckets.surface.length;
+  const plannedCount = countPlacementsInLane(snapshot.placements, templatesById, bodyById, bodyKey, lane, snapshot.placementLaneHints);
+  const projectedCount = countPlacementsInLane(snapshot.projection?.placements ?? [], templatesById, bodyById, bodyKey, lane, snapshot.projection?.placementLaneHints);
+  const remaining = capacity == null ? null : Math.max(0, capacity - existingCount - plannedCount);
+
+  return {
+    capacity,
+    existingCount,
+    plannedCount,
+    projectedCount,
+    remaining,
+    disabledReason: addDisabledReasonForLane(body, lane, capacity, existingCount, plannedCount),
+  };
+}
+
+function summarizeRavenPlannerRows(rows: RavenPlannerRow[], unresolvedExistingCount: number): RavenPlannerOccupancySummary {
+  return rows.reduce<RavenPlannerOccupancySummary>((summary, row) => ({
+    existingCount: summary.existingCount + row.existingCount,
+    plannedCount: summary.plannedCount + row.plannedCount,
+    projectedCount: summary.projectedCount + row.projectedCount,
+    emptySlotCount: summary.emptySlotCount + row.emptySlotCount,
+    unresolvedExistingCount,
+  }), {
+    existingCount: 0,
+    plannedCount: 0,
+    projectedCount: 0,
+    emptySlotCount: 0,
+    unresolvedExistingCount,
+  });
+}
+
+function countPlacementsInLane(
+  placements: SimulateBuildPlacement[],
+  templatesById: Map<string, FacilityTemplate>,
+  bodyById: Map<string, SystemBody>,
+  targetBodyId: string,
+  lane: BodyPlannerLane,
+  laneHints: Record<number, BodyPlannerLane> = {},
+): number {
+  return placements.reduce((count, placement, index) => {
+    const bodyId = placementBodyId(placement);
+    if (!bodyId || bodyId !== targetBodyId) return count;
+    const template = templatesById.get(placement.facility_template_id);
+    const assignedLane = placementLaneForTemplate(template, bodyById.get(bodyId), laneHints[index]);
+    return assignedLane === lane ? count + 1 : count;
+  }, 0);
+}
+
+function addDisabledReasonForLane(
+  body: SystemBody,
+  lane: BodyPlannerLane,
+  capacity: number | null,
+  existingCount: number,
+  plannedCount: number,
+): string | null {
+  const physicalReason = laneDisabledReason(body, lane);
+  if (physicalReason) return physicalReason;
+  if (capacity == null) return null;
+  if (capacity <= 0 || existingCount + plannedCount >= capacity) {
+    return lane === 'orbital' ? 'No empty orbital slots' : 'All surface slots occupied';
+  }
+  return null;
 }
 
 export function buildPlannerTelemetryStats(snapshot: TopologyPlanSnapshot): BgsTelemetryStat[] {
@@ -1635,6 +1858,7 @@ function bucketStructures(
     const lane = ravenLaneForPlacement(template, bodyById.get(bodyId), laneHints[index]);
     const current = buckets.get(bodyId) ?? emptyStructureBuckets();
     current[lane].push({
+      kind: 'placement',
       placement,
       template,
       index,
@@ -1655,11 +1879,19 @@ function emptyStructureBuckets() {
   };
 }
 
+function emptyExistingStructureBuckets() {
+  return {
+    orbital: [] as ExistingStructure[],
+    surface: [] as ExistingStructure[],
+    unknown: [] as ExistingStructure[],
+  };
+}
+
 function buildLaneSlots(
   bodyId: string,
   lane: RavenLane,
   capacity: number | null,
-  structures: StructureBucketItem[],
+  structures: RavenStructureBucketItem[],
   body: SystemBody,
   system: SystemDetail,
 ): RavenStructureSlot[] {
@@ -1672,7 +1904,10 @@ function buildLaneSlots(
 
   if (capacity <= 0) {
     if (structures.length === 0) return [];
-    return [overflowSlot(bodyId, lane, structures.length)];
+    return [
+      ...structures.map((item, index) => structureSlot(bodyId, lane, item, index, body, system)),
+      overflowSlot(bodyId, lane, structures.length),
+    ];
   }
 
   const visible = structures.slice(0, capacity).map((item, index) => structureSlot(bodyId, lane, item, index, body, system));
@@ -1686,11 +1921,14 @@ function buildLaneSlots(
 function structureSlot(
   bodyId: string,
   lane: RavenLane,
-  item: StructureBucketItem,
+  item: RavenStructureBucketItem,
   index: number,
   body: SystemBody,
   system: SystemDetail,
 ): RavenStructureSlot {
+  if (item.kind === 'existing') {
+    return existingStructureSlot(bodyId, lane, item, index, body, system);
+  }
   const fullName = structureDisplayName(item.template, item.placement.facility_template_id);
   const directSegments = structureEconomySegments(item.template, item.projected);
   const baselineSegments = directSegments.length === 0 && item.template?.is_port
@@ -1727,10 +1965,59 @@ function structureSlot(
     economySegments: segments,
     placementIndex: item.projected ? null : item.index,
     projectionIndex: item.projected ? item.index : null,
+    existingStructureId: null,
     buildOrder: item.placement.build_order ?? null,
     status,
     economyContextLabel: economyContext,
     warningLabels: prerequisiteWarnings,
+  };
+}
+
+function existingStructureSlot(
+  bodyId: string,
+  lane: RavenLane,
+  item: ExistingStructureBucketItem,
+  index: number,
+  body: SystemBody,
+  system: SystemDetail,
+): RavenStructureSlot {
+  const structure = item.structure;
+  const directSegments = existingStructureEconomySegments(structure);
+  const baselineSegments = directSegments.length === 0
+    ? stationBaselineSegments(undefined, body, system, false)
+    : [];
+  const segments = directSegments.length > 0 ? directSegments : baselineSegments;
+  const type = existingStructureDisplayType(structure);
+  const bodyMatch = structure.body_match_confidence === 'inferred'
+    ? 'Body match inferred'
+    : structure.body_match_confidence === 'exact'
+      ? 'Body match exact'
+      : 'Body match unresolved';
+  const economyText = directSegments.length > 0
+    ? `Existing economy: ${directSegments.map((segment) => segment.economy).join(' / ')}`
+    : baselineSegments.length > 0
+      ? `Baseline (inherited): ${baselineSegments.map((segment) => segment.economy).join(' / ')} - run Preview for validated outcome.`
+      : 'No economy metadata';
+
+  return {
+    id: `${bodyId}-${lane}-existing-${structure.id}-${index}`,
+    kind: 'existing',
+    label: compactStructureName(structure.name),
+    fullName: structure.name,
+    title: [
+      `${structure.name} | Existing ${type} | ${economyText}`,
+      structure.pad_size ? `Pad ${structure.pad_size}` : null,
+      bodyMatch,
+      structure.body_match_reason,
+    ].filter(Boolean).join(' | '),
+    economySegments: segments,
+    placementIndex: null,
+    projectionIndex: null,
+    existingStructureId: structure.id,
+    buildOrder: null,
+    status: 'existing',
+    economyContextLabel: baselineSegments.length > 0 ? 'Economy: inherited baseline - run Preview for validated outcome.' : null,
+    warningLabels: structure.body_match_confidence === 'inferred' ? ['Body match inferred'] : [],
   };
 }
 
@@ -1744,6 +2031,7 @@ function unknownSlot(bodyId: string, lane: RavenLane): RavenStructureSlot {
     economySegments: [],
     placementIndex: null,
     projectionIndex: null,
+    existingStructureId: null,
     buildOrder: null,
     status: 'unknown',
     economyContextLabel: null,
@@ -1761,6 +2049,7 @@ function emptySlot(bodyId: string, lane: RavenLane, index: number, label = ''): 
     economySegments: [],
     placementIndex: null,
     projectionIndex: null,
+    existingStructureId: null,
     buildOrder: null,
     status: 'unknown',
     economyContextLabel: null,
@@ -1775,10 +2064,11 @@ function overflowSlot(bodyId: string, lane: RavenLane, count: number): RavenStru
     kind: 'overflow',
     label: `+${count} over`,
     fullName: `${laneLabel} capacity exceeded: +${count} over predicted slots`,
-    title: `${laneLabel} capacity exceeded: ${count} more structure${count === 1 ? '' : 's'} planned than predicted slots. Verify in Architect Mode.`,
+    title: `${laneLabel} capacity exceeded: ${count} more occupied structure${count === 1 ? '' : 's'} than predicted slots. Verify in Architect Mode.`,
     economySegments: [],
     placementIndex: null,
     projectionIndex: null,
+    existingStructureId: null,
     buildOrder: null,
     status: 'unknown',
     economyContextLabel: null,
@@ -1816,6 +2106,17 @@ function structureEconomySegments(template: FacilityTemplate | undefined, projec
     share: 100,
     strength,
     projected,
+  }];
+}
+
+function existingStructureEconomySegments(structure: ExistingStructure): RavenEconomySegment[] {
+  const economy = normalisePlanningEconomy(structure.economy);
+  if (!economy) return [];
+  return [{
+    economy,
+    share: 100,
+    strength: null,
+    projected: false,
   }];
 }
 

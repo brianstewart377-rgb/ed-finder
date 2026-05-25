@@ -1960,6 +1960,93 @@ and v3.4 rating-version deployment.
 - **Operational runbook**:
   `docs/operations/stage17n2c-data-trust-runbook.md`.
 
+## Stage 17N.2d - Deep Reliability Audit
+
+Goal: hunt for hidden data-trust regressions across API contracts, import paths,
+cache keys, frontend display, rating rebuild operations, and occupied-slot
+readiness without redesigning planner UI or changing scoring weights.
+
+Delivered:
+
+- API/search/system models now allow nullable population values instead of
+  forcing unknown population to `0`.
+- Search/detail/autocomplete/cache payload versions were bumped:
+  `search:v4`, `galaxy:v4`, `cluster:v4`, `ac:v3`, `sys:v3`, and `body:v2`.
+- EDDN coordinate ingestion now requires complete numeric `StarPos` triples.
+  Partial coordinates stay unknown and do not overwrite known axes.
+- EDDN missing `Population` no longer overwrites known population with zero.
+  Inserts still use `COALESCE($7, 0)` only because `systems.population` remains
+  `NOT NULL DEFAULT 0`.
+- Dirty rating rebuild progress reports unknown totals honestly in `--dirty`
+  mode instead of rendering fake huge percentages.
+- `/api/system/{id64}` station rows now expose nullable `body_name`, preparing
+  the occupied-slot follow-up.
+- Added frontend coverage for ResultCard, SystemTable, CompareTab, SearchForm,
+  WatchlistTab, PinnedTab, and Colony Planner WorkspaceHeader unknown-value
+  rendering.
+
+Remaining follow-ups:
+
+- migrate `systems.population` to nullable or add an explicit population
+  confidence/source field if production data proves unknown and zero must be
+  distinguished in storage
+- keep improving occupied-slot source confidence as better station/body
+  association data arrives
+
+## Stage 17N.2d - Existing Infrastructure / Occupied Slot Awareness
+
+Goal: make the Raven-style planner distinguish existing in-game infrastructure
+from user-planned structures and projected Suggested Build ghosts without
+changing slot prediction or rating mechanics.
+
+Delivered:
+
+- `/api/system/{id64}` station rows now expose additional nullable planner
+  diagnostics: `market_id` (current `stations.id` alias), `primary_economy`,
+  `secondary_economy`, and refuel/repair/rearm service flags.
+- Frontend occupied-slot resolver creates an `existing` structure model separate
+  from Build Plan placements and Suggested Build projections.
+- Body matching is conservative:
+  1. exact `body_id` / `local_body_id` if present
+  2. exact `body_name`
+  3. unique non-zero `distance_from_star` match as `inferred`
+  4. otherwise unresolved
+- Lane matching is conservative:
+  - `Coriolis`, `Orbis`, `Ocellus`, `Outpost`, and `AsteroidBase` occupy orbit
+  - `PlanetaryPort`, `PlanetaryOutpost`, and surface/settlement-like types
+    occupy surface
+  - `MegaShip`, `FleetCarrier`, and `Unknown` remain unresolved/unknown and do
+    not consume a predicted colony slot
+- Raven canvas renders existing structures as solid occupied slots, projected
+  structures as ghost/dashed slots, planned structures as user-plan slots, and
+  empty capacity as passive empty boxes.
+- Existing occupancy reduces Add Orbit/Add Surface availability. A body with
+  `O2` plus one existing orbital station has one remaining orbital slot; with
+  one existing and one planned it is full; with one existing and two planned it
+  shows an overflow warning.
+- Existing infrastructure is not inserted into the user Build Plan and does not
+  inflate planned counts.
+- Unresolved existing stations render in a compact "Existing infrastructure not
+  matched to body" area instead of being forced onto a body or lane.
+
+Known data limits:
+
+- There is still no `stations.body_id` column in the DB.
+- There is no separate verified `market_id` column; current API `market_id`
+  mirrors `stations.id`, which importers populate from Spansh `id`/`marketId`.
+- Station-to-body matching remains best-effort when only distance is available.
+- Fleet carriers/megaships are intentionally not treated as colony-slot
+  occupants until the source model can distinguish permanent colony
+  infrastructure from mobile/special infrastructure.
+
+Follow-up:
+
+- Add a normalized occupied-slot source table with station id, verified market
+  id, body id/name, lane, match confidence, source, and timestamp.
+- Backfill `body_id` where journal/Spansh data can provide it exactly.
+- Add backend diagnostics for unresolved station/body matches so production data
+  can be improved without frontend guesses.
+
 ## Stage 18 - Colony Architect Assistant Foundation (Planned)
 
 Stage 18 should add an assistant foundation while keeping deterministic planner authority:

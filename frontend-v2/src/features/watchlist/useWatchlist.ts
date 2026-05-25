@@ -70,7 +70,7 @@ export function useWatchlist(): UseWatchlist {
         x:            hint?.x ?? null,
         y:            hint?.y ?? null,
         z:            hint?.z ?? null,
-        population:   hint?.population ?? 0,
+        population:   hint?.population ?? null,
         is_colonised: hint?.is_colonised ?? false,
         added_at:     new Date().toISOString(),
         score:        hint?.score ?? null,

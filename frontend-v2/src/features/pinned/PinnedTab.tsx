@@ -145,7 +145,7 @@ export function toPinnedEntry(sys: {
   name:         string;
   coords?:      { x?: number | null; y?: number | null; z?: number | null } | null;
   distance?:    number | null;
-  population:   number;
+  population?:  number | null;
   is_colonised?: boolean | null;
   _rating?:     { score?: number | null; economySuggestion?: string | null } | null;
 }): PinnedEntry {
@@ -155,7 +155,7 @@ export function toPinnedEntry(sys: {
     x:            sys.coords?.x ?? null,
     y:            sys.coords?.y ?? null,
     z:            sys.coords?.z ?? null,
-    population:   sys.population,
+    population:   sys.population ?? null,
     is_colonised: !!sys.is_colonised,
     distance:     sys.distance ?? null,
     rating:       sys._rating?.score ?? null,

@@ -464,7 +464,7 @@ export interface WatchlistEntry {
   x:                  number | null;
   y:                  number | null;
   z:                  number | null;
-  population:         number;
+  population:         number | null;
   is_colonised:       boolean;
   added_at:           string;
   /** Latest rating (joined server-side). */

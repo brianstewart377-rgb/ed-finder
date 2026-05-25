@@ -7,6 +7,9 @@ export function PlannerStatusStrip({
   planningFocusLabel,
   placementCount,
   projectedCount,
+  existingCount = 0,
+  emptySlotCount = 0,
+  unresolvedExistingCount = 0,
   unsavedChanges,
   economyLedger,
   prerequisiteIssueCount = 0,
@@ -15,6 +18,9 @@ export function PlannerStatusStrip({
   planningFocusLabel: string | null;
   placementCount: number;
   projectedCount: number;
+  existingCount?: number;
+  emptySlotCount?: number;
+  unresolvedExistingCount?: number;
   unsavedChanges: boolean;
   economyLedger: PlanningEconomyLedger;
   prerequisiteIssueCount?: number;
@@ -36,8 +42,11 @@ export function PlannerStatusStrip({
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5" aria-label="Planner status">
+          <StatusChip label={`${existingCount} existing`} tone={existingCount > 0 ? 'green' : 'silver'} />
           <StatusChip label={`${placementCount} planned`} tone={placementCount > 0 ? 'orange' : 'silver'} />
-          {projectedCount > 0 && <StatusChip label={`${projectedCount} projected`} tone="cyan" />}
+          <StatusChip label={`${projectedCount} projected`} tone={projectedCount > 0 ? 'cyan' : 'silver'} />
+          <StatusChip label={`${emptySlotCount} empty slots`} tone="silver" />
+          {unresolvedExistingCount > 0 && <StatusChip label={`${unresolvedExistingCount} unresolved existing`} tone="gold" />}
           {prerequisiteIssueCount > 0 && <StatusChip label={`${prerequisiteIssueCount} prerequisite warning${prerequisiteIssueCount === 1 ? '' : 's'}`} tone="gold" />}
           <StatusChip label={unsavedChanges ? 'Unsaved changes' : 'Saved locally'} tone={unsavedChanges ? 'gold' : 'silver'} />
         </div>
@@ -49,7 +58,7 @@ export function PlannerStatusStrip({
   );
 }
 
-function StatusChip({ label, tone = 'silver' }: { label: string; tone?: 'silver' | 'orange' | 'gold' | 'cyan' }) {
+function StatusChip({ label, tone = 'silver' }: { label: string; tone?: 'silver' | 'orange' | 'gold' | 'cyan' | 'green' }) {
   return (
     <span
       className={[
@@ -60,6 +69,8 @@ function StatusChip({ label, tone = 'silver' }: { label: string; tone?: 'silver'
             ? 'border-gold/35 bg-gold/10 text-gold'
             : tone === 'cyan'
               ? 'border-cyan/35 bg-cyan/10 text-cyan'
+              : tone === 'green'
+                ? 'border-green/35 bg-green/10 text-green'
               : 'border-border/60 bg-bg3/45 text-silver-dk',
       ].join(' ')}
     >

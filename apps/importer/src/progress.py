@@ -163,7 +163,7 @@ class ProgressReporter:
         prog.finish()
     """
 
-    def __init__(self, log, total: int, label: str,
+    def __init__(self, log, total: int | None, label: str,
                  interval: float = 30.0, heartbeat: float = 120.0):
         self.log        = log
         self.total      = total
@@ -200,11 +200,19 @@ class ProgressReporter:
     def _print(self):
         elapsed   = self._elapsed()
         rate      = self._rate()
+        err_str = f" | errors: {self.errors:,}" if self.errors else ""
+        if self.total is None:
+            self.log.info(
+                f"  [{self.label}]  {fmt_num(self.done)} / unknown"
+                f"  {fmt_rate(self.done, elapsed)}"
+                f"  elapsed: {fmt_duration(elapsed)}"
+                f"{err_str}"
+            )
+            return
+
         remaining = max(self.total - self.done, 0)
         pct       = self.done / self.total * 100 if self.total > 0 else 0
         eta       = fmt_eta(remaining, rate)
-
-        err_str = f" | errors: {self.errors:,}" if self.errors else ""
         self.log.info(
             f"  [{self.label}]  {fmt_num(self.done)} / {fmt_num(self.total)}"
             f"  ({pct:.1f}%)"
@@ -216,7 +224,16 @@ class ProgressReporter:
 
     def _heartbeat(self):
         elapsed = self._elapsed()
-        pct     = self.done / self.total * 100 if self.total > 0 else 0
+        if self.total is None:
+            self.log.info(
+                f"  ♥  [{self.label}] still alive —"
+                f" {fmt_num(self.done)}/unknown"
+                f" | {fmt_rate(self.done, elapsed)}"
+                f" | elapsed: {fmt_duration(elapsed)}"
+            )
+            return
+
+        pct = self.done / self.total * 100 if self.total > 0 else 0
         self.log.info(
             f"  ♥  [{self.label}] still alive —"
             f" {fmt_num(self.done)}/{fmt_num(self.total)} ({pct:.1f}%)"

@@ -73,7 +73,7 @@ def sys_row_to_dict(r: Any) -> dict:
     d['z']           = coords['z']
     d['coords']      = coords
     d['distance']    = d.get('distance')
-    d['population']  = d.get('population', 0)
+    d['population']  = d.get('population')
     d['primaryEconomy']   = d.get('primary_economy',   'Unknown')
     d['secondaryEconomy'] = d.get('secondary_economy', 'None')
     d['security']         = d.get('security',   'Unknown')
