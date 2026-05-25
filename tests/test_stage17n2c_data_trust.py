@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import inspect
 from pathlib import Path
@@ -34,6 +35,20 @@ from build_ratings import (
     worker_process,
 )
 from import_spansh import _extract_system_coords
+
+
+def _schema_text(name: str) -> str:
+    return Path(ROOT, 'sql', name).read_text(encoding='utf-8')
+
+
+def _table_definition(schema: str, table_name: str) -> str:
+    match = re.search(
+        rf'CREATE TABLE IF NOT EXISTS {re.escape(table_name)} \((.*?)\n\);',
+        schema,
+        flags=re.DOTALL,
+    )
+    assert match is not None, f'{table_name} table definition missing'
+    return match.group(1)
 
 
 def test_safe_coords_treats_non_sol_origin_as_unknown():
@@ -230,6 +245,33 @@ def test_data_trust_cache_versions_are_bumped():
     assert "CLUSTER_CACHE_VERSION = 'v4'" in search_source
     assert "SYSTEM_CACHE_VERSION = 'v3'" in systems_source
     assert "BODY_CACHE_VERSION = 'v2'" in systems_source
+
+
+def test_base_schema_preserves_nullable_system_coordinates():
+    systems = _table_definition(_schema_text('001_schema.sql'), 'systems')
+
+    for column in ('x', 'y', 'z'):
+        assert re.search(rf'\b{column}\s+REAL\s+DEFAULT NULL\b', systems)
+        assert not re.search(rf'\b{column}\s+REAL\s+NOT NULL\s+DEFAULT 0\b', systems)
+
+
+def test_nullable_coordinate_migration_remains_for_existing_deployments():
+    migration = _schema_text('019_nullable_coords.sql')
+
+    for column in ('x', 'y', 'z'):
+        assert f'ALTER TABLE systems ALTER COLUMN {column} DROP NOT NULL;' in migration
+        assert f'ALTER TABLE systems ALTER COLUMN {column} DROP DEFAULT;' in migration
+
+    assert 'SET x = NULL, y = NULL, z = NULL' in migration
+    assert 'id64 != 10477373803' in migration
+
+
+def test_base_schema_includes_rating_version_and_migration_remains():
+    ratings = _table_definition(_schema_text('001_schema.sql'), 'ratings')
+    migration = _schema_text('020_rating_version.sql')
+
+    assert re.search(r'\brating_version\s+TEXT\s+DEFAULT NULL\b', ratings)
+    assert 'ADD COLUMN IF NOT EXISTS rating_version TEXT DEFAULT NULL' in migration
 
 
 def test_spansh_importer_missing_coords_stay_null():
