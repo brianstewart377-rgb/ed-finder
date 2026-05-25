@@ -2,7 +2,14 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FacilityTemplate, SlotPredictionResponse, SystemDetail } from '@/types/api';
 import type { TopologyPlanSnapshot, TopologySelectionContext } from './ColonyTopologyRail';
-import { RavenPlannerTelemetryPanel, RavenStylePlannerCanvas, buildProjectionComparison, buildRavenPlannerRows } from './RavenStylePlannerCanvas';
+import {
+  RavenPlannerTelemetryPanel,
+  RavenStylePlannerCanvas,
+  buildProjectionComparison,
+  buildRavenPlannerOccupancySummary,
+  buildRavenPlannerRows,
+  getRavenLaneCapacityState,
+} from './RavenStylePlannerCanvas';
 import { buildPlanningEconomyLedger } from './planningEconomy';
 
 const system = {
@@ -188,6 +195,32 @@ const snapshot: TopologyPlanSnapshot = {
   },
 };
 
+const occupiedSystem = {
+  ...system,
+  stations: [
+    {
+      id: 9001,
+      market_id: 9001,
+      name: 'Holden Orbital',
+      station_type: 'Coriolis',
+      body_name: 'Real Data System A 1',
+      primary_economy: 'Refinery',
+      landing_pad_size: 'L',
+      distance_from_star: 220,
+    },
+    {
+      id: 9002,
+      market_id: 9002,
+      name: 'Kepler Surface Port',
+      station_type: 'PlanetaryPort',
+      body_name: 'Real Data System A 1',
+      primary_economy: null,
+      landing_pad_size: 'M',
+      distance_from_star: 220,
+    },
+  ],
+} as unknown as SystemDetail;
+
 describe('RavenStylePlannerCanvas real data adapter', () => {
   it('renders user-facing build map copy and concise slot disclaimer', () => {
     render(<RavenStylePlannerCanvas system={system} snapshot={snapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
@@ -212,6 +245,108 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(body?.groundSlots[1].kind).toBe('projected');
     expect(missingPredictionBody?.orbitalSlots[0].kind).toBe('unknown');
     expect(missingPredictionBody?.groundSlots[1].title).toContain('No economy metadata');
+  });
+
+  it('maps existing stations into occupied orbital and surface slots without turning them into planned placements', () => {
+    const occupiedSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [],
+      projection: null,
+    };
+    const rows = buildRavenPlannerRows(occupiedSystem, occupiedSnapshot);
+    const body = rows.find((row) => row.id === '2');
+    const summary = buildRavenPlannerOccupancySummary(occupiedSystem, occupiedSnapshot);
+
+    expect(body?.existingCount).toBe(2);
+    expect(body?.plannedCount).toBe(0);
+    expect(body?.orbitalSlots[0]).toEqual(expect.objectContaining({
+      kind: 'existing',
+      fullName: 'Holden Orbital',
+      existingStructureId: 'existing-9001',
+    }));
+    expect(body?.orbitalSlots[1]).toEqual(expect.objectContaining({ kind: 'empty' }));
+    expect(body?.groundSlots[0]).toEqual(expect.objectContaining({
+      kind: 'existing',
+      fullName: 'Kepler Surface Port',
+    }));
+    expect(summary).toEqual(expect.objectContaining({
+      existingCount: 2,
+      plannedCount: 0,
+      projectedCount: 0,
+      emptySlotCount: 2,
+    }));
+
+    render(<RavenStylePlannerCanvas system={occupiedSystem} snapshot={occupiedSnapshot} selection={{ type: 'body', bodyId: '2' }} onSelect={vi.fn()} onRequestAddStructure={vi.fn()} />);
+
+    expect(screen.getByTestId('raven-existing-infrastructure-summary').textContent).toContain('Existing infrastructure detected');
+    expect(screen.getAllByTestId('raven-existing-structure')).toHaveLength(2);
+    expect(screen.getAllByText('Holden Orbital').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Kepler Surface Port').length).toBeGreaterThan(0);
+    expect((screen.getByTestId('2-orbital-add') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId('2-ground-add') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('includes existing occupancy in add capacity and overflow calculations', () => {
+    const oneExistingSystem = {
+      ...system,
+      stations: [occupiedSystem.stations?.[0]],
+    } as unknown as SystemDetail;
+    const fullSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [
+        { facility_template_id: 'dodec_starport', local_body_id: '2', build_order: 1 },
+      ],
+      projection: null,
+    };
+    const fullState = getRavenLaneCapacityState(oneExistingSystem, fullSnapshot, '2', 'orbital');
+    const fullRow = buildRavenPlannerRows(oneExistingSystem, fullSnapshot).find((row) => row.id === '2');
+
+    expect(fullState).toEqual(expect.objectContaining({
+      capacity: 2,
+      existingCount: 1,
+      plannedCount: 1,
+      remaining: 0,
+      disabledReason: 'No empty orbital slots',
+    }));
+    expect(fullRow?.orbitalSlots.map((slot) => slot.kind)).toEqual(['existing', 'planned']);
+    expect(fullRow?.orbitalSlots.some((slot) => slot.kind === 'overflow')).toBe(false);
+
+    const overflowSnapshot: TopologyPlanSnapshot = {
+      ...fullSnapshot,
+      placements: [
+        { facility_template_id: 'dodec_starport', local_body_id: '2', build_order: 1 },
+        { facility_template_id: 'dodec_starport', local_body_id: '2', build_order: 2 },
+      ],
+    };
+    const overflowRow = buildRavenPlannerRows(oneExistingSystem, overflowSnapshot).find((row) => row.id === '2');
+    expect(overflowRow?.orbitalSlots.map((slot) => slot.kind)).toEqual(['existing', 'planned', 'overflow']);
+
+    render(<RavenStylePlannerCanvas system={oneExistingSystem} snapshot={fullSnapshot} selection={{ type: 'body', bodyId: '2' }} onSelect={vi.fn()} onRequestAddStructure={vi.fn()} />);
+    expect((screen.getByTestId('2-orbital-add') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('2-orbital-disabled-reason').textContent).toContain('No empty orbital slots');
+  });
+
+  it('shows unresolved existing infrastructure compactly instead of forcing a body or lane', () => {
+    const unresolvedSystem = {
+      ...system,
+      stations: [
+        {
+          id: 9100,
+          market_id: 9100,
+          name: 'Wandering Megaship',
+          station_type: 'MegaShip',
+          body_name: null,
+          distance_from_star: null,
+        },
+      ],
+    } as unknown as SystemDetail;
+
+    render(<RavenStylePlannerCanvas system={unresolvedSystem} snapshot={{ ...snapshot, placements: [], projection: null }} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    const unresolved = screen.getByTestId('raven-unresolved-existing-infrastructure');
+    expect(unresolved.textContent).toContain('Existing infrastructure not matched to body');
+    expect(unresolved.textContent).toContain('Wandering Megaship');
+    expect(buildRavenPlannerOccupancySummary(unresolvedSystem, { ...snapshot, placements: [], projection: null }).unresolvedExistingCount).toBe(1);
   });
 
   it('excludes Barycentre and Null entries from the real system tree rows', () => {

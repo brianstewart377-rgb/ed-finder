@@ -187,6 +187,42 @@ Stage 17E is a functional rebuild pass, not a visual polish pass. It targets the
 - candidate scale still depends on catalogue breadth and body coverage; sparse systems can still produce starter-level output
 - LLM advisor remains foundation-only (schema/docs), not active UI generation
 
+## Stage 17N.2d Existing Infrastructure Awareness
+
+Stage 17N.2d closes the main correctness gap left by the Raven-style planner:
+an empty Build Plan no longer implies the system has no infrastructure.
+
+Implemented behaviour:
+
+- existing station records from `/api/system/{id64}` are resolved into a
+  frontend `existing` structure model separate from planned and projected
+  structures
+- safely mapped existing orbital/surface structures render directly in Raven
+  slot lanes as solid occupied slots
+- unresolved stations render in a compact "Existing infrastructure not matched
+  to body" area
+- Add Orbit/Add Surface respects existing occupancy and disables when the lane
+  has no empty capacity
+- existing slots do not mutate the user Build Plan, do not select as planned
+  placements, and do not inflate planned counts
+
+Safe assumptions:
+
+- exact `body_id` / `local_body_id` can be treated as exact when available
+- exact `body_name` can be treated as exact when it matches one known body
+- unique non-zero `distance_from_star` can be shown as inferred, not exact
+- Coriolis/Orbis/Ocellus/Outpost/AsteroidBase are orbital slot occupants
+- PlanetaryPort/PlanetaryOutpost/surface/settlement-like types are surface slot
+  occupants
+
+Unsafe assumptions avoided:
+
+- no body is guessed from an ambiguous name or distance
+- no unknown station type is forced into orbital/surface capacity
+- fleet carriers and megaships are not counted as colony-slot occupants
+- `stations.id` is exposed as `market_id` for diagnostics but still needs
+  backend verification before it is treated as a separate canonical identity
+
 ## Stage 17G Validated Slot Algorithm Everywhere + System-Wide Slot Map
 
 Stage 17G standardises slot prediction on one canonical backend algorithm and changes the dedicated planner from a body list plus report cards into a whole-system slot/economy map.

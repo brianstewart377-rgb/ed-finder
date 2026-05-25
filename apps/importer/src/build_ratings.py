@@ -1734,8 +1734,11 @@ def main():
         log.info("    Use --rebuild to force re-rate everything.")
         return
 
-    est_h = (to_process or remaining) / 1_000_000 / max(worker_count, 1) * 0.8
-    log.info(f"  Estimated time         : {est_h:.1f}h with {worker_count} workers")
+    if to_process is None:
+        log.info("  Estimated time         : unknown until dirty stream drains")
+    else:
+        est_h = to_process / 1_000_000 / max(worker_count, 1) * 0.8
+        log.info(f"  Estimated time         : {est_h:.1f}h with {worker_count} workers")
 
     stage_banner(log, 2, 3, "Stream & rate systems")
     crash_hint(log, "automatically from the last rated system")
@@ -1780,7 +1783,8 @@ def main():
         chunks_dispatched = 0
         limit_remaining   = args.limit or 999_999_999
         pending_results   = []
-        progress = ProgressReporter(log, total=to_process or 1,
+        progress_total = args.limit if args.limit is not None else to_process
+        progress = ProgressReporter(log, total=progress_total,
                                     label="ratings", interval=60, heartbeat=180)
 
         with mp.Pool(processes=worker_count) as pool:

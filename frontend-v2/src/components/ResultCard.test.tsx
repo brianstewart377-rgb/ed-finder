@@ -121,4 +121,18 @@ describe('ResultCard distance display (Stage 17N.2)', () => {
     expect(screen.getByText('— LY')).toBeTruthy();
     expect(screen.queryByText('0.00')).toBeNull();
   });
+
+  it('does not label colonised unknown-population systems as uninhabited', () => {
+    const unknownPop = {
+      ...system,
+      population: null,
+      is_colonised: true,
+    } as unknown as SystemResult;
+
+    render(<ResultCard system={unknownPop} index={0} />);
+
+    expect(screen.getByText('COL')).toBeTruthy();
+    expect(screen.getByText('Unknown')).toBeTruthy();
+    expect(screen.queryByText('Uninhabited')).toBeNull();
+  });
 });

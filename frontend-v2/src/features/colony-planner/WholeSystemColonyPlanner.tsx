@@ -19,7 +19,12 @@ import { useWorkspaceProjectState } from './useWorkspaceProjectState';
 import { getPlanningFocusLabel, type PlannerWorkspaceCommand } from './workspaceUtils';
 import { buildPlanningEconomyLedger } from './planningEconomy';
 import { AdvancedPlannerDrawer } from './AdvancedPlannerDrawer';
-import { RavenPlannerTelemetryPanel, RavenStylePlannerCanvas } from './RavenStylePlannerCanvas';
+import {
+  RavenPlannerTelemetryPanel,
+  RavenStylePlannerCanvas,
+  buildRavenPlannerOccupancySummary,
+  getRavenLaneCapacityState,
+} from './RavenStylePlannerCanvas';
 import {
   buildPlanPrerequisiteIssues,
   describePlacementTarget,
@@ -100,6 +105,10 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     placementLaneHints,
     projection,
   }), [placementLaneHints, placements, projection, slotPredictionsQuery.data, targetArchetype, templates]);
+  const occupancySummary = useMemo(
+    () => buildRavenPlannerOccupancySummary(system, planSnapshot),
+    [planSnapshot, system],
+  );
 
   const projectState = useWorkspaceProjectState(system, planSnapshot);
   const projectRequestFingerprint = useMemo(
@@ -143,10 +152,16 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   const prerequisiteIssues = useMemo(() => buildPlanPrerequisiteIssues(placements, templates), [placements, templates]);
 
   const requestAddStructure = useCallback((bodyId: string, lane: BodyPlannerLane) => {
+    const state = getRavenLaneCapacityState(system, planSnapshot, bodyId, lane);
+    if (state.disabledReason) {
+      setStructureAddFeedback({ tone: 'error', message: state.disabledReason });
+      setStructurePicker(null);
+      return;
+    }
     setSelection({ type: 'body', bodyId });
     setStructureAddFeedback(null);
     setStructurePicker({ bodyId, lane });
-  }, []);
+  }, [planSnapshot, system]);
 
   const addStructure = useCallback((bodyId: string, lane: BodyPlannerLane, templateId: string) => {
     const template = templates.find((candidate) => candidate.id === templateId);
@@ -160,6 +175,10 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     const disabledReason = laneDisabledReason(body, lane);
     if (disabledReason) {
       return { ok: false as const, message: disabledReason };
+    }
+    const capacityState = getRavenLaneCapacityState(system, planSnapshot, bodyId, lane);
+    if (capacityState.disabledReason) {
+      return { ok: false as const, message: capacityState.disabledReason };
     }
     if (!templateMatchesLane(template, lane) || !templateCanFitBody(template, body, lane)) {
       return { ok: false as const, message: `${templateDisplayName(template)} is not compatible with this ${lane === 'orbital' ? 'orbit' : 'surface'} lane.` };
@@ -182,7 +201,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
       ok: true as const,
       message: `Added ${templateDisplayName(template)} to ${describePlacementTarget(body, lane)}.`,
     };
-  }, [system.bodies, templates]);
+  }, [planSnapshot, system, system.bodies, templates]);
 
   const pickStructureTemplate = useCallback((templateId: string) => {
     if (!structurePicker) return;
@@ -227,6 +246,9 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
           planningFocusLabel={planningFocusLabel}
           placementCount={placements.length}
           projectedCount={projection?.placements.length ?? 0}
+          existingCount={occupancySummary.existingCount}
+          emptySlotCount={occupancySummary.emptySlotCount}
+          unresolvedExistingCount={occupancySummary.unresolvedExistingCount}
           unsavedChanges={projectState.unsavedChanges}
           economyLedger={systemEconomyLedger}
           prerequisiteIssueCount={prerequisiteIssues.length}

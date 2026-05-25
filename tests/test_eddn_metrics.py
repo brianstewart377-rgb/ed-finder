@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import socket
 import sys
 from pathlib import Path
 
@@ -98,9 +99,86 @@ def test_json_log_formatter_emits_valid_json(listener):
     assert 'T' in payload['ts'] and ('+' in payload['ts'] or 'Z' in payload['ts'])
 
 
-def test_metrics_server_serves_metrics_and_404s_other_paths(listener, unused_tcp_port):
+def test_star_pos_requires_complete_numeric_triple(listener):
+    assert listener._extract_star_pos(None) == (None, None, None)
+    assert listener._extract_star_pos([78.5, None, 16.78125]) == (None, None, None)
+    assert listener._extract_star_pos([78.5, '-100.25', 16.78125]) == (
+        78.5,
+        -100.25,
+        16.78125,
+    )
+
+
+def test_location_partial_star_pos_does_not_overwrite_known_coords(listener):
+    listener._pending_systems[42] = {
+        'id64': 42,
+        'x': 1.0,
+        'y': 2.0,
+        'z': 3.0,
+    }
+
+    async def run():
+        await listener.handle_location_or_jump(
+            None,
+            {},
+            {'SystemAddress': 42, 'StarSystem': 'Partial', 'StarPos': [9.0, None, 3.0]},
+        )
+
+    asyncio.run(run())
+
+    assert listener._pending_systems[42]['x'] == 1.0
+    assert listener._pending_systems[42]['y'] == 2.0
+    assert listener._pending_systems[42]['z'] == 3.0
+
+
+def test_location_missing_population_does_not_overwrite_known_population(listener):
+    listener._pending_systems[44] = {
+        'id64': 44,
+        'pop': 123_456,
+    }
+
+    async def run():
+        await listener.handle_location_or_jump(
+            None,
+            {},
+            {'SystemAddress': 44, 'StarSystem': 'No Population Field'},
+        )
+
+    asyncio.run(run())
+
+    assert listener._pending_systems[44]['pop'] == 123_456
+
+
+def test_fss_partial_star_pos_is_stored_as_unknown_coords(listener):
+    async def run():
+        await listener.handle_fss_discovery(
+            None,
+            {},
+            {'SystemAddress': 43, 'StarSystem': 'Partial FSS', 'StarPos': [9.0, None, 3.0]},
+        )
+
+    asyncio.run(run())
+
+    assert listener._pending_systems[43]['x'] is None
+    assert listener._pending_systems[43]['y'] is None
+    assert listener._pending_systems[43]['z'] is None
+
+
+def _unused_tcp_port_or_skip() -> int:
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    except PermissionError:
+        pytest.skip('sandbox does not permit opening sockets')
+    with sock:
+        sock.bind(('127.0.0.1', 0))
+        return sock.getsockname()[1]
+
+
+def test_metrics_server_serves_metrics_and_404s_other_paths(listener):
     """End-to-end: bind a listener, hit /metrics, /healthz, /nope, verify
     each returns the right status."""
+    unused_tcp_port = _unused_tcp_port_or_skip()
+
     async def run():
         listener.METRICS_PORT = unused_tcp_port
         server_task = asyncio.create_task(listener.metrics_server())

@@ -72,6 +72,19 @@ Stored in `score_breakdown.dimensions`:
 Operational recovery steps for Stage 17N.2c are documented in
 `docs/operations/stage17n2c-data-trust-runbook.md`.
 
+## Stage 17N.2d reliability additions
+
+- Dirty-only rebuild progress must not use a fake total. When the dirty count is
+  not cheaply known, progress logs render `done / unknown`; `--limit` runs still
+  render against the limit.
+- Rating/cache payloads that carry v3.4 meaning should be treated as cache
+  versioned data. Search uses `search:v4:*`, galaxy search `galaxy:v4:*`,
+  cluster search `cluster:v4:*`, autocomplete `ac:v3:*`, and system detail
+  `sys:v3:*`.
+- Missing `rating_version` is legacy/stale. The UI separates that caveat from
+  the user-facing rationale so old internal/stale wording is not presented as
+  the main explanation.
+
 ## Frontend display contract
 
 The `RatingRadar` component must show:

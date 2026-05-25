@@ -20,7 +20,7 @@ export interface SystemRow {
   x:            number | null;
   y:            number | null;
   z:            number | null;
-  population:   number;
+  population:   number | null;
   is_colonised: boolean;
   is_being_colonised?: boolean | null;
   score:        number | null;

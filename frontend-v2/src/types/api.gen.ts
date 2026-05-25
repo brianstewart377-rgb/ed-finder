@@ -1405,11 +1405,8 @@ export interface components {
             y?: number | null;
             /** Z */
             z?: number | null;
-            /**
-             * Population
-             * @default 0
-             */
-            population: number;
+            /** Population */
+            population?: number | null;
             /** Primaryeconomy */
             primaryEconomy?: string | null;
         } & {
@@ -3279,20 +3276,34 @@ export interface components {
         StationModel: {
             /** Id */
             id?: number | null;
+            /** Market Id */
+            market_id?: number | null;
             /** Name */
             name?: string | null;
             /** Station Type */
             station_type?: string | null;
             /** Distance From Star */
             distance_from_star?: number | null;
+            /** Body Name */
+            body_name?: string | null;
             /** Landing Pad Size */
             landing_pad_size?: string | null;
+            /** Primary Economy */
+            primary_economy?: string | null;
+            /** Secondary Economy */
+            secondary_economy?: string | null;
             /** Has Market */
             has_market?: boolean | null;
             /** Has Shipyard */
             has_shipyard?: boolean | null;
             /** Has Outfitting */
             has_outfitting?: boolean | null;
+            /** Has Refuel */
+            has_refuel?: boolean | null;
+            /** Has Repair */
+            has_repair?: boolean | null;
+            /** Has Rearm */
+            has_rearm?: boolean | null;
         } & {
             [key: string]: unknown;
         };
@@ -3481,11 +3492,8 @@ export interface components {
             y?: number | null;
             /** Z */
             z?: number | null;
-            /**
-             * Population
-             * @default 0
-             */
-            population: number;
+            /** Population */
+            population?: number | null;
             /** Primary Economy */
             primary_economy?: string | null;
             /** Secondary Economy */
@@ -3578,11 +3586,8 @@ export interface components {
             coords?: components["schemas"]["CoordsModel"] | null;
             /** Distance */
             distance?: number | null;
-            /**
-             * Population
-             * @default 0
-             */
-            population: number;
+            /** Population */
+            population?: number | null;
             /** Primaryeconomy */
             primaryEconomy?: string | null;
             /** Secondaryeconomy */

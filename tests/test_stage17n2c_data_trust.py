@@ -1,6 +1,7 @@
 import os
 import sys
 import inspect
+from pathlib import Path
 
 os.environ.setdefault('LOG_FILE', '/dev/null')
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
@@ -13,6 +14,8 @@ import psycopg2
 
 from helpers import safe_coords_from_row, sys_row_to_dict
 from local_search import _build_system_record, _safe_distance, local_db_search
+from models import AutocompleteHit, StationModel, SystemDetailRow, SystemRow
+from progress import ProgressReporter
 from build_ratings import (
     RATING_CONFLICT_UPDATE_COLUMNS,
     RATING_INSERT_COLUMNS,
@@ -71,6 +74,23 @@ def test_search_record_preserves_null_distance_and_fake_coords():
     assert record['distance'] is None
 
 
+def test_search_record_preserves_null_population():
+    row = {
+        'id64': 2008132031194,
+        'name': 'Unknown Population',
+        'x': 78.5,
+        'y': -100.25,
+        'z': 16.78125,
+        'dist': None,
+        'updated_at': None,
+        'population': None,
+    }
+
+    record = _build_system_record(row)
+
+    assert record['population'] is None
+
+
 def test_sys_row_to_dict_does_not_invent_origin_coords():
     record = sys_row_to_dict({'id64': 123, 'name': 'Unknown place', 'x': 0, 'y': 0, 'z': 0})
     assert record['x'] is None
@@ -79,10 +99,55 @@ def test_sys_row_to_dict_does_not_invent_origin_coords():
     assert record['coords'] == {'x': None, 'y': None, 'z': None}
 
 
+def test_sys_row_to_dict_preserves_null_population():
+    record = sys_row_to_dict({
+        'id64': 123,
+        'name': 'Unknown place',
+        'x': None,
+        'y': None,
+        'z': None,
+        'population': None,
+    })
+
+    assert record['population'] is None
+
+
+def test_api_contracts_allow_null_population_and_station_body_name():
+    assert SystemRow(id64=1, population=None).population is None
+    assert SystemDetailRow(id64=1, name='Null Pop', population=None).population is None
+    assert AutocompleteHit(id64=1, name='Null Pop', population=None).population is None
+    station = StationModel(
+        id=5,
+        market_id=5,
+        name='Port',
+        body_name='A 1',
+        primary_economy='Refinery',
+        secondary_economy=None,
+        has_refuel=True,
+        has_repair=False,
+        has_rearm=False,
+    )
+    assert station.body_name == 'A 1'
+    assert station.market_id == 5
+    assert station.primary_economy == 'Refinery'
+
+
 def test_local_search_galaxy_wide_projects_null_distance():
     source = inspect.getsource(local_db_search)
     assert 'dist_expr = "NULL::float"' in source
     assert 'reference_coords must include x, y, z' in source
+
+
+def test_data_trust_cache_versions_are_bumped():
+    search_source = Path(ROOT, 'apps', 'api', 'src', 'routers', 'search.py').read_text()
+    systems_source = Path(ROOT, 'apps', 'api', 'src', 'routers', 'systems.py').read_text()
+
+    assert "AUTOCOMPLETE_CACHE_VERSION = 'v3'" in search_source
+    assert "SEARCH_CACHE_VERSION = 'v4'" in search_source
+    assert "GALAXY_CACHE_VERSION = 'v4'" in search_source
+    assert "CLUSTER_CACHE_VERSION = 'v4'" in search_source
+    assert "SYSTEM_CACHE_VERSION = 'v3'" in systems_source
+    assert "BODY_CACHE_VERSION = 'v2'" in systems_source
 
 
 def test_spansh_importer_missing_coords_stay_null():
@@ -238,3 +303,23 @@ def test_dirty_cleanup_retries_transient_statement_timeout():
     assert marked == 3
     assert left_dirty == 0
     assert conn.rollbacks == 1
+
+
+class _CaptureLog:
+    def __init__(self):
+        self.lines = []
+
+    def info(self, message):
+        self.lines.append(str(message))
+
+
+def test_dirty_progress_unknown_total_does_not_emit_fake_percent():
+    log = _CaptureLog()
+    progress = ProgressReporter(log, total=None, label='ratings', interval=0, heartbeat=0)
+
+    progress.update(55_000, force=True)
+
+    text = '\n'.join(log.lines)
+    assert '55,000 / unknown' in text
+    assert '55,000 / 1' not in text
+    assert '%' not in text

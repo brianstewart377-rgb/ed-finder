@@ -147,6 +147,34 @@ Stage 17N keeps the Stage 17M two-region ownership model and improves the right 
 
 `WorkspaceSummaryRail.tsx` defaults to a denser compact state under telemetry. It keeps save status, planned/projected counts, warning count, current focus, projection label, and planning economy visible, while manual expansion still exposes local project save/load/rename/duplicate/archive controls.
 
+### Stage 17N.2d Existing Infrastructure Awareness
+
+Stage 17N.2d adds occupied-slot awareness to the Raven-style planner while
+preserving the map-dominant layout and explicit planner boundaries.
+
+The planner now treats structures as separate sources:
+
+| Source | Meaning | Mutates Build Plan? | Slot effect |
+|---|---|---:|---|
+| Existing | Station/infrastructure already present in system-detail station data | No | Occupies capacity when body and lane are safely resolved |
+| Planned | User Build Plan placement | Yes | Occupies capacity |
+| Projected | Suggested Build ghost placement | No | Rendered for comparison; load remains explicit |
+| Empty | Available predicted slot | No | Passive empty capacity |
+| Unknown/unresolved | Missing slot prediction, body match, or lane classification | No | Displayed conservatively; no fake capacity claim |
+
+Existing infrastructure mapping is intentionally conservative. Exact body id is
+preferred when present, exact `body_name` is next, and a unique non-zero
+`distance_from_star` match is labelled inferred. Ambiguous or missing body
+association is shown in a compact unresolved-infrastructure area rather than
+forced into the map. Unknown station types, megaships, and fleet carriers are
+not counted as orbital/surface colony-slot occupants.
+
+Capacity and add flow now subtract safely mapped existing structures from
+remaining lane capacity. If a body has `O2` and one existing orbital station,
+one orbital slot remains. If the same body also has one planned orbital
+structure, Add Orbit is disabled with "No empty orbital slots". Existing
+structures never become Build Plan placements and never increase planned counts.
+
 
 ## Stage 16E Role-Hint Workspace Integration
 
