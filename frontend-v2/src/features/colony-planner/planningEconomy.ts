@@ -1,15 +1,14 @@
-import type { FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
+import type { FacilityTemplate, SimulateBuildPlacement } from '@/types/api';
+import {
+  compactEconomyLabel as compactEconomyVisualLabel,
+  CORE_ECONOMY_ORDER,
+  normaliseCoreEconomy,
+  type CoreEconomyName,
+} from './economyVisuals';
 
 export const PLANNING_ECONOMY_NOTE = 'Planning economy mix — run Preview for validated outcome.';
 
-export type PlanningEconomyName =
-  | 'Agriculture'
-  | 'Refinery'
-  | 'Industrial'
-  | 'HighTech'
-  | 'Military'
-  | 'Tourism'
-  | 'Extraction';
+export type PlanningEconomyName = CoreEconomyName;
 
 export interface PlanningEconomyEntry {
   economy: PlanningEconomyName;
@@ -32,27 +31,7 @@ interface LedgerInput {
   templates?: FacilityTemplate[];
 }
 
-const ECONOMY_ORDER: PlanningEconomyName[] = [
-  'Refinery',
-  'Industrial',
-  'Extraction',
-  'Agriculture',
-  'Military',
-  'HighTech',
-  'Tourism',
-];
-
-const ECONOMY_ALIASES: Record<string, PlanningEconomyName> = {
-  agriculture: 'Agriculture',
-  refinery: 'Refinery',
-  industrial: 'Industrial',
-  hightech: 'HighTech',
-  high_tech: 'HighTech',
-  'high tech': 'HighTech',
-  military: 'Military',
-  tourism: 'Tourism',
-  extraction: 'Extraction',
-};
+const ECONOMY_ORDER: PlanningEconomyName[] = CORE_ECONOMY_ORDER;
 
 export function buildPlanningEconomyLedger({
   placements = [],
@@ -104,107 +83,9 @@ export function buildPlanningEconomyLedger({
 }
 
 export function normalisePlanningEconomy(value?: string | null): PlanningEconomyName | null {
-  if (!value) return null;
-  const normalised = value.trim().replace(/[-\s]+/g, ' ').toLowerCase();
-  if (!normalised) return null;
-  return ECONOMY_ALIASES[normalised] ?? ECONOMY_ALIASES[normalised.replace(/\s+/g, '')] ?? null;
+  return normaliseCoreEconomy(value);
 }
 
 export function compactEconomyLabel(economy: PlanningEconomyName): string {
-  if (economy === 'Agriculture') return 'Agri';
-  if (economy === 'Industrial') return 'Ind';
-  if (economy === 'Extraction') return 'Ext';
-  if (economy === 'HighTech') return 'HiTech';
-  return economy.slice(0, 4);
-}
-
-export interface InferredEconomyShare {
-  economy: PlanningEconomyName;
-  share: number;
-  source: 'system' | 'body';
-}
-
-const BODY_SUBTYPE_LEANS: Array<{ tokens: string[]; economies: PlanningEconomyName[] }> = [
-  { tokens: ['high metal content', 'metal rich'], economies: ['Refinery', 'Extraction'] },
-  { tokens: ['icy body', 'ice'], economies: ['Extraction'] },
-  { tokens: ['rocky body', 'rocky ice'], economies: ['Extraction'] },
-  { tokens: ['earth-like', 'earthlike', 'earth like'], economies: ['Agriculture', 'Tourism'] },
-  { tokens: ['water world'], economies: ['Tourism'] },
-  { tokens: ['ammonia world'], economies: ['HighTech'] },
-  { tokens: ['gas giant'], economies: ['Industrial'] },
-];
-
-/**
- * Build a coarse inherited economy baseline for a station/port placed over a body
- * before any additional buildings are added. Mirrors RavenColonial's contextual
- * baseline behaviour: weighted picks from the surrounding system + body context.
- *
- * Anything more precise (final composition shares, CP, contamination) still
- * requires running Preview — this is only the inherited contextual baseline.
- */
-export function inferredStationBaselineShares(
-  body: SystemBody | null | undefined,
-  system: Pick<SystemDetail, 'primary_economy' | 'secondary_economy'> | null | undefined,
-): InferredEconomyShare[] {
-  const out: InferredEconomyShare[] = [];
-  const seen = new Set<PlanningEconomyName>();
-  const pushShare = (
-    economy: PlanningEconomyName | null,
-    share: number,
-    source: 'system' | 'body',
-  ) => {
-    if (!economy || share <= 0) return;
-    if (seen.has(economy)) {
-      const existing = out.find((entry) => entry.economy === economy);
-      if (existing) existing.share += share;
-      return;
-    }
-    seen.add(economy);
-    out.push({ economy, share, source });
-  };
-
-  if (system) {
-    pushShare(normalisePlanningEconomy(system.primary_economy), 60, 'system');
-    pushShare(normalisePlanningEconomy(system.secondary_economy), 25, 'system');
-  }
-
-  if (body) {
-    const subtype = `${body.subtype ?? ''} ${body.body_type ?? ''}`.toLowerCase();
-    BODY_SUBTYPE_LEANS.forEach((entry) => {
-      if (entry.tokens.some((token) => subtype.includes(token))) {
-        entry.economies.forEach((economy) => pushShare(economy, 15, 'body'));
-      }
-    });
-    if ((body.geo_signal_count ?? 0) > 0) pushShare('Extraction', 10, 'body');
-    if ((body.bio_signal_count ?? 0) > 0) pushShare('Agriculture', 10, 'body');
-    if (body.is_terraformable === true) pushShare('Agriculture', 10, 'body');
-  }
-
-  if (out.length === 0) return [];
-
-  const total = out.reduce((sum, entry) => sum + entry.share, 0);
-  return out
-    .map((entry) => ({ ...entry, share: Math.round((entry.share / total) * 100) }))
-    .filter((entry) => entry.share > 0);
-}
-
-export function economyToneClass(economy: PlanningEconomyName): string {
-  switch (economy) {
-    case 'Agriculture':
-      return 'bg-green/70';
-    case 'Refinery':
-      return 'bg-orange/75';
-    case 'Industrial':
-      return 'bg-silver/70';
-    case 'HighTech':
-      return 'bg-cyan/75';
-    case 'Military':
-      return 'bg-gold/75';
-    case 'Tourism':
-      return 'bg-pink-300/70';
-    case 'Extraction':
-      return 'bg-amber-700/75';
-    default:
-      return 'bg-border';
-  }
+  return compactEconomyVisualLabel(economy);
 }

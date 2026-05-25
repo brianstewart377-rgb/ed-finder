@@ -247,6 +247,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
           placementCount={placements.length}
           projectedCount={projection?.placements.length ?? 0}
           existingCount={occupancySummary.existingCount}
+          inferredExistingCount={occupancySummary.inferredExistingCount}
           emptySlotCount={occupancySummary.emptySlotCount}
           unresolvedExistingCount={occupancySummary.unresolvedExistingCount}
           unsavedChanges={projectState.unsavedChanges}

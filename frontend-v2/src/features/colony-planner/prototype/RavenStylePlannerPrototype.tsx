@@ -10,6 +10,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { useMemo, useState, type CSSProperties } from 'react';
+import { economyColor } from '../economyVisuals';
 
 type EconomyKind =
   | 'Refinery'
@@ -92,16 +93,6 @@ interface FlatBody {
   guide: boolean[];
   isLast: boolean;
 }
-
-const ECONOMY_COLORS: Record<EconomyKind, string> = {
-  Refinery: '#fbbf24',
-  Industrial: '#ff7a14',
-  Military: '#f87171',
-  Tourism: '#a78bfa',
-  Agriculture: '#4ade80',
-  Extraction: '#c8ccd1',
-  'High Tech': '#7dd3fc',
-};
 
 const ECONOMY_ABBREVIATIONS: Record<EconomyKind, string> = {
   Refinery: 'Ref',
@@ -963,7 +954,7 @@ function SlotLane({
 }
 
 function SlotBox({ slot, body, lane }: { slot: SlotModel; body: BodyNode; lane: LaneKind }) {
-  const color = slot.economy ? ECONOMY_COLORS[slot.economy] : undefined;
+  const color = slot.economy ? economyColor(slot.economy) : undefined;
   const commonTestId = `${body.id}-${lane}-slot`;
   const economyProfile = getStructureEconomyProfile(slot, body);
   const isStructureSlot = Boolean(slot.label && (slot.kind === 'planned' || slot.kind === 'projected' || slot.kind === 'overflow'));
@@ -1036,7 +1027,7 @@ function DetailedStructureList({
       <div data-testid="expanded-structure-list" className="space-y-1.5">
         {structures.map((slot) => {
           const economyProfile = getStructureEconomyProfile(slot, body);
-          const color = economyProfile[0]?.kind ? ECONOMY_COLORS[economyProfile[0].kind] : slot.economy ? ECONOMY_COLORS[slot.economy] : '#c8ccd1';
+          const color = economyProfile[0]?.kind ? economyColor(economyProfile[0].kind) : slot.economy ? economyColor(slot.economy) : '#c8ccd1';
           const title = formatSlotTitle(slot, body, slot.id.includes('-o-') ? 'orbital' : 'ground', economyProfile);
           return (
             <div
@@ -1093,7 +1084,7 @@ function StructureEconomyMicroBar({
             className={item.projected ? 'opacity-60' : ''}
             style={{
               width: `${(item.share / totalShare) * 100}%`,
-              backgroundColor: ECONOMY_COLORS[item.kind],
+              backgroundColor: economyColor(item.kind),
             }}
           />
         ))}
@@ -1116,7 +1107,7 @@ function StructureEconomyMicroBar({
               className={item.projected ? 'opacity-60' : ''}
               style={{
                 width: `${(item.share / totalShare) * 100}%`,
-                backgroundColor: ECONOMY_COLORS[item.kind],
+                backgroundColor: economyColor(item.kind),
               }}
             />
           ))}
@@ -1250,7 +1241,7 @@ function EconomyOutcomeRow({ item, compact = false }: { item: EconomyReadout; co
           className="block h-full"
           style={{
             width: `${Math.min(100, item.share)}%`,
-            backgroundColor: ECONOMY_COLORS[item.kind],
+            backgroundColor: economyColor(item.kind),
           }}
         />
       </span>

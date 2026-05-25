@@ -175,6 +175,19 @@ one orbital slot remains. If the same body also has one planned orbital
 structure, Add Orbit is disabled with "No empty orbital slots". Existing
 structures never become Build Plan placements and never increase planned counts.
 
+Stage 17N.2d-H moves the source of truth for this association to the backend:
+
+- `station_body_links` stores `body_id`, `lane`, `association_status`,
+  `association_confidence`, `association_source`, and `resolver_notes`.
+- `/api/system/{id64}` emits those fields for each station.
+- The Raven planner consumes backend metadata first. Inferred existing
+  structures can render in a lane, but they are visibly marked `verify` and are
+  not labelled confirmed.
+- Unknown-lane or unresolved stations stay in the unresolved infrastructure
+  area and do not consume confirmed orbital/surface capacity.
+- The old frontend resolver remains a compatibility fallback for old payloads;
+  it is not the production source of truth for confirmed occupancy.
+
 
 ## Stage 16E Role-Hint Workspace Integration
 
@@ -1208,15 +1221,21 @@ Compatibility rules:
 
 Inherited baseline economy:
 
-- contextual stations and ports without direct economy metadata render a baseline economy micro-bar derived from `system.primary_economy`, `system.secondary_economy`, and body subtype/atmosphere/signal heuristics
-- the `CTX` chip and tooltip continue to flag the value as inherited and not a CP-validated outcome
-- baseline shares are reported without CP magnitudes; full composition, CP yellow/green totals, contamination, and pass-through analysis still require Preview
+- contextual stations and ports without direct economy metadata render a baseline economy micro-bar derived from the ED-Finder Mega Guide body economy profile formula
+- the frontend formula mirrors the backend Preview foundation:
+  - first base economy: weight `1.0`
+  - later base economies: weight `0.8`
+  - modifier economies: weight `0.45`
+  - bar percentages are normalized from those weights
+- the `CTX` chip and tooltip continue to flag the value as inherited/contextual and not a final CP-validated outcome
+- if no documented body-to-economy rule matches the body, no fake baseline percentage is shown
+- full composition, CP yellow/green totals, contamination, links, services, and pass-through analysis still require Preview
 
 Safety boundary:
 
 - no Advanced Planner requirement
 - no automatic Preview, Suggested Build, or candidate load
-- no invented CP magnitudes
+- no invented CP magnitudes or placeholder 50/50 baseline percentages
 - empty slot boxes remain passive — only the row-level `Add Orbit` / `Add Surface` controls open the picker
 - prerequisite gaps remain warnings, not blockers
 
@@ -1228,7 +1247,7 @@ Canvas display changes:
 - body name contrast: `text-silver-lt`; body kind: `text-silver/85`; structure labels: `text-[11px] text-silver-lt`
 - lane chip: label `text-[11px] font-semibold`, count `text-[15px] font-bold` — coherent unit, not dwarfed label
 - selected row: `shadow-[inset_4px_0_0_...]`; add buttons: `text-[11px] font-semibold` with `border-orange/55 bg-orange/15`
-- economy micro-bar: `h-2` (8px) — readable segments, reliable hover target; tooltip preserved
+- economy micro-bar: `h-2` / `h-2.5` (8-10px) — readable segments, reliable hover target; tooltip preserved
 
 Slot interaction contract:
 

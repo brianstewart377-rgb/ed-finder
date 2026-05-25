@@ -9,6 +9,7 @@ from config  import settings, log
 from deps    import get_pool, get_redis, cache_get, cache_set
 from models  import SystemDetailResponse
 from helpers import sys_row_to_dict
+from station_body_resolver import resolve_station_body_association
 
 try:
     import local_search as _ls
@@ -73,17 +74,41 @@ async def get_system(
             ORDER BY distance_from_star ASC NULLS LAST
         """, id64)
 
-        stations = await conn.fetch("""
-            SELECT id, id AS market_id, name, station_type, distance_from_star, body_name,
-                   landing_pad_size, primary_economy, secondary_economy,
-                   has_market, has_shipyard, has_outfitting,
-                   has_refuel, has_repair, has_rearm
-            FROM stations WHERE system_id64 = $1
-        """, id64)
+        has_station_links = await conn.fetchval("SELECT to_regclass('public.station_body_links') IS NOT NULL")
+        if has_station_links:
+            stations = await conn.fetch("""
+                SELECT s.id, s.id AS market_id, s.system_id64, s.name, s.station_type,
+                       s.distance_from_star, s.body_name AS station_body_name,
+                       COALESCE(l.body_name, s.body_name) AS body_name,
+                       l.body_id, l.lane, l.association_status,
+                       l.association_confidence, l.association_source,
+                       l.resolver_notes,
+                       s.landing_pad_size, s.primary_economy, s.secondary_economy,
+                       s.has_market, s.has_shipyard, s.has_outfitting,
+                       s.has_refuel, s.has_repair, s.has_rearm
+                FROM stations s
+                LEFT JOIN station_body_links l ON l.station_id = s.id
+                WHERE s.system_id64 = $1
+            """, id64)
+        else:
+            stations = await conn.fetch("""
+                SELECT id, id AS market_id, system_id64, name, station_type, distance_from_star,
+                       body_name AS station_body_name, body_name,
+                       NULL::bigint AS body_id,
+                       NULL::text AS lane,
+                       NULL::text AS association_status,
+                       NULL::text AS association_confidence,
+                       NULL::text AS association_source,
+                       NULL::text AS resolver_notes,
+                       landing_pad_size, primary_economy, secondary_economy,
+                       has_market, has_shipyard, has_outfitting,
+                       has_refuel, has_repair, has_rearm
+                FROM stations WHERE system_id64 = $1
+            """, id64)
 
     d = sys_row_to_dict(row)
     d['bodies']   = [dict(b) for b in bodies]
-    d['stations'] = [dict(s) for s in stations]
+    d['stations'] = [_station_with_association(dict(s), d['bodies']) for s in stations]
 
     # Exploration value estimator (Data Enrichment #2)
     total_scan  = sum(b.get('estimated_scan_value',    0) or 0 for b in d['bodies'])
@@ -97,6 +122,14 @@ async def get_system(
     result = {'record': d, 'system': d}
     await cache_set(cache_key, result, settings.ttl_system, redis)
     return result
+
+
+def _station_with_association(station: dict, bodies: list[dict]) -> dict:
+    if station.get('association_status'):
+        return station
+    association = resolve_station_body_association(station, bodies)
+    station.update(association.to_api_dict())
+    return station
 
 
 @router.get('/api/local/system/{id64}')

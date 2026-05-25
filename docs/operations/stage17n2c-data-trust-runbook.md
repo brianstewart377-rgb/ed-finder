@@ -323,25 +323,76 @@ Frontend planner behaviour:
   occupancy. A lane with no remaining capacity disables Add with
   "No empty orbital slots" or "All surface slots occupied".
 
+Stage 17N.2d-H normalized source of truth:
+
+- apply `sql/021_station_body_links.sql` before relying on persisted occupied
+  slot association
+- `/api/system/{id64}` now emits `body_id`, `lane`, `association_status`,
+  `association_confidence`, `association_source`, and `resolver_notes` for
+  stations
+- confirmed associations can occupy slots normally
+- inferred associations are displayed in lane but marked for verification
+- unresolved or unknown-lane infrastructure remains visible outside body lanes
+
+Manual dry-run:
+
+```bash
+PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/backfill_station_body_links.py --dry-run --limit 10
+```
+
+Apply one known system:
+
+```bash
+PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/backfill_station_body_links.py --apply --system-id64 2008132031194
+```
+
+Gentle batch:
+
+```bash
+PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/backfill_station_body_links.py --apply --limit 1000
+```
+
+Default backfill behaviour does not overwrite existing confirmed links.
+
+Association diagnostics:
+
+```sql
+SELECT association_status, association_confidence, count(*)
+FROM station_body_links
+GROUP BY association_status, association_confidence
+ORDER BY association_status, association_confidence;
+
+SELECT s.station_type, count(*)
+FROM station_body_links l
+JOIN stations s ON s.id = l.station_id
+WHERE l.association_status = 'unresolved'
+GROUP BY s.station_type
+ORDER BY count(*) DESC;
+
+SELECT lane, association_status, association_confidence, count(*)
+FROM station_body_links
+WHERE lane IN ('orbital', 'surface')
+GROUP BY lane, association_status, association_confidence
+ORDER BY lane, association_status, association_confidence;
+```
+
 What is missing for occupied slots:
 
-- no explicit `stations.body_id`
+- no native `stations.body_id`
 - no separate `market_id` column; current `stations.id` is populated from
   Spansh `id`/`marketId`/`market_id` and should be verified before treating it
   as canonical market identity
-- no station lane classification (`orbital` vs `surface`) beyond station type
-  and `body_name`
-- no occupied-slot table or observed slot model tying station/facility to a
-  planner lane
-- no backend-side occupied-slot table; the current implementation is a safe
-  frontend resolver over existing system-detail station data
+- no exact station/body source for many historical station rows
+- no manual correction/Architect-observed truth workflow yet
+- no permanent-colony-infrastructure model for fleet carriers or megaships
 
 Concrete follow-up plan:
 
-1. Add a normalized occupied-slot source model: `system_id64`, `station_id`,
-   `market_id` if verified, `body_id` nullable, `body_name`, `lane`,
-   `station_type`, `distance_from_star`, confidence/source, and timestamp.
-2. Backfill `stations.body_id` where source data provides exact body ids.
+1. Backfill `station_body_links` in small batches and monitor unresolved counts.
+2. Backfill exact `body_id` values where source data provides them.
 3. Verify whether `stations.id` is always market id or split a true
    `market_id` column.
 4. Move the resolver to backend diagnostics once enough body ids are available.

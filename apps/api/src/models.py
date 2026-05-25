@@ -250,7 +250,14 @@ class StationModel(BaseModel):
     name:               Optional[str]   = None
     station_type:       Optional[str]   = None
     distance_from_star: Optional[float] = None
+    body_id:            Optional[int]   = None
     body_name:          Optional[str]   = None
+    station_body_name:  Optional[str]   = None
+    lane:               Optional[str]   = None
+    association_status: Optional[str]   = None
+    association_confidence: Optional[str] = None
+    association_source: Optional[str]   = None
+    resolver_notes:     Optional[str]   = None
     landing_pad_size:   Optional[str]   = None
     primary_economy:    Optional[str]   = None
     secondary_economy:  Optional[str]   = None

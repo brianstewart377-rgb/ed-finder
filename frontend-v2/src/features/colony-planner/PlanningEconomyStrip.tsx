@@ -1,5 +1,6 @@
 import type { PlanningEconomyLedger } from './planningEconomy';
-import { compactEconomyLabel, economyToneClass, PLANNING_ECONOMY_NOTE } from './planningEconomy';
+import { compactEconomyLabel, PLANNING_ECONOMY_NOTE } from './planningEconomy';
+import { economyColor } from './economyVisuals';
 
 export function PlanningEconomyStrip({
   ledger,
@@ -30,22 +31,31 @@ export function PlanningEconomyStrip({
       </div>
       {hasEntries ? (
         <>
-          <div className="mt-1 flex h-1.5 overflow-hidden rounded bg-bg2/80" aria-hidden="true">
+          <div
+            className="mt-1 flex h-2 overflow-hidden rounded bg-bg2/80"
+            aria-hidden="true"
+            data-testid={testId ? `${testId}-bar` : undefined}
+          >
             {topEntries.map((entry) => {
               const plannedWidth = ledger.total > 0 ? (entry.planned / ledger.total) * 100 : 0;
               const projectedWidth = ledger.total > 0 ? (entry.projected / ledger.total) * 100 : 0;
+              const color = economyColor(entry.economy);
               return (
                 <span key={entry.economy} className="contents">
                   {entry.planned > 0 && (
                     <span
-                      className={economyToneClass(entry.economy)}
-                      style={{ width: `${plannedWidth}%` }}
+                      data-economy={entry.economy}
+                      data-economy-color={color}
+                      className="block h-full"
+                      style={{ width: `${plannedWidth}%`, backgroundColor: color }}
                     />
                   )}
                   {entry.projected > 0 && (
                     <span
-                      className={`${economyToneClass(entry.economy)} opacity-35`}
-                      style={{ width: `${projectedWidth}%` }}
+                      data-economy={entry.economy}
+                      data-economy-color={color}
+                      className="block h-full opacity-35"
+                      style={{ width: `${projectedWidth}%`, backgroundColor: color }}
                     />
                   )}
                 </span>

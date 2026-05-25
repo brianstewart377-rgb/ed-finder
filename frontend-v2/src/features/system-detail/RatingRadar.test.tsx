@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SystemDetail } from '@/types/api';
+import { economyColor } from '@/features/colony-planner/economyVisuals';
 import { RatingRadar } from './RatingRadar';
 
 // recharts uses ResizeObserver internally
@@ -74,6 +75,7 @@ describe('RatingRadar (Stage 17N.2)', () => {
     render(<RatingRadar sys={baseSys} />);
     expect(screen.getByTestId('rating-economy-extraction')).toBeTruthy();
     expect(screen.getByTestId('rating-economy-extraction').textContent).toContain('Extraction');
+    expect(screen.getByTestId('rating-economy-bar-extraction').querySelector('span')?.getAttribute('data-economy-color')).toBe(economyColor('Extraction'));
   });
 
   it('shows top complementary pair when available', () => {

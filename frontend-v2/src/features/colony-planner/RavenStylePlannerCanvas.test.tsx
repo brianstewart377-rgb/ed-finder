@@ -241,10 +241,38 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(body?.groundCapacity).toBe(2);
     expect(body?.orbitalSlots[0].fullName).toBe('Dodec Starport');
     expect(body?.orbitalSlots[0].economySegments[0]).toEqual(expect.objectContaining({ economy: 'Industrial', strength: 720 }));
+    expect(body?.orbitalSlots[0].title).toContain('Direct facility economy: Industrial 100%');
+    expect(body?.orbitalSlots[0].title).toContain('CP generated +720');
     expect(body?.groundSlots[0].fullName).toBe('Surface Refinery Hub');
     expect(body?.groundSlots[1].kind).toBe('projected');
     expect(missingPredictionBody?.orbitalSlots[0].kind).toBe('unknown');
     expect(missingPredictionBody?.groundSlots[1].title).toContain('No economy metadata');
+  });
+
+  it('uses calculated station baseline percentages for contextual ports when body mechanics are available', () => {
+    const hmcGeoSystem = {
+      ...system,
+      bodies: [
+        { id: 2, name: 'Real Data System A 1', body_type: 'Planet', subtype: 'High metal content world', is_landable: true, geo_signal_count: 2, parent_body_id: 1, distance_from_star: 220 },
+      ],
+    } as unknown as SystemDetail;
+    const contextualSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [
+        { facility_template_id: 'contextual_station', local_body_id: '2', is_primary_port: true, build_order: 1 },
+      ],
+      projection: null,
+    };
+
+    const row = buildRavenPlannerRows(hmcGeoSystem, contextualSnapshot).find((candidate) => candidate.id === '2');
+
+    expect(row?.orbitalSlots[0].economySegments).toEqual([
+      expect.objectContaining({ economy: 'Extraction', share: 69, inherited: true }),
+      expect.objectContaining({ economy: 'Industrial', share: 31, inherited: true }),
+    ]);
+    expect(row?.orbitalSlots[0].title).toContain('Baseline (inherited/contextual): Extraction 69% / Industrial 31%');
+    expect(row?.orbitalSlots[0].title).toContain('Mega Guide body economy profile');
+    expect(row?.orbitalSlots[0].title).toContain('Run Preview for validated outcome');
   });
 
   it('maps existing stations into occupied orbital and surface slots without turning them into planned placements', () => {
@@ -284,6 +312,76 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getAllByText('Kepler Surface Port').length).toBeGreaterThan(0);
     expect((screen.getByTestId('2-orbital-add') as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTestId('2-ground-add') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('renders inferred backend associations in lane with explicit verify marker', () => {
+    const inferredSystem = {
+      ...system,
+      stations: [
+        {
+          id: 9201,
+          market_id: 9201,
+          name: 'Inferred Distance Outpost',
+          station_type: 'Outpost',
+          body_id: 2,
+          body_name: 'Real Data System A 1',
+          lane: 'orbital',
+          association_status: 'inferred',
+          association_confidence: 'strong_inference',
+          association_source: 'resolver_distance',
+          resolver_notes: 'Unique distance_from_star match within 0.01 ls.',
+        },
+      ],
+    } as unknown as SystemDetail;
+    const inferredSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [],
+      projection: null,
+    };
+    const row = buildRavenPlannerRows(inferredSystem, inferredSnapshot).find((candidate) => candidate.id === '2');
+    const summary = buildRavenPlannerOccupancySummary(inferredSystem, inferredSnapshot);
+
+    expect(row?.existingCount).toBe(1);
+    expect(row?.inferredExistingCount).toBe(1);
+    expect(row?.orbitalSlots[0]).toEqual(expect.objectContaining({
+      kind: 'existing',
+      fullName: 'Inferred Distance Outpost',
+      warningLabels: ['Inferred association'],
+    }));
+    expect(summary.inferredExistingCount).toBe(1);
+
+    render(<RavenStylePlannerCanvas system={inferredSystem} snapshot={inferredSnapshot} selection={{ type: 'body', bodyId: '2' }} onSelect={vi.fn()} onRequestAddStructure={vi.fn()} />);
+
+    expect(screen.getByText('1 inferred')).toBeTruthy();
+    expect(screen.getByTestId('raven-inferred-existing-marker').textContent).toContain('verify');
+    expect(screen.getByTitle(/Body match inferred \(resolver_distance\)/i)).toBeTruthy();
+  });
+
+  it('keeps backend unknown-lane associations unresolved and out of lane capacity', () => {
+    const unknownLaneSystem = {
+      ...system,
+      stations: [
+        {
+          id: 9202,
+          market_id: 9202,
+          name: 'Confirmed Megaship Body',
+          station_type: 'MegaShip',
+          body_id: 2,
+          body_name: 'Real Data System A 1',
+          lane: 'unknown',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'resolver_body_name',
+          resolver_notes: 'MegaShip is not treated as permanent colony-slot infrastructure.',
+        },
+      ],
+    } as unknown as SystemDetail;
+    const rows = buildRavenPlannerRows(unknownLaneSystem, { ...snapshot, placements: [], projection: null });
+    const row = rows.find((candidate) => candidate.id === '2');
+
+    expect(row?.existingCount).toBe(0);
+    expect(row?.orbitalSlots[0].kind).toBe('empty');
+    expect(buildRavenPlannerOccupancySummary(unknownLaneSystem, { ...snapshot, placements: [], projection: null }).unresolvedExistingCount).toBe(1);
   });
 
   it('includes existing occupancy in add capacity and overflow calculations', () => {
@@ -378,7 +476,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getByText('Refinery Hub')).toBeTruthy();
     expect(screen.getByText('Ghost Refinery Hub')).toBeTruthy();
     expect(screen.getAllByTestId('raven-structure-economy-micro-bar').length).toBeGreaterThan(0);
-    expect(screen.getByTitle(/Dodec Starport.*Industrial 100% share.*\+720 CP strength/)).toBeTruthy();
+    expect(screen.getByTitle(/Dodec Starport.*Direct facility economy: Industrial 100%.*CP generated \+720/)).toBeTruthy();
     expect(screen.queryByText('Praea Eug WV-W b2-2')).toBeNull();
     expect(screen.queryByText('Attached Structures')).toBeNull();
     expect(screen.queryByText('Facilities and economy')).toBeNull();
@@ -573,7 +671,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.queryByTestId('2-orbital-compact-state')).toBeNull();
   });
 
-  it('infers an inherited baseline economy bar for contextual stations placed over a body (17N.1e)', () => {
+  it('calculates inherited baseline economy percentages for contextual stations placed over a body (17N.1e)', () => {
     const baselineSnapshot: TopologyPlanSnapshot = {
       ...snapshot,
       placements: [
@@ -585,10 +683,9 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     render(<RavenStylePlannerCanvas system={system} snapshot={baselineSnapshot} selection={{ type: 'placement', placementIndex: 0 }} onSelect={vi.fn()} />);
 
     expect(screen.getByTestId('raven-structure-economy-micro-bar')).toBeTruthy();
-    // Inherited baseline must be qualitative — never synthetic % values.
-    expect(screen.queryAllByTitle(/Refinery \d+% share/i)).toHaveLength(0);
-    expect(screen.getAllByTitle(/Inherited baseline economies:.*Refinery/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle(/Baseline \(inherited\): .* run Preview/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle(/Inherited\/contextual baseline: Extraction 100%/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle(/Baseline \(inherited\/contextual\): Extraction 100%/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle(/Mega Guide body economy profile/i).length).toBeGreaterThan(0);
     expect(screen.getAllByTitle(/Contextual - inherits from body\/system plan/i).length).toBeGreaterThan(0);
   });
 

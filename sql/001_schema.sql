@@ -407,9 +407,6 @@ CREATE TABLE IF NOT EXISTS ratings (
 
     -- Full score breakdown JSON (for popover display)
     score_breakdown     JSONB           DEFAULT NULL,
-
-    -- Rating algorithm version (e.g. '3.4'). Helps the frontend detect
-    -- stale ratings after algorithm changes.
     rating_version      TEXT            DEFAULT NULL,
 
     -- Timestamps

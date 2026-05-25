@@ -1,7 +1,8 @@
 import type { FacilityTemplate, SimulateBuildPlacement } from '@/types/api';
 import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
 import type { BodyPlannerLane } from './BodySlotPlanner';
-import { normalisePlanningEconomy, type PlanningEconomyName } from './planningEconomy';
+import { normalisePlanningEconomy } from './planningEconomy';
+import { economyColor } from './economyVisuals';
 import { contextualEconomyLabel, structureFamilyLabel, templateDisplayName } from './structurePlanningRules';
 
 export function ProjectedStructureSlot({
@@ -36,7 +37,7 @@ export function ProjectedStructureSlot({
   const economy = normalisePlanningEconomy(item.template?.economy);
   const economyContext = contextualEconomyLabel(item.template);
   const className = [
-    'relative flex min-h-[3.75rem] min-w-[11rem] flex-col justify-between overflow-hidden rounded border border-cyan/35 bg-cyan/8 px-2 py-2 pb-3 text-left',
+    'relative flex min-h-[3.75rem] min-w-[11rem] flex-col justify-between overflow-hidden rounded border border-cyan/35 bg-cyan/8 px-2 py-2 pb-4 text-left',
     selected ? 'ring-2 ring-cyan/70 shadow-[0_0_18px_rgba(125,211,252,0.18)]' : '',
     onSelect ? 'hover:border-cyan/65 hover:bg-cyan/12' : '',
   ].filter(Boolean).join(' ');
@@ -57,7 +58,7 @@ export function ProjectedStructureSlot({
           {economyContext}
         </div>
       )}
-      {economy && <StructureEconomyMicroBar economy={economy} />}
+      {economy && <StructureEconomyMicroBar economy={economy} template={item.template} />}
     </>
   );
 
@@ -87,24 +88,25 @@ export function ProjectedStructureSlot({
   );
 }
 
-const ECONOMY_COLORS: Record<PlanningEconomyName, string> = {
-  Agriculture: '#4ade80',
-  Refinery: '#fbbf24',
-  Industrial: '#ff7a14',
-  HighTech: '#7dd3fc',
-  Military: '#f87171',
-  Tourism: '#a78bfa',
-  Extraction: '#c8ccd1',
-};
-
-function StructureEconomyMicroBar({ economy }: { economy: PlanningEconomyName }) {
+function StructureEconomyMicroBar({
+  economy,
+  template,
+}: {
+  economy: NonNullable<ReturnType<typeof normalisePlanningEconomy>>;
+  template?: FacilityTemplate;
+}) {
+  const yellow = typeof template?.yellow_cp_generated === 'number' ? template.yellow_cp_generated : 0;
+  const green = typeof template?.green_cp_generated === 'number' ? template.green_cp_generated : 0;
+  const cp = template ? yellow + green : null;
+  const detail = cp == null ? 'CP generated unavailable' : `CP generated +${cp}`;
   return (
     <span
       data-testid="projected-structure-economy-micro-bar"
-      aria-label={`${economy} economy`}
-      title={`${economy} economy`}
-      className="absolute inset-x-0 bottom-0 h-1 bg-bg4/80 opacity-70"
-      style={{ backgroundColor: ECONOMY_COLORS[economy] }}
+      data-economy-color={economyColor(economy)}
+      aria-label={`Projected direct facility economy: ${economy}. ${detail}. Catalogue/template economy metadata.`}
+      title={`Projected direct facility economy: ${economy}. ${detail}. Source: catalogue/template economy metadata.`}
+      className="absolute inset-x-0 bottom-0 h-2.5 bg-bg4/80 opacity-70"
+      style={{ backgroundColor: economyColor(economy) }}
     />
   );
 }

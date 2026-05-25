@@ -3,6 +3,8 @@ import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-previ
 
 export type ExistingStructureLane = 'orbital' | 'surface' | 'unknown';
 export type ExistingStructureBodyMatchConfidence = 'exact' | 'inferred' | 'unresolved';
+export type ExistingStructureAssociationStatus = 'confirmed' | 'inferred' | 'unresolved';
+export type ExistingStructureAssociationConfidence = 'exact' | 'strong_inference' | 'weak_inference' | 'unresolved';
 
 export interface ExistingStructure {
   source: 'existing';
@@ -15,6 +17,9 @@ export interface ExistingStructure {
   body_match_confidence: ExistingStructureBodyMatchConfidence;
   body_match_reason: string;
   lane: ExistingStructureLane;
+  association_status: ExistingStructureAssociationStatus;
+  association_confidence: ExistingStructureAssociationConfidence;
+  association_source: string;
   economy: string | null;
   secondary_economy: string | null;
   pad_size: string | null;
@@ -41,18 +46,26 @@ export interface ExistingInfrastructureResolution {
 export function resolveExistingInfrastructure(system: SystemDetail): ExistingInfrastructureResolution {
   const bodies = (system.bodies ?? []).filter((body) => body?.id != null);
   const structures = (system.stations ?? []).map((station, index) => resolveStation(bodies, station, index));
-  const mapped = structures.filter((structure) => structure.body_id != null && structure.lane !== 'unknown');
-  const unresolved = structures.filter((structure) => structure.body_id == null || structure.lane === 'unknown');
+  const mapped = structures.filter(isExistingSlotOccupant);
+  const unresolved = structures.filter((structure) => !isExistingSlotOccupant(structure));
   const byBodyId = new Map<string, { orbital: ExistingStructure[]; surface: ExistingStructure[]; unknown: ExistingStructure[] }>();
 
   structures.forEach((structure) => {
-    if (!structure.body_id) return;
+    if (!isExistingSlotOccupant(structure)) return;
     const current = byBodyId.get(structure.body_id) ?? { orbital: [], surface: [], unknown: [] };
     current[structure.lane].push(structure);
     byBodyId.set(structure.body_id, current);
   });
 
   return { structures, mapped, unresolved, byBodyId };
+}
+
+export function isExistingSlotOccupant(structure: ExistingStructure): structure is ExistingStructure & { body_id: string; lane: 'orbital' | 'surface' } {
+  return Boolean(
+    structure.body_id
+    && (structure.association_status === 'confirmed' || structure.association_status === 'inferred')
+    && (structure.lane === 'orbital' || structure.lane === 'surface'),
+  );
 }
 
 export function classifyExistingStationLane(stationType?: string | null): ExistingStructureLane {
@@ -86,6 +99,10 @@ function resolveStation(
   const record = station as SystemStation & Record<string, unknown>;
   const stationType = readString(record.station_type) ?? readString(record.type);
   const name = readString(record.name) ?? `Existing station ${index + 1}`;
+  const backendStatus = readAssociationStatus(record.association_status);
+  if (backendStatus) {
+    return structureFromBackendAssociation(record, stationType, name, index, backendStatus);
+  }
   const explicitBodyId = readBodyId(record.body_id) ?? readBodyId(record.local_body_id);
   const stationBodyName = readString(record.body_name);
   const distanceFromStar = readNumber(record.distance_from_star ?? record.distance_to_arrival);
@@ -110,10 +127,68 @@ function resolveStation(
     body_match_confidence: bodyMatch.confidence,
     body_match_reason: bodyMatch.reason,
     lane,
+    association_status: bodyMatch.confidence === 'exact' ? 'confirmed' : bodyMatch.confidence === 'inferred' ? 'inferred' : 'unresolved',
+    association_confidence: bodyMatch.confidence === 'exact' ? 'exact' : bodyMatch.confidence === 'inferred' ? 'strong_inference' : 'unresolved',
+    association_source: bodyMatch.confidence === 'exact' ? 'frontend_fallback' : bodyMatch.confidence === 'inferred' ? 'frontend_distance_fallback' : 'frontend_unresolved_fallback',
     economy: readString(record.primary_economy) ?? readEconomyName(record.economies, 0),
     secondary_economy: readString(record.secondary_economy) ?? readEconomyName(record.economies, 1),
     pad_size: readString(record.landing_pad_size) ?? readString(record.pad_size),
     distance_from_star: distanceFromStar,
+    unresolved_reason: unresolvedReason,
+    raw: {
+      station_id: stationId,
+      body_name: stationBodyName,
+      station_type: stationType,
+    },
+  };
+}
+
+function structureFromBackendAssociation(
+  record: SystemStation & Record<string, unknown>,
+  stationType: string | null,
+  name: string,
+  index: number,
+  associationStatus: ExistingStructureAssociationStatus,
+): ExistingStructure {
+  const lane = readLane(record.lane);
+  const bodyId = readBodyId(record.body_id);
+  const stationId = readNumber(record.id) ?? readString(record.id);
+  const marketId = readNumber(record.market_id) ?? readNumber(record.id);
+  const associationConfidence = readAssociationConfidence(record.association_confidence);
+  const associationSource = readString(record.association_source) ?? 'unknown';
+  const bodyName = readString(record.body_name);
+  const stationBodyName = readString(record.station_body_name) ?? bodyName;
+  const resolverNotes = readString(record.resolver_notes);
+  const unresolvedReason = associationStatus === 'unresolved'
+    ? resolverNotes ?? 'Backend association status is unresolved.'
+    : !bodyId
+      ? resolverNotes ?? 'Backend association has no body id.'
+      : lane === 'unknown'
+        ? resolverNotes ?? 'Backend association has unknown lane.'
+        : null;
+
+  return {
+    source: 'existing',
+    id: `existing-${marketId ?? stationId ?? index}`,
+    market_id: marketId,
+    name,
+    station_type: stationType,
+    body_id: bodyId,
+    body_name: bodyName ?? stationBodyName,
+    body_match_confidence: associationConfidence === 'exact'
+      ? 'exact'
+      : associationConfidence === 'strong_inference' || associationConfidence === 'weak_inference'
+        ? 'inferred'
+        : 'unresolved',
+    body_match_reason: resolverNotes ?? `Backend association source: ${associationSource}.`,
+    lane,
+    association_status: associationStatus,
+    association_confidence: associationConfidence,
+    association_source: associationSource,
+    economy: readString(record.primary_economy) ?? readEconomyName(record.economies, 0),
+    secondary_economy: readString(record.secondary_economy) ?? readEconomyName(record.economies, 1),
+    pad_size: readString(record.landing_pad_size) ?? readString(record.pad_size),
+    distance_from_star: readNumber(record.distance_from_star ?? record.distance_to_arrival),
     unresolved_reason: unresolvedReason,
     raw: {
       station_id: stationId,
@@ -180,6 +255,30 @@ function readString(value: unknown): string | null {
 function readBodyId(value: unknown): string | null {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   return readString(value);
+}
+
+function readLane(value: unknown): ExistingStructureLane {
+  const lane = readString(value);
+  return lane === 'orbital' || lane === 'surface' ? lane : 'unknown';
+}
+
+function readAssociationStatus(value: unknown): ExistingStructureAssociationStatus | null {
+  const status = readString(value);
+  if (status === 'confirmed' || status === 'inferred' || status === 'unresolved') return status;
+  return null;
+}
+
+function readAssociationConfidence(value: unknown): ExistingStructureAssociationConfidence {
+  const confidence = readString(value);
+  if (
+    confidence === 'exact'
+    || confidence === 'strong_inference'
+    || confidence === 'weak_inference'
+    || confidence === 'unresolved'
+  ) {
+    return confidence;
+  }
+  return 'unresolved';
 }
 
 function readNumber(value: unknown): number | null {

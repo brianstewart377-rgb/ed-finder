@@ -5,6 +5,7 @@ from pathlib import Path
 
 os.environ.setdefault('LOG_FILE', '/dev/null')
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
+os.environ.setdefault('CORS_ORIGINS', 'http://localhost:3000')
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, 'apps', 'api', 'src'))
@@ -16,6 +17,7 @@ from helpers import safe_coords_from_row, sys_row_to_dict
 from local_search import _build_system_record, _safe_distance, local_db_search
 from models import AutocompleteHit, StationModel, SystemDetailRow, SystemRow
 from progress import ProgressReporter
+from routers.systems import _station_with_association
 from build_ratings import (
     RATING_CONFLICT_UPDATE_COLUMNS,
     RATING_INSERT_COLUMNS,
@@ -121,6 +123,12 @@ def test_api_contracts_allow_null_population_and_station_body_name():
         market_id=5,
         name='Port',
         body_name='A 1',
+        body_id=7,
+        lane='orbital',
+        association_status='confirmed',
+        association_confidence='exact',
+        association_source='resolver_body_name',
+        resolver_notes=None,
         primary_economy='Refinery',
         secondary_economy=None,
         has_refuel=True,
@@ -128,8 +136,82 @@ def test_api_contracts_allow_null_population_and_station_body_name():
         has_rearm=False,
     )
     assert station.body_name == 'A 1'
+    assert station.body_id == 7
+    assert station.lane == 'orbital'
+    assert station.association_status == 'confirmed'
     assert station.market_id == 5
     assert station.primary_economy == 'Refinery'
+
+
+def test_system_station_payload_exposes_confirmed_association():
+    station = _station_with_association({
+        'id': 5,
+        'market_id': 5,
+        'system_id64': 1,
+        'name': 'Confirmed Port',
+        'station_type': 'Coriolis',
+        'station_body_name': 'Raw A 1',
+        'body_name': 'A 1',
+        'body_id': 7,
+        'lane': 'orbital',
+        'association_status': 'confirmed',
+        'association_confidence': 'exact',
+        'association_source': 'manual',
+        'resolver_notes': 'curated',
+    }, [{'id': 7, 'name': 'A 1'}])
+
+    assert station['body_id'] == 7
+    assert station['body_name'] == 'A 1'
+    assert station['lane'] == 'orbital'
+    assert station['association_status'] == 'confirmed'
+    assert station['association_confidence'] == 'exact'
+    assert station['association_source'] == 'manual'
+
+
+def test_system_station_payload_exposes_inferred_association():
+    station = _station_with_association({
+        'id': 6,
+        'market_id': 6,
+        'system_id64': 1,
+        'name': 'Inferred Outpost',
+        'station_type': 'Outpost',
+        'station_body_name': None,
+        'body_name': 'A 2',
+        'body_id': 8,
+        'lane': 'orbital',
+        'association_status': 'inferred',
+        'association_confidence': 'strong_inference',
+        'association_source': 'resolver_distance',
+        'resolver_notes': 'Unique distance_from_star match within 0.01 ls.',
+    }, [{'id': 8, 'name': 'A 2'}])
+
+    assert station['body_id'] == 8
+    assert station['association_status'] == 'inferred'
+    assert station['association_confidence'] == 'strong_inference'
+    assert station['association_source'] == 'resolver_distance'
+
+
+def test_system_station_payload_keeps_unresolved_station_visible():
+    station = _station_with_association({
+        'id': 7,
+        'market_id': 7,
+        'system_id64': 1,
+        'name': 'Unresolved Megaship',
+        'station_type': 'MegaShip',
+        'station_body_name': 'A 1',
+        'body_name': 'A 1',
+        'body_id': 7,
+        'lane': 'unknown',
+        'association_status': 'confirmed',
+        'association_confidence': 'exact',
+        'association_source': 'resolver_body_name',
+        'resolver_notes': 'MegaShip is not treated as permanent colony-slot infrastructure.',
+    }, [{'id': 7, 'name': 'A 1'}])
+
+    assert station['name'] == 'Unresolved Megaship'
+    assert station['body_id'] == 7
+    assert station['lane'] == 'unknown'
+    assert station['association_status'] == 'confirmed'
 
 
 def test_local_search_galaxy_wide_projects_null_distance():
