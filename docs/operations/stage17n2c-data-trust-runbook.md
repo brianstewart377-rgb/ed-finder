@@ -407,28 +407,81 @@ PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
 
 Default backfill behaviour does not overwrite existing confirmed links.
 
-Stage 17N.2d-J EDSM targeted dry-run:
+Stage 17N.2d-J/K EDSM targeted probe:
 
 ```bash
 PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
   python apps/importer/src/edsm_station_enrichment_probe.py \
-    --system-name Exioce --system-id64 2008132031194 --json
+    --system-name Exioce --system-id64 2008132031194 --dry-run --json
 ```
 
-Container form:
+Container dry-run form:
 
 ```bash
-docker compose --profile import run --rm importer \
-  edsm_station_enrichment_probe.py \
-  --system-name Exioce --system-id64 2008132031194 --json
+docker compose --profile import run --rm \
+  --entrypoint python3 \
+  -v /opt/ed-finder/apps/importer/src:/workspace/apps/importer/src:ro \
+  -v /opt/ed-finder/apps/api/src:/workspace/apps/api/src:ro \
+  importer \
+  /workspace/apps/importer/src/edsm_station_enrichment_probe.py \
+  --system-name Exioce \
+  --system-id64 2008132031194 \
+  --dry-run --json
 ```
 
 This command fetches EDSM station/body evidence for one named system only. It
-does not run on a normal user path, does not import a bulk dump, and does not
-write to the database. `--apply` hard-fails as not implemented. Treat its
-`confirmed` rows as proposed evidence only, `inferred` rows as reviewable
-distance matches, `unresolved` rows as still-visible infrastructure, and
-`conflicts` as stop/review items.
+does not run on a normal user path and does not import a bulk dump. Default
+mode is dry-run. `--apply` hard-fails as not implemented.
+
+Metadata-only apply form, after reviewing dry-run output:
+
+```bash
+docker compose --profile import run --rm \
+  --entrypoint python3 \
+  -v /opt/ed-finder/apps/importer/src:/workspace/apps/importer/src:ro \
+  -v /opt/ed-finder/apps/api/src:/workspace/apps/api/src:ro \
+  importer \
+  /workspace/apps/importer/src/edsm_station_enrichment_probe.py \
+  --system-name Exioce \
+  --system-id64 2008132031194 \
+  --apply-metadata --json
+```
+
+`--apply-metadata` is intentionally narrow. It can update only
+`stations.station_type` from `Unknown` to a known permanent station type when
+the station match is exact and conflict-free. It must not write
+`station_body_links`, `body_id`, `body_name`, `distance_from_star`,
+association status/confidence, economies, service flags, or occupied-slot
+capacity. Fleet carriers, raw carriers, and megaships stay under
+`ignored_transient_non_slot` and are ignored for colony planning occupancy.
+
+Expected Exioce shape:
+
+- dry-run: `station_metadata_changes=3`, `association_changes=0`,
+  `ignored_transient_non_slot=5`
+- metadata-only apply: Macmillan Depot and Fort Lawrence `Unknown -> Orbis`;
+  Miller Terminal `Unknown -> Coriolis`
+- fleet carriers WFK-N6Z, K2W-77Q, WFW-4TZ, T9J-B2N, and XFK-T4M remain
+  ignored transient/non-slot rows
+
+Rollback/check after apply:
+
+```sql
+SELECT id, name, station_type::text
+FROM stations
+WHERE system_id64 = 2008132031194
+  AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal')
+ORDER BY name;
+
+UPDATE stations
+SET station_type = 'Unknown'::station_type
+WHERE system_id64 = 2008132031194
+  AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal');
+```
+
+Treat `association_changes.confirmed` rows as proposed evidence only,
+`inferred` rows as reviewable distance matches, `unresolved` rows as
+still-visible infrastructure, and `conflicts` as stop/review items.
 
 Association diagnostics:
 

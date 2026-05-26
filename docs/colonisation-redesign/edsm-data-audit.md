@@ -84,15 +84,15 @@ write directly over core truth.
    add explicit source-id columns/tables instead of assuming all ids are the
    same namespace.
 
-## Stage 17N.2d-J Targeted Station Probe
+## Stage 17N.2d-J/K Targeted Station Probe
 
 Script: `apps/importer/src/edsm_station_enrichment_probe.py`
 
-The first implementation is an operator dry-run only. It loads one local system
-from ED-Finder, fetches EDSM `/api-system-v1/stations` and
-`/api-system-v1/bodies` for the same system name, and prints a station-centric
-diff. It does not write evidence tables, core station rows, or
-`station_body_links`.
+The probe loads one local system from ED-Finder, fetches EDSM
+`/api-system-v1/stations` and `/api-system-v1/bodies` for the same system name,
+and prints a station-centric diff. Default mode is dry-run. Stage 17N.2d-K adds
+`--apply-metadata`, which can write only safe local station metadata. It still
+does not write evidence tables or `station_body_links`.
 
 Local fields that can be compared today:
 
@@ -108,7 +108,7 @@ Local fields that can be compared today:
 - `stations.body_name`: local weak body evidence, useful for conflict context.
 - `stations.primary_economy`, `has_market`, and `has_shipyard`: reported as
   possible enrichment/conflict evidence only. They do not affect slot
-  occupancy.
+  occupancy and are not applied by Stage 17N.2d-K.
 - `bodies.id`, `bodies.name`, and `bodies.distance_from_star`: local body rows
   used to confirm exact body-name matches or infer unique distance matches.
 
@@ -147,8 +147,10 @@ Confidence rules:
   body evidence, or blocking conflicts. Unknown/unmapped station types keep
   `lane=unknown`; exact body evidence can still be reported, but it is not
   occupied-slot proof.
-- `FleetCarrier` and `MegaShip` may be reported with body evidence, but their
-  lane remains `unknown` and `occupies_colony_slot=false`.
+- `FleetCarrier`, raw `Carrier`, and `MegaShip` are reported under
+  `ignored_transient_non_slot` when matched. They may include diagnostic body
+  evidence, but they never produce `association_changes`, never create
+  `station_body_links`, and never occupy colony capacity.
 
 Conflict reporting:
 
@@ -164,19 +166,77 @@ Run one Exioce dry-run locally:
 ```bash
 PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
   python apps/importer/src/edsm_station_enrichment_probe.py \
-    --system-name Exioce --system-id64 2008132031194 --json
+    --system-name Exioce --system-id64 2008132031194 --dry-run --json
 ```
 
 Run through the importer container after deployment:
 
 ```bash
-docker compose --profile import run --rm importer \
-  edsm_station_enrichment_probe.py \
-  --system-name Exioce --system-id64 2008132031194 --json
+docker compose --profile import run --rm \
+  --entrypoint python3 \
+  -v /opt/ed-finder/apps/importer/src:/workspace/apps/importer/src:ro \
+  -v /opt/ed-finder/apps/api/src:/workspace/apps/api/src:ro \
+  importer \
+  /workspace/apps/importer/src/edsm_station_enrichment_probe.py \
+  --system-name Exioce \
+  --system-id64 2008132031194 \
+  --dry-run --json
 ```
 
-`--apply` intentionally hard-fails with "not implemented". Bulk EDSM station
-dump imports are still out of scope.
+Metadata-only apply after reviewing the dry-run:
+
+```bash
+docker compose --profile import run --rm \
+  --entrypoint python3 \
+  -v /opt/ed-finder/apps/importer/src:/workspace/apps/importer/src:ro \
+  -v /opt/ed-finder/apps/api/src:/workspace/apps/api/src:ro \
+  importer \
+  /workspace/apps/importer/src/edsm_station_enrichment_probe.py \
+  --system-name Exioce \
+  --system-id64 2008132031194 \
+  --apply-metadata --json
+```
+
+`--apply` still hard-fails. `--apply-metadata` requires `--system-id64` and
+currently applies only `stations.station_type` when all of these are true:
+
+- the station is matched by exact id/name or unique exact name
+- local `station_type` is `Unknown`
+- EDSM station type normalizes to a permanent station type
+- there are no conflicts
+
+It does not apply `body_id`, `body_name`, `distance_from_star`, economies,
+service flags, association status/confidence, or `station_body_links`. For
+Exioce, the expected dry-run/apply metadata changes are:
+
+- Macmillan Depot: `Unknown -> Orbis`
+- Fort Lawrence: `Unknown -> Orbis`
+- Miller Terminal: `Unknown -> Coriolis`
+
+The Exioce fleet carriers (`WFK-N6Z`, `K2W-77Q`, `WFW-4TZ`, `T9J-B2N`,
+`XFK-T4M`) remain under `ignored_transient_non_slot`. The expected
+`association_changes` count remains `0`.
+
+Rollback/check query after a metadata apply:
+
+```sql
+SELECT id, name, station_type::text
+FROM stations
+WHERE system_id64 = 2008132031194
+  AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal')
+ORDER BY name;
+```
+
+If a reviewed metadata-only apply needs to be rolled back manually:
+
+```sql
+UPDATE stations
+SET station_type = 'Unknown'::station_type
+WHERE system_id64 = 2008132031194
+  AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal');
+```
+
+Bulk EDSM station dump imports are still out of scope.
 
 ## Schema Recommendations
 
