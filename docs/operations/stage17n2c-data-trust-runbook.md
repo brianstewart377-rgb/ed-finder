@@ -407,6 +407,29 @@ PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
 
 Default backfill behaviour does not overwrite existing confirmed links.
 
+Stage 17N.2d-J EDSM targeted dry-run:
+
+```bash
+PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/edsm_station_enrichment_probe.py \
+    --system-name Exioce --system-id64 2008132031194 --json
+```
+
+Container form:
+
+```bash
+docker compose --profile import run --rm importer \
+  edsm_station_enrichment_probe.py \
+  --system-name Exioce --system-id64 2008132031194 --json
+```
+
+This command fetches EDSM station/body evidence for one named system only. It
+does not run on a normal user path, does not import a bulk dump, and does not
+write to the database. `--apply` hard-fails as not implemented. Treat its
+`confirmed` rows as proposed evidence only, `inferred` rows as reviewable
+distance matches, `unresolved` rows as still-visible infrastructure, and
+`conflicts` as stop/review items.
+
 Association diagnostics:
 
 ```sql

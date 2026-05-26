@@ -200,6 +200,51 @@ PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
 Default behaviour preserves confirmed links. Use `--overwrite-confirmed` only
 for a deliberate correction pass.
 
+## Targeted EDSM Dry-Run Probe
+
+Script: `apps/importer/src/edsm_station_enrichment_probe.py`
+
+Stage 17N.2d-J adds a one-system EDSM comparison probe. It is not a user-path
+API call, not a scheduled importer, and not an apply tool. Its output is
+external evidence that can explain which local station rows could later be
+enriched.
+
+Local run:
+
+```bash
+PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/edsm_station_enrichment_probe.py \
+    --system-name Exioce --system-id64 2008132031194 --json
+```
+
+Importer container run:
+
+```bash
+docker compose --profile import run --rm importer \
+  edsm_station_enrichment_probe.py \
+  --system-name Exioce --system-id64 2008132031194 --json
+```
+
+Interpretation:
+
+- `confirmed`: exact local station identity plus exact same-system body name
+  evidence. This is still dry-run evidence until a future apply path exists.
+- `inferred`: unique distance-only body match. It can explain occupied-slot
+  review queues, but must remain labelled inferred.
+- `unresolved`: no exact station/body match, ambiguous station/body candidates,
+  missing body distance/name, or conflicting evidence. Unknown station types
+  keep `lane=unknown`; exact body evidence can still be shown, but it does not
+  become occupied-slot proof.
+- `conflicts`: review items. They never overwrite existing confirmed
+  `station_body_links` rows.
+- `occupies_colony_slot=false`: FleetCarrier, MegaShip, unknown, or otherwise
+  non-permanent infrastructure. It may remain visible but does not consume
+  orbital/surface colony capacity.
+
+`--apply` is deliberately not implemented. The next safe step is to run this
+against a small list of unresolved systems, inspect conflicts, and design an
+evidence table or manual review workflow before any write path.
+
 ## Diagnostic Queries
 
 Association status:
