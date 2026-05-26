@@ -7,6 +7,7 @@ import {
   getBodyGroupWarnings,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
+import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { BodySlotPlanner, type BodyPlannerLane } from './BodySlotPlanner';
 import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
@@ -512,7 +513,7 @@ function buildSystemOverviewItems(system: SystemDetail, snapshot: TopologyPlanSn
     .filter((item) => item.score > 0)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
-      return bodySortDistance(a.body) - bodySortDistance(b.body);
+      return compareBodiesByHierarchy(a.body, b.body, system.name);
     });
 }
 
@@ -596,10 +597,6 @@ function overviewBodyKind(body: SystemBody) {
     body.is_terraformable ? 'terraformable' : null,
   ].filter(Boolean);
   return flags.length > 0 ? `${type} / ${flags.join(' / ')}` : type;
-}
-
-function bodySortDistance(body: SystemBody) {
-  return body.distance_from_star ?? Number.MAX_SAFE_INTEGER;
 }
 
 function sumKnownCapacity(items: SystemOverviewItem[], lane: 'orbital' | 'surface') {

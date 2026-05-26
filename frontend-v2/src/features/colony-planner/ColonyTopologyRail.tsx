@@ -16,6 +16,7 @@ import {
   type GroupedPlacement,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
 import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
+import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
 import { buildPlanningEconomyLedger } from './planningEconomy';
 import {
@@ -93,7 +94,7 @@ export function ColonyTopologyRail({
 }: ColonyTopologyRailProps) {
   const bodies = systemBodyData(system);
   const bodyDataSlotEstimates = buildBodyDataSlotEstimateMap(system, snapshot.slotPredictions?.predictions);
-  const bodyNodes = buildBodyNodes(bodies);
+  const bodyNodes = buildBodyNodes(bodies, system.name);
   const buckets = bucketPlacements(snapshot.placements, snapshot.templates, bodies);
   const totalPlacements = snapshot.placements.length;
   const selectedIsSystem = selection.type === 'system';
@@ -709,7 +710,7 @@ function bucketProjectedPlacements(
   return buckets;
 }
 
-function buildBodyNodes(bodies: SystemBody[]): BodyNode[] {
+function buildBodyNodes(bodies: SystemBody[], systemName?: string | null): BodyNode[] {
   const withIds = bodies
     .filter((body) => body.id != null)
     .map((body) => ({ body, id: bodyIdKey(body.id) }));
@@ -731,12 +732,12 @@ function buildBodyNodes(bodies: SystemBody[]): BodyNode[] {
   const nodes: BodyNode[] = [];
   const visit = (item: { body: SystemBody; id: string }, depth: number) => {
     nodes.push({ ...item, depth });
-    for (const child of sortBodies(children.get(item.id) ?? [])) {
+    for (const child of sortBodies(children.get(item.id) ?? [], systemName)) {
       visit(child, depth + 1);
     }
   };
 
-  for (const root of sortBodies(roots)) {
+  for (const root of sortBodies(roots, systemName)) {
     visit(root, 0);
   }
   return nodes;
@@ -754,13 +755,15 @@ function bodyParentId(body: SystemBody): string | null {
   return null;
 }
 
-function sortBodies(items: Array<{ body: SystemBody; id: string }>) {
-  return [...items].sort((a, b) => {
-    const rank = (body: SystemBody) => body.body_type === 'Star' ? 0 : body.body_type === 'Planet' ? 1 : 2;
-    if (rank(a.body) !== rank(b.body)) return rank(a.body) - rank(b.body);
-    return (a.body.distance_from_star ?? Number.MAX_SAFE_INTEGER)
-      - (b.body.distance_from_star ?? Number.MAX_SAFE_INTEGER);
-  });
+function sortBodies(items: Array<{ body: SystemBody; id: string }>, systemName?: string | null) {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const rank = (body: SystemBody) => body.body_type === 'Star' ? 0 : body.body_type === 'Planet' ? 1 : 2;
+      if (rank(a.item.body) !== rank(b.item.body)) return rank(a.item.body) - rank(b.item.body);
+      return compareBodiesByHierarchy(a.item.body, b.item.body, systemName) || a.index - b.index;
+    })
+    .map(({ item }) => item);
 }
 
 function allPlacements(buckets: PlacementBucket): GroupedPlacement[] {

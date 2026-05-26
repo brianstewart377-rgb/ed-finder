@@ -250,7 +250,7 @@ def test_data_trust_cache_versions_are_bumped():
     assert "SEARCH_CACHE_VERSION = 'v4'" in search_source
     assert "GALAXY_CACHE_VERSION = 'v4'" in search_source
     assert "CLUSTER_CACHE_VERSION = 'v4'" in search_source
-    assert "SYSTEM_CACHE_VERSION = 'v4'" in systems_source
+    assert "SYSTEM_CACHE_VERSION = 'v5'" in systems_source
     assert "BODY_CACHE_VERSION = 'v2'" in systems_source
 
 

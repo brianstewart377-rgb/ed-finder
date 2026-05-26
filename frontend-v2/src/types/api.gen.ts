@@ -1507,6 +1507,12 @@ export interface components {
             spectral_class?: string | null;
             /** Is Scoopable */
             is_scoopable?: boolean | null;
+            /** Is Ringed */
+            is_ringed?: boolean | null;
+            /** Ring State */
+            ring_state?: "ringed" | "not_ringed" | "unknown" | null;
+            /** Body Sort Key */
+            body_sort_key?: string | null;
         } & {
             [key: string]: unknown;
         };

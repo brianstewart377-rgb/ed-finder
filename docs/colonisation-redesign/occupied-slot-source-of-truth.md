@@ -426,6 +426,8 @@ Known gaps:
   verified separate column if sources diverge.
 - `body_name` is useful but not guaranteed complete or unique forever.
 - `distance_from_star` is a fallback only, never confirmed truth.
+- Ring state is not occupied-slot evidence. Missing `body_scan_facts` rows mean
+  ring state is unknown, not confirmed no-rings.
 - Fleet carriers and megaships need a separate model before they can be treated
   as permanent colony occupancy.
 

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { displayRationale } from '@/lib/rationale';
 import { formatConfidence, formatPopulationForSystem, ratingTier } from '@/lib/format';
+import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import type { BodySlotPrediction, FacilityTemplate, SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 import {
   bodyDisplayName,
@@ -1543,7 +1544,7 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
   const projectedByBody = bucketStructures(snapshot.projection?.placements ?? [], templatesById, bodyById, true, snapshot.projection?.placementLaneHints);
   const projectedBodyIds = new Set(Array.from(projectedByBody.keys()));
 
-  return flattenBodyNodes(bodies).map((node) => {
+  return flattenBodyNodes(bodies, system.name).map((node) => {
     const prediction = predictionsByBodyId.get(node.id) ?? null;
     const bodyDataSlotEstimate = bodyDataSlotEstimates.get(node.id) ?? null;
     const planned = plannedByBody.get(node.id) ?? emptyStructureBuckets();
@@ -2188,8 +2189,8 @@ function placementBodyId(placement: SimulateBuildPlacement | undefined): string 
   return placement?.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
 }
 
-function flattenBodyNodes(bodies: SystemBody[]): FlatBodyNode[] {
-  const nodes = buildBodyTree(bodies);
+function flattenBodyNodes(bodies: SystemBody[], systemName?: string | null): FlatBodyNode[] {
+  const nodes = buildBodyTree(bodies, systemName);
   const flat: FlatBodyNode[] = [];
   const visit = (node: BodyNode, depth: number, guide: boolean[], isLast: boolean) => {
     flat.push({ body: node.body, id: node.id, depth, guide, isLast });
@@ -2201,7 +2202,7 @@ function flattenBodyNodes(bodies: SystemBody[]): FlatBodyNode[] {
   return flat;
 }
 
-function buildBodyTree(bodies: SystemBody[]): BodyNode[] {
+function buildBodyTree(bodies: SystemBody[], systemName?: string | null): BodyNode[] {
   const nodes = bodies
     .filter((body) => body.id != null)
     .map((body) => ({ body, id: bodyIdKey(body.id), children: [] as BodyNode[] }));
@@ -2217,8 +2218,7 @@ function buildBodyTree(bodies: SystemBody[]): BodyNode[] {
 
   const sort = (items: BodyNode[]) => {
     items.sort((left, right) => bodyRank(left.body) - bodyRank(right.body)
-      || (left.body.distance_from_star ?? Number.MAX_SAFE_INTEGER) - (right.body.distance_from_star ?? Number.MAX_SAFE_INTEGER)
-      || bodyDisplayName(left.body).localeCompare(bodyDisplayName(right.body)));
+      || compareBodiesByHierarchy(left.body, right.body, systemName));
     items.forEach((item) => sort(item.children));
   };
 

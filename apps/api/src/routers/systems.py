@@ -10,6 +10,7 @@ from deps    import get_pool, get_redis, cache_get, cache_set
 from models  import SystemDetailResponse
 from helpers import sys_row_to_dict
 from station_body_resolver import is_transient_non_slot_station_type, resolve_station_body_association
+from body_sorting import natural_body_sort_key_string, sort_bodies_by_hierarchy
 
 try:
     import local_search as _ls
@@ -20,7 +21,7 @@ except ImportError:
 
 router = APIRouter(tags=['systems'])
 
-SYSTEM_CACHE_VERSION = 'v4'
+SYSTEM_CACHE_VERSION = 'v5'
 BODY_CACHE_VERSION = 'v2'
 
 
@@ -62,16 +63,31 @@ async def get_system(
             raise HTTPException(404, f'System {id64} not found')
 
         bodies = await conn.fetch("""
-            SELECT id, name, subtype, body_type,
-                   distance_from_star, is_landable, is_terraformable,
-                   is_earth_like, is_water_world, is_ammonia_world,
-                   bio_signal_count, geo_signal_count,
-                   surface_temp, radius, mass, gravity,
-                   estimated_mapping_value, estimated_scan_value,
-                   is_main_star, spectral_class, is_scoopable
-            FROM bodies
-            WHERE system_id64 = $1
-            ORDER BY distance_from_star ASC NULLS LAST
+            SELECT b.id, b.name, b.subtype, b.body_type,
+                   b.distance_from_star, b.is_landable, b.is_terraformable,
+                   b.is_earth_like, b.is_water_world, b.is_ammonia_world,
+                   b.bio_signal_count, b.geo_signal_count,
+                   b.surface_temp, b.radius, b.mass, b.gravity,
+                   b.estimated_mapping_value, b.estimated_scan_value,
+                   b.is_main_star, b.spectral_class, b.is_scoopable,
+                   f.is_ringed AS _scan_is_ringed,
+                   f.data_sources AS _scan_data_sources
+            FROM bodies b
+            LEFT JOIN LATERAL (
+                SELECT sf.is_ringed, sf.data_sources
+                FROM body_scan_facts sf
+                WHERE sf.system_address = b.system_id64
+                  AND (
+                      sf.body_id::bigint = b.id
+                      OR sf.body_name = b.name
+                  )
+                ORDER BY (sf.body_id::bigint = b.id) DESC,
+                         (sf.body_name = b.name) DESC,
+                         sf.updated_at DESC
+                LIMIT 1
+            ) f ON TRUE
+            WHERE b.system_id64 = $1
+            ORDER BY b.id ASC
         """, id64)
 
         has_station_links = await conn.fetchval("SELECT to_regclass('public.station_body_links') IS NOT NULL")
@@ -113,7 +129,10 @@ async def get_system(
             """, id64)
 
     d = sys_row_to_dict(row)
-    d['bodies']   = [dict(b) for b in bodies]
+    d['bodies']   = sort_bodies_by_hierarchy(
+        [_body_payload_from_row(b, d.get('name')) for b in bodies],
+        system_name=d.get('name'),
+    )
     d['stations'] = [_station_with_association(dict(s), d['bodies']) for s in stations]
 
     # Exploration value estimator (Data Enrichment #2)
@@ -140,6 +159,43 @@ def _station_with_association(station: dict, bodies: list[dict]) -> dict:
     association = resolve_station_body_association(station, bodies)
     station.update(association.to_api_dict())
     return station
+
+
+def _body_payload_from_row(row: Any, system_name: Optional[str] = None) -> dict[str, Any]:
+    body = dict(row)
+    scan_is_ringed = body.pop('_scan_is_ringed', None)
+    scan_data_sources = body.pop('_scan_data_sources', None)
+    is_ringed, ring_state = _ring_fields_from_scan_fact(scan_is_ringed, scan_data_sources)
+    body['is_ringed'] = is_ringed
+    body['ring_state'] = ring_state
+    body['body_sort_key'] = natural_body_sort_key_string(body.get('name'), system_name)
+    return body
+
+
+def _ring_fields_from_scan_fact(is_ringed: Any, data_sources: Any) -> tuple[Optional[bool], str]:
+    sources = _normalise_data_sources(data_sources)
+    if 'eddn_scan' not in sources:
+        return None, 'unknown'
+    known_value = bool(is_ringed)
+    return known_value, 'ringed' if known_value else 'not_ringed'
+
+
+def _normalise_data_sources(data_sources: Any) -> set[str]:
+    if data_sources is None:
+        return set()
+    if isinstance(data_sources, str):
+        value = data_sources.strip()
+        if value.startswith('{') and value.endswith('}'):
+            return {
+                part.strip().strip('"')
+                for part in value[1:-1].split(',')
+                if part.strip()
+            }
+        return {value}
+    try:
+        return {str(value) for value in data_sources if value is not None}
+    except TypeError:
+        return set()
 
 
 @router.get('/api/local/system/{id64}')
@@ -213,20 +269,41 @@ async def batch_systems(
             """, missing)
 
             bodies_rows = await conn.fetch("""
-                SELECT system_id64, id, name, subtype,
-                       distance_from_star, is_landable, is_terraformable,
-                       is_earth_like, is_water_world, is_ammonia_world,
-                       bio_signal_count, geo_signal_count,
-                       estimated_mapping_value, estimated_scan_value
-                FROM bodies
-                WHERE system_id64 = ANY($1::bigint[])
-                ORDER BY system_id64, distance_from_star ASC NULLS LAST
+                SELECT b.system_id64, b.id, b.name, b.subtype,
+                       b.distance_from_star, b.is_landable, b.is_terraformable,
+                       b.is_earth_like, b.is_water_world, b.is_ammonia_world,
+                       b.bio_signal_count, b.geo_signal_count,
+                       b.estimated_mapping_value, b.estimated_scan_value,
+                       f.is_ringed AS _scan_is_ringed,
+                       f.data_sources AS _scan_data_sources
+                FROM bodies b
+                LEFT JOIN LATERAL (
+                    SELECT sf.is_ringed, sf.data_sources
+                    FROM body_scan_facts sf
+                    WHERE sf.system_address = b.system_id64
+                      AND (
+                          sf.body_id::bigint = b.id
+                          OR sf.body_name = b.name
+                      )
+                    ORDER BY (sf.body_id::bigint = b.id) DESC,
+                             (sf.body_name = b.name) DESC,
+                             sf.updated_at DESC
+                    LIMIT 1
+                ) f ON TRUE
+                WHERE b.system_id64 = ANY($1::bigint[])
+                ORDER BY b.system_id64, b.id ASC
             """, missing)
 
+        system_names = {row['id64']: row['name'] for row in rows}
         bodies_by_system: dict[int, list] = {}
         for b in bodies_rows:
             bid = b['system_id64']
-            bodies_by_system.setdefault(bid, []).append(dict(b))
+            bodies_by_system.setdefault(bid, []).append(_body_payload_from_row(b, system_names.get(bid)))
+        for bid, system_bodies in bodies_by_system.items():
+            bodies_by_system[bid] = sort_bodies_by_hierarchy(
+                system_bodies,
+                system_name=system_names.get(bid),
+            )
 
         for row in rows:
             d = sys_row_to_dict(row)

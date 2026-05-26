@@ -301,6 +301,7 @@ export function bodyTags(body: SystemBody): string[] {
     body.is_earth_like ? 'Earth-like' : null,
     body.is_ammonia_world ? 'Ammonia world' : null,
     body.is_terraformable ? 'Terraformable' : null,
+    body.is_ringed === true ? 'Ringed' : body.is_ringed === false ? 'No rings' : null,
   ].filter((value): value is string => Boolean(value));
 
   const uniqueTags = Array.from(new Set(tags));
