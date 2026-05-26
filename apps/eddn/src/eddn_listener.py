@@ -231,6 +231,16 @@ def is_scoopable(spectral: Optional[str]) -> Optional[bool]:
     return spectral[0].upper() in SCOOPABLE
 
 
+def _star_type_parts(spectral: Optional[str]) -> tuple[str | None, str | None, bool | None]:
+    if not spectral:
+        return None, None, None
+    spectral = str(spectral).strip()
+    if not spectral:
+        return None, None, None
+    star_type = spectral[:1].upper()
+    return star_type, spectral[1:] or None, star_type in SCOOPABLE
+
+
 def _extract_star_pos(value) -> tuple[float | None, float | None, float | None]:
     """Return a complete StarPos triple, or all-null when any axis is missing."""
     if not isinstance(value, (list, tuple)) or len(value) < 3:
@@ -307,7 +317,7 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
         'is_earth_like':  str(subtype).lower() == 'earthlikebody' or 'earth-like' in str(subtype).lower(),
         'is_water_world': 'waterworld' in str(subtype).lower() or 'water world' in str(subtype).lower(),
         'is_ammonia_world': 'ammoniaworld' in str(subtype).lower() or 'ammonia world' in str(subtype).lower(),
-        'is_tidal_lock':  bool(message.get('TidalLock', False)),
+        'is_tidal_lock':  bool(message['TidalLock']) if 'TidalLock' in message else None,
         'spectral_class': message.get('StarType'),
         'stellar_mass':   safe_float(message.get('StellarMass')) if is_star else None,
         'is_scoopable':   is_scoopable(message.get('StarType')),
@@ -320,6 +330,18 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
         body_rec['materials'] = json.dumps({
             m['Name']: m['Percent'] for m in message['Materials']
         })
+
+    if is_star and body_rec.get('is_main_star'):
+        star_type, star_subtype, star_scoopable = _star_type_parts(message.get('StarType'))
+        if star_type:
+            existing = _pending_systems.get(id64, {'id64': id64, 'updated': utcnow()})
+            existing.update({
+                'main_star_type': star_type,
+                'main_star_subtype': star_subtype,
+                'main_star_is_scoopable': star_scoopable,
+                'updated': utcnow(),
+            })
+            _pending_systems[id64] = existing
 
     _pending_bodies.append(body_rec)
 
@@ -342,17 +364,21 @@ async def handle_saa_signals(pool: asyncpg.Pool, header: dict, message: dict):
     if bio_count > 0 or geo_count > 0:
         body_name = message.get('BodyName', '')
         async with pool.acquire() as conn:
-            await conn.execute("""
+            updated_body = await conn.fetchval("""
                 UPDATE bodies
                 SET bio_signal_count = GREATEST(bio_signal_count, $1),
                     geo_signal_count = GREATEST(geo_signal_count, $2),
                     updated_at       = NOW()
                 WHERE name = $3 AND system_id64 = $4
+                  AND (bio_signal_count < $1 OR geo_signal_count < $2)
+                RETURNING id
             """, bio_count, geo_count, body_name, id64)
-            await conn.execute("""
-                UPDATE systems SET rating_dirty = TRUE, cluster_dirty = TRUE
-                WHERE id64 = $1
-            """, id64)
+            if updated_body:
+                await conn.execute("""
+                    UPDATE systems
+                       SET rating_dirty = TRUE, cluster_dirty = TRUE
+                     WHERE id64 = $1
+                """, id64)
 
 
 async def handle_location_or_jump(pool: asyncpg.Pool, header: dict, message: dict):
@@ -423,9 +449,14 @@ async def flush_pending(pool: asyncpg.Pool):
                             INSERT INTO systems (
                                 id64, name, x, y, z,
                                 primary_economy, population,
+                                main_star_type, main_star_subtype, main_star_is_scoopable,
                                 rating_dirty, cluster_dirty,
                                 eddn_updated_at, updated_at
-                            ) VALUES ($1,$2,$3,$4,$5,$6::economy_type,COALESCE($7::bigint, 0),TRUE,TRUE,NOW(),NOW())
+                            ) VALUES (
+                                $1,$2,$3,$4,$5,$6::economy_type,COALESCE($7::bigint, 0),
+                                $8,$9,$10,
+                                TRUE,TRUE,NOW(),NOW()
+                            )
                             ON CONFLICT (id64) DO UPDATE SET
                                 name            = COALESCE(NULLIF($2,'Unknown'), systems.name),
                                 x               = COALESCE($3, systems.x),
@@ -435,10 +466,23 @@ async def flush_pending(pool: asyncpg.Pool):
                                                        THEN $6::economy_type
                                                        ELSE systems.primary_economy END,
                                 population      = COALESCE($7::bigint, systems.population),
+                                main_star_type  = COALESCE($8, systems.main_star_type),
+                                main_star_subtype = COALESCE($9, systems.main_star_subtype),
+                                main_star_is_scoopable = COALESCE($10, systems.main_star_is_scoopable),
                                 rating_dirty    = TRUE,
                                 cluster_dirty   = TRUE,
                                 eddn_updated_at = NOW(),
                                 updated_at      = NOW()
+                            WHERE
+                                (NULLIF($2,'Unknown') IS NOT NULL AND systems.name IS DISTINCT FROM NULLIF($2,'Unknown'))
+                                OR ($3 IS NOT NULL AND systems.x IS DISTINCT FROM $3)
+                                OR ($4 IS NOT NULL AND systems.y IS DISTINCT FROM $4)
+                                OR ($5 IS NOT NULL AND systems.z IS DISTINCT FROM $5)
+                                OR ($6 != 'Unknown' AND systems.primary_economy IS DISTINCT FROM $6::economy_type)
+                                OR ($7 IS NOT NULL AND systems.population IS DISTINCT FROM $7::bigint)
+                                OR ($8 IS NOT NULL AND systems.main_star_type IS DISTINCT FROM $8)
+                                OR ($9 IS NOT NULL AND systems.main_star_subtype IS DISTINCT FROM $9)
+                                OR ($10 IS NOT NULL AND systems.main_star_is_scoopable IS DISTINCT FROM $10)
                         """,
                             sys['id64'],
                             sys.get('name', 'Unknown'),
@@ -447,6 +491,9 @@ async def flush_pending(pool: asyncpg.Pool):
                             sys.get('z'),
                             sys.get('economy', 'Unknown'),
                             sys.get('pop'),
+                            sys.get('main_star_type'),
+                            sys.get('main_star_subtype'),
+                            sys.get('main_star_is_scoopable'),
                         )
                         flushed_systems += 1
                         _stats['systems_upserted'] += 1
@@ -474,14 +521,56 @@ async def flush_pending(pool: asyncpg.Pool):
                                 $15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,NOW()
                             )
                             ON CONFLICT (id) DO UPDATE SET
+                                system_id64       = EXCLUDED.system_id64,
+                                name              = COALESCE(NULLIF(EXCLUDED.name, 'Unknown'), bodies.name),
+                                body_type         = EXCLUDED.body_type,
                                 subtype           = COALESCE(EXCLUDED.subtype, bodies.subtype),
+                                is_main_star      = EXCLUDED.is_main_star,
+                                distance_from_star = COALESCE(EXCLUDED.distance_from_star, bodies.distance_from_star),
+                                radius            = COALESCE(EXCLUDED.radius, bodies.radius),
+                                mass              = COALESCE(EXCLUDED.mass, bodies.mass),
+                                gravity           = COALESCE(EXCLUDED.gravity, bodies.gravity),
                                 is_landable       = EXCLUDED.is_landable,
                                 is_terraformable  = EXCLUDED.is_terraformable,
                                 is_earth_like     = EXCLUDED.is_earth_like,
                                 is_water_world    = EXCLUDED.is_water_world,
                                 is_ammonia_world  = EXCLUDED.is_ammonia_world,
                                 surface_temp      = COALESCE(EXCLUDED.surface_temp, bodies.surface_temp),
+                                surface_pressure  = COALESCE(EXCLUDED.surface_pressure, bodies.surface_pressure),
+                                volcanism         = COALESCE(EXCLUDED.volcanism, bodies.volcanism),
+                                atmosphere_type   = COALESCE(EXCLUDED.atmosphere_type, bodies.atmosphere_type),
+                                is_tidal_lock     = COALESCE(EXCLUDED.is_tidal_lock, bodies.is_tidal_lock),
+                                spectral_class    = COALESCE(EXCLUDED.spectral_class, bodies.spectral_class),
+                                stellar_mass      = COALESCE(EXCLUDED.stellar_mass, bodies.stellar_mass),
+                                is_scoopable      = COALESCE(EXCLUDED.is_scoopable, bodies.is_scoopable),
+                                estimated_mapping_value = COALESCE(EXCLUDED.estimated_mapping_value, bodies.estimated_mapping_value),
+                                estimated_scan_value = COALESCE(EXCLUDED.estimated_scan_value, bodies.estimated_scan_value),
                                 updated_at        = NOW()
+                            WHERE
+                                bodies.system_id64 IS DISTINCT FROM EXCLUDED.system_id64
+                                OR bodies.name IS DISTINCT FROM COALESCE(NULLIF(EXCLUDED.name, 'Unknown'), bodies.name)
+                                OR bodies.body_type IS DISTINCT FROM EXCLUDED.body_type
+                                OR bodies.subtype IS DISTINCT FROM COALESCE(EXCLUDED.subtype, bodies.subtype)
+                                OR bodies.is_main_star IS DISTINCT FROM EXCLUDED.is_main_star
+                                OR bodies.distance_from_star IS DISTINCT FROM COALESCE(EXCLUDED.distance_from_star, bodies.distance_from_star)
+                                OR bodies.radius IS DISTINCT FROM COALESCE(EXCLUDED.radius, bodies.radius)
+                                OR bodies.mass IS DISTINCT FROM COALESCE(EXCLUDED.mass, bodies.mass)
+                                OR bodies.gravity IS DISTINCT FROM COALESCE(EXCLUDED.gravity, bodies.gravity)
+                                OR bodies.is_landable IS DISTINCT FROM EXCLUDED.is_landable
+                                OR bodies.is_terraformable IS DISTINCT FROM EXCLUDED.is_terraformable
+                                OR bodies.is_earth_like IS DISTINCT FROM EXCLUDED.is_earth_like
+                                OR bodies.is_water_world IS DISTINCT FROM EXCLUDED.is_water_world
+                                OR bodies.is_ammonia_world IS DISTINCT FROM EXCLUDED.is_ammonia_world
+                                OR bodies.surface_temp IS DISTINCT FROM COALESCE(EXCLUDED.surface_temp, bodies.surface_temp)
+                                OR bodies.surface_pressure IS DISTINCT FROM COALESCE(EXCLUDED.surface_pressure, bodies.surface_pressure)
+                                OR bodies.volcanism IS DISTINCT FROM COALESCE(EXCLUDED.volcanism, bodies.volcanism)
+                                OR bodies.atmosphere_type IS DISTINCT FROM COALESCE(EXCLUDED.atmosphere_type, bodies.atmosphere_type)
+                                OR bodies.is_tidal_lock IS DISTINCT FROM COALESCE(EXCLUDED.is_tidal_lock, bodies.is_tidal_lock)
+                                OR bodies.spectral_class IS DISTINCT FROM COALESCE(EXCLUDED.spectral_class, bodies.spectral_class)
+                                OR bodies.stellar_mass IS DISTINCT FROM COALESCE(EXCLUDED.stellar_mass, bodies.stellar_mass)
+                                OR bodies.is_scoopable IS DISTINCT FROM COALESCE(EXCLUDED.is_scoopable, bodies.is_scoopable)
+                                OR bodies.estimated_mapping_value IS DISTINCT FROM COALESCE(EXCLUDED.estimated_mapping_value, bodies.estimated_mapping_value)
+                                OR bodies.estimated_scan_value IS DISTINCT FROM COALESCE(EXCLUDED.estimated_scan_value, bodies.estimated_scan_value)
                         """,
                             body['id'], body['system_id64'], body['name'],
                             body.get('body_type', 'Unknown'),

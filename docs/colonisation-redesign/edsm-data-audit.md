@@ -84,6 +84,100 @@ write directly over core truth.
    add explicit source-id columns/tables instead of assuming all ids are the
    same namespace.
 
+## Stage 17N.2d-J Targeted Station Probe
+
+Script: `apps/importer/src/edsm_station_enrichment_probe.py`
+
+The first implementation is an operator dry-run only. It loads one local system
+from ED-Finder, fetches EDSM `/api-system-v1/stations` and
+`/api-system-v1/bodies` for the same system name, and prints a station-centric
+diff. It does not write evidence tables, core station rows, or
+`station_body_links`.
+
+Local fields that can be compared today:
+
+- `stations.id`: current local station identity. It is populated from source
+  `id`/`marketId` where available, but ED-Finder still treats the namespace as
+  unproven unless the id and exact station name both match EDSM.
+- `stations.name`: the main same-system station identity fallback. Exact
+  normalized name match is accepted only when unique on both sides.
+- `stations.station_type`: compared against normalized EDSM `type` /
+  `stationType` with the existing station type whitelist.
+- `stations.distance_from_star`: compared to EDSM `distanceToArrival`; distance
+  supports identity/body inference but is not identity by itself.
+- `stations.body_name`: local weak body evidence, useful for conflict context.
+- `stations.primary_economy`, `has_market`, and `has_shipyard`: reported as
+  possible enrichment/conflict evidence only. They do not affect slot
+  occupancy.
+- `bodies.id`, `bodies.name`, and `bodies.distance_from_star`: local body rows
+  used to confirm exact body-name matches or infer unique distance matches.
+
+EDSM fields used by the probe:
+
+- station `id`, `marketId`, `name`, `type`, `distanceToArrival`, `economy`,
+  `haveMarket`, `haveShipyard`, and optional `bodyName` / `body` / `bodyId`
+  when present
+- body `id` / `bodyId`, `name`, `type` / `subType`, and `distanceToArrival`
+
+Matching rules:
+
+- EDSM station `id` / `marketId` is exact only when it also has the exact same
+  station name as the local row. Id-only matches are reported as conflicts, not
+  trusted as proof.
+- A unique exact station name in the same system can match a local station.
+  Multiple local or EDSM candidates leave the station unresolved.
+- Station distance uses the resolver tolerance (`0.01 ls`) for support/conflict.
+  Distance never matches a station by itself.
+- EDSM `bodyName` / `body.name` confirms a body association only when it
+  matches exactly one local body in the same system.
+- EDSM station `bodyId` is not treated as local truth directly. The probe maps
+  it through the EDSM bodies payload to a body name, then exact-matches the
+  local body name.
+- Distance-only station/body association remains `inferred` and requires
+  exactly one local body, or one EDSM body that maps by exact name to one local
+  body, within `0.01 ls`.
+
+Confidence rules:
+
+- `confirmed`: exact local station identity plus exact same-system body name
+  evidence.
+- `inferred`: unique distance-only body association or station-name evidence
+  with supporting distance where no exact body name exists.
+- `unresolved`: no station match, multiple station/body candidates, missing
+  body evidence, or blocking conflicts. Unknown/unmapped station types keep
+  `lane=unknown`; exact body evidence can still be reported, but it is not
+  occupied-slot proof.
+- `FleetCarrier` and `MegaShip` may be reported with body evidence, but their
+  lane remains `unknown` and `occupies_colony_slot=false`.
+
+Conflict reporting:
+
+- local and EDSM station distances differ by more than `0.01 ls`
+- local and EDSM economies differ when both are known
+- EDSM would change a known local station type to another known type
+- EDSM id/marketId matches a different local station name
+- EDSM body evidence is ambiguous, missing locally, or would conflict with an
+  existing confirmed `station_body_links` row
+
+Run one Exioce dry-run locally:
+
+```bash
+PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/edsm_station_enrichment_probe.py \
+    --system-name Exioce --system-id64 2008132031194 --json
+```
+
+Run through the importer container after deployment:
+
+```bash
+docker compose --profile import run --rm importer \
+  edsm_station_enrichment_probe.py \
+  --system-name Exioce --system-id64 2008132031194 --json
+```
+
+`--apply` intentionally hard-fails with "not implemented". Bulk EDSM station
+dump imports are still out of scope.
+
 ## Schema Recommendations
 
 Do not add EDSM rows directly into core tables during the first phase. Add

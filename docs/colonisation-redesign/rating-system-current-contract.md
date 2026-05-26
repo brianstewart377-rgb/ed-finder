@@ -72,6 +72,29 @@ Stored in `score_breakdown.dimensions`:
 Operational recovery steps for Stage 17N.2c are documented in
 `docs/operations/stage17n2c-data-trust-runbook.md`.
 
+## Dirty Recalculation Contract
+
+Any import or live-ingestion path that changes a rating input marks only the
+affected system `rating_dirty = TRUE`. It does not run rating recalculation
+inline.
+
+Current v3.4 rating reads:
+
+- `systems.main_star_type`
+- `systems.updated_at` for confidence freshness
+- body type/subtype, landable/terraformable/special-world flags, tidal lock,
+  signal counts, and `distance_from_star`
+
+The database trigger contract also conservatively treats economy, population,
+colonisation state, body-data flags, and body count/quality fields as rating
+dirty inputs so future importer changes do not silently leave stale ratings.
+Body insert/update/delete marks the parent system dirty. Body no-op updates do
+not.
+
+Station rows and `station_body_links` do not affect rating v3.4. They affect
+system detail and occupied-slot presentation; cached `sys:*` and simulation
+payloads may be stale until TTL expiry or an operator cache clear.
+
 ## Stage 17N.2d reliability additions
 
 - Dirty-only rebuild progress must not use a fake total. When the dirty count is

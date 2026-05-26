@@ -34,7 +34,13 @@ from build_ratings import (
     rate_system,
     worker_process,
 )
+import build_ratings
 from import_spansh import _extract_system_coords
+from dirty_flags import (
+    RATING_AFFECTING_BODY_FIELDS,
+    RATING_AFFECTING_SYSTEM_FIELDS,
+    mark_systems_rating_dirty,
+)
 
 
 def _schema_text(name: str) -> str:
@@ -274,6 +280,27 @@ def test_base_schema_includes_rating_version_and_migration_remains():
     assert 'ADD COLUMN IF NOT EXISTS rating_version TEXT DEFAULT NULL' in migration
 
 
+def test_rating_dirty_trigger_migration_remains_for_existing_deployments():
+    base_functions = _schema_text('003_functions.sql')
+    migration = _schema_text('022_rating_dirty_triggers.sql')
+
+    for source in (base_functions, migration):
+        assert 'OLD.main_star_type         IS DISTINCT FROM NEW.main_star_type' in source
+        assert 'OLD.updated_at             IS DISTINCT FROM NEW.updated_at' in source
+        assert 'AFTER DELETE ON bodies' in source
+        assert 'trg_body_dirty_update' in source
+        assert 'WHEN (' in source
+        assert 'OLD.distance_from_star  IS DISTINCT FROM NEW.distance_from_star' in source
+
+
+def test_rating_affecting_field_lists_document_current_inputs():
+    assert 'main_star_type' in RATING_AFFECTING_SYSTEM_FIELDS
+    assert 'updated_at' in RATING_AFFECTING_SYSTEM_FIELDS
+    assert 'distance_from_star' in RATING_AFFECTING_BODY_FIELDS
+    assert 'is_tidal_lock' in RATING_AFFECTING_BODY_FIELDS
+    assert 'bio_signal_count' in RATING_AFFECTING_BODY_FIELDS
+
+
 def test_spansh_importer_missing_coords_stay_null():
     assert _extract_system_coords({'id64': 1, 'name': 'Missing'}) == (None, None, None)
     assert _extract_system_coords({'coords': {'x': 1, 'y': None, 'z': 3}}) == (None, None, None)
@@ -282,6 +309,14 @@ def test_spansh_importer_missing_coords_stay_null():
         -100.25,
         16.78125,
     )
+
+
+def test_spansh_temp_upsert_skips_noop_updates():
+    source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text()
+
+    assert "if c not in {'updated_at', 'rating_dirty', 'cluster_dirty'}" in source
+    assert 'IS DISTINCT FROM EXCLUDED' in source
+    assert 'WHERE {comparisons}' in source
 
 
 def test_current_rating_scorer_attenuates_multi_economy_saturation():
@@ -346,6 +381,13 @@ def test_rating_version_write_shape_is_explicit():
     assert 'rating_version' in RATING_CONFLICT_UPDATE_COLUMNS
     assert 'rating_version' in sql
     assert 'EXCLUDED.rating_version' in sql
+
+
+def test_dirty_mode_selects_only_rating_dirty_systems():
+    source = inspect.getsource(build_ratings.main)
+
+    assert 'WHERE  rating_dirty = TRUE' in source
+    assert 'Query: dirty systems only' in source
 
 
 def test_worker_connection_uses_timeout_disabled_helper():
@@ -427,6 +469,72 @@ def test_dirty_cleanup_retries_transient_statement_timeout():
     assert marked == 3
     assert left_dirty == 0
     assert conn.rollbacks == 1
+
+
+class _DirtyHelperCursor:
+    def __init__(self, rowcount_by_chunk=None):
+        self.rowcount = 0
+        self.statements = []
+        self.chunks = []
+        self.rowcount_by_chunk = list(rowcount_by_chunk or [])
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def execute(self, sql, params=None):
+        self.statements.append(sql)
+        chunk = list(params[0])
+        self.chunks.append(chunk)
+        if self.rowcount_by_chunk:
+            self.rowcount = self.rowcount_by_chunk.pop(0)
+        else:
+            self.rowcount = len(chunk)
+
+
+class _DirtyHelperConn:
+    def __init__(self, rowcount_by_chunk=None):
+        self.cursor_obj = _DirtyHelperCursor(rowcount_by_chunk)
+        self.commits = 0
+
+    def cursor(self):
+        return self.cursor_obj
+
+    def commit(self):
+        self.commits += 1
+
+
+def test_mark_systems_rating_dirty_ignores_empty_list():
+    conn = _DirtyHelperConn()
+
+    marked = mark_systems_rating_dirty(conn, [], chunk_size=2)
+
+    assert marked == 0
+    assert conn.commits == 0
+    assert conn.cursor_obj.chunks == []
+
+
+def test_mark_systems_rating_dirty_marks_one_and_is_idempotent_by_predicate():
+    conn = _DirtyHelperConn(rowcount_by_chunk=[1, 0])
+
+    marked_first = mark_systems_rating_dirty(conn, [42], chunk_size=10)
+    marked_second = mark_systems_rating_dirty(conn, [42], chunk_size=10)
+
+    assert marked_first == 1
+    assert marked_second == 0
+    assert 's.rating_dirty IS DISTINCT FROM TRUE' in conn.cursor_obj.statements[0]
+
+
+def test_mark_systems_rating_dirty_marks_many_in_chunks_and_dedupes():
+    conn = _DirtyHelperConn()
+
+    marked = mark_systems_rating_dirty(conn, [1, 2, 2, 3, 4, 5], chunk_size=2)
+
+    assert marked == 5
+    assert conn.cursor_obj.chunks == [[1, 2], [3, 4], [5]]
+    assert conn.commits == 1
 
 
 class _CaptureLog:

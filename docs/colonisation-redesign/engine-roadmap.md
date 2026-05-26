@@ -1985,6 +1985,30 @@ Delivered:
   WatchlistTab, PinnedTab, and Colony Planner WorkspaceHeader unknown-value
   rendering.
 
+## Stage 17N.2c-R - Rating Dirty Trigger Audit
+
+Goal: ensure ratings rebuilt to v3.4 stay fresh when new system/body data
+arrives, without production imports, full rebuilds, rating-weight changes, or
+planner algorithm changes.
+
+Delivered:
+
+- Added `sql/022_rating_dirty_triggers.sql` and updated the bootstrap trigger
+  definitions in `sql/003_functions.sql`.
+- Body insert/update/delete now marks the affected system `rating_dirty = TRUE`;
+  body updates are field-aware so no-op updates do not dirty ratings.
+- System trigger coverage now includes main-star fields and `updated_at`
+  freshness, while coordinate/region changes continue to mark `cluster_dirty`.
+- Spansh temp-upserts skip conflict updates when all real data columns are
+  unchanged, so repeated bulk imports do not churn dirty flags just because
+  `updated_at` or dirty columns were present in the batch.
+- EDDN main-star scans update `systems.main_star_type`; EDDN body conflict
+  updates preserve rating-relevant fields such as `distance_from_star`; partial
+  or missing `StarPos` values still do not overwrite known coordinates.
+- Station-only updates remain outside the rating-dirty contract because the
+  v3.4 scorer does not read stations. Their cache impact is documented as
+  TTL/manual-clear for system detail and occupied-slot surfaces.
+
 Remaining follow-ups:
 
 - migrate `systems.population` to nullable or add an explicit population
