@@ -319,6 +319,33 @@ Phase 0 - no import:
 3. Add station type normalization tests for EDSM labels.
 4. Add a dry-run probe script later, but do not schedule it.
 
+Stage 17N.2d-I keeps this phase light. EDSM should be used as targeted
+evidence, not as a live user-path dependency:
+
+- No normal UI/API request should call EDSM over the network.
+- Do not schedule or run a bulk `stations.json.gz` import until a staging host
+  proves disk use, parser behaviour, row counts, and conflict reports.
+- Add a small operator-only enrichment command later with a shape like
+  `--system-id64 <id64> --dry-run`. It should fetch one system, write or print
+  evidence/diff output, and leave core `stations` / `station_body_links`
+  untouched unless a later apply mode is explicitly designed.
+- The first production-safe target is one known unresolved system at a time,
+  comparing EDSM station `marketId`, `name`, `type`, `distanceToArrival`, and
+  any `body` / `bodyName` field the source actually returns.
+- EDSM `type` labels can improve lane classification through the same
+  whitelist as Spansh labels. Unknown or unmapped labels remain `Unknown`.
+- EDSM `body` / `bodyName`, if present, can support a confirmed
+  `station_body_links` proposal only when it matches exactly one ED-Finder body
+  in the same system.
+- EDSM distance-only evidence can support only an `inferred`
+  `resolver_distance` proposal when exactly one body is within tolerance.
+- EDSM `marketId` can improve station identity checks, but ED-Finder should not
+  assume forever that `stations.id == marketId`; keep source ids in evidence
+  until the namespace is proven.
+- Conflicts are review items, not automatic overwrites. Preserve existing
+  confirmed/manual links, keep weaker EDSM evidence labelled as inferred, and
+  report mismatched station type/body/distance/source ids in dry-run output.
+
 Phase 1 - one-system probe:
 
 1. Fetch one known system by API only.

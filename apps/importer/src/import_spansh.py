@@ -357,6 +357,17 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     temp = f"_tmp_{target_table}"
     col_list   = ', '.join(columns)
     set_clause = ', '.join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    change_cols = [
+        c for c in update_cols
+        if c not in {'updated_at', 'rating_dirty', 'cluster_dirty'}
+    ]
+    where_clause = ''
+    if change_cols:
+        comparisons = ' OR '.join(
+            f"{target_table}.{c} IS DISTINCT FROM EXCLUDED.{c}"
+            for c in change_cols
+        )
+        where_clause = f"\n            WHERE {comparisons}"
     with conn.cursor() as cur:
         cur.execute(f"""
             CREATE TEMP TABLE IF NOT EXISTS {temp}
@@ -388,7 +399,7 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
             INSERT INTO {target_table} ({col_list})
             SELECT {col_list} FROM {temp}
             ON CONFLICT ({conflict_col}) DO UPDATE
-            SET {set_clause}
+            SET {set_clause}{where_clause}
         """)
         count = cur.rowcount
     conn.commit()
@@ -482,7 +493,7 @@ def norm_government(v) -> str:
 def norm_station_type(v) -> str:
     if not v:
         return 'Unknown'
-    token = str(v).lower().replace(' ', '').replace('-', '')
+    token = ''.join(ch for ch in str(v).lower() if ch.isalnum())
     mapping = {
         'coriolis': 'Coriolis', 'orbis': 'Orbis', 'ocellus': 'Ocellus',
         'outpost': 'Outpost', 'planetaryport': 'PlanetaryPort',
@@ -492,27 +503,60 @@ def norm_station_type(v) -> str:
         'orbisstarport': 'Orbis',
         'ocellusstarport': 'Ocellus',
         'planetarysettlement': 'PlanetaryOutpost',
+        'settlement': 'PlanetaryOutpost',
+        'surfacesettlement': 'PlanetaryOutpost',
         'surfacestation': 'PlanetaryPort', 'craterport': 'PlanetaryPort',
         'crateroutpost': 'PlanetaryOutpost',
         'unknown': 'Unknown',
     }
-    if token in mapping:
-        return mapping[token]
-    if 'coriolis' in token:
-        return 'Coriolis'
-    if 'orbis' in token:
-        return 'Orbis'
-    if 'ocellus' in token:
-        return 'Ocellus'
-    if 'asteroidbase' in token:
-        return 'AsteroidBase'
-    if 'planetary' in token and ('settlement' in token or 'outpost' in token):
-        return 'PlanetaryOutpost'
-    if 'planetary' in token or 'surface' in token:
-        return 'PlanetaryPort'
-    if 'outpost' in token:
-        return 'Outpost'
-    return 'Unknown'
+    normalised = mapping.get(token, 'Unknown')
+    return normalised if normalised in VALID_STATION_TYPES else 'Unknown'
+
+
+def _first_present(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _first_text(*values) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            value = _first_text(value.get('name'), value.get('bodyName'), value.get('body_name'))
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def station_type_from_record(station: dict) -> str:
+    return norm_station_type(_first_text(
+        station.get('type'),
+        station.get('stationType'),
+        station.get('station_type'),
+    ))
+
+
+def station_distance_from_record(station: dict):
+    return _first_present(
+        station.get('distanceToArrival'),
+        station.get('distanceFromArrival'),
+        station.get('distanceFromArrivalLS'),
+        station.get('distance_from_star'),
+    )
+
+
+def station_body_name_from_record(station: dict) -> str | None:
+    return _first_text(
+        station.get('bodyName'),
+        station.get('body_name'),
+        station.get('stationBodyName'),
+        station.get('station_body_name'),
+        station.get('body'),
+    )
 
 
 def parse_ts(v) -> Optional[str]:
@@ -798,7 +842,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             btype,
                             sub_type or None,
                             is_main_star,
-                            b.get('distanceToArrival') or b.get('distance_from_star'),
+                            _first_present(b.get('distanceToArrival'), b.get('distance_from_star')),
                             b.get('orbitalPeriod') or b.get('orbital_period'),
                             b.get('radius'),
                             mass,
@@ -863,9 +907,9 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         sta_batch.append((
                             sid, id64,
                             s.get('name', ''),
-                            norm_station_type(s.get('type') or s.get('station_type')),
-                            s.get('distanceToArrival') or s.get('distance_from_star'),
-                            s.get('body') or s.get('body_name'),
+                            station_type_from_record(s),
+                            station_distance_from_record(s),
+                            station_body_name_from_record(s),
                             pad_size,
                             has_market,
                             has_shipyard,
@@ -1217,9 +1261,9 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     sta_batch.append((
                         sid, sys_id64,
                         s.get('name', ''),
-                        norm_station_type(s.get('type') or s.get('stationType') or s.get('station_type')),
-                        s.get('distanceToArrival') or s.get('distance_from_star'),
-                        s.get('body') or s.get('body_name'),
+                        station_type_from_record(s),
+                        station_distance_from_record(s),
+                        station_body_name_from_record(s),
                         'L' if landing_pads.get('large') else ('M' if landing_pads.get('medium') else s.get('landing_pad_size')),
                         has_market,
                         has_shipyard,

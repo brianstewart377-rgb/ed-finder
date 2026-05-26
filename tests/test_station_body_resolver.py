@@ -10,6 +10,7 @@ for path in (API_SRC, IMPORTER_SRC):
 
 from station_body_resolver import (  # noqa: E402
     classify_station_lane,
+    normalise_station_type_label,
     resolve_station_body_association,
 )
 from backfill_station_body_links import summarize  # noqa: E402
@@ -113,6 +114,23 @@ def test_no_body_match_remains_visible_as_unresolved():
     assert link.lane == 'orbital'
 
 
+def test_blank_body_name_without_unique_distance_remains_unresolved():
+    link = resolve_station_body_association({
+        'id': 110,
+        'market_id': 110,
+        'system_id64': 42,
+        'name': 'No Evidence Station',
+        'station_type': 'Planetary Port',
+        'body_name': ' ',
+    }, BODIES)
+
+    assert link.body_id is None
+    assert link.body_name is None
+    assert link.lane == 'surface'
+    assert link.association_status == 'unresolved'
+    assert link.association_confidence == 'unresolved'
+
+
 def test_fleet_carrier_and_megaship_do_not_become_slot_occupiers():
     carrier = resolve_station_body_association({
         'id': 105,
@@ -153,6 +171,30 @@ def test_station_type_lane_classification_accepts_edsm_labels():
     assert classify_station_lane('Planetary settlement')[0] == 'surface'
     assert classify_station_lane('Planetary Outpost')[0] == 'surface'
     assert classify_station_lane('Fleet Carrier')[0] == 'unknown'
+
+
+def test_station_type_lane_classification_is_not_fuzzy():
+    assert normalise_station_type_label('Coriolis Logistics') == 'Unknown'
+    assert normalise_station_type_label('Planetary Warehouse') == 'Unknown'
+    assert classify_station_lane('Coriolis Logistics')[0] == 'unknown'
+    assert classify_station_lane('Planetary Warehouse')[0] == 'unknown'
+
+
+def test_resolver_accepts_raw_station_evidence_aliases():
+    link = resolve_station_body_association({
+        'id': 111,
+        'market_id': 111,
+        'system_id64': 42,
+        'name': 'Raw Evidence Station',
+        'stationType': 'Planetary Settlement',
+        'body': {'name': 'Resolver Test A 2'},
+        'distanceToArrival': 0,
+    }, BODIES)
+
+    assert link.body_id == 3
+    assert link.lane == 'surface'
+    assert link.association_status == 'confirmed'
+    assert link.association_confidence == 'exact'
 
 
 def test_existing_confirmed_link_is_not_downgraded_by_weaker_inference():

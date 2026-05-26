@@ -59,30 +59,91 @@ must not overwrite manual/confirmed truth unless the operator explicitly uses
 
 ## Lane Rules
 
+Station labels are normalised with an explicit whitelist before lane
+classification. The resolver intentionally does not use substring/fuzzy
+classification; an unmapped label remains `Unknown` / lane `unknown`.
+
 Orbital slot occupants:
 
 - `Coriolis`
+- `Coriolis Starport`
 - `Orbis`
+- `Orbis Starport`
 - `Ocellus`
+- `Ocellus Starport`
 - `Outpost`
 - `AsteroidBase`
-- `Starport`
+- `Asteroid Base`
 
 Surface slot occupants:
 
 - `PlanetaryPort`
+- `Planetary Port`
 - `PlanetaryOutpost`
-- settlement/surface-like station types
+- `Planetary Outpost`
+- `Planetary Settlement`
+- `Settlement`
+- `Surface Settlement`
+- legacy Spansh surface labels already in the importer whitelist, such as
+  `SurfaceStation`, `CraterPort`, and `CraterOutpost`
 
 Unknown / not permanent colony-slot occupants:
 
 - `FleetCarrier`
+- `Fleet Carrier`
 - `MegaShip`
+- `Megaship`
 - `Carrier`
 - `Unknown`
+- any unmapped label
 
 Unknown-lane infrastructure remains visible but does not consume orbital or
 surface capacity.
+
+`FleetCarrier` and `MegaShip` rows may still carry exact station/body evidence
+for display or audit, but their lane remains `unknown` and they do not occupy
+permanent colony slots.
+
+## Stage 17N.2d-I Station Data Audit
+
+Current station evidence paths:
+
+- Schema: `stations.station_type` is a constrained enum with `Unknown` as the
+  safe fallback; `stations.body_name` and `stations.distance_from_star` are
+  nullable evidence fields, not proof of a body link.
+- Spansh import: `apps/importer/src/import_spansh.py` is the only current
+  repo-side importer that writes station rows. It normalises source labels into
+  the enum, imports source arrival distance, and imports source body-name
+  aliases when present. It does not import an exact station body id.
+- EDDN listener: `apps/eddn/src/eddn_listener.py` currently updates systems and
+  bodies from live journal events. It does not ingest station rows or station
+  types, so it cannot repair `stations.station_type` or `stations.body_name`.
+- API detail: `apps/api/src/routers/systems.py` reads stations and existing
+  `station_body_links`; if no link exists, it runs the conservative resolver
+  for that one response and labels the association status/confidence.
+
+Why production can show `station_type='Unknown'`:
+
+- Older inline Spansh station imports checked `type` and `station_type` but not
+  `stationType`, while the station-refresh path checked all three. Source rows
+  that only had `stationType` were therefore normalised from missing data.
+- Any raw label outside the whitelist is deliberately stored as `Unknown`.
+- If the source label is literally `Unknown` or blank, ED-Finder preserves that
+  unknown instead of guessing orbital or surface.
+
+Body association evidence quality:
+
+- Exact `body_name` can be `confirmed` only when exactly one same-system body
+  has the same normalised name.
+- Blank `body_name` stays unresolved unless distance evidence produces exactly
+  one same-system body match.
+- `distance_from_star` / `distanceToArrival` is imported as source evidence and
+  can produce only `inferred` links. It never creates a confirmed link.
+- Distance-only inference is rejected when more than one body falls within the
+  tight resolver tolerance.
+- Missing source fields needed for high confidence are: exact station body id,
+  exact body name in the same namespace as `bodies.name`, source timestamp, and
+  station identity fields such as stable `marketId` separate from source ids.
 
 ## API Contract
 
