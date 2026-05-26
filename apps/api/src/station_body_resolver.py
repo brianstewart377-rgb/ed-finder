@@ -16,50 +16,44 @@ from typing import Any, Mapping, Sequence
 DISTANCE_MATCH_TOLERANCE_LS = 0.01
 
 LANE_ORBITAL_TYPES = {
-    'coriolis',
-    'orbis',
-    'ocellus',
-    'outpost',
-    'asteroidbase',
-    'starport',
+    'Coriolis',
+    'Orbis',
+    'Ocellus',
+    'Outpost',
+    'AsteroidBase',
 }
 
 LANE_SURFACE_TYPES = {
-    'planetaryport',
-    'planetaryoutpost',
-    'settlement',
-    'surfacestation',
-    'surfaceinstallation',
-    'craterport',
-    'crateroutpost',
+    'PlanetaryPort',
+    'PlanetaryOutpost',
 }
 
 LANE_NON_COLONY_TYPES = {
-    'fleetcarrier',
-    'megaship',
-    'carrier',
-    'unknown',
+    'FleetCarrier',
+    'MegaShip',
 }
 
-SURFACE_TYPE_TOKENS = {
-    'planetaryport',
-    'planetaryoutpost',
-    'planetarysettlement',
-    'surfacestation',
-    'surfaceinstallation',
-    'craterport',
-    'crateroutpost',
-    'settlement',
-    'surface',
-}
-
-ORBITAL_TYPE_TOKENS = {
-    'coriolis',
-    'orbis',
-    'ocellus',
-    'outpost',
-    'asteroidbase',
-    'starport',
+STATION_TYPE_LABELS = {
+    'coriolis': 'Coriolis',
+    'coriolisstarport': 'Coriolis',
+    'orbis': 'Orbis',
+    'orbisstarport': 'Orbis',
+    'ocellus': 'Ocellus',
+    'ocellusstarport': 'Ocellus',
+    'outpost': 'Outpost',
+    'asteroidbase': 'AsteroidBase',
+    'planetaryport': 'PlanetaryPort',
+    'planetaryoutpost': 'PlanetaryOutpost',
+    'planetarysettlement': 'PlanetaryOutpost',
+    'settlement': 'PlanetaryOutpost',
+    'surfacesettlement': 'PlanetaryOutpost',
+    'surfacestation': 'PlanetaryPort',
+    'craterport': 'PlanetaryPort',
+    'crateroutpost': 'PlanetaryOutpost',
+    'fleetcarrier': 'FleetCarrier',
+    'carrier': 'FleetCarrier',
+    'megaship': 'MegaShip',
+    'unknown': 'Unknown',
 }
 
 
@@ -103,16 +97,25 @@ class StationBodyAssociation:
 
 
 def classify_station_lane(station_type: Any) -> tuple[str, str | None]:
-    token = _normalise_token(station_type)
-    if not token:
+    canonical = normalise_station_type_label(station_type)
+    if canonical is None:
         return 'unknown', 'Station type missing; lane cannot be classified.'
-    if token in LANE_NON_COLONY_TYPES:
+    if canonical == 'Unknown':
+        return 'unknown', f'Station type {station_type!s} is not mapped to a colony slot lane.'
+    if canonical in LANE_NON_COLONY_TYPES:
         return 'unknown', f'{station_type} is not treated as permanent colony-slot infrastructure.'
-    if token in LANE_SURFACE_TYPES or any(part in token for part in SURFACE_TYPE_TOKENS):
+    if canonical in LANE_SURFACE_TYPES:
         return 'surface', None
-    if token in LANE_ORBITAL_TYPES or any(part in token for part in ORBITAL_TYPE_TOKENS):
+    if canonical in LANE_ORBITAL_TYPES:
         return 'orbital', None
     return 'unknown', f'Station type {station_type!s} is not mapped to a colony slot lane.'
+
+
+def normalise_station_type_label(station_type: Any) -> str | None:
+    token = _normalise_token(station_type)
+    if not token:
+        return None
+    return STATION_TYPE_LABELS.get(token, 'Unknown')
 
 
 def resolve_station_body_association(
@@ -135,8 +138,15 @@ def resolve_station_body_association(
     station_id = _read_int(station.get('station_id')) or _read_int(station.get('id'))
     market_id = _read_int(station.get('market_id')) or station_id
     system_id64 = _read_int(station.get('system_id64'))
-    raw_body_name = _clean_text(station.get('station_body_name')) or _clean_text(station.get('body_name'))
-    lane, lane_note = classify_station_lane(station.get('station_type') or station.get('type'))
+    raw_body_name = _clean_body_name(
+        station.get('station_body_name'),
+        station.get('body_name'),
+        station.get('bodyName'),
+        station.get('body'),
+    )
+    lane, lane_note = classify_station_lane(
+        station.get('station_type') or station.get('stationType') or station.get('type')
+    )
 
     explicit_body_id = _read_int(station.get('body_id')) or _read_int(station.get('local_body_id'))
     if explicit_body_id is not None:
@@ -190,7 +200,13 @@ def resolve_station_body_association(
                 lane_note,
             )
 
-    station_distance = _read_float(station.get('distance_from_star') or station.get('distance_to_arrival'))
+    station_distance = _first_float(
+        station.get('distance_from_star'),
+        station.get('distance_to_arrival'),
+        station.get('distanceToArrival'),
+        station.get('distanceFromArrival'),
+        station.get('distanceFromArrivalLS'),
+    )
     if station_distance is not None:
         distance_matches = [
             body for body in bodies
@@ -348,6 +364,16 @@ def _clean_text(value: Any) -> str | None:
     return value or None
 
 
+def _clean_body_name(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, Mapping):
+            value = _clean_body_name(value.get('name'), value.get('bodyName'), value.get('body_name'))
+        text = _clean_text(value)
+        if text:
+            return text
+    return None
+
+
 def _read_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -374,6 +400,14 @@ def _read_float(value: Any) -> float | None:
         except ValueError:
             return None
         return parsed if isfinite(parsed) else None
+    return None
+
+
+def _first_float(*values: Any) -> float | None:
+    for value in values:
+        parsed = _read_float(value)
+        if parsed is not None:
+            return parsed
     return None
 
 

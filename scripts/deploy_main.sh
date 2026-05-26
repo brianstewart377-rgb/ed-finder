@@ -120,6 +120,10 @@ if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
     sql/013_archetype_scores.sql
     sql/014_archetype_mv.sql
     sql/015_simulation_engine.sql
+    # 019_nullable_coords.sql intentionally remains a manual runbook step:
+    # it includes the non-Sol origin cleanup UPDATE on the large systems table.
+    sql/020_rating_version.sql
+    sql/021_station_body_links.sql
   )
 
   for migration in "${migrations[@]}"; do
