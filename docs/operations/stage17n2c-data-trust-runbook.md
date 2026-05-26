@@ -14,9 +14,10 @@ progress with an unknown total instead of a fake percentage.
 ## Safe Order
 
 1. Apply `sql/020_rating_version.sql`.
-2. Deploy code. If production already has partially applied migrations, deploy with `--skip-migrations` and apply SQL manually.
-3. Apply `sql/019_nullable_coords.sql`.
-4. If the coordinate cleanup times out, rerun only the cleanup with timeout-disabled session settings:
+2. Apply `sql/022_rating_dirty_triggers.sql`.
+3. Deploy code. If production already has partially applied migrations, deploy with `--skip-migrations` and apply SQL manually.
+4. Apply `sql/019_nullable_coords.sql`.
+5. If the coordinate cleanup times out, rerun only the cleanup with timeout-disabled session settings:
 
    ```sql
    SET statement_timeout = 0;
@@ -28,22 +29,22 @@ progress with an unknown total instead of a fake percentage.
       AND id64 != 10477373803;
    ```
 
-5. Analyze systems:
+6. Analyze systems:
 
    ```sql
    ANALYZE systems;
    ```
 
-6. Clear Redis cache patterns for search, autocomplete, system detail, body,
+7. Clear Redis cache patterns for search, autocomplete, system detail, body,
    galaxy, cluster, map, status, and OpenGraph payloads.
-7. Run a small ratings smoke rebuild:
+8. Run a small ratings smoke rebuild:
 
    ```bash
    BATCH_SIZE=1000 RATING_DIRTY_CLEANUP_CHUNK=1000 \
      ./scripts/run_import.sh build_ratings.py --dirty --workers 1 --chunk 1000 --limit 10
    ```
 
-8. Run a gentle dirty rebuild:
+9. Run a gentle dirty rebuild:
 
    ```bash
    BATCH_SIZE=1000 RATING_DIRTY_CLEANUP_CHUNK=1000 \
@@ -57,14 +58,42 @@ progress with an unknown total instead of a fake percentage.
      ./scripts/run_import.sh build_ratings.py --dirty --workers 2 --chunk 5000
    ```
 
-9. Verify `rating_version` and capped-score behavior.
-10. Run nightly maintenance:
+10. Verify `rating_version` and capped-score behavior.
+11. Run nightly maintenance:
 
     ```bash
     docker compose run --rm maintenance run_maintenance.sh nightly
     ```
 
-11. Clear Redis caches again.
+12. Clear Redis caches again.
+
+## Rating Dirty Triggers
+
+Stage 17N.2c-R makes dirty marking explicit and deferred. Import/EDDN writes
+must never recalculate ratings inline; they only set `systems.rating_dirty =
+TRUE`, then `build_ratings.py --dirty` performs the recalculation.
+
+These changes mark the affected system dirty:
+
+- System fields in the current or conservative rating contract:
+  `main_star_type`, `main_star_subtype`, `main_star_is_scoopable`,
+  `updated_at`, economy/population/colonisation status, body-data flags, and
+  body count/quality flags.
+- Body insert/delete.
+- Body rating fields on real change: `body_type`, `subtype`, `is_main_star`,
+  `distance_from_star`, `is_tidal_lock`, landable/terraformable/special-world
+  flags, signal counts, `spectral_class`, and `is_scoopable`.
+- EDDN main-star scans now update `systems.main_star_type`; EDDN body upserts
+  preserve conflict updates for rating fields such as `distance_from_star`.
+
+These changes do not mark `rating_dirty` today:
+
+- Station-only imports and station/body association backfills. The v3.4 rating
+  builder does not read `stations` or `station_body_links`. These paths can make
+  system-detail and planner/occupied-slot cache payloads stale until TTL expiry
+  or an explicit cache clear, but they do not change rating math.
+- Body scan facts in `body_scan_facts`; the current rating builder reads the
+  canonical `bodies` table.
 
 ## Rebuild Warnings
 
@@ -142,6 +171,22 @@ Dirty count:
 SELECT COUNT(*) AS dirty_count
 FROM systems
 WHERE rating_dirty = TRUE;
+```
+
+Specific dirty check:
+
+```sql
+SELECT id64, name, rating_dirty, updated_at
+FROM systems
+WHERE id64 = ...;
+```
+
+Verify a recalculated rating row:
+
+```sql
+SELECT rating_version, updated_at
+FROM ratings
+WHERE system_id64 = ...;
 ```
 
 v3.4 count:
@@ -256,6 +301,11 @@ Current code also version-bumps fresh payloads:
 
 The admin cache-clear endpoint scans broad prefixes (`search:*`, `ac:*`, etc.)
 so it removes both old and new versions.
+
+Small EDDN/import updates do not run Redis scans. Search, autocomplete, system,
+body, map, cluster, archetype, and simulation payloads may remain stale until
+their TTL expires. For operator-verified data refreshes, clear only the relevant
+prefixes above after a dirty ratings pass succeeds.
 
 ## Stage 17N.2d Reliability Audit Findings
 

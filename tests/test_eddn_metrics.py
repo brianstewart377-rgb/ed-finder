@@ -6,6 +6,7 @@ the metrics server is a pure asyncio.start_server over a stub
 ``_stats`` dict.
 """
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -162,6 +163,53 @@ def test_fss_partial_star_pos_is_stored_as_unknown_coords(listener):
     assert listener._pending_systems[43]['x'] is None
     assert listener._pending_systems[43]['y'] is None
     assert listener._pending_systems[43]['z'] is None
+
+
+def test_scan_main_star_updates_pending_system_star_type(listener):
+    async def run():
+        await listener.handle_scan(
+            None,
+            {},
+            {
+                'SystemAddress': 45,
+                'BodyID': 1,
+                'BodyName': 'Main Star',
+                'StarType': 'K',
+                'DistanceFromArrivalLS': 0,
+            },
+        )
+
+    asyncio.run(run())
+
+    pending = listener._pending_systems[45]
+    assert pending['main_star_type'] == 'K'
+    assert pending['main_star_subtype'] is None
+    assert pending['main_star_is_scoopable'] is True
+
+
+def test_flush_pending_system_upsert_only_dirties_on_real_change(listener):
+    source = inspect.getsource(listener.flush_pending)
+
+    assert 'main_star_type, main_star_subtype, main_star_is_scoopable' in source
+    assert 'systems.main_star_type IS DISTINCT FROM $8' in source
+    assert 'systems.x IS DISTINCT FROM $3' in source
+    assert 'WHERE' in source
+
+
+def test_flush_pending_body_upsert_tracks_rating_fields(listener):
+    source = inspect.getsource(listener.flush_pending)
+
+    assert 'distance_from_star = COALESCE(EXCLUDED.distance_from_star, bodies.distance_from_star)' in source
+    assert 'is_tidal_lock     = COALESCE(EXCLUDED.is_tidal_lock, bodies.is_tidal_lock)' in source
+    assert 'bodies.distance_from_star IS DISTINCT FROM COALESCE(EXCLUDED.distance_from_star, bodies.distance_from_star)' in source
+
+
+def test_saa_signals_only_marks_dirty_when_signal_counts_increase(listener):
+    source = inspect.getsource(listener.handle_saa_signals)
+
+    assert 'AND (bio_signal_count < $1 OR geo_signal_count < $2)' in source
+    assert 'RETURNING id' in source
+    assert 'if updated_body:' in source
 
 
 def _unused_tcp_port_or_skip() -> int:

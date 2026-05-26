@@ -346,6 +346,7 @@ services:
       - ./apps/importer/src/build_clusters.py:/app/build_clusters.py:ro
       - ./apps/importer/src/build_topology.py:/app/build_topology.py:ro
       - ./apps/importer/src/build_archetype_scores.py:/app/build_archetype_scores.py:ro
+      - ./apps/importer/src/dirty_flags.py:/app/dirty_flags.py:ro
       - ./apps/importer/src/region_map.py:/app/region_map.py:ro
       - ./apps/importer/src/data:/app/data:ro
     depends_on:
