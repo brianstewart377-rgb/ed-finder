@@ -1511,8 +1511,39 @@ export interface components {
             is_ringed?: boolean | null;
             /** Ring State */
             ring_state?: "ringed" | "not_ringed" | "unknown" | null;
+            /** Rings */
+            rings?: components["schemas"]["BodyRingModel"][] | null;
+            /** Ring Count */
+            ring_count?: number | null;
+            /** Ring Source */
+            ring_source?: string | null;
+            /** Ring Confidence */
+            ring_confidence?: string | null;
             /** Body Sort Key */
             body_sort_key?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** BodyRingModel */
+        BodyRingModel: {
+            /** Ring Name */
+            ring_name?: string | null;
+            /** Ring Type */
+            ring_type?: string | null;
+            /** Ring Class */
+            ring_class?: string | null;
+            /** Mass Mt */
+            mass_mt?: number | null;
+            /** Inner Radius */
+            inner_radius?: number | null;
+            /** Outer Radius */
+            outer_radius?: number | null;
+            /** Source */
+            source?: string | null;
+            /** Confidence */
+            confidence?: string | null;
+            /** Updated At */
+            updated_at?: unknown | null;
         } & {
             [key: string]: unknown;
         };

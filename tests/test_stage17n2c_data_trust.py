@@ -250,8 +250,8 @@ def test_data_trust_cache_versions_are_bumped():
     assert "SEARCH_CACHE_VERSION = 'v4'" in search_source
     assert "GALAXY_CACHE_VERSION = 'v4'" in search_source
     assert "CLUSTER_CACHE_VERSION = 'v4'" in search_source
-    assert "SYSTEM_CACHE_VERSION = 'v5'" in systems_source
-    assert "BODY_CACHE_VERSION = 'v2'" in systems_source
+    assert "SYSTEM_CACHE_VERSION = 'v6'" in systems_source
+    assert "BODY_CACHE_VERSION = 'v3'" in systems_source
 
 
 def test_base_schema_preserves_nullable_system_coordinates():
@@ -279,6 +279,53 @@ def test_base_schema_includes_rating_version_and_migration_remains():
 
     assert re.search(r'\brating_version\s+TEXT\s+DEFAULT NULL\b', ratings)
     assert 'ADD COLUMN IF NOT EXISTS rating_version TEXT DEFAULT NULL' in migration
+
+
+def test_base_schema_and_migration_include_body_rings_with_provenance():
+    schema = _schema_text('001_schema.sql')
+    body_rings = _table_definition(schema, 'body_rings')
+    migration = _schema_text('024_body_rings.sql')
+
+    for source in (body_rings, migration):
+        assert 'system_id64' in source
+        assert 'body_id' in source
+        assert 'ring_name' in source
+        assert 'ring_type' in source
+        assert 'ring_class' in source
+        assert 'mass_mt' in source
+        assert 'inner_radius' in source
+        assert 'outer_radius' in source
+        assert 'source' in source
+        assert 'confidence' in source
+        assert 'updated_at' in source
+
+    assert 'body_rings' in migration
+    assert 'idx_body_rings_system_id64' in migration
+    assert 'idx_body_rings_body_id' in migration
+    assert 'Missing rows mean unknown ring state' in schema
+    assert 'Missing body_rings rows mean ring state' in migration
+
+
+def test_body_scan_facts_is_ringed_is_nullable_not_default_false():
+    base = _schema_text('001_schema.sql')
+    migration = _schema_text('015_simulation_engine.sql')
+    body_scan_facts = _table_definition(migration, 'body_scan_facts')
+    ring_migration = _schema_text('024_body_rings.sql')
+
+    assert 'is_ringed        BOOLEAN     DEFAULT NULL' in body_scan_facts
+    assert 'is_ringed BOOLEAN DEFAULT FALSE' not in base
+    assert 'is_ringed        BOOLEAN     DEFAULT FALSE' not in migration
+    assert 'ALTER COLUMN is_ringed DROP DEFAULT' in ring_migration
+    assert 'Tri-state scan-derived ring evidence' in ring_migration
+
+
+def test_ratings_schema_includes_ring_count_without_removing_rating_version():
+    ratings = _table_definition(_schema_text('001_schema.sql'), 'ratings')
+    migration = _schema_text('024_body_rings.sql')
+
+    assert re.search(r'\bring_count\s+SMALLINT\s+NOT NULL\s+DEFAULT 0\b', ratings)
+    assert re.search(r'\brating_version\s+TEXT\s+DEFAULT NULL\b', ratings)
+    assert 'ADD COLUMN IF NOT EXISTS ring_count SMALLINT NOT NULL DEFAULT 0' in migration
 
 
 def test_base_schema_and_migration_include_station_provenance_columns():
@@ -360,6 +407,16 @@ def test_current_rating_scorer_attenuates_multi_economy_saturation():
 
     assert scores.count(100) <= 2
     assert rating['rating_version'] == RATING_VERSION
+
+
+def test_rating_scorer_uses_trusted_ring_flag_for_ring_count():
+    rating = rate_system(2008132031194, [
+        {'subtype': 'Rocky body', 'has_rings': True},
+        {'subtype': 'Rocky body'},
+        {'subtype': 'Ringed-looking subtype without evidence'},
+    ], 'K')
+
+    assert rating['ring_count'] == 1
 
 
 def test_v34_attenuation_preserves_top_pair_and_reduces_third_fourth():

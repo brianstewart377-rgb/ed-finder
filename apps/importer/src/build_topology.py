@@ -340,7 +340,7 @@ def compute_topology_metrics(bodies: list, counts: dict) -> dict:
         (counts.get('landable_rocky_any', 0) + counts.get('landable_hmc', 0)) > 0
     )
     has_deep_orbital_anchor = counts.get('gas_giant', 0) > 0
-    has_ringed_gas_giant    = counts.get('rocky_rings', 0) > 0   # best proxy without ring data
+    has_ringed_gas_giant    = counts.get('rocky_rings', 0) > 0
     has_binary              = counts.get('secondary_star', 0) > 0
 
     return {
@@ -902,7 +902,15 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
                         b.is_landable, b.is_terraformable,
                         b.bio_signal_count, b.geo_signal_count,
                         b.distance_from_star, b.radius, b.gravity,
-                        (LOWER(b.subtype) LIKE '%%ring%%') AS has_rings,
+                        EXISTS (
+                          SELECT 1
+                          FROM body_rings br
+                          WHERE br.system_id64 = b.system_id64
+                            AND (
+                              br.body_id = b.id
+                              OR (br.body_id IS NULL AND br.body_name = b.name)
+                            )
+                        ) AS has_rings,
                         s.is_main_star, s.spectral_class
                     FROM bodies b
                     LEFT JOIN (

@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS body_scan_facts (
     -- Derived flags
     is_landable      BOOLEAN     DEFAULT FALSE,
     is_terraformable BOOLEAN     DEFAULT FALSE,
-    is_ringed        BOOLEAN     DEFAULT FALSE,
+    is_ringed        BOOLEAN     DEFAULT NULL,
 
     -- Provenance
     data_sources     TEXT[]      DEFAULT '{}',   -- ['eddn_scan', 'eddn_saasignals']
@@ -128,6 +128,9 @@ COMMENT ON TABLE body_scan_facts IS
     'Normalised per-body observed facts. Derived from journal_events. '
     'confidence reflects data completeness: 1.0 = full DSS scan, '
     '0.7 = FSS-only, 0.4 = estimated from system data.';
+
+COMMENT ON COLUMN body_scan_facts.is_ringed IS
+    'Tri-state scan-derived ring evidence: true ringed, false trusted full-scan no-rings, null unknown.';
 
 
 -- ---------------------------------------------------------------------------

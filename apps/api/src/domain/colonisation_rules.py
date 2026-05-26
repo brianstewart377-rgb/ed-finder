@@ -136,7 +136,7 @@ def profile_body(row: dict[str, Any]) -> BodyEconomyProfile:
     caveats: list[str] = []
     confidence = float(row.get('confidence') or 0.55)
 
-    is_ringed = _flag(row, 'is_ringed') or _flag(row, 'has_rings') or 'ring' in subtype
+    is_ringed = _flag(row, 'is_ringed') or _flag(row, 'has_rings')
     has_bio = _flag(row, 'has_bio') or int(row.get('bio_signal_count') or 0) > 0
     has_geo = _flag(row, 'has_geo') or int(row.get('geo_signal_count') or 0) > 0 or bool(row.get('volcanism'))
     is_terraformable = _flag(row, 'is_terraformable') or 'terraform' in str(row.get('terraform_state') or row.get('terraforming_state') or '').lower()

@@ -60,6 +60,7 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.extensions
 from tqdm import tqdm
+from ring_facts import ring_rows_for_body
 
 # ---------------------------------------------------------------------------
 # Galaxy Region Lookup (klightspeed/EliteDangerousRegionMap)
@@ -406,6 +407,76 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     return count
 
 
+def upsert_body_rings(conn, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    values = [_ring_row_tuple(row) for row in rows]
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_values(
+            cur,
+            """
+            INSERT INTO body_rings (
+                system_id64, body_id, body_name,
+                ring_name, ring_type, ring_class,
+                mass_mt, inner_radius, outer_radius,
+                source, confidence, updated_at
+            ) VALUES %s
+            ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
+                body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
+                ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
+                ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
+                mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
+                inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
+                outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
+                confidence   = EXCLUDED.confidence,
+                updated_at   = NOW()
+            """,
+            values,
+        )
+        system_ids = sorted({row['system_id64'] for row in rows})
+        cur.execute(
+            """
+            UPDATE systems
+               SET rating_dirty = TRUE,
+                   cluster_dirty = TRUE,
+                   updated_at = NOW()
+             WHERE id64 = ANY(%s)
+            """,
+            (system_ids,),
+        )
+        count = len(rows)
+    conn.commit()
+    return count
+
+
+def _ring_row_tuple(row: dict) -> tuple:
+    return (
+        row.get('system_id64'),
+        row.get('body_id'),
+        row.get('body_name'),
+        row.get('ring_name'),
+        row.get('ring_type'),
+        row.get('ring_class'),
+        row.get('mass_mt'),
+        row.get('inner_radius'),
+        row.get('outer_radius'),
+        row.get('source'),
+        row.get('confidence'),
+    )
+
+
+def body_ring_rows_from_spansh_body(system_id64: int, body_id: int, body_name: str, body_record: dict) -> list[dict]:
+    rows, _explicit_no_rings = ring_rows_for_body(
+        body_record,
+        system_id64=system_id64,
+        body_id=body_id,
+        body_name=body_name,
+        source='spansh_dump',
+        trusted_empty_means_no_rings=False,
+    )
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Normalisation helpers
 # ---------------------------------------------------------------------------
@@ -685,6 +756,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     sys_batch   = []
     body_batch  = []
+    ring_batch  = []
     sta_batch   = []
     total_rows  = 0
     skip_count  = 0
@@ -700,6 +772,12 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
         if body_batch:
             upsert_via_temp(conn, 'bodies', BODY_COLS, body_batch, 'id')
             body_batch.clear()
+
+    def flush_rings():
+        flush_bodies()
+        if ring_batch:
+            upsert_body_rings(conn, ring_batch)
+            ring_batch.clear()
 
     def flush_stations():
         flush_systems()
@@ -836,10 +914,11 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         )
                         mass = b.get('earthMasses') or b.get('mass')
                         stellar_mass = b.get('solarMasses') or b.get('stellar_mass')
+                        body_name = b.get('name', '')
 
                         body_batch.append((
                             bid, id64,
-                            b.get('name', ''),
+                            body_name,
                             btype,
                             sub_type or None,
                             is_main_star,
@@ -871,6 +950,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                             parse_ts(b.get('updateTime') or b.get('updated_at')),
                             now_iso,
                         ))
+                        ring_batch.extend(body_ring_rows_from_spansh_body(id64, bid, body_name, b))
                     except Exception as _e:
                         skip_count += 1
                         log.debug(f"Skipping body id={bid} in system {id64}: {_e}")
@@ -943,12 +1023,15 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     flush_systems()
                 if len(body_batch) >= BATCH_SIZE:
                     flush_bodies()
+                if len(ring_batch) >= BATCH_SIZE:
+                    flush_rings()
                 if len(sta_batch) >= BATCH_SIZE:
                     flush_stations()
 
                 if time.time() - last_save > 60:
                     flush_systems()
                     flush_bodies()
+                    flush_rings()
                     flush_stations()
                     flush_error_batch(conn, dump_path.name)
                     if skip_count > 0:
@@ -966,6 +1049,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
             log.info("Interrupted — saving checkpoint ...")
             flush_systems()
             flush_bodies()
+            flush_rings()
             flush_stations()
             flush_error_batch(conn, dump_path.name)
             save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
@@ -975,6 +1059,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
         flush_systems()
         flush_bodies()
+        flush_rings()
         flush_stations()
         flush_error_batch(conn, dump_path.name)
         if skip_count > 0:

@@ -135,6 +135,7 @@ _stats = {
     'events_skipped':   0,
     'systems_upserted': 0,
     'bodies_upserted':  0,
+    'rings_upserted':   0,
     'errors':           0,
     'started_at':       time.time(),
 }
@@ -142,6 +143,7 @@ _stats = {
 # Batch buffer — accumulate DB writes, flush every N seconds
 _pending_systems: dict = {}   # id64 -> dict
 _pending_bodies:  list = []   # list of body dicts
+_pending_rings:   list = []   # list of provenance-backed body ring dicts
 _last_flush = time.time()
 FLUSH_INTERVAL = 10  # seconds between DB batch writes
 
@@ -229,6 +231,52 @@ SCOOPABLE = {'O', 'B', 'A', 'F', 'G', 'K', 'M'}
 def is_scoopable(spectral: Optional[str]) -> Optional[bool]:
     if not spectral: return None
     return spectral[0].upper() in SCOOPABLE
+
+
+def normalise_ring_rows(message: dict, *, system_id64: int, body_id: int, body_name: str) -> list[dict]:
+    rings = message.get('Rings')
+    if rings is None:
+        return []
+    if isinstance(rings, dict):
+        raw_entries = [rings]
+    elif isinstance(rings, list):
+        raw_entries = [entry for entry in rings if isinstance(entry, dict)]
+    else:
+        return []
+    rows = []
+    for ring in raw_entries:
+        ring_name = clean_text(first_present(ring, 'Name', 'name', 'RingName', 'ringName'))
+        ring_type = clean_text(first_present(ring, 'Type', 'type'))
+        ring_class = clean_text(first_present(ring, 'RingClass', 'ringClass', 'Class', 'class'))
+        confidence = 'source_ring_payload' if ring_name or ring_type or ring_class else 'partial_source_ring_payload'
+        rows.append({
+            'system_id64': system_id64,
+            'body_id': body_id,
+            'body_name': body_name,
+            'ring_name': ring_name,
+            'ring_type': ring_type,
+            'ring_class': ring_class,
+            'mass_mt': safe_float(first_present(ring, 'MassMT', 'massMT', 'Mass', 'mass', 'mass_mt')),
+            'inner_radius': safe_float(first_present(ring, 'InnerRad', 'innerRad', 'InnerRadius', 'innerRadius', 'inner_radius')),
+            'outer_radius': safe_float(first_present(ring, 'OuterRad', 'outerRad', 'OuterRadius', 'outerRadius', 'outer_radius')),
+            'source': 'eddn_scan',
+            'confidence': confidence,
+        })
+    return rows
+
+
+def first_present(record: dict, *keys: str):
+    for key in keys:
+        if key in record and record[key] is not None:
+            return record[key]
+    return None
+
+
+def clean_text(value) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _star_type_parts(spectral: Optional[str]) -> tuple[str | None, str | None, bool | None]:
@@ -326,6 +374,13 @@ async def handle_scan(pool: asyncpg.Pool, header: dict, message: dict):
         'updated_at':     utcnow(),
     }
 
+    _pending_rings.extend(normalise_ring_rows(
+        message,
+        system_id64=id64,
+        body_id=body_id,
+        body_name=body_name,
+    ))
+
     if message.get('Materials'):
         body_rec['materials'] = json.dumps({
             m['Name']: m['Percent'] for m in message['Materials']
@@ -422,21 +477,24 @@ async def flush_pending(pool: asyncpg.Pool):
     Previously it was accidentally outside, meaning body writes were
     auto-committed individually and could not be rolled back on error.
     """
-    global _pending_systems, _pending_bodies, _last_flush
+    global _pending_systems, _pending_bodies, _pending_rings, _last_flush
 
     # Take a snapshot of current buffer contents — do NOT clear globals yet.
     # We track the IDs/indices we attempted so we can remove only those on success.
     systems_snapshot = list(_pending_systems.values())
     system_ids       = list(_pending_systems.keys())
     bodies_snapshot  = list(_pending_bodies)
+    rings_snapshot   = list(_pending_rings)
     n_bodies         = len(bodies_snapshot)
+    n_rings          = len(rings_snapshot)
 
-    if not systems_snapshot and not bodies_snapshot:
+    if not systems_snapshot and not bodies_snapshot and not rings_snapshot:
         _last_flush = time.time()
         return
 
     flushed_systems = 0
     flushed_bodies  = 0
+    flushed_rings   = 0
     flush_errors    = 0
 
     try:
@@ -593,6 +651,40 @@ async def flush_pending(pool: asyncpg.Pool):
                         _stats['errors'] += 1
                         log.warning(f"Body upsert error (id={body.get('id')}): {e}")
 
+                # ── Upsert ring facts ───────────────────────────────────
+                for ring in rings_snapshot:
+                    try:
+                        await conn.execute("""
+                            INSERT INTO body_rings (
+                                system_id64, body_id, body_name,
+                                ring_name, ring_type, ring_class,
+                                mass_mt, inner_radius, outer_radius,
+                                source, confidence, updated_at
+                            ) VALUES (
+                                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()
+                            )
+                            ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
+                                body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
+                                ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
+                                ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
+                                mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
+                                inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
+                                outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
+                                confidence   = EXCLUDED.confidence,
+                                updated_at   = NOW()
+                        """,
+                            ring.get('system_id64'), ring.get('body_id'), ring.get('body_name'),
+                            ring.get('ring_name'), ring.get('ring_type'), ring.get('ring_class'),
+                            ring.get('mass_mt'), ring.get('inner_radius'), ring.get('outer_radius'),
+                            ring.get('source'), ring.get('confidence'),
+                        )
+                        flushed_rings += 1
+                        _stats['rings_upserted'] += 1
+                    except Exception as e:
+                        flush_errors += 1
+                        _stats['errors'] += 1
+                        log.warning(f"Ring upsert error (body_id={ring.get('body_id')}): {e}")
+
         # ── Transaction succeeded — NOW clear the flushed items ───────────
         # Remove only the system IDs we attempted; any new ones that arrived
         # during the DB write are preserved for the next flush.
@@ -601,15 +693,16 @@ async def flush_pending(pool: asyncpg.Pool):
         # Remove the first n_bodies entries (those we snapshotted).
         # New bodies appended during the flush are preserved.
         del _pending_bodies[:n_bodies]
+        del _pending_rings[:n_rings]
         _last_flush = time.time()
 
         if flush_errors:
             log.warning(
-                f"Flushed {flushed_systems} systems + {flushed_bodies} bodies "
+                f"Flushed {flushed_systems} systems + {flushed_bodies} bodies + {flushed_rings} rings "
                 f"({flush_errors} row-level errors — check WARNING logs above)"
             )
         else:
-            log.info(f"Flushed {flushed_systems} systems + {flushed_bodies} bodies to DB")
+            log.info(f"Flushed {flushed_systems} systems + {flushed_bodies} bodies + {flushed_rings} rings to DB")
 
     except Exception as e:
         # The whole transaction failed — buffers are NOT cleared.
@@ -617,7 +710,7 @@ async def flush_pending(pool: asyncpg.Pool):
         _last_flush = time.time()  # reset timer to avoid tight retry loop
         log.error(
             f"flush_pending FAILED — {len(systems_snapshot)} systems + "
-            f"{len(bodies_snapshot)} bodies retained in buffer for next retry: {e}"
+            f"{len(bodies_snapshot)} bodies + {len(rings_snapshot)} rings retained in buffer for next retry: {e}"
         )
 
 
@@ -667,8 +760,9 @@ async def stats_reporter():
             f"processed: {_stats['events_processed']:,} | "
             f"systems: {_stats['systems_upserted']:,} | "
             f"bodies: {_stats['bodies_upserted']:,} | "
+            f"rings: {_stats['rings_upserted']:,} | "
             f"errors: {_stats['errors']:,} ({err_rate:.2f}/min) | "
-            f"pending: {len(_pending_systems)} sys / {len(_pending_bodies)} bodies"
+            f"pending: {len(_pending_systems)} sys / {len(_pending_bodies)} bodies / {len(_pending_rings)} rings"
         )
 
 
@@ -701,6 +795,9 @@ def _prometheus_text() -> bytes:
         '# HELP eddn_bodies_upserted_total Bodies written to the DB',
         '# TYPE eddn_bodies_upserted_total counter',
         f'eddn_bodies_upserted_total {_stats["bodies_upserted"]}',
+        '# HELP eddn_rings_upserted_total Ring facts written to the DB',
+        '# TYPE eddn_rings_upserted_total counter',
+        f'eddn_rings_upserted_total {_stats["rings_upserted"]}',
         '# HELP eddn_errors_total Total errors (ZMQ + DB + decode)',
         '# TYPE eddn_errors_total counter',
         f'eddn_errors_total {_stats["errors"]}',
@@ -710,6 +807,9 @@ def _prometheus_text() -> bytes:
         '# HELP eddn_pending_bodies Bodies buffered awaiting next flush',
         '# TYPE eddn_pending_bodies gauge',
         f'eddn_pending_bodies {len(_pending_bodies)}',
+        '# HELP eddn_pending_rings Ring facts buffered awaiting next flush',
+        '# TYPE eddn_pending_rings gauge',
+        f'eddn_pending_rings {len(_pending_rings)}',
         '# HELP eddn_seconds_since_flush Seconds since the last DB flush',
         '# TYPE eddn_seconds_since_flush gauge',
         f'eddn_seconds_since_flush {time.time() - _last_flush:.1f}',

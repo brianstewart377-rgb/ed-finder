@@ -28,6 +28,8 @@ import time
 import zlib
 from typing import Optional, TYPE_CHECKING
 
+from ring_facts import ring_rows_for_body
+
 if TYPE_CHECKING:
     import asyncpg
 
@@ -189,6 +191,7 @@ async def _flush_batch(
 
                 # ── body_scan_facts ────────────────────────────────────────
                 if fact_rows:
+                    ring_rows = _ring_rows_from_scan_facts(fact_rows)
                     await conn.executemany("""
                         INSERT INTO body_scan_facts (
                             system_address, body_id, body_name,
@@ -233,7 +236,11 @@ async def _flush_batch(
                             bio_signal_count = GREATEST(EXCLUDED.bio_signal_count, body_scan_facts.bio_signal_count),
                             is_landable      = COALESCE(EXCLUDED.is_landable, body_scan_facts.is_landable),
                             is_terraformable = COALESCE(EXCLUDED.is_terraformable, body_scan_facts.is_terraformable),
-                            is_ringed        = GREATEST(EXCLUDED.is_ringed, body_scan_facts.is_ringed),
+                            is_ringed        = CASE
+                                WHEN body_scan_facts.is_ringed IS TRUE OR EXCLUDED.is_ringed IS TRUE THEN TRUE
+                                WHEN EXCLUDED.is_ringed IS FALSE THEN FALSE
+                                ELSE body_scan_facts.is_ringed
+                            END,
                             -- Take higher confidence value, merge sources
                             confidence       = GREATEST(EXCLUDED.confidence, body_scan_facts.confidence),
                             data_sources     = (
@@ -257,12 +264,49 @@ async def _flush_batch(
                             r.get('has_geo', False), r.get('has_bio', False),
                             r.get('geo_signal_count', 0), r.get('bio_signal_count', 0),
                             r.get('is_landable', False), r.get('is_terraformable', False),
-                            r.get('is_ringed', False),
+                            r.get('is_ringed'),
                             r.get('data_sources', []),
                             r.get('confidence', 0.4),
                         )
                         for r in fact_rows
                     ])
+                    if ring_rows:
+                        await conn.executemany("""
+                            INSERT INTO body_rings (
+                                system_id64, body_id, body_name,
+                                ring_name, ring_type, ring_class,
+                                mass_mt, inner_radius, outer_radius,
+                                source, confidence, updated_at
+                            ) VALUES (
+                                $1, $2, $3,
+                                $4, $5, $6,
+                                $7, $8, $9,
+                                $10, $11, now()
+                            )
+                            ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
+                                body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
+                                ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
+                                ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
+                                mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
+                                inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
+                                outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
+                                confidence   = EXCLUDED.confidence,
+                                updated_at   = now()
+                        """, [_ring_row_tuple(row) for row in ring_rows])
+
+                    dirty_system_ids = sorted({
+                        int(r['system_address'])
+                        for r in fact_rows
+                        if r.get('is_ringed') is not None or r.get('rings')
+                    })
+                    if dirty_system_ids:
+                        await conn.execute("""
+                            UPDATE systems
+                               SET rating_dirty = TRUE,
+                                   cluster_dirty = TRUE,
+                                   updated_at = NOW()
+                             WHERE id64 = ANY($1::bigint[])
+                        """, dirty_system_ids)
 
         log.debug(
             f'EDDN flush: {len(journal_rows)} journal events, '
@@ -271,3 +315,34 @@ async def _flush_batch(
 
     except Exception as e:
         log.warning(f'EDDN flush failed: {e}')
+
+
+def _ring_rows_from_scan_facts(fact_rows: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for fact in fact_rows:
+        source_rows, _explicit_no_rings = ring_rows_for_body(
+            {'rings': fact.get('rings') or []},
+            system_id64=int(fact['system_address']),
+            body_id=int(fact['body_id']) if fact.get('body_id') is not None else None,
+            body_name=fact.get('body_name'),
+            source='eddn_scan',
+            trusted_empty_means_no_rings=False,
+        )
+        rows.extend(source_rows)
+    return rows
+
+
+def _ring_row_tuple(row: dict) -> tuple:
+    return (
+        row.get('system_id64'),
+        row.get('body_id'),
+        row.get('body_name'),
+        row.get('ring_name'),
+        row.get('ring_type'),
+        row.get('ring_class'),
+        row.get('mass_mt'),
+        row.get('inner_radius'),
+        row.get('outer_radius'),
+        row.get('source'),
+        row.get('confidence'),
+    )

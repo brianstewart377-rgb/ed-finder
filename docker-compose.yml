@@ -349,6 +349,7 @@ services:
       - ./apps/importer/src/edsm_station_enrichment_probe.py:/app/edsm_station_enrichment_probe.py:ro
       - ./apps/importer/src/dirty_flags.py:/app/dirty_flags.py:ro
       - ./apps/importer/src/region_map.py:/app/region_map.py:ro
+      - ./apps/importer/src/ring_facts.py:/app/ring_facts.py:ro
       - ./apps/api/src/station_body_resolver.py:/app/station_body_resolver.py:ro
       - ./apps/importer/src/data:/app/data:ro
     depends_on:

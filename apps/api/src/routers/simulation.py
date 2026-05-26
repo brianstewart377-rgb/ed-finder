@@ -642,7 +642,18 @@ async def _fetch_slot_scan_facts(
             bio_signal_count,
             is_landable,
             is_terraformable,
-            (LOWER(COALESCE(subtype, '')) LIKE '%%ring%%') AS is_ringed,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM body_rings br
+                    WHERE br.system_id64 = bodies.system_id64
+                      AND (
+                        br.body_id = bodies.id
+                        OR (br.body_id IS NULL AND br.body_name = bodies.name)
+                      )
+                ) THEN TRUE
+                ELSE NULL
+            END AS is_ringed,
             ARRAY['spansh_import'] AS data_sources,
             0.55::numeric AS confidence
         FROM bodies

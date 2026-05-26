@@ -99,7 +99,7 @@ function profileBodyForStationBaseline(body: SystemBody): Omit<StationBaselineEc
   const caveats: string[] = [];
   const confidence = clampConfidence(readNumber(record.confidence) ?? 0.55);
 
-  const isRinged = readBoolean(record.is_ringed) || readBoolean(record.has_rings) || subtype.includes('ring');
+  const isRinged = readBoolean(record.is_ringed) || readBoolean(record.has_rings);
   const hasBio = readBoolean(record.has_bio) || (readNumber(record.bio_signal_count) ?? 0) > 0;
   const hasGeo = readBoolean(record.has_geo) || (readNumber(record.geo_signal_count) ?? 0) > 0 || Boolean(record.volcanism);
   const isTerraformable = readBoolean(record.is_terraformable)

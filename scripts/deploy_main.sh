@@ -124,6 +124,7 @@ if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
     # it includes the non-Sol origin cleanup UPDATE on the large systems table.
     sql/020_rating_version.sql
     sql/021_station_body_links.sql
+    sql/024_body_rings.sql
   )
 
   for migration in "${migrations[@]}"; do

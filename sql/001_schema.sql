@@ -263,6 +263,51 @@ CREATE TABLE IF NOT EXISTS bodies (
 );
 
 -- ---------------------------------------------------------------------------
+-- 2A. BODY_RINGS  (provenance-backed ring facts)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS body_rings (
+    id                  BIGSERIAL       PRIMARY KEY,
+    system_id64         BIGINT          NOT NULL REFERENCES systems(id64) ON DELETE CASCADE,
+    body_id             BIGINT          DEFAULT NULL REFERENCES bodies(id) ON DELETE SET NULL,
+    body_name           TEXT            DEFAULT NULL,
+
+    ring_name           TEXT            DEFAULT NULL,
+    ring_type           TEXT            DEFAULT NULL,
+    ring_class          TEXT            DEFAULT NULL,
+    mass_mt             DOUBLE PRECISION DEFAULT NULL,
+    inner_radius        DOUBLE PRECISION DEFAULT NULL,
+    outer_radius        DOUBLE PRECISION DEFAULT NULL,
+
+    source              TEXT            NOT NULL,
+    confidence          TEXT            NOT NULL,
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
+    UNIQUE (system_id64, body_id, ring_name, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_body_rings_system_id64
+    ON body_rings (system_id64);
+
+CREATE INDEX IF NOT EXISTS idx_body_rings_body_id
+    ON body_rings (body_id);
+
+CREATE INDEX IF NOT EXISTS idx_body_rings_body_name
+    ON body_rings (system_id64, body_name)
+    WHERE body_name IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_body_rings_type_class
+    ON body_rings (ring_type, ring_class);
+
+COMMENT ON TABLE body_rings
+    IS 'Provenance-backed per-ring source facts. Missing rows mean unknown ring state, not no rings.';
+
+COMMENT ON COLUMN body_rings.source
+    IS 'Source that supplied the ring row, for example spansh_dump or eddn_scan.';
+
+COMMENT ON COLUMN body_rings.confidence
+    IS 'Evidence quality label such as source_ring_payload or partial_source_ring_payload.';
+
+-- ---------------------------------------------------------------------------
 -- 3. STATIONS  (~5M rows)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS stations (
@@ -395,6 +440,7 @@ CREATE TABLE IF NOT EXISTS ratings (
     ww_count            SMALLINT        NOT NULL DEFAULT 0,
     ammonia_count       SMALLINT        NOT NULL DEFAULT 0,
     gas_giant_count     SMALLINT        NOT NULL DEFAULT 0,
+    ring_count          SMALLINT        NOT NULL DEFAULT 0,
     rocky_count         SMALLINT        NOT NULL DEFAULT 0,
     metal_rich_count    SMALLINT        NOT NULL DEFAULT 0,
     icy_count           SMALLINT        NOT NULL DEFAULT 0,
@@ -402,6 +448,8 @@ CREATE TABLE IF NOT EXISTS ratings (
     hmc_count           SMALLINT        NOT NULL DEFAULT 0,
     landable_count      SMALLINT        NOT NULL DEFAULT 0,
     terraformable_count SMALLINT        NOT NULL DEFAULT 0,
+    walkable_count      SMALLINT        NOT NULL DEFAULT 0,
+    other_star_count    SMALLINT        NOT NULL DEFAULT 0,
     bio_signal_total    SMALLINT        NOT NULL DEFAULT 0,
     geo_signal_total    SMALLINT        NOT NULL DEFAULT 0,
     neutron_count       SMALLINT        NOT NULL DEFAULT 0,

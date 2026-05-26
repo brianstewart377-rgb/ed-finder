@@ -21,6 +21,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from ring_facts import normalise_ring_payload
+
 log = logging.getLogger('ed_finder')
 
 # Confidence levels — stored in body_scan_facts.confidence
@@ -73,9 +75,10 @@ def normalise_scan_event(event: dict) -> Optional[dict]:
     semi_major_axis  = _safe_float(event.get('SemiMajorAxis'))
     orbital_period   = _safe_float(event.get('OrbitalPeriod'))
 
-    # Rings
-    rings     = event.get('Rings', []) or []
-    is_ringed = bool(rings)
+    # Rings. Scan is a full body scan, so an explicitly empty Rings array is
+    # trusted no-ring evidence; missing Rings remains unknown.
+    ring_result = normalise_ring_payload(event, trusted_empty_means_no_rings=True)
+    is_ringed = True if ring_result.rings else False if ring_result.explicit_no_rings else None
 
     # Parents
     parents = event.get('Parents')
@@ -112,6 +115,7 @@ def normalise_scan_event(event: dict) -> Optional[dict]:
         'is_landable':      is_landable,
         'is_terraformable': is_terraformable,
         'is_ringed':        is_ringed,
+        'rings':            ring_result.rings,
         'data_sources':     ['eddn_scan'],
         'confidence':       confidence,
     }

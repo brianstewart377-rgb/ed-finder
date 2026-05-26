@@ -92,8 +92,6 @@ These changes do not mark `rating_dirty` today:
   builder does not read `stations` or `station_body_links`. These paths can make
   system-detail and planner/occupied-slot cache payloads stale until TTL expiry
   or an explicit cache clear, but they do not change rating math.
-- Body scan facts in `body_scan_facts`; the current rating builder reads the
-  canonical `bodies` table.
 
 ## Body Order And Ring Facts
 
@@ -102,21 +100,58 @@ Distance can still be displayed, but it must not be used as the primary planner
 body order. Nested names such as `Exioce 4 a a` are valid child bodies and must
 sort under `Exioce 4 a`, before sibling `Exioce 4 b`.
 
-Ring facts are tri-state operationally:
+Stage 17N.2d-N adds `body_rings` for provenance-backed ring facts. Ring facts
+are tri-state operationally:
 
+- One or more trusted `body_rings` rows for a body means ringed.
 - `body_scan_facts` row from `eddn_scan` with `is_ringed = true` means ringed.
 - `body_scan_facts` row from `eddn_scan` with `is_ringed = false` means scanned
   and not ringed.
 - Missing scan facts, or partial non-scan facts, mean unknown. Do not count
   unknown as no-rings evidence.
+- Ring type/class must come from source payload fields. Do not infer it from
+  body subtype text, rating summaries, or archetype/topology booleans.
 
 The production Stage 17N.2d-M investigation observed `scan_fact_rows = 0`,
 `ringed_bodies = 0`, `non_ringed_bodies = 0`, and `unknown_ring_state = 0`.
 That means ring coverage is absent, not that all bodies are unringed. Spansh
-imports currently populate `bodies` but do not populate `body_scan_facts` or
-persist ring arrays there. EDDN `Journal/Scan` ingestion is the existing live
-writer for scan-derived ring facts; historical coverage requires a separate
-safe population/backfill plan.
+imports now populate `body_rings` only from explicit Spansh ring arrays.
+EDDN `Journal/Scan` ingestion writes ring rows from explicit `Rings` payloads
+and only writes scan-derived `is_ringed=false` when a trusted full scan
+explicitly carries an empty `Rings` array. Historical coverage still requires a
+separate safe population/backfill plan; do not treat empty production
+`body_scan_facts` or `body_rings` as no-rings evidence.
+
+Useful verification SQL:
+
+```sql
+SELECT count(*) AS ring_rows
+FROM body_rings;
+
+SELECT source, confidence, count(*) AS rows
+FROM body_rings
+GROUP BY source, confidence
+ORDER BY rows DESC;
+
+SELECT br.system_id64, b.name AS matched_body_name,
+       br.body_id, br.body_name, br.ring_name, br.ring_type, br.ring_class,
+       br.mass_mt, br.inner_radius, br.outer_radius,
+       br.source, br.confidence, br.updated_at
+FROM body_rings br
+LEFT JOIN bodies b ON b.id = br.body_id
+WHERE br.system_id64 = :system_id64
+ORDER BY COALESCE(b.name, br.body_name), br.ring_name;
+
+SELECT id64, rating_dirty, cluster_dirty, updated_at
+FROM systems
+WHERE id64 = :system_id64;
+
+SELECT
+  count(*) FILTER (WHERE is_ringed IS TRUE)  AS trusted_ringed_scan_facts,
+  count(*) FILTER (WHERE is_ringed IS FALSE) AS trusted_not_ringed_scan_facts,
+  count(*) FILTER (WHERE is_ringed IS NULL)  AS unknown_scan_facts
+FROM body_scan_facts;
+```
 
 ## Rebuild Warnings
 

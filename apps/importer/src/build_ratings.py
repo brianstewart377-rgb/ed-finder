@@ -129,6 +129,7 @@ RATING_INSERT_COLUMNS = (
     'score_hightech', 'score_military', 'score_tourism',
     'economy_suggestion',
     'elw_count', 'ww_count', 'ammonia_count', 'gas_giant_count',
+    'ring_count',
     'rocky_count', 'metal_rich_count', 'icy_count', 'rocky_ice_count',
     'hmc_count', 'landable_count', 'terraformable_count',
     'bio_signal_total', 'geo_signal_total',
@@ -143,7 +144,7 @@ RATING_INSERT_COLUMNS = (
 RATING_VALUES_TEMPLATE = (
     "(%s,%s,%s,%s,%s,%s,%s,%s,"
     "%s::economy_type,"
-    "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+    "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
     "%s,%s,%s,%s,%s,%s,"
     "%s,%s,%s,%s,%s,"
     "%s,%s,%s)"
@@ -264,6 +265,7 @@ def classify_bodies(bodies: list) -> dict:
         'rocky_ice_count': 0,
         'hmc_count':      0,
         'gas_giant_count': 0,
+        'ring_count':      0,
         'ww_count':       0,
         'ammonia_count':  0,
         'elw_count':      0,
@@ -295,10 +297,13 @@ def classify_bodies(bodies: list) -> dict:
         is_tidal_lock   = bool(b.get('is_tidal_lock', False))
         bio_count       = int(b.get('bio_signal_count') or 0)
         geo_count       = int(b.get('geo_signal_count') or 0)
+        has_rings       = bool(b.get('has_rings', False))
         # v3.1: distance from arrival star (Ls); None if unknown
         ls = b.get('distance_from_star')
         w  = _distance_weight(ls)
 
+        if has_rings:
+            counts['ring_count'] += 1
         counts['bio'] += bio_count
         counts['geo'] += geo_count
         if is_tidal_lock:
@@ -376,8 +381,6 @@ def classify_bodies(bodies: list) -> dict:
             counts['type_bucket_counts']['rocky'] = counts['type_bucket_counts'].get('rocky', 0) + 1
             has_geo   = geo_count > 0
             has_bio   = bio_count > 0
-            has_rings = bool(b.get('has_rings', False)) or 'ring' in sub
-
             if has_geo and has_bio:
                 counts['rocky_mixed'] += 1
             elif has_geo:
@@ -1323,6 +1326,7 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         'ww_count':           counts['ww'],
         'ammonia_count':      counts['ammonia'],
         'gas_giant_count':    counts['gas_giant'],
+        'ring_count':         counts['ring_count'],
         'rocky_count':        counts['rocky'],
         'metal_rich_count':   counts['metal_rich'],
         'icy_count':          counts['icy'],
@@ -1467,8 +1471,8 @@ def _mark_ratings_clean(conn, cur, clean_ids: list, worker_id: int,
 def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
     """
     Process a chunk of systems.
-    v3.0: Uses new classify_bodies() which fetches is_tidal_lock and has_rings
-    in addition to the existing body fields.
+    v3.0: Uses new classify_bodies() which fetches is_tidal_lock and trusted
+    ring evidence in addition to the existing body fields.
     """
     conn = _connect_with_retry(db_dsn, label=f'ratings-worker-{worker_id}')
     conn.autocommit = False
@@ -1483,7 +1487,7 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                          label="ratings", interval=60.0)
 
     # ── Batch-fetch all bodies for this chunk ─────────────────────────────
-    # v3.0: fetch is_tidal_lock and has_rings for contamination scoring
+    # v3.0: fetch is_tidal_lock and trusted ring evidence for contamination scoring
     id64s = [s[0] for s in system_batch]
     bodies_by_system: dict = {}
 
@@ -1497,7 +1501,16 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                        is_earth_like, is_water_world, is_ammonia_world,
                        is_landable, is_terraformable, is_tidal_lock,
                        bio_signal_count, geo_signal_count,
-                       distance_from_star
+                       distance_from_star,
+                       EXISTS (
+                         SELECT 1
+                         FROM body_rings br
+                         WHERE br.system_id64 = bodies.system_id64
+                           AND (
+                             br.body_id = bodies.id
+                             OR (br.body_id IS NULL AND br.body_name = bodies.name)
+                           )
+                       ) AS has_rings
                 FROM   bodies
                 WHERE  system_id64 = ANY(%s)
             """, (slice_ids,))
@@ -1514,6 +1527,7 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                     'bio_signal_count': row[8],
                     'geo_signal_count': row[9],
                     'distance_from_star': row[10],
+                    'has_rings':          row[11],
                 })
         except Exception as e:
             log.error(f"Worker {worker_id}: body fetch error (offset {start}): {e}")
@@ -1603,6 +1617,7 @@ def _rating_row_tuple(r: dict, now_iso: str) -> tuple:
         r['economy_suggestion'],
         r['elw_count'],         r['ww_count'],
         r['ammonia_count'],     r['gas_giant_count'],
+        r['ring_count'],
         r['rocky_count'],       r['metal_rich_count'],
         r['icy_count'],         r['rocky_ice_count'],
         r['hmc_count'],         r['landable_count'],

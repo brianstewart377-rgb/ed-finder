@@ -2192,6 +2192,34 @@ association semantics, or production import scheduling.
   `body_scan_facts.is_ringed`, but production needs a population/backfill step
   before ring coverage can be treated as available.
 
+## Stage 17N.2d-N - Ring Data Model And Ingestion Provenance
+
+Stage 17N.2d-N adds a provenance-backed ring model and ingestion path without
+running production imports, changing rating weights, or treating unknown ring
+coverage as no-rings evidence.
+
+- `body_rings` stores one row per source-observed ring with `system_id64`,
+  optional `body_id`/`body_name`, ring name/type/class, mass/radius fields,
+  `source`, `confidence`, and `updated_at`. Missing rows mean unknown ring
+  state, not false.
+- Spansh body imports parse source ring arrays when present and write
+  `source='spansh_dump'`. Empty or absent Spansh ring arrays do not create
+  no-ring facts because the importer does not yet prove per-body scan
+  completeness.
+- EDDN `Journal/Scan` normalisation preserves ring arrays, writes
+  `source='eddn_scan'` ring rows, and may set `body_scan_facts.is_ringed=false`
+  only when a trusted full scan explicitly includes an empty `Rings` array.
+  Missing `Rings` remains `NULL`/unknown.
+- System/body API payloads expose `rings`, `ring_count`, `ring_source`,
+  `ring_confidence`, plus tri-state `is_ringed`/`ring_state`. One or more
+  ring rows wins as ringed; trusted scan no-ring evidence is `false`; absent
+  evidence is `unknown`.
+- Rating, topology, archetype, simulation fallback, and planner baseline paths
+  no longer infer rings from body subtype text. Existing `ratings.ring_count`
+  is wired from trusted ring evidence during rating rebuilds; historical
+  production values still require a controlled rebuild/backfill after ring
+  rows are populated.
+
 ## Stage 17N.3-A - Guided Planner Quality Contract
 
 Stage 17N.3-A audits the existing Advanced Planner, Suggested Builds,

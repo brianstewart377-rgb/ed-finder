@@ -277,7 +277,18 @@ async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> tuple[Previe
                        id AS body_id, name AS body_name, body_type, subtype,
                        subtype AS planet_class,
                        is_landable, is_terraformable,
-                       (LOWER(COALESCE(subtype, '')) LIKE '%ring%') AS is_ringed,
+                       CASE
+                           WHEN EXISTS (
+                               SELECT 1
+                               FROM body_rings br
+                               WHERE br.system_id64 = bodies.system_id64
+                                 AND (
+                                   br.body_id = bodies.id
+                                   OR (br.body_id IS NULL AND br.body_name = bodies.name)
+                                 )
+                           ) THEN TRUE
+                           ELSE NULL
+                       END AS is_ringed,
                        (geo_signal_count > 0) AS has_geo,
                        (bio_signal_count > 0) AS has_bio,
                        bio_signal_count, geo_signal_count,

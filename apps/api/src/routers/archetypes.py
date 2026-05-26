@@ -573,12 +573,24 @@ async def get_system_archetypes(request: Request, id64: int):
                         'bio_signal_count': r['bio_signal_count'],
                         'is_landable': r['is_landable'],
                         'is_terraformable': r['is_terraformable'],
-                        'is_ringed': False,
+                        'is_ringed': r['is_ringed'],
                     }
                     for r in await conn.fetch("""
                         SELECT id, name, subtype, radius, gravity, surface_temp,
                                geo_signal_count, bio_signal_count,
-                               is_landable, is_terraformable
+                               is_landable, is_terraformable,
+                               CASE
+                                   WHEN EXISTS (
+                                       SELECT 1
+                                       FROM body_rings br
+                                       WHERE br.system_id64 = bodies.system_id64
+                                         AND (
+                                           br.body_id = bodies.id
+                                           OR (br.body_id IS NULL AND br.body_name = bodies.name)
+                                         )
+                                   ) THEN TRUE
+                                   ELSE NULL
+                               END AS is_ringed
                         FROM bodies
                         WHERE system_id64 = $1 AND body_type != 'Star'
                         ORDER BY id

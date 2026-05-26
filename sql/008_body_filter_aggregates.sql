@@ -6,15 +6,9 @@
 -- range sliders without expensive per-row joins on `bodies` at query
 -- time.
 --
--- Backfill is done HERE in pure SQL rather than via build_ratings.py
--- — keeps the rating math untouched (zero risk of regression) and runs
--- in a single statement against PG instead of millions of Python loops.
---
--- Caveat: the rings detection is a substring heuristic on bodies.subtype
--- ('ring' in lowercased subtype). The Spansh import currently does not
--- persist a structured rings field on bodies, so this is the best signal
--- we have. To get accurate ring data later, add `bodies.has_rings BOOLEAN`
--- + parse from the Spansh dump's `rings` array — see backlog.
+-- Backfill is done HERE in pure SQL rather than via build_ratings.py.
+-- Ring counts come from provenance-backed `body_rings` facts; missing ring
+-- facts remain unknown and should not be treated as no-rings evidence.
 --
 -- ON-GOING REFRESH:
 --   These 3 columns are static after import — they don't auto-refresh as
@@ -28,7 +22,7 @@ ALTER TABLE ratings
   ADD COLUMN IF NOT EXISTS other_star_count  SMALLINT NOT NULL DEFAULT 0;
 
 COMMENT ON COLUMN ratings.ring_count
-  IS 'Number of bodies with rings (heuristic: subtype ILIKE %ring%). Backfilled by sql/008.';
+  IS 'Number of bodies with trusted ring rows in body_rings. Missing ring facts are unknown, not no-rings.';
 COMMENT ON COLUMN ratings.walkable_count
   IS 'Landable bodies with no atmosphere (Odyssey on-foot). Backfilled by sql/008.';
 COMMENT ON COLUMN ratings.other_star_count
@@ -48,9 +42,15 @@ COMMENT ON COLUMN ratings.other_star_count
 -- Wrapped in a transaction so a partial run can be rolled back safely.
 BEGIN;
 
-WITH agg AS (
+WITH ring_agg AS (
+    SELECT system_id64,
+           COUNT(DISTINCT COALESCE(body_id::text, body_name, ring_name))::SMALLINT AS ring_count
+    FROM body_rings
+    GROUP BY system_id64
+),
+agg AS (
     SELECT b.system_id64,
-           COUNT(*) FILTER (WHERE LOWER(b.subtype) LIKE '%ring%')      ::SMALLINT AS ring_count,
+           COALESCE(MAX(ring_agg.ring_count), 0)::SMALLINT             AS ring_count,
            COUNT(*) FILTER (WHERE b.is_landable = TRUE
                               AND (b.atmosphere_type IS NULL
                                    OR b.atmosphere_type = ''
@@ -62,6 +62,7 @@ WITH agg AS (
                               AND LOWER(COALESCE(b.subtype, '')) NOT LIKE '%white dwarf%')
                                                                        ::SMALLINT AS other_star_count
     FROM   bodies b
+    LEFT JOIN ring_agg ON ring_agg.system_id64 = b.system_id64
     GROUP  BY b.system_id64
 )
 UPDATE ratings r

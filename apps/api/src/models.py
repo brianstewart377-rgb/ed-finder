@@ -216,6 +216,20 @@ class RatingModel(BaseModel):
     rationale:              Optional[str]   = None
 
 
+class BodyRingModel(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+    ring_name:    Optional[str]   = None
+    ring_type:    Optional[str]   = None
+    ring_class:   Optional[str]   = None
+    mass_mt:      Optional[float] = None
+    inner_radius: Optional[float] = None
+    outer_radius: Optional[float] = None
+    source:       Optional[str]   = None
+    confidence:   Optional[str]   = None
+    updated_at:   Optional[Any]   = None
+
+
 class BodyModel(BaseModel):
     model_config = ConfigDict(extra='allow')
 
@@ -242,6 +256,10 @@ class BodyModel(BaseModel):
     is_scoopable:            Optional[bool]  = None
     is_ringed:               Optional[bool]  = None
     ring_state:              Optional[Literal['ringed', 'not_ringed', 'unknown']] = None
+    rings:                   Optional[list[BodyRingModel]] = None
+    ring_count:              Optional[int]   = None
+    ring_source:             Optional[str]   = None
+    ring_confidence:         Optional[str]   = None
     body_sort_key:           Optional[str]   = None
 
 

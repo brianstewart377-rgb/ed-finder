@@ -1,4 +1,5 @@
 """System / body / batch detail endpoints."""
+import json
 from typing import Any, List, Optional
 
 import asyncpg
@@ -21,8 +22,8 @@ except ImportError:
 
 router = APIRouter(tags=['systems'])
 
-SYSTEM_CACHE_VERSION = 'v5'
-BODY_CACHE_VERSION = 'v2'
+SYSTEM_CACHE_VERSION = 'v6'
+BODY_CACHE_VERSION = 'v3'
 
 
 
@@ -71,7 +72,11 @@ async def get_system(
                    b.estimated_mapping_value, b.estimated_scan_value,
                    b.is_main_star, b.spectral_class, b.is_scoopable,
                    f.is_ringed AS _scan_is_ringed,
-                   f.data_sources AS _scan_data_sources
+                   f.data_sources AS _scan_data_sources,
+                   r.rings AS _rings,
+                   r.ring_count AS _ring_count,
+                   r.ring_sources AS _ring_sources,
+                   r.ring_confidences AS _ring_confidences
             FROM bodies b
             LEFT JOIN LATERAL (
                 SELECT sf.is_ringed, sf.data_sources
@@ -86,6 +91,32 @@ async def get_system(
                          sf.updated_at DESC
                 LIMIT 1
             ) f ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'ring_name', br.ring_name,
+                            'ring_type', br.ring_type,
+                            'ring_class', br.ring_class,
+                            'mass_mt', br.mass_mt,
+                            'inner_radius', br.inner_radius,
+                            'outer_radius', br.outer_radius,
+                            'source', br.source,
+                            'confidence', br.confidence,
+                            'updated_at', br.updated_at
+                        )
+                        ORDER BY br.ring_name NULLS LAST, br.id
+                    ) AS rings,
+                    COUNT(*)::int AS ring_count,
+                    array_agg(DISTINCT br.source) AS ring_sources,
+                    array_agg(DISTINCT br.confidence) AS ring_confidences
+                FROM body_rings br
+                WHERE br.system_id64 = b.system_id64
+                  AND (
+                      br.body_id = b.id
+                      OR (br.body_id IS NULL AND br.body_name = b.name)
+                  )
+            ) r ON TRUE
             WHERE b.system_id64 = $1
             ORDER BY b.id ASC
         """, id64)
@@ -165,19 +196,77 @@ def _body_payload_from_row(row: Any, system_name: Optional[str] = None) -> dict[
     body = dict(row)
     scan_is_ringed = body.pop('_scan_is_ringed', None)
     scan_data_sources = body.pop('_scan_data_sources', None)
-    is_ringed, ring_state = _ring_fields_from_scan_fact(scan_is_ringed, scan_data_sources)
+    rings = _normalise_ring_payload_from_db(body.pop('_rings', None))
+    body.pop('_ring_count', None)
+    ring_sources = _normalise_text_array(body.pop('_ring_sources', None))
+    ring_confidences = _normalise_text_array(body.pop('_ring_confidences', None))
+    is_ringed, ring_state = _ring_fields_from_sources(scan_is_ringed, scan_data_sources, rings)
     body['is_ringed'] = is_ringed
     body['ring_state'] = ring_state
+    body['rings'] = rings if rings or is_ringed is False else None
+    body['ring_count'] = len(rings) if rings else 0 if is_ringed is False else None
+    body['ring_source'] = ','.join(ring_sources) if ring_sources else None
+    body['ring_confidence'] = ','.join(ring_confidences) if ring_confidences else None
     body['body_sort_key'] = natural_body_sort_key_string(body.get('name'), system_name)
     return body
 
 
 def _ring_fields_from_scan_fact(is_ringed: Any, data_sources: Any) -> tuple[Optional[bool], str]:
+    return _ring_fields_from_sources(is_ringed, data_sources, [])
+
+
+def _ring_fields_from_sources(is_ringed: Any, data_sources: Any, rings: list[dict[str, Any]]) -> tuple[Optional[bool], str]:
+    if rings:
+        return True, 'ringed'
     sources = _normalise_data_sources(data_sources)
     if 'eddn_scan' not in sources:
         return None, 'unknown'
-    known_value = bool(is_ringed)
+    if is_ringed is None:
+        return None, 'unknown'
+    known_value = _coerce_bool(is_ringed)
+    if known_value is None:
+        return None, 'unknown'
     return known_value, 'ringed' if known_value else 'not_ringed'
+
+
+def _normalise_ring_payload_from_db(raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [dict(row) for row in raw if isinstance(row, dict)]
+
+
+def _normalise_text_array(values: Any) -> list[str]:
+    if values is None:
+        return []
+    if isinstance(values, str):
+        text = values.strip()
+        if text.startswith('{') and text.endswith('}'):
+            return [part.strip().strip('"') for part in text[1:-1].split(',') if part.strip()]
+        return [text] if text else []
+    try:
+        return sorted({str(value) for value in values if value is not None})
+    except TypeError:
+        return []
+
+
+def _coerce_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {'true', 't', '1', 'yes'}:
+        return True
+    if text in {'false', 'f', '0', 'no'}:
+        return False
+    return None
 
 
 def _normalise_data_sources(data_sources: Any) -> set[str]:
@@ -275,7 +364,11 @@ async def batch_systems(
                        b.bio_signal_count, b.geo_signal_count,
                        b.estimated_mapping_value, b.estimated_scan_value,
                        f.is_ringed AS _scan_is_ringed,
-                       f.data_sources AS _scan_data_sources
+                       f.data_sources AS _scan_data_sources,
+                       r.rings AS _rings,
+                       r.ring_count AS _ring_count,
+                       r.ring_sources AS _ring_sources,
+                       r.ring_confidences AS _ring_confidences
                 FROM bodies b
                 LEFT JOIN LATERAL (
                     SELECT sf.is_ringed, sf.data_sources
@@ -290,6 +383,32 @@ async def batch_systems(
                              sf.updated_at DESC
                     LIMIT 1
                 ) f ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'ring_name', br.ring_name,
+                                'ring_type', br.ring_type,
+                                'ring_class', br.ring_class,
+                                'mass_mt', br.mass_mt,
+                                'inner_radius', br.inner_radius,
+                                'outer_radius', br.outer_radius,
+                                'source', br.source,
+                                'confidence', br.confidence,
+                                'updated_at', br.updated_at
+                            )
+                            ORDER BY br.ring_name NULLS LAST, br.id
+                        ) AS rings,
+                        COUNT(*)::int AS ring_count,
+                        array_agg(DISTINCT br.source) AS ring_sources,
+                        array_agg(DISTINCT br.confidence) AS ring_confidences
+                    FROM body_rings br
+                    WHERE br.system_id64 = b.system_id64
+                      AND (
+                          br.body_id = b.id
+                          OR (br.body_id IS NULL AND br.body_name = b.name)
+                      )
+                ) r ON TRUE
                 WHERE b.system_id64 = ANY($1::bigint[])
                 ORDER BY b.system_id64, b.id ASC
             """, missing)

@@ -78,6 +78,13 @@ def test_rocky_profile_modifiers_follow_mega_guide_table():
     assert 'Extraction' in geo.modifier_economies
 
 
+def test_ring_like_subtype_without_evidence_is_not_ringed():
+    profile = profile_body(body(subtype='Ringed-looking rocky body', is_ringed=None))
+
+    assert 'ringed' not in profile.strategic_tags
+    assert 'Extraction' not in profile.modifier_economies
+
+
 def test_icy_profile_gives_industrial():
     icy = profile_body(body(subtype='Icy body'))
 
