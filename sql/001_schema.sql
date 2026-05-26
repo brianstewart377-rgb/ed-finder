@@ -272,7 +272,18 @@ CREATE TABLE IF NOT EXISTS stations (
     station_type        station_type    NOT NULL DEFAULT 'Unknown',
 
     distance_from_star  REAL            DEFAULT NULL,
+    distance_source     TEXT            DEFAULT NULL,
+    distance_confidence TEXT            DEFAULT NULL,
+    distance_updated_at TIMESTAMPTZ     DEFAULT NULL,
+
     body_name           TEXT            DEFAULT NULL,
+    body_name_source    TEXT            DEFAULT NULL,
+    body_name_confidence TEXT           DEFAULT NULL,
+    body_name_updated_at TIMESTAMPTZ    DEFAULT NULL,
+
+    station_type_source TEXT            DEFAULT NULL,
+    station_type_confidence TEXT        DEFAULT NULL,
+    station_type_updated_at TIMESTAMPTZ DEFAULT NULL,
 
     landing_pad_size    TEXT            DEFAULT NULL,
     has_market          BOOLEAN         NOT NULL DEFAULT FALSE,

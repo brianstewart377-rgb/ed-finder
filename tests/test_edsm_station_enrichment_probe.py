@@ -73,18 +73,112 @@ class FakeApplyConnection:
 
     def execute(self, sql, params):
         self.statements.append((sql, params))
-        new_type, station_id, system_id64 = params
-        row = self.rows.get((station_id, system_id64))
-        if row is None or row['station_type'] != 'Unknown':
-            self.last_row = None
+        sql_lower = ' '.join(sql.lower().split())
+        if 'insert into station_body_links' in sql_lower:
+            (
+                station_id,
+                market_id,
+                system_id64,
+                body_id,
+                body_name,
+                lane,
+                resolver_notes,
+            ) = params
+            row = self.rows.setdefault(('link', station_id), {})
+            if row.get('association_status') == 'confirmed':
+                self.last_row = None
+                return
+            row.update({
+                'station_id': station_id,
+                'market_id': market_id,
+                'system_id64': system_id64,
+                'body_id': body_id,
+                'body_name': body_name,
+                'lane': lane,
+                'association_status': 'confirmed',
+                'association_confidence': 'exact',
+                'association_source': 'edsm_body_name',
+                'resolver_notes': resolver_notes,
+            })
+            self.last_row = dict(row)
             return
-        row['station_type'] = new_type
-        self.last_row = {
-            'id': station_id,
-            'system_id64': system_id64,
-            'name': row['name'],
-            'station_type': new_type,
-        }
+
+        if 'set station_type' in sql_lower:
+            new_type, source, confidence, station_id, system_id64 = params
+            row = self.rows.get((station_id, system_id64))
+            if row is None or row['station_type'] != 'Unknown':
+                self.last_row = None
+                return
+            row['station_type'] = new_type
+            row['station_type_source'] = source
+            row['station_type_confidence'] = confidence
+            self.last_row = {
+                'id': station_id,
+                'system_id64': system_id64,
+                'name': row['name'],
+                'station_type': new_type,
+                'station_type_source': source,
+                'station_type_confidence': confidence,
+                'distance_from_star': row.get('distance_from_star'),
+                'distance_source': row.get('distance_source'),
+                'distance_confidence': row.get('distance_confidence'),
+                'body_name': row.get('body_name'),
+                'body_name_source': row.get('body_name_source'),
+                'body_name_confidence': row.get('body_name_confidence'),
+            }
+            return
+
+        if 'set distance_from_star' in sql_lower:
+            distance, source, confidence, station_id, system_id64 = params
+            row = self.rows.get((station_id, system_id64))
+            if row is None:
+                self.last_row = None
+                return
+            row['distance_from_star'] = distance
+            row['distance_source'] = source
+            row['distance_confidence'] = confidence
+            self.last_row = {
+                'id': station_id,
+                'system_id64': system_id64,
+                'name': row['name'],
+                'station_type': row.get('station_type'),
+                'station_type_source': row.get('station_type_source'),
+                'station_type_confidence': row.get('station_type_confidence'),
+                'distance_from_star': distance,
+                'distance_source': source,
+                'distance_confidence': confidence,
+                'body_name': row.get('body_name'),
+                'body_name_source': row.get('body_name_source'),
+                'body_name_confidence': row.get('body_name_confidence'),
+            }
+            return
+
+        if 'set body_name' in sql_lower:
+            body_name, source, confidence, station_id, system_id64 = params
+            row = self.rows.get((station_id, system_id64))
+            if row is None:
+                self.last_row = None
+                return
+            row['body_name'] = body_name
+            row['body_name_source'] = source
+            row['body_name_confidence'] = confidence
+            self.last_row = {
+                'id': station_id,
+                'system_id64': system_id64,
+                'name': row['name'],
+                'station_type': row.get('station_type'),
+                'station_type_source': row.get('station_type_source'),
+                'station_type_confidence': row.get('station_type_confidence'),
+                'distance_from_star': row.get('distance_from_star'),
+                'distance_source': row.get('distance_source'),
+                'distance_confidence': row.get('distance_confidence'),
+                'body_name': body_name,
+                'body_name_source': source,
+                'body_name_confidence': confidence,
+            }
+            return
+
+        raise AssertionError(f'unexpected SQL: {sql}')
 
     def fetchone(self):
         return self.last_row
@@ -125,8 +219,8 @@ def test_unknown_local_type_known_edsm_type_proposes_dry_run_update():
     report = report_for(
         local_station(id=2002, market_id=2002, name='Riley Dock', station_type='Unknown'),
         {
-            'id': 9999,
-            'marketId': 9999,
+            'id': 2002,
+            'marketId': 2002,
             'name': 'Riley Dock',
             'type': 'Planetary settlement',
             'distanceToArrival': 240.0,
@@ -135,10 +229,33 @@ def test_unknown_local_type_known_edsm_type_proposes_dry_run_update():
 
     station = first_station(report)
 
-    assert station['station_match']['source'] == 'exact_name'
+    assert station['station_match']['source'] == 'id_name'
     assert station['proposed']['station_type'] == 'PlanetaryOutpost'
     assert station['proposed']['lane'] == 'surface'
     assert 'station_type' in station['fields_that_would_change']
+
+
+def test_name_only_match_is_diagnostic_not_trusted_for_apply():
+    report = report_for(
+        local_station(id=2002, market_id=2002, name='Riley Dock', station_type='Unknown'),
+        {
+            'id': 9999,
+            'marketId': 9999,
+            'name': 'Riley Dock',
+            'type': 'Planetary settlement',
+            'bodyName': 'Exioce 2',
+            'distanceToArrival': 240.0,
+        },
+    )
+
+    station = first_station(report)
+
+    assert station['station_match']['source'] == 'exact_name'
+    assert station['station_match']['status'] == 'matched'
+    assert station['proposed']['association_status'] == 'unresolved'
+    assert report['metadata_updates_planned'] == []
+    assert report['confirmed_link_updates_planned'] == []
+    assert any(entry['reason'] == 'weak_station_identity' for entry in report['skipped'])
 
 
 def test_exioce_like_orbis_and_coriolis_type_evidence_are_metadata_changes():
@@ -323,6 +440,59 @@ def test_carrier_like_rows_do_not_produce_association_changes():
     assert len(report['ignored_transient_non_slot']) == 3
 
 
+def test_exioce_stage17n2d_l_exact_edsm_metadata_and_links_ignore_legacy_distances():
+    exioce_bodies = [
+        {'id': 31, 'system_id64': 2008132031194, 'name': 'Exioce 3 d', 'distance_from_star': 590.0},
+        {'id': 41, 'system_id64': 2008132031194, 'name': 'Exioce 4', 'distance_from_star': 1625.0},
+        {'id': 51, 'system_id64': 2008132031194, 'name': 'Exioce 5 b', 'distance_from_star': 2220.0},
+        {'id': 91, 'system_id64': 2008132031194, 'name': 'Experiment', 'distance_from_star': 20.0},
+        {'id': 92, 'system_id64': 2008132031194, 'name': "O'Rourke Colony", 'distance_from_star': 40.0},
+        {'id': 93, 'system_id64': 2008132031194, 'name': 'Democracy', 'distance_from_star': 60.0},
+    ]
+    report = probe.build_enrichment_report(
+        local_system=SYSTEM,
+        local_stations=[
+            local_station(id=5001, market_id=5001, name='Macmillan Depot', station_type='Unknown', distance_from_star=20.0),
+            local_station(id=5002, market_id=5002, name='Fort Lawrence', station_type='Unknown', distance_from_star=40.0),
+            local_station(id=5003, market_id=5003, name='Miller Terminal', station_type='Unknown', distance_from_star=60.0),
+            local_station(id=5004, market_id=5004, name='XFK-T4M', station_type='Unknown', distance_from_star=60.0),
+        ],
+        local_bodies=exioce_bodies,
+        existing_links={},
+        edsm_stations_payload={'stations': [
+            {'id': 5001, 'name': 'Macmillan Depot', 'type': 'Orbis Starport', 'bodyName': 'Exioce 3 d', 'distanceToArrival': 592},
+            {'id': 5002, 'name': 'Fort Lawrence', 'type': 'Orbis Starport', 'bodyName': 'Exioce 4', 'distanceToArrival': 1627},
+            {'id': 5003, 'name': 'Miller Terminal', 'type': 'Coriolis Starport', 'bodyName': 'Exioce 5 b', 'distanceToArrival': 2219},
+            {'id': 5004, 'name': 'XFK-T4M', 'type': 'Fleet Carrier', 'bodyName': 'Exioce 5 b', 'distanceToArrival': 2219},
+        ]},
+        edsm_bodies_payload={'bodies': []},
+    )
+
+    by_name = {station['local_station']['name']: station for station in report['stations']}
+
+    assert by_name['Macmillan Depot']['proposed']['station_type'] == 'Orbis'
+    assert by_name['Macmillan Depot']['proposed']['body_name'] == 'Exioce 3 d'
+    assert by_name['Fort Lawrence']['proposed']['station_type'] == 'Orbis'
+    assert by_name['Fort Lawrence']['proposed']['body_name'] == 'Exioce 4'
+    assert by_name['Miller Terminal']['proposed']['station_type'] == 'Coriolis'
+    assert by_name['Miller Terminal']['proposed']['body_name'] == 'Exioce 5 b'
+    assert all(
+        station['proposed']['association_status'] == 'confirmed'
+        for name, station in by_name.items()
+        if name != 'XFK-T4M'
+    )
+    assert {update['field'] for update in report['metadata_updates_planned']} == {
+        'station_type',
+        'distance_from_star',
+        'body_name',
+    }
+    assert len(report['confirmed_link_updates_planned']) == 3
+    assert len(report['association_changes']) == 3
+    assert report['counts']['ignored_transient_non_slot'] == 1
+    assert 'station_distance_mismatch' in conflict_types(by_name['Macmillan Depot'])
+    assert by_name['XFK-T4M']['ignored_transient_non_slot'] is True
+
+
 def test_metadata_apply_never_writes_association_changes():
     report = report_for(
         local_station(station_type='Unknown'),
@@ -341,10 +511,12 @@ def test_metadata_apply_never_writes_association_changes():
     applied, skipped = probe.apply_metadata_updates(conn, report)
 
     assert report['association_changes']
-    assert len(applied) == 1
+    assert {row['field'] for row in applied} == {'station_type', 'distance_from_star', 'body_name'}
     assert skipped == []
     assert all('station_body_links' not in sql for sql, _params in conn.statements)
     assert conn.rows[(1001, 2008132031194)]['station_type'] == 'Orbis'
+    assert conn.rows[(1001, 2008132031194)]['distance_source'] == 'edsm_system_api'
+    assert conn.rows[(1001, 2008132031194)]['body_name_source'] == 'edsm_system_api'
 
 
 def test_exact_body_name_confirms_same_system_body_association():
@@ -368,6 +540,32 @@ def test_exact_body_name_confirms_same_system_body_association():
     assert proposed['association_confidence'] == 'exact'
     assert proposed['association_source'] == 'edsm_body_name'
     assert report['association_changes'][0]['proposed_link']['association_status'] == 'confirmed'
+    assert report['confirmed_link_updates_planned'][0]['association_source'] == 'edsm_body_name'
+
+
+def test_apply_confirmed_links_writes_only_confirmed_edsm_body_name_links():
+    report = report_for(
+        local_station(station_type='Unknown'),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Coriolis Starport',
+            'bodyName': 'Exioce 1',
+            'distanceToArrival': 120.0,
+        },
+    )
+    conn = FakeApplyConnection({
+        (1001, 2008132031194): {'name': 'Harper Plant', 'station_type': 'Unknown'},
+    })
+
+    applied, skipped = probe.apply_confirmed_link_updates(conn, report)
+    probe.apply_confirmed_links_result(report, applied, skipped)
+
+    assert skipped == []
+    assert len(applied) == 1
+    assert applied[0]['applied_link']['body_id'] == 11
+    assert applied[0]['applied_link']['association_source'] == 'edsm_body_name'
+    assert report['apply_mode'] == 'confirmed_links'
 
 
 def test_distance_only_body_match_infers_body_association():
@@ -413,7 +611,7 @@ def test_ambiguous_distance_body_match_remains_unresolved():
     assert 'multiple_body_distance_matches' in conflict_types(station)
 
 
-def test_conflicting_station_distance_reports_conflict_and_blocks_body_proposal():
+def test_conflicting_legacy_station_distance_reports_conflict_but_does_not_block_edsm_body_name():
     report = report_for(
         local_station(station_type='Unknown', distance_from_star=120.0),
         {
@@ -428,14 +626,14 @@ def test_conflicting_station_distance_reports_conflict_and_blocks_body_proposal(
     station = first_station(report)
 
     assert 'station_distance_mismatch' in conflict_types(station)
-    assert station['proposed']['association_status'] == 'unresolved'
-    assert station['proposed']['body_id'] is None
-    assert report['association_changes'] == []
+    assert station['proposed']['association_status'] == 'confirmed'
+    assert station['proposed']['body_id'] == 12
+    assert report['association_changes'][0]['proposed_link']['association_status'] == 'confirmed'
     assert report['station_metadata_changes'][0]['proposed_station_type'] == 'Coriolis'
     assert report['conflicts'][0]['conflict']['type'] == 'station_distance_mismatch'
 
 
-def test_metadata_apply_skips_distance_mismatch_conflict():
+def test_metadata_apply_uses_edsm_distance_even_when_legacy_local_distance_mismatches():
     report = report_for(
         local_station(station_type='Unknown', distance_from_star=120.0),
         {
@@ -452,13 +650,14 @@ def test_metadata_apply_skips_distance_mismatch_conflict():
 
     applied, skipped = probe.apply_metadata_updates(conn, report)
 
-    assert applied == []
+    assert {row['field'] for row in applied} == {'station_type', 'distance_from_star', 'body_name'}
     assert skipped == []
-    assert conn.statements == []
-    assert any(entry['reason'].startswith('conflicting_evidence') for entry in report['skipped'])
+    assert conn.rows[(1001, 2008132031194)]['distance_from_star'] == 240.0
+    assert conn.rows[(1001, 2008132031194)]['distance_source'] == 'edsm_system_api'
+    assert not any(entry['reason'].startswith('conflicting_evidence') for entry in report['skipped'])
 
 
-def test_metadata_apply_does_not_overwrite_known_station_type_conflict():
+def test_metadata_apply_preserves_known_station_type_but_can_apply_distance():
     report = report_for(
         local_station(station_type='Coriolis'),
         {
@@ -474,10 +673,11 @@ def test_metadata_apply_does_not_overwrite_known_station_type_conflict():
 
     applied, skipped = probe.apply_metadata_updates(conn, report)
 
-    assert applied == []
+    assert [row['field'] for row in applied] == ['distance_from_star']
     assert skipped == []
-    assert conn.statements == []
-    assert any(entry['reason'].startswith('conflicting_evidence') for entry in report['skipped'])
+    assert conn.rows[(1001, 2008132031194)]['station_type'] == 'Coriolis'
+    assert conn.rows[(1001, 2008132031194)]['distance_source'] == 'edsm_system_api'
+    assert 'known_station_type_mismatch' in conflict_types(first_station(report))
 
 
 def test_unresolved_station_match_is_reported_and_not_applied():

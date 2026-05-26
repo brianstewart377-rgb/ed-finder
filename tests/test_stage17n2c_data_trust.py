@@ -212,7 +212,7 @@ def test_system_station_payload_exposes_inferred_association():
     assert station['association_source'] == 'resolver_distance'
 
 
-def test_system_station_payload_keeps_unresolved_station_visible():
+def test_system_station_payload_ignores_transient_confirmed_links_for_occupancy():
     station = _station_with_association({
         'id': 7,
         'market_id': 7,
@@ -230,9 +230,10 @@ def test_system_station_payload_keeps_unresolved_station_visible():
     }, [{'id': 7, 'name': 'A 1'}])
 
     assert station['name'] == 'Unresolved Megaship'
-    assert station['body_id'] == 7
+    assert station['body_id'] is None
     assert station['lane'] == 'unknown'
-    assert station['association_status'] == 'confirmed'
+    assert station['association_status'] == 'unresolved'
+    assert station['association_source'] == 'transient_non_slot'
 
 
 def test_local_search_galaxy_wide_projects_null_distance():
@@ -249,7 +250,7 @@ def test_data_trust_cache_versions_are_bumped():
     assert "SEARCH_CACHE_VERSION = 'v4'" in search_source
     assert "GALAXY_CACHE_VERSION = 'v4'" in search_source
     assert "CLUSTER_CACHE_VERSION = 'v4'" in search_source
-    assert "SYSTEM_CACHE_VERSION = 'v3'" in systems_source
+    assert "SYSTEM_CACHE_VERSION = 'v4'" in systems_source
     assert "BODY_CACHE_VERSION = 'v2'" in systems_source
 
 
@@ -278,6 +279,28 @@ def test_base_schema_includes_rating_version_and_migration_remains():
 
     assert re.search(r'\brating_version\s+TEXT\s+DEFAULT NULL\b', ratings)
     assert 'ADD COLUMN IF NOT EXISTS rating_version TEXT DEFAULT NULL' in migration
+
+
+def test_base_schema_and_migration_include_station_provenance_columns():
+    stations = _table_definition(_schema_text('001_schema.sql'), 'stations')
+    migration = _schema_text('023_station_data_provenance.sql')
+
+    for column in (
+        'distance_source',
+        'distance_confidence',
+        'distance_updated_at',
+        'station_type_source',
+        'station_type_confidence',
+        'station_type_updated_at',
+        'body_name_source',
+        'body_name_confidence',
+        'body_name_updated_at',
+    ):
+        assert column in stations
+        assert f'ADD COLUMN IF NOT EXISTS {column}' in migration
+
+    assert 'edsm_body_name' in migration
+    assert 'edsm_distance' in migration
 
 
 def test_rating_dirty_trigger_migration_remains_for_existing_deployments():

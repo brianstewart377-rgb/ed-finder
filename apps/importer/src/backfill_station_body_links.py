@@ -75,7 +75,9 @@ def fetch_system_payload(conn, system_id64: int) -> tuple[list[dict[str, Any]], 
 
         cur.execute("""
             SELECT id, id AS market_id, system_id64, name, station_type::text AS station_type,
-                   distance_from_star, body_name AS station_body_name, body_name
+                   distance_from_star, distance_source, distance_confidence,
+                   body_name AS station_body_name, body_name,
+                   body_name_source, body_name_confidence
             FROM stations
             WHERE system_id64 = %s
         """, (system_id64,))

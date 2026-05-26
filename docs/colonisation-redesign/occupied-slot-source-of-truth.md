@@ -16,7 +16,10 @@ body slots.
 
 ## Schema
 
-Migration: `sql/021_station_body_links.sql`
+Migrations:
+
+- `sql/021_station_body_links.sql`
+- `sql/023_station_data_provenance.sql`
 
 The normalized table is `station_body_links`:
 
@@ -30,7 +33,7 @@ The normalized table is `station_body_links`:
 | `lane` | `orbital`, `surface`, or `unknown` |
 | `association_status` | `confirmed`, `inferred`, or `unresolved` |
 | `association_confidence` | `exact`, `strong_inference`, `weak_inference`, or `unresolved` |
-| `association_source` | `manual`, `import`, `eddn`, `resolver_body_id`, `resolver_body_name`, `resolver_distance`, or `unknown` |
+| `association_source` | `manual`, `import`, `eddn`, `resolver_body_id`, `resolver_body_name`, `resolver_distance`, `edsm_body_name`, `edsm_distance`, or `unknown` |
 | `resolver_notes` | human-readable reason/caveat |
 | `updated_at` | link update timestamp |
 
@@ -44,14 +47,17 @@ Implementation: `apps/api/src/station_body_resolver.py`
 Resolver order:
 
 1. Existing verified `body_id` / `local_body_id` if present.
-2. Exact `body_name` match within the same system.
+2. Trusted EDSM `body_name` provenance when it matches exactly one body in the
+   same system. Legacy local `body_name` can only be inferred.
 3. Unique `distance_from_star` match if station and body distances exist and
    exactly one body is within `0.01 ls`.
 4. Otherwise unresolved.
 
 Distance tolerance is intentionally tight because `distance_from_star` is not a
-stable identity field. If more than one body is within tolerance, the result is
-unresolved.
+stable identity field. Legacy local station distance is weak evidence only and
+can produce only `weak_inference`; EDSM/provenance-backed distance can produce
+`strong_inference`. Distance-only evidence never creates a confirmed link. If
+more than one body is within tolerance, the result is unresolved.
 
 Existing confirmed links are preserved by default. A later weaker resolver pass
 must not overwrite manual/confirmed truth unless the operator explicitly uses
@@ -100,9 +106,9 @@ Unknown / not permanent colony-slot occupants:
 Unknown-lane infrastructure remains visible but does not consume orbital or
 surface capacity.
 
-`FleetCarrier` and `MegaShip` rows may still carry exact station/body evidence
-for display or audit, but their lane remains `unknown` and they do not occupy
-permanent colony slots.
+`FleetCarrier`, raw `Carrier`, and `MegaShip` rows may still carry diagnostic
+station/body evidence for display or audit, but their lane remains `unknown`
+and they do not occupy permanent colony slots.
 
 ## Stage 17N.2d-I Station Data Audit
 
@@ -114,7 +120,9 @@ Current station evidence paths:
 - Spansh import: `apps/importer/src/import_spansh.py` is the only current
   repo-side importer that writes station rows. It normalises source labels into
   the enum, imports source arrival distance, and imports source body-name
-  aliases when present. It does not import an exact station body id.
+  aliases when present. It does not import an exact station body id, and those
+  imported station distance/body-name values remain legacy unless provenance is
+  later added.
 - EDDN listener: `apps/eddn/src/eddn_listener.py` currently updates systems and
   bodies from live journal events. It does not ingest station rows or station
   types, so it cannot repair `stations.station_type` or `stations.body_name`.
@@ -133,8 +141,9 @@ Why production can show `station_type='Unknown'`:
 
 Body association evidence quality:
 
-- Exact `body_name` can be `confirmed` only when exactly one same-system body
-  has the same normalised name.
+- Exact `body_name` can be `confirmed` only when trusted provenance says it
+  came from an exact EDSM station identity match and exactly one same-system
+  body has the same normalised name. Legacy local `body_name` is inferred.
 - Blank `body_name` stays unresolved unless distance evidence produces exactly
   one same-system body match.
 - `distance_from_star` / `distanceToArrival` is imported as source evidence and
@@ -154,6 +163,12 @@ Body association evidence quality:
 - `name`
 - `station_type`
 - `distance_from_star`
+- `distance_source`
+- `distance_confidence`
+- `station_type_source`
+- `station_type_confidence`
+- `body_name_source`
+- `body_name_confidence`
 - `station_body_name`
 - `body_id`
 - `body_name`
@@ -205,9 +220,9 @@ for a deliberate correction pass.
 Script: `apps/importer/src/edsm_station_enrichment_probe.py`
 
 Stage 17N.2d-J adds a one-system EDSM comparison probe. Stage 17N.2d-K adds a
-metadata-only apply mode. It is not a user-path API call, not a scheduled
-importer, and not a bulk enrichment path. Its output is external evidence that
-can explain which local station rows could later be enriched.
+metadata-only apply mode. Stage 17N.2d-L adds station data provenance and an
+explicit confirmed-link apply flag. It is not a user-path API call, not a
+scheduled importer, and not a bulk enrichment path.
 
 Local run:
 
@@ -245,16 +260,32 @@ docker compose --profile import run --rm \
   --apply-metadata --json
 ```
 
+Confirmed link apply, after reviewing dry-run output:
+
+```bash
+docker compose --profile import run --rm \
+  --entrypoint python3 \
+  -v /opt/ed-finder/apps/importer/src:/workspace/apps/importer/src:ro \
+  -v /opt/ed-finder/apps/api/src:/workspace/apps/api/src:ro \
+  importer \
+  /workspace/apps/importer/src/edsm_station_enrichment_probe.py \
+  --system-name Exioce \
+  --system-id64 2008132031194 \
+  --apply-confirmed-links --json
+```
+
 Interpretation:
 
 - `station_metadata_changes`: safe metadata evidence found by the dry-run. In
-  Stage 17N.2d-K, only `station_type` can be applied.
-- `metadata_updates_applied`: actual `stations.station_type` writes made by
+  Stage 17N.2d-L, `station_type`, `distance_from_star`, and `body_name` can be
+  applied only with EDSM provenance.
+- `metadata_updates_applied`: actual station metadata/provenance writes made by
   `--apply-metadata`.
-- `association_changes`: station/body link evidence only. It is never applied
-  by the EDSM probe.
-- `confirmed`: exact local station identity plus exact same-system body name
-  evidence. For `association_changes`, this remains evidence only.
+- `association_changes`: station/body link proposals. Only confirmed/exact
+  EDSM bodyName links are applied by `--apply-confirmed-links`; inferred
+  distance links remain dry-run/review evidence.
+- `confirmed`: exact EDSM id/marketId plus exact station name, and exact
+  same-system EDSM bodyName evidence.
 - `inferred`: unique distance-only body match. It can explain occupied-slot
   review queues, but must remain labelled inferred.
 - `unresolved`: no exact station/body match, ambiguous station/body candidates,
@@ -267,27 +298,36 @@ Interpretation:
   other mobile/transient infrastructure. It may remain visible but does not
   consume orbital/surface colony capacity.
 
-`--apply` is deliberately not implemented. `--apply-metadata` writes only
-`stations.station_type` for matched permanent stations when local type is
-`Unknown`, EDSM type is known/permanent, and no conflicts are present. It does
-not write `station_body_links`, `body_id`, `body_name`, `distance_from_star`,
-association status/confidence, economies, or service flags.
+`--apply` is deliberately not implemented. Apply flags require
+`--system-id64`. `--apply-metadata` writes only trusted station
+metadata/provenance; `--apply-confirmed-links` writes only confirmed exact EDSM
+bodyName station/body links. Neither mode writes economies, service flags,
+inferred distance links, bulk data, or transient/mobile infrastructure links.
 
 For Exioce, dry-run should show:
 
-- `station_metadata_changes=3`: Macmillan Depot and Fort Lawrence
-  `Unknown -> Orbis`; Miller Terminal `Unknown -> Coriolis`
+- Macmillan Depot: `Unknown -> Orbis`, distance `592`, bodyName `Exioce 3 d`
+- Fort Lawrence: `Unknown -> Orbis`, distance `1627`, bodyName `Exioce 4`
+- Miller Terminal: `Unknown -> Coriolis`, distance `2219`, bodyName
+  `Exioce 5 b`
+- `association_changes=3` and `confirmed_link_updates_planned=3` when those
+  EDSM body names match exactly one local body each
 - `ignored_transient_non_slot=5`: WFK-N6Z, K2W-77Q, WFW-4TZ, T9J-B2N, XFK-T4M
-- `association_changes=0`
 
-The matching metadata-only apply would update those three `station_type` values
-only.
+The matching metadata apply updates those three station rows with EDSM
+provenance. The matching confirmed-link apply creates confirmed/exact
+`edsm_body_name` links for those permanent stations only.
 
 ## Diagnostic Queries
 
 Association status:
 
 ```sql
+SELECT distance_source, distance_confidence, count(*)
+FROM stations
+GROUP BY distance_source, distance_confidence
+ORDER BY distance_source NULLS FIRST, distance_confidence NULLS FIRST;
+
 SELECT association_status, association_confidence, count(*)
 FROM station_body_links
 GROUP BY association_status, association_confidence
@@ -345,6 +385,26 @@ FROM stations s
 LEFT JOIN station_body_links l ON l.station_id = s.id
 WHERE s.system_id64 = :system_id64
   AND COALESCE(l.association_status, 'unresolved') = 'unresolved'
+ORDER BY s.name;
+```
+
+Exioce trusted station metadata/link inspection:
+
+```sql
+SELECT id, name, station_type::text,
+       distance_from_star, distance_source, distance_confidence,
+       body_name, body_name_source, body_name_confidence
+FROM stations
+WHERE system_id64 = 2008132031194
+  AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal')
+ORDER BY name;
+
+SELECT s.name AS station_name, l.body_id, l.body_name, l.lane,
+       l.association_status, l.association_confidence, l.association_source
+FROM station_body_links l
+JOIN stations s ON s.id = l.station_id
+WHERE l.system_id64 = 2008132031194
+  AND s.name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal')
 ORDER BY s.name;
 ```
 

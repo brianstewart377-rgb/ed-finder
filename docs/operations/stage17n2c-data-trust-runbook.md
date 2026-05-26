@@ -357,8 +357,10 @@ Frontend planner behaviour:
 - Existing station rows are converted into an internal `existing` structure
   model. They are not inserted into the user Build Plan.
 - Exact body id/local body id is used first when present.
-- Exact `body_name` is used when it matches one known body.
-- A unique non-zero `distance_from_star` match is allowed only as `inferred`.
+- Trusted EDSM-provenance `body_name` is confirmed when it matches one known
+  body; legacy local `body_name` is inferred.
+- A unique non-zero `distance_from_star` match is allowed only as `inferred`;
+  legacy local distance is weak evidence.
 - Ambiguous or missing association renders as unresolved existing
   infrastructure.
 - Coriolis, Orbis, Ocellus, Outpost, and AsteroidBase occupy orbital capacity.
@@ -407,7 +409,7 @@ PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
 
 Default backfill behaviour does not overwrite existing confirmed links.
 
-Stage 17N.2d-J/K EDSM targeted probe:
+Stage 17N.2d-J/K/L EDSM targeted probe:
 
 ```bash
 PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
@@ -431,9 +433,12 @@ docker compose --profile import run --rm \
 
 This command fetches EDSM station/body evidence for one named system only. It
 does not run on a normal user path and does not import a bulk dump. Default
-mode is dry-run. `--apply` hard-fails as not implemented.
+mode is dry-run. `--apply` hard-fails as not implemented. Stage 17N.2d-L adds
+station metadata provenance columns through `sql/023_station_data_provenance.sql`;
+existing station rows remain `NULL` provenance and legacy local station
+distance stays weak evidence.
 
-Metadata-only apply form, after reviewing dry-run output:
+Station metadata apply form, after reviewing dry-run output:
 
 ```bash
 docker compose --profile import run --rm \
@@ -447,45 +452,116 @@ docker compose --profile import run --rm \
   --apply-metadata --json
 ```
 
-`--apply-metadata` is intentionally narrow. It can update only
-`stations.station_type` from `Unknown` to a known permanent station type when
-the station match is exact and conflict-free. It must not write
-`station_body_links`, `body_id`, `body_name`, `distance_from_star`,
-association status/confidence, economies, service flags, or occupied-slot
-capacity. Fleet carriers, raw carriers, and megaships stay under
-`ignored_transient_non_slot` and are ignored for colony planning occupancy.
+Confirmed link apply form, after reviewing dry-run output:
+
+```bash
+docker compose --profile import run --rm \
+  --entrypoint python3 \
+  -v /opt/ed-finder/apps/importer/src:/workspace/apps/importer/src:ro \
+  -v /opt/ed-finder/apps/api/src:/workspace/apps/api/src:ro \
+  importer \
+  /workspace/apps/importer/src/edsm_station_enrichment_probe.py \
+  --system-name Exioce \
+  --system-id64 2008132031194 \
+  --apply-confirmed-links --json
+```
+
+`--apply-metadata` is intentionally narrow. It can update only trusted station
+metadata/provenance for exact EDSM id/marketId plus exact station name matches:
+`station_type` from `Unknown` to a known permanent type, EDSM
+`distanceToArrival` into `stations.distance_from_star`, and EDSM `bodyName`
+into `stations.body_name` when that body name matches exactly one local
+same-system body. It sets source `edsm_system_api` and confidence
+`exact_station_identity`.
+
+`--apply-confirmed-links` writes only confirmed/exact EDSM bodyName
+`station_body_links` for permanent station types, using source
+`edsm_body_name`. It does not write inferred distance-only links and does not
+overwrite existing confirmed links. Neither apply mode writes economies,
+service flags, bulk data, or transient/mobile infrastructure links. Fleet
+carriers, raw carriers, and megaships stay under `ignored_transient_non_slot`
+and are ignored for colony planning occupancy.
 
 Expected Exioce shape:
 
-- dry-run: `station_metadata_changes=3`, `association_changes=0`,
-  `ignored_transient_non_slot=5`
-- metadata-only apply: Macmillan Depot and Fort Lawrence `Unknown -> Orbis`;
-  Miller Terminal `Unknown -> Coriolis`
+- dry-run: Macmillan Depot and Fort Lawrence `Unknown -> Orbis`; Miller
+  Terminal `Unknown -> Coriolis`
+- metadata apply: Macmillan Depot distance `592` bodyName `Exioce 3 d`; Fort
+  Lawrence distance `1627` bodyName `Exioce 4`; Miller Terminal distance
+  `2219` bodyName `Exioce 5 b`, all with EDSM provenance
+- confirmed-link apply: three confirmed/exact `edsm_body_name` links, but only
+  if each EDSM bodyName matches exactly one local body
 - fleet carriers WFK-N6Z, K2W-77Q, WFW-4TZ, T9J-B2N, and XFK-T4M remain
   ignored transient/non-slot rows
 
-Rollback/check after apply:
+Before apply, capture reviewed rows for rollback; after apply, inspect the
+station metadata and links:
 
 ```sql
-SELECT id, name, station_type::text
+CREATE TEMP TABLE exioce_station_metadata_before AS
+SELECT id, station_type::text AS station_type,
+       distance_from_star, distance_source, distance_confidence, distance_updated_at,
+       body_name, body_name_source, body_name_confidence, body_name_updated_at,
+       station_type_source, station_type_confidence, station_type_updated_at
+FROM stations
+WHERE system_id64 = 2008132031194
+  AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal');
+
+SELECT id, name, station_type::text,
+       distance_from_star, distance_source, distance_confidence,
+       body_name, body_name_source, body_name_confidence
 FROM stations
 WHERE system_id64 = 2008132031194
   AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal')
 ORDER BY name;
 
-UPDATE stations
-SET station_type = 'Unknown'::station_type
+SELECT s.name AS station_name, l.body_id, l.body_name, l.lane,
+       l.association_status, l.association_confidence, l.association_source
+FROM station_body_links l
+JOIN stations s ON s.id = l.station_id
+WHERE l.system_id64 = 2008132031194
+  AND s.name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal')
+ORDER BY s.name;
+
+UPDATE stations s
+SET station_type = b.station_type::station_type,
+    distance_from_star = b.distance_from_star,
+    distance_source = b.distance_source,
+    distance_confidence = b.distance_confidence,
+    distance_updated_at = b.distance_updated_at,
+    body_name = b.body_name,
+    body_name_source = b.body_name_source,
+    body_name_confidence = b.body_name_confidence,
+    body_name_updated_at = b.body_name_updated_at,
+    station_type_source = b.station_type_source,
+    station_type_confidence = b.station_type_confidence,
+    station_type_updated_at = b.station_type_updated_at
+FROM exioce_station_metadata_before b
+WHERE s.id = b.id;
+
+DELETE FROM station_body_links
 WHERE system_id64 = 2008132031194
-  AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal');
+  AND association_source = 'edsm_body_name'
+  AND station_id IN (
+      SELECT id FROM stations
+      WHERE system_id64 = 2008132031194
+        AND name IN ('Macmillan Depot', 'Fort Lawrence', 'Miller Terminal')
+  );
 ```
 
-Treat `association_changes.confirmed` rows as proposed evidence only,
-`inferred` rows as reviewable distance matches, `unresolved` rows as
-still-visible infrastructure, and `conflicts` as stop/review items.
+Treat `association_changes.confirmed` rows as proposed evidence until
+`--apply-confirmed-links` is run for that one system. Treat `inferred` rows as
+reviewable distance matches, `unresolved` rows as still-visible infrastructure,
+and `conflicts` as stop/review items.
 
 Association diagnostics:
 
 ```sql
+SELECT distance_source, distance_confidence, count(*)
+FROM stations
+GROUP BY distance_source, distance_confidence
+ORDER BY distance_source NULLS FIRST, distance_confidence NULLS FIRST;
+
 SELECT association_status, association_confidence, count(*)
 FROM station_body_links
 GROUP BY association_status, association_confidence

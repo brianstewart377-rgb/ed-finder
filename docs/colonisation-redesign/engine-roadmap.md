@@ -2148,6 +2148,27 @@ Known gaps:
   links, pass-through, service graph, CP, contamination, and order-dependent
   economy flips.
 
+## Stage 17N.2d-L - Trusted Station Metadata Provenance
+
+Stage 17N.2d-L adds explicit station metadata provenance without changing slot
+prediction, rating weights, Raven UI, or production import scheduling.
+
+- `sql/023_station_data_provenance.sql` adds source/confidence/timestamp columns
+  for station distance, station type, and station body name. Existing rows keep
+  `NULL` provenance, so legacy local `stations.distance_from_star` stays weak
+  evidence instead of trusted station arrival distance.
+- The EDSM station enrichment probe now treats exact station identity as
+  EDSM `id`/`marketId` plus exact station name. Name-only matches remain
+  diagnostic and cannot write metadata or links.
+- Trusted EDSM station metadata can update one system at a time through
+  `--apply-metadata`: `station_type`, `distance_from_star`, and `body_name`
+  with source `edsm_system_api` and confidence `exact_station_identity`.
+- Confirmed station/body links are explicit through `--apply-confirmed-links`
+  and require exact EDSM bodyName plus exactly one local same-system body.
+  Distance-only evidence remains `inferred`.
+- Fleet carriers, raw carriers, and megaships remain `ignored_transient_non_slot`
+  and cannot affect occupied-slot capacity.
+
 ## Stage 17N.3-A - Guided Planner Quality Contract
 
 Stage 17N.3-A audits the existing Advanced Planner, Suggested Builds,

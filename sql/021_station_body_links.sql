@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS station_body_links (
             'resolver_body_id',
             'resolver_body_name',
             'resolver_distance',
+            'edsm_body_name',
+            'edsm_distance',
             'unknown'
         ))
 );
