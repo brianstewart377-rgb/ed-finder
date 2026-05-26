@@ -200,35 +200,61 @@ PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
 Default behaviour preserves confirmed links. Use `--overwrite-confirmed` only
 for a deliberate correction pass.
 
-## Targeted EDSM Dry-Run Probe
+## Targeted EDSM Probe And Metadata-Only Apply
 
 Script: `apps/importer/src/edsm_station_enrichment_probe.py`
 
-Stage 17N.2d-J adds a one-system EDSM comparison probe. It is not a user-path
-API call, not a scheduled importer, and not an apply tool. Its output is
-external evidence that can explain which local station rows could later be
-enriched.
+Stage 17N.2d-J adds a one-system EDSM comparison probe. Stage 17N.2d-K adds a
+metadata-only apply mode. It is not a user-path API call, not a scheduled
+importer, and not a bulk enrichment path. Its output is external evidence that
+can explain which local station rows could later be enriched.
 
 Local run:
 
 ```bash
 PYTHONPATH=apps/api/src DATABASE_URL="$DATABASE_URL" \
   python apps/importer/src/edsm_station_enrichment_probe.py \
-    --system-name Exioce --system-id64 2008132031194 --json
+    --system-name Exioce --system-id64 2008132031194 --dry-run --json
 ```
 
 Importer container run:
 
 ```bash
-docker compose --profile import run --rm importer \
-  edsm_station_enrichment_probe.py \
-  --system-name Exioce --system-id64 2008132031194 --json
+docker compose --profile import run --rm \
+  --entrypoint python3 \
+  -v /opt/ed-finder/apps/importer/src:/workspace/apps/importer/src:ro \
+  -v /opt/ed-finder/apps/api/src:/workspace/apps/api/src:ro \
+  importer \
+  /workspace/apps/importer/src/edsm_station_enrichment_probe.py \
+  --system-name Exioce \
+  --system-id64 2008132031194 \
+  --dry-run --json
+```
+
+Metadata-only apply, after reviewing dry-run output:
+
+```bash
+docker compose --profile import run --rm \
+  --entrypoint python3 \
+  -v /opt/ed-finder/apps/importer/src:/workspace/apps/importer/src:ro \
+  -v /opt/ed-finder/apps/api/src:/workspace/apps/api/src:ro \
+  importer \
+  /workspace/apps/importer/src/edsm_station_enrichment_probe.py \
+  --system-name Exioce \
+  --system-id64 2008132031194 \
+  --apply-metadata --json
 ```
 
 Interpretation:
 
+- `station_metadata_changes`: safe metadata evidence found by the dry-run. In
+  Stage 17N.2d-K, only `station_type` can be applied.
+- `metadata_updates_applied`: actual `stations.station_type` writes made by
+  `--apply-metadata`.
+- `association_changes`: station/body link evidence only. It is never applied
+  by the EDSM probe.
 - `confirmed`: exact local station identity plus exact same-system body name
-  evidence. This is still dry-run evidence until a future apply path exists.
+  evidence. For `association_changes`, this remains evidence only.
 - `inferred`: unique distance-only body match. It can explain occupied-slot
   review queues, but must remain labelled inferred.
 - `unresolved`: no exact station/body match, ambiguous station/body candidates,
@@ -237,13 +263,25 @@ Interpretation:
   become occupied-slot proof.
 - `conflicts`: review items. They never overwrite existing confirmed
   `station_body_links` rows.
-- `occupies_colony_slot=false`: FleetCarrier, MegaShip, unknown, or otherwise
-  non-permanent infrastructure. It may remain visible but does not consume
-  orbital/surface colony capacity.
+- `ignored_transient_non_slot`: `FleetCarrier`, raw `Carrier`, `MegaShip`, or
+  other mobile/transient infrastructure. It may remain visible but does not
+  consume orbital/surface colony capacity.
 
-`--apply` is deliberately not implemented. The next safe step is to run this
-against a small list of unresolved systems, inspect conflicts, and design an
-evidence table or manual review workflow before any write path.
+`--apply` is deliberately not implemented. `--apply-metadata` writes only
+`stations.station_type` for matched permanent stations when local type is
+`Unknown`, EDSM type is known/permanent, and no conflicts are present. It does
+not write `station_body_links`, `body_id`, `body_name`, `distance_from_star`,
+association status/confidence, economies, or service flags.
+
+For Exioce, dry-run should show:
+
+- `station_metadata_changes=3`: Macmillan Depot and Fort Lawrence
+  `Unknown -> Orbis`; Miller Terminal `Unknown -> Coriolis`
+- `ignored_transient_non_slot=5`: WFK-N6Z, K2W-77Q, WFW-4TZ, T9J-B2N, XFK-T4M
+- `association_changes=0`
+
+The matching metadata-only apply would update those three `station_type` values
+only.
 
 ## Diagnostic Queries
 

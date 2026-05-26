@@ -56,6 +56,40 @@ def conflict_types(station_report):
     return {conflict['type'] for conflict in station_report['conflicts']}
 
 
+class FakeApplyConnection:
+    def __init__(self, rows):
+        self.rows = rows
+        self.statements = []
+        self.last_row = None
+
+    def cursor(self, *args, **kwargs):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params):
+        self.statements.append((sql, params))
+        new_type, station_id, system_id64 = params
+        row = self.rows.get((station_id, system_id64))
+        if row is None or row['station_type'] != 'Unknown':
+            self.last_row = None
+            return
+        row['station_type'] = new_type
+        self.last_row = {
+            'id': station_id,
+            'system_id64': system_id64,
+            'name': row['name'],
+            'station_type': new_type,
+        }
+
+    def fetchone(self):
+        return self.last_row
+
+
 def test_import_path_supports_repo_and_flat_container_layouts():
     repo_paths = probe._station_resolver_import_paths(
         ROOT / 'apps' / 'importer' / 'src' / 'edsm_station_enrichment_probe.py'
@@ -145,6 +179,56 @@ def test_exioce_like_orbis_and_coriolis_type_evidence_are_metadata_changes():
     assert all('station_type' in change['fields_that_would_change'] for change in changes_by_name.values())
 
 
+def test_dry_run_report_does_not_apply_metadata_updates():
+    report = report_for(
+        local_station(station_type='Unknown'),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Orbis Starport',
+            'distanceToArrival': 120.0,
+        },
+    )
+
+    assert report['dry_run'] is True
+    assert report['apply_mode'] == 'dry_run'
+    assert report['metadata_updates_applied'] == []
+    assert report['counts']['metadata_updates_applied'] == 0
+    assert report['metadata_updates_planned'][0]['new_value'] == 'Orbis'
+
+
+def test_apply_metadata_updates_unknown_to_orbis_and_coriolis():
+    report = probe.build_enrichment_report(
+        local_system=SYSTEM,
+        local_stations=[
+            local_station(id=2001, market_id=2001, name='Macmillan Depot', station_type='Unknown'),
+            local_station(id=2002, market_id=2002, name='Miller Terminal', station_type='Unknown'),
+        ],
+        local_bodies=BODIES,
+        existing_links={},
+        edsm_stations_payload={'stations': [
+            {'id': 2001, 'name': 'Macmillan Depot', 'type': 'Orbis Starport'},
+            {'id': 2002, 'name': 'Miller Terminal', 'type': 'Coriolis Starport'},
+        ]},
+        edsm_bodies_payload={'bodies': []},
+    )
+    conn = FakeApplyConnection({
+        (2001, 2008132031194): {'name': 'Macmillan Depot', 'station_type': 'Unknown'},
+        (2002, 2008132031194): {'name': 'Miller Terminal', 'station_type': 'Unknown'},
+    })
+
+    applied, skipped = probe.apply_metadata_updates(conn, report)
+    probe.apply_metadata_result(report, applied, skipped)
+
+    assert skipped == []
+    assert [row['new_value'] for row in applied] == ['Orbis', 'Coriolis']
+    assert conn.rows[(2001, 2008132031194)]['station_type'] == 'Orbis'
+    assert conn.rows[(2002, 2008132031194)]['station_type'] == 'Coriolis'
+    assert report['dry_run'] is False
+    assert report['apply_mode'] == 'metadata'
+    assert report['counts']['metadata_updates_applied'] == 2
+
+
 def test_fleet_carrier_is_ignored_for_station_body_links_even_with_body_evidence():
     report = report_for(
         local_station(station_type='Unknown'),
@@ -193,6 +277,29 @@ def test_megaship_is_ignored_for_station_body_links():
     assert report['ignored_transient_non_slot'][0]['body_evidence']['body_name'] == 'Exioce 1'
 
 
+def test_metadata_apply_does_not_update_transient_rows():
+    report = report_for(
+        local_station(station_type='Unknown'),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Fleet Carrier',
+            'bodyName': 'Exioce 1',
+            'distanceToArrival': 120.0,
+        },
+    )
+    conn = FakeApplyConnection({
+        (1001, 2008132031194): {'name': 'Harper Plant', 'station_type': 'Unknown'},
+    })
+
+    applied, skipped = probe.apply_metadata_updates(conn, report)
+
+    assert applied == []
+    assert skipped == []
+    assert conn.statements == []
+    assert report['association_changes'] == []
+
+
 def test_carrier_like_rows_do_not_produce_association_changes():
     report = probe.build_enrichment_report(
         local_system=SYSTEM,
@@ -214,6 +321,30 @@ def test_carrier_like_rows_do_not_produce_association_changes():
     assert report['association_changes'] == []
     assert report['counts']['ignored_transient_non_slot'] == 3
     assert len(report['ignored_transient_non_slot']) == 3
+
+
+def test_metadata_apply_never_writes_association_changes():
+    report = report_for(
+        local_station(station_type='Unknown'),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Orbis Starport',
+            'bodyName': 'Exioce 1',
+            'distanceToArrival': 120.0,
+        },
+    )
+    conn = FakeApplyConnection({
+        (1001, 2008132031194): {'name': 'Harper Plant', 'station_type': 'Unknown'},
+    })
+
+    applied, skipped = probe.apply_metadata_updates(conn, report)
+
+    assert report['association_changes']
+    assert len(applied) == 1
+    assert skipped == []
+    assert all('station_body_links' not in sql for sql, _params in conn.statements)
+    assert conn.rows[(1001, 2008132031194)]['station_type'] == 'Orbis'
 
 
 def test_exact_body_name_confirms_same_system_body_association():
@@ -304,6 +435,74 @@ def test_conflicting_station_distance_reports_conflict_and_blocks_body_proposal(
     assert report['conflicts'][0]['conflict']['type'] == 'station_distance_mismatch'
 
 
+def test_metadata_apply_skips_distance_mismatch_conflict():
+    report = report_for(
+        local_station(station_type='Unknown', distance_from_star=120.0),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Coriolis Starport',
+            'bodyName': 'Exioce 2',
+            'distanceToArrival': 240.0,
+        },
+    )
+    conn = FakeApplyConnection({
+        (1001, 2008132031194): {'name': 'Harper Plant', 'station_type': 'Unknown'},
+    })
+
+    applied, skipped = probe.apply_metadata_updates(conn, report)
+
+    assert applied == []
+    assert skipped == []
+    assert conn.statements == []
+    assert any(entry['reason'].startswith('conflicting_evidence') for entry in report['skipped'])
+
+
+def test_metadata_apply_does_not_overwrite_known_station_type_conflict():
+    report = report_for(
+        local_station(station_type='Coriolis'),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Orbis Starport',
+            'distanceToArrival': 120.0,
+        },
+    )
+    conn = FakeApplyConnection({
+        (1001, 2008132031194): {'name': 'Harper Plant', 'station_type': 'Coriolis'},
+    })
+
+    applied, skipped = probe.apply_metadata_updates(conn, report)
+
+    assert applied == []
+    assert skipped == []
+    assert conn.statements == []
+    assert any(entry['reason'].startswith('conflicting_evidence') for entry in report['skipped'])
+
+
+def test_unresolved_station_match_is_reported_and_not_applied():
+    report = report_for(
+        local_station(id=4001, market_id=4001, name='Unmatched Station', station_type='Unknown'),
+        {
+            'id': 9999,
+            'name': 'Different Station',
+            'type': 'Orbis Starport',
+            'distanceToArrival': 120.0,
+        },
+    )
+    conn = FakeApplyConnection({
+        (4001, 2008132031194): {'name': 'Unmatched Station', 'station_type': 'Unknown'},
+    })
+
+    applied, skipped = probe.apply_metadata_updates(conn, report)
+
+    assert applied == []
+    assert skipped == []
+    assert conn.statements == []
+    assert report['unresolved'][0]['reason'] == 'No exact EDSM station id/name or unique station name match.'
+    assert report['skipped'][0]['reason'] == 'unresolved_station_match'
+
+
 def test_confirmed_existing_link_is_preserved_against_weaker_edsm_evidence():
     existing_links = {
         1001: {
@@ -342,3 +541,25 @@ def test_apply_hard_fails_before_db_or_network(capsys):
     captured = capsys.readouterr()
     assert result == 2
     assert 'not implemented' in captured.err
+
+
+def test_apply_metadata_requires_scoped_system_id64_before_db_or_network(capsys):
+    result = probe.main(['--system-name', 'Exioce', '--dsn', 'postgresql://example', '--apply-metadata'])
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert '--system-id64' in captured.err
+
+
+def test_dry_run_and_apply_metadata_are_mutually_exclusive(capsys):
+    result = probe.main([
+        '--system-name', 'Exioce',
+        '--system-id64', '2008132031194',
+        '--dsn', 'postgresql://example',
+        '--dry-run',
+        '--apply-metadata',
+    ])
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert 'mutually exclusive' in captured.err

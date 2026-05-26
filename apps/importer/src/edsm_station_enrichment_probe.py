@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Targeted EDSM station/body enrichment dry-run.
+"""Targeted EDSM station/body enrichment dry-run and metadata-only apply.
 
 This command compares one ED-Finder system against EDSM per-system station and
 body payloads. It reports possible station-data and station/body-link
-enrichment, but deliberately performs no database writes.
+enrichment. By default it performs no writes; --apply-metadata may update only
+safe local station metadata fields.
 """
 
 from __future__ import annotations
@@ -63,12 +64,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--dsn', default=os.environ.get('DATABASE_URL'), help='Postgres DSN. Defaults to DATABASE_URL.')
     parser.add_argument('--system-name', default=None, help='System name to probe.')
     parser.add_argument('--system-id64', type=int, default=None, help='Local ED system address/id64, if known.')
-    parser.add_argument('--dry-run', action='store_true', help='Accepted for clarity; dry-run is always enabled.')
+    parser.add_argument('--dry-run', action='store_true', help='Force dry-run mode. This is the default.')
+    parser.add_argument(
+        '--apply-metadata',
+        action='store_true',
+        help='Apply safe station metadata only. Currently limited to Unknown -> permanent station_type.',
+    )
     parser.add_argument('--json', action='store_true', help='Emit machine-readable JSON report.')
     parser.add_argument('--timeout', type=float, default=DEFAULT_TIMEOUT_SECONDS, help='EDSM request timeout in seconds.')
     parser.add_argument('--no-network', action='store_true', help='Skip EDSM requests and report local-only unresolved matches.')
     parser.add_argument('--local-only', action='store_true', help='Alias for --no-network.')
-    parser.add_argument('--apply', action='store_true', help='Not implemented. This probe never writes database changes.')
+    parser.add_argument('--apply', action='store_true', help='Not implemented. Use --apply-metadata for metadata-only writes.')
     return parser.parse_args(argv)
 
 
@@ -218,6 +224,12 @@ def build_enrichment_report(
         ignored for station in station_reports
         if (ignored := _ignored_transient_entry(station)) is not None
     ]
+    metadata_updates = _metadata_update_candidates(station_reports)
+    skipped = _metadata_skipped_entries(station_reports)
+    unresolved = [
+        entry for station in station_reports
+        if (entry := _unresolved_entry(station)) is not None
+    ]
 
     summary = Counter()
     for station in station_reports:
@@ -249,10 +261,27 @@ def build_enrichment_report(
             'edsm_bodies': len(edsm_bodies),
             'unmatched_edsm_stations': len(unmatched_edsm_stations),
             'station_metadata_changes': len(station_metadata_changes),
+            'metadata_updates_planned': len(metadata_updates),
+            'metadata_updates_applied': 0,
             'association_changes': len(association_changes),
             'conflicts': len(conflicts),
             'ignored_transient_non_slot': len(ignored_transient_non_slot),
+            'skipped': len(skipped),
+            'unresolved': len(unresolved),
             **dict(sorted(summary.items())),
+        },
+        'apply_mode': 'dry_run',
+        'metadata_apply_contract': {
+            'safe_fields': ['station_type'],
+            'station_type_rule': 'Unknown -> known permanent station type only, from exact matched station identity with no conflicts.',
+            'never_applied': [
+                'station_body_links',
+                'body_id',
+                'body_name',
+                'distance_from_star',
+                'association_status',
+                'association_confidence',
+            ],
         },
         'matching_rules': {
             'station_identity': [
@@ -267,9 +296,13 @@ def build_enrichment_report(
             ],
         },
         'station_metadata_changes': station_metadata_changes,
+        'metadata_updates_planned': metadata_updates,
+        'metadata_updates_applied': [],
         'association_changes': association_changes,
         'conflicts': conflicts,
         'ignored_transient_non_slot': ignored_transient_non_slot,
+        'skipped': skipped,
+        'unresolved': unresolved,
         'stations': station_reports,
         'unmatched_edsm_stations': unmatched_edsm_stations,
     }
@@ -517,6 +550,154 @@ def _ignored_transient_entry(station: Mapping[str, Any]) -> dict[str, Any] | Non
         'reason': _clean_text(station['proposed'].get('resolver_notes')),
         'conflicts': station.get('conflicts', []),
     }
+
+
+def _unresolved_entry(station: Mapping[str, Any]) -> dict[str, Any] | None:
+    if station['station_match'].get('status') == 'matched':
+        return None
+    return {
+        'local_station': station['local_station'],
+        'station_match': station['station_match'],
+        'reason': station['station_match'].get('reason') or 'Station was not matched to EDSM.',
+    }
+
+
+def _metadata_update_candidates(station_reports: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        update for station in station_reports
+        if (update := _metadata_update_candidate(station)) is not None
+    ]
+
+
+def _metadata_skipped_entries(station_reports: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        skip for station in station_reports
+        if (skip := _metadata_skip_entry(station)) is not None
+    ]
+
+
+def _metadata_update_candidate(station: Mapping[str, Any]) -> dict[str, Any] | None:
+    skip_reason = _metadata_apply_skip_reason(station)
+    if skip_reason is not None:
+        return None
+
+    evidence = station.get('station_type_evidence') or {}
+    local_station = station['local_station']
+    return {
+        'local_station': local_station,
+        'edsm_station': station.get('edsm_station'),
+        'station_match': station['station_match'],
+        'field': 'station_type',
+        'old_value': evidence.get('local'),
+        'new_value': evidence.get('proposed'),
+        'station_id': _read_int(local_station.get('id')),
+        'system_id64': _read_int(local_station.get('system_id64')),
+    }
+
+
+def _metadata_skip_entry(station: Mapping[str, Any]) -> dict[str, Any] | None:
+    reason = _metadata_apply_skip_reason(station)
+    if reason is None:
+        return None
+    if (
+        station['station_match'].get('status') == 'matched'
+        and 'station_type' not in station.get('fields_that_would_change', [])
+        and not station.get('ignored_transient_non_slot')
+    ):
+        return None
+    return {
+        'local_station': station['local_station'],
+        'edsm_station': station.get('edsm_station'),
+        'station_match': station['station_match'],
+        'station_type_evidence': station.get('station_type_evidence'),
+        'reason': reason,
+    }
+
+
+def _metadata_apply_skip_reason(station: Mapping[str, Any]) -> str | None:
+    match = station['station_match']
+    if match.get('status') != 'matched':
+        return 'unresolved_station_match'
+    if station.get('ignored_transient_non_slot'):
+        return 'transient_non_slot_ignored'
+
+    fields = set(station.get('fields_that_would_change', []))
+    if 'station_type' not in fields:
+        unsupported_fields = sorted(fields)
+        if unsupported_fields:
+            return f"unsupported_metadata_fields:{','.join(unsupported_fields)}"
+        return 'no_station_type_change'
+
+    if match.get('confidence') != 'exact' or match.get('source') not in ('id_name', 'exact_name'):
+        return 'weak_station_identity'
+
+    conflict_types = {conflict.get('type') for conflict in station.get('conflicts', [])}
+    if conflict_types:
+        return f"conflicting_evidence:{','.join(sorted(str(kind) for kind in conflict_types))}"
+
+    evidence = station.get('station_type_evidence') or {}
+    local_type = evidence.get('local')
+    proposed_type = evidence.get('proposed')
+    if local_type != 'Unknown':
+        return 'known_station_type_preserved'
+    if not is_permanent_colony_slot_station_type(proposed_type):
+        return 'non_permanent_station_type'
+    if _read_int(station['local_station'].get('id')) is None:
+        return 'missing_station_id'
+    if _read_int(station['local_station'].get('system_id64')) is None:
+        return 'missing_system_id64'
+    return None
+
+
+def apply_metadata_updates(conn, report: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Apply planned safe station metadata updates and return applied/skipped rows."""
+    applied: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for update in report.get('metadata_updates_planned', []):
+        station_id = _read_int(update.get('station_id'))
+        system_id64 = _read_int(update.get('system_id64'))
+        new_value = _clean_text(update.get('new_value'))
+        if station_id is None or system_id64 is None or not is_permanent_colony_slot_station_type(new_value):
+            skipped.append({
+                **update,
+                'reason': 'invalid_metadata_update_plan',
+            })
+            continue
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE stations
+                SET station_type = %s::station_type
+                WHERE id = %s
+                  AND system_id64 = %s
+                  AND station_type = 'Unknown'::station_type
+                RETURNING id, system_id64, name, station_type::text AS station_type
+            """, (new_value, station_id, system_id64))
+            row = cur.fetchone()
+        if row is None:
+            skipped.append({
+                **update,
+                'reason': 'station_row_changed_or_not_unknown',
+            })
+            continue
+        applied.append({
+            **update,
+            'applied_station': {
+                'id': _read_int(row.get('id')),
+                'system_id64': _read_int(row.get('system_id64')),
+                'name': _clean_text(row.get('name')),
+                'station_type': _clean_text(row.get('station_type')),
+            },
+        })
+    return applied, skipped
+
+
+def apply_metadata_result(report: dict[str, Any], applied: Sequence[Mapping[str, Any]], skipped: Sequence[Mapping[str, Any]]) -> None:
+    report['dry_run'] = False
+    report['apply_mode'] = 'metadata'
+    report['metadata_updates_applied'] = [dict(row) for row in applied]
+    report['skipped'] = [*report.get('skipped', []), *[dict(row) for row in skipped]]
+    report['counts']['metadata_updates_applied'] = len(applied)
+    report['counts']['skipped'] = len(report['skipped'])
 
 
 def _match_edsm_station(
@@ -1030,6 +1211,7 @@ def _public_local_station(station: Mapping[str, Any]) -> dict[str, Any]:
     return {
         'id': _read_int(station.get('id')),
         'market_id': _read_int(station.get('market_id')),
+        'system_id64': _read_int(station.get('system_id64')),
         'name': _clean_text(station.get('name')),
         'station_type': normalise_station_type_label(station.get('station_type')) or 'Unknown',
         'distance_from_star': _read_float(station.get('distance_from_star')),
@@ -1209,8 +1391,9 @@ def _json_default(value: Any) -> str:
 
 def render_text_report(report: Mapping[str, Any]) -> str:
     lines = [
-        f"EDSM station enrichment dry-run: {report['system']['name']} ({report['system']['id64']})",
+        f"EDSM station enrichment report: {report['system']['name']} ({report['system']['id64']})",
         f"network={'enabled' if report.get('network_enabled') else 'skipped'} source={report['source']}",
+        f"apply_mode={report.get('apply_mode', 'dry_run')}",
         'counts:',
     ]
     for key, value in sorted(report['counts'].items()):
@@ -1225,6 +1408,15 @@ def render_text_report(report: Mapping[str, Any]) -> str:
         lines.append(
             f"  - {local['name']} [{local['id']}]: fields={fields} "
             f"type={evidence.get('local')}->{evidence.get('proposed')}"
+        )
+    lines.append('metadata_updates_applied:')
+    if not report.get('metadata_updates_applied'):
+        lines.append('  none')
+    for update in report.get('metadata_updates_applied', []):
+        local = update['local_station']
+        lines.append(
+            f"  - {local['name']} [{local['id']}]: "
+            f"{update.get('field')}={update.get('old_value')}->{update.get('new_value')}"
         )
     lines.append('association_changes:')
     if not report.get('association_changes'):
@@ -1254,13 +1446,34 @@ def render_text_report(report: Mapping[str, Any]) -> str:
             f"  - {local['name']} [{local['id']}]: type={evidence.get('local')}->{evidence.get('proposed')} "
             f"body_evidence={body.get('body_name') or body.get('body_id') or 'none'}"
         )
+    lines.append('skipped:')
+    if not report.get('skipped'):
+        lines.append('  none')
+    for entry in report.get('skipped', []):
+        local = entry.get('local_station') or {}
+        lines.append(f"  - {local.get('name')} [{local.get('id')}]: {entry.get('reason')}")
+    lines.append('unresolved:')
+    if not report.get('unresolved'):
+        lines.append('  none')
+    for entry in report.get('unresolved', []):
+        local = entry.get('local_station') or {}
+        lines.append(f"  - {local.get('name')} [{local.get('id')}]: {entry.get('reason')}")
     return '\n'.join(lines)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.apply:
-        print('--apply is not implemented for EDSM station enrichment; this tool is dry-run only.', file=sys.stderr)
+        print('--apply is not implemented for EDSM station enrichment; use --apply-metadata for metadata-only writes.', file=sys.stderr)
+        return 2
+    if args.apply_metadata and args.dry_run:
+        print('--dry-run and --apply-metadata are mutually exclusive.', file=sys.stderr)
+        return 2
+    if args.apply_metadata and args.system_id64 is None:
+        print('--apply-metadata requires --system-id64 to keep writes scoped to one local system.', file=sys.stderr)
+        return 2
+    if args.apply_metadata and (args.no_network or args.local_only):
+        print('--apply-metadata requires network EDSM evidence; remove --no-network/--local-only.', file=sys.stderr)
         return 2
     if not args.dsn:
         print('DATABASE_URL or --dsn is required.', file=sys.stderr)
@@ -1298,6 +1511,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         edsm_bodies_payload=edsm_payload['bodies'],
         network_enabled=network_enabled,
     )
+
+    if args.apply_metadata:
+        try:
+            with psycopg2.connect(args.dsn) as conn:
+                applied, apply_skipped = apply_metadata_updates(conn, report)
+                apply_metadata_result(report, applied, apply_skipped)
+                conn.commit()
+        except Exception as exc:
+            print(f'Failed to apply station metadata updates: {exc}', file=sys.stderr)
+            return 1
 
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True, default=_json_default))
