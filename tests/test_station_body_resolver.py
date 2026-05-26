@@ -9,7 +9,9 @@ for path in (API_SRC, IMPORTER_SRC):
         sys.path.insert(0, str(path))
 
 from station_body_resolver import (  # noqa: E402
+    build_station_body_link_rows,
     classify_station_lane,
+    is_transient_non_slot_station_type,
     normalise_station_type_label,
     resolve_station_body_association,
 )
@@ -145,12 +147,46 @@ def test_fleet_carrier_and_megaship_do_not_become_slot_occupiers():
         'body_name': 'Resolver Test A 1',
     }, BODIES)
 
-    assert carrier.body_id == 2
-    assert carrier.association_status == 'confirmed'
+    assert carrier.body_id is None
+    assert carrier.association_status == 'unresolved'
+    assert carrier.association_source == 'transient_non_slot'
     assert carrier.lane == 'unknown'
     assert 'not treated as permanent colony-slot' in (carrier.resolver_notes or '')
-    assert megaship.body_id == 2
+    assert megaship.body_id is None
+    assert megaship.association_status == 'unresolved'
     assert megaship.lane == 'unknown'
+
+
+def test_build_rows_skips_transient_non_slot_station_types():
+    rows = build_station_body_link_rows([
+        {
+            'id': 201,
+            'system_id64': 42,
+            'station_type': 'FleetCarrier',
+            'body_name': 'Resolver Test A 1',
+        },
+        {
+            'id': 202,
+            'system_id64': 42,
+            'station_type': 'Carrier',
+            'body_name': 'Resolver Test A 1',
+        },
+        {
+            'id': 203,
+            'system_id64': 42,
+            'station_type': 'MegaShip',
+            'body_name': 'Resolver Test A 2',
+        },
+        {
+            'id': 204,
+            'system_id64': 42,
+            'station_type': 'Orbis',
+            'body_name': 'Resolver Test A 1',
+        },
+    ], BODIES)
+
+    assert [row.station_id for row in rows] == [204]
+    assert rows[0].body_id == 2
 
 
 def test_station_type_lane_classification():
@@ -171,6 +207,7 @@ def test_station_type_lane_classification_accepts_edsm_labels():
     assert classify_station_lane('Planetary settlement')[0] == 'surface'
     assert classify_station_lane('Planetary Outpost')[0] == 'surface'
     assert classify_station_lane('Fleet Carrier')[0] == 'unknown'
+    assert is_transient_non_slot_station_type('Carrier') is True
 
 
 def test_station_type_lane_classification_is_not_fuzzy():

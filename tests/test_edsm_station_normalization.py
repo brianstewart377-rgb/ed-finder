@@ -45,6 +45,7 @@ def test_station_type_normaliser_accepts_known_source_labels():
         'Megaship': 'MegaShip',
         'FleetCarrier': 'FleetCarrier',
         'Fleet Carrier': 'FleetCarrier',
+        'Carrier': 'FleetCarrier',
         'Unknown': 'Unknown',
     }
 
@@ -70,7 +71,7 @@ def test_normalised_station_type_enables_lane_classification():
 
 
 def test_fleet_carrier_and_megaship_labels_are_non_slot_lanes():
-    for raw in ('FleetCarrier', 'Fleet Carrier', 'MegaShip', 'Megaship'):
+    for raw in ('FleetCarrier', 'Fleet Carrier', 'Carrier', 'MegaShip', 'Megaship'):
         assert classify_station_lane(norm_station_type(raw))[0] == 'unknown'
         assert classify_station_lane(raw)[0] == 'unknown'
 

@@ -499,6 +499,7 @@ def norm_station_type(v) -> str:
         'outpost': 'Outpost', 'planetaryport': 'PlanetaryPort',
         'planetaryoutpost': 'PlanetaryOutpost', 'megaship': 'MegaShip',
         'asteroidbase': 'AsteroidBase', 'fleetcarrier': 'FleetCarrier',
+        'carrier': 'FleetCarrier',
         'coriolisstarport': 'Coriolis',
         'orbisstarport': 'Orbis',
         'ocellusstarport': 'Ocellus',
