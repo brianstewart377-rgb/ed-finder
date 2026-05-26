@@ -33,6 +33,9 @@ LANE_NON_COLONY_TYPES = {
     'MegaShip',
 }
 
+PERMANENT_COLONY_SLOT_TYPES = LANE_ORBITAL_TYPES | LANE_SURFACE_TYPES
+TRANSIENT_NON_SLOT_TYPES = LANE_NON_COLONY_TYPES
+
 STATION_TYPE_LABELS = {
     'coriolis': 'Coriolis',
     'coriolisstarport': 'Coriolis',
@@ -111,6 +114,14 @@ def classify_station_lane(station_type: Any) -> tuple[str, str | None]:
     return 'unknown', f'Station type {station_type!s} is not mapped to a colony slot lane.'
 
 
+def is_permanent_colony_slot_station_type(station_type: Any) -> bool:
+    return normalise_station_type_label(station_type) in PERMANENT_COLONY_SLOT_TYPES
+
+
+def is_transient_non_slot_station_type(station_type: Any) -> bool:
+    return normalise_station_type_label(station_type) in TRANSIENT_NON_SLOT_TYPES
+
+
 def normalise_station_type_label(station_type: Any) -> str | None:
     token = _normalise_token(station_type)
     if not token:
@@ -128,13 +139,10 @@ def resolve_station_body_association(
 ) -> StationBodyAssociation:
     """Resolve one station against bodies in the same system.
 
-    A current confirmed/manual link is preserved by default so a weaker resolver
-    pass cannot downgrade curated truth.
+    A current confirmed/manual link is preserved by default for permanent station
+    types so a weaker resolver pass cannot downgrade curated truth.
     """
-    preserved = _preserved_confirmed_link(station, existing_link, no_overwrite_confirmed)
-    if preserved is not None:
-        return preserved
-
+    station_type = station.get('station_type') or station.get('stationType') or station.get('type')
     station_id = _read_int(station.get('station_id')) or _read_int(station.get('id'))
     market_id = _read_int(station.get('market_id')) or station_id
     system_id64 = _read_int(station.get('system_id64'))
@@ -144,9 +152,23 @@ def resolve_station_body_association(
         station.get('bodyName'),
         station.get('body'),
     )
-    lane, lane_note = classify_station_lane(
-        station.get('station_type') or station.get('stationType') or station.get('type')
-    )
+    lane, lane_note = classify_station_lane(station_type)
+
+    if is_transient_non_slot_station_type(station_type):
+        return _unresolved(
+            station_id,
+            market_id,
+            system_id64,
+            None,
+            lane,
+            'Transient/mobile infrastructure is ignored for station_body_links.',
+            'transient_non_slot',
+            lane_note,
+        )
+
+    preserved = _preserved_confirmed_link(station, existing_link, no_overwrite_confirmed)
+    if preserved is not None:
+        return preserved
 
     explicit_body_id = _read_int(station.get('body_id')) or _read_int(station.get('local_body_id'))
     if explicit_body_id is not None:
@@ -261,6 +283,9 @@ def build_station_body_link_rows(
     links = existing_links or {}
     out: list[StationBodyAssociation] = []
     for station in stations:
+        station_type = station.get('station_type') or station.get('stationType') or station.get('type')
+        if is_transient_non_slot_station_type(station_type):
+            continue
         station_id = _read_int(station.get('station_id')) or _read_int(station.get('id'))
         out.append(resolve_station_body_association(
             station,

@@ -84,6 +84,7 @@ def test_exact_name_type_match_proposes_type_enrichment():
     assert station['station_match']['source'] == 'id_name'
     assert station['proposed']['station_type'] == 'Coriolis'
     assert 'station_type' in station['fields_that_would_change']
+    assert report['station_metadata_changes'][0]['proposed_station_type'] == 'Coriolis'
 
 
 def test_unknown_local_type_known_edsm_type_proposes_dry_run_update():
@@ -106,7 +107,45 @@ def test_unknown_local_type_known_edsm_type_proposes_dry_run_update():
     assert 'station_type' in station['fields_that_would_change']
 
 
-def test_fleet_carrier_remains_non_slot_even_with_body_evidence():
+def test_exioce_like_orbis_and_coriolis_type_evidence_are_metadata_changes():
+    report = probe.build_enrichment_report(
+        local_system=SYSTEM,
+        local_stations=[
+            local_station(id=2001, market_id=2001, name='Macmillan Depot', station_type='Unknown'),
+            local_station(id=2002, market_id=2002, name='Miller Terminal', station_type='Unknown'),
+        ],
+        local_bodies=BODIES,
+        existing_links={},
+        edsm_stations_payload={'stations': [
+            {
+                'id': 2001,
+                'name': 'Macmillan Depot',
+                'type': 'Orbis Starport',
+                'bodyName': 'Exioce 1',
+                'distanceToArrival': 120.0,
+            },
+            {
+                'id': 2002,
+                'name': 'Miller Terminal',
+                'type': 'Coriolis Starport',
+                'bodyName': 'Exioce 2',
+                'distanceToArrival': 240.0,
+            },
+        ]},
+        edsm_bodies_payload={'bodies': []},
+    )
+
+    changes_by_name = {
+        change['local_station']['name']: change
+        for change in report['station_metadata_changes']
+    }
+
+    assert changes_by_name['Macmillan Depot']['proposed_station_type'] == 'Orbis'
+    assert changes_by_name['Miller Terminal']['proposed_station_type'] == 'Coriolis'
+    assert all('station_type' in change['fields_that_would_change'] for change in changes_by_name.values())
+
+
+def test_fleet_carrier_is_ignored_for_station_body_links_even_with_body_evidence():
     report = report_for(
         local_station(station_type='Unknown'),
         {
@@ -121,11 +160,60 @@ def test_fleet_carrier_remains_non_slot_even_with_body_evidence():
     proposed = first_station(report)['proposed']
 
     assert proposed['station_type'] == 'FleetCarrier'
-    assert proposed['body_id'] == 11
-    assert proposed['association_status'] == 'confirmed'
+    assert proposed['body_id'] is None
+    assert proposed['association_status'] == 'unresolved'
     assert proposed['lane'] == 'unknown'
     assert proposed['occupies_colony_slot'] is False
+    assert report['association_changes'] == []
+    assert report['station_metadata_changes'] == []
+    assert report['counts']['ignored_transient_non_slot'] == 1
+    assert report['ignored_transient_non_slot'][0]['station_type_evidence']['proposed'] == 'FleetCarrier'
     assert 'not treated as permanent colony-slot' in proposed['resolver_notes']
+    assert 'station_body_links' not in first_station(report)['fields_that_would_change']
+
+
+def test_megaship_is_ignored_for_station_body_links():
+    report = report_for(
+        local_station(station_type='Unknown'),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'MegaShip',
+            'bodyName': 'Exioce 1',
+            'distanceToArrival': 120.0,
+        },
+    )
+
+    proposed = first_station(report)['proposed']
+
+    assert proposed['station_type'] == 'MegaShip'
+    assert proposed['body_id'] is None
+    assert proposed['association_status'] == 'unresolved'
+    assert report['association_changes'] == []
+    assert report['ignored_transient_non_slot'][0]['body_evidence']['body_name'] == 'Exioce 1'
+
+
+def test_carrier_like_rows_do_not_produce_association_changes():
+    report = probe.build_enrichment_report(
+        local_system=SYSTEM,
+        local_stations=[
+            local_station(id=3001, market_id=3001, name='Mobile One', station_type='Unknown'),
+            local_station(id=3002, market_id=3002, name='Mobile Two', station_type='Unknown'),
+            local_station(id=3003, market_id=3003, name='Mobile Three', station_type='Unknown'),
+        ],
+        local_bodies=BODIES,
+        existing_links={},
+        edsm_stations_payload={'stations': [
+            {'id': 3001, 'name': 'Mobile One', 'type': 'FleetCarrier', 'bodyName': 'Exioce 1'},
+            {'id': 3002, 'name': 'Mobile Two', 'type': 'Carrier', 'bodyName': 'Exioce 1'},
+            {'id': 3003, 'name': 'Mobile Three', 'type': 'MegaShip', 'bodyName': 'Exioce 2'},
+        ]},
+        edsm_bodies_payload={'bodies': []},
+    )
+
+    assert report['association_changes'] == []
+    assert report['counts']['ignored_transient_non_slot'] == 3
+    assert len(report['ignored_transient_non_slot']) == 3
 
 
 def test_exact_body_name_confirms_same_system_body_association():
@@ -148,6 +236,7 @@ def test_exact_body_name_confirms_same_system_body_association():
     assert proposed['association_status'] == 'confirmed'
     assert proposed['association_confidence'] == 'exact'
     assert proposed['association_source'] == 'edsm_body_name'
+    assert report['association_changes'][0]['proposed_link']['association_status'] == 'confirmed'
 
 
 def test_distance_only_body_match_infers_body_association():
@@ -167,6 +256,7 @@ def test_distance_only_body_match_infers_body_association():
     assert proposed['association_status'] == 'inferred'
     assert proposed['association_confidence'] == 'strong_inference'
     assert proposed['association_source'] == 'edsm_distance'
+    assert report['association_changes'][0]['proposed_link']['association_status'] == 'inferred'
 
 
 def test_ambiguous_distance_body_match_remains_unresolved():
@@ -209,6 +299,9 @@ def test_conflicting_station_distance_reports_conflict_and_blocks_body_proposal(
     assert 'station_distance_mismatch' in conflict_types(station)
     assert station['proposed']['association_status'] == 'unresolved'
     assert station['proposed']['body_id'] is None
+    assert report['association_changes'] == []
+    assert report['station_metadata_changes'][0]['proposed_station_type'] == 'Coriolis'
+    assert report['conflicts'][0]['conflict']['type'] == 'station_distance_mismatch'
 
 
 def test_confirmed_existing_link_is_preserved_against_weaker_edsm_evidence():

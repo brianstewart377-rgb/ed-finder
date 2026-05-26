@@ -38,6 +38,8 @@ for import_path in _station_resolver_import_paths(Path(__file__)):
 from station_body_resolver import (  # noqa: E402
     DISTANCE_MATCH_TOLERANCE_LS,
     classify_station_lane,
+    is_permanent_colony_slot_station_type,
+    is_transient_non_slot_station_type,
     normalise_station_type_label,
 )
 
@@ -199,6 +201,23 @@ def build_enrichment_report(
         for index, station in enumerate(edsm_stations)
         if index not in matched_edsm_indexes
     ]
+    station_metadata_changes = [
+        change for station in station_reports
+        if (change := _station_metadata_change_entry(station)) is not None
+    ]
+    association_changes = [
+        change for station in station_reports
+        if (change := _association_change_entry(station)) is not None
+    ]
+    conflicts = [
+        _conflict_entry(station, conflict)
+        for station in station_reports
+        for conflict in station['conflicts']
+    ]
+    ignored_transient_non_slot = [
+        ignored for station in station_reports
+        if (ignored := _ignored_transient_entry(station)) is not None
+    ]
 
     summary = Counter()
     for station in station_reports:
@@ -210,6 +229,10 @@ def build_enrichment_report(
             summary['stations_with_changes'] += 1
         if station['conflicts']:
             summary['stations_with_conflicts'] += 1
+        if station.get('association_would_change'):
+            summary['stations_with_association_changes'] += 1
+        if station.get('ignored_transient_non_slot'):
+            summary['stations_ignored_transient_non_slot'] += 1
 
     return {
         'dry_run': True,
@@ -225,6 +248,10 @@ def build_enrichment_report(
             'edsm_stations': len(edsm_stations),
             'edsm_bodies': len(edsm_bodies),
             'unmatched_edsm_stations': len(unmatched_edsm_stations),
+            'station_metadata_changes': len(station_metadata_changes),
+            'association_changes': len(association_changes),
+            'conflicts': len(conflicts),
+            'ignored_transient_non_slot': len(ignored_transient_non_slot),
             **dict(sorted(summary.items())),
         },
         'matching_rules': {
@@ -239,6 +266,10 @@ def build_enrichment_report(
                 f'distance-only body association is inferred only when exactly one body is within {BODY_DISTANCE_MATCH_TOLERANCE_LS:g} ls.',
             ],
         },
+        'station_metadata_changes': station_metadata_changes,
+        'association_changes': association_changes,
+        'conflicts': conflicts,
+        'ignored_transient_non_slot': ignored_transient_non_slot,
         'stations': station_reports,
         'unmatched_edsm_stations': unmatched_edsm_stations,
     }
@@ -277,6 +308,14 @@ def _build_station_report(
             'edsm_station': None,
             'proposed': proposed,
             'fields_that_would_change': fields_that_would_change,
+            'association_would_change': False,
+            'ignored_transient_non_slot': False,
+            'station_type_evidence': {
+                'local': local_public['station_type'],
+                'edsm': None,
+                'proposed': proposed['station_type'],
+                'diagnostic_only': False,
+            },
             'conflicts': conflicts,
         }, None)
 
@@ -284,18 +323,44 @@ def _build_station_report(
     edsm_public = _public_edsm_station(edsm_station)
     local_type = normalise_station_type_label(local_station.get('station_type')) or 'Unknown'
     edsm_type = _clean_text(edsm_station.get('station_type')) or 'Unknown'
-    proposed_type = _proposed_station_type(local_type, edsm_type, conflicts, fields_that_would_change)
+    station_type_fields_that_would_change: list[str] = []
+    proposed_type = _proposed_station_type(local_type, edsm_type, conflicts, station_type_fields_that_would_change)
     lane, lane_note = classify_station_lane(proposed_type)
-    body_proposal = _propose_body_association(
-        edsm_station,
-        local_bodies=local_bodies,
-        edsm_bodies=edsm_bodies,
-        lane=lane,
-        lane_note=lane_note,
-        station_match=station_match,
-        conflicts=conflicts,
+    station_type_evidence = {
+        'local': local_type,
+        'edsm': edsm_type,
+        'proposed': proposed_type,
+        'diagnostic_only': False,
+    }
+    is_transient_non_slot = (
+        is_transient_non_slot_station_type(local_type)
+        or is_transient_non_slot_station_type(edsm_type)
+        or is_transient_non_slot_station_type(proposed_type)
     )
+    if is_transient_non_slot:
+        station_type_evidence['diagnostic_only'] = True
+        body_proposal = _unresolved_proposal(
+            station_type=proposed_type,
+            lane=lane,
+            note=_join_notes(
+                lane_note,
+                'Transient/mobile infrastructure is ignored for colony-planning station_body_links.',
+            ),
+        )
+        return ({
+            'local_station': local_public,
+            'existing_link': existing_public,
+            'station_match': station_match,
+            'edsm_station': edsm_public,
+            'proposed': body_proposal,
+            'fields_that_would_change': [],
+            'association_would_change': False,
+            'ignored_transient_non_slot': True,
+            'station_type_evidence': station_type_evidence,
+            'conflicts': conflicts,
+        }, matched_index)
 
+    fields_that_would_change.extend(station_type_fields_that_would_change)
     _append_station_data_changes(
         local_station,
         edsm_station,
@@ -303,6 +368,27 @@ def _build_station_report(
         fields_that_would_change=fields_that_would_change,
         conflicts=conflicts,
     )
+
+    if is_permanent_colony_slot_station_type(proposed_type):
+        body_proposal = _propose_body_association(
+            edsm_station,
+            local_bodies=local_bodies,
+            edsm_bodies=edsm_bodies,
+            lane=lane,
+            lane_note=lane_note,
+            station_match=station_match,
+            conflicts=conflicts,
+        )
+    else:
+        body_proposal = _unresolved_proposal(
+            station_type=proposed_type,
+            lane=lane,
+            note=_join_notes(
+                lane_note,
+                'Station type is not a permanent colony-planning slot type; association evidence is diagnostic only.',
+            ),
+        )
+
     _preserve_confirmed_link(
         existing_link,
         proposed=body_proposal,
@@ -310,12 +396,11 @@ def _build_station_report(
         conflicts=conflicts,
     )
 
-    if body_proposal['body_id'] is not None or body_proposal['body_name'] is not None:
-        local_body_id = _read_int(existing_link.get('body_id')) if existing_link else None
-        local_body_name = _clean_text(existing_link.get('body_name')) if existing_link else _clean_text(local_station.get('body_name'))
-        if existing_link is None or existing_link.get('association_status') != 'confirmed':
-            if local_body_id != body_proposal['body_id'] or _normalise_name(local_body_name) != _normalise_name(body_proposal['body_name']):
-                fields_that_would_change.append('station_body_links')
+    association_would_change = _association_would_change(
+        local_station=local_station,
+        existing_link=existing_link,
+        proposed=body_proposal,
+    )
 
     return ({
         'local_station': local_public,
@@ -324,8 +409,114 @@ def _build_station_report(
         'edsm_station': edsm_public,
         'proposed': body_proposal,
         'fields_that_would_change': sorted(set(fields_that_would_change)),
+        'association_would_change': association_would_change,
+        'ignored_transient_non_slot': False,
+        'station_type_evidence': station_type_evidence,
         'conflicts': conflicts,
     }, matched_index)
+
+
+def _association_would_change(
+    *,
+    local_station: Mapping[str, Any],
+    existing_link: Mapping[str, Any] | None,
+    proposed: Mapping[str, Any],
+) -> bool:
+    proposed_status = _clean_text(proposed.get('association_status'))
+    if proposed_status not in ('confirmed', 'inferred'):
+        return False
+    if not is_permanent_colony_slot_station_type(proposed.get('station_type')):
+        return False
+    if _read_int(proposed.get('body_id')) is None and _clean_text(proposed.get('body_name')) is None:
+        return False
+    if existing_link and existing_link.get('association_status') == 'confirmed':
+        return False
+
+    current_body_id = _read_int(existing_link.get('body_id')) if existing_link else None
+    current_body_name = (
+        _clean_text(existing_link.get('body_name'))
+        if existing_link else _clean_text(local_station.get('body_name'))
+    )
+    current_lane = _clean_text(existing_link.get('lane')) if existing_link else None
+    current_status = _clean_text(existing_link.get('association_status')) if existing_link else None
+    current_confidence = _clean_text(existing_link.get('association_confidence')) if existing_link else None
+    current_source = _clean_text(existing_link.get('association_source')) if existing_link else None
+
+    return any((
+        current_body_id != _read_int(proposed.get('body_id')),
+        _normalise_name(current_body_name) != _normalise_name(proposed.get('body_name')),
+        current_lane != _clean_text(proposed.get('lane')),
+        current_status != proposed_status,
+        current_confidence != _clean_text(proposed.get('association_confidence')),
+        current_source != _clean_text(proposed.get('association_source')),
+    ))
+
+
+def _station_metadata_change_entry(station: Mapping[str, Any]) -> dict[str, Any] | None:
+    fields = [
+        field for field in station.get('fields_that_would_change', [])
+        if field != 'station_body_links'
+    ]
+    if not fields:
+        return None
+    proposed = station['proposed']
+    return {
+        'local_station': station['local_station'],
+        'edsm_station': station.get('edsm_station'),
+        'station_match': station['station_match'],
+        'fields_that_would_change': sorted(set(fields)),
+        'station_type_evidence': station.get('station_type_evidence'),
+        'proposed_station_type': proposed.get('station_type'),
+    }
+
+
+def _association_change_entry(station: Mapping[str, Any]) -> dict[str, Any] | None:
+    if not station.get('association_would_change'):
+        return None
+    proposed = station['proposed']
+    return {
+        'local_station': station['local_station'],
+        'existing_link': station.get('existing_link'),
+        'edsm_station': station.get('edsm_station'),
+        'station_match': station['station_match'],
+        'proposed_link': {
+            'body_id': _read_int(proposed.get('body_id')),
+            'body_name': _clean_text(proposed.get('body_name')),
+            'lane': _clean_text(proposed.get('lane')),
+            'association_status': _clean_text(proposed.get('association_status')),
+            'association_confidence': _clean_text(proposed.get('association_confidence')),
+            'association_source': _clean_text(proposed.get('association_source')),
+            'resolver_notes': _clean_text(proposed.get('resolver_notes')),
+        },
+    }
+
+
+def _conflict_entry(station: Mapping[str, Any], conflict: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        'local_station': station['local_station'],
+        'edsm_station': station.get('edsm_station'),
+        'station_match': station['station_match'],
+        'conflict': dict(conflict),
+    }
+
+
+def _ignored_transient_entry(station: Mapping[str, Any]) -> dict[str, Any] | None:
+    if not station.get('ignored_transient_non_slot'):
+        return None
+    edsm_station = station.get('edsm_station') or {}
+    return {
+        'local_station': station['local_station'],
+        'edsm_station': station.get('edsm_station'),
+        'station_match': station['station_match'],
+        'station_type_evidence': station.get('station_type_evidence'),
+        'body_evidence': {
+            'body_id': _read_int(edsm_station.get('body_id')),
+            'body_name': _clean_text(edsm_station.get('body_name')),
+            'distance_to_arrival': _read_float(edsm_station.get('distance_to_arrival')),
+        },
+        'reason': _clean_text(station['proposed'].get('resolver_notes')),
+        'conflicts': station.get('conflicts', []),
+    }
 
 
 def _match_edsm_station(
@@ -1024,19 +1215,44 @@ def render_text_report(report: Mapping[str, Any]) -> str:
     ]
     for key, value in sorted(report['counts'].items()):
         lines.append(f'  {key}: {value}')
-    lines.append('stations:')
-    for station in report['stations']:
-        local = station['local_station']
-        proposed = station['proposed']
-        match = station['station_match']
-        changes = ', '.join(station['fields_that_would_change']) or 'none'
-        conflicts = ', '.join(conflict['type'] for conflict in station['conflicts']) or 'none'
+    lines.append('station_metadata_changes:')
+    if not report.get('station_metadata_changes'):
+        lines.append('  none')
+    for change in report.get('station_metadata_changes', []):
+        local = change['local_station']
+        fields = ', '.join(change['fields_that_would_change'])
+        evidence = change.get('station_type_evidence') or {}
         lines.append(
-            f"  - {local['name']} [{local['id']}]: match={match['status']}/{match['source']} "
-            f"type={local['station_type']}->{proposed['station_type']} "
-            f"body={proposed['body_name'] or 'unresolved'} lane={proposed['lane']} "
-            f"assoc={proposed['association_status']}/{proposed['association_confidence']} "
-            f"changes={changes} conflicts={conflicts}"
+            f"  - {local['name']} [{local['id']}]: fields={fields} "
+            f"type={evidence.get('local')}->{evidence.get('proposed')}"
+        )
+    lines.append('association_changes:')
+    if not report.get('association_changes'):
+        lines.append('  none')
+    for change in report.get('association_changes', []):
+        local = change['local_station']
+        proposed = change['proposed_link']
+        lines.append(
+            f"  - {local['name']} [{local['id']}]: body={proposed['body_name'] or 'unresolved'} "
+            f"lane={proposed['lane']} assoc={proposed['association_status']}/{proposed['association_confidence']}"
+        )
+    lines.append('conflicts:')
+    if not report.get('conflicts'):
+        lines.append('  none')
+    for entry in report.get('conflicts', []):
+        local = entry['local_station']
+        conflict = entry['conflict']
+        lines.append(f"  - {local['name']} [{local['id']}]: {conflict.get('type')} field={conflict.get('field')}")
+    lines.append('ignored_transient_non_slot:')
+    if not report.get('ignored_transient_non_slot'):
+        lines.append('  none')
+    for entry in report.get('ignored_transient_non_slot', []):
+        local = entry['local_station']
+        evidence = entry.get('station_type_evidence') or {}
+        body = entry.get('body_evidence') or {}
+        lines.append(
+            f"  - {local['name']} [{local['id']}]: type={evidence.get('local')}->{evidence.get('proposed')} "
+            f"body_evidence={body.get('body_name') or body.get('body_id') or 'none'}"
         )
     return '\n'.join(lines)
 
