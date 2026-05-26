@@ -14,6 +14,8 @@ from typing import Any, Mapping, Sequence
 
 
 DISTANCE_MATCH_TOLERANCE_LS = 0.01
+TRUSTED_STATION_METADATA_SOURCE = 'edsm_system_api'
+TRUSTED_STATION_IDENTITY_CONFIDENCE = 'exact_station_identity'
 
 LANE_ORBITAL_TYPES = {
     'Coriolis',
@@ -152,6 +154,11 @@ def resolve_station_body_association(
         station.get('bodyName'),
         station.get('body'),
     )
+    trusted_body_name = _has_trusted_station_metadata(
+        station,
+        source_key='body_name_source',
+        confidence_key='body_name_confidence',
+    )
     lane, lane_note = classify_station_lane(station_type)
 
     if is_transient_non_slot_station_type(station_type):
@@ -199,16 +206,28 @@ def resolve_station_body_association(
     if raw_body_name:
         name_matches = [body for body in bodies if _normalise_name(body.get('name')) == _normalise_name(raw_body_name)]
         if len(name_matches) == 1:
+            if trusted_body_name:
+                return _association(
+                    station_id,
+                    market_id,
+                    system_id64,
+                    name_matches[0],
+                    lane,
+                    'confirmed',
+                    'exact',
+                    'edsm_body_name',
+                    _join_notes(lane_note, 'Trusted EDSM bodyName matched one local same-system body.'),
+                )
             return _association(
                 station_id,
                 market_id,
                 system_id64,
                 name_matches[0],
                 lane,
-                'confirmed',
-                'exact',
+                'inferred',
+                'weak_inference',
                 'resolver_body_name',
-                lane_note,
+                _join_notes(lane_note, 'Legacy station body_name matched one local body but has no trusted provenance.'),
             )
         if len(name_matches) > 1:
             return _unresolved(
@@ -222,14 +241,20 @@ def resolve_station_body_association(
                 lane_note,
             )
 
-    station_distance = _first_float(
-        station.get('distance_from_star'),
-        station.get('distance_to_arrival'),
-        station.get('distanceToArrival'),
-        station.get('distanceFromArrival'),
-        station.get('distanceFromArrivalLS'),
-    )
+    station_distance = _station_distance_evidence(station)
     if station_distance is not None:
+        trusted_distance = _has_trusted_station_metadata(
+            station,
+            source_key='distance_source',
+            confidence_key='distance_confidence',
+        )
+        distance_confidence = 'strong_inference' if trusted_distance else 'weak_inference'
+        distance_source = 'edsm_distance' if trusted_distance else 'resolver_distance'
+        distance_note = (
+            f'Unique trusted EDSM station distance match within {distance_tolerance_ls:g} ls.'
+            if trusted_distance
+            else f'Unique legacy station distance match within {distance_tolerance_ls:g} ls.'
+        )
         distance_matches = [
             body for body in bodies
             if _distance_matches(station_distance, _read_float(body.get('distance_from_star')), distance_tolerance_ls)
@@ -242,10 +267,10 @@ def resolve_station_body_association(
                 distance_matches[0],
                 lane,
                 'inferred',
-                'strong_inference',
-                'resolver_distance',
+                distance_confidence,
+                distance_source,
                 _join_notes(
-                    f'Unique distance_from_star match within {distance_tolerance_ls:g} ls.',
+                    distance_note,
                     lane_note,
                 ),
             )
@@ -434,6 +459,28 @@ def _first_float(*values: Any) -> float | None:
         if parsed is not None:
             return parsed
     return None
+
+
+def _station_distance_evidence(station: Mapping[str, Any]) -> float | None:
+    return _first_float(
+        station.get('distance_from_star'),
+        station.get('distance_to_arrival'),
+        station.get('distanceToArrival'),
+        station.get('distanceFromArrival'),
+        station.get('distanceFromArrivalLS'),
+    )
+
+
+def _has_trusted_station_metadata(
+    station: Mapping[str, Any],
+    *,
+    source_key: str,
+    confidence_key: str,
+) -> bool:
+    return (
+        _clean_text(station.get(source_key)) == TRUSTED_STATION_METADATA_SOURCE
+        and _clean_text(station.get(confidence_key)) == TRUSTED_STATION_IDENTITY_CONFIDENCE
+    )
 
 
 def _normalise_name(value: Any) -> str:

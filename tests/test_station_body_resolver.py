@@ -33,6 +33,8 @@ def test_exact_body_name_maps_confirmed_exact_orbital():
         'name': 'Holden Orbital',
         'station_type': 'Coriolis',
         'body_name': 'Resolver Test A 1',
+        'body_name_source': 'edsm_system_api',
+        'body_name_confidence': 'exact_station_identity',
     }, BODIES)
 
     assert link.body_id == 2
@@ -40,6 +42,22 @@ def test_exact_body_name_maps_confirmed_exact_orbital():
     assert link.lane == 'orbital'
     assert link.association_status == 'confirmed'
     assert link.association_confidence == 'exact'
+    assert link.association_source == 'edsm_body_name'
+
+
+def test_legacy_body_name_match_is_inferred_not_confirmed():
+    link = resolve_station_body_association({
+        'id': 112,
+        'market_id': 112,
+        'system_id64': 42,
+        'name': 'Legacy Body Name Station',
+        'station_type': 'Coriolis',
+        'body_name': 'Resolver Test A 1',
+    }, BODIES)
+
+    assert link.body_id == 2
+    assert link.association_status == 'inferred'
+    assert link.association_confidence == 'weak_inference'
     assert link.association_source == 'resolver_body_name'
 
 
@@ -62,7 +80,7 @@ def test_exact_body_id_maps_confirmed_exact_surface():
     assert link.association_source == 'resolver_body_id'
 
 
-def test_unique_distance_match_maps_inferred_strong():
+def test_legacy_unique_distance_match_maps_inferred_weak():
     link = resolve_station_body_association({
         'id': 102,
         'market_id': 102,
@@ -75,9 +93,29 @@ def test_unique_distance_match_maps_inferred_strong():
     assert link.body_id == 3
     assert link.lane == 'orbital'
     assert link.association_status == 'inferred'
-    assert link.association_confidence == 'strong_inference'
+    assert link.association_confidence == 'weak_inference'
     assert link.association_source == 'resolver_distance'
-    assert 'Unique distance_from_star match' in (link.resolver_notes or '')
+    assert 'legacy station distance' in (link.resolver_notes or '')
+
+
+def test_trusted_edsm_distance_match_maps_inferred_strong():
+    link = resolve_station_body_association({
+        'id': 113,
+        'market_id': 113,
+        'system_id64': 42,
+        'name': 'Trusted Distance Station',
+        'station_type': 'Outpost',
+        'distance_from_star': 240.005,
+        'distance_source': 'edsm_system_api',
+        'distance_confidence': 'exact_station_identity',
+    }, BODIES)
+
+    assert link.body_id == 3
+    assert link.lane == 'orbital'
+    assert link.association_status == 'inferred'
+    assert link.association_confidence == 'strong_inference'
+    assert link.association_source == 'edsm_distance'
+    assert 'trusted EDSM station distance' in (link.resolver_notes or '')
 
 
 def test_ambiguous_distance_match_remains_unresolved():
@@ -225,6 +263,8 @@ def test_resolver_accepts_raw_station_evidence_aliases():
         'name': 'Raw Evidence Station',
         'stationType': 'Planetary Settlement',
         'body': {'name': 'Resolver Test A 2'},
+        'body_name_source': 'edsm_system_api',
+        'body_name_confidence': 'exact_station_identity',
         'distanceToArrival': 0,
     }, BODIES)
 
@@ -271,6 +311,8 @@ def test_migration_defines_normalized_link_contract():
     assert 'association_status' in migration
     assert 'association_confidence' in migration
     assert 'association_source' in migration
+    assert "'edsm_body_name'" in migration
+    assert "'edsm_distance'" in migration
     assert "CHECK (lane IN ('orbital', 'surface', 'unknown'))" in migration
 
 
@@ -281,6 +323,8 @@ def test_backfill_summary_reports_status_confidence_and_lane():
             'system_id64': 42,
             'station_type': 'Coriolis',
             'body_name': 'Resolver Test A 1',
+            'body_name_source': 'edsm_system_api',
+            'body_name_confidence': 'exact_station_identity',
         }, BODIES),
         resolve_station_body_association({
             'id': 109,
@@ -295,5 +339,5 @@ def test_backfill_summary_reports_status_confidence_and_lane():
     assert counts['status:confirmed'] == 1
     assert counts['status:inferred'] == 1
     assert counts['confidence:exact'] == 1
-    assert counts['confidence:strong_inference'] == 1
+    assert counts['confidence:weak_inference'] == 1
     assert counts['lane:orbital'] == 2

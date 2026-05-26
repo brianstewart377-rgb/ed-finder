@@ -49,6 +49,19 @@ EDSM_SYSTEM_API_BASE = 'https://www.edsm.net/api-system-v1'
 DEFAULT_TIMEOUT_SECONDS = 20.0
 STATION_DISTANCE_CONFLICT_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
 BODY_DISTANCE_MATCH_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
+TRUSTED_EDSM_SOURCE = 'edsm_system_api'
+TRUSTED_STATION_IDENTITY_CONFIDENCE = 'exact_station_identity'
+SUPPORTED_STATION_METADATA_FIELDS = {
+    'station_type',
+    'distance_from_star',
+    'body_name',
+}
+BLOCKING_STATION_IDENTITY_CONFLICT_TYPES = {
+    'id_name_mismatch',
+}
+BLOCKING_STATION_TYPE_CONFLICT_TYPES = {
+    'known_station_type_mismatch',
+}
 
 VALID_ECONOMIES = {
     'HighTech', 'Agriculture', 'Refinery', 'Industrial', 'Military',
@@ -68,7 +81,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         '--apply-metadata',
         action='store_true',
-        help='Apply safe station metadata only. Currently limited to Unknown -> permanent station_type.',
+        help='Apply trusted station metadata/provenance only for one --system-id64.',
+    )
+    parser.add_argument(
+        '--apply-station-metadata',
+        action='store_true',
+        help='Alias for --apply-metadata.',
+    )
+    parser.add_argument(
+        '--apply-confirmed-links',
+        action='store_true',
+        help='Apply confirmed station_body_links from exact EDSM bodyName matches for one --system-id64.',
     )
     parser.add_argument('--json', action='store_true', help='Emit machine-readable JSON report.')
     parser.add_argument('--timeout', type=float, default=DEFAULT_TIMEOUT_SECONDS, help='EDSM request timeout in seconds.')
@@ -120,6 +143,9 @@ def fetch_local_payload(conn, *, system_name: str | None, system_id64: int | Non
         cur.execute("""
             SELECT id, id AS market_id, system_id64, name, station_type::text AS station_type,
                    distance_from_star, body_name AS station_body_name, body_name,
+                   distance_source, distance_confidence, distance_updated_at,
+                   station_type_source, station_type_confidence, station_type_updated_at,
+                   body_name_source, body_name_confidence, body_name_updated_at,
                    primary_economy::text AS primary_economy,
                    secondary_economy::text AS secondary_economy,
                    has_market, has_shipyard, has_outfitting,
@@ -225,6 +251,7 @@ def build_enrichment_report(
         if (ignored := _ignored_transient_entry(station)) is not None
     ]
     metadata_updates = _metadata_update_candidates(station_reports)
+    confirmed_link_updates = _confirmed_link_update_candidates(station_reports)
     skipped = _metadata_skipped_entries(station_reports)
     unresolved = [
         entry for station in station_reports
@@ -263,6 +290,8 @@ def build_enrichment_report(
             'station_metadata_changes': len(station_metadata_changes),
             'metadata_updates_planned': len(metadata_updates),
             'metadata_updates_applied': 0,
+            'confirmed_link_updates_planned': len(confirmed_link_updates),
+            'confirmed_link_updates_applied': 0,
             'association_changes': len(association_changes),
             'conflicts': len(conflicts),
             'ignored_transient_non_slot': len(ignored_transient_non_slot),
@@ -272,16 +301,23 @@ def build_enrichment_report(
         },
         'apply_mode': 'dry_run',
         'metadata_apply_contract': {
-            'safe_fields': ['station_type'],
-            'station_type_rule': 'Unknown -> known permanent station type only, from exact matched station identity with no conflicts.',
+            'safe_fields': ['station_type', 'distance_from_star', 'body_name'],
+            'provenance_source': TRUSTED_EDSM_SOURCE,
+            'provenance_confidence': TRUSTED_STATION_IDENTITY_CONFIDENCE,
+            'station_identity_rule': 'EDSM id/marketId must match local id/market_id and station name must match.',
+            'station_type_rule': 'Unknown -> known permanent station type only.',
+            'distance_rule': 'distanceToArrival may replace legacy local station distance only after exact station identity.',
+            'body_name_rule': 'EDSM bodyName may update stations.body_name only when it matches exactly one local same-system body.',
             'never_applied': [
-                'station_body_links',
                 'body_id',
-                'body_name',
-                'distance_from_star',
                 'association_status',
                 'association_confidence',
             ],
+        },
+        'confirmed_link_apply_contract': {
+            'safe_fields': ['station_body_links'],
+            'rule': 'Only confirmed/exact EDSM bodyName links for permanent stations are applied, scoped to one --system-id64.',
+            'never_applied': ['inferred_distance_links', 'transient_non_slot_links'],
         },
         'matching_rules': {
             'station_identity': [
@@ -298,6 +334,8 @@ def build_enrichment_report(
         'station_metadata_changes': station_metadata_changes,
         'metadata_updates_planned': metadata_updates,
         'metadata_updates_applied': [],
+        'confirmed_link_updates_planned': confirmed_link_updates,
+        'confirmed_link_updates_applied': [],
         'association_changes': association_changes,
         'conflicts': conflicts,
         'ignored_transient_non_slot': ignored_transient_non_slot,
@@ -358,11 +396,13 @@ def _build_station_report(
     edsm_type = _clean_text(edsm_station.get('station_type')) or 'Unknown'
     station_type_fields_that_would_change: list[str] = []
     proposed_type = _proposed_station_type(local_type, edsm_type, conflicts, station_type_fields_that_would_change)
+    trusted_identity = _has_trusted_station_identity(station_match)
     lane, lane_note = classify_station_lane(proposed_type)
     station_type_evidence = {
         'local': local_type,
         'edsm': edsm_type,
         'proposed': proposed_type,
+        'trusted_identity': trusted_identity,
         'diagnostic_only': False,
     }
     is_transient_non_slot = (
@@ -394,13 +434,6 @@ def _build_station_report(
         }, matched_index)
 
     fields_that_would_change.extend(station_type_fields_that_would_change)
-    _append_station_data_changes(
-        local_station,
-        edsm_station,
-        proposed_type=proposed_type,
-        fields_that_would_change=fields_that_would_change,
-        conflicts=conflicts,
-    )
 
     if is_permanent_colony_slot_station_type(proposed_type):
         body_proposal = _propose_body_association(
@@ -410,6 +443,7 @@ def _build_station_report(
             lane=lane,
             lane_note=lane_note,
             station_match=station_match,
+            trusted_station_identity=trusted_identity,
             conflicts=conflicts,
         )
     else:
@@ -421,6 +455,16 @@ def _build_station_report(
                 'Station type is not a permanent colony-planning slot type; association evidence is diagnostic only.',
             ),
         )
+
+    _append_station_data_changes(
+        local_station,
+        edsm_station,
+        proposed_type=proposed_type,
+        body_proposal=body_proposal,
+        trusted_station_identity=trusted_identity,
+        fields_that_would_change=fields_that_would_change,
+        conflicts=conflicts,
+    )
 
     _preserve_confirmed_link(
         existing_link,
@@ -563,85 +607,170 @@ def _unresolved_entry(station: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _metadata_update_candidates(station_reports: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        update for station in station_reports
-        if (update := _metadata_update_candidate(station)) is not None
-    ]
+    updates: list[dict[str, Any]] = []
+    for station in station_reports:
+        for field in ('station_type', 'distance_from_star', 'body_name'):
+            update = _metadata_update_candidate(station, field)
+            if update is not None:
+                updates.append(update)
+    return updates
+
+
+def _confirmed_link_update_candidates(station_reports: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    updates: list[dict[str, Any]] = []
+    for station in station_reports:
+        proposed = station.get('proposed') or {}
+        local_station = station.get('local_station') or {}
+        if not station.get('association_would_change'):
+            continue
+        if station.get('ignored_transient_non_slot'):
+            continue
+        if not _has_trusted_station_identity(station.get('station_match') or {}):
+            continue
+        if proposed.get('association_status') != 'confirmed':
+            continue
+        if proposed.get('association_confidence') != 'exact':
+            continue
+        if proposed.get('association_source') != 'edsm_body_name':
+            continue
+        if not is_permanent_colony_slot_station_type(proposed.get('station_type')):
+            continue
+        station_id = _read_int(local_station.get('id'))
+        system_id64 = _read_int(local_station.get('system_id64'))
+        body_id = _read_int(proposed.get('body_id'))
+        body_name = _clean_text(proposed.get('body_name'))
+        if station_id is None or system_id64 is None or body_id is None or body_name is None:
+            continue
+        updates.append({
+            'local_station': local_station,
+            'edsm_station': station.get('edsm_station'),
+            'station_match': station['station_match'],
+            'station_id': station_id,
+            'market_id': _read_int(local_station.get('market_id')) or station_id,
+            'system_id64': system_id64,
+            'body_id': body_id,
+            'body_name': body_name,
+            'lane': _clean_text(proposed.get('lane')) or 'unknown',
+            'association_status': 'confirmed',
+            'association_confidence': 'exact',
+            'association_source': 'edsm_body_name',
+            'resolver_notes': _clean_text(proposed.get('resolver_notes')),
+        })
+    return updates
 
 
 def _metadata_skipped_entries(station_reports: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        skip for station in station_reports
-        if (skip := _metadata_skip_entry(station)) is not None
-    ]
+    skipped: list[dict[str, Any]] = []
+    for station in station_reports:
+        if station['station_match'].get('status') != 'matched':
+            skipped.append(_metadata_skip_entry(station, 'station_type', 'unresolved_station_match'))
+            continue
+        fields = set(station.get('fields_that_would_change', []))
+        for field in sorted(fields & SUPPORTED_STATION_METADATA_FIELDS):
+            reason = _metadata_apply_skip_reason(station, field)
+            if reason is not None:
+                skipped.append(_metadata_skip_entry(station, field, reason))
+        unsupported = sorted(fields - SUPPORTED_STATION_METADATA_FIELDS - {'station_body_links'})
+        if unsupported:
+            skipped.append(_metadata_skip_entry(
+                station,
+                'unsupported',
+                f"unsupported_metadata_fields:{','.join(unsupported)}",
+            ))
+    return [entry for entry in skipped if entry is not None]
 
 
-def _metadata_update_candidate(station: Mapping[str, Any]) -> dict[str, Any] | None:
-    skip_reason = _metadata_apply_skip_reason(station)
+def _metadata_update_candidate(station: Mapping[str, Any], field: str) -> dict[str, Any] | None:
+    if field not in set(station.get('fields_that_would_change', [])):
+        return None
+    skip_reason = _metadata_apply_skip_reason(station, field)
     if skip_reason is not None:
         return None
 
-    evidence = station.get('station_type_evidence') or {}
     local_station = station['local_station']
+    old_value: Any
+    new_value: Any
+    if field == 'station_type':
+        evidence = station.get('station_type_evidence') or {}
+        old_value = evidence.get('local')
+        new_value = evidence.get('proposed')
+    elif field == 'distance_from_star':
+        old_value = local_station.get('distance_from_star')
+        new_value = (station.get('edsm_station') or {}).get('distance_to_arrival')
+    elif field == 'body_name':
+        old_value = local_station.get('body_name')
+        new_value = (station.get('proposed') or {}).get('body_name')
+    else:
+        return None
+
     return {
         'local_station': local_station,
         'edsm_station': station.get('edsm_station'),
         'station_match': station['station_match'],
-        'field': 'station_type',
-        'old_value': evidence.get('local'),
-        'new_value': evidence.get('proposed'),
+        'field': field,
+        'old_value': old_value,
+        'new_value': new_value,
+        'source': TRUSTED_EDSM_SOURCE,
+        'confidence': TRUSTED_STATION_IDENTITY_CONFIDENCE,
         'station_id': _read_int(local_station.get('id')),
         'system_id64': _read_int(local_station.get('system_id64')),
     }
 
 
-def _metadata_skip_entry(station: Mapping[str, Any]) -> dict[str, Any] | None:
-    reason = _metadata_apply_skip_reason(station)
-    if reason is None:
-        return None
-    if (
-        station['station_match'].get('status') == 'matched'
-        and 'station_type' not in station.get('fields_that_would_change', [])
-        and not station.get('ignored_transient_non_slot')
-    ):
-        return None
+def _metadata_skip_entry(station: Mapping[str, Any], field: str, reason: str) -> dict[str, Any]:
     return {
         'local_station': station['local_station'],
         'edsm_station': station.get('edsm_station'),
         'station_match': station['station_match'],
+        'field': field,
         'station_type_evidence': station.get('station_type_evidence'),
         'reason': reason,
     }
 
 
-def _metadata_apply_skip_reason(station: Mapping[str, Any]) -> str | None:
+def _metadata_apply_skip_reason(station: Mapping[str, Any], field: str) -> str | None:
     match = station['station_match']
     if match.get('status') != 'matched':
         return 'unresolved_station_match'
     if station.get('ignored_transient_non_slot'):
         return 'transient_non_slot_ignored'
 
-    fields = set(station.get('fields_that_would_change', []))
-    if 'station_type' not in fields:
-        unsupported_fields = sorted(fields)
-        if unsupported_fields:
-            return f"unsupported_metadata_fields:{','.join(unsupported_fields)}"
-        return 'no_station_type_change'
-
-    if match.get('confidence') != 'exact' or match.get('source') not in ('id_name', 'exact_name'):
+    if not _has_trusted_station_identity(match):
         return 'weak_station_identity'
 
     conflict_types = {conflict.get('type') for conflict in station.get('conflicts', [])}
-    if conflict_types:
-        return f"conflicting_evidence:{','.join(sorted(str(kind) for kind in conflict_types))}"
+    blocking_conflicts = sorted(
+        str(kind) for kind in conflict_types
+        if kind in BLOCKING_STATION_IDENTITY_CONFLICT_TYPES
+    )
+    if blocking_conflicts:
+        return f"conflicting_evidence:{','.join(blocking_conflicts)}"
 
     evidence = station.get('station_type_evidence') or {}
-    local_type = evidence.get('local')
     proposed_type = evidence.get('proposed')
-    if local_type != 'Unknown':
-        return 'known_station_type_preserved'
     if not is_permanent_colony_slot_station_type(proposed_type):
         return 'non_permanent_station_type'
+
+    if field == 'station_type':
+        station_type_conflicts = sorted(
+            str(kind) for kind in conflict_types
+            if kind in BLOCKING_STATION_TYPE_CONFLICT_TYPES
+        )
+        if station_type_conflicts:
+            return f"conflicting_evidence:{','.join(station_type_conflicts)}"
+        local_type = evidence.get('local')
+        if local_type != 'Unknown':
+            return 'known_station_type_preserved'
+    elif field == 'distance_from_star':
+        if _read_float((station.get('edsm_station') or {}).get('distance_to_arrival')) is None:
+            return 'missing_edsm_distance'
+    elif field == 'body_name':
+        proposed = station.get('proposed') or {}
+        if proposed.get('association_status') != 'confirmed' or proposed.get('association_source') != 'edsm_body_name':
+            return 'missing_exact_edsm_body_name_match'
+    else:
+        return 'unsupported_metadata_field'
+
     if _read_int(station['local_station'].get('id')) is None:
         return 'missing_station_id'
     if _read_int(station['local_station'].get('system_id64')) is None:
@@ -656,39 +785,116 @@ def apply_metadata_updates(conn, report: dict[str, Any]) -> tuple[list[dict[str,
     for update in report.get('metadata_updates_planned', []):
         station_id = _read_int(update.get('station_id'))
         system_id64 = _read_int(update.get('system_id64'))
-        new_value = _clean_text(update.get('new_value'))
-        if station_id is None or system_id64 is None or not is_permanent_colony_slot_station_type(new_value):
+        field = _clean_text(update.get('field'))
+        if station_id is None or system_id64 is None or field not in SUPPORTED_STATION_METADATA_FIELDS:
             skipped.append({
                 **update,
                 'reason': 'invalid_metadata_update_plan',
             })
             continue
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                UPDATE stations
-                SET station_type = %s::station_type
-                WHERE id = %s
-                  AND system_id64 = %s
-                  AND station_type = 'Unknown'::station_type
-                RETURNING id, system_id64, name, station_type::text AS station_type
-            """, (new_value, station_id, system_id64))
-            row = cur.fetchone()
+        row = _apply_one_metadata_update(conn, update)
         if row is None:
             skipped.append({
                 **update,
-                'reason': 'station_row_changed_or_not_unknown',
+                'reason': 'station_row_changed_or_update_not_allowed',
             })
             continue
         applied.append({
             **update,
-            'applied_station': {
-                'id': _read_int(row.get('id')),
-                'system_id64': _read_int(row.get('system_id64')),
-                'name': _clean_text(row.get('name')),
-                'station_type': _clean_text(row.get('station_type')),
-            },
+            'applied_station': _public_applied_station(row),
         })
     return applied, skipped
+
+
+def _apply_one_metadata_update(conn, update: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    station_id = _read_int(update.get('station_id'))
+    system_id64 = _read_int(update.get('system_id64'))
+    source = _clean_text(update.get('source')) or TRUSTED_EDSM_SOURCE
+    confidence = _clean_text(update.get('confidence')) or TRUSTED_STATION_IDENTITY_CONFIDENCE
+    field = _clean_text(update.get('field'))
+
+    if field == 'station_type':
+        new_value = _clean_text(update.get('new_value'))
+        if not is_permanent_colony_slot_station_type(new_value):
+            return None
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE stations
+                SET station_type = %s::station_type,
+                    station_type_source = %s,
+                    station_type_confidence = %s,
+                    station_type_updated_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = %s
+                  AND system_id64 = %s
+                  AND station_type = 'Unknown'::station_type
+                RETURNING id, system_id64, name, station_type::text AS station_type,
+                          distance_from_star, distance_source, distance_confidence,
+                          body_name, body_name_source, body_name_confidence,
+                          station_type_source, station_type_confidence
+            """, (new_value, source, confidence, station_id, system_id64))
+            return cur.fetchone()
+
+    if field == 'distance_from_star':
+        new_value = _read_float(update.get('new_value'))
+        if new_value is None:
+            return None
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE stations
+                SET distance_from_star = %s,
+                    distance_source = %s,
+                    distance_confidence = %s,
+                    distance_updated_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = %s
+                  AND system_id64 = %s
+                RETURNING id, system_id64, name, station_type::text AS station_type,
+                          distance_from_star, distance_source, distance_confidence,
+                          body_name, body_name_source, body_name_confidence,
+                          station_type_source, station_type_confidence
+            """, (new_value, source, confidence, station_id, system_id64))
+            return cur.fetchone()
+
+    if field == 'body_name':
+        new_value = _clean_text(update.get('new_value'))
+        if new_value is None:
+            return None
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE stations
+                SET body_name = %s,
+                    body_name_source = %s,
+                    body_name_confidence = %s,
+                    body_name_updated_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = %s
+                  AND system_id64 = %s
+                RETURNING id, system_id64, name, station_type::text AS station_type,
+                          distance_from_star, distance_source, distance_confidence,
+                          body_name, body_name_source, body_name_confidence,
+                          station_type_source, station_type_confidence
+            """, (new_value, source, confidence, station_id, system_id64))
+            return cur.fetchone()
+
+    return None
+
+
+def _public_applied_station(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        'id': _read_int(row.get('id')),
+        'system_id64': _read_int(row.get('system_id64')),
+        'name': _clean_text(row.get('name')),
+        'station_type': _clean_text(row.get('station_type')),
+        'distance_from_star': _read_float(row.get('distance_from_star')),
+        'distance_source': _clean_text(row.get('distance_source')),
+        'distance_confidence': _clean_text(row.get('distance_confidence')),
+        'body_name': _clean_text(row.get('body_name')),
+        'body_name_source': _clean_text(row.get('body_name_source')),
+        'body_name_confidence': _clean_text(row.get('body_name_confidence')),
+        'station_type_source': _clean_text(row.get('station_type_source')),
+        'station_type_confidence': _clean_text(row.get('station_type_confidence')),
+    }
 
 
 def apply_metadata_result(report: dict[str, Any], applied: Sequence[Mapping[str, Any]], skipped: Sequence[Mapping[str, Any]]) -> None:
@@ -697,6 +903,86 @@ def apply_metadata_result(report: dict[str, Any], applied: Sequence[Mapping[str,
     report['metadata_updates_applied'] = [dict(row) for row in applied]
     report['skipped'] = [*report.get('skipped', []), *[dict(row) for row in skipped]]
     report['counts']['metadata_updates_applied'] = len(applied)
+    report['counts']['skipped'] = len(report['skipped'])
+
+
+def apply_confirmed_link_updates(conn, report: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Apply confirmed exact EDSM bodyName station_body_links only."""
+    applied: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for update in report.get('confirmed_link_updates_planned', []):
+        station_id = _read_int(update.get('station_id'))
+        system_id64 = _read_int(update.get('system_id64'))
+        body_id = _read_int(update.get('body_id'))
+        body_name = _clean_text(update.get('body_name'))
+        lane = _clean_text(update.get('lane'))
+        if station_id is None or system_id64 is None or body_id is None or body_name is None or lane not in ('orbital', 'surface'):
+            skipped.append({**update, 'reason': 'invalid_confirmed_link_plan'})
+            continue
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                INSERT INTO station_body_links (
+                    station_id, market_id, system_id64, body_id, body_name, lane,
+                    association_status, association_confidence, association_source,
+                    resolver_notes
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, 'confirmed', 'exact', 'edsm_body_name', %s)
+                ON CONFLICT (station_id) DO UPDATE SET
+                    market_id = EXCLUDED.market_id,
+                    system_id64 = EXCLUDED.system_id64,
+                    body_id = EXCLUDED.body_id,
+                    body_name = EXCLUDED.body_name,
+                    lane = EXCLUDED.lane,
+                    association_status = EXCLUDED.association_status,
+                    association_confidence = EXCLUDED.association_confidence,
+                    association_source = EXCLUDED.association_source,
+                    resolver_notes = EXCLUDED.resolver_notes,
+                    updated_at = NOW()
+                WHERE station_body_links.association_status <> 'confirmed'
+                RETURNING station_id, market_id, system_id64, body_id, body_name, lane,
+                          association_status, association_confidence, association_source,
+                          resolver_notes
+            """, (
+                station_id,
+                _read_int(update.get('market_id')) or station_id,
+                system_id64,
+                body_id,
+                body_name,
+                lane,
+                _clean_text(update.get('resolver_notes')),
+            ))
+            row = cur.fetchone()
+        if row is None:
+            skipped.append({**update, 'reason': 'confirmed_link_preserved_or_row_changed'})
+            continue
+        applied.append({
+            **update,
+            'applied_link': {
+                'station_id': _read_int(row.get('station_id')),
+                'market_id': _read_int(row.get('market_id')),
+                'system_id64': _read_int(row.get('system_id64')),
+                'body_id': _read_int(row.get('body_id')),
+                'body_name': _clean_text(row.get('body_name')),
+                'lane': _clean_text(row.get('lane')),
+                'association_status': _clean_text(row.get('association_status')),
+                'association_confidence': _clean_text(row.get('association_confidence')),
+                'association_source': _clean_text(row.get('association_source')),
+                'resolver_notes': _clean_text(row.get('resolver_notes')),
+            },
+        })
+    return applied, skipped
+
+
+def apply_confirmed_links_result(report: dict[str, Any], applied: Sequence[Mapping[str, Any]], skipped: Sequence[Mapping[str, Any]]) -> None:
+    report['dry_run'] = False
+    current_mode = report.get('apply_mode')
+    if current_mode and current_mode != 'dry_run':
+        report['apply_mode'] = f'{current_mode}+confirmed_links'
+    else:
+        report['apply_mode'] = 'confirmed_links'
+    report['confirmed_link_updates_applied'] = [dict(row) for row in applied]
+    report['skipped'] = [*report.get('skipped', []), *[dict(row) for row in skipped]]
+    report['counts']['confirmed_link_updates_applied'] = len(applied)
     report['counts']['skipped'] = len(report['skipped'])
 
 
@@ -795,6 +1081,9 @@ def _station_distance_match(local_station: Mapping[str, Any], edsm_station: Mapp
         'edsm': edsm_distance,
         'delta_ls': delta,
         'tolerance_ls': STATION_DISTANCE_CONFLICT_TOLERANCE_LS,
+        'local_distance_source': _clean_text(local_station.get('distance_source')),
+        'local_distance_confidence': _clean_text(local_station.get('distance_confidence')),
+        'message': 'Local station distance differs from EDSM distanceToArrival; legacy/untrusted local distance does not block trusted EDSM metadata.',
     }
 
 
@@ -806,10 +1095,13 @@ def _propose_body_association(
     lane: str,
     lane_note: str | None,
     station_match: Mapping[str, Any],
+    trusted_station_identity: bool,
     conflicts: list[dict[str, Any]],
 ) -> dict[str, Any]:
     station_type = _clean_text(edsm_station.get('station_type')) or 'Unknown'
     base_notes = [lane_note]
+    if not trusted_station_identity:
+        base_notes.append('EDSM station identity is not exact id/name; body association evidence is diagnostic only.')
 
     body_name = _clean_text(edsm_station.get('body_name'))
     if body_name is None:
@@ -819,7 +1111,7 @@ def _propose_body_association(
 
     if body_name is not None:
         name_matches = _local_bodies_by_name(local_bodies, body_name)
-        if len(name_matches) == 1 and not _has_blocking_conflict(conflicts):
+        if len(name_matches) == 1 and trusted_station_identity and not _has_blocking_conflict(conflicts):
             body = name_matches[0]
             return _proposal(
                 station_type=station_type,
@@ -835,7 +1127,7 @@ def _propose_body_association(
             return _unresolved_proposal(
                 station_type=station_type,
                 lane=lane,
-                note=_join_notes(*base_notes, 'EDSM body name matched, but station identity evidence has a blocking conflict.'),
+                note=_join_notes(*base_notes, 'EDSM body name matched one local same-system body but is not eligible for confirmed apply.'),
             )
         if len(name_matches) > 1:
             conflicts.append({
@@ -862,7 +1154,7 @@ def _propose_body_association(
         )
 
     distance_matches = _unique_body_distance_candidates(station_distance, local_bodies=local_bodies, edsm_bodies=edsm_bodies)
-    if len(distance_matches) == 1 and not _has_blocking_conflict(conflicts):
+    if len(distance_matches) == 1 and trusted_station_identity and not _has_blocking_conflict(conflicts):
         body = distance_matches[0]
         return _proposal(
             station_type=station_type,
@@ -881,7 +1173,7 @@ def _propose_body_association(
         return _unresolved_proposal(
             station_type=station_type,
             lane=lane,
-            note=_join_notes(*base_notes, 'EDSM distance matched one body, but station identity evidence has a blocking conflict.'),
+            note=_join_notes(*base_notes, 'EDSM distance matched one body but is not eligible for inferred association.'),
         )
     if len(distance_matches) > 1:
         conflicts.append({
@@ -909,10 +1201,10 @@ def _proposed_station_type(
     if edsm_type == 'Unknown':
         return local_type if local_type else 'Unknown'
     if local_type in (None, '', 'Unknown'):
-        fields_that_would_change.append('station_type')
+        if is_permanent_colony_slot_station_type(edsm_type):
+            fields_that_would_change.append('station_type')
         return edsm_type
     if local_type != edsm_type:
-        fields_that_would_change.append('station_type')
         conflicts.append({
             'field': 'station_type',
             'type': 'known_station_type_mismatch',
@@ -920,7 +1212,7 @@ def _proposed_station_type(
             'edsm': edsm_type,
             'message': 'EDSM would change a known local station type.',
         })
-    return edsm_type
+    return local_type
 
 
 def _append_station_data_changes(
@@ -928,6 +1220,8 @@ def _append_station_data_changes(
     edsm_station: Mapping[str, Any],
     *,
     proposed_type: str,
+    body_proposal: Mapping[str, Any],
+    trusted_station_identity: bool,
     fields_that_would_change: list[str],
     conflicts: list[dict[str, Any]],
 ) -> None:
@@ -937,8 +1231,30 @@ def _append_station_data_changes(
 
     local_distance = _read_float(local_station.get('distance_from_star'))
     edsm_distance = _read_float(edsm_station.get('distance_to_arrival'))
-    if local_distance is None and edsm_distance is not None:
+    if (
+        trusted_station_identity
+        and is_permanent_colony_slot_station_type(proposed_type)
+        and edsm_distance is not None
+        and (
+            local_distance is None
+            or abs(local_distance - edsm_distance) > STATION_DISTANCE_CONFLICT_TOLERANCE_LS
+            or not _has_trusted_station_metadata(local_station, prefix='distance')
+        )
+    ):
         fields_that_would_change.append('distance_from_star')
+
+    proposed_body_name = _clean_text(body_proposal.get('body_name'))
+    if (
+        trusted_station_identity
+        and body_proposal.get('association_status') == 'confirmed'
+        and body_proposal.get('association_source') == 'edsm_body_name'
+        and proposed_body_name is not None
+        and (
+            _normalise_name(local_station.get('body_name')) != _normalise_name(proposed_body_name)
+            or not _has_trusted_station_metadata(local_station, prefix='body_name')
+        )
+    ):
+        fields_that_would_change.append('body_name')
 
     _compare_economy(local_station, edsm_station, fields_that_would_change, conflicts)
     _compare_service_bool(local_station, edsm_station, 'has_market', 'have_market', fields_that_would_change, conflicts)
@@ -1034,7 +1350,7 @@ def _compare_service_bool(
 
 
 def _has_blocking_conflict(conflicts: Sequence[Mapping[str, Any]]) -> bool:
-    return any(conflict.get('type') == 'station_distance_mismatch' for conflict in conflicts)
+    return any(conflict.get('type') in BLOCKING_STATION_IDENTITY_CONFLICT_TYPES for conflict in conflicts)
 
 
 def _proposal(
@@ -1185,6 +1501,21 @@ def _station_identity_values(station: Mapping[str, Any]) -> set[int]:
     }
 
 
+def _has_trusted_station_identity(station_match: Mapping[str, Any]) -> bool:
+    return (
+        station_match.get('status') == 'matched'
+        and station_match.get('confidence') == 'exact'
+        and station_match.get('source') == 'id_name'
+    )
+
+
+def _has_trusted_station_metadata(station: Mapping[str, Any], *, prefix: str) -> bool:
+    return (
+        _clean_text(station.get(f'{prefix}_source')) == TRUSTED_EDSM_SOURCE
+        and _clean_text(station.get(f'{prefix}_confidence')) == TRUSTED_STATION_IDENTITY_CONFIDENCE
+    )
+
+
 def _extract_edsm_stations(payload: Any) -> list[Mapping[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, Mapping)]
@@ -1215,7 +1546,13 @@ def _public_local_station(station: Mapping[str, Any]) -> dict[str, Any]:
         'name': _clean_text(station.get('name')),
         'station_type': normalise_station_type_label(station.get('station_type')) or 'Unknown',
         'distance_from_star': _read_float(station.get('distance_from_star')),
+        'distance_source': _clean_text(station.get('distance_source')),
+        'distance_confidence': _clean_text(station.get('distance_confidence')),
         'body_name': _clean_text(station.get('body_name')),
+        'body_name_source': _clean_text(station.get('body_name_source')),
+        'body_name_confidence': _clean_text(station.get('body_name_confidence')),
+        'station_type_source': _clean_text(station.get('station_type_source')),
+        'station_type_confidence': _clean_text(station.get('station_type_confidence')),
         'primary_economy': _clean_text(station.get('primary_economy')),
         'has_market': station.get('has_market'),
         'has_shipyard': station.get('has_shipyard'),
@@ -1409,6 +1746,16 @@ def render_text_report(report: Mapping[str, Any]) -> str:
             f"  - {local['name']} [{local['id']}]: fields={fields} "
             f"type={evidence.get('local')}->{evidence.get('proposed')}"
         )
+    lines.append('metadata_updates_planned:')
+    if not report.get('metadata_updates_planned'):
+        lines.append('  none')
+    for update in report.get('metadata_updates_planned', []):
+        local = update['local_station']
+        lines.append(
+            f"  - {local['name']} [{local['id']}]: "
+            f"{update.get('field')}={update.get('old_value')}->{update.get('new_value')} "
+            f"source={update.get('source')}/{update.get('confidence')}"
+        )
     lines.append('metadata_updates_applied:')
     if not report.get('metadata_updates_applied'):
         lines.append('  none')
@@ -1417,6 +1764,15 @@ def render_text_report(report: Mapping[str, Any]) -> str:
         lines.append(
             f"  - {local['name']} [{local['id']}]: "
             f"{update.get('field')}={update.get('old_value')}->{update.get('new_value')}"
+        )
+    lines.append('confirmed_link_updates_applied:')
+    if not report.get('confirmed_link_updates_applied'):
+        lines.append('  none')
+    for update in report.get('confirmed_link_updates_applied', []):
+        local = update['local_station']
+        link = update.get('applied_link') or update
+        lines.append(
+            f"  - {local['name']} [{local['id']}]: body={link.get('body_name')} lane={link.get('lane')}"
         )
     lines.append('association_changes:')
     if not report.get('association_changes'):
@@ -1463,17 +1819,20 @@ def render_text_report(report: Mapping[str, Any]) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    apply_station_metadata = bool(args.apply_metadata or args.apply_station_metadata)
+    apply_confirmed_links = bool(args.apply_confirmed_links)
+    applying = apply_station_metadata or apply_confirmed_links
     if args.apply:
-        print('--apply is not implemented for EDSM station enrichment; use --apply-metadata for metadata-only writes.', file=sys.stderr)
+        print('--apply is not implemented for EDSM station enrichment; use --apply-metadata and/or --apply-confirmed-links for scoped writes.', file=sys.stderr)
         return 2
-    if args.apply_metadata and args.dry_run:
-        print('--dry-run and --apply-metadata are mutually exclusive.', file=sys.stderr)
+    if applying and args.dry_run:
+        print('--dry-run and apply flags are mutually exclusive.', file=sys.stderr)
         return 2
-    if args.apply_metadata and args.system_id64 is None:
-        print('--apply-metadata requires --system-id64 to keep writes scoped to one local system.', file=sys.stderr)
+    if applying and args.system_id64 is None:
+        print('Apply flags require --system-id64 to keep writes scoped to one local system.', file=sys.stderr)
         return 2
-    if args.apply_metadata and (args.no_network or args.local_only):
-        print('--apply-metadata requires network EDSM evidence; remove --no-network/--local-only.', file=sys.stderr)
+    if applying and (args.no_network or args.local_only):
+        print('Apply flags require network EDSM evidence; remove --no-network/--local-only.', file=sys.stderr)
         return 2
     if not args.dsn:
         print('DATABASE_URL or --dsn is required.', file=sys.stderr)
@@ -1512,14 +1871,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         network_enabled=network_enabled,
     )
 
-    if args.apply_metadata:
+    if applying:
         try:
             with psycopg2.connect(args.dsn) as conn:
-                applied, apply_skipped = apply_metadata_updates(conn, report)
-                apply_metadata_result(report, applied, apply_skipped)
+                if apply_station_metadata:
+                    applied, apply_skipped = apply_metadata_updates(conn, report)
+                    apply_metadata_result(report, applied, apply_skipped)
+                if apply_confirmed_links:
+                    applied_links, link_skipped = apply_confirmed_link_updates(conn, report)
+                    apply_confirmed_links_result(report, applied_links, link_skipped)
                 conn.commit()
         except Exception as exc:
-            print(f'Failed to apply station metadata updates: {exc}', file=sys.stderr)
+            print(f'Failed to apply EDSM station enrichment updates: {exc}', file=sys.stderr)
             return 1
 
     if args.json:

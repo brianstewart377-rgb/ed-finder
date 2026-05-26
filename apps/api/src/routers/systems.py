@@ -9,7 +9,7 @@ from config  import settings, log
 from deps    import get_pool, get_redis, cache_get, cache_set
 from models  import SystemDetailResponse
 from helpers import sys_row_to_dict
-from station_body_resolver import resolve_station_body_association
+from station_body_resolver import is_transient_non_slot_station_type, resolve_station_body_association
 
 try:
     import local_search as _ls
@@ -20,7 +20,7 @@ except ImportError:
 
 router = APIRouter(tags=['systems'])
 
-SYSTEM_CACHE_VERSION = 'v3'
+SYSTEM_CACHE_VERSION = 'v4'
 BODY_CACHE_VERSION = 'v2'
 
 
@@ -79,6 +79,9 @@ async def get_system(
             stations = await conn.fetch("""
                 SELECT s.id, s.id AS market_id, s.system_id64, s.name, s.station_type,
                        s.distance_from_star, s.body_name AS station_body_name,
+                       s.distance_source, s.distance_confidence, s.distance_updated_at,
+                       s.station_type_source, s.station_type_confidence, s.station_type_updated_at,
+                       s.body_name_source, s.body_name_confidence, s.body_name_updated_at,
                        COALESCE(l.body_name, s.body_name) AS body_name,
                        l.body_id, l.lane, l.association_status,
                        l.association_confidence, l.association_source,
@@ -93,6 +96,9 @@ async def get_system(
         else:
             stations = await conn.fetch("""
                 SELECT id, id AS market_id, system_id64, name, station_type, distance_from_star,
+                       distance_source, distance_confidence, distance_updated_at,
+                       station_type_source, station_type_confidence, station_type_updated_at,
+                       body_name_source, body_name_confidence, body_name_updated_at,
                        body_name AS station_body_name, body_name,
                        NULL::bigint AS body_id,
                        NULL::text AS lane,
@@ -125,6 +131,10 @@ async def get_system(
 
 
 def _station_with_association(station: dict, bodies: list[dict]) -> dict:
+    if is_transient_non_slot_station_type(station.get('station_type')):
+        association = resolve_station_body_association(station, bodies)
+        station.update(association.to_api_dict())
+        return station
     if station.get('association_status'):
         return station
     association = resolve_station_body_association(station, bodies)
