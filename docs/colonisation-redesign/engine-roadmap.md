@@ -2169,6 +2169,29 @@ prediction, rating weights, Raven UI, or production import scheduling.
 - Fleet carriers, raw carriers, and megaships remain `ignored_transient_non_slot`
   and cannot affect occupied-slot capacity.
 
+## Stage 17N.2d-M - Natural Body Ordering And Ring-Fact Audit
+
+Stage 17N.2d-M fixes planner body display order and documents the current ring
+fact trust boundary without changing ratings, slot prediction, station/body
+association semantics, or production import scheduling.
+
+- System detail and batch body payloads are sorted by natural Elite hierarchy
+  order rather than `distance_from_star`: `Exioce 4`, `Exioce 4 a`,
+  `Exioce 4 a a`, `Exioce 4 b`, and `Exioce 10` after `Exioce 9`.
+- `4 a a` style nested body names are valid and must remain parent-before-child.
+  Belts, barycentres, stars, and non-standard names keep stable fallback order
+  when they do not match the conservative hierarchy parser.
+- The API includes a `body_sort_key` for parsed bodies so planner-side tree
+  builders can preserve the same order when they need to group rows locally.
+- Ring state on body payloads is tri-state: `is_ringed=true`,
+  `is_ringed=false`, or `is_ringed=null` with `ring_state='unknown'`.
+  Missing scan facts are unknown, not no-rings evidence.
+- Production investigation found `body_scan_facts` empty. Spansh body imports do
+  not currently populate this table or persist Spansh ring arrays. EDDN
+  `Journal/Scan` normalisation is the intended live source for
+  `body_scan_facts.is_ringed`, but production needs a population/backfill step
+  before ring coverage can be treated as available.
+
 ## Stage 17N.3-A - Guided Planner Quality Contract
 
 Stage 17N.3-A audits the existing Advanced Planner, Suggested Builds,

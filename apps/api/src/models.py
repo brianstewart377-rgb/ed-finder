@@ -240,6 +240,9 @@ class BodyModel(BaseModel):
     is_main_star:            Optional[bool]  = None
     spectral_class:          Optional[str]   = None
     is_scoopable:            Optional[bool]  = None
+    is_ringed:               Optional[bool]  = None
+    ring_state:              Optional[Literal['ringed', 'not_ringed', 'unknown']] = None
+    body_sort_key:           Optional[str]   = None
 
 
 class StationModel(BaseModel):

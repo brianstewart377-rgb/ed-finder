@@ -95,6 +95,29 @@ These changes do not mark `rating_dirty` today:
 - Body scan facts in `body_scan_facts`; the current rating builder reads the
   canonical `bodies` table.
 
+## Body Order And Ring Facts
+
+Stage 17N.2d-M changes body display order to natural Elite hierarchy order.
+Distance can still be displayed, but it must not be used as the primary planner
+body order. Nested names such as `Exioce 4 a a` are valid child bodies and must
+sort under `Exioce 4 a`, before sibling `Exioce 4 b`.
+
+Ring facts are tri-state operationally:
+
+- `body_scan_facts` row from `eddn_scan` with `is_ringed = true` means ringed.
+- `body_scan_facts` row from `eddn_scan` with `is_ringed = false` means scanned
+  and not ringed.
+- Missing scan facts, or partial non-scan facts, mean unknown. Do not count
+  unknown as no-rings evidence.
+
+The production Stage 17N.2d-M investigation observed `scan_fact_rows = 0`,
+`ringed_bodies = 0`, `non_ringed_bodies = 0`, and `unknown_ring_state = 0`.
+That means ring coverage is absent, not that all bodies are unringed. Spansh
+imports currently populate `bodies` but do not populate `body_scan_facts` or
+persist ring arrays there. EDDN `Journal/Scan` ingestion is the existing live
+writer for scan-derived ring facts; historical coverage requires a separate
+safe population/backfill plan.
+
 ## Rebuild Warnings
 
 Avoid this in production unless a prior gentle run has proven connection and DB

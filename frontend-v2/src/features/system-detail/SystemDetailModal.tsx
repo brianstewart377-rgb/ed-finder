@@ -3,6 +3,7 @@ import { Rocket, X } from 'lucide-react';
 import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
 import { distanceFromSol, formatCoords, formatPopulationForSystem } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
+import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import { useSystemDetail } from './useSystemDetail';
 import { RatingRadar } from './RatingRadar';
 
@@ -108,7 +109,7 @@ export function SystemDetailModal({
                 <RatingRadar sys={data} />
               </Section>
               <SystemInfoGrid sys={data} />
-              <BodiesSection bodies={data.bodies} />
+              <BodiesSection bodies={data.bodies} systemName={data.name} />
               <StationsSection stations={data.stations} />
               <ExplorationValue value={data.exploration_value} />
 
@@ -265,16 +266,16 @@ function SystemInfoGrid({ sys }: { sys: SystemDetail }) {
   );
 }
 
-function BodiesSection({ bodies }: { bodies?: SystemBody[] }) {
+function BodiesSection({ bodies, systemName }: { bodies?: SystemBody[]; systemName?: string | null }) {
   if (!bodies || bodies.length === 0) return null;
 
-  // Stars first, then planets/moons by distance from main star.
+  // Stars first, then planets/moons by natural Elite hierarchy.
   const sorted = [...bodies].sort((a, b) => {
     const rank = (v: SystemBody) =>
       v.body_type === 'Star' ? 0 :
       v.body_type === 'Planet' ? 1 : 2;
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
-    return (a.distance_from_star ?? Infinity) - (b.distance_from_star ?? Infinity);
+    return compareBodiesByHierarchy(a, b, systemName);
   });
 
   return (
