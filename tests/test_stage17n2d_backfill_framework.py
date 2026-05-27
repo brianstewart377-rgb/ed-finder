@@ -20,9 +20,13 @@ from ingest.journal_normaliser import normalise_scan_event  # noqa: E402
 
 
 SYSTEM = {'id64': 2008132031194, 'name': 'Exioce'}
+BIG_BODY_ID = 576462760435454682
 BODIES = [
     {'id': 10, 'system_id64': 2008132031194, 'name': 'Exioce', 'distance_from_star': 0.0},
     {'id': 11, 'system_id64': 2008132031194, 'name': 'Exioce 1', 'distance_from_star': 120.0},
+]
+BIG_BODIES = [
+    {'id': BIG_BODY_ID, 'system_id64': 2008132031194, 'name': 'Exioce 3', 'distance_from_star': 350.0},
 ]
 
 
@@ -60,6 +64,9 @@ class RingApplyConnection:
         self.scan_facts = {}
         self.statements = []
         self.last_row = None
+        self.last_rows = []
+        self.committed = False
+        self.rolled_back = False
 
     def cursor(self, *args, **kwargs):
         return self
@@ -70,9 +77,26 @@ class RingApplyConnection:
     def __exit__(self, *exc_info):
         return False
 
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
     def execute(self, sql, params=None):
         self.statements.append((sql, params))
+        self.last_row = None
+        self.last_rows = []
         sql_lower = ' '.join(sql.lower().split())
+        if 'select id64, name from systems where id64 = %s' in sql_lower:
+            if params and params[0] == SYSTEM['id64']:
+                self.last_rows = [SYSTEM]
+            return
+
+        if 'from bodies' in sql_lower and 'where system_id64 = %s' in sql_lower:
+            self.last_rows = BIG_BODIES if params and params[0] == SYSTEM['id64'] else []
+            return
+
         if 'insert into body_rings' in sql_lower:
             (
                 system_id64,
@@ -117,6 +141,7 @@ class RingApplyConnection:
 
         if 'insert into body_scan_facts' in sql_lower:
             system_id64, body_id, body_name, source, confidence = params
+            assert -(2**31) <= body_id <= 2**31 - 1
             key = (system_id64, body_id)
             existing = self.scan_facts.get(key)
             if existing and existing['is_ringed'] is True and source in existing['data_sources']:
@@ -139,6 +164,9 @@ class RingApplyConnection:
 
     def fetchone(self):
         return self.last_row
+
+    def fetchall(self):
+        return self.last_rows
 
 
 def test_dry_run_ring_plan_writes_nothing():
@@ -169,6 +197,17 @@ def test_apply_flags_require_explicit_dirty_marking():
     ])
 
     assert 'Apply flags require --mark-dirty' in '\n'.join(enrich.validate_args(args))
+
+
+def test_main_failure_reporting_uses_sys_stderr_without_name_error(monkeypatch, capsys):
+    def fail(_args):
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr(enrich, 'run', fail)
+    code = enrich.main(['--rings', '--source', 'edsm', '--system-id64', str(SYSTEM['id64'])])
+    captured = capsys.readouterr()
+    assert code == 1
+    assert 'enrich_system_data failed: boom' in captured.err
 
 
 def test_station_metadata_batch_plans_trusted_edsm_updates():
@@ -278,34 +317,111 @@ def test_explicit_no_rings_full_scan_sets_false():
     assert fact['rings'] == []
 
 
-def test_ring_apply_marks_dirty_candidates_and_is_idempotent():
+def test_bigint_ring_apply_writes_body_rings_and_skips_scan_facts():
     conn = RingApplyConnection()
+
+    report = enrich.process_ring_system_payload(
+        conn,
+        {'bodies': [{'name': 'Exioce 3', 'rings': [{
+            'name': 'Exioce 3 A Ring',
+            'type': 'Metal Rich',
+            'mass': 123.0,
+            'innerRadius': 10,
+            'outerRadius': 20,
+        }]}]},
+        system=SYSTEM,
+        local_bodies=BIG_BODIES,
+        source='edsm',
+        dry_run=False,
+        apply_rings=True,
+    )
+
+    assert report['applied'] == [{
+        'system_id64': 2008132031194,
+        'body_id': BIG_BODY_ID,
+        'body_name': 'Exioce 3',
+        'ring_name': 'Exioce 3 A Ring',
+        'source': edsm_probe.TRUSTED_EDSM_SOURCE,
+        'confidence': 'source_ring_payload',
+    }]
+    ring_key = (2008132031194, BIG_BODY_ID, 'Exioce 3 A Ring', edsm_probe.TRUSTED_EDSM_SOURCE)
+    assert conn.rings[ring_key]['body_id'] == BIG_BODY_ID
+    assert conn.rings[ring_key]['ring_type'] == 'Metal Rich'
+    assert conn.rings[ring_key]['mass_mt'] == 123.0
+    assert report['scan_fact_applied'] == []
+    assert report['scan_fact_skipped'] == [{
+        'system_id64': 2008132031194,
+        'body_id': BIG_BODY_ID,
+        'body_name': 'Exioce 3',
+        'reason': 'body_scan_facts_body_id_schema_mismatch',
+    }]
+    assert not any('INSERT INTO body_scan_facts' in sql for sql, _params in conn.statements)
+    assert report['dirty_system_ids'] == [2008132031194]
+
+
+def test_ring_apply_is_idempotent_without_duplicate_body_rings():
+    conn = RingApplyConnection()
+    payload = {'bodies': [{'name': 'Exioce 3', 'rings': [{'name': 'Exioce 3 A Ring'}]}]}
 
     first = enrich.process_ring_system_payload(
         conn,
-        {'bodies': [{'id': 11, 'name': 'Exioce 1', 'rings': [{'name': 'Exioce 1 A Ring'}]}]},
+        payload,
         system=SYSTEM,
-        local_bodies=BODIES,
-        source='spansh',
+        local_bodies=BIG_BODIES,
+        source='edsm',
         dry_run=False,
         apply_rings=True,
     )
     second = enrich.process_ring_system_payload(
         conn,
-        {'bodies': [{'id': 11, 'name': 'Exioce 1', 'rings': [{'name': 'Exioce 1 A Ring'}]}]},
+        payload,
         system=SYSTEM,
-        local_bodies=BODIES,
-        source='spansh',
+        local_bodies=BIG_BODIES,
+        source='edsm',
         dry_run=False,
         apply_rings=True,
     )
 
     assert len(first['applied']) == 1
-    assert len(first['scan_fact_applied']) == 1
+    assert first['scan_fact_applied'] == []
+    assert len(first['scan_fact_skipped']) == 1
     assert first['dirty_system_ids'] == [2008132031194]
     assert second['applied'] == []
     assert second['scan_fact_applied'] == []
+    assert len(second['scan_fact_skipped']) == 1
+    assert second['dirty_system_ids'] == []
     assert len(conn.rings) == 1
+
+
+def test_run_mark_dirty_path_is_called_for_applied_rings(monkeypatch):
+    conn = RingApplyConnection()
+    marked = []
+
+    def mark_dirty(_conn, system_ids):
+        marked.extend(system_ids)
+        return len(system_ids)
+
+    monkeypatch.setattr(enrich, 'mark_systems_rating_dirty', mark_dirty)
+    args = enrich.parse_args([
+        '--rings',
+        '--system-id64', str(SYSTEM['id64']),
+        '--source', 'edsm',
+        '--apply-rings',
+        '--mark-dirty',
+    ])
+
+    report = enrich.run(
+        args,
+        connect=lambda _dsn: conn,
+        edsm_fetcher=lambda _name, timeout=None: {
+            'bodies': {'bodies': [{'name': 'Exioce 3', 'rings': [{'name': 'Exioce 3 A Ring'}]}]},
+        },
+        sleep=lambda _seconds: None,
+    )
+
+    assert marked == [2008132031194]
+    assert report['dirty']['marked'] == 1
+    assert conn.committed is True
 
 
 def test_json_summary_includes_station_and_ring_counts():
@@ -318,6 +434,7 @@ def test_json_summary_includes_station_and_ring_counts():
         'rows': [{'system_id64': 2008132031194}],
         'applied': [],
         'scan_fact_applied': [],
+        'scan_fact_skipped': [{'reason': 'body_scan_facts_body_id_schema_mismatch'}],
         'skipped': [{'reason': 'missing_ring_array_unknown'}],
         'apply_skipped': [],
         'conflicts': [{'type': 'body_id_name_mismatch'}],
@@ -329,5 +446,6 @@ def test_json_summary_includes_station_and_ring_counts():
 
     assert set(report['summary']) >= {'stations', 'rings', 'conflicts'}
     assert report['summary']['rings']['planned'] == 1
+    assert report['summary']['rings']['scan_fact_skipped'] == 1
     assert report['summary']['rings']['skipped'] == 1
     assert report['summary']['rings']['conflicts'] == 1

@@ -12,6 +12,7 @@ import argparse
 import gzip
 import json
 import os
+import sys
 import time
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -28,7 +29,8 @@ from ring_facts import normalise_ring_payload, ring_rows_for_body
 
 DEFAULT_EDSM_RATE_LIMIT_SECONDS = 0.25
 DEFAULT_SPANSH_SOURCE = 'spansh_dump'
-DEFAULT_RING_SCAN_CONFIDENCE = 0.80
+INT32_MIN = -2147483648
+INT32_MAX = 2147483647
 TRUSTED_RING_SOURCES = {
     'edsm': edsm_probe.TRUSTED_EDSM_SOURCE,
     'spansh': DEFAULT_SPANSH_SOURCE,
@@ -303,8 +305,9 @@ def process_ring_system_payload(
     applied: list[dict[str, Any]] = []
     scan_fact_applied: list[dict[str, Any]] = []
     apply_skipped: list[dict[str, Any]] = []
+    scan_fact_skipped: list[dict[str, Any]] = []
     if apply_rings and not dry_run:
-        applied, scan_fact_applied, apply_skipped = apply_ring_rows(conn, plan['rows'])
+        applied, scan_fact_applied, scan_fact_skipped, apply_skipped = apply_ring_rows(conn, plan['rows'])
     dirty_ids = sorted({
         int(row['system_id64'])
         for row in [*applied, *scan_fact_applied]
@@ -314,6 +317,7 @@ def process_ring_system_payload(
         **plan,
         'applied': applied,
         'scan_fact_applied': scan_fact_applied,
+        'scan_fact_skipped': scan_fact_skipped,
         'apply_skipped': apply_skipped,
         'dirty_system_ids': dirty_ids,
     }
@@ -405,7 +409,10 @@ def build_ring_plan(
     }
 
 
-def apply_ring_rows(conn, rows: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def apply_ring_rows(
+    conn,
+    rows: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     applied: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     seen_keys: set[tuple[Any, Any, Any, Any]] = set()
@@ -450,12 +457,20 @@ def apply_ring_rows(conn, rows: Sequence[Mapping[str, Any]]) -> tuple[list[dict[
         if returned:
             applied.append(_dict_row(returned))
 
-    scan_fact_applied = apply_ringed_scan_facts(conn, rows)
-    return applied, scan_fact_applied, skipped
+    scan_fact_applied, scan_fact_skipped = apply_ringed_scan_facts(conn, rows)
+    return applied, scan_fact_applied, scan_fact_skipped, skipped
 
 
-def apply_ringed_scan_facts(conn, rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def apply_ringed_scan_facts(_conn, rows: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Skip scan-fact writes unless a source BodyID is available.
+
+    body_rings.body_id stores ED-Finder bodies.id (BIGINT). body_scan_facts.body_id
+    stores the journal/source BodyID (INTEGER). The coordinated ring backfill
+    only plans ED-Finder body IDs, so writing them to body_scan_facts would either
+    overflow the current schema or corrupt that identity.
+    """
     applied: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     facts: dict[tuple[int, int], Mapping[str, Any]] = {}
     for row in rows:
         system_id64 = _read_int(row.get('system_id64'))
@@ -465,40 +480,19 @@ def apply_ringed_scan_facts(conn, rows: Sequence[Mapping[str, Any]]) -> list[dic
         facts[(system_id64, body_id)] = row
 
     for (system_id64, body_id), row in facts.items():
-        source = _clean_text(row.get('source')) or DEFAULT_SPANSH_SOURCE
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                INSERT INTO body_scan_facts (
-                    system_address, body_id, body_name,
-                    is_ringed, data_sources, confidence, updated_at
-                ) VALUES (
-                    %s, %s, %s, TRUE, ARRAY[%s]::text[], %s, NOW()
-                )
-                ON CONFLICT (system_address, body_id) DO UPDATE SET
-                    body_name = COALESCE(EXCLUDED.body_name, body_scan_facts.body_name),
-                    is_ringed = TRUE,
-                    data_sources = (
-                        SELECT ARRAY(
-                            SELECT DISTINCT unnest(body_scan_facts.data_sources || EXCLUDED.data_sources)
-                        )
-                    ),
-                    confidence = GREATEST(EXCLUDED.confidence, body_scan_facts.confidence),
-                    updated_at = NOW()
-                WHERE body_scan_facts.is_ringed IS DISTINCT FROM TRUE
-                   OR NOT (EXCLUDED.data_sources <@ body_scan_facts.data_sources)
-                   OR body_scan_facts.confidence < EXCLUDED.confidence
-                RETURNING system_address AS system_id64, body_id, body_name, is_ringed, data_sources, confidence
-            """, (
-                system_id64,
-                body_id,
-                _clean_text(row.get('body_name')),
-                source,
-                DEFAULT_RING_SCAN_CONFIDENCE,
-            ))
-            returned = cur.fetchone()
-        if returned:
-            applied.append(_dict_row(returned))
-    return applied
+        skipped.append({
+            'system_id64': system_id64,
+            'body_id': body_id,
+            'body_name': _clean_text(row.get('body_name')),
+            'reason': _scan_fact_skip_reason(body_id),
+        })
+    return applied, skipped
+
+
+def _scan_fact_skip_reason(body_id: int) -> str:
+    if body_id < INT32_MIN or body_id > INT32_MAX:
+        return 'body_scan_facts_body_id_schema_mismatch'
+    return 'body_scan_facts_source_body_id_unavailable'
 
 
 def audit_local_ring_state(conn, args: argparse.Namespace) -> dict[str, Any]:
@@ -545,6 +539,7 @@ def audit_local_ring_state(conn, args: argparse.Namespace) -> dict[str, Any]:
         'rows': [],
         'applied': [],
         'scan_fact_applied': [],
+        'scan_fact_skipped': [],
         'skipped': [],
         'apply_skipped': [],
         'conflicts': [],
@@ -756,6 +751,7 @@ def _new_report(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
             'rows_planned': [],
             'applied': [],
             'scan_fact_applied': [],
+            'scan_fact_skipped': [],
             'skipped': [],
             'apply_skipped': [],
             'conflicts': [],
@@ -795,7 +791,7 @@ def _merge_ring_report(report: dict[str, Any], ring_report: Mapping[str, Any]) -
         section['systems'].append(ring_report['system'])
     section['systems'].extend(ring_report.get('systems', []))
     section['rows_planned'].extend(ring_report.get('rows', []))
-    for key in ('applied', 'scan_fact_applied', 'skipped', 'apply_skipped', 'conflicts'):
+    for key in ('applied', 'scan_fact_applied', 'scan_fact_skipped', 'skipped', 'apply_skipped', 'conflicts'):
         section[key].extend(ring_report.get(key, []))
     for key, value in ring_report.get('counts', {}).items():
         section['counts'][key] = section['counts'].get(key, 0) + int(value)
@@ -828,6 +824,7 @@ def _finalise_report(report: dict[str, Any]) -> None:
             'planned': len(report['rings']['rows_planned']),
             'applied': len(report['rings']['applied']),
             'scan_fact_applied': len(report['rings']['scan_fact_applied']),
+            'scan_fact_skipped': len(report['rings']['scan_fact_skipped']),
             'skipped': len(report['rings']['skipped']) + len(report['rings']['apply_skipped']),
             'conflicts': ring_conflicts,
         },
