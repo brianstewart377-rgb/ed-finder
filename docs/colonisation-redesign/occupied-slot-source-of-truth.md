@@ -129,6 +129,11 @@ Current station evidence paths:
 - API detail: `apps/api/src/routers/systems.py` reads stations and existing
   `station_body_links`; if no link exists, it runs the conservative resolver
   for that one response and labels the association status/confidence.
+- Coordinated backfill: `apps/importer/src/enrich_system_data.py` can apply
+  trusted EDSM station metadata and exact EDSM body-name links in bounded
+  batches. Metadata apply and link apply are separate flags. It never writes
+  inferred links, never creates links for fleet carriers/carriers/megaships,
+  and never overwrites existing confirmed/manual links with weaker evidence.
 
 Why production can show `station_type='Unknown'`:
 
@@ -153,6 +158,23 @@ Body association evidence quality:
 - Missing source fields needed for high confidence are: exact station body id,
   exact body name in the same namespace as `bodies.name`, source timestamp, and
   station identity fields such as stable `marketId` separate from source ids.
+
+Safe targeted enrichment command shape:
+
+```bash
+PYTHONPATH=apps/api/src:apps/importer/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/enrich_system_data.py \
+    --stations --source edsm \
+    --system-id64 :system_id64 \
+    --apply-station-metadata \
+    --apply-confirmed-links \
+    --mark-dirty \
+    --json
+```
+
+Run the same command without apply flags first. Review
+`metadata_updates_planned`, `confirmed_link_updates_planned`, conflicts, and
+`ignored_transient_non_slot` before applying.
 
 ## API Contract
 

@@ -258,6 +258,84 @@ exactly once in local `bodies`. Legacy local station distance mismatches remain
 reported as `station_distance_mismatch`, but they do not block these trusted
 metadata/link proposals.
 
+## Stage 17N.2d-P Bulk Source Audit
+
+This pass audited the existing importer and ingestion assumptions before adding
+the coordinated `enrich_system_data.py` framework.
+
+### Spansh Station Fields
+
+`apps/importer/src/import_spansh.py` already reads station type, station
+arrival distance, and source body-name aliases from both inline `galaxy.json.gz`
+station arrays and `galaxy_stations.json.gz` station rows:
+
+- station type: `type`, `stationType`, `station_type`
+- arrival distance: `distanceToArrival`, `distanceFromArrival`,
+  `distanceFromArrivalLS`, `distance_from_star`
+- body name: `bodyName`, `body_name`, `stationBodyName`,
+  `station_body_name`, or nested `body.name`
+
+Those fields are useful bulk evidence, but existing imported values are legacy
+and untrusted until provenance is attached. They must not create confirmed
+`station_body_links` by themselves. Distance-only body association remains
+inferred at best, and fleet carriers, raw carriers, and megaships remain
+non-slot diagnostics only.
+
+### Spansh Ring Fields
+
+Spansh body payloads can include explicit `rings` arrays. The current importer
+normalises those arrays through `apps/importer/src/ring_facts.py` and writes
+`body_rings` with `source='spansh_dump'` and source confidence. The coordinated
+backfill uses the same normaliser.
+
+Missing `rings` arrays are unknown. Empty arrays from the bulk Spansh path are
+not treated as no-ring proof unless a future source contract proves the body
+payload is a trusted full scan for that body. Bulk backfill writes only actual
+ring rows and sets `body_scan_facts.is_ringed = true` for matched bodies with
+trusted ring rows.
+
+### EDSM Targeted Station Fields
+
+The EDSM per-system station API can safely enrich targeted systems when exact
+local station identity is established by id/marketId plus exact station name.
+The trusted station metadata path uses EDSM `type`, `distanceToArrival`, and
+optional `bodyName`/`body`/`bodyId` evidence. `bodyId` is mapped through the
+EDSM bodies payload to a body name before local matching; it is not assumed to
+be the same namespace as `bodies.id`.
+
+Confirmed links are applied only from exact EDSM body-name evidence that
+matches exactly one local body in the same system. Existing confirmed/manual
+links are preserved, and weaker inferred/distance evidence is not upgraded to
+confirmed.
+
+### EDDN Future Ring Updates
+
+EDDN `Journal/Scan` can provide future ring updates. The API simulation ingest
+normaliser treats Scan as a trusted full body scan for tri-state ring evidence:
+
+- explicit `Rings` entries -> `body_rings` rows and `is_ringed = true`
+- explicit empty `Rings` array -> `is_ringed = false`
+- missing `Rings` key -> `is_ringed = null`
+
+`SAASignalsFound` and `FSSBodySignals` do not prove no rings and must not write
+`is_ringed = false`.
+
+### Still Unsafe For Bulk Apply
+
+The following remain unsafe for broad automatic population:
+
+- confirmed station/body links from legacy Spansh station body names or
+  distance-only matches
+- any link for `FleetCarrier`, raw `Carrier`, or `MegaShip` rows
+- no-ring facts from missing Spansh/EDSM ring arrays
+- no-ring facts from `SAASignalsFound`, `FSSBodySignals`, or other partial
+  non-Scan events
+- direct EDSM body-id to local-body-id matching without an explicit source-id
+  namespace mapping
+- overwriting existing confirmed/manual `station_body_links` with EDSM or
+  Spansh evidence
+- defaulting unknown coordinates, distance, population, or rings to zero/false
+
 Before apply, capture reviewed rows for rollback; after apply, inspect the
 station metadata and links:
 

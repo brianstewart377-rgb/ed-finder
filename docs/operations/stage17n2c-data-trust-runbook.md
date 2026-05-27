@@ -86,12 +86,13 @@ These changes mark the affected system dirty:
 - EDDN main-star scans now update `systems.main_star_type`; EDDN body upserts
   preserve conflict updates for rating fields such as `distance_from_star`.
 
-These changes do not mark `rating_dirty` today:
-
-- Station-only imports and station/body association backfills. The v3.4 rating
-  builder does not read `stations` or `station_body_links`. These paths can make
-  system-detail and planner/occupied-slot cache payloads stale until TTL expiry
-  or an explicit cache clear, but they do not change rating math.
+Station-only imports and station/body association backfills do not affect v3.4
+rating math directly, but they can affect planner role/occupied-slot
+presentation. Stage 17N.2d-P therefore makes dirty marking an explicit
+operator choice in the coordinated backfill CLI: use `--mark-dirty` when
+trusted station facts or confirmed links are applied and downstream planner
+payloads should be rebuilt/cleared. The script still never runs rating
+calculation inline.
 
 ## Body Order And Ring Facts
 
@@ -121,6 +122,140 @@ and only writes scan-derived `is_ringed=false` when a trusted full scan
 explicitly carries an empty `Rings` array. Historical coverage still requires a
 separate safe population/backfill plan; do not treat empty production
 `body_scan_facts` or `body_rings` as no-rings evidence.
+
+## Stage 17N.2d-P Coordinated Enrichment CLI
+
+Script:
+
+```bash
+python apps/importer/src/enrich_system_data.py --help
+```
+
+The coordinator is dry-run by default and has no broad apply mode. Writes are
+split by explicit flags:
+
+- `--apply-station-metadata` updates only trusted station type, station arrival
+  distance, and station body-name provenance from exact EDSM station identity.
+- `--apply-confirmed-links` writes only exact EDSM body-name
+  `station_body_links`; it does not write inferred distance links and it
+  preserves existing confirmed/manual links.
+- `--apply-rings` writes trusted `body_rings` rows and sets
+  `body_scan_facts.is_ringed = true` for bodies with trusted ring rows.
+- `--mark-dirty` is a separate write and is required with apply flags so changed
+  ring or station facts queue deferred rebuild/cache work.
+
+Useful options:
+
+- `--system-id64` or `--system-name` for one targeted system.
+- `--limit` for bounded batch work.
+- `--source edsm` for EDSM station metadata and targeted EDSM body/ring reads.
+- `--source spansh --spansh-file /path/to/galaxy.json.gz` for controlled
+  Spansh ring backfill.
+- `--source local --rings` for ring coverage audit only.
+- `--checkpoint-file /path/to/checkpoint.json` to skip systems already handled
+  by a previous run.
+- `--json` for machine-readable counts, skipped rows, conflicts, and applied
+  rows.
+
+Safe station dry-run for one system:
+
+```bash
+PYTHONPATH=apps/api/src:apps/importer/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/enrich_system_data.py \
+    --stations --source edsm \
+    --system-id64 2008132031194 \
+    --json
+```
+
+Safe station apply after reviewing conflicts:
+
+```bash
+PYTHONPATH=apps/api/src:apps/importer/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/enrich_system_data.py \
+    --stations --source edsm \
+    --system-id64 2008132031194 \
+    --apply-station-metadata \
+    --apply-confirmed-links \
+    --mark-dirty \
+    --json
+```
+
+Safe Spansh ring dry-run for a tiny batch:
+
+```bash
+PYTHONPATH=apps/api/src:apps/importer/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/enrich_system_data.py \
+    --rings --source spansh \
+    --spansh-file /data/dumps/galaxy.json.gz \
+    --limit 10 \
+    --json
+```
+
+Safe Spansh ring apply after reviewing the dry-run:
+
+```bash
+PYTHONPATH=apps/api/src:apps/importer/src DATABASE_URL="$DATABASE_URL" \
+  python apps/importer/src/enrich_system_data.py \
+    --rings --source spansh \
+    --spansh-file /data/dumps/galaxy.json.gz \
+    --limit 10 \
+    --apply-rings \
+    --mark-dirty \
+    --checkpoint-file /data/checkpoints/stage17n2d-p-rings.json \
+    --json
+```
+
+Conservative batch sizes:
+
+- EDSM station enrichment: start with one system, then `--limit 10`; keep the
+  default inter-system rate limit unless the EDSM request volume has been
+  reviewed.
+- Spansh ring enrichment: start with `--limit 10`, then `--limit 100` after
+  conflict counts and row counts look sane. Avoid a full-galaxy apply until a
+  sampled run has been verified.
+- Dirty rebuild: run separately and gently with `build_ratings.py --dirty`;
+  never run it from the enrichment script.
+
+Post-backfill sequence:
+
+1. Apply a small enrichment batch.
+2. Verify applied/skipped/conflict counts and sample SQL.
+3. Run `build_ratings.py --dirty` gently.
+4. Clear system/detail/planner/search caches.
+5. Inspect UI/API for the sampled systems.
+
+Additional verification SQL:
+
+```sql
+SELECT distance_source, distance_confidence, count(*)
+FROM stations
+GROUP BY distance_source, distance_confidence
+ORDER BY count(*) DESC;
+
+SELECT station_type_source, station_type_confidence, count(*)
+FROM stations
+GROUP BY station_type_source, station_type_confidence
+ORDER BY count(*) DESC;
+
+SELECT association_source, association_status, association_confidence, count(*)
+FROM station_body_links
+GROUP BY association_source, association_status, association_confidence
+ORDER BY count(*) DESC;
+
+SELECT source, confidence, count(*)
+FROM body_rings
+GROUP BY source, confidence
+ORDER BY count(*) DESC;
+
+SELECT system_address, body_id, body_name, is_ringed, data_sources, confidence
+FROM body_scan_facts
+WHERE system_address = :system_id64
+ORDER BY body_id;
+
+SELECT id64, name, rating_dirty
+FROM systems
+WHERE id64 = :system_id64;
+```
 
 Useful verification SQL:
 

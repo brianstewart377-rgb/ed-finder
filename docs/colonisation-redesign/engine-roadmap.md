@@ -277,6 +277,33 @@ Telemetry now includes explicit Suggested Build comparison controls for bodies, 
 
 The project summary beneath telemetry is denser by default: save state, planned/projected counts, warnings, focus, projection label, and economy strip remain visible without competing with the primary telemetry. Full local project controls still expand manually from the same summary card.
 
+### Stage 17N.2d-P Coordinated Station Distance And Ring Backfill
+
+Stage 17N.2d-P adds the backend/operator framework for safely filling trusted
+station and ring evidence without changing planner UI, rating weights, slot
+prediction, or AI behavior.
+
+- `apps/importer/src/enrich_system_data.py` coordinates dry-run reports and
+  explicit writes for trusted station metadata, exact confirmed station/body
+  links, body ring rows, and deferred dirty marking.
+- EDSM remains the station enrichment source. Writes require exact station
+  id/marketId plus exact station name; confirmed links additionally require an
+  exact EDSM body name matching exactly one local body.
+- Spansh can bulk-populate `body_rings` only from explicit body ring arrays.
+  Missing ring arrays remain unknown and empty bulk arrays are not no-ring
+  proof.
+- EDDN future Scan events remain the live ring update path. Scan can set
+  tri-state ring evidence; SAASignals/FSS events cannot prove no rings.
+- The coordinator is resumable/idempotent through upserts, `--limit`, scoped
+  system filters, and optional checkpoints. It never runs
+  `build_ratings.py`; operators run dirty rebuilds separately after verifying
+  counts and conflicts.
+
+Boundaries remain unchanged: no production connection from development, no full
+production backfill by default, no UI changes, no rating-weight changes, no
+slot-prediction changes, no inferred association upgraded to confirmed, and no
+unknown ring/coordinate/distance/population values coerced to zero or false.
+
 ## Stage 6 - Observed vs Predicted Validation
 
 Stage 6A begins the validation layer as a backend-only observed facts foundation. It adds a passive `observed_facts` persistence contract, manual/test-fixture source support, CRUD API endpoints, and descriptive summaries. Observations record evidence; they do not mutate predictions, optimiser generation, ranking, Simulation Preview scoring, or CP/economy/service/buildability mechanics.

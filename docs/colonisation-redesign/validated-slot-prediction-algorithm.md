@@ -56,7 +56,8 @@ Per body:
    - set both `predicted_orbital_slots` and `predicted_ground_slots` to null
 4. Orbital base from radius in km:
    - `<1500 => 1`, `<3750 => 2`, `<5500 => 3`, else `4`
-   - ring bonus `+1`, capped at `4`
+   - ring bonus `+1`, capped at `4`, only when trusted ring evidence says the
+     body is ringed
 5. Ground hard gates:
    - non-landable => `0`
    - `surface_temp > 700` => `0`
@@ -151,6 +152,9 @@ Frontend rule:
 - slot boxes render from `predicted_orbital_slots` and `predicted_ground_slots`
 - unknown values render as unknown lanes
 - frontend code must not derive slot counts from radius, class, landability, body type, or hardcoded estimates
+- missing ring evidence is unknown. The planner must not treat absent
+  `body_rings` rows as a no-rings fact; it can only apply the ring bonus when
+  trusted ring rows or trusted Scan-derived ring facts exist.
 
 Stage 17H default planner rule:
 

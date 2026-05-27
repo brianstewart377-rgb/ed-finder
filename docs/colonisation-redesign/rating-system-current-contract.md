@@ -84,16 +84,23 @@ Current v3.4 rating reads:
 - `systems.updated_at` for confidence freshness
 - body type/subtype, landable/terraformable/special-world flags, tidal lock,
   signal counts, and `distance_from_star`
+- trusted ring presence from `body_rings` for ring count and ring-supported
+  economy contributions
 
 The database trigger contract also conservatively treats economy, population,
 colonisation state, body-data flags, and body count/quality fields as rating
 dirty inputs so future importer changes do not silently leave stale ratings.
 Body insert/update/delete marks the parent system dirty. Body no-op updates do
-not.
+not. `body_rings` changes are applied by importer/upsert paths, not by a
+database trigger, so those paths must explicitly mark affected systems
+`rating_dirty` after ring facts change.
 
 Station rows and `station_body_links` do not affect rating v3.4. They affect
 system detail and occupied-slot presentation; cached `sys:*` and simulation
-payloads may be stale until TTL expiry or an operator cache clear.
+payloads may be stale until TTL expiry or an operator cache clear. The
+coordinated enrichment CLI can mark affected systems dirty with `--mark-dirty`
+when trusted station facts or exact links are applied so downstream rebuild and
+cache-clear workflows have an explicit queue.
 
 ## Stage 17N.2d reliability additions
 
@@ -107,6 +114,9 @@ payloads may be stale until TTL expiry or an operator cache clear.
 - Missing `rating_version` is legacy/stale. The UI separates that caveat from
   the user-facing rationale so old internal/stale wording is not presented as
   the main explanation.
+- Missing `body_rings` rows mean unknown ring state, not no-rings. Ring count
+  increases only from trusted ring rows or trusted Scan facts; no-ring evidence
+  requires an explicit full-scan empty Rings payload.
 
 ## Frontend display contract
 
