@@ -225,7 +225,7 @@ export function RavenStylePlannerCanvas({
           <CanvasPill label={`${snapshot.placements.length} planned`} tone={snapshot.placements.length > 0 ? 'orange' : 'silver'} />
           <CanvasPill label={`${snapshot.projection?.placements.length ?? 0} projected`} tone={snapshot.projection ? 'cyan' : 'silver'} />
           <CanvasPill label={`${occupancySummary.emptySlotCount} empty`} tone="silver" />
-          {occupancySummary.unresolvedExistingCount > 0 && <CanvasPill label={`${occupancySummary.unresolvedExistingCount} unresolved`} tone="gold" />}
+          <CanvasPill label={`${occupancySummary.unresolvedExistingCount} unresolved existing`} tone={occupancySummary.unresolvedExistingCount > 0 ? 'gold' : 'green'} />
           <CanvasPill label={hasEstimatedSlots ? 'slots estimated' : snapshot.slotPredictions ? 'slots loaded' : 'slots unknown'} tone={hasEstimatedSlots ? 'gold' : snapshot.slotPredictions ? 'green' : 'gold'} />
         </div>
       </header>
@@ -303,6 +303,7 @@ export function RavenPlannerTelemetryPanel({
   const bodyDetail = buildSelectedBodyTelemetryDetail(rows, snapshot, selection);
   const structureDetail = buildSelectedStructureTelemetryDetail(system, snapshot, selection);
   const warningItems = buildTelemetryWarningItems(system, snapshot, economyLedger, selectedContext, prerequisiteIssues);
+  const unresolvedExistingCount = resolveExistingInfrastructure(system).unresolved.length;
 
   return (
     <aside
@@ -364,9 +365,12 @@ export function RavenPlannerTelemetryPanel({
       <div className="mt-4 border-t border-border/45 pt-3" data-testid="raven-telemetry-warning-summary">
         <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-gold">Warnings / needs</div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {warningItems.length > 0
-            ? warningItems.map((item) => <TelemetryChip key={item} label={item} tone="gold" />)
-            : <TelemetryChip label="No active warnings" tone="green" />}
+          <TelemetryChip
+            label={`${unresolvedExistingCount} unresolved existing`}
+            tone={unresolvedExistingCount > 0 ? 'gold' : 'green'}
+          />
+          {warningItems.length > 0 && warningItems.map((item) => <TelemetryChip key={item} label={item} tone="gold" />)}
+          {warningItems.length === 0 && unresolvedExistingCount === 0 && <TelemetryChip label="No active warnings" tone="green" />}
         </div>
       </div>
     </aside>
@@ -1283,7 +1287,6 @@ function buildTelemetryWarningItems(
   const bodies = systemBodyData(system);
   const bodyIds = new Set(bodies.filter((body) => body.id != null).map((body) => bodyIdKey(body.id)));
   const unassigned = snapshot.placements.filter((placement) => placement.local_body_id == null).length;
-  const unresolvedExisting = resolveExistingInfrastructure(system).unresolved.length;
   const unknownBodies = snapshot.placements.filter((placement) => {
     const bodyId = placement.local_body_id != null ? bodyIdKey(placement.local_body_id) : '';
     return Boolean(bodyId && !bodyIds.has(bodyId));
@@ -1292,7 +1295,6 @@ function buildTelemetryWarningItems(
   return [
     selectedContext.warningCount > 0 ? `${selectedContext.warningCount} selected warning${selectedContext.warningCount === 1 ? '' : 's'}` : null,
     unassigned > 0 ? `${unassigned} unassigned` : null,
-    unresolvedExisting > 0 ? `${unresolvedExisting} unresolved existing` : null,
     unknownBodies > 0 ? `${unknownBodies} unmatched body` : null,
     economyLedger.unknownCount > 0 ? `${economyLedger.unknownCount} no economy metadata` : null,
     prerequisiteIssues.length > 0 ? prerequisiteSummaryLabel(prerequisiteIssues.length) : null,

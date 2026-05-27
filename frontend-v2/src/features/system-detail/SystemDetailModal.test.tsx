@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SystemDetail } from '@/types/api';
 import { useSystemDetail } from './useSystemDetail';
@@ -144,6 +144,86 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(screen.getByText('System info')).toBeTruthy();
     expect(screen.getByText('Coordinates')).toBeTruthy();
     expect(screen.getByText('External')).toBeTruthy();
+  });
+
+  it('shows station body, lane, and association provenance in the stations panel', () => {
+    mockLoadedSystem({
+      name: 'Exioce',
+      stations: [
+        {
+          id: 2001,
+          market_id: 2001,
+          name: 'Macmillan Depot',
+          station_type: 'Orbis',
+          body_id: 31,
+          body_name: 'Exioce 3 d',
+          lane: 'orbital',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'edsm_body_name',
+          landing_pad_size: 'L',
+        },
+        {
+          id: 2002,
+          market_id: 2002,
+          name: 'Fort Lawrence',
+          station_type: 'Orbis',
+          body_id: 4,
+          body_name: 'Exioce 4',
+          lane: 'orbital',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'edsm_body_name',
+          landing_pad_size: 'L',
+        },
+        {
+          id: 2003,
+          market_id: 2003,
+          name: 'Miller Terminal',
+          station_type: 'Coriolis',
+          body_id: 52,
+          body_name: 'Exioce 5 b',
+          lane: 'orbital',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'edsm_body_name',
+          landing_pad_size: 'L',
+        },
+        {
+          id: 2004,
+          market_id: 2004,
+          name: 'T9J-99T',
+          station_type: 'Unknown',
+          association_status: 'unresolved',
+          association_confidence: 'unresolved',
+          association_source: 'unknown',
+        },
+      ],
+    } as unknown as Partial<SystemDetail>);
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onOpenColonyPlanner={() => undefined}
+      />,
+    );
+
+    const table = screen.getByTestId('system-detail-stations-table');
+    const macmillanRow = within(table).getByText('Macmillan Depot').closest('tr') as HTMLElement;
+    const fortRow = within(table).getByText('Fort Lawrence').closest('tr') as HTMLElement;
+    const millerRow = within(table).getByText('Miller Terminal').closest('tr') as HTMLElement;
+    const carrierRow = within(table).getByText('T9J-99T').closest('tr') as HTMLElement;
+
+    expect(within(macmillanRow).getByText('Exioce 3 d')).toBeTruthy();
+    expect(within(macmillanRow).getByText('Confirmed / exact / EDSM')).toBeTruthy();
+    expect(within(macmillanRow).getByText('Orbital')).toBeTruthy();
+    expect(within(fortRow).getByText('Exioce 4')).toBeTruthy();
+    expect(within(fortRow).getByText('Confirmed / exact / EDSM')).toBeTruthy();
+    expect(within(millerRow).getByText('Exioce 5 b')).toBeTruthy();
+    expect(within(millerRow).getByText('Confirmed / exact / EDSM')).toBeTruthy();
+    expect(within(carrierRow).getByText('Transient / non-slot')).toBeTruthy();
+    expect(within(carrierRow).getByText('Fleet Carrier / transient / ignored for colony planning')).toBeTruthy();
   });
 
   it('shows a friendly disabled planner state when no workspace handler is available', () => {

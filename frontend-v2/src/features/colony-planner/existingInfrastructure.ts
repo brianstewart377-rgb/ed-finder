@@ -6,6 +6,8 @@ export type ExistingStructureBodyMatchConfidence = 'exact' | 'inferred' | 'unres
 export type ExistingStructureAssociationStatus = 'confirmed' | 'inferred' | 'unresolved';
 export type ExistingStructureAssociationConfidence = 'exact' | 'strong_inference' | 'weak_inference' | 'unresolved';
 
+const TRANSIENT_STATION_TYPE_TOKENS = new Set(['fleetcarrier', 'carrier', 'megaship']);
+
 export interface ExistingStructure {
   source: 'existing';
   id: string;
@@ -25,6 +27,8 @@ export interface ExistingStructure {
   pad_size: string | null;
   distance_from_star: number | null;
   unresolved_reason: string | null;
+  transient: boolean;
+  transient_reason: string | null;
   raw: {
     station_id: number | string | null;
     body_name: string | null;
@@ -36,6 +40,7 @@ export interface ExistingInfrastructureResolution {
   structures: ExistingStructure[];
   mapped: ExistingStructure[];
   unresolved: ExistingStructure[];
+  transient: ExistingStructure[];
   byBodyId: Map<string, {
     orbital: ExistingStructure[];
     surface: ExistingStructure[];
@@ -47,7 +52,8 @@ export function resolveExistingInfrastructure(system: SystemDetail): ExistingInf
   const bodies = (system.bodies ?? []).filter((body) => body?.id != null);
   const structures = (system.stations ?? []).map((station, index) => resolveStation(bodies, station, index));
   const mapped = structures.filter(isExistingSlotOccupant);
-  const unresolved = structures.filter((structure) => !isExistingSlotOccupant(structure));
+  const transient = structures.filter(isTransientExistingStructure);
+  const unresolved = structures.filter(isUnresolvedPermanentInfrastructure);
   const byBodyId = new Map<string, { orbital: ExistingStructure[]; surface: ExistingStructure[]; unknown: ExistingStructure[] }>();
 
   structures.forEach((structure) => {
@@ -57,15 +63,44 @@ export function resolveExistingInfrastructure(system: SystemDetail): ExistingInf
     byBodyId.set(structure.body_id, current);
   });
 
-  return { structures, mapped, unresolved, byBodyId };
+  return { structures, mapped, unresolved, transient, byBodyId };
 }
 
 export function isExistingSlotOccupant(structure: ExistingStructure): structure is ExistingStructure & { body_id: string; lane: 'orbital' | 'surface' } {
   return Boolean(
-    structure.body_id
+    !structure.transient
+    && structure.body_id
     && (structure.association_status === 'confirmed' || structure.association_status === 'inferred')
     && (structure.lane === 'orbital' || structure.lane === 'surface'),
   );
+}
+
+export function isTransientExistingStructure(structure: ExistingStructure): boolean {
+  return structure.transient;
+}
+
+export function isTransientStationForColonyPlanning(station: Partial<SystemStation> & Record<string, unknown>): boolean {
+  return transientStationPlanningReason(station) != null;
+}
+
+export function transientStationPlanningReason(station: Partial<SystemStation> & Record<string, unknown>): string | null {
+  const stationType = readString(station.station_type) ?? readString(station.type);
+  if (isTransientStationType(stationType)) return 'Fleet Carrier / transient / ignored for colony planning';
+
+  const name = readString(station.name);
+  if (name && isFleetCarrierCallsign(name) && !hasConfirmedPermanentStationBodyLink(station)) {
+    return 'Fleet Carrier callsign / transient / ignored for colony planning';
+  }
+
+  return null;
+}
+
+export function isTransientStationType(stationType?: string | null): boolean {
+  return TRANSIENT_STATION_TYPE_TOKENS.has(normaliseToken(stationType));
+}
+
+export function isFleetCarrierCallsign(name?: string | null): boolean {
+  return /^[A-Z0-9]{3}-[A-Z0-9]{3}$/i.test((name ?? '').trim());
 }
 
 export function classifyExistingStationLane(stationType?: string | null): ExistingStructureLane {
@@ -100,8 +135,9 @@ function resolveStation(
   const stationType = readString(record.station_type) ?? readString(record.type);
   const name = readString(record.name) ?? `Existing station ${index + 1}`;
   const backendStatus = readAssociationStatus(record.association_status);
+  const transientReason = transientStationPlanningReason(record);
   if (backendStatus) {
-    return structureFromBackendAssociation(record, stationType, name, index, backendStatus);
+    return structureFromBackendAssociation(record, stationType, name, index, backendStatus, transientReason);
   }
   const explicitBodyId = readBodyId(record.body_id) ?? readBodyId(record.local_body_id);
   const stationBodyName = readString(record.body_name);
@@ -134,7 +170,9 @@ function resolveStation(
     secondary_economy: readString(record.secondary_economy) ?? readEconomyName(record.economies, 1),
     pad_size: readString(record.landing_pad_size) ?? readString(record.pad_size),
     distance_from_star: distanceFromStar,
-    unresolved_reason: unresolvedReason,
+    unresolved_reason: transientReason ?? unresolvedReason,
+    transient: transientReason != null,
+    transient_reason: transientReason,
     raw: {
       station_id: stationId,
       body_name: stationBodyName,
@@ -149,6 +187,7 @@ function structureFromBackendAssociation(
   name: string,
   index: number,
   associationStatus: ExistingStructureAssociationStatus,
+  transientReason: string | null,
 ): ExistingStructure {
   const lane = readLane(record.lane);
   const bodyId = readBodyId(record.body_id);
@@ -159,7 +198,9 @@ function structureFromBackendAssociation(
   const bodyName = readString(record.body_name);
   const stationBodyName = readString(record.station_body_name) ?? bodyName;
   const resolverNotes = readString(record.resolver_notes);
-  const unresolvedReason = associationStatus === 'unresolved'
+  const unresolvedReason = transientReason
+    ? transientReason
+    : associationStatus === 'unresolved'
     ? resolverNotes ?? 'Backend association status is unresolved.'
     : !bodyId
       ? resolverNotes ?? 'Backend association has no body id.'
@@ -190,12 +231,31 @@ function structureFromBackendAssociation(
     pad_size: readString(record.landing_pad_size) ?? readString(record.pad_size),
     distance_from_star: readNumber(record.distance_from_star ?? record.distance_to_arrival),
     unresolved_reason: unresolvedReason,
+    transient: transientReason != null,
+    transient_reason: transientReason,
     raw: {
       station_id: stationId,
       body_name: stationBodyName,
       station_type: stationType,
     },
   };
+}
+
+function isUnresolvedPermanentInfrastructure(structure: ExistingStructure): boolean {
+  return !isExistingSlotOccupant(structure) && !structure.transient;
+}
+
+function hasConfirmedPermanentStationBodyLink(station: Partial<SystemStation> & Record<string, unknown>): boolean {
+  const stationType = readString(station.station_type) ?? readString(station.type);
+  const status = readAssociationStatus(station.association_status);
+  const lane = readLane(station.lane);
+  const bodyId = readBodyId(station.body_id) ?? readBodyId(station.local_body_id);
+  return Boolean(
+    status === 'confirmed'
+    && bodyId
+    && (lane === 'orbital' || lane === 'surface')
+    && !isTransientStationType(stationType),
+  );
 }
 
 function matchStationBody(

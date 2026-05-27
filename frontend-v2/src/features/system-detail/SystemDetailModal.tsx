@@ -4,6 +4,7 @@ import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
 import { distanceFromSol, formatCoords, formatPopulationForSystem } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
 import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
+import { transientStationPlanningReason } from '@/features/colony-planner/existingInfrastructure';
 import { useSystemDetail } from './useSystemDetail';
 import { RatingRadar } from './RatingRadar';
 
@@ -338,14 +339,17 @@ function StationsSection({ stations }: { stations?: SystemStation[] }) {
         background: 'linear-gradient(180deg, rgba(20,22,26,0.85), rgba(14,16,20,0.85))',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -16px rgba(0,0,0,0.6)',
       }}>
-        <table className="w-full text-xs font-mono">
+        <table data-testid="system-detail-stations-table" className="w-full text-xs font-mono">
           <thead className="text-silver-dk uppercase tracking-[0.16em] text-[10px]" style={{
             background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
             borderBottom: '1px solid hsl(216 10% 24%)',
           }}>
             <tr>
               <th className="px-3 py-2.5 text-left">Name</th>
+              <th className="px-3 py-2.5 text-left">Body</th>
               <th className="px-3 py-2.5 text-left">Type</th>
+              <th className="px-3 py-2.5 text-left">Lane</th>
+              <th className="px-3 py-2.5 text-left">Status</th>
               <th className="px-3 py-2.5 text-left">Pad</th>
               <th className="px-3 py-2.5 text-left">Services</th>
               <th className="px-3 py-2.5 text-right">Dist (ls)</th>
@@ -355,7 +359,14 @@ function StationsSection({ stations }: { stations?: SystemStation[] }) {
             {stations.map((s) => (
               <tr key={s.id} className="border-t border-border/50 hover:bg-orange/5 transition-colors">
                 <td className="px-3 py-2 text-orange-lt font-semibold">{s.name}</td>
+                <td className="px-3 py-2 text-silver">{stationBodyLabel(s)}</td>
                 <td className="px-3 py-2 text-silver">{s.station_type || '—'}</td>
+                <td className="px-3 py-2">
+                  <StationLaneBadge station={s} />
+                </td>
+                <td className="px-3 py-2">
+                  <StationAssociationBadge station={s} />
+                </td>
                 <td className="px-3 py-2">
                   <span className={[
                     'inline-grid place-items-center min-w-[26px] h-6 rounded-md text-[10px] font-bold border',
@@ -382,6 +393,91 @@ function StationsSection({ stations }: { stations?: SystemStation[] }) {
       </div>
     </Section>
   );
+}
+
+function StationLaneBadge({ station }: { station: SystemStation }) {
+  const transientReason = transientStationPlanningReason(station as SystemStation & Record<string, unknown>);
+  const label = transientReason
+    ? 'Transient / non-slot'
+    : station.lane === 'orbital'
+      ? 'Orbital'
+      : station.lane === 'surface'
+        ? 'Surface'
+        : 'Unknown';
+  const tone = transientReason
+    ? 'border-cyan/35 bg-cyan/10 text-cyan'
+    : station.lane === 'orbital' || station.lane === 'surface'
+      ? 'border-green/35 bg-green/10 text-green'
+      : 'border-gold/35 bg-gold/10 text-gold';
+
+  return (
+    <span
+      title={transientReason ?? `Lane: ${label}`}
+      className={['inline-flex rounded border px-2 py-1 text-[10px]', tone].join(' ')}
+    >
+      {label}
+    </span>
+  );
+}
+
+function StationAssociationBadge({ station }: { station: SystemStation }) {
+  const transientReason = transientStationPlanningReason(station as SystemStation & Record<string, unknown>);
+  if (transientReason) {
+    return (
+      <span
+        title={transientReason}
+        className="inline-flex rounded border border-cyan/35 bg-cyan/10 px-2 py-1 text-[10px] text-cyan"
+      >
+        Fleet Carrier / transient / ignored for colony planning
+      </span>
+    );
+  }
+
+  const status = formatAssociationStatus(station.association_status);
+  const confidence = formatAssociationConfidence(station.association_confidence);
+  const source = formatAssociationSource(station.association_source);
+  const label = [status, confidence, source].filter(Boolean).join(' / ') || 'Unknown';
+  const tone = station.association_status === 'confirmed'
+    ? 'border-green/35 bg-green/10 text-green'
+    : station.association_status === 'inferred'
+      ? 'border-gold/35 bg-gold/10 text-gold'
+      : 'border-border text-silver-dk bg-bg4';
+
+  return (
+    <span
+      title={station.resolver_notes ?? label}
+      className={['inline-flex rounded border px-2 py-1 text-[10px]', tone].join(' ')}
+    >
+      {label}
+    </span>
+  );
+}
+
+function stationBodyLabel(station: SystemStation): string {
+  return station.body_name || station.station_body_name || (station.body_id != null ? `Body ${station.body_id}` : '—');
+}
+
+function formatAssociationStatus(value?: string | null): string | null {
+  if (value === 'confirmed') return 'Confirmed';
+  if (value === 'inferred') return 'Inferred';
+  if (value === 'unresolved') return 'Unresolved';
+  return null;
+}
+
+function formatAssociationConfidence(value?: string | null): string | null {
+  if (value === 'exact') return 'exact';
+  if (value === 'strong_inference') return 'strong inference';
+  if (value === 'weak_inference') return 'weak inference';
+  if (value === 'unresolved') return 'unresolved';
+  return null;
+}
+
+function formatAssociationSource(value?: string | null): string | null {
+  const source = value?.trim();
+  if (!source) return null;
+  if (source.toLowerCase().startsWith('edsm')) return 'EDSM';
+  if (source === 'transient_non_slot') return 'transient';
+  return source.replace(/_/g, ' ');
 }
 
 function ExplorationValue({ value }: { value?: SystemDetail['exploration_value'] }) {

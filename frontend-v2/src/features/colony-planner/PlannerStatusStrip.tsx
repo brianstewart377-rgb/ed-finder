@@ -49,7 +49,7 @@ export function PlannerStatusStrip({
           <StatusChip label={`${placementCount} planned`} tone={placementCount > 0 ? 'orange' : 'silver'} />
           <StatusChip label={`${projectedCount} projected`} tone={projectedCount > 0 ? 'cyan' : 'silver'} />
           <StatusChip label={`${emptySlotCount} empty slots`} tone="silver" />
-          {unresolvedExistingCount > 0 && <StatusChip label={`${unresolvedExistingCount} unresolved existing`} tone="gold" />}
+          <StatusChip label={`${unresolvedExistingCount} unresolved existing`} tone={unresolvedExistingCount > 0 ? 'gold' : 'green'} />
           {prerequisiteIssueCount > 0 && <StatusChip label={`${prerequisiteIssueCount} prerequisite warning${prerequisiteIssueCount === 1 ? '' : 's'}`} tone="gold" />}
           <StatusChip label={unsavedChanges ? 'Unsaved changes' : 'Saved locally'} tone={unsavedChanges ? 'gold' : 'silver'} />
         </div>

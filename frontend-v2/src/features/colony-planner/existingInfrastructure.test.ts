@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SystemDetail } from '@/types/api';
 import {
   classifyExistingStationLane,
+  isTransientStationForColonyPlanning,
   resolveExistingInfrastructure,
 } from './existingInfrastructure';
 
@@ -74,7 +75,7 @@ describe('existing infrastructure resolver', () => {
     }));
   });
 
-  it('keeps backend unresolved and unknown-lane associations out of occupied capacity', () => {
+  it('keeps backend unresolved permanent associations out of occupied capacity and separates transients', () => {
     const resolution = resolveExistingInfrastructure({
       ...baseSystem,
       stations: [
@@ -103,7 +104,59 @@ describe('existing infrastructure resolver', () => {
     } as unknown as SystemDetail);
 
     expect(resolution.mapped).toHaveLength(0);
-    expect(resolution.unresolved.map((item) => item.name)).toEqual(['Unresolved Megaship', 'Unresolved Station']);
+    expect(resolution.transient.map((item) => item.name)).toEqual(['Unresolved Megaship']);
+    expect(resolution.unresolved.map((item) => item.name)).toEqual(['Unresolved Station']);
+  });
+
+  it('treats carrier callsigns without confirmed permanent links as transient non-slot rows', () => {
+    const callsignStation = {
+      id: 1007,
+      name: 'T9J-99T',
+      station_type: 'Unknown',
+      association_status: 'unresolved',
+      association_confidence: 'unresolved',
+      association_source: 'unknown',
+    };
+    const resolution = resolveExistingInfrastructure({
+      ...baseSystem,
+      stations: [callsignStation],
+    } as unknown as SystemDetail);
+
+    expect(isTransientStationForColonyPlanning(callsignStation)).toBe(true);
+    expect(resolution.mapped).toHaveLength(0);
+    expect(resolution.unresolved).toHaveLength(0);
+    expect(resolution.transient[0]).toEqual(expect.objectContaining({
+      name: 'T9J-99T',
+      transient: true,
+      transient_reason: 'Fleet Carrier callsign / transient / ignored for colony planning',
+    }));
+  });
+
+  it('does not classify callsign-like confirmed permanent station links as transient', () => {
+    const resolution = resolveExistingInfrastructure({
+      ...baseSystem,
+      stations: [
+        {
+          id: 1008,
+          name: 'ABC-123',
+          station_type: 'Outpost',
+          body_id: 2,
+          body_name: 'Occupied Test A 1',
+          lane: 'orbital',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'manual',
+        },
+      ],
+    } as unknown as SystemDetail);
+
+    expect(resolution.transient).toHaveLength(0);
+    expect(resolution.unresolved).toHaveLength(0);
+    expect(resolution.mapped[0]).toEqual(expect.objectContaining({
+      name: 'ABC-123',
+      body_id: '2',
+      lane: 'orbital',
+    }));
   });
 
   it('prefers exact body ids when present', () => {

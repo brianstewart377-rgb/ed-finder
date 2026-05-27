@@ -357,7 +357,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getByTitle(/Body match inferred \(resolver_distance\)/i)).toBeTruthy();
   });
 
-  it('keeps backend unknown-lane associations unresolved and out of lane capacity', () => {
+  it('keeps transient backend unknown-lane associations out of lane capacity and unresolved warnings', () => {
     const unknownLaneSystem = {
       ...system,
       stations: [
@@ -381,7 +381,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
 
     expect(row?.existingCount).toBe(0);
     expect(row?.orbitalSlots[0].kind).toBe('empty');
-    expect(buildRavenPlannerOccupancySummary(unknownLaneSystem, { ...snapshot, placements: [], projection: null }).unresolvedExistingCount).toBe(1);
+    expect(buildRavenPlannerOccupancySummary(unknownLaneSystem, { ...snapshot, placements: [], projection: null }).unresolvedExistingCount).toBe(0);
   });
 
   it('includes existing occupancy in add capacity and overflow calculations', () => {
@@ -424,15 +424,15 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getByTestId('2-orbital-disabled-reason').textContent).toContain('No empty orbital slots');
   });
 
-  it('shows unresolved existing infrastructure compactly instead of forcing a body or lane', () => {
+  it('shows unresolved permanent existing infrastructure compactly instead of forcing a body or lane', () => {
     const unresolvedSystem = {
       ...system,
       stations: [
         {
           id: 9100,
           market_id: 9100,
-          name: 'Wandering Megaship',
-          station_type: 'MegaShip',
+          name: 'Lost Outpost',
+          station_type: 'Outpost',
           body_name: null,
           distance_from_star: null,
         },
@@ -443,8 +443,67 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
 
     const unresolved = screen.getByTestId('raven-unresolved-existing-infrastructure');
     expect(unresolved.textContent).toContain('Existing infrastructure not matched to body');
-    expect(unresolved.textContent).toContain('Wandering Megaship');
+    expect(unresolved.textContent).toContain('Lost Outpost');
     expect(buildRavenPlannerOccupancySummary(unresolvedSystem, { ...snapshot, placements: [], projection: null }).unresolvedExistingCount).toBe(1);
+  });
+
+  it('excludes fleet carriers and unconfirmed callsigns from unresolved planner warning counts', () => {
+    const transientSystem = {
+      ...system,
+      stations: [
+        {
+          id: 9101,
+          market_id: 9101,
+          name: 'Fleet Carrier Row',
+          station_type: 'FleetCarrier',
+          body_name: null,
+          distance_from_star: null,
+        },
+        {
+          id: 9102,
+          market_id: 9102,
+          name: 'T9J-99T',
+          station_type: 'Unknown',
+          association_status: 'unresolved',
+          association_confidence: 'unresolved',
+          association_source: 'unknown',
+        },
+      ],
+    } as unknown as SystemDetail;
+    const cleanSnapshot = { ...snapshot, placements: [], projection: null };
+    const summary = buildRavenPlannerOccupancySummary(transientSystem, cleanSnapshot);
+    const ledger = buildPlanningEconomyLedger({
+      placements: cleanSnapshot.placements,
+      projectedPlacements: [],
+      templates,
+    });
+    const selectedContext: TopologySelectionContext = {
+      label: 'Real Data System',
+      kind: 'System',
+      placementCount: 0,
+      warningCount: 0,
+      architectStatus: 'not recorded',
+      detail: 'System selected for planning.',
+    };
+
+    expect(summary.unresolvedExistingCount).toBe(0);
+    expect(summary.existingCount).toBe(0);
+
+    render(<RavenStylePlannerCanvas system={transientSystem} snapshot={cleanSnapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+    expect(screen.queryByTestId('raven-unresolved-existing-infrastructure')).toBeNull();
+    expect(screen.getByText('0 unresolved existing')).toBeTruthy();
+
+    render(
+      <RavenPlannerTelemetryPanel
+        system={transientSystem}
+        snapshot={cleanSnapshot}
+        economyLedger={ledger}
+        selectedContext={selectedContext}
+        selection={{ type: 'system' }}
+      />,
+    );
+
+    expect(screen.getByTestId('raven-telemetry-warning-summary').textContent).toContain('0 unresolved existing');
   });
 
   it('excludes Barycentre and Null entries from the real system tree rows', () => {
