@@ -125,6 +125,7 @@ if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
     sql/020_rating_version.sql
     sql/021_station_body_links.sql
     sql/024_body_rings.sql
+    sql/025_eddn_ring_identity.sql
   )
 
   for migration in "${migrations[@]}"; do

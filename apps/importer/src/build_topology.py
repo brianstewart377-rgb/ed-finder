@@ -906,10 +906,7 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
                           SELECT 1
                           FROM body_rings br
                           WHERE br.system_id64 = b.system_id64
-                            AND (
-                              br.body_id = b.id
-                              OR (br.body_id IS NULL AND br.body_name = b.name)
-                            )
+                            AND br.body_id = b.id
                         ) AS has_rings,
                         s.is_main_star, s.spectral_class
                     FROM bodies b

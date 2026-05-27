@@ -112,16 +112,44 @@ are tri-state operationally:
   unknown as no-rings evidence.
 - Ring type/class must come from source payload fields. Do not infer it from
   body subtype text, rating summaries, or archetype/topology booleans.
+- `body_rings.body_id` is always the ED-Finder local `bodies.id` BIGINT, or
+  `NULL` while unresolved. EDDN Journal `BodyID` is source identity and belongs
+  in `body_rings.source_body_id`; it must not be written into `body_rings.body_id`
+  unless it has been resolved to an actual local `bodies.id` row.
 
 The production Stage 17N.2d-M investigation observed `scan_fact_rows = 0`,
 `ringed_bodies = 0`, `non_ringed_bodies = 0`, and `unknown_ring_state = 0`.
 That means ring coverage is absent, not that all bodies are unringed. Spansh
 imports now populate `body_rings` only from explicit Spansh ring arrays.
 EDDN `Journal/Scan` ingestion writes ring rows from explicit `Rings` payloads
-and only writes scan-derived `is_ringed=false` when a trusted full scan
+only when exact `(SystemAddress, BodyName)` resolution finds exactly one local
+body. Unresolved EDDN ring payloads are skipped from `body_rings` so they cannot
+inflate API ring state, ratings `ring_count`, or planner ringed-body traits.
+Scan-derived `is_ringed=false` is written only when a trusted full scan
 explicitly carries an empty `Rings` array. Historical coverage still requires a
 separate safe population/backfill plan; do not treat empty production
 `body_scan_facts` or `body_rings` as no-rings evidence.
+
+Stage 17N.2d-P found legacy EDDN rows where Journal `BodyID` had been stored in
+`body_rings.body_id`. Before any wider dirty ratings rebuild, run the identity
+repair dry-run and review the summary:
+
+```bash
+python scripts/repair_eddn_ring_identity.py
+```
+
+Apply only after the dry-run counts are reviewed:
+
+```bash
+python scripts/repair_eddn_ring_identity.py --apply
+```
+
+The repair updates `eddn_scan` rows whose same-system `body_name` matches
+exactly one local body, preserving the legacy source integer in
+`source_body_id`, and marks affected systems dirty for a later controlled
+ratings rebuild. Rows with no exact local body match are not deleted; current
+API/rating/planner joins ignore them because ring presence is counted through
+the local `body_rings.body_id = bodies.id` relationship.
 
 ## Stage 17N.2d-P Coordinated Enrichment CLI
 
@@ -214,13 +242,15 @@ Conservative batch sizes:
   conflict counts and row counts look sane. Avoid a full-galaxy apply until a
   sampled run has been verified.
 - Dirty rebuild: run separately and gently with `build_ratings.py --dirty`;
-  never run it from the enrichment script.
+  never run it from the enrichment script. For Stage 17N.2d-P, wait until the
+  EDDN ring identity repair dry-run/apply and coverage validation are complete.
 
 Post-backfill sequence:
 
 1. Apply a small enrichment batch.
 2. Verify applied/skipped/conflict counts and sample SQL.
-3. Run `build_ratings.py --dirty` gently.
+3. Run `build_ratings.py --dirty` gently only after EDDN ring identity repair
+   validation is clean enough for the intended scope.
 4. Clear system/detail/planner/search caches.
 5. Inspect UI/API for the sampled systems.
 
@@ -268,6 +298,54 @@ FROM body_rings
 GROUP BY source, confidence
 ORDER BY rows DESC;
 
+WITH name_matches AS (
+  SELECT br.id AS ring_id,
+         COUNT(b.id) AS name_match_count
+  FROM body_rings br
+  LEFT JOIN bodies b
+    ON b.system_id64 = br.system_id64
+   AND b.name = br.body_name
+  GROUP BY br.id
+)
+SELECT br.source,
+       COUNT(*) AS rows,
+       COUNT(*) FILTER (WHERE local_body.id IS NOT NULL) AS matches_by_bigint_id,
+       COUNT(*) FILTER (WHERE name_matches.name_match_count = 1) AS matches_by_body_name,
+       COUNT(*) FILTER (
+         WHERE local_body.id IS NULL
+           AND name_matches.name_match_count = 0
+       ) AS unmatched_rows
+FROM body_rings br
+LEFT JOIN bodies local_body
+  ON local_body.system_id64 = br.system_id64
+ AND local_body.id = br.body_id
+JOIN name_matches ON name_matches.ring_id = br.id
+GROUP BY br.source
+ORDER BY br.source;
+
+WITH name_matches AS (
+  SELECT br.id AS ring_id,
+         COUNT(b.id) AS name_match_count
+  FROM body_rings br
+  LEFT JOIN bodies b
+    ON b.system_id64 = br.system_id64
+   AND b.name = br.body_name
+  WHERE br.source = 'eddn_scan'
+  GROUP BY br.id
+)
+SELECT br.system_id64, br.body_id, br.source_body_id, br.body_name,
+       br.ring_name, br.confidence, br.updated_at
+FROM body_rings br
+LEFT JOIN bodies local_body
+  ON local_body.system_id64 = br.system_id64
+ AND local_body.id = br.body_id
+JOIN name_matches ON name_matches.ring_id = br.id
+WHERE br.source = 'eddn_scan'
+  AND local_body.id IS NULL
+  AND name_matches.name_match_count = 0
+ORDER BY br.updated_at DESC
+LIMIT 100;
+
 SELECT br.system_id64, b.name AS matched_body_name,
        br.body_id, br.body_name, br.ring_name, br.ring_type, br.ring_class,
        br.mass_mt, br.inner_radius, br.outer_radius,
@@ -280,6 +358,10 @@ ORDER BY COALESCE(b.name, br.body_name), br.ring_name;
 SELECT id64, rating_dirty, cluster_dirty, updated_at
 FROM systems
 WHERE id64 = :system_id64;
+
+SELECT COUNT(*) AS dirty_ratings_waiting
+FROM systems
+WHERE rating_dirty IS TRUE;
 
 SELECT
   count(*) FILTER (WHERE is_ringed IS TRUE)  AS trusted_ringed_scan_facts,

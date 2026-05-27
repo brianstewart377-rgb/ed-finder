@@ -43,10 +43,13 @@ COMMENT ON COLUMN ratings.other_star_count
 BEGIN;
 
 WITH ring_agg AS (
-    SELECT system_id64,
-           COUNT(DISTINCT COALESCE(body_id::text, body_name, ring_name))::SMALLINT AS ring_count
-    FROM body_rings
-    GROUP BY system_id64
+    SELECT b.system_id64,
+           COUNT(DISTINCT b.id)::SMALLINT AS ring_count
+    FROM bodies b
+    JOIN body_rings br
+      ON br.system_id64 = b.system_id64
+     AND br.body_id = b.id
+    GROUP BY b.system_id64
 ),
 agg AS (
     SELECT b.system_id64,

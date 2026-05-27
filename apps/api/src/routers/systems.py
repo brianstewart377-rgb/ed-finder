@@ -112,10 +112,7 @@ async def get_system(
                     array_agg(DISTINCT br.confidence) AS ring_confidences
                 FROM body_rings br
                 WHERE br.system_id64 = b.system_id64
-                  AND (
-                      br.body_id = b.id
-                      OR (br.body_id IS NULL AND br.body_name = b.name)
-                  )
+                  AND br.body_id = b.id
             ) r ON TRUE
             WHERE b.system_id64 = $1
             ORDER BY b.id ASC
@@ -404,10 +401,7 @@ async def batch_systems(
                         array_agg(DISTINCT br.confidence) AS ring_confidences
                     FROM body_rings br
                     WHERE br.system_id64 = b.system_id64
-                      AND (
-                          br.body_id = b.id
-                          OR (br.body_id IS NULL AND br.body_name = b.name)
-                      )
+                      AND br.body_id = b.id
                 ) r ON TRUE
                 WHERE b.system_id64 = ANY($1::bigint[])
                 ORDER BY b.system_id64, b.id ASC

@@ -289,6 +289,7 @@ def test_base_schema_and_migration_include_body_rings_with_provenance():
     for source in (body_rings, migration):
         assert 'system_id64' in source
         assert 'body_id' in source
+        assert 'source_body_id' in source
         assert 'ring_name' in source
         assert 'ring_type' in source
         assert 'ring_class' in source
@@ -302,8 +303,41 @@ def test_base_schema_and_migration_include_body_rings_with_provenance():
     assert 'body_rings' in migration
     assert 'idx_body_rings_system_id64' in migration
     assert 'idx_body_rings_body_id' in migration
+    assert 'idx_body_rings_source_body_id' in migration
     assert 'Missing rows mean unknown ring state' in schema
     assert 'Missing body_rings rows mean ring state' in migration
+
+
+def test_eddn_ring_identity_migration_preserves_source_body_id_separately():
+    migration = _schema_text('025_eddn_ring_identity.sql')
+
+    assert 'ADD COLUMN IF NOT EXISTS source_body_id BIGINT DEFAULT NULL' in migration
+    assert 'Journal BodyID is source identity' in migration
+    assert 'ED-Finder local bodies.id' in migration
+
+
+def test_ring_consumers_require_local_body_id_not_unresolved_name_fallback():
+    checked_paths = [
+        'apps/importer/src/build_ratings.py',
+        'apps/importer/src/build_archetype_scores.py',
+        'apps/importer/src/build_topology.py',
+        'apps/api/src/routers/systems.py',
+        'apps/api/src/routers/simulate.py',
+        'apps/api/src/routers/simulation.py',
+        'apps/api/src/routers/archetypes.py',
+        'sql/008_body_filter_aggregates.sql',
+    ]
+    forbidden = re.compile(
+        r'br\.body_id\s+IS\s+NULL\s+AND\s+br\.body_name\s*=\s*(?:bodies|b)\.name',
+        flags=re.IGNORECASE,
+    )
+
+    for relative_path in checked_paths:
+        text = Path(ROOT, relative_path).read_text(encoding='utf-8')
+        assert not forbidden.search(text), relative_path
+
+    backfill_sql = _schema_text('008_body_filter_aggregates.sql')
+    assert 'COALESCE(body_id::text' not in backfill_sql
 
 
 def test_body_scan_facts_is_ringed_is_nullable_not_default_false():

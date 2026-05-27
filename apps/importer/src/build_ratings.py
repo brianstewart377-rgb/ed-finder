@@ -1506,10 +1506,7 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
                          SELECT 1
                          FROM body_rings br
                          WHERE br.system_id64 = bodies.system_id64
-                           AND (
-                             br.body_id = bodies.id
-                             OR (br.body_id IS NULL AND br.body_name = bodies.name)
-                           )
+                           AND br.body_id = bodies.id
                        ) AS has_rings
                 FROM   bodies
                 WHERE  system_id64 = ANY(%s)

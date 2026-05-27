@@ -647,10 +647,7 @@ async def _fetch_slot_scan_facts(
                     SELECT 1
                     FROM body_rings br
                     WHERE br.system_id64 = bodies.system_id64
-                      AND (
-                        br.body_id = bodies.id
-                        OR (br.body_id IS NULL AND br.body_name = bodies.name)
-                      )
+                      AND br.body_id = bodies.id
                 ) THEN TRUE
                 ELSE NULL
             END AS is_ringed,

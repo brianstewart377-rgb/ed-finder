@@ -191,7 +191,13 @@ async def _flush_batch(
 
                 # ── body_scan_facts ────────────────────────────────────────
                 if fact_rows:
-                    ring_rows = _ring_rows_from_scan_facts(fact_rows)
+                    source_ring_rows = _ring_rows_from_scan_facts(fact_rows)
+                    ring_rows, unresolved_ring_rows = await _resolve_eddn_ring_rows(conn, source_ring_rows)
+                    if unresolved_ring_rows:
+                        log.debug(
+                            'EDDN flush skipped %d unresolved ring rows without an exact local body match',
+                            len(unresolved_ring_rows),
+                        )
                     await conn.executemany("""
                         INSERT INTO body_scan_facts (
                             system_address, body_id, body_name,
@@ -273,17 +279,18 @@ async def _flush_batch(
                     if ring_rows:
                         await conn.executemany("""
                             INSERT INTO body_rings (
-                                system_id64, body_id, body_name,
+                                system_id64, body_id, source_body_id, body_name,
                                 ring_name, ring_type, ring_class,
                                 mass_mt, inner_radius, outer_radius,
                                 source, confidence, updated_at
                             ) VALUES (
-                                $1, $2, $3,
-                                $4, $5, $6,
-                                $7, $8, $9,
-                                $10, $11, now()
+                                $1, $2, $3, $4,
+                                $5, $6, $7,
+                                $8, $9, $10,
+                                $11, $12, now()
                             )
                             ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
+                                source_body_id = COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id),
                                 body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
                                 ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
                                 ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
@@ -320,22 +327,84 @@ async def _flush_batch(
 def _ring_rows_from_scan_facts(fact_rows: list[dict]) -> list[dict]:
     rows: list[dict] = []
     for fact in fact_rows:
+        source_body_id = int(fact['body_id']) if fact.get('body_id') is not None else None
         source_rows, _explicit_no_rings = ring_rows_for_body(
             {'rings': fact.get('rings') or []},
             system_id64=int(fact['system_address']),
-            body_id=int(fact['body_id']) if fact.get('body_id') is not None else None,
+            body_id=None,
             body_name=fact.get('body_name'),
             source='eddn_scan',
+            source_body_id=source_body_id,
             trusted_empty_means_no_rings=False,
         )
         rows.extend(source_rows)
     return rows
 
 
+async def _resolve_eddn_ring_rows(conn: 'asyncpg.Connection', rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    if not rows:
+        return [], []
+
+    system_ids = sorted({int(row['system_id64']) for row in rows if row.get('system_id64') is not None})
+    body_names = sorted({str(row['body_name']) for row in rows if row.get('body_name')})
+    if not system_ids or not body_names:
+        return _resolve_ring_rows_with_local_bodies(rows, [])
+
+    local_bodies = await conn.fetch("""
+        SELECT system_id64, id, name
+          FROM bodies
+         WHERE system_id64 = ANY($1::bigint[])
+           AND name = ANY($2::text[])
+    """, system_ids, body_names)
+    return _resolve_ring_rows_with_local_bodies(rows, local_bodies)
+
+
+def _resolve_ring_rows_with_local_bodies(
+    rows: list[dict],
+    local_bodies,
+) -> tuple[list[dict], list[dict]]:
+    local_by_name: dict[tuple[int, str], list[dict]] = {}
+    for body in local_bodies:
+        system_id64 = body.get('system_id64') if isinstance(body, dict) else body['system_id64']
+        body_name = body.get('name') if isinstance(body, dict) else body['name']
+        body_id = body.get('id') if isinstance(body, dict) else body['id']
+        if system_id64 is None or not body_name or body_id is None:
+            continue
+        key = (int(system_id64), str(body_name))
+        local_by_name.setdefault(key, []).append({
+            'system_id64': int(system_id64),
+            'id': int(body_id),
+            'name': str(body_name),
+        })
+
+    resolved: list[dict] = []
+    skipped: list[dict] = []
+    for row in rows:
+        body_name = row.get('body_name')
+        if row.get('system_id64') is None or not body_name:
+            skipped.append({**row, 'reason': 'missing_system_or_body_name'})
+            continue
+        matches = local_by_name.get((int(row['system_id64']), str(body_name)), [])
+        if len(matches) != 1:
+            skipped.append({
+                **row,
+                'reason': 'local_body_not_found_by_name' if not matches else 'local_body_name_not_unique',
+            })
+            continue
+        match = matches[0]
+        resolved.append({
+            **row,
+            'body_id': match['id'],
+            'body_name': match['name'],
+        })
+    return resolved, skipped
+
+
 def _ring_row_tuple(row: dict) -> tuple:
     return (
         row.get('system_id64'),
         row.get('body_id'),
+        row.get('source_body_id'),
         row.get('body_name'),
         row.get('ring_name'),
         row.get('ring_type'),

@@ -234,6 +234,7 @@ def is_scoopable(spectral: Optional[str]) -> Optional[bool]:
 
 
 def normalise_ring_rows(message: dict, *, system_id64: int, body_id: int, body_name: str) -> list[dict]:
+    """Normalise Journal/Scan ring rows without treating BodyID as local identity."""
     rings = message.get('Rings')
     if rings is None:
         return []
@@ -251,7 +252,8 @@ def normalise_ring_rows(message: dict, *, system_id64: int, body_id: int, body_n
         confidence = 'source_ring_payload' if ring_name or ring_type or ring_class else 'partial_source_ring_payload'
         rows.append({
             'system_id64': system_id64,
-            'body_id': body_id,
+            'body_id': None,
+            'source_body_id': body_id,
             'body_name': body_name,
             'ring_name': ring_name,
             'ring_type': ring_type,
@@ -277,6 +279,63 @@ def clean_text(value) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+async def resolve_ring_rows_to_local_bodies(conn, rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Resolve EDDN ring rows to existing local bodies by exact same-system name."""
+    if not rows:
+        return [], []
+
+    system_ids = sorted({int(row['system_id64']) for row in rows if row.get('system_id64') is not None})
+    body_names = sorted({str(row['body_name']) for row in rows if row.get('body_name')})
+    if not system_ids or not body_names:
+        return resolve_ring_rows_with_local_bodies(rows, [])
+
+    local_bodies = await conn.fetch("""
+        SELECT system_id64, id, name
+          FROM bodies
+         WHERE system_id64 = ANY($1::bigint[])
+           AND name = ANY($2::text[])
+    """, system_ids, body_names)
+    return resolve_ring_rows_with_local_bodies(rows, local_bodies)
+
+
+def resolve_ring_rows_with_local_bodies(rows: list[dict], local_bodies) -> tuple[list[dict], list[dict]]:
+    local_by_name: dict[tuple[int, str], list[dict]] = {}
+    for body in local_bodies:
+        system_id64 = body.get('system_id64') if isinstance(body, dict) else body['system_id64']
+        body_name = body.get('name') if isinstance(body, dict) else body['name']
+        body_id = body.get('id') if isinstance(body, dict) else body['id']
+        if system_id64 is None or not body_name or body_id is None:
+            continue
+        key = (int(system_id64), str(body_name))
+        local_by_name.setdefault(key, []).append({
+            'system_id64': int(system_id64),
+            'id': int(body_id),
+            'name': str(body_name),
+        })
+
+    resolved: list[dict] = []
+    skipped: list[dict] = []
+    for row in rows:
+        body_name = row.get('body_name')
+        if row.get('system_id64') is None or not body_name:
+            skipped.append({**row, 'reason': 'missing_system_or_body_name'})
+            continue
+        matches = local_by_name.get((int(row['system_id64']), str(body_name)), [])
+        if len(matches) != 1:
+            skipped.append({
+                **row,
+                'reason': 'local_body_not_found_by_name' if not matches else 'local_body_name_not_unique',
+            })
+            continue
+        match = matches[0]
+        resolved.append({
+            **row,
+            'body_id': match['id'],
+            'body_name': match['name'],
+        })
+    return resolved, skipped
 
 
 def _star_type_parts(spectral: Optional[str]) -> tuple[str | None, str | None, bool | None]:
@@ -563,6 +622,19 @@ async def flush_pending(pool: asyncpg.Pool):
                 # ── Upsert bodies (inside same transaction) ───────────────
                 # 'id' (BodyID) is required as PK; bodies without it are already
                 # filtered out in handle_scan() before reaching this point.
+                resolved_rings_snapshot = []
+                unresolved_rings_snapshot = []
+                if rings_snapshot:
+                    (
+                        resolved_rings_snapshot,
+                        unresolved_rings_snapshot,
+                    ) = await resolve_ring_rows_to_local_bodies(conn, rings_snapshot)
+                    if unresolved_rings_snapshot:
+                        log.debug(
+                            "Skipped %d unresolved EDDN ring rows without an exact local body match",
+                            len(unresolved_rings_snapshot),
+                        )
+
                 for body in bodies_snapshot:
                     try:
                         await conn.execute("""
@@ -652,18 +724,19 @@ async def flush_pending(pool: asyncpg.Pool):
                         log.warning(f"Body upsert error (id={body.get('id')}): {e}")
 
                 # ── Upsert ring facts ───────────────────────────────────
-                for ring in rings_snapshot:
+                for ring in resolved_rings_snapshot:
                     try:
                         await conn.execute("""
                             INSERT INTO body_rings (
-                                system_id64, body_id, body_name,
+                                system_id64, body_id, source_body_id, body_name,
                                 ring_name, ring_type, ring_class,
                                 mass_mt, inner_radius, outer_radius,
                                 source, confidence, updated_at
                             ) VALUES (
-                                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()
+                                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW()
                             )
                             ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
+                                source_body_id = COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id),
                                 body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
                                 ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
                                 ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
@@ -673,7 +746,7 @@ async def flush_pending(pool: asyncpg.Pool):
                                 confidence   = EXCLUDED.confidence,
                                 updated_at   = NOW()
                         """,
-                            ring.get('system_id64'), ring.get('body_id'), ring.get('body_name'),
+                            ring.get('system_id64'), ring.get('body_id'), ring.get('source_body_id'), ring.get('body_name'),
                             ring.get('ring_name'), ring.get('ring_type'), ring.get('ring_class'),
                             ring.get('mass_mt'), ring.get('inner_radius'), ring.get('outer_radius'),
                             ring.get('source'), ring.get('confidence'),

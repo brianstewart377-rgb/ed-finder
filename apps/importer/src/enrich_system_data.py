@@ -524,8 +524,10 @@ def audit_local_ring_state(conn, args: argparse.Namespace) -> dict[str, Any]:
                    (
                        SELECT count(DISTINCT br.body_id)
                          FROM body_rings br
+                         JOIN bodies b
+                           ON b.system_id64 = br.system_id64
+                          AND b.id = br.body_id
                         WHERE br.system_id64 = s.id64
-                          AND br.body_id IS NOT NULL
                    ) AS ringed_bodies
               FROM systems s
              {where_sql}

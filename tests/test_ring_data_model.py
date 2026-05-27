@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(ROOT, 'apps', 'eddn', 'src'))
 
 eddn_listener = pytest.importorskip('eddn_listener')
 from ingest.journal_normaliser import normalise_scan_event
-from ingest.eddn_client import _ring_rows_from_scan_facts
+from ingest.eddn_client import _resolve_ring_rows_with_local_bodies, _ring_rows_from_scan_facts
 from import_spansh import body_ring_rows_from_spansh_body
 from ring_facts import normalise_ring_payload, ring_rows_for_body
 from routers.systems import _body_payload_from_row
@@ -114,7 +114,49 @@ def test_eddn_scan_with_rings_sets_true_and_keeps_ring_rows():
 
     assert fact['is_ringed'] is True
     assert fact['rings'][0]['ring_name'] == 'Test 4 A Ring'
-    assert _ring_rows_from_scan_facts([fact])[0]['source'] == 'eddn_scan'
+    row = _ring_rows_from_scan_facts([fact])[0]
+    assert row['source'] == 'eddn_scan'
+    assert row['body_id'] is None
+    assert row['source_body_id'] == 7
+
+
+def test_eddn_scan_ring_row_exact_body_name_match_maps_to_local_body_id():
+    fact = normalise_scan_event(_scan_event(Rings=[{'Name': 'Test 4 A Ring'}]))
+    source_rows = _ring_rows_from_scan_facts([fact])
+
+    resolved, skipped = _resolve_ring_rows_with_local_bodies(source_rows, [
+        {'system_id64': 42, 'id': 576462760435454682, 'name': 'Test 4'},
+    ])
+
+    assert skipped == []
+    assert resolved[0]['body_id'] == 576462760435454682
+    assert resolved[0]['source_body_id'] == 7
+    assert resolved[0]['body_name'] == 'Test 4'
+
+
+def test_eddn_scan_body_id_is_not_used_as_ring_body_id_without_local_match():
+    fact = normalise_scan_event(_scan_event(Rings=[{'Name': 'Test 4 A Ring'}]))
+    source_rows = _ring_rows_from_scan_facts([fact])
+
+    resolved, skipped = _resolve_ring_rows_with_local_bodies(source_rows, [])
+
+    assert resolved == []
+    assert skipped[0]['body_id'] is None
+    assert skipped[0]['source_body_id'] == 7
+    assert skipped[0]['reason'] == 'local_body_not_found_by_name'
+
+
+def test_eddn_scan_ambiguous_body_name_match_is_not_trusted():
+    fact = normalise_scan_event(_scan_event(Rings=[{'Name': 'Test 4 A Ring'}]))
+    source_rows = _ring_rows_from_scan_facts([fact])
+
+    resolved, skipped = _resolve_ring_rows_with_local_bodies(source_rows, [
+        {'system_id64': 42, 'id': 101, 'name': 'Test 4'},
+        {'system_id64': 42, 'id': 102, 'name': 'Test 4'},
+    ])
+
+    assert resolved == []
+    assert skipped[0]['reason'] == 'local_body_name_not_unique'
 
 
 def test_eddn_listener_scan_ring_payload_builds_ring_rows():
@@ -127,7 +169,8 @@ def test_eddn_listener_scan_ring_payload_builds_ring_rows():
 
     assert rows == [{
         'system_id64': 42,
-        'body_id': 7,
+        'body_id': None,
+        'source_body_id': 7,
         'body_name': 'Test 4',
         'ring_name': 'Test 4 A Ring',
         'ring_type': None,

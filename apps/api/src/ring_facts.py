@@ -50,6 +50,7 @@ def ring_rows_for_body(
     body_id: Optional[int],
     body_name: Optional[str],
     source: str,
+    source_body_id: Optional[int] = None,
     trusted_empty_means_no_rings: bool = False,
 ) -> tuple[list[dict[str, Any]], bool]:
     result = normalise_ring_payload(
@@ -63,7 +64,7 @@ def ring_rows_for_body(
             if ring.get('ring_type') or ring.get('ring_class') or ring.get('ring_name')
             else 'partial_source_ring_payload'
         )
-        rows.append({
+        row = {
             'system_id64': system_id64,
             'body_id': body_id,
             'body_name': body_name,
@@ -75,7 +76,10 @@ def ring_rows_for_body(
             'outer_radius': ring.get('outer_radius'),
             'source': source,
             'confidence': confidence,
-        })
+        }
+        if source_body_id is not None:
+            row['source_body_id'] = source_body_id
+        rows.append(row)
     return rows, result.explicit_no_rings
 
 

@@ -269,6 +269,7 @@ CREATE TABLE IF NOT EXISTS body_rings (
     id                  BIGSERIAL       PRIMARY KEY,
     system_id64         BIGINT          NOT NULL REFERENCES systems(id64) ON DELETE CASCADE,
     body_id             BIGINT          DEFAULT NULL REFERENCES bodies(id) ON DELETE SET NULL,
+    source_body_id      BIGINT          DEFAULT NULL,
     body_name           TEXT            DEFAULT NULL,
 
     ring_name           TEXT            DEFAULT NULL,
@@ -291,6 +292,10 @@ CREATE INDEX IF NOT EXISTS idx_body_rings_system_id64
 CREATE INDEX IF NOT EXISTS idx_body_rings_body_id
     ON body_rings (body_id);
 
+CREATE INDEX IF NOT EXISTS idx_body_rings_source_body_id
+    ON body_rings (source, system_id64, source_body_id)
+    WHERE source_body_id IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_body_rings_body_name
     ON body_rings (system_id64, body_name)
     WHERE body_name IS NOT NULL;
@@ -300,6 +305,12 @@ CREATE INDEX IF NOT EXISTS idx_body_rings_type_class
 
 COMMENT ON TABLE body_rings
     IS 'Provenance-backed per-ring source facts. Missing rows mean unknown ring state, not no rings.';
+
+COMMENT ON COLUMN body_rings.body_id
+    IS 'ED-Finder local bodies.id. Source-specific body identifiers must be stored in source_body_id.';
+
+COMMENT ON COLUMN body_rings.source_body_id
+    IS 'Nullable source/journal body identifier such as EDDN Journal BodyID; not a local body foreign key.';
 
 COMMENT ON COLUMN body_rings.source
     IS 'Source that supplied the ring row, for example spansh_dump or eddn_scan.';
