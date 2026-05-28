@@ -52,4 +52,18 @@ describe('stationBaselineEconomy', () => {
     expect(baseline.unavailableReason).toContain('No documented body-to-economy rule');
     expect(describeStationBaselineEconomy(baseline)).toContain('Inherited/contextual baseline unavailable');
   });
+
+  it('does not treat ring-like subtype text as ring evidence', () => {
+    const body = {
+      id: 5,
+      name: 'Subtype Only',
+      body_type: 'Planet',
+      subtype: 'Ringed-looking rocky body',
+      is_ringed: null,
+    } as SystemBody;
+
+    const baseline = calculateStationBaselineEconomy(body);
+
+    expect(baseline.segments.map((segment) => segment.economy)).toEqual(['Refinery']);
+  });
 });
