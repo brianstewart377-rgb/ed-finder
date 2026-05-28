@@ -665,6 +665,76 @@ def test_metadata_apply_uses_edsm_distance_even_when_legacy_local_distance_misma
     assert report['counts']['station_write_suppressed_non_benign_conflict'] == 0
 
 
+def test_trusted_exact_edsm_distance_precision_delta_does_not_plan_metadata_update():
+    report = report_for(
+        local_station(
+            station_type='Coriolis',
+            distance_from_star=289173.9,
+            distance_source='edsm_system_api',
+            distance_confidence='exact_station_identity',
+            body_name='Exioce 1',
+            body_name_source='edsm_system_api',
+            body_name_confidence='exact_station_identity',
+        ),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Coriolis Starport',
+            'bodyName': 'Exioce 1',
+            'distanceToArrival': 289173.920225,
+        },
+    )
+
+    station = first_station(report)
+
+    assert 'distance_from_star' not in station['fields_that_would_change']
+    assert report['metadata_updates_planned'] == []
+    assert report['confirmed_link_updates_planned'][0]['association_source'] == 'edsm_body_name'
+    assert 'station_distance_mismatch' in conflict_types(station)
+
+
+def test_untrusted_legacy_distance_precision_delta_still_plans_metadata_update():
+    report = report_for(
+        local_station(
+            station_type='Coriolis',
+            distance_from_star=289173.9,
+        ),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Coriolis Starport',
+            'distanceToArrival': 289173.920225,
+        },
+    )
+
+    assert [update['field'] for update in report['metadata_updates_planned']] == ['distance_from_star']
+    assert report['metadata_updates_planned'][0]['old_value'] == 289173.9
+    assert report['metadata_updates_planned'][0]['new_value'] == 289173.920225
+
+
+def test_large_trusted_exact_edsm_distance_delta_still_plans_metadata_update():
+    report = report_for(
+        local_station(
+            station_type='Coriolis',
+            distance_from_star=289173.9,
+            distance_source='edsm_system_api',
+            distance_confidence='exact_station_identity',
+        ),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Coriolis Starport',
+            'distanceToArrival': 289174.2,
+        },
+    )
+
+    station = first_station(report)
+
+    assert 'distance_from_star' in station['fields_that_would_change']
+    assert [update['field'] for update in report['metadata_updates_planned']] == ['distance_from_star']
+    assert 'station_distance_mismatch' in conflict_types(station)
+
+
 def test_known_station_type_mismatch_suppresses_all_station_metadata_writes():
     report = report_for(
         local_station(station_type='Coriolis', distance_from_star=12.0),

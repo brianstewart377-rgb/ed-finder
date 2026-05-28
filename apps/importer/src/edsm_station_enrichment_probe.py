@@ -48,6 +48,7 @@ from station_body_resolver import (  # noqa: E402
 EDSM_SYSTEM_API_BASE = 'https://www.edsm.net/api-system-v1'
 DEFAULT_TIMEOUT_SECONDS = 20.0
 STATION_DISTANCE_CONFLICT_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
+TRUSTED_STATION_DISTANCE_PRECISION_TOLERANCE_LS = 0.05
 BODY_DISTANCE_MATCH_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
 TRUSTED_EDSM_SOURCE = 'edsm_system_api'
 TRUSTED_STATION_IDENTITY_CONFIDENCE = 'exact_station_identity'
@@ -314,7 +315,11 @@ def build_enrichment_report(
             'provenance_confidence': TRUSTED_STATION_IDENTITY_CONFIDENCE,
             'station_identity_rule': 'EDSM id/marketId must match local id/market_id and station name must match.',
             'station_type_rule': 'Unknown -> known permanent station type only.',
-            'distance_rule': 'distanceToArrival may replace legacy local station distance only after exact station identity.',
+            'distance_rule': (
+                'distanceToArrival may replace legacy local station distance only after exact station identity; '
+                f'trusted exact EDSM station distances within {TRUSTED_STATION_DISTANCE_PRECISION_TOLERANCE_LS:g} ls '
+                'are treated as stored precision noise.'
+            ),
             'body_name_rule': 'EDSM bodyName may update stations.body_name only when it matches exactly one local same-system body.',
             'non_benign_conflict_rule': 'Any identity/context unsafe conflict suppresses all station metadata writes for that station in this run.',
             'never_applied': [
@@ -1308,17 +1313,12 @@ def _append_station_data_changes(
     if local_type != proposed_type and 'station_type' not in fields_that_would_change:
         fields_that_would_change.append('station_type')
 
-    local_distance = _read_float(local_station.get('distance_from_star'))
     edsm_distance = _read_float(edsm_station.get('distance_to_arrival'))
     if (
         trusted_station_identity
         and is_permanent_colony_slot_station_type(proposed_type)
         and edsm_distance is not None
-        and (
-            local_distance is None
-            or abs(local_distance - edsm_distance) > STATION_DISTANCE_CONFLICT_TOLERANCE_LS
-            or not _has_trusted_station_metadata(local_station, prefix='distance')
-        )
+        and _station_distance_metadata_update_needed(local_station, edsm_distance)
     ):
         fields_that_would_change.append('distance_from_star')
 
@@ -1598,6 +1598,15 @@ def _has_trusted_station_metadata(station: Mapping[str, Any], *, prefix: str) ->
         _clean_text(station.get(f'{prefix}_source')) == TRUSTED_EDSM_SOURCE
         and _clean_text(station.get(f'{prefix}_confidence')) == TRUSTED_STATION_IDENTITY_CONFIDENCE
     )
+
+
+def _station_distance_metadata_update_needed(local_station: Mapping[str, Any], edsm_distance: float) -> bool:
+    local_distance = _read_float(local_station.get('distance_from_star'))
+    if local_distance is None:
+        return True
+    if not _has_trusted_station_metadata(local_station, prefix='distance'):
+        return True
+    return abs(local_distance - edsm_distance) > TRUSTED_STATION_DISTANCE_PRECISION_TOLERANCE_LS
 
 
 def _extract_edsm_stations(payload: Any) -> list[Mapping[str, Any]]:
