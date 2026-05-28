@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import inspect
+import subprocess
 from pathlib import Path
 
 os.environ.setdefault('LOG_FILE', '/dev/null')
@@ -514,6 +515,49 @@ def test_dirty_mode_selects_only_rating_dirty_systems():
 
     assert 'WHERE  rating_dirty = TRUE' in source
     assert 'Query: dirty systems only' in source
+
+
+def test_dirty_ratings_maintenance_script_is_host_cron_safe():
+    script_path = Path(ROOT, 'scripts', 'run_dirty_ratings_if_needed.sh')
+    source = script_path.read_text(encoding='utf-8')
+
+    syntax = subprocess.run(
+        ['bash', '-n', str(script_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert syntax.returncode == 0, syntax.stderr
+    assert 'DIRTY_RATING_THRESHOLD="${DIRTY_RATING_THRESHOLD:-250}"' in source
+    assert 'DIRTY_RATING_WORKERS="${DIRTY_RATING_WORKERS:-2}"' in source
+    assert 'DIRTY_RATING_CHUNK="${DIRTY_RATING_CHUNK:-1000}"' in source
+    assert 'flock -n 9' in source
+    assert 'SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;' in source
+    assert 'docker compose --profile import run --rm' in source
+    assert '/app/build_ratings.py' in source
+    assert '--dirty' in source
+    assert '--rebuild' not in source
+    assert '--workers "$DIRTY_RATING_WORKERS"' in source
+    assert '--chunk "$DIRTY_RATING_CHUNK"' in source
+    assert 'redis-cli' not in source
+
+
+def test_dirty_ratings_runbook_documents_host_cron_installation():
+    runbook = Path(ROOT, 'docs', 'operations', 'stage17n2c-data-trust-runbook.md').read_text(
+        encoding='utf-8'
+    )
+
+    assert 'host cron that invokes the importer container' in runbook
+    assert 'deploy_main.sh` rebuilds/restarts' in runbook
+    assert (
+        '*/30 * * * * cd /opt/ed-finder && DIRTY_RATING_THRESHOLD=250 '
+        'DIRTY_RATING_WORKERS=2 DIRTY_RATING_CHUNK=1000 '
+        'bash scripts/run_dirty_ratings_if_needed.sh >> /data/logs/dirty-ratings.log 2>&1'
+    ) in runbook
+    assert 'SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;' in runbook
+    assert 'grep -E "start time=|dirty_count=|below threshold|' in runbook
+    assert 'does not clear Redis caches automatically' in runbook
 
 
 def test_worker_connection_uses_timeout_disabled_helper():

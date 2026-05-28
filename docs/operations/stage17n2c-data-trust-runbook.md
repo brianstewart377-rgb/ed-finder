@@ -94,6 +94,63 @@ trusted station facts or confirmed links are applied and downstream planner
 payloads should be rebuilt/cleared. The script still never runs rating
 calculation inline.
 
+## Scheduled Dirty Ratings Maintenance
+
+Stage 17N.2d-R keeps EDDN ingestion and rating recalculation separate:
+
+- EDDN marks affected rows with `systems.rating_dirty = TRUE`.
+- Host cron periodically runs `scripts/run_dirty_ratings_if_needed.sh`.
+- The script runs `build_ratings.py --dirty` only when the dirty queue is at or
+  above `DIRTY_RATING_THRESHOLD`.
+- The script uses `flock` on `/tmp/ed-finder-dirty-ratings.lock` by default, so
+  two scheduled invocations of this script cannot overlap.
+
+The existing maintenance sidecar is not the production path for this job. It is
+a small `postgres:16-alpine` cron container for `psql` maintenance tasks. It
+does not mount importer source, does not include importer Python dependencies,
+and does not have Docker Compose access to start the importer service. Keep this
+as a host cron that invokes the importer container from the repo checkout.
+
+`scripts/deploy_main.sh` rebuilds/restarts the long-lived `api`, `eddn`, and
+`maintenance` services. It does not install or modify host crontabs. Install the
+dirty-ratings cron once on the production host after deploying code:
+
+```cron
+*/30 * * * * cd /opt/ed-finder && DIRTY_RATING_THRESHOLD=250 DIRTY_RATING_WORKERS=2 DIRTY_RATING_CHUNK=1000 bash scripts/run_dirty_ratings_if_needed.sh >> /data/logs/dirty-ratings.log 2>&1
+```
+
+Scheduled-equivalent manual run:
+
+```bash
+cd /opt/ed-finder
+DIRTY_RATING_THRESHOLD=250 DIRTY_RATING_WORKERS=2 DIRTY_RATING_CHUNK=1000 \
+  bash scripts/run_dirty_ratings_if_needed.sh
+```
+
+Safe smoke test that should only count and skip unless the queue is enormous:
+
+```bash
+cd /opt/ed-finder
+DIRTY_RATING_THRESHOLD=999999999 bash scripts/run_dirty_ratings_if_needed.sh
+```
+
+Validation SQL:
+
+```sql
+SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;
+```
+
+Log checks:
+
+```bash
+tail -100 /data/logs/dirty-ratings.log
+grep -E "start time=|dirty_count=|below threshold|dirty ratings rebuild command|exit_status=|another dirty ratings maintenance run" /data/logs/dirty-ratings.log | tail -100
+```
+
+The script does not clear Redis caches automatically. Cache clears remain a
+separate operator action after a verified successful rebuild when freshness is
+needed before TTL expiry.
+
 ## Body Order And Ring Facts
 
 Stage 17N.2d-M changes body display order to natural Elite hierarchy order.
