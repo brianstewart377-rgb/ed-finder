@@ -547,7 +547,23 @@ async def get_system_archetypes(request: Request, id64: int):
                     bio_signal_count,
                     is_landable,
                     is_terraformable,
-                    is_ringed
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1
+                              FROM bodies b
+                              JOIN body_rings br
+                                ON br.system_id64 = b.system_id64
+                               AND br.body_id = b.id
+                               AND br.association_status = 'local_matched'
+                             WHERE b.system_id64 = body_scan_facts.system_address
+                               AND (
+                                   b.id = body_scan_facts.body_id::bigint
+                                   OR b.name = body_scan_facts.body_name
+                               )
+                        ) THEN TRUE
+                        WHEN body_scan_facts.is_ringed IS FALSE THEN FALSE
+                        ELSE NULL
+                    END AS is_ringed
                 FROM body_scan_facts
                 WHERE system_address = $1
                 ORDER BY body_id
@@ -585,6 +601,7 @@ async def get_system_archetypes(request: Request, id64: int):
                                        FROM body_rings br
                                        WHERE br.system_id64 = bodies.system_id64
                                          AND br.body_id = bodies.id
+                                         AND br.association_status = 'local_matched'
                                    ) THEN TRUE
                                    ELSE NULL
                                END AS is_ringed

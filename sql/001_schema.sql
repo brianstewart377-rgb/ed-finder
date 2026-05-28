@@ -281,6 +281,14 @@ CREATE TABLE IF NOT EXISTS body_rings (
 
     source              TEXT            NOT NULL,
     confidence          TEXT            NOT NULL,
+    association_status  TEXT            NOT NULL DEFAULT 'local_matched'
+        CHECK (association_status IN (
+            'local_matched',
+            'unresolved_body_identity',
+            'ambiguous_body_identity',
+            'belt_source_evidence',
+            'conflict'
+        )),
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     UNIQUE (system_id64, body_id, ring_name, source)
@@ -291,6 +299,10 @@ CREATE INDEX IF NOT EXISTS idx_body_rings_system_id64
 
 CREATE INDEX IF NOT EXISTS idx_body_rings_body_id
     ON body_rings (body_id);
+
+CREATE INDEX IF NOT EXISTS idx_body_rings_local_matched
+    ON body_rings (system_id64, body_id)
+    WHERE body_id IS NOT NULL AND association_status = 'local_matched';
 
 CREATE INDEX IF NOT EXISTS idx_body_rings_source_body_id
     ON body_rings (source, system_id64, source_body_id)
@@ -317,6 +329,9 @@ COMMENT ON COLUMN body_rings.source
 
 COMMENT ON COLUMN body_rings.confidence
     IS 'Evidence quality label such as source_ring_payload or partial_source_ring_payload.';
+
+COMMENT ON COLUMN body_rings.association_status
+    IS 'Whether body_id is a trusted local bodies.id association. Consumers count only local_matched rows.';
 
 -- ---------------------------------------------------------------------------
 -- 3. STATIONS  (~5M rows)

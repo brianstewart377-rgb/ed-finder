@@ -132,6 +132,7 @@ def test_eddn_scan_ring_row_exact_body_name_match_maps_to_local_body_id():
     assert resolved[0]['body_id'] == 576462760435454682
     assert resolved[0]['source_body_id'] == 7
     assert resolved[0]['body_name'] == 'Test 4'
+    assert resolved[0]['association_status'] == 'local_matched'
 
 
 def test_eddn_scan_body_id_is_not_used_as_ring_body_id_without_local_match():
@@ -157,6 +158,36 @@ def test_eddn_scan_ambiguous_body_name_match_is_not_trusted():
 
     assert resolved == []
     assert skipped[0]['reason'] == 'local_body_name_not_unique'
+
+
+def test_eddn_scan_ring_without_ring_identity_is_not_written():
+    fact = normalise_scan_event(_scan_event(Rings=[{'RingClass': 'Icy'}]))
+    source_rows = _ring_rows_from_scan_facts([fact])
+
+    resolved, skipped = _resolve_ring_rows_with_local_bodies(source_rows, [
+        {'system_id64': 42, 'id': 576462760435454682, 'name': 'Test 4'},
+    ])
+
+    assert resolved == []
+    assert skipped[0]['reason'] == 'missing_ring_identity'
+
+
+def test_eddn_scan_belt_body_id_zero_is_not_trusted_ring_evidence():
+    fact = normalise_scan_event(_scan_event(
+        BodyID=0,
+        BodyName='Test Belt',
+        Rings=[{'Name': 'Test Belt A Ring'}],
+    ))
+    source_rows = _ring_rows_from_scan_facts([fact])
+
+    resolved, skipped = _resolve_ring_rows_with_local_bodies(source_rows, [
+        {'system_id64': 42, 'id': 0, 'name': 'Test Belt'},
+    ])
+
+    assert resolved == []
+    assert skipped[0]['body_id'] is None
+    assert skipped[0]['source_body_id'] == 0
+    assert skipped[0]['reason'] == 'belt_source_evidence'
 
 
 def test_eddn_listener_scan_ring_payload_builds_ring_rows():
@@ -258,3 +289,18 @@ def test_api_serializes_trusted_not_ringed_and_unknown_separately():
     assert unknown['ring_state'] == 'unknown'
     assert unknown['ring_count'] is None
     assert unknown['rings'] is None
+
+
+def test_api_ignores_source_only_ringed_scan_without_local_ring_row():
+    body = _body_payload_from_row({
+        'name': 'Test 7',
+        '_scan_is_ringed': True,
+        '_scan_data_sources': ['eddn_scan'],
+        '_rings': None,
+        '_ring_sources': None,
+        '_ring_confidences': None,
+    }, 'Test')
+
+    assert body['is_ringed'] is None
+    assert body['ring_state'] == 'unknown'
+    assert body['ring_count'] is None

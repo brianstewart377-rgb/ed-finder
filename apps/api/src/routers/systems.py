@@ -113,6 +113,7 @@ async def get_system(
                 FROM body_rings br
                 WHERE br.system_id64 = b.system_id64
                   AND br.body_id = b.id
+                  AND br.association_status = 'local_matched'
             ) r ON TRUE
             WHERE b.system_id64 = $1
             ORDER BY b.id ASC
@@ -222,6 +223,8 @@ def _ring_fields_from_sources(is_ringed: Any, data_sources: Any, rings: list[dic
         return None, 'unknown'
     known_value = _coerce_bool(is_ringed)
     if known_value is None:
+        return None, 'unknown'
+    if known_value is True:
         return None, 'unknown'
     return known_value, 'ringed' if known_value else 'not_ringed'
 
@@ -402,6 +405,7 @@ async def batch_systems(
                     FROM body_rings br
                     WHERE br.system_id64 = b.system_id64
                       AND br.body_id = b.id
+                      AND br.association_status = 'local_matched'
                 ) r ON TRUE
                 WHERE b.system_id64 = ANY($1::bigint[])
                 ORDER BY b.system_id64, b.id ASC

@@ -65,9 +65,9 @@ def ring_rows_for_body(
 
 def _normalise_ring_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return {
-        'ring_name': _clean_text(_first_present_key(entry, ('name', 'Name', 'ringName', 'RingName'))),
-        'ring_type': _clean_text(_first_present_key(entry, ('type', 'Type'))),
-        'ring_class': _clean_text(_first_present_key(entry, ('ringClass', 'RingClass', 'class', 'Class'))),
+        'ring_name': _clean_text(_first_present_key(entry, ('ring_name', 'name', 'Name', 'ringName', 'RingName'))),
+        'ring_type': _clean_text(_first_present_key(entry, ('ring_type', 'type', 'Type'))),
+        'ring_class': _clean_text(_first_present_key(entry, ('ring_class', 'ringClass', 'RingClass', 'class', 'Class'))),
         'mass_mt': _safe_float(_first_present_key(entry, ('mass', 'Mass', 'MassMT', 'massMT', 'mass_mt'))),
         'inner_radius': _safe_float(_first_present_key(entry, ('innerRadius', 'InnerRadius', 'InnerRad', 'innerRad', 'inner_radius', 'inner_rad'))),
         'outer_radius': _safe_float(_first_present_key(entry, ('outerRadius', 'OuterRadius', 'OuterRad', 'outerRad', 'outer_radius', 'outer_rad'))),

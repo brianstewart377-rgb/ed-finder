@@ -39,9 +39,33 @@ EDDN_RELAY       = 'tcp://eddn.edcd.io:9500'
 FLUSH_INTERVAL   = 15    # seconds between DB batch flushes
 MAX_BATCH_SIZE   = 200   # flush early if batch exceeds this
 RECONNECT_DELAY  = 5     # seconds between reconnect attempts
+DIRTY_MARK_BATCH_SIZE = 500
+DIRTY_MARK_STATEMENT_TIMEOUT_MS = 5000
 
 # Event types we process for the simulation engine
 SIMULATION_EVENT_TYPES = {'Scan', 'FSSBodySignals', 'SAASignalsFound'}
+
+
+def _command_row_count(status: str | None) -> int:
+    if not status:
+        return 0
+    try:
+        return int(str(status).rsplit(' ', 1)[-1])
+    except (TypeError, ValueError):
+        return 0
+
+
+def _chunks(values: list[int], size: int):
+    size = max(1, int(size))
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
+
+
+def _is_probable_belt_source(*, source_body_id: Optional[int], body_name: Optional[str], ring_name: Optional[str]) -> bool:
+    if source_body_id == 0:
+        return True
+    haystack = ' '.join(part for part in (body_name, ring_name) if part).lower()
+    return ' belt' in haystack or haystack.endswith('belt')
 
 
 async def run_eddn_simulation_ingest(pool: 'asyncpg.Pool') -> None:
@@ -165,6 +189,7 @@ async def _flush_batch(
     if not journal_rows and not fact_rows:
         return
 
+    dirty_system_ids: set[int] = set()
     try:
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -194,9 +219,25 @@ async def _flush_batch(
                     source_ring_rows = _ring_rows_from_scan_facts(fact_rows)
                     ring_rows, unresolved_ring_rows = await _resolve_eddn_ring_rows(conn, source_ring_rows)
                     if unresolved_ring_rows:
-                        log.debug(
-                            'EDDN flush skipped %d unresolved ring rows without an exact local body match',
-                            len(unresolved_ring_rows),
+                        reason_counts: dict[str, int] = {}
+                        for row in unresolved_ring_rows:
+                            reason = str(row.get('reason') or 'unknown')
+                            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+                        log.info(
+                            'EDDN flush skipped unresolved ring rows',
+                            extra={
+                                'rings_skipped_unmatched_body': reason_counts.get('local_body_not_found_by_name', 0),
+                                'rings_skipped_ambiguous_body': reason_counts.get('local_body_name_not_unique', 0),
+                                'rings_skipped_belt_source': reason_counts.get('belt_source_evidence', 0),
+                                'rings_skipped_other': sum(
+                                    count for reason, count in reason_counts.items()
+                                    if reason not in {
+                                        'local_body_not_found_by_name',
+                                        'local_body_name_not_unique',
+                                        'belt_source_evidence',
+                                    }
+                                ),
+                            },
                         )
                     await conn.executemany("""
                         INSERT INTO body_scan_facts (
@@ -276,18 +317,18 @@ async def _flush_batch(
                         )
                         for r in fact_rows
                     ])
-                    if ring_rows:
-                        await conn.executemany("""
+                    for row in ring_rows:
+                        status = await conn.execute("""
                             INSERT INTO body_rings (
                                 system_id64, body_id, source_body_id, body_name,
                                 ring_name, ring_type, ring_class,
                                 mass_mt, inner_radius, outer_radius,
-                                source, confidence, updated_at
+                                source, confidence, association_status, updated_at
                             ) VALUES (
                                 $1, $2, $3, $4,
                                 $5, $6, $7,
                                 $8, $9, $10,
-                                $11, $12, now()
+                                $11, $12, $13, now()
                             )
                             ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
                                 source_body_id = COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id),
@@ -298,22 +339,28 @@ async def _flush_batch(
                                 inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
                                 outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
                                 confidence   = EXCLUDED.confidence,
+                                association_status = 'local_matched',
                                 updated_at   = now()
-                        """, [_ring_row_tuple(row) for row in ring_rows])
+                            WHERE body_rings.source_body_id IS DISTINCT FROM COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id)
+                               OR body_rings.body_name IS DISTINCT FROM COALESCE(EXCLUDED.body_name, body_rings.body_name)
+                               OR body_rings.ring_type IS DISTINCT FROM COALESCE(EXCLUDED.ring_type, body_rings.ring_type)
+                               OR body_rings.ring_class IS DISTINCT FROM COALESCE(EXCLUDED.ring_class, body_rings.ring_class)
+                               OR body_rings.mass_mt IS DISTINCT FROM COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt)
+                               OR body_rings.inner_radius IS DISTINCT FROM COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius)
+                               OR body_rings.outer_radius IS DISTINCT FROM COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius)
+                               OR body_rings.confidence IS DISTINCT FROM EXCLUDED.confidence
+                               OR body_rings.association_status IS DISTINCT FROM 'local_matched'
+                        """, *_ring_row_tuple(row))
+                        if _command_row_count(status):
+                            dirty_system_ids.add(int(row['system_id64']))
 
-                    dirty_system_ids = sorted({
-                        int(r['system_address'])
-                        for r in fact_rows
-                        if r.get('is_ringed') is not None or r.get('rings')
-                    })
-                    if dirty_system_ids:
-                        await conn.execute("""
-                            UPDATE systems
-                               SET rating_dirty = TRUE,
-                                   cluster_dirty = TRUE,
-                                   updated_at = NOW()
-                             WHERE id64 = ANY($1::bigint[])
-                        """, dirty_system_ids)
+            if dirty_system_ids:
+                dirty_result = await _mark_dirty_systems_incremental(conn, dirty_system_ids)
+                if dirty_result['failed']:
+                    log.warning(
+                        'EDDN dirty marking failed for one or more batches',
+                        extra=dirty_result,
+                    )
 
         log.debug(
             f'EDDN flush: {len(journal_rows)} journal events, '
@@ -359,6 +406,64 @@ async def _resolve_eddn_ring_rows(conn: 'asyncpg.Connection', rows: list[dict]) 
     return _resolve_ring_rows_with_local_bodies(rows, local_bodies)
 
 
+async def _mark_dirty_systems_incremental(
+    conn: 'asyncpg.Connection',
+    system_ids,
+    *,
+    batch_size: int = DIRTY_MARK_BATCH_SIZE,
+) -> dict[str, int | list[int]]:
+    ordered_ids = sorted({int(value) for value in system_ids if value is not None})
+    result: dict[str, int | list[int]] = {
+        'requested': len(ordered_ids),
+        'marked': 0,
+        'already_dirty': 0,
+        'skipped_missing': 0,
+        'failed': 0,
+        'failed_ids': [],
+    }
+    for chunk in _chunks(ordered_ids, batch_size):
+        try:
+            async with conn.transaction():
+                await conn.execute(
+                    f"SET LOCAL statement_timeout = {max(1, int(DIRTY_MARK_STATEMENT_TIMEOUT_MS))}"
+                )
+                row = await conn.fetchrow("""
+                    WITH requested AS (
+                        SELECT unnest($1::bigint[]) AS id64
+                    ),
+                    existing AS (
+                        SELECT s.id64, s.rating_dirty
+                          FROM systems s
+                          JOIN requested r ON r.id64 = s.id64
+                    ),
+                    updated AS (
+                        UPDATE systems s
+                           SET rating_dirty = TRUE,
+                               updated_at = NOW()
+                          FROM requested r
+                         WHERE s.id64 = r.id64
+                           AND s.rating_dirty IS DISTINCT FROM TRUE
+                        RETURNING s.id64
+                    )
+                    SELECT
+                        (SELECT COUNT(*)::int FROM updated) AS marked,
+                        (SELECT COUNT(*)::int FROM existing WHERE rating_dirty IS TRUE) AS already_dirty,
+                        (
+                            (SELECT COUNT(*)::int FROM requested)
+                            - (SELECT COUNT(*)::int FROM existing)
+                        ) AS skipped_missing
+                """, chunk)
+            result['marked'] = int(result['marked']) + int(row['marked'] or 0)
+            result['already_dirty'] = int(result['already_dirty']) + int(row['already_dirty'] or 0)
+            result['skipped_missing'] = int(result['skipped_missing']) + int(row['skipped_missing'] or 0)
+        except Exception:
+            failed_ids = result['failed_ids']
+            assert isinstance(failed_ids, list)
+            failed_ids.extend(chunk)
+            result['failed'] = int(result['failed']) + len(chunk)
+    return result
+
+
 def _resolve_ring_rows_with_local_bodies(
     rows: list[dict],
     local_bodies,
@@ -381,6 +486,16 @@ def _resolve_ring_rows_with_local_bodies(
     skipped: list[dict] = []
     for row in rows:
         body_name = row.get('body_name')
+        if _is_probable_belt_source(
+            source_body_id=row.get('source_body_id'),
+            body_name=body_name,
+            ring_name=row.get('ring_name'),
+        ):
+            skipped.append({**row, 'reason': 'belt_source_evidence'})
+            continue
+        if not row.get('ring_name'):
+            skipped.append({**row, 'reason': 'missing_ring_identity'})
+            continue
         if row.get('system_id64') is None or not body_name:
             skipped.append({**row, 'reason': 'missing_system_or_body_name'})
             continue
@@ -396,6 +511,7 @@ def _resolve_ring_rows_with_local_bodies(
             **row,
             'body_id': match['id'],
             'body_name': match['name'],
+            'association_status': 'local_matched',
         })
     return resolved, skipped
 
@@ -414,4 +530,5 @@ def _ring_row_tuple(row: dict) -> tuple:
         row.get('outer_radius'),
         row.get('source'),
         row.get('confidence'),
+        row.get('association_status', 'local_matched'),
     )

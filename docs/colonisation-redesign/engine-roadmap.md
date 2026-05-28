@@ -2227,8 +2227,9 @@ coverage as no-rings evidence.
 
 - `body_rings` stores one row per source-observed ring with `system_id64`,
   optional `body_id`/`body_name`, ring name/type/class, mass/radius fields,
-  `source`, `confidence`, and `updated_at`. Missing rows mean unknown ring
-  state, not false.
+  `source`, `confidence`, `association_status`, and `updated_at`. Consumers
+  count only `association_status='local_matched'` rows joined to local
+  `bodies.id`. Missing or unresolved rows mean unknown ring state, not false.
 - Spansh body imports parse source ring arrays when present and write
   `source='spansh_dump'`. Empty or absent Spansh ring arrays do not create
   no-ring facts because the importer does not yet prove per-body scan
@@ -2239,13 +2240,19 @@ coverage as no-rings evidence.
   Missing `Rings` remains `NULL`/unknown.
 - System/body API payloads expose `rings`, `ring_count`, `ring_source`,
   `ring_confidence`, plus tri-state `is_ringed`/`ring_state`. One or more
-  ring rows wins as ringed; trusted scan no-ring evidence is `false`; absent
-  evidence is `unknown`.
+  local-matched ring rows wins as ringed; trusted scan no-ring evidence is
+  `false`; absent or source-only ring evidence is `unknown`.
 - Rating, topology, archetype, simulation fallback, and planner baseline paths
   no longer infer rings from body subtype text. Existing `ratings.ring_count`
   is wired from trusted ring evidence during rating rebuilds; historical
   production values still require a controlled rebuild/backfill after ring
   rows are populated.
+
+Stage 17N.2d-Q hardens EDDN ring identity: Journal `BodyID` is preserved only
+as `source_body_id`, ring writes require an exact unique local body-name match
+within the same system, belt-source and ambiguous rows are skipped from trusted
+ring facts, and dirty rating marks are batched per affected system rather than
+polled by a global listener query.
 
 ## Stage 17N.3-A - Guided Planner Quality Contract
 

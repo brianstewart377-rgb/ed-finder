@@ -907,6 +907,7 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
                           FROM body_rings br
                           WHERE br.system_id64 = b.system_id64
                             AND br.body_id = b.id
+                            AND br.association_status = 'local_matched'
                         ) AS has_rings,
                         s.is_main_star, s.spectral_class
                     FROM bodies b

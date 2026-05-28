@@ -30,8 +30,9 @@ Events handled:
 
 Dirty flag strategy:
   Rather than recalculating ratings/clusters synchronously (slow),
-  we set rating_dirty=TRUE and cluster_dirty=TRUE on affected systems.
-  The background job (runs every 5 minutes) picks these up and recalculates.
+  we mark only systems affected by the current flush as rating_dirty=TRUE
+  in small retryable batches.  Offline build_ratings.py --dirty performs
+  the actual rebuild.
 
 EDDN relay: wss://eddn.edcd.io:4430/subscribe
 """
@@ -70,8 +71,8 @@ METRICS_PORT = int(os.getenv('METRICS_PORT', '9091'))
 
 EDDN_PUBSUB_CHANNEL = 'eddn_events'
 
-# How often to flush dirty system recalculations (seconds)
-DIRTY_FLUSH_INTERVAL = int(os.getenv('DIRTY_FLUSH_INTERVAL', '300'))  # 5 minutes
+DIRTY_MARK_BATCH_SIZE = int(os.getenv('DIRTY_MARK_BATCH_SIZE', '500'))
+DIRTY_MARK_STATEMENT_TIMEOUT_MS = int(os.getenv('DIRTY_MARK_STATEMENT_TIMEOUT_MS', '5000'))
 
 os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 
@@ -136,6 +137,16 @@ _stats = {
     'systems_upserted': 0,
     'bodies_upserted':  0,
     'rings_upserted':   0,
+    'rings_written':    0,
+    'rings_skipped_unmatched_body': 0,
+    'rings_skipped_ambiguous_body': 0,
+    'rings_skipped_belt_source': 0,
+    'rings_unresolved_staged': 0,
+    'ring_write_errors': 0,
+    'dirty_marked':     0,
+    'dirty_already_dirty': 0,
+    'dirty_skipped_missing': 0,
+    'dirty_mark_failures': 0,
     'errors':           0,
     'started_at':       time.time(),
 }
@@ -144,6 +155,7 @@ _stats = {
 _pending_systems: dict = {}   # id64 -> dict
 _pending_bodies:  list = []   # list of body dicts
 _pending_rings:   list = []   # list of provenance-backed body ring dicts
+_pending_dirty_system_ids: set[int] = set()
 _last_flush = time.time()
 FLUSH_INTERVAL = 10  # seconds between DB batch writes
 
@@ -281,6 +293,28 @@ def clean_text(value) -> Optional[str]:
     return text or None
 
 
+def _command_row_count(status: str | None) -> int:
+    if not status:
+        return 0
+    try:
+        return int(str(status).rsplit(' ', 1)[-1])
+    except (TypeError, ValueError):
+        return 0
+
+
+def _chunks(values: list[int], size: int):
+    size = max(1, int(size))
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
+
+
+def _is_probable_belt_source(*, source_body_id: Optional[int], body_name: Optional[str], ring_name: Optional[str]) -> bool:
+    if source_body_id == 0:
+        return True
+    haystack = ' '.join(part for part in (body_name, ring_name) if part).lower()
+    return ' belt' in haystack or haystack.endswith('belt')
+
+
 async def resolve_ring_rows_to_local_bodies(conn, rows: list[dict]) -> tuple[list[dict], list[dict]]:
     """Resolve EDDN ring rows to existing local bodies by exact same-system name."""
     if not rows:
@@ -298,6 +332,110 @@ async def resolve_ring_rows_to_local_bodies(conn, rows: list[dict]) -> tuple[lis
            AND name = ANY($2::text[])
     """, system_ids, body_names)
     return resolve_ring_rows_with_local_bodies(rows, local_bodies)
+
+
+async def mark_dirty_systems_incremental(
+    conn,
+    system_ids,
+    *,
+    batch_size: int = DIRTY_MARK_BATCH_SIZE,
+) -> dict[str, int | list[int]]:
+    """Mark affected systems rating-dirty in small deterministic batches."""
+    ordered_ids = sorted({int(value) for value in system_ids if value is not None})
+    result: dict[str, int | list[int]] = {
+        'requested': len(ordered_ids),
+        'marked': 0,
+        'already_dirty': 0,
+        'skipped_missing': 0,
+        'failed': 0,
+        'failed_ids': [],
+    }
+    if not ordered_ids:
+        return result
+
+    for chunk in _chunks(ordered_ids, batch_size):
+        try:
+            async with conn.transaction():
+                await conn.execute(
+                    f"SET LOCAL statement_timeout = {max(1, int(DIRTY_MARK_STATEMENT_TIMEOUT_MS))}"
+                )
+                row = await conn.fetchrow("""
+                    WITH requested AS (
+                        SELECT unnest($1::bigint[]) AS id64
+                    ),
+                    existing AS (
+                        SELECT s.id64, s.rating_dirty
+                          FROM systems s
+                          JOIN requested r ON r.id64 = s.id64
+                    ),
+                    updated AS (
+                        UPDATE systems s
+                           SET rating_dirty = TRUE,
+                               updated_at = NOW()
+                          FROM requested r
+                         WHERE s.id64 = r.id64
+                           AND s.rating_dirty IS DISTINCT FROM TRUE
+                        RETURNING s.id64
+                    )
+                    SELECT
+                        (SELECT COUNT(*)::int FROM updated) AS marked,
+                        (SELECT COUNT(*)::int FROM existing WHERE rating_dirty IS TRUE) AS already_dirty,
+                        (
+                            (SELECT COUNT(*)::int FROM requested)
+                            - (SELECT COUNT(*)::int FROM existing)
+                        ) AS skipped_missing
+                """, chunk)
+            result['marked'] = int(result['marked']) + int(row['marked'] or 0)
+            result['already_dirty'] = int(result['already_dirty']) + int(row['already_dirty'] or 0)
+            result['skipped_missing'] = int(result['skipped_missing']) + int(row['skipped_missing'] or 0)
+        except Exception as e:
+            failed_ids = result['failed_ids']
+            assert isinstance(failed_ids, list)
+            failed_ids.extend(chunk)
+            result['failed'] = int(result['failed']) + len(chunk)
+            _stats['dirty_mark_failures'] += 1
+            log.warning(
+                "Dirty marking batch failed; leaving systems pending for retry",
+                extra={'affected_count': len(chunk), 'error': str(e)},
+            )
+    return result
+
+
+async def flush_pending_dirty_systems(pool: asyncpg.Pool) -> dict[str, int | list[int]]:
+    """Retry pending dirty marks without blocking ingestion on failed batches."""
+    global _pending_dirty_system_ids
+    snapshot = sorted(_pending_dirty_system_ids)
+    if not snapshot:
+        return {
+            'requested': 0,
+            'marked': 0,
+            'already_dirty': 0,
+            'skipped_missing': 0,
+            'failed': 0,
+            'failed_ids': [],
+        }
+
+    async with pool.acquire() as conn:
+        result = await mark_dirty_systems_incremental(conn, snapshot)
+
+    failed_ids = set(result.get('failed_ids') or [])
+    _pending_dirty_system_ids.difference_update(sid for sid in snapshot if sid not in failed_ids)
+    _stats['dirty_marked'] += int(result.get('marked') or 0)
+    _stats['dirty_already_dirty'] += int(result.get('already_dirty') or 0)
+    _stats['dirty_skipped_missing'] += int(result.get('skipped_missing') or 0)
+    if int(result.get('requested') or 0):
+        log.info(
+            "Dirty mark flush",
+            extra={
+                'requested': result.get('requested'),
+                'dirty_marked': result.get('marked'),
+                'already_dirty': result.get('already_dirty'),
+                'skipped_missing': result.get('skipped_missing'),
+                'failed': result.get('failed'),
+                'pending_retry': len(_pending_dirty_system_ids),
+            },
+        )
+    return result
 
 
 def resolve_ring_rows_with_local_bodies(rows: list[dict], local_bodies) -> tuple[list[dict], list[dict]]:
@@ -319,6 +457,16 @@ def resolve_ring_rows_with_local_bodies(rows: list[dict], local_bodies) -> tuple
     skipped: list[dict] = []
     for row in rows:
         body_name = row.get('body_name')
+        if _is_probable_belt_source(
+            source_body_id=row.get('source_body_id'),
+            body_name=body_name,
+            ring_name=row.get('ring_name'),
+        ):
+            skipped.append({**row, 'reason': 'belt_source_evidence'})
+            continue
+        if not row.get('ring_name'):
+            skipped.append({**row, 'reason': 'missing_ring_identity'})
+            continue
         if row.get('system_id64') is None or not body_name:
             skipped.append({**row, 'reason': 'missing_system_or_body_name'})
             continue
@@ -334,6 +482,7 @@ def resolve_ring_rows_with_local_bodies(rows: list[dict], local_bodies) -> tuple
             **row,
             'body_id': match['id'],
             'body_name': match['name'],
+            'association_status': 'local_matched',
         })
     return resolved, skipped
 
@@ -488,11 +637,7 @@ async def handle_saa_signals(pool: asyncpg.Pool, header: dict, message: dict):
                 RETURNING id
             """, bio_count, geo_count, body_name, id64)
             if updated_body:
-                await conn.execute("""
-                    UPDATE systems
-                       SET rating_dirty = TRUE, cluster_dirty = TRUE
-                     WHERE id64 = $1
-                """, id64)
+                await mark_dirty_systems_incremental(conn, [id64])
 
 
 async def handle_location_or_jump(pool: asyncpg.Pool, header: dict, message: dict):
@@ -555,6 +700,12 @@ async def flush_pending(pool: asyncpg.Pool):
     flushed_bodies  = 0
     flushed_rings   = 0
     flush_errors    = 0
+    affected_dirty_system_ids: set[int] = set()
+    ring_skip_counts = {
+        'rings_skipped_unmatched_body': 0,
+        'rings_skipped_ambiguous_body': 0,
+        'rings_skipped_belt_source': 0,
+    }
 
     try:
         async with pool.acquire() as conn:
@@ -562,7 +713,7 @@ async def flush_pending(pool: asyncpg.Pool):
                 # ── Upsert systems ────────────────────────────────────────
                 for sys in systems_snapshot:
                     try:
-                        await conn.execute("""
+                        status = await conn.execute("""
                             INSERT INTO systems (
                                 id64, name, x, y, z,
                                 primary_economy, population,
@@ -612,8 +763,11 @@ async def flush_pending(pool: asyncpg.Pool):
                             sys.get('main_star_subtype'),
                             sys.get('main_star_is_scoopable'),
                         )
-                        flushed_systems += 1
-                        _stats['systems_upserted'] += 1
+                        changed = _command_row_count(status)
+                        if changed:
+                            flushed_systems += changed
+                            _stats['systems_upserted'] += changed
+                            affected_dirty_system_ids.add(int(sys['id64']))
                     except Exception as e:
                         flush_errors += 1
                         _stats['errors'] += 1
@@ -630,14 +784,18 @@ async def flush_pending(pool: asyncpg.Pool):
                         unresolved_rings_snapshot,
                     ) = await resolve_ring_rows_to_local_bodies(conn, rings_snapshot)
                     if unresolved_rings_snapshot:
-                        log.debug(
-                            "Skipped %d unresolved EDDN ring rows without an exact local body match",
-                            len(unresolved_rings_snapshot),
-                        )
+                        for row in unresolved_rings_snapshot:
+                            reason = row.get('reason')
+                            if reason == 'local_body_name_not_unique':
+                                ring_skip_counts['rings_skipped_ambiguous_body'] += 1
+                            elif reason == 'belt_source_evidence':
+                                ring_skip_counts['rings_skipped_belt_source'] += 1
+                            else:
+                                ring_skip_counts['rings_skipped_unmatched_body'] += 1
 
                 for body in bodies_snapshot:
                     try:
-                        await conn.execute("""
+                        status = await conn.execute("""
                             INSERT INTO bodies (
                                 id, system_id64, name, body_type, subtype, is_main_star,
                                 distance_from_star, radius, mass, gravity,
@@ -716,8 +874,11 @@ async def flush_pending(pool: asyncpg.Pool):
                             body.get('is_scoopable'),
                             body.get('estimated_mapping_value'), body.get('estimated_scan_value'),
                         )
-                        flushed_bodies += 1
-                        _stats['bodies_upserted'] += 1
+                        changed = _command_row_count(status)
+                        if changed:
+                            flushed_bodies += changed
+                            _stats['bodies_upserted'] += changed
+                            affected_dirty_system_ids.add(int(body['system_id64']))
                     except Exception as e:
                         flush_errors += 1
                         _stats['errors'] += 1
@@ -726,14 +887,14 @@ async def flush_pending(pool: asyncpg.Pool):
                 # ── Upsert ring facts ───────────────────────────────────
                 for ring in resolved_rings_snapshot:
                     try:
-                        await conn.execute("""
+                        status = await conn.execute("""
                             INSERT INTO body_rings (
                                 system_id64, body_id, source_body_id, body_name,
                                 ring_name, ring_type, ring_class,
                                 mass_mt, inner_radius, outer_radius,
-                                source, confidence, updated_at
+                                source, confidence, association_status, updated_at
                             ) VALUES (
-                                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW()
+                                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW()
                             )
                             ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
                                 source_body_id = COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id),
@@ -744,18 +905,33 @@ async def flush_pending(pool: asyncpg.Pool):
                                 inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
                                 outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
                                 confidence   = EXCLUDED.confidence,
+                                association_status = 'local_matched',
                                 updated_at   = NOW()
+                            WHERE body_rings.source_body_id IS DISTINCT FROM COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id)
+                               OR body_rings.body_name IS DISTINCT FROM COALESCE(EXCLUDED.body_name, body_rings.body_name)
+                               OR body_rings.ring_type IS DISTINCT FROM COALESCE(EXCLUDED.ring_type, body_rings.ring_type)
+                               OR body_rings.ring_class IS DISTINCT FROM COALESCE(EXCLUDED.ring_class, body_rings.ring_class)
+                               OR body_rings.mass_mt IS DISTINCT FROM COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt)
+                               OR body_rings.inner_radius IS DISTINCT FROM COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius)
+                               OR body_rings.outer_radius IS DISTINCT FROM COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius)
+                               OR body_rings.confidence IS DISTINCT FROM EXCLUDED.confidence
+                               OR body_rings.association_status IS DISTINCT FROM 'local_matched'
                         """,
                             ring.get('system_id64'), ring.get('body_id'), ring.get('source_body_id'), ring.get('body_name'),
                             ring.get('ring_name'), ring.get('ring_type'), ring.get('ring_class'),
                             ring.get('mass_mt'), ring.get('inner_radius'), ring.get('outer_radius'),
-                            ring.get('source'), ring.get('confidence'),
+                            ring.get('source'), ring.get('confidence'), ring.get('association_status', 'local_matched'),
                         )
-                        flushed_rings += 1
-                        _stats['rings_upserted'] += 1
+                        changed = _command_row_count(status)
+                        if changed:
+                            flushed_rings += changed
+                            _stats['rings_upserted'] += changed
+                            _stats['rings_written'] += changed
+                            affected_dirty_system_ids.add(int(ring['system_id64']))
                     except Exception as e:
                         flush_errors += 1
                         _stats['errors'] += 1
+                        _stats['ring_write_errors'] += 1
                         log.warning(f"Ring upsert error (body_id={ring.get('body_id')}): {e}")
 
         # ── Transaction succeeded — NOW clear the flushed items ───────────
@@ -767,7 +943,10 @@ async def flush_pending(pool: asyncpg.Pool):
         # New bodies appended during the flush are preserved.
         del _pending_bodies[:n_bodies]
         del _pending_rings[:n_rings]
+        _pending_dirty_system_ids.update(affected_dirty_system_ids)
         _last_flush = time.time()
+        for key, value in ring_skip_counts.items():
+            _stats[key] += value
 
         if flush_errors:
             log.warning(
@@ -776,6 +955,17 @@ async def flush_pending(pool: asyncpg.Pool):
             )
         else:
             log.info(f"Flushed {flushed_systems} systems + {flushed_bodies} bodies + {flushed_rings} rings to DB")
+        if n_rings:
+            log.info(
+                "EDDN ring flush summary",
+                extra={
+                    'rings_seen': n_rings,
+                    'rings_written': flushed_rings,
+                    **ring_skip_counts,
+                    'ring_write_errors': _stats['ring_write_errors'],
+                },
+            )
+        await flush_pending_dirty_systems(pool)
 
     except Exception as e:
         # The whole transaction failed — buffers are NOT cleared.
@@ -785,37 +975,6 @@ async def flush_pending(pool: asyncpg.Pool):
             f"flush_pending FAILED — {len(systems_snapshot)} systems + "
             f"{len(bodies_snapshot)} bodies + {len(rings_snapshot)} rings retained in buffer for next retry: {e}"
         )
-
-
-# ---------------------------------------------------------------------------
-# Background job: report dirty counts
-# ---------------------------------------------------------------------------
-async def dirty_recalc_job(pool: asyncpg.Pool):
-    """
-    Every DIRTY_FLUSH_INTERVAL seconds, report how many systems need
-    ratings/cluster recalculation.  The actual rebuild is handled by
-    build_ratings.py --dirty and build_clusters.py --dirty-only.
-    """
-    while True:
-        await asyncio.sleep(DIRTY_FLUSH_INTERVAL)
-        try:
-            async with pool.acquire() as conn:
-                dirty_count = await conn.fetchval(
-                    "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE OR cluster_dirty = TRUE"
-                )
-                if dirty_count == 0:
-                    continue
-                if dirty_count < 10000:
-                    log.info(
-                        f"{dirty_count} dirty systems — queued for next build_ratings.py --dirty run. "
-                        f"Run manually: python3 build_ratings.py --dirty"
-                    )
-                else:
-                    log.warning(
-                        f"{dirty_count:,} dirty systems — run: python3 build_ratings.py --dirty"
-                    )
-        except Exception as e:
-            log.error(f"Dirty recalc job error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -834,8 +993,10 @@ async def stats_reporter():
             f"systems: {_stats['systems_upserted']:,} | "
             f"bodies: {_stats['bodies_upserted']:,} | "
             f"rings: {_stats['rings_upserted']:,} | "
+            f"dirty_marked: {_stats['dirty_marked']:,} | "
             f"errors: {_stats['errors']:,} ({err_rate:.2f}/min) | "
-            f"pending: {len(_pending_systems)} sys / {len(_pending_bodies)} bodies / {len(_pending_rings)} rings"
+            f"pending: {len(_pending_systems)} sys / {len(_pending_bodies)} bodies / "
+            f"{len(_pending_rings)} rings / {len(_pending_dirty_system_ids)} dirty"
         )
 
 
@@ -871,6 +1032,21 @@ def _prometheus_text() -> bytes:
         '# HELP eddn_rings_upserted_total Ring facts written to the DB',
         '# TYPE eddn_rings_upserted_total counter',
         f'eddn_rings_upserted_total {_stats["rings_upserted"]}',
+        '# HELP eddn_ring_write_errors_total Ring write failures',
+        '# TYPE eddn_ring_write_errors_total counter',
+        f'eddn_ring_write_errors_total {_stats["ring_write_errors"]}',
+        '# HELP eddn_rings_skipped_unmatched_body_total Ring rows skipped without a unique local body',
+        '# TYPE eddn_rings_skipped_unmatched_body_total counter',
+        f'eddn_rings_skipped_unmatched_body_total {_stats["rings_skipped_unmatched_body"]}',
+        '# HELP eddn_rings_skipped_ambiguous_body_total Ring rows skipped because local body name was ambiguous',
+        '# TYPE eddn_rings_skipped_ambiguous_body_total counter',
+        f'eddn_rings_skipped_ambiguous_body_total {_stats["rings_skipped_ambiguous_body"]}',
+        '# HELP eddn_rings_skipped_belt_source_total Belt-source ring rows skipped',
+        '# TYPE eddn_rings_skipped_belt_source_total counter',
+        f'eddn_rings_skipped_belt_source_total {_stats["rings_skipped_belt_source"]}',
+        '# HELP eddn_dirty_marked_total Systems newly marked rating dirty',
+        '# TYPE eddn_dirty_marked_total counter',
+        f'eddn_dirty_marked_total {_stats["dirty_marked"]}',
         '# HELP eddn_errors_total Total errors (ZMQ + DB + decode)',
         '# TYPE eddn_errors_total counter',
         f'eddn_errors_total {_stats["errors"]}',
@@ -1134,7 +1310,6 @@ async def main():
 
     await asyncio.gather(
         run_eddn_listener(pool, redis),
-        dirty_recalc_job(pool),
         stats_reporter(),
         metrics_server(),
     )

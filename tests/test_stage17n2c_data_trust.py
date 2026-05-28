@@ -298,22 +298,31 @@ def test_base_schema_and_migration_include_body_rings_with_provenance():
         assert 'outer_radius' in source
         assert 'source' in source
         assert 'confidence' in source
+        assert 'association_status' in source
         assert 'updated_at' in source
 
     assert 'body_rings' in migration
     assert 'idx_body_rings_system_id64' in migration
     assert 'idx_body_rings_body_id' in migration
     assert 'idx_body_rings_source_body_id' in migration
+    assert 'idx_body_rings_local_matched' in migration
+    assert 'Consumers count only local_matched rows' in schema
     assert 'Missing rows mean unknown ring state' in schema
     assert 'Missing body_rings rows mean ring state' in migration
 
 
-def test_eddn_ring_identity_migration_preserves_source_body_id_separately():
-    migration = _schema_text('025_eddn_ring_identity.sql')
+def test_eddn_ring_identity_hardening_migration_preserves_source_body_id_separately():
+    migration = _schema_text('025_eddn_ring_identity_hardening.sql')
 
     assert 'ADD COLUMN IF NOT EXISTS source_body_id BIGINT DEFAULT NULL' in migration
     assert 'Journal BodyID is source identity' in migration
     assert 'ED-Finder local bodies.id' in migration
+    assert 'ADD COLUMN IF NOT EXISTS association_status TEXT NOT NULL DEFAULT' in migration
+    assert "'local_matched'" in migration
+    assert "'unresolved_body_identity'" in migration
+    assert "'ambiguous_body_identity'" in migration
+    assert "'belt_source_evidence'" in migration
+    assert 'body_rings_eddn_identity_report' in migration
 
 
 def test_ring_consumers_require_local_body_id_not_unresolved_name_fallback():
@@ -335,9 +344,12 @@ def test_ring_consumers_require_local_body_id_not_unresolved_name_fallback():
     for relative_path in checked_paths:
         text = Path(ROOT, relative_path).read_text(encoding='utf-8')
         assert not forbidden.search(text), relative_path
+        if relative_path != 'sql/008_body_filter_aggregates.sql':
+            assert "br.association_status = 'local_matched'" in text, relative_path
 
     backfill_sql = _schema_text('008_body_filter_aggregates.sql')
     assert 'COALESCE(body_id::text' not in backfill_sql
+    assert "br.association_status = 'local_matched'" in backfill_sql
 
 
 def test_body_scan_facts_is_ringed_is_nullable_not_default_false():

@@ -210,6 +210,88 @@ def test_saa_signals_only_marks_dirty_when_signal_counts_increase(listener):
     assert 'AND (bio_signal_count < $1 OR geo_signal_count < $2)' in source
     assert 'RETURNING id' in source
     assert 'if updated_body:' in source
+    assert 'mark_dirty_systems_incremental(conn, [id64])' in source
+
+
+class _FakeTx:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+class _FakeDirtyConn:
+    def __init__(self, rows=None, fail_chunks=None):
+        self.rows = list(rows or [])
+        self.fail_chunks = {tuple(chunk) for chunk in (fail_chunks or [])}
+        self.statements = []
+        self.chunks = []
+
+    def transaction(self):
+        return _FakeTx()
+
+    async def execute(self, sql, *args):
+        self.statements.append(sql)
+        return 'SET'
+
+    async def fetchrow(self, sql, chunk):
+        self.statements.append(sql)
+        chunk = list(chunk)
+        self.chunks.append(chunk)
+        if tuple(chunk) in self.fail_chunks:
+            raise TimeoutError('canceling statement due to statement timeout')
+        if self.rows:
+            return self.rows.pop(0)
+        return {'marked': len(chunk), 'already_dirty': 0, 'skipped_missing': 0}
+
+
+def test_dirty_marking_only_touches_affected_systems_in_sorted_batches(listener):
+    conn = _FakeDirtyConn(rows=[
+        {'marked': 1, 'already_dirty': 1, 'skipped_missing': 0},
+        {'marked': 1, 'already_dirty': 0, 'skipped_missing': 0},
+    ])
+
+    result = asyncio.run(listener.mark_dirty_systems_incremental(
+        conn,
+        [3, 1, 2, 2],
+        batch_size=2,
+    ))
+
+    assert conn.chunks == [[1, 2], [3]]
+    assert result['requested'] == 3
+    assert result['marked'] == 2
+    assert result['already_dirty'] == 1
+    sql = '\n'.join(conn.statements)
+    assert 'UPDATE systems s' in sql
+    assert 's.rating_dirty IS DISTINCT FROM TRUE' in sql
+    assert 'SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE OR cluster_dirty = TRUE' not in sql
+
+
+def test_dirty_marking_keeps_failed_batch_pending_and_continues(listener):
+    conn = _FakeDirtyConn(
+        rows=[{'marked': 1, 'already_dirty': 0, 'skipped_missing': 0}],
+        fail_chunks=[[1, 2]],
+    )
+
+    result = asyncio.run(listener.mark_dirty_systems_incremental(
+        conn,
+        [1, 2, 3],
+        batch_size=2,
+    ))
+
+    assert conn.chunks == [[1, 2], [3]]
+    assert result['failed'] == 2
+    assert result['failed_ids'] == [1, 2]
+    assert result['marked'] == 1
+
+
+def test_no_global_dirty_recalc_polling_query_remains(listener):
+    source = inspect.getsource(listener)
+
+    assert 'dirty_recalc_job' not in source
+    assert 'Dirty recalc job error' not in source
+    assert 'SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE OR cluster_dirty = TRUE' not in source
 
 
 def _unused_tcp_port_or_skip() -> int:

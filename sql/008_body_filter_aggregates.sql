@@ -49,6 +49,7 @@ WITH ring_agg AS (
     JOIN body_rings br
       ON br.system_id64 = b.system_id64
      AND br.body_id = b.id
+     AND br.association_status = 'local_matched'
     GROUP BY b.system_id64
 ),
 agg AS (

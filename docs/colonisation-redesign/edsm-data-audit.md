@@ -291,8 +291,9 @@ backfill uses the same normaliser.
 Missing `rings` arrays are unknown. Empty arrays from the bulk Spansh path are
 not treated as no-ring proof unless a future source contract proves the body
 payload is a trusted full scan for that body. Bulk backfill writes only actual
-ring rows and sets `body_scan_facts.is_ringed = true` for matched bodies with
-trusted ring rows.
+ring rows. `body_scan_facts.is_ringed = true` is source evidence only; API,
+rating, topology, and planner consumers treat a body as ringed from
+local-matched `body_rings` rows joined to `bodies.id`.
 
 ### EDSM Targeted Station Fields
 
@@ -313,7 +314,13 @@ confirmed.
 EDDN `Journal/Scan` can provide future ring updates. The API simulation ingest
 normaliser treats Scan as a trusted full body scan for tri-state ring evidence:
 
-- explicit `Rings` entries -> `body_rings` rows and `is_ringed = true`
+- explicit `Rings` entries -> local-matched `body_rings` rows and
+  `is_ringed = true` source evidence
+- `body_rings.body_id` is written only after exact unique
+  `(SystemAddress, BodyName)` resolution to a local `bodies.id`; Journal
+  `BodyID` is preserved as `source_body_id`
+- unmatched, ambiguous, or belt-source ring payloads are skipped from trusted
+  ring facts and remain unknown to consumers
 - explicit empty `Rings` array -> `is_ringed = false`
 - missing `Rings` key -> `is_ringed = null`
 

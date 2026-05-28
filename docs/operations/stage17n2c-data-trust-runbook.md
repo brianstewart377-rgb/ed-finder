@@ -105,7 +105,9 @@ Stage 17N.2d-N adds `body_rings` for provenance-backed ring facts. Ring facts
 are tri-state operationally:
 
 - One or more trusted `body_rings` rows for a body means ringed.
-- `body_scan_facts` row from `eddn_scan` with `is_ringed = true` means ringed.
+- `body_scan_facts` row from `eddn_scan` with `is_ringed = true` is source
+  evidence only; consumers treat a body as ringed only when a trusted
+  `body_rings` row is joined to the local `bodies.id`.
 - `body_scan_facts` row from `eddn_scan` with `is_ringed = false` means scanned
   and not ringed.
 - Missing scan facts, or partial non-scan facts, mean unknown. Do not count
@@ -150,6 +152,13 @@ exactly one local body, preserving the legacy source integer in
 ratings rebuild. Rows with no exact local body match are not deleted; current
 API/rating/planner joins ignore them because ring presence is counted through
 the local `body_rings.body_id = bodies.id` relationship.
+
+Stage 17N.2d-Q adds `body_rings.association_status` and the
+`body_rings_eddn_identity_report` view. Consumers count only
+`association_status = 'local_matched'`. Future EDDN ring payloads are resolved
+by exact `(SystemAddress, BodyName)` to one local body; unmatched, ambiguous,
+or belt-source payloads are skipped from trusted `body_rings` writes and
+summarised in listener counters instead of logging one row at a time.
 
 ## Stage 17N.2d-P Coordinated Enrichment CLI
 
@@ -287,15 +296,111 @@ FROM systems
 WHERE id64 = :system_id64;
 ```
 
+Stage 17N.2d-Q validation SQL:
+
+```sql
+-- Recent EDDN ring identity coverage.
+WITH recent AS (
+  SELECT *
+  FROM body_rings
+  WHERE source = 'eddn_scan'
+    AND updated_at >= NOW() - INTERVAL '24 hours'
+)
+SELECT
+  COUNT(*) AS recent_rows,
+  COUNT(*) FILTER (
+    WHERE local_body.id IS NOT NULL
+      AND recent.association_status = 'local_matched'
+  ) AS matched_by_local_body_id,
+  COUNT(*) FILTER (
+    WHERE local_body.id IS NULL
+       OR recent.association_status <> 'local_matched'
+  ) AS unmatched_by_local_body_id
+FROM recent
+LEFT JOIN bodies local_body
+  ON local_body.system_id64 = recent.system_id64
+ AND local_body.id = recent.body_id;
+
+-- Safe cleanup/report buckets: no deletion implied.
+SELECT report_bucket, COUNT(*) AS rows
+FROM body_rings_eddn_identity_report
+GROUP BY report_bucket
+ORDER BY report_bucket;
+
+-- Source-level coverage.
+WITH name_matches AS (
+  SELECT br.id AS ring_id,
+         COUNT(b.id) AS name_match_count
+  FROM body_rings br
+  LEFT JOIN bodies b
+    ON b.system_id64 = br.system_id64
+   AND b.name = br.body_name
+  GROUP BY br.id
+)
+SELECT br.source,
+       COUNT(*) AS rows,
+       COUNT(*) FILTER (
+         WHERE local_body.id IS NOT NULL
+           AND br.association_status = 'local_matched'
+       ) AS matches_by_bigint_id,
+       COUNT(*) FILTER (WHERE name_matches.name_match_count = 1) AS matches_by_body_name,
+       COUNT(*) FILTER (
+         WHERE local_body.id IS NULL
+            OR br.association_status <> 'local_matched'
+       ) AS unmatched_rows,
+       COUNT(*) FILTER (WHERE br.association_status = 'ambiguous_body_identity') AS ambiguous_rows,
+       COUNT(*) FILTER (WHERE br.association_status = 'belt_source_evidence') AS belt_rows,
+       COUNT(*) FILTER (WHERE br.association_status = 'conflict') AS conflict_rows
+FROM body_rings br
+LEFT JOIN bodies local_body
+  ON local_body.system_id64 = br.system_id64
+ AND local_body.id = br.body_id
+JOIN name_matches ON name_matches.ring_id = br.id
+GROUP BY br.source
+ORDER BY br.source;
+
+-- Dirty queue.
+SELECT COUNT(*) AS dirty_ratings_waiting
+FROM systems
+WHERE rating_dirty IS TRUE;
+
+-- Ring consumer validation after the dirty ratings rebuild completes.
+WITH valid_ring_systems AS (
+  SELECT DISTINCT br.system_id64
+  FROM body_rings br
+  JOIN bodies b
+    ON b.system_id64 = br.system_id64
+   AND b.id = br.body_id
+  WHERE br.association_status = 'local_matched'
+)
+SELECT
+  COUNT(*) AS valid_ring_systems,
+  COUNT(r.system_id64) AS with_rating_row,
+  COUNT(*) FILTER (WHERE r.rating_version = '3.4') AS with_v34_rating,
+  COUNT(*) FILTER (WHERE COALESCE(r.ring_count, 0) > 0) AS with_positive_ring_count,
+  COUNT(*) FILTER (WHERE COALESCE(r.ring_count, 0) = 0) AS zero_or_null_ring_count
+FROM valid_ring_systems v
+LEFT JOIN ratings r ON r.system_id64 = v.system_id64;
+```
+
+Recent EDDN log checks after deploy:
+
+```bash
+grep -E "rings_written|rings_skipped_unmatched_body|rings_skipped_ambiguous_body|ring_write_errors|Dirty mark flush" /data/logs/eddn.log | tail -100
+grep -F "Dirty recalc job error" /data/logs/eddn.log | tail -20
+```
+
+The second command should return no new lines after the Stage 17N.2d-Q deploy.
+
 Useful verification SQL:
 
 ```sql
 SELECT count(*) AS ring_rows
 FROM body_rings;
 
-SELECT source, confidence, count(*) AS rows
+SELECT source, confidence, association_status, count(*) AS rows
 FROM body_rings
-GROUP BY source, confidence
+GROUP BY source, confidence, association_status
 ORDER BY rows DESC;
 
 WITH name_matches AS (

@@ -1172,6 +1172,7 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
                              FROM body_rings br
                              WHERE br.system_id64 = bodies.system_id64
                                AND br.body_id = bodies.id
+                               AND br.association_status = 'local_matched'
                            ) AS has_rings
                     FROM bodies WHERE system_id64 = %s
                 """, (system_id64,))
