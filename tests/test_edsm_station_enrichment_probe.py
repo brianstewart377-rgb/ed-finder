@@ -56,6 +56,13 @@ def conflict_types(station_report):
     return {conflict['type'] for conflict in station_report['conflicts']}
 
 
+def suppression_entries(report):
+    return [
+        entry for entry in report['skipped']
+        if entry.get('reason') == probe.STATION_WRITE_SUPPRESSED_REASON
+    ]
+
+
 class FakeApplyConnection:
     def __init__(self, rows):
         self.rows = rows
@@ -655,11 +662,12 @@ def test_metadata_apply_uses_edsm_distance_even_when_legacy_local_distance_misma
     assert conn.rows[(1001, 2008132031194)]['distance_from_star'] == 240.0
     assert conn.rows[(1001, 2008132031194)]['distance_source'] == 'edsm_system_api'
     assert not any(entry['reason'].startswith('conflicting_evidence') for entry in report['skipped'])
+    assert report['counts']['station_write_suppressed_non_benign_conflict'] == 0
 
 
-def test_metadata_apply_preserves_known_station_type_but_can_apply_distance():
+def test_known_station_type_mismatch_suppresses_all_station_metadata_writes():
     report = report_for(
-        local_station(station_type='Coriolis'),
+        local_station(station_type='Coriolis', distance_from_star=12.0),
         {
             'id': 1001,
             'name': 'Harper Plant',
@@ -673,11 +681,105 @@ def test_metadata_apply_preserves_known_station_type_but_can_apply_distance():
 
     applied, skipped = probe.apply_metadata_updates(conn, report)
 
-    assert [row['field'] for row in applied] == ['distance_from_star']
+    assert applied == []
     assert skipped == []
     assert conn.rows[(1001, 2008132031194)]['station_type'] == 'Coriolis'
-    assert conn.rows[(1001, 2008132031194)]['distance_source'] == 'edsm_system_api'
+    assert 'distance_source' not in conn.rows[(1001, 2008132031194)]
     assert 'known_station_type_mismatch' in conflict_types(first_station(report))
+    assert report['metadata_updates_planned'] == []
+    assert report['counts']['station_write_suppressed_non_benign_conflict'] == 1
+    assert suppression_entries(report)[0]['conflict_types'] == ['known_station_type_mismatch']
+    assert suppression_entries(report)[0]['suppressed_write_fields'] == ['distance_from_star']
+
+
+def test_station_economy_mismatch_suppresses_metadata_and_confirmed_link_writes():
+    report = report_for(
+        local_station(
+            station_type='Outpost',
+            distance_from_star=12.0,
+            primary_economy='Colony',
+        ),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Outpost',
+            'bodyName': 'Exioce 1',
+            'distanceToArrival': 120.0,
+            'economy': 'Extraction',
+        },
+    )
+
+    station = first_station(report)
+    suppressed = suppression_entries(report)[0]
+
+    assert 'station_economy_mismatch' in conflict_types(station)
+    assert station['proposed']['association_status'] == 'confirmed'
+    assert report['metadata_updates_planned'] == []
+    assert report['confirmed_link_updates_planned'] == []
+    assert report['counts']['station_write_suppressed_non_benign_conflict'] == 1
+    assert suppressed['local_station']['id'] == 1001
+    assert suppressed['local_station']['name'] == 'Harper Plant'
+    assert suppressed['local_station']['system_id64'] == SYSTEM['id64']
+    assert suppressed['conflict_types'] == ['station_economy_mismatch']
+    assert suppressed['suppressed_write_fields'] == [
+        'body_name',
+        'distance_from_star',
+        'station_body_links',
+    ]
+
+
+def test_id_name_mismatch_remains_unresolved_and_suppresses_writes():
+    report = report_for(
+        local_station(id=4001, market_id=4001, name='Harper Plant', station_type='Unknown'),
+        {
+            'id': 4001,
+            'marketId': 4001,
+            'name': 'Different Plant',
+            'type': 'Orbis Starport',
+            'bodyName': 'Exioce 1',
+            'distanceToArrival': 120.0,
+        },
+    )
+
+    station = first_station(report)
+    suppressed = suppression_entries(report)[0]
+
+    assert station['station_match']['status'] == 'unresolved'
+    assert 'id_name_mismatch' in conflict_types(station)
+    assert report['metadata_updates_planned'] == []
+    assert report['confirmed_link_updates_planned'] == []
+    assert report['counts']['station_write_suppressed_non_benign_conflict'] == 1
+    assert suppressed['conflict_types'] == ['id_name_mismatch']
+    assert suppressed['suppressed_scopes'] == [
+        'station_metadata',
+        'body_name_metadata',
+        'station_body_links',
+    ]
+
+
+def test_station_service_mismatch_does_not_block_trusted_metadata_writes():
+    report = report_for(
+        local_station(station_type='Unknown', has_market=True),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Coriolis Starport',
+            'bodyName': 'Exioce 1',
+            'distanceToArrival': 120.0,
+            'haveMarket': False,
+        },
+    )
+
+    station = first_station(report)
+
+    assert 'station_service_mismatch' in conflict_types(station)
+    assert report['counts']['station_write_suppressed_non_benign_conflict'] == 0
+    assert {update['field'] for update in report['metadata_updates_planned']} == {
+        'station_type',
+        'distance_from_star',
+        'body_name',
+    }
+    assert report['confirmed_link_updates_planned'][0]['association_source'] == 'edsm_body_name'
 
 
 def test_unresolved_station_match_is_reported_and_not_applied():

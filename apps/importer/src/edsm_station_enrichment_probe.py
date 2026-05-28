@@ -56,12 +56,18 @@ SUPPORTED_STATION_METADATA_FIELDS = {
     'distance_from_star',
     'body_name',
 }
-BLOCKING_STATION_IDENTITY_CONFLICT_TYPES = {
+NON_BENIGN_STATION_CONFLICT_TYPES = {
     'id_name_mismatch',
-}
-BLOCKING_STATION_TYPE_CONFLICT_TYPES = {
     'known_station_type_mismatch',
+    'station_economy_mismatch',
 }
+IDENTITY_CONTEXT_UNSAFE_MARKERS = {
+    'identity_unsafe',
+    'context_unsafe',
+    'identity_context_unsafe',
+    'station_write_unsafe',
+}
+STATION_WRITE_SUPPRESSED_REASON = 'station_write_suppressed_non_benign_conflict'
 
 VALID_ECONOMIES = {
     'HighTech', 'Agriculture', 'Refinery', 'Industrial', 'Military',
@@ -250,6 +256,7 @@ def build_enrichment_report(
         ignored for station in station_reports
         if (ignored := _ignored_transient_entry(station)) is not None
     ]
+    station_writes_suppressed = _station_write_suppressed_entries(station_reports)
     metadata_updates = _metadata_update_candidates(station_reports)
     confirmed_link_updates = _confirmed_link_update_candidates(station_reports)
     skipped = _metadata_skipped_entries(station_reports)
@@ -292,6 +299,7 @@ def build_enrichment_report(
             'metadata_updates_applied': 0,
             'confirmed_link_updates_planned': len(confirmed_link_updates),
             'confirmed_link_updates_applied': 0,
+            'station_write_suppressed_non_benign_conflict': len(station_writes_suppressed),
             'association_changes': len(association_changes),
             'conflicts': len(conflicts),
             'ignored_transient_non_slot': len(ignored_transient_non_slot),
@@ -308,6 +316,7 @@ def build_enrichment_report(
             'station_type_rule': 'Unknown -> known permanent station type only.',
             'distance_rule': 'distanceToArrival may replace legacy local station distance only after exact station identity.',
             'body_name_rule': 'EDSM bodyName may update stations.body_name only when it matches exactly one local same-system body.',
+            'non_benign_conflict_rule': 'Any identity/context unsafe conflict suppresses all station metadata writes for that station in this run.',
             'never_applied': [
                 'body_id',
                 'association_status',
@@ -317,6 +326,7 @@ def build_enrichment_report(
         'confirmed_link_apply_contract': {
             'safe_fields': ['station_body_links'],
             'rule': 'Only confirmed/exact EDSM bodyName links for permanent stations are applied, scoped to one --system-id64.',
+            'non_benign_conflict_rule': 'Any identity/context unsafe conflict suppresses confirmed station_body_links writes for that station in this run.',
             'never_applied': ['inferred_distance_links', 'transient_non_slot_links'],
         },
         'matching_rules': {
@@ -336,6 +346,7 @@ def build_enrichment_report(
         'metadata_updates_applied': [],
         'confirmed_link_updates_planned': confirmed_link_updates,
         'confirmed_link_updates_applied': [],
+        'station_writes_suppressed': station_writes_suppressed,
         'association_changes': association_changes,
         'conflicts': conflicts,
         'ignored_transient_non_slot': ignored_transient_non_slot,
@@ -621,6 +632,8 @@ def _confirmed_link_update_candidates(station_reports: Sequence[Mapping[str, Any
     for station in station_reports:
         proposed = station.get('proposed') or {}
         local_station = station.get('local_station') or {}
+        if _non_benign_conflict_types(station):
+            continue
         if not station.get('association_would_change'):
             continue
         if station.get('ignored_transient_non_slot'):
@@ -662,6 +675,9 @@ def _confirmed_link_update_candidates(station_reports: Sequence[Mapping[str, Any
 def _metadata_skipped_entries(station_reports: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     skipped: list[dict[str, Any]] = []
     for station in station_reports:
+        if _non_benign_conflict_types(station):
+            skipped.append(_station_write_suppression_entry(station))
+            continue
         if station['station_match'].get('status') != 'matched':
             skipped.append(_metadata_skip_entry(station, 'station_type', 'unresolved_station_match'))
             continue
@@ -718,7 +734,7 @@ def _metadata_update_candidate(station: Mapping[str, Any], field: str) -> dict[s
 
 
 def _metadata_skip_entry(station: Mapping[str, Any], field: str, reason: str) -> dict[str, Any]:
-    return {
+    entry = {
         'local_station': station['local_station'],
         'edsm_station': station.get('edsm_station'),
         'station_match': station['station_match'],
@@ -726,6 +742,9 @@ def _metadata_skip_entry(station: Mapping[str, Any], field: str, reason: str) ->
         'station_type_evidence': station.get('station_type_evidence'),
         'reason': reason,
     }
+    if reason == STATION_WRITE_SUPPRESSED_REASON:
+        entry.update(_station_write_suppression_details(station))
+    return entry
 
 
 def _metadata_apply_skip_reason(station: Mapping[str, Any], field: str) -> str | None:
@@ -734,17 +753,11 @@ def _metadata_apply_skip_reason(station: Mapping[str, Any], field: str) -> str |
         return 'unresolved_station_match'
     if station.get('ignored_transient_non_slot'):
         return 'transient_non_slot_ignored'
+    if _non_benign_conflict_types(station):
+        return STATION_WRITE_SUPPRESSED_REASON
 
     if not _has_trusted_station_identity(match):
         return 'weak_station_identity'
-
-    conflict_types = {conflict.get('type') for conflict in station.get('conflicts', [])}
-    blocking_conflicts = sorted(
-        str(kind) for kind in conflict_types
-        if kind in BLOCKING_STATION_IDENTITY_CONFLICT_TYPES
-    )
-    if blocking_conflicts:
-        return f"conflicting_evidence:{','.join(blocking_conflicts)}"
 
     evidence = station.get('station_type_evidence') or {}
     proposed_type = evidence.get('proposed')
@@ -752,12 +765,6 @@ def _metadata_apply_skip_reason(station: Mapping[str, Any], field: str) -> str |
         return 'non_permanent_station_type'
 
     if field == 'station_type':
-        station_type_conflicts = sorted(
-            str(kind) for kind in conflict_types
-            if kind in BLOCKING_STATION_TYPE_CONFLICT_TYPES
-        )
-        if station_type_conflicts:
-            return f"conflicting_evidence:{','.join(station_type_conflicts)}"
         local_type = evidence.get('local')
         if local_type != 'Unknown':
             return 'known_station_type_preserved'
@@ -776,6 +783,73 @@ def _metadata_apply_skip_reason(station: Mapping[str, Any], field: str) -> str |
     if _read_int(station['local_station'].get('system_id64')) is None:
         return 'missing_system_id64'
     return None
+
+
+def _station_write_suppressed_entries(station_reports: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        _station_write_suppression_entry(station)
+        for station in station_reports
+        if _non_benign_conflict_types(station)
+    ]
+
+
+def _station_write_suppression_entry(station: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        'local_station': station['local_station'],
+        'edsm_station': station.get('edsm_station'),
+        'station_match': station['station_match'],
+        'field': 'station_writes',
+        'reason': STATION_WRITE_SUPPRESSED_REASON,
+        **_station_write_suppression_details(station),
+    }
+
+
+def _station_write_suppression_details(station: Mapping[str, Any]) -> dict[str, Any]:
+    conflict_types = _non_benign_conflict_types(station)
+    metadata_fields = sorted(
+        field for field in set(station.get('fields_that_would_change', []))
+        if field in SUPPORTED_STATION_METADATA_FIELDS
+    )
+    candidate_writes = list(metadata_fields)
+    if station.get('association_would_change'):
+        candidate_writes.append('station_body_links')
+    return {
+        'conflict_types': conflict_types,
+        'conflicts': [
+            dict(conflict)
+            for conflict in station.get('conflicts', [])
+            if _is_non_benign_station_conflict(conflict)
+        ],
+        'suppressed_scopes': [
+            'station_metadata',
+            'body_name_metadata',
+            'station_body_links',
+        ],
+        'suppressed_write_fields': candidate_writes,
+        'message': 'Station writes suppressed because non-benign station identity/context conflict(s) were present.',
+    }
+
+
+def _non_benign_conflict_types(station: Mapping[str, Any]) -> list[str]:
+    return _non_benign_conflict_types_from_conflicts(station.get('conflicts', []))
+
+
+def _non_benign_conflict_types_from_conflicts(conflicts: Sequence[Mapping[str, Any]]) -> list[str]:
+    return sorted({
+        str(conflict.get('type'))
+        for conflict in conflicts
+        if conflict.get('type') is not None and _is_non_benign_station_conflict(conflict)
+    })
+
+
+def _is_non_benign_station_conflict(conflict: Mapping[str, Any]) -> bool:
+    kind = conflict.get('type')
+    if kind in NON_BENIGN_STATION_CONFLICT_TYPES:
+        return True
+    if any(bool(conflict.get(marker)) for marker in IDENTITY_CONTEXT_UNSAFE_MARKERS):
+        return True
+    write_safety = _clean_text(conflict.get('write_safety'))
+    return write_safety in IDENTITY_CONTEXT_UNSAFE_MARKERS
 
 
 def apply_metadata_updates(conn, report: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -1011,6 +1085,8 @@ def _match_edsm_station(
         conflicts.append({
             'field': 'station_identity',
             'type': 'id_name_mismatch',
+            'write_safety': 'identity_context_unsafe',
+            'identity_context_unsafe': True,
             'message': 'Local station id matched an EDSM id/marketId with a different station name.',
             'edsm_candidates': [_public_edsm_station(station) for station in id_name_conflicts],
         })
@@ -1077,6 +1153,7 @@ def _station_distance_match(local_station: Mapping[str, Any], edsm_station: Mapp
     return 'conflict', {
         'field': 'distance_from_star',
         'type': 'station_distance_mismatch',
+        'write_safety': 'diagnostic',
         'local': local_distance,
         'edsm': edsm_distance,
         'delta_ls': delta,
@@ -1208,6 +1285,8 @@ def _proposed_station_type(
         conflicts.append({
             'field': 'station_type',
             'type': 'known_station_type_mismatch',
+            'write_safety': 'identity_context_unsafe',
+            'identity_context_unsafe': True,
             'local': local_type,
             'edsm': edsm_type,
             'message': 'EDSM would change a known local station type.',
@@ -1319,8 +1398,11 @@ def _compare_economy(
         conflicts.append({
             'field': 'primary_economy',
             'type': 'station_economy_mismatch',
+            'write_safety': 'identity_context_unsafe',
+            'identity_context_unsafe': True,
             'local': local,
             'edsm': edsm,
+            'message': 'EDSM station economy conflicts with known local station economy.',
         })
 
 
@@ -1344,13 +1426,15 @@ def _compare_service_bool(
         conflicts.append({
             'field': local_key,
             'type': 'station_service_mismatch',
+            'write_safety': 'diagnostic',
             'local': bool(local_value),
             'edsm': bool(edsm_value),
+            'message': 'EDSM station service value conflicts with local service value; service fields are not applied by this stage.',
         })
 
 
 def _has_blocking_conflict(conflicts: Sequence[Mapping[str, Any]]) -> bool:
-    return any(conflict.get('type') in BLOCKING_STATION_IDENTITY_CONFLICT_TYPES for conflict in conflicts)
+    return bool(_non_benign_conflict_types_from_conflicts(conflicts))
 
 
 def _proposal(
