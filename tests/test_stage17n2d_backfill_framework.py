@@ -49,6 +49,39 @@ def local_station(**overrides):
     return station
 
 
+class MinimalBatchConnection:
+    def __init__(self):
+        self.committed = False
+        self.rolled_back = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+
+def station_local_payload(system, *, station_id=None):
+    station_id = station_id or int(system['id64'] % 100000)
+    return {
+        'system': dict(system),
+        'stations': [local_station(
+            id=station_id,
+            market_id=station_id,
+            system_id64=system['id64'],
+            name='Harper Plant',
+        )],
+        'bodies': [{'id': station_id + 1, 'system_id64': system['id64'], 'name': f"{system['name']} 1"}],
+        'existing_links': {},
+    }
+
+
 def station_report_for(station, edsm_station, *, bodies=None):
     return edsm_probe.build_enrichment_report(
         local_system=SYSTEM,
@@ -738,6 +771,129 @@ def test_fleet_carriers_are_ignored_for_colony_slot_links():
     assert report['association_changes'] == []
     assert report['confirmed_link_updates_planned'] == []
     assert report['ignored_transient_non_slot'][0]['body_evidence']['body_name'] == 'Exioce 1'
+
+
+def test_station_fetch_timeout_exhaustion_reports_failure_without_writes(monkeypatch):
+    args = enrich.parse_args([
+        '--stations',
+        '--system-id64', str(SYSTEM['id64']),
+        '--apply-confirmed-links',
+        '--mark-dirty',
+    ])
+    apply_calls = []
+
+    def fail_fetch(_name, **_kwargs):
+        raise TimeoutError('The read operation timed out')
+
+    monkeypatch.setattr(edsm_probe, 'fetch_local_payload', lambda *_args, **_kwargs: station_local_payload(SYSTEM))
+    monkeypatch.setattr(
+        edsm_probe,
+        'apply_confirmed_link_updates',
+        lambda *_args, **_kwargs: apply_calls.append(True) or ([], []),
+    )
+
+    report = enrich.process_station_system(
+        MinimalBatchConnection(),
+        SYSTEM,
+        args=args,
+        dry_run=False,
+        edsm_fetcher=fail_fetch,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report['fetch_failed'] is True
+    assert report['fetch_errors'][0]['reason'] == 'edsm_fetch_failed'
+    assert report['systems_fetch_failed'] == [{'id64': SYSTEM['id64'], 'name': SYSTEM['name']}]
+    assert report['confirmed_link_updates_applied'] == []
+    assert apply_calls == []
+
+
+def test_apply_confirmed_links_skips_failed_system_and_applies_valid_systems(monkeypatch):
+    systems = [
+        {'id64': 1, 'name': 'Timeout System'},
+        {'id64': 2, 'name': 'Valid System'},
+    ]
+    conn = MinimalBatchConnection()
+    applied_systems = []
+    dirty_batches = []
+
+    def local_payload(_conn, *, system_name=None, system_id64=None):
+        system = next(row for row in systems if row['id64'] == system_id64 or row['name'] == system_name)
+        return station_local_payload(system)
+
+    def fetcher(system_name, **_kwargs):
+        if system_name == 'Timeout System':
+            raise edsm_probe.EdsmFetchError(
+                'EDSM stations fetch failed for timeout system',
+                system_name=system_name,
+                system_id64=1,
+                endpoint='stations',
+                attempts=2,
+                reason='The read operation timed out',
+            )
+        return {
+            'stations': {'stations': [{
+                'id': 2,
+                'name': 'Harper Plant',
+                'type': 'Coriolis Starport',
+                'bodyName': 'Valid System 1',
+                'distanceToArrival': 120.0,
+            }]},
+            'bodies': {'bodies': []},
+        }
+
+    def apply_links(_conn, report):
+        applied_systems.append(report['system']['id64'])
+        return ([{'system_id64': report['system']['id64'], 'station_id': 2}], [])
+
+    monkeypatch.setattr(enrich, 'select_station_systems', lambda _conn, _args: systems)
+    monkeypatch.setattr(edsm_probe, 'fetch_local_payload', local_payload)
+    monkeypatch.setattr(edsm_probe, 'apply_confirmed_link_updates', apply_links)
+    monkeypatch.setattr(enrich, 'mark_systems_rating_dirty', lambda _conn, ids: dirty_batches.append(list(ids)) or len(ids))
+
+    args = enrich.parse_args([
+        '--stations',
+        '--limit', '2',
+        '--apply-confirmed-links',
+        '--mark-dirty',
+    ])
+    report = enrich.run(args, connect=lambda _dsn: conn, edsm_fetcher=fetcher, sleep=lambda _seconds: None)
+
+    assert applied_systems == [2]
+    assert report['stations']['systems_fetch_failed'] == [{'id64': 1, 'name': 'Timeout System'}]
+    assert report['summary']['stations']['systems_fetch_failed'] == 1
+    assert report['summary']['stations']['fetch_errors'] == 1
+    assert report['summary']['stations']['applied'] == 1
+    assert dirty_batches == [[2]]
+    assert conn.committed is True
+
+
+def test_json_report_includes_fetch_error_summary():
+    report = enrich._new_report(
+        enrich.parse_args(['--stations', '--system-id64', str(SYSTEM['id64'])]),
+        dry_run=True,
+    )
+    enrich._merge_station_report(report, {
+        'system': SYSTEM,
+        'counts': {'fetch_errors': 1, 'systems_fetch_failed': 1},
+        'fetch_errors': [{
+            'system': SYSTEM,
+            'system_id64': SYSTEM['id64'],
+            'system_name': SYSTEM['name'],
+            'reason': 'edsm_fetch_failed',
+            'message': 'The read operation timed out',
+        }],
+        'systems_fetch_failed': [SYSTEM],
+        'fetch_failed': True,
+        'dirty_system_ids': [],
+    })
+    enrich._finalise_report(report)
+
+    payload = enrich.json.dumps(report, default=enrich._json_default)
+
+    assert '"fetch_errors"' in payload
+    assert report['summary']['fetch_errors'] == 1
+    assert report['summary']['systems_fetch_failed'] == 1
 
 
 def test_spansh_ring_payload_plans_trusted_body_ring_rows():

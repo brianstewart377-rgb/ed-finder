@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -52,6 +53,20 @@ def first_station(report):
     return report['stations'][0]
 
 
+class FakeHttpResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode('utf-8')
+
+
 def conflict_types(station_report):
     return {conflict['type'] for conflict in station_report['conflicts']}
 
@@ -61,6 +76,73 @@ def suppression_entries(report):
         entry for entry in report['skipped']
         if entry.get('reason') == probe.STATION_WRITE_SUPPRESSED_REASON
     ]
+
+
+def test_edsm_fetch_timeout_retries_and_succeeds(monkeypatch):
+    calls = []
+    sleeps = []
+    logs = []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        if len(calls) == 1:
+            raise TimeoutError('The read operation timed out')
+        if '/stations?' in request.full_url:
+            return FakeHttpResponse({'stations': [{'name': 'Harper Plant'}]})
+        return FakeHttpResponse({'bodies': [{'name': 'Exioce 1'}]})
+
+    monkeypatch.setattr(probe, 'urlopen', fake_urlopen)
+
+    payload = probe.fetch_edsm_system(
+        'Exioce',
+        timeout=7,
+        retries=1,
+        retry_backoff_seconds=0.5,
+        sleep=sleeps.append,
+        logger=logs.append,
+        system_id64=2008132031194,
+    )
+
+    assert len(calls) == 3
+    assert {timeout for _url, timeout in calls} == {7}
+    assert sleeps == [0.5]
+    assert payload['stations']['stations'][0]['name'] == 'Harper Plant'
+    assert payload['bodies']['bodies'][0]['name'] == 'Exioce 1'
+    assert any('next_attempt=2/2' in line and 'timed out' in line for line in logs)
+
+
+def test_edsm_fetch_timeout_exhausts_retries(monkeypatch):
+    calls = []
+    sleeps = []
+    logs = []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        raise TimeoutError('The read operation timed out')
+
+    monkeypatch.setattr(probe, 'urlopen', fake_urlopen)
+
+    try:
+        probe.fetch_edsm_system(
+            'Exioce',
+            timeout=7,
+            retries=2,
+            retry_backoff_seconds=1.5,
+            sleep=sleeps.append,
+            logger=logs.append,
+            system_id64=2008132031194,
+        )
+    except probe.EdsmFetchError as exc:
+        error = exc
+    else:
+        raise AssertionError('expected EdsmFetchError')
+
+    assert len(calls) == 3
+    assert sleeps == [1.5, 3.0]
+    assert error.endpoint == 'stations'
+    assert error.attempts == 3
+    assert 'timed out' in error.reason
+    assert any('attempt=3/3' in line for line in logs)
 
 
 class FakeApplyConnection:

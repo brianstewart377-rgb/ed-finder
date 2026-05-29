@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import inspect
 import json
 import os
 import sys
@@ -57,6 +58,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--checkpoint-file', default=None, help='Optional JSON checkpoint storing processed system ids.')
     parser.add_argument('--spansh-file', default=None, help='Spansh galaxy/system dump to scan when --source spansh --rings is used.')
     parser.add_argument('--timeout', type=float, default=edsm_probe.DEFAULT_TIMEOUT_SECONDS, help='EDSM request timeout.')
+    parser.add_argument('--edsm-retries', type=int, default=edsm_probe.DEFAULT_HTTP_RETRIES, help='EDSM retry attempts after the initial request.')
+    parser.add_argument(
+        '--edsm-retry-backoff-seconds',
+        type=float,
+        default=edsm_probe.DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
+        help='Initial EDSM retry backoff in seconds; later retries use exponential backoff.',
+    )
     parser.add_argument('--rate-limit-seconds', type=float, default=DEFAULT_EDSM_RATE_LIMIT_SECONDS, help='Delay between EDSM systems.')
     return parser.parse_args(argv)
 
@@ -89,6 +97,12 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         errors.append('--source spansh --rings requires --spansh-file.')
     if args.limit is not None and args.limit < 1:
         errors.append('--limit must be greater than zero.')
+    if args.timeout <= 0:
+        errors.append('--timeout must be greater than zero.')
+    if args.edsm_retries < 0:
+        errors.append('--edsm-retries must be zero or greater.')
+    if args.edsm_retry_backoff_seconds < 0:
+        errors.append('--edsm-retry-backoff-seconds must be zero or greater.')
     if not args.dsn:
         errors.append('DATABASE_URL or --dsn is required.')
     return errors
@@ -119,9 +133,10 @@ def run(
                     args=args,
                     dry_run=dry_run,
                     edsm_fetcher=edsm_fetcher,
+                    sleep=sleep,
                 )
                 _merge_station_report(report, station_report)
-                if not dry_run:
+                if not dry_run and not station_report.get('fetch_failed'):
                     _checkpoint_system(args.checkpoint_file, checkpoint, system)
                 if index + 1 < len(station_systems) and args.rate_limit_seconds > 0:
                     sleep(args.rate_limit_seconds)
@@ -151,7 +166,13 @@ def run(
                 ring_systems = select_ring_systems(conn, args)
                 for index, system in enumerate(_skip_checkpointed(ring_systems, checkpoint)):
                     local_bodies = fetch_local_bodies(conn, system['id64'])
-                    edsm_payload = edsm_fetcher(system['name'], timeout=args.timeout)
+                    edsm_payload = _call_edsm_fetcher(
+                        edsm_fetcher,
+                        system['name'],
+                        args=args,
+                        sleep=sleep,
+                        system_id64=_read_int(system.get('id64')),
+                    )
                     ring_report = process_ring_system_payload(
                         conn,
                         edsm_payload.get('bodies') or {},
@@ -185,6 +206,12 @@ def run(
             conn.commit()
 
     _finalise_report(report)
+    if args.stations:
+        _log_stderr(
+            'EDSM station enrichment fetch_failed='
+            f"{len(report['stations']['systems_fetch_failed'])} "
+            f"fetch_errors={len(report['stations']['fetch_errors'])}"
+        )
     return report
 
 
@@ -246,9 +273,45 @@ def process_station_system(
     args: argparse.Namespace,
     dry_run: bool,
     edsm_fetcher: Callable[..., dict[str, Any]],
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     local = edsm_probe.fetch_local_payload(conn, system_name=system.get('name'), system_id64=_read_int(system.get('id64')))
-    payload = edsm_fetcher(local['system']['name'], timeout=args.timeout)
+    system_id64 = _read_int(local['system'].get('id64'))
+    system_name = _clean_text(local['system'].get('name')) or _clean_text(system.get('name')) or ''
+    _log_stderr(f'Fetching EDSM station enrichment system={system_name!r} id64={system_id64}')
+    try:
+        payload = _call_edsm_fetcher(
+            edsm_fetcher,
+            system_name,
+            args=args,
+            sleep=sleep,
+            system_id64=system_id64,
+        )
+    except Exception as exc:
+        if not edsm_probe.is_edsm_fetch_error(exc):
+            raise
+        fetch_error = _station_fetch_error_entry(local['system'], exc)
+        _log_stderr(
+            f"Skipping EDSM station enrichment system={system_name!r} "
+            f'id64={system_id64} reason={fetch_error["message"]}'
+        )
+        return {
+            'system': fetch_error['system'],
+            'counts': {'fetch_errors': 1, 'systems_fetch_failed': 1},
+            'metadata_updates_planned': [],
+            'metadata_updates_applied': [],
+            'confirmed_link_updates_planned': [],
+            'confirmed_link_updates_applied': [],
+            'conflicts': [],
+            'skipped': [],
+            'ignored_transient_non_slot': [],
+            'unresolved': [],
+            'fetch_errors': [fetch_error],
+            'systems_fetch_failed': [fetch_error['system']],
+            'fetch_failed': True,
+            'dirty_system_ids': [],
+            'raw_report': None,
+        }
     report = edsm_probe.build_enrichment_report(
         local_system=local['system'],
         local_stations=local['stations'],
@@ -280,6 +343,9 @@ def process_station_system(
         'skipped': report.get('skipped', []),
         'ignored_transient_non_slot': report.get('ignored_transient_non_slot', []),
         'unresolved': report.get('unresolved', []),
+        'fetch_errors': [],
+        'systems_fetch_failed': [],
+        'fetch_failed': False,
         'dirty_system_ids': sorted(dirty_ids),
         'raw_report': report,
     }
@@ -651,6 +717,64 @@ def _fetch_one_system(conn, *, system_id64: int | None, system_name: str | None)
     return rows[0]
 
 
+def _call_edsm_fetcher(
+    edsm_fetcher: Callable[..., dict[str, Any]],
+    system_name: str,
+    *,
+    args: argparse.Namespace,
+    sleep: Callable[[float], None],
+    system_id64: int | None,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    supported_kwargs = {
+        'timeout': args.timeout,
+        'retries': getattr(args, 'edsm_retries', edsm_probe.DEFAULT_HTTP_RETRIES),
+        'retry_backoff_seconds': getattr(
+            args,
+            'edsm_retry_backoff_seconds',
+            edsm_probe.DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
+        ),
+        'sleep': sleep,
+        'logger': _log_stderr,
+        'system_id64': system_id64,
+    }
+    for key, value in supported_kwargs.items():
+        if _callable_supports_kwarg(edsm_fetcher, key):
+            kwargs[key] = value
+    return edsm_fetcher(system_name, **kwargs)
+
+
+def _callable_supports_kwarg(func: Callable[..., Any], name: str) -> bool:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return True
+    for param in signature.parameters.values():
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+    return name in signature.parameters
+
+
+def _station_fetch_error_entry(system: Mapping[str, Any], exc: BaseException) -> dict[str, Any]:
+    system_id64 = _read_int(system.get('id64'))
+    system_name = _clean_text(system.get('name'))
+    cause = exc.__cause__ or exc
+    return {
+        'system': {'id64': system_id64, 'name': system_name},
+        'system_id64': system_id64,
+        'system_name': system_name,
+        'reason': 'edsm_fetch_failed',
+        'error_type': cause.__class__.__name__,
+        'message': str(exc),
+        'endpoint': getattr(exc, 'endpoint', None),
+        'attempts': getattr(exc, 'attempts', None),
+    }
+
+
+def _log_stderr(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
 def _extract_source_bodies(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, Mapping)]
@@ -746,6 +870,8 @@ def _new_report(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
             'skipped': [],
             'ignored_transient_non_slot': [],
             'unresolved': [],
+            'fetch_errors': [],
+            'systems_fetch_failed': [],
             'counts': {},
         },
         'rings': {
@@ -770,7 +896,8 @@ def _new_report(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
 
 def _merge_station_report(report: dict[str, Any], station_report: Mapping[str, Any]) -> None:
     section = report['stations']
-    section['systems'].append(station_report['system'])
+    if not station_report.get('fetch_failed'):
+        section['systems'].append(station_report['system'])
     for key in (
         'metadata_updates_planned',
         'metadata_updates_applied',
@@ -780,6 +907,8 @@ def _merge_station_report(report: dict[str, Any], station_report: Mapping[str, A
         'skipped',
         'ignored_transient_non_slot',
         'unresolved',
+        'fetch_errors',
+        'systems_fetch_failed',
     ):
         section[key].extend(station_report.get(key, []))
     for key, value in station_report.get('counts', {}).items():
@@ -805,6 +934,8 @@ def _finalise_report(report: dict[str, Any]) -> None:
     report['dirty']['system_ids'] = dirty_ids
     station_conflicts = len(report['stations']['conflicts'])
     ring_conflicts = len(report['rings']['conflicts'])
+    station_fetch_errors = len(report['stations']['fetch_errors'])
+    station_systems_fetch_failed = len(report['stations']['systems_fetch_failed'])
     report['summary'] = {
         'systems_processed': len({
             *[system.get('id64') for system in report['stations']['systems']],
@@ -821,6 +952,8 @@ def _finalise_report(report: dict[str, Any]) -> None:
             ),
             'skipped': len(report['stations']['skipped']),
             'conflicts': station_conflicts,
+            'fetch_errors': station_fetch_errors,
+            'systems_fetch_failed': station_systems_fetch_failed,
         },
         'rings': {
             'planned': len(report['rings']['rows_planned']),
@@ -833,6 +966,8 @@ def _finalise_report(report: dict[str, Any]) -> None:
         'dirty_systems_planned': len(dirty_ids),
         'dirty_systems_marked': report['dirty']['marked'],
         'conflicts': station_conflicts + ring_conflicts,
+        'fetch_errors': station_fetch_errors,
+        'systems_fetch_failed': station_systems_fetch_failed,
     }
 
 

@@ -10,13 +10,17 @@ safe local station metadata fields.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
+import socket
 import sys
+import time
 from collections import Counter
 from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -45,8 +49,30 @@ from station_body_resolver import (  # noqa: E402
 )
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 EDSM_SYSTEM_API_BASE = 'https://www.edsm.net/api-system-v1'
-DEFAULT_TIMEOUT_SECONDS = 20.0
+DEFAULT_TIMEOUT_SECONDS = _env_float('EDSM_HTTP_TIMEOUT_SECONDS', 60.0)
+DEFAULT_HTTP_RETRIES = _env_int('EDSM_HTTP_RETRIES', 3)
+DEFAULT_HTTP_RETRY_BACKOFF_SECONDS = _env_float('EDSM_HTTP_RETRY_BACKOFF_SECONDS', 3.0)
 STATION_DISTANCE_CONFLICT_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
 TRUSTED_STATION_DISTANCE_PRECISION_TOLERANCE_LS = 0.05
 BODY_DISTANCE_MATCH_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
@@ -77,6 +103,27 @@ VALID_ECONOMIES = {
 }
 
 
+class EdsmFetchError(RuntimeError):
+    """Raised when an EDSM endpoint cannot be fetched after configured retries."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        system_name: str,
+        system_id64: int | None,
+        endpoint: str,
+        attempts: int,
+        reason: str,
+    ) -> None:
+        super().__init__(message)
+        self.system_name = system_name
+        self.system_id64 = system_id64
+        self.endpoint = endpoint
+        self.attempts = attempts
+        self.reason = reason
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description='Dry-run targeted EDSM station/body enrichment for one system.',
@@ -102,6 +149,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument('--json', action='store_true', help='Emit machine-readable JSON report.')
     parser.add_argument('--timeout', type=float, default=DEFAULT_TIMEOUT_SECONDS, help='EDSM request timeout in seconds.')
+    parser.add_argument('--edsm-retries', type=int, default=DEFAULT_HTTP_RETRIES, help='EDSM retry attempts after the initial request.')
+    parser.add_argument(
+        '--edsm-retry-backoff-seconds',
+        type=float,
+        default=DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
+        help='Initial EDSM retry backoff in seconds; later retries use exponential backoff.',
+    )
     parser.add_argument('--no-network', action='store_true', help='Skip EDSM requests and report local-only unresolved matches.')
     parser.add_argument('--local-only', action='store_true', help='Alias for --no-network.')
     parser.add_argument('--apply', action='store_true', help='Not implemented. Use --apply-metadata for metadata-only writes.')
@@ -187,20 +241,114 @@ def fetch_local_payload(conn, *, system_name: str | None, system_id64: int | Non
     }
 
 
-def fetch_edsm_system(system_name: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> dict[str, Any]:
+def fetch_edsm_system(
+    system_name: str,
+    *,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    retries: int = DEFAULT_HTTP_RETRIES,
+    retry_backoff_seconds: float = DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
+    sleep: Any = time.sleep,
+    logger: Any = None,
+    system_id64: int | None = None,
+) -> dict[str, Any]:
     """Fetch EDSM station and body payloads for one named system."""
     return {
-        'stations': _fetch_edsm_endpoint('stations', system_name, timeout=timeout),
-        'bodies': _fetch_edsm_endpoint('bodies', system_name, timeout=timeout),
+        'stations': _fetch_edsm_endpoint(
+            'stations',
+            system_name,
+            timeout=timeout,
+            retries=retries,
+            retry_backoff_seconds=retry_backoff_seconds,
+            sleep=sleep,
+            logger=logger,
+            system_id64=system_id64,
+        ),
+        'bodies': _fetch_edsm_endpoint(
+            'bodies',
+            system_name,
+            timeout=timeout,
+            retries=retries,
+            retry_backoff_seconds=retry_backoff_seconds,
+            sleep=sleep,
+            logger=logger,
+            system_id64=system_id64,
+        ),
     }
 
 
-def _fetch_edsm_endpoint(endpoint: str, system_name: str, *, timeout: float) -> Any:
+def _fetch_edsm_endpoint(
+    endpoint: str,
+    system_name: str,
+    *,
+    timeout: float,
+    retries: int = DEFAULT_HTTP_RETRIES,
+    retry_backoff_seconds: float = DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
+    sleep: Any = time.sleep,
+    logger: Any = None,
+    system_id64: int | None = None,
+) -> Any:
     query = urlencode({'systemName': system_name})
     url = f'{EDSM_SYSTEM_API_BASE}/{endpoint}?{query}'
     request = Request(url, headers={'User-Agent': 'ed-finder-edsm-station-enrichment-probe/1.0'})
-    with urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode('utf-8'))
+    max_retries = max(0, int(retries or 0))
+    attempts = max_retries + 1
+    label = _edsm_system_label(system_name, system_id64)
+    for attempt in range(1, attempts + 1):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except Exception as exc:
+            reason = _exception_reason(exc)
+            if attempt >= attempts:
+                _log(logger, f'EDSM fetch failed system={label} endpoint={endpoint} attempt={attempt}/{attempts}: {reason}')
+                raise EdsmFetchError(
+                    f'EDSM {endpoint} fetch failed for {system_name!r} after {attempts} attempt(s): {reason}',
+                    system_name=system_name,
+                    system_id64=system_id64,
+                    endpoint=endpoint,
+                    attempts=attempts,
+                    reason=reason,
+                ) from exc
+            delay = _retry_delay_seconds(retry_backoff_seconds, attempt)
+            _log(
+                logger,
+                f'EDSM fetch retry system={label} endpoint={endpoint} '
+                f'next_attempt={attempt + 1}/{attempts} reason={reason} backoff_seconds={delay:g}',
+            )
+            if delay > 0:
+                sleep(delay)
+
+
+def is_edsm_fetch_error(exc: BaseException) -> bool:
+    return isinstance(exc, (EdsmFetchError, TimeoutError, socket.timeout, URLError, http.client.HTTPException))
+
+
+def _retry_delay_seconds(backoff_seconds: float, failed_attempt: int) -> float:
+    base_delay = max(0.0, float(backoff_seconds or 0.0))
+    return base_delay * (2 ** max(0, failed_attempt - 1))
+
+
+def _exception_reason(exc: BaseException) -> str:
+    reason = getattr(exc, 'reason', None)
+    if reason is not None:
+        return str(reason)
+    text = str(exc).strip()
+    return text or exc.__class__.__name__
+
+
+def _edsm_system_label(system_name: str, system_id64: int | None) -> str:
+    if system_id64 is None:
+        return repr(system_name)
+    return f'{system_name!r} id64={system_id64}'
+
+
+def _log(logger: Any, message: str) -> None:
+    if logger is not None:
+        logger(message)
+
+
+def _stderr_log(message: str) -> None:
+    print(message, file=sys.stderr)
 
 
 def build_enrichment_report(
@@ -1927,6 +2075,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if applying and (args.no_network or args.local_only):
         print('Apply flags require network EDSM evidence; remove --no-network/--local-only.', file=sys.stderr)
         return 2
+    if args.timeout <= 0:
+        print('--timeout must be greater than zero.', file=sys.stderr)
+        return 2
+    if args.edsm_retries < 0:
+        print('--edsm-retries must be zero or greater.', file=sys.stderr)
+        return 2
+    if args.edsm_retry_backoff_seconds < 0:
+        print('--edsm-retry-backoff-seconds must be zero or greater.', file=sys.stderr)
+        return 2
     if not args.dsn:
         print('DATABASE_URL or --dsn is required.', file=sys.stderr)
         return 2
@@ -1947,7 +2104,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     network_enabled = not (args.no_network or args.local_only)
     if network_enabled:
         try:
-            edsm_payload = fetch_edsm_system(system_name, timeout=args.timeout)
+            edsm_payload = fetch_edsm_system(
+                system_name,
+                timeout=args.timeout,
+                retries=args.edsm_retries,
+                retry_backoff_seconds=args.edsm_retry_backoff_seconds,
+                logger=_stderr_log,
+                system_id64=_read_int(local['system'].get('id64')),
+            )
         except Exception as exc:
             print(f'Failed to fetch EDSM evidence: {exc}', file=sys.stderr)
             return 1
