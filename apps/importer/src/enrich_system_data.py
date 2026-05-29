@@ -56,6 +56,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--mark-dirty', action='store_true', help='Mark systems rating_dirty after applied station/ring fact changes.')
     parser.add_argument('--json', action='store_true', help='Emit machine-readable JSON.')
     parser.add_argument('--checkpoint-file', default=None, help='Optional JSON checkpoint storing processed system ids.')
+    parser.add_argument(
+        '--checkpoint-read-only',
+        action='store_true',
+        help='Use --checkpoint-file as a skip list without adding systems to it during this run.',
+    )
     parser.add_argument('--spansh-file', default=None, help='Spansh galaxy/system dump to scan when --source spansh --rings is used.')
     parser.add_argument('--timeout', type=float, default=edsm_probe.DEFAULT_TIMEOUT_SECONDS, help='EDSM request timeout.')
     parser.add_argument('--edsm-retries', type=int, default=edsm_probe.DEFAULT_HTTP_RETRIES, help='EDSM retry attempts after the initial request.')
@@ -113,6 +118,8 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         errors.append('--source local is audit-only for rings; it cannot apply rows.')
     if args.source == 'spansh' and args.rings and not args.spansh_file:
         errors.append('--source spansh --rings requires --spansh-file.')
+    if args.checkpoint_read_only and not args.checkpoint_file:
+        errors.append('--checkpoint-read-only requires --checkpoint-file.')
     if args.limit is not None and args.limit < 1:
         errors.append('--limit must be greater than zero.')
     if args.timeout <= 0:
@@ -160,7 +167,7 @@ def run(
                     sleep=sleep,
                 )
                 _merge_station_report(report, station_report)
-                if not dry_run and not station_report.get('fetch_failed'):
+                if not dry_run and not args.checkpoint_read_only and not station_report.get('fetch_failed'):
                     _checkpoint_system(args.checkpoint_file, checkpoint, system)
                 if index + 1 < len(station_systems) and args.rate_limit_seconds > 0:
                     sleep(args.rate_limit_seconds)
@@ -184,7 +191,7 @@ def run(
                         apply_rings=args.apply_rings,
                     )
                     _merge_ring_report(report, ring_report)
-                    if not dry_run:
+                    if not dry_run and not args.checkpoint_read_only:
                         _checkpoint_system(args.checkpoint_file, checkpoint, system)
             elif args.source == 'edsm':
                 ring_systems = select_ring_systems(conn, args)
@@ -220,7 +227,7 @@ def run(
                         apply_rings=args.apply_rings,
                     )
                     _merge_ring_report(report, ring_report)
-                    if not dry_run:
+                    if not dry_run and not args.checkpoint_read_only:
                         _checkpoint_system(args.checkpoint_file, checkpoint, system)
                     if index + 1 < len(ring_systems) and args.rate_limit_seconds > 0:
                         sleep(args.rate_limit_seconds)
@@ -258,7 +265,16 @@ def select_station_systems(conn, args: argparse.Namespace) -> list[dict[str, Any
         return [_fetch_one_system(conn, system_id64=args.system_id64, system_name=args.system_name)]
 
     limit_clause = 'LIMIT %s' if args.limit is not None else ''
-    params: list[Any] = []
+    checkpointed = sorted(_load_checkpoint(args.checkpoint_file))
+    checkpoint_clause = 'AND s.id64 <> ALL(%s)' if checkpointed else ''
+    params: list[Any] = [
+        edsm_probe.TRUSTED_EDSM_SOURCE,
+        edsm_probe.TRUSTED_EDSM_SOURCE,
+        edsm_probe.TRUSTED_EDSM_SOURCE,
+        edsm_probe.TRUSTED_EDSM_SOURCE,
+    ]
+    if checkpointed:
+        params.append(checkpointed)
     if args.limit is not None:
         params.append(args.limit)
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -266,17 +282,25 @@ def select_station_systems(conn, args: argparse.Namespace) -> list[dict[str, Any
             SELECT DISTINCT s.id64, s.name
               FROM systems s
               JOIN stations st ON st.system_id64 = s.id64
-             WHERE st.distance_source IS DISTINCT FROM %s
-                OR st.station_type_source IS DISTINCT FROM %s
-                OR st.body_name_source IS DISTINCT FROM %s
+             WHERE (
+                    st.distance_source IS DISTINCT FROM %s
+                 OR st.station_type_source IS DISTINCT FROM %s
+                 OR st.body_name_source IS DISTINCT FROM %s
+                 OR (
+                    st.body_name_source = %s
+                    AND st.body_name IS NOT NULL
+                    AND NOT EXISTS (
+                        SELECT 1
+                          FROM station_body_links sbl
+                         WHERE sbl.station_id = st.id
+                           AND sbl.association_status = 'confirmed'
+                    )
+                 )
+               )
+               {checkpoint_clause}
              ORDER BY s.name
              {limit_clause}
-        """, [
-            edsm_probe.TRUSTED_EDSM_SOURCE,
-            edsm_probe.TRUSTED_EDSM_SOURCE,
-            edsm_probe.TRUSTED_EDSM_SOURCE,
-            *params,
-        ])
+        """, params)
         return [dict(row) for row in cur.fetchall()]
 
 
@@ -285,7 +309,11 @@ def select_ring_systems(conn, args: argparse.Namespace) -> list[dict[str, Any]]:
         return [_fetch_one_system(conn, system_id64=args.system_id64, system_name=args.system_name)]
 
     limit_clause = 'LIMIT %s' if args.limit is not None else ''
+    checkpointed = sorted(_load_checkpoint(args.checkpoint_file))
+    checkpoint_clause = 'AND s.id64 <> ALL(%s)' if checkpointed else ''
     params: list[Any] = []
+    if checkpointed:
+        params.append(checkpointed)
     if args.limit is not None:
         params.append(args.limit)
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -298,6 +326,7 @@ def select_ring_systems(conn, args: argparse.Namespace) -> list[dict[str, Any]]:
                AND NOT EXISTS (
                     SELECT 1 FROM body_rings br WHERE br.system_id64 = s.id64
                   )
+               {checkpoint_clause}
              ORDER BY s.name
              {limit_clause}
         """, params)

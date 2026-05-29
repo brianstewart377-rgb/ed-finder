@@ -66,6 +66,7 @@ def risky_conflict(conflict_type='known_station_type_mismatch'):
 
 def report(
     *,
+    system=None,
     metadata=None,
     links=None,
     conflicts=None,
@@ -74,6 +75,7 @@ def report(
     dirty_planned=0,
     dirty_marked=0,
 ):
+    system = dict(system or SYSTEM)
     metadata = metadata or []
     links = links or []
     conflicts = conflicts or []
@@ -83,7 +85,7 @@ def report(
         'dry_run': True,
         'source': 'edsm',
         'stations': {
-            'systems': [dict(SYSTEM)],
+            'systems': [dict(system)],
             'metadata_updates_planned': metadata,
             'metadata_updates_applied': [],
             'confirmed_link_updates_planned': links,
@@ -97,7 +99,7 @@ def report(
                 'station_write_suppressed_non_benign_conflict': len(conflicts),
             },
         },
-        'dirty': {'system_ids': [SYSTEM['id64']] if dirty_planned else [], 'marked': dirty_marked},
+        'dirty': {'system_ids': [system['id64']] if dirty_planned else [], 'marked': dirty_marked},
         'summary': {
             'systems_processed': 1,
             'stations': {
@@ -212,6 +214,34 @@ def test_safe_metadata_tail_allows_another_metadata_pass(tmp_path):
     ]
 
 
+def test_confirmed_links_apply_after_metadata_pass_reveals_link_candidates(tmp_path):
+    outputs = [
+        report(metadata=[metadata_update(field='body_name', new_value='Exioce 1')]),
+        report(metadata=[metadata_update(field='body_name', new_value='Exioce 1')], dirty_planned=1, dirty_marked=1),
+        report(links=[confirmed_link()]),
+        report(links=[confirmed_link()], dirty_planned=1, dirty_marked=1),
+        report(),
+    ]
+    modes = []
+
+    def fake_runner(cmd, _cwd, output_path):
+        if '--apply-station-metadata' in cmd:
+            modes.append('metadata')
+        elif '--apply-confirmed-links' in cmd:
+            modes.append('confirmed_links')
+        else:
+            modes.append('dry_run')
+        write_report(output_path, outputs.pop(0))
+        return guard.CommandResult(returncode=0)
+
+    args = guard.parse_args(['--limit', '2000', '--yes'])
+    runner = guard.GuardedStationEnrichmentRunner(args, output_dir=tmp_path / 'run', command_runner=fake_runner)
+
+    runner.run()
+
+    assert modes == ['dry_run', 'metadata', 'dry_run', 'confirmed_links', 'dry_run']
+
+
 def test_final_clean_state_success():
     analysis = guard.assert_final_clean(report(), phase='final dry-run')
 
@@ -249,6 +279,64 @@ def test_docker_command_uses_hetzner_source_mounts_and_separate_apply_flags(tmp_
     assert '--apply-confirmed-links' not in metadata_cmd
     assert '--apply-confirmed-links' in link_cmd
     assert '--apply-station-metadata' not in link_cmd
+
+
+def test_docker_command_mounts_checkpoint_state_read_only(tmp_path):
+    checkpoint = tmp_path / 'state' / 'station-checkpoint.json'
+    args = guard.parse_args(['--limit', '2000', '--yes', '--checkpoint-file', str(checkpoint)])
+    args.checkpoint_read_only = True
+
+    cmd = guard.build_docker_compose_command(args, mode='dry_run', repo_root=tmp_path)
+
+    assert f'{checkpoint.parent}:/workspace/enrichment-state' in cmd
+    assert '--checkpoint-file' in cmd
+    assert f'/workspace/enrichment-state/{checkpoint.name}' in cmd
+    assert '--checkpoint-read-only' in cmd
+
+
+def test_all_records_batches_are_checkpointed_and_apply_without_manual_yes(tmp_path):
+    system_one = {'id64': 1, 'name': 'Alpha'}
+    system_two = {'id64': 2, 'name': 'Beta'}
+    empty = report(system=system_two)
+    empty['stations']['systems'] = []
+    empty['summary']['systems_processed'] = 0
+    outputs = [
+        report(system=system_one, metadata=[metadata_update(system_id64=1)]),
+        report(system=system_one, metadata=[metadata_update(system_id64=1)], dirty_planned=1, dirty_marked=1),
+        report(system=system_one),
+        report(system=system_one),
+        report(system=system_two),
+        report(system=system_two),
+        empty,
+    ]
+    modes = []
+    checkpoint_flags = []
+
+    def fake_runner(cmd, _cwd, output_path):
+        checkpoint_flags.append('--checkpoint-read-only' in cmd)
+        assert '--limit' in cmd
+        assert cmd[cmd.index('--limit') + 1] == '2'
+        if '--apply-station-metadata' in cmd:
+            modes.append('metadata')
+        elif '--apply-confirmed-links' in cmd:
+            modes.append('confirmed_links')
+        else:
+            modes.append('dry_run')
+        write_report(output_path, outputs.pop(0))
+        return guard.CommandResult(returncode=0)
+
+    args = guard.parse_args(['--all-records', '--batch-size', '2', '--output-dir', str(tmp_path)])
+
+    assert args.allow_apply is True
+
+    runner = guard.GuardedStationEnrichmentRunner(args, command_runner=fake_runner)
+    output_dir = runner.run()
+
+    checkpoint = output_dir / 'station-enrichment-checkpoint.json'
+    checkpoint_payload = json.loads(checkpoint.read_text(encoding='utf-8'))
+    assert checkpoint_payload['processed_system_id64s'] == [1, 2]
+    assert modes == ['dry_run', 'metadata', 'dry_run', 'dry_run', 'dry_run', 'dry_run', 'dry_run']
+    assert all(checkpoint_flags)
 
 
 @pytest.mark.parametrize('raw', ['', '{not-json'])

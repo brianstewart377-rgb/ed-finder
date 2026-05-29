@@ -903,6 +903,18 @@ docker compose --profile import run --rm \
   --apply-confirmed-links --json
 ```
 
+Guarded all-record automation from the repo checkout on the host:
+
+```bash
+scripts/run_station_enrichment_guarded.sh --all-records
+```
+
+This runs dry-run, safe metadata apply passes, confirmed-link apply, and final
+verification for every eligible station system in batches. It writes a
+checkpoint JSON under `/tmp/edfinder-station-enrichment/...` by default, so a
+failed run can resume with `--checkpoint-file <path>`. Safety gates still abort
+the run if risky station writes or trusted EDSM precision churn appear.
+
 `--apply-metadata` is intentionally narrow. It can update only trusted station
 metadata/provenance for exact EDSM id/marketId plus exact station name matches:
 `station_type` from `Unknown` to a known permanent type, EDSM

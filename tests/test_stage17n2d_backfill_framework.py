@@ -67,6 +67,30 @@ class MinimalBatchConnection:
         self.rolled_back = True
 
 
+class SelectCaptureConnection:
+    def __init__(self):
+        self.sql = None
+        self.params = None
+        self.last_rows = []
+
+    def cursor(self, *args, **kwargs):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def execute(self, sql, params=None):
+        self.sql = sql
+        self.params = list(params or [])
+        self.last_rows = []
+
+    def fetchall(self):
+        return self.last_rows
+
+
 def station_local_payload(system, *, station_id=None):
     station_id = station_id or int(system['id64'] % 100000)
     return {
@@ -709,6 +733,26 @@ def test_apply_flags_require_explicit_dirty_marking():
     assert 'Apply flags require --mark-dirty' in '\n'.join(enrich.validate_args(args))
 
 
+def test_checkpoint_read_only_requires_checkpoint_file():
+    args = enrich.parse_args(['--stations', '--limit', '1', '--checkpoint-read-only'])
+
+    assert '--checkpoint-read-only requires --checkpoint-file' in '\n'.join(enrich.validate_args(args))
+
+
+def test_station_selection_uses_checkpoint_before_limit_and_keeps_link_candidates(tmp_path):
+    checkpoint = tmp_path / 'checkpoint.json'
+    checkpoint.write_text('{"processed_system_id64s": [100, 200]}', encoding='utf-8')
+    conn = SelectCaptureConnection()
+    args = enrich.parse_args(['--stations', '--limit', '50', '--checkpoint-file', str(checkpoint)])
+
+    enrich.select_station_systems(conn, args)
+
+    assert 'station_body_links' in conn.sql
+    assert 's.id64 <> ALL' in conn.sql
+    assert conn.params[-2] == [100, 200]
+    assert conn.params[-1] == 50
+
+
 def test_main_failure_reporting_uses_sys_stderr_without_name_error(monkeypatch, capsys):
     def fail(_args):
         raise RuntimeError('boom')
@@ -897,7 +941,11 @@ def test_apply_confirmed_links_skips_failed_system_and_applies_valid_systems(mon
     monkeypatch.setattr(enrich, 'select_station_systems', lambda _conn, _args: systems)
     monkeypatch.setattr(edsm_probe, 'fetch_local_payload', local_payload)
     monkeypatch.setattr(edsm_probe, 'apply_confirmed_link_updates', apply_links)
-    monkeypatch.setattr(enrich, 'mark_systems_rating_dirty', lambda _conn, ids: dirty_batches.append(list(ids)) or len(ids))
+    monkeypatch.setattr(
+        enrich,
+        'mark_systems_rating_dirty',
+        lambda _conn, ids: dirty_batches.append(list(ids)) or len(ids),
+    )
 
     args = enrich.parse_args([
         '--stations',
@@ -914,6 +962,40 @@ def test_apply_confirmed_links_skips_failed_system_and_applies_valid_systems(mon
     assert report['summary']['stations']['applied'] == 1
     assert dirty_batches == [[2]]
     assert conn.committed is True
+
+
+def test_checkpoint_read_only_apply_does_not_write_checkpoint(monkeypatch, tmp_path):
+    checkpoint = tmp_path / 'checkpoint.json'
+    conn = MinimalBatchConnection()
+    dirty_batches = []
+
+    monkeypatch.setattr(enrich, 'select_station_systems', lambda _conn, _args: [SYSTEM])
+    monkeypatch.setattr(edsm_probe, 'fetch_local_payload', lambda *_args, **_kwargs: station_local_payload(SYSTEM))
+    monkeypatch.setattr(
+        edsm_probe,
+        'apply_confirmed_link_updates',
+        lambda _conn, report: ([{'system_id64': report['system']['id64'], 'station_id': 1001}], []),
+    )
+    monkeypatch.setattr(enrich, 'mark_systems_rating_dirty', lambda _conn, ids: dirty_batches.append(list(ids)) or len(ids))
+
+    args = enrich.parse_args([
+        '--stations',
+        '--limit', '1',
+        '--apply-confirmed-links',
+        '--mark-dirty',
+        '--checkpoint-file', str(checkpoint),
+        '--checkpoint-read-only',
+    ])
+    report = enrich.run(
+        args,
+        connect=lambda _dsn: conn,
+        edsm_fetcher=lambda *_args, **_kwargs: {'stations': {'stations': []}, 'bodies': {'bodies': []}},
+        sleep=lambda _seconds: None,
+    )
+
+    assert report['summary']['stations']['applied'] == 1
+    assert dirty_batches == [[SYSTEM['id64']]]
+    assert not checkpoint.exists()
 
 
 def test_json_report_includes_fetch_error_summary():

@@ -75,7 +75,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description='Run guarded EDSM station enrichment dry-run/apply phases through docker compose importer.',
     )
-    parser.add_argument('--limit', type=int, required=True, help='Maximum systems to process.')
+    parser.add_argument('--limit', type=int, default=None, help='Maximum systems to process.')
+    parser.add_argument(
+        '--all-records',
+        action='store_true',
+        help=(
+            'Process every eligible station system in resumable batches. Unless --dry-run-only is set, '
+            'this is a hands-free apply mode guarded by the same safety gates.'
+        ),
+    )
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=2000,
+        help='Systems per batch when --all-records is used.',
+    )
+    parser.add_argument(
+        '--max-batches',
+        type=int,
+        default=None,
+        help='Optional cap on --all-records batches, useful for staged production runs.',
+    )
     parser.add_argument('--source', choices=('edsm',), default='edsm', help='Station enrichment source.')
     parser.add_argument('--timeout', type=float, default=120.0, help='EDSM request timeout in seconds.')
     parser.add_argument('--edsm-retries', type=int, default=5, help='EDSM retry attempts after the initial request.')
@@ -105,15 +125,30 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help='Parent directory for the unique run output directory. Defaults to /tmp/edfinder-station-enrichment.',
     )
+    parser.add_argument(
+        '--checkpoint-file',
+        default=None,
+        help='Checkpoint JSON used to resume --all-records runs. Defaults inside the run output directory.',
+    )
     args = parser.parse_args(argv)
     _validate_cli_args(args)
+    if args.all_records and not args.dry_run_only:
+        args.allow_apply = True
     return args
 
 
 def _validate_cli_args(args: argparse.Namespace) -> None:
     errors: list[str] = []
-    if args.limit < 1:
+    if args.limit is None and not args.all_records:
+        errors.append('--limit is required unless --all-records is set.')
+    if args.limit is not None and args.all_records:
+        errors.append('--limit cannot be combined with --all-records; use --batch-size for all-record batches.')
+    if args.limit is not None and args.limit < 1:
         errors.append('--limit must be greater than zero.')
+    if args.batch_size < 1:
+        errors.append('--batch-size must be greater than zero.')
+    if args.max_batches is not None and args.max_batches < 1:
+        errors.append('--max-batches must be greater than zero.')
     if args.timeout <= 0:
         errors.append('--timeout must be greater than zero.')
     if args.edsm_retries < 0:
@@ -132,10 +167,10 @@ def _validate_cli_args(args: argparse.Namespace) -> None:
         raise GuardFailure('\n'.join(errors))
 
 
-def create_output_dir(limit: int, output_dir: str | None = None, now: datetime | None = None) -> Path:
+def create_output_dir(scope_label: str, output_dir: str | None = None, now: datetime | None = None) -> Path:
     base = Path(output_dir) if output_dir else DEFAULT_OUTPUT_ROOT
     stamp = (now or datetime.now()).strftime('%Y%m%d-%H%M%S')
-    stem = f'{stamp}-limit-{limit}'
+    stem = f'{stamp}-{scope_label}'
     base.mkdir(parents=True, exist_ok=True)
     for suffix in ['', *[f'-{index}' for index in range(2, 1000)]]:
         candidate = base / f'{stem}{suffix}'
@@ -145,6 +180,15 @@ def create_output_dir(limit: int, output_dir: str | None = None, now: datetime |
         except FileExistsError:
             continue
     raise GuardFailure(f'Could not create a unique output directory under {base}')
+
+
+def output_scope_label(args: argparse.Namespace) -> str:
+    return 'all-records' if args.all_records else f'limit-{args.limit}'
+
+
+def checkpoint_host_path(path_value: str | Path, repo_root: Path) -> Path:
+    path = Path(path_value).expanduser()
+    return path if path.is_absolute() else (repo_root / path).resolve()
 
 
 def load_report_file(path: Path) -> dict[str, Any]:
@@ -269,6 +313,47 @@ def print_compact_summary(phase: str, report: Mapping[str, Any], path: Path) -> 
     )
 
 
+def report_system_id64s(report: Mapping[str, Any]) -> set[int]:
+    section = station_report_section(report)
+    system_ids: set[int] = set()
+    for key in ('systems', 'systems_fetch_failed'):
+        for system in _list_value(section, key):
+            if not isinstance(system, Mapping):
+                continue
+            id64 = _optional_int_value(_first_present(system.get('id64'), system.get('system_id64')))
+            if id64 is not None:
+                system_ids.add(id64)
+    return system_ids
+
+
+def load_checkpoint_system_ids(path: Path) -> set[int]:
+    if not path.exists():
+        return set()
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GuardFailure(f'Could not read checkpoint file {path}: {exc}') from exc
+    if not isinstance(payload, Mapping):
+        raise GuardFailure(f'Checkpoint file must contain an object: {path}')
+    return {
+        id64
+        for value in payload.get('processed_system_id64s', [])
+        for id64 in [_optional_int_value(value)]
+        if id64 is not None
+    }
+
+
+def append_checkpoint_system_ids(path: Path, system_ids: set[int]) -> tuple[int, int]:
+    existing = load_checkpoint_system_ids(path)
+    combined = existing | set(system_ids)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {'processed_system_id64s': sorted(combined)}
+    if combined:
+        payload['last_system_id64'] = max(combined)
+    path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+    return len(combined) - len(existing), len(combined)
+
+
 class GuardedStationEnrichmentRunner:
     def __init__(
         self,
@@ -280,19 +365,31 @@ class GuardedStationEnrichmentRunner:
     ) -> None:
         self.args = args
         self.repo_root = repo_root or Path(__file__).resolve().parents[1]
-        self.output_dir = output_dir or create_output_dir(args.limit, args.output_dir)
+        self.output_dir = output_dir or create_output_dir(output_scope_label(args), args.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        if getattr(args, 'checkpoint_file', None):
+            checkpoint_host_path(args.checkpoint_file, self.repo_root).parent.mkdir(parents=True, exist_ok=True)
         self.command_runner = command_runner or run_docker_compose_command
         self._next_index = 1
 
     def run(self) -> Path:
+        if self.args.all_records:
+            return self._run_all_records()
+        self._run_guarded_sequence()
+        return self.output_dir
+
+    def _run_guarded_sequence(self, *, stop_after_empty_initial: bool = False) -> dict[str, Any]:
         print(f'Output directory: {self.output_dir}', flush=True)
         current = self._run_phase('initial dry-run', 'initial_dryrun', mode='dry_run')
+        initial_report = current
         assert_safe_to_continue(current, phase='initial dry-run')
+        if stop_after_empty_initial and not report_system_id64s(current):
+            print('No eligible station systems remain for this checkpoint.', flush=True)
+            return initial_report
 
         if self.args.dry_run_only:
             print('Dry-run only: no apply phases run.', flush=True)
-            return self.output_dir
+            return initial_report
 
         metadata_pass = 0
         while analyse_report(current).metadata_updates > 0:
@@ -328,6 +425,61 @@ class GuardedStationEnrichmentRunner:
         final_report = self._run_command_to_file('final dry-run', final_path, mode='dry_run')
         print_compact_summary('final dry-run', final_report, final_path)
         assert_final_clean(final_report)
+        return initial_report
+
+    def _run_all_records(self) -> Path:
+        checkpoint_path = (
+            checkpoint_host_path(self.args.checkpoint_file, self.repo_root)
+            if self.args.checkpoint_file
+            else self.output_dir / 'station-enrichment-checkpoint.json'
+        )
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f'Output directory: {self.output_dir}', flush=True)
+        print(f'Checkpoint file: {checkpoint_path}', flush=True)
+        print(f'Batch size: {self.args.batch_size}', flush=True)
+
+        batches = 0
+        total_added = 0
+        while True:
+            if self.args.max_batches is not None and batches >= self.args.max_batches:
+                print(f'Stopped after --max-batches={self.args.max_batches}.', flush=True)
+                break
+
+            batch_number = batches + 1
+            batch_output_dir = self.output_dir / f'batch-{batch_number:04d}'
+            batch_args = argparse.Namespace(**vars(self.args))
+            batch_args.all_records = False
+            batch_args.limit = self.args.batch_size
+            batch_args.output_dir = None
+            batch_args.checkpoint_file = str(checkpoint_path)
+            batch_args.checkpoint_read_only = True
+
+            print(f'=== all-records batch {batch_number} ===', flush=True)
+            batch_runner = GuardedStationEnrichmentRunner(
+                batch_args,
+                repo_root=self.repo_root,
+                output_dir=batch_output_dir,
+                command_runner=self.command_runner,
+            )
+            initial_report = batch_runner._run_guarded_sequence(stop_after_empty_initial=True)
+            system_ids = report_system_id64s(initial_report)
+            if not system_ids:
+                break
+
+            added, checkpoint_total = append_checkpoint_system_ids(checkpoint_path, system_ids)
+            total_added += added
+            batches += 1
+            print(
+                f'all-records batch {batch_number}: checkpoint_added={added} '
+                f'checkpoint_total={checkpoint_total}',
+                flush=True,
+            )
+
+        print(
+            f'All-record station enrichment completed: batches={batches} '
+            f'checkpoint_added={total_added} checkpoint_file={checkpoint_path}',
+            flush=True,
+        )
         return self.output_dir
 
     def _run_phase(self, phase: str, name: str, *, mode: str) -> dict[str, Any]:
@@ -383,6 +535,14 @@ def build_docker_compose_command(args: argparse.Namespace, *, mode: str, repo_ro
         _format_float(args.edsm_429_backoff_seconds),
         '--json',
     ]
+    checkpoint_file = getattr(args, 'checkpoint_file', None)
+    checkpoint_mount: list[str] = []
+    if checkpoint_file:
+        checkpoint_path = checkpoint_host_path(checkpoint_file, root)
+        checkpoint_mount = ['-v', f'{checkpoint_path.parent}:/workspace/enrichment-state']
+        enrich_args.extend(['--checkpoint-file', f'/workspace/enrichment-state/{checkpoint_path.name}'])
+        if getattr(args, 'checkpoint_read_only', False):
+            enrich_args.append('--checkpoint-read-only')
     if mode == 'metadata':
         enrich_args.extend(['--apply-station-metadata', '--mark-dirty'])
     elif mode == 'confirmed_links':
@@ -404,6 +564,7 @@ def build_docker_compose_command(args: argparse.Namespace, *, mode: str, repo_ro
         f'{root / "apps" / "importer" / "src"}:/workspace/apps/importer/src:ro',
         '-v',
         f'{root / "apps" / "api" / "src"}:/workspace/apps/api/src:ro',
+        *checkpoint_mount,
         '-e',
         'LOG_FILE=/data/logs/enrich_system_data.log',
         'importer',
@@ -566,8 +727,13 @@ def _list_value(values: Mapping[str, Any], key: str) -> list[Any]:
 
 
 def _int_value(value: Any) -> int:
+    optional = _optional_int_value(value)
+    return optional if optional is not None else 0
+
+
+def _optional_int_value(value: Any) -> int | None:
     if isinstance(value, bool) or value is None:
-        return 0
+        return None
     if isinstance(value, int):
         return value
     if isinstance(value, float) and value.is_integer():
@@ -576,8 +742,8 @@ def _int_value(value: Any) -> int:
         try:
             return int(value.strip())
         except ValueError:
-            return 0
-    return 0
+            return None
+    return None
 
 
 def _clean_text(value: Any) -> str | None:
