@@ -10,6 +10,7 @@ safe local station metadata fields.
 from __future__ import annotations
 
 import argparse
+import email.utils
 import http.client
 import json
 import os
@@ -17,6 +18,7 @@ import socket
 import sys
 import time
 from collections import Counter
+from datetime import datetime, timezone
 from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -73,6 +75,9 @@ EDSM_SYSTEM_API_BASE = 'https://www.edsm.net/api-system-v1'
 DEFAULT_TIMEOUT_SECONDS = _env_float('EDSM_HTTP_TIMEOUT_SECONDS', 60.0)
 DEFAULT_HTTP_RETRIES = _env_int('EDSM_HTTP_RETRIES', 3)
 DEFAULT_HTTP_RETRY_BACKOFF_SECONDS = _env_float('EDSM_HTTP_RETRY_BACKOFF_SECONDS', 3.0)
+DEFAULT_HTTP_REQUEST_DELAY_SECONDS = _env_float('EDSM_HTTP_REQUEST_DELAY_SECONDS', 0.5)
+DEFAULT_HTTP_429_BACKOFF_SECONDS = _env_float('EDSM_HTTP_429_BACKOFF_SECONDS', 60.0)
+DEFAULT_HTTP_429_BACKOFF_MULTIPLIER = _env_float('EDSM_HTTP_429_BACKOFF_MULTIPLIER', 2.0)
 STATION_DISTANCE_CONFLICT_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
 TRUSTED_STATION_DISTANCE_PRECISION_TOLERANCE_LS = 0.05
 BODY_DISTANCE_MATCH_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
@@ -115,6 +120,9 @@ class EdsmFetchError(RuntimeError):
         endpoint: str,
         attempts: int,
         reason: str,
+        status_code: int | None = None,
+        retry_after_seconds: float | None = None,
+        retry_after_header: str | None = None,
     ) -> None:
         super().__init__(message)
         self.system_name = system_name
@@ -122,6 +130,22 @@ class EdsmFetchError(RuntimeError):
         self.endpoint = endpoint
         self.attempts = attempts
         self.reason = reason
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
+        self.retry_after_header = retry_after_header
+        self.rate_limited = status_code == 429 or 'too many requests' in reason.lower()
+
+
+class EdsmRateLimitError(EdsmFetchError):
+    """Raised when EDSM keeps returning 429/Too Many Requests after retries."""
+
+
+class _EdsmHttpStatusError(RuntimeError):
+    def __init__(self, status_code: int, reason: str, headers: Any = None) -> None:
+        super().__init__(f'HTTP {status_code} {reason}')
+        self.status = status_code
+        self.reason = reason
+        self.headers = headers
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -155,6 +179,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
         help='Initial EDSM retry backoff in seconds; later retries use exponential backoff.',
+    )
+    parser.add_argument(
+        '--edsm-request-delay-seconds',
+        type=float,
+        default=DEFAULT_HTTP_REQUEST_DELAY_SECONDS,
+        help='Delay between EDSM HTTP requests. Defaults to EDSM_HTTP_REQUEST_DELAY_SECONDS.',
+    )
+    parser.add_argument(
+        '--edsm-429-backoff-seconds',
+        type=float,
+        default=DEFAULT_HTTP_429_BACKOFF_SECONDS,
+        help='Initial EDSM 429 retry backoff in seconds when Retry-After is absent.',
+    )
+    parser.add_argument(
+        '--edsm-429-backoff-multiplier',
+        type=float,
+        default=DEFAULT_HTTP_429_BACKOFF_MULTIPLIER,
+        help='Multiplier for repeated EDSM 429 retry backoff when Retry-After is absent.',
     )
     parser.add_argument('--no-network', action='store_true', help='Skip EDSM requests and report local-only unresolved matches.')
     parser.add_argument('--local-only', action='store_true', help='Alias for --no-network.')
@@ -247,33 +289,42 @@ def fetch_edsm_system(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     retries: int = DEFAULT_HTTP_RETRIES,
     retry_backoff_seconds: float = DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
+    request_delay_seconds: float = DEFAULT_HTTP_REQUEST_DELAY_SECONDS,
+    rate_limit_backoff_seconds: float = DEFAULT_HTTP_429_BACKOFF_SECONDS,
+    rate_limit_backoff_multiplier: float = DEFAULT_HTTP_429_BACKOFF_MULTIPLIER,
     sleep: Any = time.sleep,
     logger: Any = None,
     system_id64: int | None = None,
 ) -> dict[str, Any]:
     """Fetch EDSM station and body payloads for one named system."""
-    return {
-        'stations': _fetch_edsm_endpoint(
-            'stations',
-            system_name,
-            timeout=timeout,
-            retries=retries,
-            retry_backoff_seconds=retry_backoff_seconds,
-            sleep=sleep,
-            logger=logger,
-            system_id64=system_id64,
-        ),
-        'bodies': _fetch_edsm_endpoint(
-            'bodies',
-            system_name,
-            timeout=timeout,
-            retries=retries,
-            retry_backoff_seconds=retry_backoff_seconds,
-            sleep=sleep,
-            logger=logger,
-            system_id64=system_id64,
-        ),
-    }
+    stations = _fetch_edsm_endpoint(
+        'stations',
+        system_name,
+        timeout=timeout,
+        retries=retries,
+        retry_backoff_seconds=retry_backoff_seconds,
+        rate_limit_backoff_seconds=rate_limit_backoff_seconds,
+        rate_limit_backoff_multiplier=rate_limit_backoff_multiplier,
+        sleep=sleep,
+        logger=logger,
+        system_id64=system_id64,
+    )
+    delay = max(0.0, float(request_delay_seconds or 0.0))
+    if delay > 0:
+        sleep(delay)
+    bodies = _fetch_edsm_endpoint(
+        'bodies',
+        system_name,
+        timeout=timeout,
+        retries=retries,
+        retry_backoff_seconds=retry_backoff_seconds,
+        rate_limit_backoff_seconds=rate_limit_backoff_seconds,
+        rate_limit_backoff_multiplier=rate_limit_backoff_multiplier,
+        sleep=sleep,
+        logger=logger,
+        system_id64=system_id64,
+    )
+    return {'stations': stations, 'bodies': bodies}
 
 
 def _fetch_edsm_endpoint(
@@ -283,6 +334,8 @@ def _fetch_edsm_endpoint(
     timeout: float,
     retries: int = DEFAULT_HTTP_RETRIES,
     retry_backoff_seconds: float = DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
+    rate_limit_backoff_seconds: float = DEFAULT_HTTP_429_BACKOFF_SECONDS,
+    rate_limit_backoff_multiplier: float = DEFAULT_HTTP_429_BACKOFF_MULTIPLIER,
     sleep: Any = time.sleep,
     logger: Any = None,
     system_id64: int | None = None,
@@ -296,25 +349,59 @@ def _fetch_edsm_endpoint(
     for attempt in range(1, attempts + 1):
         try:
             with urlopen(request, timeout=timeout) as response:
+                status_code = _http_status_code(response)
+                if status_code is not None and status_code >= 400:
+                    raise _EdsmHttpStatusError(
+                        status_code,
+                        _http_response_reason(response, status_code),
+                        _http_response_headers(response),
+                    )
                 return json.loads(response.read().decode('utf-8'))
         except Exception as exc:
             reason = _exception_reason(exc)
+            status_code = _http_status_code(exc)
+            retry_after_header = _retry_after_header(exc)
+            retry_after_seconds = _retry_after_seconds(retry_after_header)
+            rate_limited = _is_rate_limit_exception(exc, reason=reason, status_code=status_code)
             if attempt >= attempts:
                 _log(logger, f'EDSM fetch failed system={label} endpoint={endpoint} attempt={attempt}/{attempts}: {reason}')
-                raise EdsmFetchError(
+                error_cls = EdsmRateLimitError if rate_limited else EdsmFetchError
+                raise error_cls(
                     f'EDSM {endpoint} fetch failed for {system_name!r} after {attempts} attempt(s): {reason}',
                     system_name=system_name,
                     system_id64=system_id64,
                     endpoint=endpoint,
                     attempts=attempts,
                     reason=reason,
+                    status_code=status_code,
+                    retry_after_seconds=retry_after_seconds,
+                    retry_after_header=retry_after_header,
                 ) from exc
-            delay = _retry_delay_seconds(retry_backoff_seconds, attempt)
-            _log(
-                logger,
-                f'EDSM fetch retry system={label} endpoint={endpoint} '
-                f'next_attempt={attempt + 1}/{attempts} reason={reason} backoff_seconds={delay:g}',
-            )
+            if rate_limited:
+                delay = _rate_limit_delay_seconds(
+                    retry_after_seconds=retry_after_seconds,
+                    backoff_seconds=rate_limit_backoff_seconds,
+                    multiplier=rate_limit_backoff_multiplier,
+                    failed_attempt=attempt,
+                )
+                retry_after_text = (
+                    f' retry_after={retry_after_header!r}'
+                    if retry_after_header is not None
+                    else ''
+                )
+                _log(
+                    logger,
+                    f'EDSM rate limit retry system={label} endpoint={endpoint} '
+                    f'next_attempt={attempt + 1}/{attempts} reason={reason}{retry_after_text} '
+                    f'backoff_seconds={delay:g}',
+                )
+            else:
+                delay = _retry_delay_seconds(retry_backoff_seconds, attempt)
+                _log(
+                    logger,
+                    f'EDSM fetch retry system={label} endpoint={endpoint} '
+                    f'next_attempt={attempt + 1}/{attempts} reason={reason} backoff_seconds={delay:g}',
+                )
             if delay > 0:
                 sleep(delay)
 
@@ -328,7 +415,111 @@ def _retry_delay_seconds(backoff_seconds: float, failed_attempt: int) -> float:
     return base_delay * (2 ** max(0, failed_attempt - 1))
 
 
+def _rate_limit_delay_seconds(
+    *,
+    retry_after_seconds: float | None,
+    backoff_seconds: float,
+    multiplier: float,
+    failed_attempt: int,
+) -> float:
+    if retry_after_seconds is not None:
+        return max(0.0, retry_after_seconds)
+    base_delay = max(0.0, float(backoff_seconds or 0.0))
+    factor = max(1.0, float(multiplier or 1.0))
+    return base_delay * (factor ** max(0, failed_attempt - 1))
+
+
+def _retry_after_header(exc_or_response: Any) -> str | None:
+    headers = getattr(exc_or_response, 'headers', None) or getattr(exc_or_response, 'hdrs', None)
+    if headers is None:
+        return None
+    for name in ('Retry-After', 'retry-after'):
+        try:
+            value = headers.get(name)
+        except AttributeError:
+            value = headers.get(name) if isinstance(headers, Mapping) else None
+        if value is not None:
+            text = str(value).strip()
+            return text or None
+    return None
+
+
+def _retry_after_seconds(header: str | None, *, now: datetime | None = None) -> float | None:
+    if header is None:
+        return None
+    text = header.strip()
+    if not text:
+        return None
+    try:
+        return max(0.0, float(text))
+    except ValueError:
+        pass
+    try:
+        retry_at = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    return max(0.0, (retry_at - current).total_seconds())
+
+
+def _http_response_headers(response: Any) -> Any:
+    headers = getattr(response, 'headers', None) or getattr(response, 'hdrs', None)
+    if headers is not None:
+        return headers
+    info = getattr(response, 'info', None)
+    if callable(info):
+        try:
+            return info()
+        except Exception:
+            return None
+    return None
+
+
+def _http_response_reason(response: Any, status_code: int) -> str:
+    reason = getattr(response, 'reason', None) or getattr(response, 'msg', None)
+    if reason:
+        return str(reason)
+    if status_code == 429:
+        return 'Too Many Requests'
+    return 'HTTP error'
+
+
+def _http_status_code(exc_or_response: Any) -> int | None:
+    for attr in ('code', 'status'):
+        value = getattr(exc_or_response, attr, None)
+        parsed = _read_int(value)
+        if parsed is not None:
+            return parsed
+    getcode = getattr(exc_or_response, 'getcode', None)
+    if callable(getcode):
+        try:
+            return _read_int(getcode())
+        except Exception:
+            return None
+    return None
+
+
+def _is_rate_limit_exception(
+    exc: BaseException,
+    *,
+    reason: str | None = None,
+    status_code: int | None = None,
+) -> bool:
+    status = status_code if status_code is not None else _http_status_code(exc)
+    if status == 429:
+        return True
+    text = reason if reason is not None else _exception_reason(exc)
+    return 'too many requests' in text.lower()
+
+
 def _exception_reason(exc: BaseException) -> str:
+    status_code = _http_status_code(exc)
+    if status_code is not None:
+        message = getattr(exc, 'reason', None) or getattr(exc, 'msg', None) or str(exc).strip()
+        message_text = str(message).strip()
+        return f'HTTP {status_code} {message_text}'.strip()
     reason = getattr(exc, 'reason', None)
     if reason is not None:
         return str(reason)
@@ -2084,6 +2275,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.edsm_retry_backoff_seconds < 0:
         print('--edsm-retry-backoff-seconds must be zero or greater.', file=sys.stderr)
         return 2
+    if args.edsm_request_delay_seconds < 0:
+        print('--edsm-request-delay-seconds must be zero or greater.', file=sys.stderr)
+        return 2
+    if args.edsm_429_backoff_seconds < 0:
+        print('--edsm-429-backoff-seconds must be zero or greater.', file=sys.stderr)
+        return 2
+    if args.edsm_429_backoff_multiplier < 1:
+        print('--edsm-429-backoff-multiplier must be at least 1.', file=sys.stderr)
+        return 2
     if not args.dsn:
         print('DATABASE_URL or --dsn is required.', file=sys.stderr)
         return 2
@@ -2109,6 +2309,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 timeout=args.timeout,
                 retries=args.edsm_retries,
                 retry_backoff_seconds=args.edsm_retry_backoff_seconds,
+                request_delay_seconds=args.edsm_request_delay_seconds,
+                rate_limit_backoff_seconds=args.edsm_429_backoff_seconds,
+                rate_limit_backoff_multiplier=args.edsm_429_backoff_multiplier,
                 logger=_stderr_log,
                 system_id64=_read_int(local['system'].get('id64')),
             )

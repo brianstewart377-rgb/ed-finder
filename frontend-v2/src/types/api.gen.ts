@@ -1510,7 +1510,7 @@ export interface components {
             /** Is Ringed */
             is_ringed?: boolean | null;
             /** Ring State */
-            ring_state?: "ringed" | "not_ringed" | "unknown" | null;
+            ring_state?: ("ringed" | "not_ringed" | "unknown") | null;
             /** Rings */
             rings?: components["schemas"]["BodyRingModel"][] | null;
             /** Ring Count */
@@ -3321,12 +3321,30 @@ export interface components {
             station_type?: string | null;
             /** Distance From Star */
             distance_from_star?: number | null;
+            /** Distance Source */
+            distance_source?: string | null;
+            /** Distance Confidence */
+            distance_confidence?: string | null;
+            /** Distance Updated At */
+            distance_updated_at?: unknown | null;
+            /** Station Type Source */
+            station_type_source?: string | null;
+            /** Station Type Confidence */
+            station_type_confidence?: string | null;
+            /** Station Type Updated At */
+            station_type_updated_at?: unknown | null;
             /** Body Id */
             body_id?: number | null;
             /** Body Name */
             body_name?: string | null;
             /** Station Body Name */
             station_body_name?: string | null;
+            /** Body Name Source */
+            body_name_source?: string | null;
+            /** Body Name Confidence */
+            body_name_confidence?: string | null;
+            /** Body Name Updated At */
+            body_name_updated_at?: unknown | null;
             /** Lane */
             lane?: string | null;
             /** Association Status */

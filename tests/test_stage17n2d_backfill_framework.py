@@ -808,6 +808,54 @@ def test_station_fetch_timeout_exhaustion_reports_failure_without_writes(monkeyp
     assert apply_calls == []
 
 
+def test_station_fetch_rate_limit_reports_separate_error_without_writes(monkeypatch):
+    args = enrich.parse_args([
+        '--stations',
+        '--system-id64', str(SYSTEM['id64']),
+        '--apply-confirmed-links',
+        '--mark-dirty',
+    ])
+    apply_calls = []
+
+    def fail_fetch(system_name, **_kwargs):
+        raise edsm_probe.EdsmRateLimitError(
+            'EDSM bodies fetch failed for Exioce after 3 attempt(s): HTTP 429 Too Many Requests',
+            system_name=system_name,
+            system_id64=SYSTEM['id64'],
+            endpoint='bodies',
+            attempts=3,
+            reason='HTTP 429 Too Many Requests',
+            status_code=429,
+            retry_after_seconds=60.0,
+            retry_after_header='60',
+        )
+
+    monkeypatch.setattr(edsm_probe, 'fetch_local_payload', lambda *_args, **_kwargs: station_local_payload(SYSTEM))
+    monkeypatch.setattr(
+        edsm_probe,
+        'apply_confirmed_link_updates',
+        lambda *_args, **_kwargs: apply_calls.append(True) or ([], []),
+    )
+
+    report = enrich.process_station_system(
+        MinimalBatchConnection(),
+        SYSTEM,
+        args=args,
+        dry_run=False,
+        edsm_fetcher=fail_fetch,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report['fetch_failed'] is True
+    assert report['counts']['fetch_errors'] == 1
+    assert report['counts']['rate_limit_errors'] == 1
+    assert report['rate_limit_errors'][0]['status_code'] == 429
+    assert report['rate_limit_errors'][0]['retry_after_seconds'] == 60.0
+    assert report['fetch_errors'][0]['rate_limited'] is True
+    assert report['confirmed_link_updates_applied'] == []
+    assert apply_calls == []
+
+
 def test_apply_confirmed_links_skips_failed_system_and_applies_valid_systems(monkeypatch):
     systems = [
         {'id64': 1, 'name': 'Timeout System'},
@@ -894,6 +942,39 @@ def test_json_report_includes_fetch_error_summary():
     assert '"fetch_errors"' in payload
     assert report['summary']['fetch_errors'] == 1
     assert report['summary']['systems_fetch_failed'] == 1
+
+
+def test_json_report_includes_rate_limit_error_summary():
+    report = enrich._new_report(
+        enrich.parse_args(['--stations', '--system-id64', str(SYSTEM['id64'])]),
+        dry_run=True,
+    )
+    rate_limit_error = {
+        'system': SYSTEM,
+        'system_id64': SYSTEM['id64'],
+        'system_name': SYSTEM['name'],
+        'reason': 'edsm_fetch_failed',
+        'message': 'HTTP 429 Too Many Requests',
+        'status_code': 429,
+        'rate_limited': True,
+        'retry_after_seconds': 60.0,
+    }
+    enrich._merge_station_report(report, {
+        'system': SYSTEM,
+        'counts': {'fetch_errors': 1, 'systems_fetch_failed': 1, 'rate_limit_errors': 1},
+        'fetch_errors': [rate_limit_error],
+        'rate_limit_errors': [rate_limit_error],
+        'systems_fetch_failed': [SYSTEM],
+        'fetch_failed': True,
+        'dirty_system_ids': [],
+    })
+    enrich._finalise_report(report)
+
+    payload = enrich.json.dumps(report, default=enrich._json_default)
+
+    assert '"rate_limit_errors"' in payload
+    assert report['summary']['rate_limit_errors'] == 1
+    assert report['summary']['stations']['rate_limit_errors'] == 1
 
 
 def test_spansh_ring_payload_plans_trusted_body_ring_rows():
@@ -1055,6 +1136,41 @@ def test_run_mark_dirty_path_is_called_for_applied_rings(monkeypatch):
     assert marked == [2008132031194]
     assert report['dirty']['marked'] == 1
     assert conn.committed is True
+
+
+def test_edsm_ring_rate_limit_does_not_abort_batch(monkeypatch):
+    systems = [
+        {'id64': 1, 'name': 'Limited System'},
+        {'id64': 2, 'name': 'Valid System'},
+    ]
+    conn = MinimalBatchConnection()
+
+    def fetcher(system_name, **_kwargs):
+        if system_name == 'Limited System':
+            raise edsm_probe.EdsmRateLimitError(
+                'EDSM bodies fetch failed for Limited System after 1 attempt(s): HTTP 429 Too Many Requests',
+                system_name=system_name,
+                system_id64=1,
+                endpoint='bodies',
+                attempts=1,
+                reason='HTTP 429 Too Many Requests',
+                status_code=429,
+            )
+        return {
+            'bodies': {'bodies': [{'name': 'Exioce 1', 'rings': [{'name': 'Exioce 1 A Ring'}]}]},
+        }
+
+    monkeypatch.setattr(enrich, 'select_ring_systems', lambda _conn, _args: systems)
+    monkeypatch.setattr(enrich, 'fetch_local_bodies', lambda _conn, _system_id64: BODIES)
+
+    args = enrich.parse_args(['--rings', '--source', 'edsm', '--limit', '2'])
+    report = enrich.run(args, connect=lambda _dsn: conn, edsm_fetcher=fetcher, sleep=lambda _seconds: None)
+
+    assert report['rings']['systems_fetch_failed'] == [{'id64': 1, 'name': 'Limited System'}]
+    assert report['rings']['rate_limit_errors'][0]['status_code'] == 429
+    assert report['summary']['rings']['rate_limit_errors'] == 1
+    assert report['summary']['rings']['planned'] == 1
+    assert conn.rolled_back is True
 
 
 def test_json_summary_includes_station_and_ring_counts():
