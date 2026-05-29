@@ -1,6 +1,7 @@
 import json
 import sys
 from pathlib import Path
+from urllib.error import HTTPError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +99,7 @@ def test_edsm_fetch_timeout_retries_and_succeeds(monkeypatch):
         timeout=7,
         retries=1,
         retry_backoff_seconds=0.5,
+        request_delay_seconds=0,
         sleep=sleeps.append,
         logger=logs.append,
         system_id64=2008132031194,
@@ -143,6 +145,81 @@ def test_edsm_fetch_timeout_exhausts_retries(monkeypatch):
     assert error.attempts == 3
     assert 'timed out' in error.reason
     assert any('attempt=3/3' in line for line in logs)
+
+
+def test_edsm_fetch_429_honours_retry_after(monkeypatch):
+    calls = []
+    sleeps = []
+    logs = []
+    body_attempts = 0
+
+    def fake_urlopen(request, timeout):
+        nonlocal body_attempts
+        calls.append((request.full_url, timeout))
+        if '/stations?' in request.full_url:
+            return FakeHttpResponse({'stations': [{'name': 'Harper Plant'}]})
+        body_attempts += 1
+        if body_attempts == 1:
+            raise HTTPError(
+                request.full_url,
+                429,
+                'Too Many Requests',
+                {'Retry-After': '2.5'},
+                None,
+            )
+        return FakeHttpResponse({'bodies': [{'name': 'Exioce 1'}]})
+
+    monkeypatch.setattr(probe, 'urlopen', fake_urlopen)
+
+    payload = probe.fetch_edsm_system(
+        'Exioce',
+        timeout=7,
+        retries=1,
+        retry_backoff_seconds=0.5,
+        request_delay_seconds=0,
+        rate_limit_backoff_seconds=60,
+        sleep=sleeps.append,
+        logger=logs.append,
+        system_id64=2008132031194,
+    )
+
+    assert len(calls) == 3
+    assert sleeps == [2.5]
+    assert payload['bodies']['bodies'][0]['name'] == 'Exioce 1'
+    assert any('EDSM rate limit retry' in line and "retry_after='2.5'" in line for line in logs)
+
+
+def test_edsm_fetch_429_uses_configured_backoff_without_retry_after(monkeypatch):
+    calls = []
+    sleeps = []
+    body_attempts = 0
+
+    def fake_urlopen(request, timeout):
+        nonlocal body_attempts
+        calls.append(request.full_url)
+        if '/stations?' in request.full_url:
+            return FakeHttpResponse({'stations': [{'name': 'Harper Plant'}]})
+        body_attempts += 1
+        if body_attempts < 3:
+            raise HTTPError(request.full_url, 429, 'Too Many Requests', {}, None)
+        return FakeHttpResponse({'bodies': [{'name': 'Exioce 1'}]})
+
+    monkeypatch.setattr(probe, 'urlopen', fake_urlopen)
+
+    payload = probe.fetch_edsm_system(
+        'Exioce',
+        timeout=7,
+        retries=2,
+        request_delay_seconds=0,
+        rate_limit_backoff_seconds=4,
+        rate_limit_backoff_multiplier=3,
+        sleep=sleeps.append,
+        system_id64=2008132031194,
+    )
+
+    assert len(calls) == 4
+    assert sleeps == [4, 12]
+    assert payload['bodies']['bodies'][0]['name'] == 'Exioce 1'
 
 
 class FakeApplyConnection:

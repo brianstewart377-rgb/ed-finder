@@ -28,7 +28,7 @@ from dirty_flags import mark_systems_rating_dirty
 from ring_facts import normalise_ring_payload, ring_rows_for_body
 
 
-DEFAULT_EDSM_RATE_LIMIT_SECONDS = 0.25
+DEFAULT_EDSM_RATE_LIMIT_SECONDS = edsm_probe.DEFAULT_HTTP_REQUEST_DELAY_SECONDS
 DEFAULT_SPANSH_SOURCE = 'spansh_dump'
 INT32_MIN = -2147483648
 INT32_MAX = 2147483647
@@ -65,7 +65,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=edsm_probe.DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
         help='Initial EDSM retry backoff in seconds; later retries use exponential backoff.',
     )
-    parser.add_argument('--rate-limit-seconds', type=float, default=DEFAULT_EDSM_RATE_LIMIT_SECONDS, help='Delay between EDSM systems.')
+    parser.add_argument(
+        '--edsm-429-backoff-seconds',
+        type=float,
+        default=edsm_probe.DEFAULT_HTTP_429_BACKOFF_SECONDS,
+        help='Initial EDSM 429 retry backoff in seconds when Retry-After is absent.',
+    )
+    parser.add_argument(
+        '--edsm-429-backoff-multiplier',
+        type=float,
+        default=edsm_probe.DEFAULT_HTTP_429_BACKOFF_MULTIPLIER,
+        help='Multiplier for repeated EDSM 429 retry backoff when Retry-After is absent.',
+    )
+    parser.add_argument(
+        '--rate-limit-seconds',
+        '--edsm-request-delay-seconds',
+        type=float,
+        default=DEFAULT_EDSM_RATE_LIMIT_SECONDS,
+        help='Delay between EDSM systems and between station/body endpoint requests.',
+    )
     return parser.parse_args(argv)
 
 
@@ -103,6 +121,12 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         errors.append('--edsm-retries must be zero or greater.')
     if args.edsm_retry_backoff_seconds < 0:
         errors.append('--edsm-retry-backoff-seconds must be zero or greater.')
+    if args.edsm_429_backoff_seconds < 0:
+        errors.append('--edsm-429-backoff-seconds must be zero or greater.')
+    if args.edsm_429_backoff_multiplier < 1:
+        errors.append('--edsm-429-backoff-multiplier must be at least 1.')
+    if args.rate_limit_seconds < 0:
+        errors.append('--rate-limit-seconds must be zero or greater.')
     if not args.dsn:
         errors.append('DATABASE_URL or --dsn is required.')
     return errors
@@ -166,13 +190,26 @@ def run(
                 ring_systems = select_ring_systems(conn, args)
                 for index, system in enumerate(_skip_checkpointed(ring_systems, checkpoint)):
                     local_bodies = fetch_local_bodies(conn, system['id64'])
-                    edsm_payload = _call_edsm_fetcher(
-                        edsm_fetcher,
-                        system['name'],
-                        args=args,
-                        sleep=sleep,
-                        system_id64=_read_int(system.get('id64')),
-                    )
+                    try:
+                        edsm_payload = _call_edsm_fetcher(
+                            edsm_fetcher,
+                            system['name'],
+                            args=args,
+                            sleep=sleep,
+                            system_id64=_read_int(system.get('id64')),
+                        )
+                    except Exception as exc:
+                        if not edsm_probe.is_edsm_fetch_error(exc):
+                            raise
+                        fetch_error = _station_fetch_error_entry(system, exc)
+                        _log_stderr(
+                            f"Skipping EDSM ring enrichment system={system.get('name')!r} "
+                            f"id64={_read_int(system.get('id64'))} reason={fetch_error['message']}"
+                        )
+                        _merge_ring_report(report, _ring_fetch_failed_report(fetch_error))
+                        if index + 1 < len(ring_systems) and args.rate_limit_seconds > 0:
+                            sleep(args.rate_limit_seconds)
+                        continue
                     ring_report = process_ring_system_payload(
                         conn,
                         edsm_payload.get('bodies') or {},
@@ -210,7 +247,8 @@ def run(
         _log_stderr(
             'EDSM station enrichment fetch_failed='
             f"{len(report['stations']['systems_fetch_failed'])} "
-            f"fetch_errors={len(report['stations']['fetch_errors'])}"
+            f"fetch_errors={len(report['stations']['fetch_errors'])} "
+            f"rate_limit_errors={len(report['stations']['rate_limit_errors'])}"
         )
     return report
 
@@ -297,7 +335,11 @@ def process_station_system(
         )
         return {
             'system': fetch_error['system'],
-            'counts': {'fetch_errors': 1, 'systems_fetch_failed': 1},
+            'counts': {
+                'fetch_errors': 1,
+                'systems_fetch_failed': 1,
+                **({'rate_limit_errors': 1} if fetch_error.get('rate_limited') else {}),
+            },
             'metadata_updates_planned': [],
             'metadata_updates_applied': [],
             'confirmed_link_updates_planned': [],
@@ -307,6 +349,7 @@ def process_station_system(
             'ignored_transient_non_slot': [],
             'unresolved': [],
             'fetch_errors': [fetch_error],
+            'rate_limit_errors': [fetch_error] if fetch_error.get('rate_limited') else [],
             'systems_fetch_failed': [fetch_error['system']],
             'fetch_failed': True,
             'dirty_system_ids': [],
@@ -344,6 +387,7 @@ def process_station_system(
         'ignored_transient_non_slot': report.get('ignored_transient_non_slot', []),
         'unresolved': report.get('unresolved', []),
         'fetch_errors': [],
+        'rate_limit_errors': [],
         'systems_fetch_failed': [],
         'fetch_failed': False,
         'dirty_system_ids': sorted(dirty_ids),
@@ -734,6 +778,17 @@ def _call_edsm_fetcher(
             'edsm_retry_backoff_seconds',
             edsm_probe.DEFAULT_HTTP_RETRY_BACKOFF_SECONDS,
         ),
+        'request_delay_seconds': getattr(args, 'rate_limit_seconds', edsm_probe.DEFAULT_HTTP_REQUEST_DELAY_SECONDS),
+        'rate_limit_backoff_seconds': getattr(
+            args,
+            'edsm_429_backoff_seconds',
+            edsm_probe.DEFAULT_HTTP_429_BACKOFF_SECONDS,
+        ),
+        'rate_limit_backoff_multiplier': getattr(
+            args,
+            'edsm_429_backoff_multiplier',
+            edsm_probe.DEFAULT_HTTP_429_BACKOFF_MULTIPLIER,
+        ),
         'sleep': sleep,
         'logger': _log_stderr,
         'system_id64': system_id64,
@@ -759,6 +814,14 @@ def _station_fetch_error_entry(system: Mapping[str, Any], exc: BaseException) ->
     system_id64 = _read_int(system.get('id64'))
     system_name = _clean_text(system.get('name'))
     cause = exc.__cause__ or exc
+    status_code = _read_int(getattr(exc, 'status_code', None)) or _read_int(getattr(cause, 'code', None))
+    rate_limited = bool(getattr(exc, 'rate_limited', False)) or status_code == 429
+    retry_after_header = getattr(exc, 'retry_after_header', None)
+    if retry_after_header is None:
+        retry_after_header = edsm_probe._retry_after_header(cause)
+    retry_after_seconds = getattr(exc, 'retry_after_seconds', None)
+    if retry_after_seconds is None:
+        retry_after_seconds = edsm_probe._retry_after_seconds(retry_after_header)
     return {
         'system': {'id64': system_id64, 'name': system_name},
         'system_id64': system_id64,
@@ -768,6 +831,32 @@ def _station_fetch_error_entry(system: Mapping[str, Any], exc: BaseException) ->
         'message': str(exc),
         'endpoint': getattr(exc, 'endpoint', None),
         'attempts': getattr(exc, 'attempts', None),
+        'status_code': status_code,
+        'rate_limited': rate_limited,
+        'retry_after_seconds': retry_after_seconds,
+        'retry_after_header': retry_after_header,
+    }
+
+
+def _ring_fetch_failed_report(fetch_error: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        'system': None,
+        'rows': [],
+        'applied': [],
+        'scan_fact_applied': [],
+        'scan_fact_skipped': [],
+        'skipped': [],
+        'apply_skipped': [],
+        'conflicts': [],
+        'fetch_errors': [dict(fetch_error)],
+        'rate_limit_errors': [dict(fetch_error)] if fetch_error.get('rate_limited') else [],
+        'systems_fetch_failed': [fetch_error['system']],
+        'counts': {
+            'fetch_errors': 1,
+            'systems_fetch_failed': 1,
+            **({'rate_limit_errors': 1} if fetch_error.get('rate_limited') else {}),
+        },
+        'dirty_system_ids': [],
     }
 
 
@@ -871,6 +960,7 @@ def _new_report(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
             'ignored_transient_non_slot': [],
             'unresolved': [],
             'fetch_errors': [],
+            'rate_limit_errors': [],
             'systems_fetch_failed': [],
             'counts': {},
         },
@@ -883,6 +973,9 @@ def _new_report(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
             'skipped': [],
             'apply_skipped': [],
             'conflicts': [],
+            'fetch_errors': [],
+            'rate_limit_errors': [],
+            'systems_fetch_failed': [],
             'counts': {},
         },
         'dirty': {
@@ -908,6 +1001,7 @@ def _merge_station_report(report: dict[str, Any], station_report: Mapping[str, A
         'ignored_transient_non_slot',
         'unresolved',
         'fetch_errors',
+        'rate_limit_errors',
         'systems_fetch_failed',
     ):
         section[key].extend(station_report.get(key, []))
@@ -922,7 +1016,17 @@ def _merge_ring_report(report: dict[str, Any], ring_report: Mapping[str, Any]) -
         section['systems'].append(ring_report['system'])
     section['systems'].extend(ring_report.get('systems', []))
     section['rows_planned'].extend(ring_report.get('rows', []))
-    for key in ('applied', 'scan_fact_applied', 'scan_fact_skipped', 'skipped', 'apply_skipped', 'conflicts'):
+    for key in (
+        'applied',
+        'scan_fact_applied',
+        'scan_fact_skipped',
+        'skipped',
+        'apply_skipped',
+        'conflicts',
+        'fetch_errors',
+        'rate_limit_errors',
+        'systems_fetch_failed',
+    ):
         section[key].extend(ring_report.get(key, []))
     for key, value in ring_report.get('counts', {}).items():
         section['counts'][key] = section['counts'].get(key, 0) + int(value)
@@ -935,7 +1039,11 @@ def _finalise_report(report: dict[str, Any]) -> None:
     station_conflicts = len(report['stations']['conflicts'])
     ring_conflicts = len(report['rings']['conflicts'])
     station_fetch_errors = len(report['stations']['fetch_errors'])
+    station_rate_limit_errors = len(report['stations']['rate_limit_errors'])
     station_systems_fetch_failed = len(report['stations']['systems_fetch_failed'])
+    ring_fetch_errors = len(report['rings']['fetch_errors'])
+    ring_rate_limit_errors = len(report['rings']['rate_limit_errors'])
+    ring_systems_fetch_failed = len(report['rings']['systems_fetch_failed'])
     report['summary'] = {
         'systems_processed': len({
             *[system.get('id64') for system in report['stations']['systems']],
@@ -953,6 +1061,7 @@ def _finalise_report(report: dict[str, Any]) -> None:
             'skipped': len(report['stations']['skipped']),
             'conflicts': station_conflicts,
             'fetch_errors': station_fetch_errors,
+            'rate_limit_errors': station_rate_limit_errors,
             'systems_fetch_failed': station_systems_fetch_failed,
         },
         'rings': {
@@ -962,12 +1071,16 @@ def _finalise_report(report: dict[str, Any]) -> None:
             'scan_fact_skipped': len(report['rings']['scan_fact_skipped']),
             'skipped': len(report['rings']['skipped']) + len(report['rings']['apply_skipped']),
             'conflicts': ring_conflicts,
+            'fetch_errors': ring_fetch_errors,
+            'rate_limit_errors': ring_rate_limit_errors,
+            'systems_fetch_failed': ring_systems_fetch_failed,
         },
         'dirty_systems_planned': len(dirty_ids),
         'dirty_systems_marked': report['dirty']['marked'],
         'conflicts': station_conflicts + ring_conflicts,
-        'fetch_errors': station_fetch_errors,
-        'systems_fetch_failed': station_systems_fetch_failed,
+        'fetch_errors': station_fetch_errors + ring_fetch_errors,
+        'rate_limit_errors': station_rate_limit_errors + ring_rate_limit_errors,
+        'systems_fetch_failed': station_systems_fetch_failed + ring_systems_fetch_failed,
     }
 
 
