@@ -50,6 +50,12 @@ class FakeCursor:
                 for column_name in columns
             ]
             return
+        if 'order by sf.source_file_key nulls first' in sql_lower:
+            self._fetchall_rows = list(self.conn.staged_source_rows)
+            return
+        if 'count(distinct sr.id)' in sql_lower:
+            self._fetchone_row = dict(self.conn.staged_counts)
+            return
 
         self.conn.next_id += 1
         self._last_id = self.conn.next_id
@@ -72,12 +78,24 @@ class FakeConn:
         *,
         schema_columns: dict[str, tuple[str, ...]] | None = None,
         fail_on: str | None = None,
+        staged_source_rows: list[dict[str, object]] | None = None,
+        staged_counts: dict[str, object] | None = None,
     ) -> None:
         self.schema_columns = schema_columns if schema_columns is not None else {
             table: tuple(columns)
             for table, columns in db_loader.REQUIRED_SCHEMA_COLUMNS.items()
         }
         self.fail_on = fail_on
+        self.staged_source_rows = staged_source_rows or []
+        self.staged_counts = staged_counts or {
+            'source_runs': 0,
+            'source_files': 0,
+            'raw_records': 0,
+            'staged_body_rows': 0,
+            'staged_ring_rows': 0,
+            'warning_records': 0,
+            'error_records': 0,
+        }
         self.statements: list[tuple[str, tuple[object, ...]]] = []
         self.cursors: list[FakeCursor] = []
         self.next_id = 1000
@@ -456,6 +474,60 @@ def test_body_ring_cli_write_requires_staging_confirmation_and_can_write(monkeyp
     assert payload['summary']['staging_ring_rows_written'] == 1
     assert conn.commits == 1
     assert conn.rollbacks == 0
+    assert_only_body_ring_staging_sql(conn.statements)
+
+
+def test_body_ring_staged_rows_summary_report_reads_body_ring_warehouse_tables():
+    source_rows = [
+        {
+            'source_run_id': 10,
+            'source_run_key': 'run-key',
+            'source': 'edsm_nightly_bodies',
+            'adapter_name': 'enrichment_snapshot_loader',
+            'adapter_version': 'v1',
+            'source_class': 'semi-stable',
+            'dry_run': False,
+            'source_file_id': 20,
+            'source_file_key': 'file-key',
+            'source_path': '/tmp/edsm-bodies.json',
+            'source_file_name': 'edsm-bodies.json',
+            'file_sha256': 'abc123',
+            'file_size_bytes': 42,
+            'compression': None,
+        }
+    ]
+    counts = {
+        'source_runs': 1,
+        'source_files': 1,
+        'raw_records': 2,
+        'staged_body_rows': 2,
+        'staged_ring_rows': 1,
+        'warning_records': 0,
+        'error_records': 0,
+    }
+    conn = FakeConn(staged_source_rows=source_rows, staged_counts=counts)
+
+    report = db_loader.build_staged_rows_summary_report(
+        conn,
+        source_run_key='run-key',
+        source_file_key='file-key',
+    )
+
+    assert report['schema_version'] == 'enrichment_staged_rows_summary/v1'
+    assert report['source_run']['source'] == 'edsm_nightly_bodies'
+    assert report['summary']['source_runs'] == 1
+    assert report['summary']['source_files'] == 1
+    assert report['summary']['raw_records'] == 2
+    assert report['summary']['staged_station_rows'] == 0
+    assert report['summary']['staged_body_rows'] == 2
+    assert report['summary']['staged_ring_rows'] == 1
+    assert report['summary']['target_tables'] == list(db_loader.BODY_RING_TARGET_TABLES)
+    assert len(conn.statements) == 2
+    assert all(sql.lstrip().upper().startswith('SELECT') for sql, _params in conn.statements)
+    sql_text = '\n'.join(sql for sql, _params in conn.statements)
+    assert 'staging_edsm_bodies' in sql_text
+    assert 'staging_body_rings' in sql_text
+    assert 'staging_edsm_stations' not in sql_text
     assert_only_body_ring_staging_sql(conn.statements)
 
 

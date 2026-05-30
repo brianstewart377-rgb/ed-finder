@@ -218,6 +218,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     conn,
                     source_run_key=args.source_run_key,
                     source_file_key=args.source_file_key,
+                    source=args.source,
                 )
             print(json.dumps(report, sort_keys=True, indent=2))
             return 0
@@ -323,6 +324,7 @@ def build_staged_rows_summary_report(
     *,
     source_run_key: str,
     source_file_key: str | None = None,
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Read-only deterministic summary from already staged warehouse rows."""
     cur = conn.cursor()
@@ -355,34 +357,69 @@ def build_staged_rows_summary_report(
         )
         source_rows = _fetchall_dicts(cur)
 
-        cur.execute(
-            """
-            SELECT
-                COUNT(DISTINCT sr.id)::integer AS source_runs,
-                COUNT(DISTINCT sf.id)::integer AS source_files,
-                COUNT(DISTINCT rr.id)::integer AS raw_records,
-                COUNT(DISTINCT st.id)::integer AS staged_station_rows,
-                COUNT(DISTINCT rr.id) FILTER (
-                    WHERE rr.validation_warnings IS NOT NULL
-                      AND rr.validation_warnings <> '[]'::jsonb
-                )::integer AS warning_records,
-                COUNT(DISTINCT rr.id) FILTER (
-                    WHERE rr.validation_status IN ('invalid', 'conflict')
-                )::integer AS error_records
-            FROM enrichment_source_runs sr
-            LEFT JOIN enrichment_source_files sf
-              ON sf.source_run_id = sr.id
-             AND (%s IS NULL OR sf.source_file_key = %s)
-            LEFT JOIN enrichment_raw_records rr
-              ON rr.source_run_id = sr.id
-             AND (sf.id IS NULL OR rr.source_file_id = sf.id)
-            LEFT JOIN staging_edsm_stations st
-              ON st.source_run_id = sr.id
-             AND (sf.id IS NULL OR st.source_file_id = sf.id)
-            WHERE sr.source_run_key = %s
-            """,
-            (source_file_key, source_file_key, source_run_key),
-        )
+        report_source = _report_source(source, source_rows)
+        if report_source == 'edsm_nightly_bodies':
+            cur.execute(
+                """
+                SELECT
+                    COUNT(DISTINCT sr.id)::integer AS source_runs,
+                    COUNT(DISTINCT sf.id)::integer AS source_files,
+                    COUNT(DISTINCT rr.id)::integer AS raw_records,
+                    COUNT(DISTINCT sb.id)::integer AS staged_body_rows,
+                    COUNT(DISTINCT br.id)::integer AS staged_ring_rows,
+                    COUNT(DISTINCT rr.id) FILTER (
+                        WHERE rr.validation_warnings IS NOT NULL
+                          AND rr.validation_warnings <> '[]'::jsonb
+                    )::integer AS warning_records,
+                    COUNT(DISTINCT rr.id) FILTER (
+                        WHERE rr.validation_status IN ('invalid', 'conflict')
+                    )::integer AS error_records
+                FROM enrichment_source_runs sr
+                LEFT JOIN enrichment_source_files sf
+                  ON sf.source_run_id = sr.id
+                 AND (%s IS NULL OR sf.source_file_key = %s)
+                LEFT JOIN enrichment_raw_records rr
+                  ON rr.source_run_id = sr.id
+                 AND (sf.id IS NULL OR rr.source_file_id = sf.id)
+                LEFT JOIN staging_edsm_bodies sb
+                  ON sb.source_run_id = sr.id
+                 AND (sf.id IS NULL OR sb.source_file_id = sf.id)
+                LEFT JOIN staging_body_rings br
+                  ON br.source_run_id = sr.id
+                 AND (sf.id IS NULL OR br.source_file_id = sf.id)
+                WHERE sr.source_run_key = %s
+                """,
+                (source_file_key, source_file_key, source_run_key),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(DISTINCT sr.id)::integer AS source_runs,
+                    COUNT(DISTINCT sf.id)::integer AS source_files,
+                    COUNT(DISTINCT rr.id)::integer AS raw_records,
+                    COUNT(DISTINCT st.id)::integer AS staged_station_rows,
+                    COUNT(DISTINCT rr.id) FILTER (
+                        WHERE rr.validation_warnings IS NOT NULL
+                          AND rr.validation_warnings <> '[]'::jsonb
+                    )::integer AS warning_records,
+                    COUNT(DISTINCT rr.id) FILTER (
+                        WHERE rr.validation_status IN ('invalid', 'conflict')
+                    )::integer AS error_records
+                FROM enrichment_source_runs sr
+                LEFT JOIN enrichment_source_files sf
+                  ON sf.source_run_id = sr.id
+                 AND (%s IS NULL OR sf.source_file_key = %s)
+                LEFT JOIN enrichment_raw_records rr
+                  ON rr.source_run_id = sr.id
+                 AND (sf.id IS NULL OR rr.source_file_id = sf.id)
+                LEFT JOIN staging_edsm_stations st
+                  ON st.source_run_id = sr.id
+                 AND (sf.id IS NULL OR st.source_file_id = sf.id)
+                WHERE sr.source_run_key = %s
+                """,
+                (source_file_key, source_file_key, source_run_key),
+            )
         counts = _fetchone_dict(cur)
     finally:
         close = getattr(cur, 'close', None)
@@ -401,12 +438,14 @@ def build_staged_rows_summary_report(
             'source_files': int(counts.get('source_files') or 0),
             'raw_records': int(counts.get('raw_records') or 0),
             'staged_station_rows': int(counts.get('staged_station_rows') or 0),
+            'staged_body_rows': int(counts.get('staged_body_rows') or 0),
+            'staged_ring_rows': int(counts.get('staged_ring_rows') or 0),
             'warning_records': int(counts.get('warning_records') or 0),
             'error_records': int(counts.get('error_records') or 0),
-            'source': source_run.get('source'),
+            'source': report_source if report_source != 'unknown_source' else source_run.get('source'),
             'source_run_key': source_run_key,
             'source_file_key': source_file_key,
-            'target_tables': list(TARGET_TABLES),
+            'target_tables': list(target_tables_for_source(report_source)),
         },
     }
 
@@ -1096,6 +1135,14 @@ def _source_run_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         'source_class': row.get('source_class'),
         'dry_run': row.get('dry_run'),
     }
+
+
+def _report_source(source: str | None, rows: Sequence[Mapping[str, Any]]) -> str:
+    if source is not None:
+        return normalise_source_adapter(source)
+    if rows:
+        return normalise_source_adapter(rows[0].get('source'))
+    return normalise_source_adapter(None)
 
 
 def _source_file_summaries(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
