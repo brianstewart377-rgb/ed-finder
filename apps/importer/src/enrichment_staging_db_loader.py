@@ -39,6 +39,7 @@ TARGET_TABLES = STATION_TARGET_TABLES
 SUPPORTED_SOURCES = {'edsm_nightly_stations', 'edsm_nightly_bodies'}
 PREFLIGHT_SCHEMA_VERSION = 'enrichment_staging_schema_preflight/v1'
 STAGED_ROWS_REPORT_SCHEMA_VERSION = 'enrichment_staged_rows_summary/v1'
+RECONCILIATION_REPORT_SCHEMA_VERSION = 'enrichment_staging_reconciliation/v1'
 
 REQUIRED_SCHEMA_COLUMNS = {
     'enrichment_source_runs': (
@@ -167,8 +168,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action='store_true',
         help='Read-only mode: summarize already staged warehouse rows for --source-run-key.',
     )
-    parser.add_argument('--source-run-key', default=None, help='Source run key for --report-staged-run.')
-    parser.add_argument('--source-file-key', default=None, help='Optional source file key filter for --report-staged-run.')
+    parser.add_argument(
+        '--report-reconciliation',
+        action='store_true',
+        help='Read-only mode: compare staged evidence with canonical tables and emit candidate changes.',
+    )
+    parser.add_argument('--source-run-key', default=None, help='Optional source run key for read-only report modes.')
+    parser.add_argument('--source-file-key', default=None, help='Optional source file key filter for read-only report modes.')
     parser.add_argument('--apply', action='store_true', help='Unsupported. Canonical apply mode is not implemented.')
     parser.add_argument('--write', action='store_true', help='Unsupported. Use --write-staging for warehouse staging only.')
     parser.add_argument('--commit', action='store_true', help='Unsupported. Canonical apply mode is not implemented.')
@@ -186,15 +192,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error('--check-staging-schema requires --dsn')
     if args.report_staged_run and not args.dsn:
         parser.error('--report-staged-run requires --dsn')
+    if args.report_reconciliation and not args.dsn:
+        parser.error('--report-reconciliation requires --dsn')
     if args.report_staged_run and not args.source_run_key:
         parser.error('--report-staged-run requires --source-run-key')
-    if args.dsn and not (args.write_staging or args.check_staging_schema or args.report_staged_run):
-        parser.error('--dsn is ignored in dry-run mode; pass --write-staging, --check-staging-schema, or --report-staged-run')
-    if args.write_staging and (args.check_staging_schema or args.report_staged_run):
+    read_only_modes = [args.check_staging_schema, args.report_staged_run, args.report_reconciliation]
+    if args.dsn and not (args.write_staging or any(read_only_modes)):
+        parser.error(
+            '--dsn is ignored in dry-run mode; pass --write-staging, '
+            '--check-staging-schema, --report-staged-run, or --report-reconciliation'
+        )
+    if args.write_staging and any(read_only_modes):
         parser.error('--write-staging cannot be combined with read-only preflight/report modes')
-    if args.check_staging_schema and args.report_staged_run:
-        parser.error('--check-staging-schema cannot be combined with --report-staged-run')
-    if not (args.check_staging_schema or args.report_staged_run):
+    if sum(1 for enabled in read_only_modes if enabled) > 1:
+        parser.error('read-only report modes cannot be combined')
+    if not any(read_only_modes):
         if not args.source_file:
             parser.error('--source-file is required for snapshot load dry-run/write modes')
         if not args.source:
@@ -219,6 +231,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     source_run_key=args.source_run_key,
                     source_file_key=args.source_file_key,
                     source=args.source,
+                )
+            print(json.dumps(report, sort_keys=True, indent=2))
+            return 0
+        if args.report_reconciliation:
+            with connect_staging_db(args.dsn) as conn:
+                report = build_reconciliation_report(
+                    conn,
+                    source_run_key=args.source_run_key,
+                    source_file_key=args.source_file_key,
+                    source=args.source,
+                    limit=args.limit,
                 )
             print(json.dumps(report, sort_keys=True, indent=2))
             return 0
@@ -448,6 +471,680 @@ def build_staged_rows_summary_report(
             'target_tables': list(target_tables_for_source(report_source)),
         },
     }
+
+
+def build_reconciliation_report(
+    conn: Any,
+    *,
+    source_run_key: str | None = None,
+    source_file_key: str | None = None,
+    source: str | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Read-only comparison of staged warehouse evidence against canonical rows."""
+    if limit is not None and limit < 0:
+        raise ValueError('limit must be >= 0')
+    normalised_source = normalise_source_adapter(source) if source else None
+    if normalised_source is not None and normalised_source not in SUPPORTED_SOURCES:
+        raise ValueError(f'unsupported offline source {source!r}; supported sources: {sorted(SUPPORTED_SOURCES)}')
+
+    include_stations = normalised_source in (None, 'edsm_nightly_stations')
+    include_bodies = normalised_source in (None, 'edsm_nightly_bodies')
+
+    station_candidates = (
+        _station_reconciliation_candidates(
+            fetch_station_reconciliation_rows(
+                conn,
+                source_run_key=source_run_key,
+                source_file_key=source_file_key,
+                limit=limit,
+            )
+        )
+        if include_stations
+        else []
+    )
+    body_candidates = (
+        _body_reconciliation_candidates(
+            fetch_body_reconciliation_rows(
+                conn,
+                source_run_key=source_run_key,
+                source_file_key=source_file_key,
+                limit=limit,
+            )
+        )
+        if include_bodies
+        else []
+    )
+    ring_candidates = (
+        _ring_reconciliation_candidates(
+            fetch_ring_reconciliation_rows(
+                conn,
+                source_run_key=source_run_key,
+                source_file_key=source_file_key,
+                limit=limit,
+            )
+        )
+        if include_bodies
+        else []
+    )
+
+    station_candidates = _sort_candidate_rows(station_candidates)
+    body_candidates = _sort_candidate_rows(body_candidates)
+    ring_candidates = _sort_candidate_rows(ring_candidates)
+    warnings = _sort_candidate_rows(
+        warning
+        for candidate in station_candidates + body_candidates + ring_candidates
+        for warning in candidate.get('warnings', [])
+    )
+    all_candidates = station_candidates + body_candidates + ring_candidates
+    return {
+        'schema_version': RECONCILIATION_REPORT_SCHEMA_VERSION,
+        'dry_run': True,
+        'filters': {
+            'source_run_key': source_run_key,
+            'source_file_key': source_file_key,
+            'source': normalised_source,
+            'limit': limit,
+        },
+        'summary': {
+            'staged_station_rows_considered': len(station_candidates),
+            'staged_body_rows_considered': len(body_candidates),
+            'staged_ring_rows_considered': len(ring_candidates),
+            'canonical_matches_found': sum(1 for candidate in all_candidates if candidate.get('canonical')),
+            'canonical_misses': sum(
+                1 for candidate in all_candidates
+                if candidate.get('candidate_action') == 'candidate_insert_missing_canonical'
+            ),
+            'candidate_station_updates': sum(
+                1 for candidate in station_candidates
+                if candidate.get('candidate_action') == 'candidate_update'
+            ),
+            'candidate_body_updates': sum(
+                1 for candidate in body_candidates
+                if candidate.get('candidate_action') == 'candidate_update'
+            ),
+            'candidate_ring_updates': sum(
+                1 for candidate in ring_candidates
+                if candidate.get('candidate_action') == 'candidate_update'
+            ),
+            'ambiguous_matches': sum(
+                1 for candidate in all_candidates
+                if candidate.get('candidate_action') == 'ambiguous_match'
+            ),
+            'insufficient_evidence': sum(
+                1 for candidate in all_candidates
+                if candidate.get('candidate_action') == 'insufficient_evidence'
+            ),
+            'warnings': len(warnings),
+            'errors': 0,
+            'canonical_writes_planned': 0,
+        },
+        'station_candidates': station_candidates,
+        'body_candidates': body_candidates,
+        'ring_candidates': ring_candidates,
+        'warnings': warnings,
+        'errors': [],
+    }
+
+
+def fetch_station_reconciliation_rows(
+    conn: Any,
+    *,
+    source_run_key: str | None,
+    source_file_key: str | None,
+    limit: int | None,
+) -> list[dict[str, Any]]:
+    limit_clause = 'LIMIT %s' if limit is not None else ''
+    params: list[Any] = [
+        'edsm_nightly_stations',
+        source_run_key,
+        source_run_key,
+        source_file_key,
+        source_file_key,
+    ]
+    if limit is not None:
+        params.append(limit)
+    return _select_rows(
+        conn,
+        f"""
+        WITH staged AS (
+            SELECT
+                ss.id AS staging_station_id,
+                ss.source_record_key,
+                ss.source_record_hash,
+                ss.system_id64,
+                ss.system_name,
+                ss.market_id,
+                ss.edsm_station_id,
+                ss.station_name,
+                ss.station_type,
+                ss.distance_to_arrival,
+                ss.body_name,
+                ss.controlling_faction,
+                ss.allegiance,
+                ss.government,
+                sr.source_run_key,
+                sr.source,
+                sf.source_file_key
+            FROM staging_edsm_stations ss
+            JOIN enrichment_source_runs sr ON sr.id = ss.source_run_id
+            LEFT JOIN enrichment_source_files sf ON sf.id = ss.source_file_id
+            WHERE sr.source = %s
+              AND (%s IS NULL OR sr.source_run_key = %s)
+              AND (%s IS NULL OR sf.source_file_key = %s)
+            ORDER BY ss.system_id64 NULLS LAST, ss.system_name NULLS LAST, ss.station_name NULLS LAST, ss.id
+            {limit_clause}
+        )
+        SELECT
+            staged.*,
+            sys.id64 AS canonical_system_id64,
+            sys.name AS canonical_system_name,
+            st.id AS canonical_station_id,
+            st.name AS canonical_station_name,
+            st.station_type AS canonical_station_type,
+            st.distance_from_star AS canonical_distance_to_arrival,
+            st.body_name AS canonical_body_name,
+            st.controlling_faction AS canonical_controlling_faction,
+            st.allegiance AS canonical_allegiance,
+            st.government AS canonical_government,
+            COUNT(st.id) OVER (PARTITION BY staged.staging_station_id)::integer AS canonical_match_count
+        FROM staged
+        LEFT JOIN systems sys
+          ON (
+              staged.system_id64 IS NOT NULL
+              AND sys.id64 = staged.system_id64
+          )
+          OR (
+              staged.system_id64 IS NULL
+              AND staged.system_name IS NOT NULL
+              AND lower(sys.name) = lower(staged.system_name)
+          )
+        LEFT JOIN stations st
+          ON st.system_id64 = COALESCE(sys.id64, staged.system_id64)
+         AND (
+              (staged.market_id IS NOT NULL AND st.id = staged.market_id)
+              OR (staged.edsm_station_id IS NOT NULL AND st.id = staged.edsm_station_id)
+              OR (staged.station_name IS NOT NULL AND lower(st.name) = lower(staged.station_name))
+         )
+        ORDER BY staged.system_id64 NULLS LAST, staged.system_name NULLS LAST, staged.station_name NULLS LAST,
+                 staged.staging_station_id, st.id NULLS LAST
+        """,
+        params,
+    )
+
+
+def fetch_body_reconciliation_rows(
+    conn: Any,
+    *,
+    source_run_key: str | None,
+    source_file_key: str | None,
+    limit: int | None,
+) -> list[dict[str, Any]]:
+    limit_clause = 'LIMIT %s' if limit is not None else ''
+    params: list[Any] = [
+        'edsm_nightly_bodies',
+        source_run_key,
+        source_run_key,
+        source_file_key,
+        source_file_key,
+    ]
+    if limit is not None:
+        params.append(limit)
+    return _select_rows(
+        conn,
+        f"""
+        WITH staged AS (
+            SELECT
+                sb.id AS staging_body_id,
+                sb.source_record_key,
+                sb.source_record_hash,
+                sb.system_id64,
+                sb.system_name,
+                sb.source_body_id,
+                sb.body_name,
+                sb.body_type,
+                sb.subtype,
+                sb.distance_to_arrival,
+                sb.is_main_star,
+                sb.is_landable,
+                sb.is_terraformable,
+                sb.estimated_scan_value,
+                sb.estimated_mapping_value,
+                sr.source_run_key,
+                sr.source,
+                sf.source_file_key
+            FROM staging_edsm_bodies sb
+            JOIN enrichment_source_runs sr ON sr.id = sb.source_run_id
+            LEFT JOIN enrichment_source_files sf ON sf.id = sb.source_file_id
+            WHERE sr.source = %s
+              AND (%s IS NULL OR sr.source_run_key = %s)
+              AND (%s IS NULL OR sf.source_file_key = %s)
+            ORDER BY sb.system_id64 NULLS LAST, sb.system_name NULLS LAST,
+                     sb.source_body_id NULLS LAST, sb.body_name NULLS LAST, sb.id
+            {limit_clause}
+        )
+        SELECT
+            staged.*,
+            sys.id64 AS canonical_system_id64,
+            sys.name AS canonical_system_name,
+            b.id AS canonical_body_id,
+            b.name AS canonical_body_name,
+            b.body_type AS canonical_body_type,
+            b.subtype AS canonical_subtype,
+            b.distance_from_star AS canonical_distance_to_arrival,
+            b.is_main_star AS canonical_is_main_star,
+            b.is_landable AS canonical_is_landable,
+            b.is_terraformable AS canonical_is_terraformable,
+            b.estimated_scan_value AS canonical_estimated_scan_value,
+            b.estimated_mapping_value AS canonical_estimated_mapping_value,
+            COUNT(b.id) OVER (PARTITION BY staged.staging_body_id)::integer AS canonical_match_count
+        FROM staged
+        LEFT JOIN systems sys
+          ON (
+              staged.system_id64 IS NOT NULL
+              AND sys.id64 = staged.system_id64
+          )
+          OR (
+              staged.system_id64 IS NULL
+              AND staged.system_name IS NOT NULL
+              AND lower(sys.name) = lower(staged.system_name)
+          )
+        LEFT JOIN bodies b
+          ON b.system_id64 = COALESCE(sys.id64, staged.system_id64)
+         AND (
+              (staged.source_body_id IS NOT NULL AND b.id = staged.source_body_id)
+              OR (staged.body_name IS NOT NULL AND lower(b.name) = lower(staged.body_name))
+         )
+        ORDER BY staged.system_id64 NULLS LAST, staged.system_name NULLS LAST,
+                 staged.source_body_id NULLS LAST, staged.body_name NULLS LAST,
+                 staged.staging_body_id, b.id NULLS LAST
+        """,
+        params,
+    )
+
+
+def fetch_ring_reconciliation_rows(
+    conn: Any,
+    *,
+    source_run_key: str | None,
+    source_file_key: str | None,
+    limit: int | None,
+) -> list[dict[str, Any]]:
+    limit_clause = 'LIMIT %s' if limit is not None else ''
+    params: list[Any] = [
+        'edsm_nightly_bodies',
+        source_run_key,
+        source_run_key,
+        source_file_key,
+        source_file_key,
+    ]
+    if limit is not None:
+        params.append(limit)
+    return _select_rows(
+        conn,
+        f"""
+        WITH staged AS (
+            SELECT
+                br.id AS staging_ring_id,
+                br.source_record_key,
+                br.source_record_hash,
+                br.system_id64,
+                br.system_name,
+                br.source_body_id,
+                br.body_name,
+                br.ring_name,
+                br.ring_type,
+                br.ring_class,
+                br.mass_mt,
+                br.inner_radius,
+                br.outer_radius,
+                br.association_status,
+                sr.source_run_key,
+                sr.source,
+                sf.source_file_key
+            FROM staging_body_rings br
+            JOIN enrichment_source_runs sr ON sr.id = br.source_run_id
+            LEFT JOIN enrichment_source_files sf ON sf.id = br.source_file_id
+            WHERE sr.source = %s
+              AND (%s IS NULL OR sr.source_run_key = %s)
+              AND (%s IS NULL OR sf.source_file_key = %s)
+            ORDER BY br.system_id64 NULLS LAST, br.system_name NULLS LAST,
+                     br.source_body_id NULLS LAST, br.body_name NULLS LAST, br.ring_name NULLS LAST, br.id
+            {limit_clause}
+        )
+        SELECT
+            staged.*,
+            sys.id64 AS canonical_system_id64,
+            sys.name AS canonical_system_name,
+            b.id AS canonical_body_id,
+            b.name AS canonical_body_name,
+            canonical_ring.id AS canonical_ring_id,
+            canonical_ring.ring_name AS canonical_ring_name,
+            canonical_ring.ring_type AS canonical_ring_type,
+            canonical_ring.ring_class AS canonical_ring_class,
+            canonical_ring.mass_mt AS canonical_mass_mt,
+            canonical_ring.inner_radius AS canonical_inner_radius,
+            canonical_ring.outer_radius AS canonical_outer_radius,
+            canonical_ring.association_status AS canonical_association_status,
+            COUNT(canonical_ring.id) OVER (PARTITION BY staged.staging_ring_id)::integer AS canonical_match_count
+        FROM staged
+        LEFT JOIN systems sys
+          ON (
+              staged.system_id64 IS NOT NULL
+              AND sys.id64 = staged.system_id64
+          )
+          OR (
+              staged.system_id64 IS NULL
+              AND staged.system_name IS NOT NULL
+              AND lower(sys.name) = lower(staged.system_name)
+          )
+        LEFT JOIN bodies b
+          ON b.system_id64 = COALESCE(sys.id64, staged.system_id64)
+         AND (
+              (staged.source_body_id IS NOT NULL AND b.id = staged.source_body_id)
+              OR (staged.body_name IS NOT NULL AND lower(b.name) = lower(staged.body_name))
+         )
+        LEFT JOIN body_rings canonical_ring
+          ON canonical_ring.system_id64 = COALESCE(sys.id64, staged.system_id64)
+         AND (
+              (b.id IS NOT NULL AND canonical_ring.body_id = b.id)
+              OR (staged.source_body_id IS NOT NULL AND canonical_ring.source_body_id = staged.source_body_id)
+              OR (staged.body_name IS NOT NULL AND lower(canonical_ring.body_name) = lower(staged.body_name))
+         )
+         AND staged.ring_name IS NOT NULL
+         AND lower(canonical_ring.ring_name) = lower(staged.ring_name)
+        ORDER BY staged.system_id64 NULLS LAST, staged.system_name NULLS LAST,
+                 staged.source_body_id NULLS LAST, staged.body_name NULLS LAST,
+                 staged.ring_name NULLS LAST, staged.staging_ring_id, canonical_ring.id NULLS LAST
+        """,
+        params,
+    )
+
+
+def _select_rows(conn: Any, sql: str, params: Sequence[Any]) -> list[dict[str, Any]]:
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, tuple(params))
+        return _fetchall_dicts(cur)
+    finally:
+        close = getattr(cur, 'close', None)
+        if callable(close):
+            close()
+
+
+def _station_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for group in _group_rows(rows, 'staging_station_id').values():
+        first = group[0]
+        source_identity = {
+            'staging_id': first.get('staging_station_id'),
+            'source_run_key': first.get('source_run_key'),
+            'source_file_key': first.get('source_file_key'),
+            'source_record_key': first.get('source_record_key'),
+            'source_record_hash': first.get('source_record_hash'),
+            'system_id64': first.get('system_id64'),
+            'system_name': first.get('system_name'),
+            'market_id': first.get('market_id'),
+            'edsm_station_id': first.get('edsm_station_id'),
+            'station_name': first.get('station_name'),
+        }
+        warnings = _volatile_warnings(
+            first,
+            staged_field='distance_to_arrival',
+            canonical_field='canonical_distance_to_arrival',
+            entity='station',
+        )
+        candidate = _base_candidate(
+            entity='station',
+            source_identity=source_identity,
+            canonical_matches=_station_canonical_matches(group),
+            insufficient=not _has_system_identity(first) or _missing(first.get('station_name')),
+            differences=_diff_fields(
+                first,
+                (
+                    ('station_type', 'canonical_station_type'),
+                    ('body_name', 'canonical_body_name'),
+                    ('controlling_faction', 'canonical_controlling_faction'),
+                    ('allegiance', 'canonical_allegiance'),
+                    ('government', 'canonical_government'),
+                ),
+            ),
+            warnings=warnings,
+        )
+        candidates.append(candidate)
+    return candidates
+
+
+def _body_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for group in _group_rows(rows, 'staging_body_id').values():
+        first = group[0]
+        source_identity = {
+            'staging_id': first.get('staging_body_id'),
+            'source_run_key': first.get('source_run_key'),
+            'source_file_key': first.get('source_file_key'),
+            'source_record_key': first.get('source_record_key'),
+            'source_record_hash': first.get('source_record_hash'),
+            'system_id64': first.get('system_id64'),
+            'system_name': first.get('system_name'),
+            'source_body_id': first.get('source_body_id'),
+            'body_name': first.get('body_name'),
+        }
+        warnings = _volatile_warnings(
+            first,
+            staged_field='distance_to_arrival',
+            canonical_field='canonical_distance_to_arrival',
+            entity='body',
+        )
+        candidate = _base_candidate(
+            entity='body',
+            source_identity=source_identity,
+            canonical_matches=_body_canonical_matches(group),
+            insufficient=not _has_system_identity(first)
+            or (_missing(first.get('source_body_id')) and _missing(first.get('body_name'))),
+            differences=_diff_fields(
+                first,
+                (
+                    ('body_name', 'canonical_body_name'),
+                    ('body_type', 'canonical_body_type'),
+                    ('subtype', 'canonical_subtype'),
+                    ('is_main_star', 'canonical_is_main_star'),
+                    ('is_landable', 'canonical_is_landable'),
+                    ('is_terraformable', 'canonical_is_terraformable'),
+                    ('estimated_scan_value', 'canonical_estimated_scan_value'),
+                    ('estimated_mapping_value', 'canonical_estimated_mapping_value'),
+                ),
+            ),
+            warnings=warnings,
+        )
+        candidates.append(candidate)
+    return candidates
+
+
+def _ring_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for group in _group_rows(rows, 'staging_ring_id').values():
+        first = group[0]
+        source_identity = {
+            'staging_id': first.get('staging_ring_id'),
+            'source_run_key': first.get('source_run_key'),
+            'source_file_key': first.get('source_file_key'),
+            'source_record_key': first.get('source_record_key'),
+            'source_record_hash': first.get('source_record_hash'),
+            'system_id64': first.get('system_id64'),
+            'system_name': first.get('system_name'),
+            'source_body_id': first.get('source_body_id'),
+            'body_name': first.get('body_name'),
+            'ring_name': first.get('ring_name'),
+        }
+        candidate = _base_candidate(
+            entity='ring',
+            source_identity=source_identity,
+            canonical_matches=_ring_canonical_matches(group),
+            insufficient=not _has_system_identity(first)
+            or _missing(first.get('ring_name'))
+            or (_missing(first.get('source_body_id')) and _missing(first.get('body_name'))),
+            differences=_diff_fields(
+                first,
+                (
+                    ('ring_name', 'canonical_ring_name'),
+                    ('ring_type', 'canonical_ring_type'),
+                    ('ring_class', 'canonical_ring_class'),
+                    ('mass_mt', 'canonical_mass_mt'),
+                    ('inner_radius', 'canonical_inner_radius'),
+                    ('outer_radius', 'canonical_outer_radius'),
+                ),
+            ),
+            warnings=[],
+        )
+        candidates.append(candidate)
+    return candidates
+
+
+def _base_candidate(
+    *,
+    entity: str,
+    source_identity: Mapping[str, Any],
+    canonical_matches: Sequence[Mapping[str, Any]],
+    insufficient: bool,
+    differences: Sequence[Mapping[str, Any]],
+    warnings: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    canonical = list(canonical_matches)
+    if insufficient:
+        action = 'insufficient_evidence'
+    elif len(canonical) > 1:
+        action = 'ambiguous_match'
+    elif not canonical:
+        action = 'candidate_insert_missing_canonical'
+    elif differences:
+        action = 'candidate_update'
+    else:
+        action = 'no_change'
+    return {
+        'entity': entity,
+        'candidate_action': action,
+        'source': dict(source_identity),
+        'canonical': canonical[0] if len(canonical) == 1 else None,
+        'canonical_matches': canonical,
+        'differences': list(differences) if len(canonical) == 1 else [],
+        'warnings': list(warnings),
+    }
+
+
+def _station_canonical_matches(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    matches = {
+        str(row.get('canonical_station_id')): {
+            'system_id64': row.get('canonical_system_id64'),
+            'system_name': row.get('canonical_system_name'),
+            'station_id': row.get('canonical_station_id'),
+            'station_name': row.get('canonical_station_name'),
+            'station_type': row.get('canonical_station_type'),
+        }
+        for row in rows
+        if row.get('canonical_station_id') is not None
+    }
+    return _sort_candidate_rows(matches.values())
+
+
+def _body_canonical_matches(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    matches = {
+        str(row.get('canonical_body_id')): {
+            'system_id64': row.get('canonical_system_id64'),
+            'system_name': row.get('canonical_system_name'),
+            'body_id': row.get('canonical_body_id'),
+            'body_name': row.get('canonical_body_name'),
+            'body_type': row.get('canonical_body_type'),
+        }
+        for row in rows
+        if row.get('canonical_body_id') is not None
+    }
+    return _sort_candidate_rows(matches.values())
+
+
+def _ring_canonical_matches(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    matches = {
+        str(row.get('canonical_ring_id')): {
+            'system_id64': row.get('canonical_system_id64'),
+            'system_name': row.get('canonical_system_name'),
+            'body_id': row.get('canonical_body_id'),
+            'body_name': row.get('canonical_body_name'),
+            'ring_id': row.get('canonical_ring_id'),
+            'ring_name': row.get('canonical_ring_name'),
+            'ring_type': row.get('canonical_ring_type'),
+            'association_status': row.get('canonical_association_status'),
+        }
+        for row in rows
+        if row.get('canonical_ring_id') is not None
+    }
+    return _sort_candidate_rows(matches.values())
+
+
+def _diff_fields(row: Mapping[str, Any], field_pairs: Sequence[tuple[str, str]]) -> list[dict[str, Any]]:
+    differences: list[dict[str, Any]] = []
+    for staged_field, canonical_field in field_pairs:
+        staged_value = _normalise_compare_value(row.get(staged_field))
+        canonical_value = _normalise_compare_value(row.get(canonical_field))
+        if staged_value is None:
+            continue
+        if staged_value != canonical_value:
+            differences.append({
+                'field': staged_field,
+                'staged': row.get(staged_field),
+                'canonical': row.get(canonical_field),
+            })
+    return sorted(differences, key=canonicalise_json_payload)
+
+
+def _volatile_warnings(
+    row: Mapping[str, Any],
+    *,
+    staged_field: str,
+    canonical_field: str,
+    entity: str,
+) -> list[dict[str, Any]]:
+    if row.get(staged_field) is None:
+        return []
+    if _normalise_compare_value(row.get(staged_field)) == _normalise_compare_value(row.get(canonical_field)):
+        return []
+    return [{
+        'entity': entity,
+        'field': staged_field,
+        'reason': 'volatile_source_evidence_not_canonical_update',
+        'source_record_hash': row.get('source_record_hash'),
+    }]
+
+
+def _group_rows(rows: Sequence[Mapping[str, Any]], key: str) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        row_dict = dict(row)
+        group_key = str(row_dict.get(key))
+        grouped.setdefault(group_key, []).append(row_dict)
+    return dict(sorted(grouped.items(), key=lambda item: item[0]))
+
+
+def _sort_candidate_rows(rows: Sequence[Mapping[str, Any]] | Any) -> list[dict[str, Any]]:
+    return sorted((dict(row) for row in rows), key=canonicalise_json_payload)
+
+
+def _has_system_identity(row: Mapping[str, Any]) -> bool:
+    return not _missing(row.get('system_id64')) or not _missing(row.get('system_name'))
+
+
+def _missing(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    return False
+
+
+def _normalise_compare_value(value: Any) -> Any:
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    return value
 
 
 def build_staging_loader_report(
