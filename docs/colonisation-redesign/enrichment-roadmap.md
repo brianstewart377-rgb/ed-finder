@@ -187,11 +187,8 @@ operator dashboard) use `scripts/station_enrichment_status.py`:
 # Default: stable all-records checkpoint, default output root.
 python3 scripts/station_enrichment_status.py
 
-# Inspect a custom checkpoint and ask whether system 2008132031194 is
-# already checkpointed.
-python3 scripts/station_enrichment_status.py \
-  --checkpoint-file /var/lib/edfinder/state/all-records.json \
-  --system-id64 2008132031194
+# Ask whether a specific system has already reached the checkpoint.
+python3 scripts/station_enrichment_status.py --system-id64 9472415114065
 
 # Machine-readable for cron/email.
 python3 scripts/station_enrichment_status.py --json
