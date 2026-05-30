@@ -290,7 +290,76 @@ system id64.
 
 ---
 
-## 8. Roadmap
+## 8. Body/Ring Enrichment Input Strategy
+
+Body/ring enrichment should be planned around explicit input modes. The
+planner must remain pure: it receives local body/ring rows and external
+source rows, then returns a `body_ring_enrichment_dry_run/v1` report. The
+planner must not perform network access and must not write to the database.
+
+### 8.1 Input modes
+
+| Input mode | Best use | Limits / cautions |
+|---|---|---|
+| JSON fixtures / offline samples | Unit tests, deterministic examples, trust-classification edge cases, and CI. | Fixtures are not enough to prove SQL joins, schema compatibility, null/enum behaviour under real database adapters, or production-scale performance. |
+| Non-production DB | Integration testing against the real schema, joins, null handling, enum handling, and migrations. | Safer than production, but slower and more complex than fixtures. It should still use offline source data, not live enrichment APIs. |
+| Existing local production tables | Production dry-runs using the real local source of truth. Required for galaxy-scale validation because it exercises the actual body/ring population and current trust state. | Must remain read-only until a guarded apply phase exists. Use only for dry-run reads and report generation. |
+| Offline snapshots / staging data | Preferred external source for large-scale enrichment and repeatable validation. | Needs a parser/normaliser and versioned snapshot handling, but gives stable inputs, batchability, and rerunnable reports. |
+| Live APIs | Small manual diagnostics only, if ever needed outside this planner contract. | Avoid for large all-record enrichment: rate limits, latency, upstream volatility, and poor repeatability make them unsuitable for deterministic galaxy-scale planning. |
+
+### 8.2 Scalable architecture
+
+The long-term architecture should be:
+
+```text
+external snapshot/file
+-> source parser/normaliser
+-> staging model or in-memory source rows
+-> read-only local DB fetch
+-> pure planner
+-> versioned dry-run report
+-> later guarded apply phase
+```
+
+For production scale, the preferred path is existing local tables plus
+offline source snapshots plus checkpointed batching. That lets us validate
+the real galaxy-sized local dataset without coupling the dry-run to live API
+availability or upstream drift.
+
+For development and testing, the robust path is JSON fixtures plus
+non-production DB integration tests plus production read-only dry-runs.
+Fixtures keep planner behaviour deterministic; the non-production DB proves
+schema and join compatibility; production read-only dry-runs prove scale and
+real-data classification without modifying rows.
+
+### 8.3 Staged implementation
+
+1. **Stage A: JSON fixture CLI mode.** Accept fixture files and emit
+   `body_ring_enrichment_dry_run/v1` with no database or network dependency.
+2. **Stage B: read-only non-production DB mode.** Fetch local rows from a
+   staging/test database and combine them with offline source rows to prove
+   joins, migrations, null handling, and enum handling.
+3. **Stage C: production read-only dry-run.** Read existing local production
+   tables and offline snapshots only, use checkpointed batching for scale, and
+   write versioned reports without touching production data.
+4. **Stage D: future guarded apply mode.** Add writes only after dry-run
+   reports are boring, predictable, and covered by the same kind of guard
+   discipline used for station enrichment.
+
+### 8.4 Body/ring trust model
+
+The body/ring planner must preserve the current trust distinction:
+
+* Source-only `body_scan_facts.is_ringed = True` remains unknown until it is
+  resolved to trusted local `body_rings` rows.
+* Source-only `False` may represent explicit trusted no-rings according to the
+  existing tests.
+* Trusted local-matched `body_rings` rows are required before promoting a body
+  to confirmed ringed state.
+
+---
+
+## 9. Roadmap
 
 The list below is intentionally narrow — anything not on it should be
 treated as a separate proposal.
@@ -315,7 +384,7 @@ treated as a separate proposal.
 
 ---
 
-## 9. Suggested local test commands
+## 10. Suggested local test commands
 
 These all run offline; they never touch EDSM or the production database.
 
