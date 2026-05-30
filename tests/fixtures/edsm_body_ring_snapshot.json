@@ -1,0 +1,54 @@
+[
+  {
+    "systemName": "Ring Test",
+    "systemId64": 12345,
+    "id": 7,
+    "name": "Ring Test 4",
+    "type": "Planet",
+    "subType": "Rocky body",
+    "distanceToArrival": 321.5,
+    "isLandable": true,
+    "isTerraformable": false,
+    "estimatedScanValue": 1000,
+    "estimatedMappingValue": 2500,
+    "signals": {
+      "biological": 2,
+      "geological": 1
+    },
+    "materials": {
+      "iron": 12.5
+    },
+    "rings": [
+      {
+        "name": "Ring Test 4 A Ring",
+        "type": "Icy",
+        "class": "eRingClass_Icy",
+        "massMT": 1000000,
+        "innerRadius": 1000,
+        "outerRadius": 2000
+      }
+    ],
+    "updatedAt": "2026-01-03T00:00:00Z",
+    "extraFutureField": {
+      "retained": true
+    }
+  },
+  {
+    "systemName": "Ring Test",
+    "systemId64": 12345,
+    "id": 8,
+    "name": "Ring Test 5",
+    "type": "Planet",
+    "subType": "High metal content body",
+    "rings": []
+  },
+  {
+    "systemName": "Sparse Body System",
+    "name": "Sparse Body 1"
+  },
+  {
+    "systemName": "Broken Body",
+    "id": 9
+  },
+  "not an object"
+]

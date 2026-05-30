@@ -4,7 +4,7 @@
 This command is explicitly opt-in. By default it emits the same deterministic
 dry-run report as the offline snapshot loader. With ``--write-staging`` and a
 caller-supplied ``--dsn`` it writes only to the enrichment warehouse tables:
-source runs, source files, raw records, and EDSM station staging rows.
+source runs, source files, raw records, and EDSM station/body/ring staging rows.
 
 It never calls EDSM or other APIs, never invokes container tooling, and never
 writes canonical ED-Finder tables.
@@ -23,13 +23,20 @@ from enrichment_snapshot_loader import build_snapshot_load_report
 from enrichment_staging import canonicalise_json_payload, normalise_source_adapter
 
 
-TARGET_TABLES = (
+BASE_TARGET_TABLES = (
     'enrichment_source_runs',
     'enrichment_source_files',
     'enrichment_raw_records',
+)
+STATION_TARGET_TABLES = BASE_TARGET_TABLES + (
     'staging_edsm_stations',
 )
-SUPPORTED_SOURCES = {'edsm_nightly_stations'}
+BODY_RING_TARGET_TABLES = BASE_TARGET_TABLES + (
+    'staging_edsm_bodies',
+    'staging_body_rings',
+)
+TARGET_TABLES = STATION_TARGET_TABLES
+SUPPORTED_SOURCES = {'edsm_nightly_stations', 'edsm_nightly_bodies'}
 PREFLIGHT_SCHEMA_VERSION = 'enrichment_staging_schema_preflight/v1'
 STAGED_ROWS_REPORT_SCHEMA_VERSION = 'enrichment_staged_rows_summary/v1'
 
@@ -84,25 +91,65 @@ REQUIRED_SCHEMA_COLUMNS = {
         'raw_payload',
         'provenance',
     ),
+    'staging_edsm_bodies': (
+        'id',
+        'source_run_id',
+        'source_file_id',
+        'raw_record_id',
+        'source_record_key',
+        'source_record_hash',
+        'system_id64',
+        'system_name',
+        'source_body_id',
+        'body_name',
+        'body_type',
+        'distance_to_arrival',
+        'signals',
+        'materials',
+        'raw_payload',
+        'provenance',
+    ),
+    'staging_body_rings': (
+        'id',
+        'source_run_id',
+        'source_file_id',
+        'raw_record_id',
+        'source_record_key',
+        'source_record_hash',
+        'system_id64',
+        'system_name',
+        'source_body_id',
+        'body_name',
+        'ring_name',
+        'ring_type',
+        'ring_class',
+        'association_status',
+        'raw_payload',
+        'provenance',
+    ),
 }
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            'Load a local offline EDSM station snapshot into enrichment warehouse '
+            'Load a local offline EDSM station or body snapshot into enrichment warehouse '
             'staging tables only. Default mode is dry-run/no-write.'
         ),
     )
-    parser.add_argument('--source-file', default=None, help='Local .json or .json.gz EDSM station snapshot file.')
-    parser.add_argument('--source', default=None, help='Offline source adapter. Supported: edsm_nightly_stations.')
+    parser.add_argument('--source-file', default=None, help='Local .json or .json.gz EDSM snapshot file.')
+    parser.add_argument(
+        '--source',
+        default=None,
+        help='Offline source adapter. Supported: edsm_nightly_stations, edsm_nightly_bodies.',
+    )
     parser.add_argument('--limit', type=int, default=None, help='Maximum local records to inspect.')
     parser.add_argument('--json', action='store_true', help='Emit JSON. Output is always JSON.')
     parser.add_argument('--dry-run', action='store_true', default=True, help='Dry-run/no-write mode. This is the default.')
     parser.add_argument(
         '--write-staging',
         action='store_true',
-        help='Opt in to DB writes to enrichment_source_* and staging_edsm_stations tables only.',
+        help='Opt in to DB writes to enrichment source/raw and source-specific staging tables only.',
     )
     parser.add_argument('--dsn', default=None, help='Non-production Postgres DSN. Required with --write-staging.')
     parser.add_argument(
@@ -162,7 +209,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.check_staging_schema:
             with connect_staging_db(args.dsn) as conn:
-                report = check_staging_schema(conn)
+                report = check_staging_schema(conn, source=args.source)
             print(json.dumps(report, sort_keys=True, indent=2))
             return 0 if report['ok'] else 2
         if args.report_staged_run:
@@ -205,8 +252,16 @@ def connect_staging_db(dsn: str):
     return psycopg2.connect(dsn)
 
 
-def check_staging_schema(conn: Any) -> dict[str, Any]:
+def target_tables_for_source(source: str | None) -> tuple[str, ...]:
+    normalised_source = normalise_source_adapter(source)
+    if normalised_source == 'edsm_nightly_bodies':
+        return BODY_RING_TARGET_TABLES
+    return STATION_TARGET_TABLES
+
+
+def check_staging_schema(conn: Any, *, source: str | None = None) -> dict[str, Any]:
     """Read-only preflight for required enrichment warehouse tables/columns."""
+    target_tables = target_tables_for_source(source)
     cur = conn.cursor()
     try:
         cur.execute(
@@ -217,7 +272,7 @@ def check_staging_schema(conn: Any) -> dict[str, Any]:
               AND table_name = ANY(%s)
             ORDER BY table_name, ordinal_position
             """,
-            (list(TARGET_TABLES),),
+            (list(target_tables),),
         )
         rows = _fetchall_dicts(cur)
     finally:
@@ -225,7 +280,7 @@ def check_staging_schema(conn: Any) -> dict[str, Any]:
         if callable(close):
             close()
 
-    existing_columns: dict[str, set[str]] = {table: set() for table in TARGET_TABLES}
+    existing_columns: dict[str, set[str]] = {table: set() for table in target_tables}
     for row in rows:
         table_name = str(row.get('table_name'))
         column_name = str(row.get('column_name'))
@@ -240,6 +295,7 @@ def check_staging_schema(conn: Any) -> dict[str, Any]:
     missing_columns = [
         {'table': table, 'column': column}
         for table, required_columns in REQUIRED_SCHEMA_COLUMNS.items()
+        if table in target_tables
         for column in required_columns
         if column not in existing_columns.get(table, set())
     ]
@@ -248,11 +304,12 @@ def check_staging_schema(conn: Any) -> dict[str, Any]:
         'schema_version': PREFLIGHT_SCHEMA_VERSION,
         'ok': ok,
         'dry_run': True,
-        'target_tables': list(TARGET_TABLES),
+        'target_tables': list(target_tables),
+        'source': normalise_source_adapter(source) if source else None,
         'missing_tables': missing_tables,
         'missing_columns': missing_columns,
         'summary': {
-            'expected_tables': len(TARGET_TABLES),
+            'expected_tables': len(target_tables),
             'existing_tables': len([columns for columns in existing_columns.values() if columns]),
             'missing_tables': len(missing_tables),
             'missing_columns': len(missing_columns),
@@ -365,6 +422,7 @@ def build_staging_loader_report(
     normalised_source = normalise_source_adapter(source)
     if normalised_source not in SUPPORTED_SOURCES:
         raise ValueError(f'unsupported offline source {source!r}; supported sources: {sorted(SUPPORTED_SOURCES)}')
+    target_tables = target_tables_for_source(normalised_source)
 
     report = build_snapshot_load_report(
         source_file=source_file,
@@ -379,9 +437,11 @@ def build_staging_loader_report(
         'write_mode': 'staging_only' if write_staging else 'dry_run',
         'dry_run_only': not write_staging,
         'staging_writes_enabled': bool(write_staging),
-        'target_tables': list(TARGET_TABLES) if write_staging else [],
+        'target_tables': list(target_tables) if write_staging else [],
         'raw_records_written': 0,
         'staging_station_rows_written': 0,
+        'staging_body_rows_written': 0,
+        'staging_ring_rows_written': 0,
         'canonical_writes_planned': 0,
     })
     return report
@@ -407,7 +467,7 @@ def load_station_snapshot_to_staging_db(
     if conn is None:
         raise ValueError('write_staging requires an explicit database connection')
 
-    preflight = check_staging_schema(conn)
+    preflight = check_staging_schema(conn, source=source)
     if not preflight['ok']:
         _rollback(conn)
         raise ValueError(
@@ -427,6 +487,9 @@ def load_station_snapshot_to_staging_db(
 
 def write_station_snapshot_report(conn: Any, report: Mapping[str, Any]) -> dict[str, Any]:
     """Write a prepared report into enrichment warehouse tables only."""
+    if report.get('source_run', {}).get('source') == 'edsm_nightly_bodies':
+        return write_body_ring_snapshot_report(conn, report)
+
     cur = conn.cursor()
     try:
         source_run_id = upsert_source_run(cur, report['source_run'])
@@ -460,7 +523,68 @@ def write_station_snapshot_report(conn: Any, report: Mapping[str, Any]) -> dict[
             'staging_station_rows_written': staging_write_attempts,
             'raw_record_ids_by_hash': raw_ids_by_hash,
             'staging_station_ids_by_hash': staging_ids_by_hash,
-            'target_tables': list(TARGET_TABLES),
+            'target_tables': list(STATION_TARGET_TABLES),
+            'errors': 0,
+        }
+    finally:
+        close = getattr(cur, 'close', None)
+        if callable(close):
+            close()
+
+
+def write_body_ring_snapshot_report(conn: Any, report: Mapping[str, Any]) -> dict[str, Any]:
+    """Write prepared body/ring source evidence into staging tables only."""
+    cur = conn.cursor()
+    try:
+        source_run_id = upsert_source_run(cur, report['source_run'])
+        source_file_id = upsert_source_file(cur, source_run_id, report['source_file'])
+
+        raw_ids_by_hash: dict[str, int] = {}
+        raw_write_attempts = 0
+        for raw_record in report.get('raw_records_planned', []):
+            raw_record_id = upsert_raw_record(cur, source_run_id, source_file_id, raw_record)
+            raw_ids_by_hash[str(raw_record['source_record_hash'])] = raw_record_id
+            raw_write_attempts += 1
+
+        body_ids_by_hash: dict[str, int] = {}
+        body_write_attempts = 0
+        for body_row in report.get('staged_body_rows', report.get('staged_rows', [])):
+            record_hash = str(body_row['source_record_hash'])
+            body_id = upsert_staging_edsm_body(
+                cur,
+                source_run_id,
+                source_file_id,
+                raw_ids_by_hash.get(record_hash),
+                body_row,
+            )
+            body_ids_by_hash[record_hash] = body_id
+            body_write_attempts += 1
+
+        ring_ids_by_hash: dict[str, int] = {}
+        ring_write_attempts = 0
+        for ring_row in report.get('staged_ring_rows', report.get('planned_rows', [])):
+            body_record_hash = str(ring_row.get('raw_body_source_record_hash') or '')
+            ring_hash = str(ring_row['source_record_hash'])
+            ring_id = upsert_staging_body_ring(
+                cur,
+                source_run_id,
+                source_file_id,
+                raw_ids_by_hash.get(body_record_hash),
+                ring_row,
+            )
+            ring_ids_by_hash[ring_hash] = ring_id
+            ring_write_attempts += 1
+
+        return {
+            'source_run_id': source_run_id,
+            'source_file_id': source_file_id,
+            'raw_records_written': raw_write_attempts,
+            'staging_body_rows_written': body_write_attempts,
+            'staging_ring_rows_written': ring_write_attempts,
+            'raw_record_ids_by_hash': raw_ids_by_hash,
+            'staging_body_ids_by_hash': body_ids_by_hash,
+            'staging_ring_ids_by_hash': ring_ids_by_hash,
+            'target_tables': list(BODY_RING_TARGET_TABLES),
             'errors': 0,
         }
     finally:
@@ -486,10 +610,27 @@ def build_report_from_staged_rows(report: Mapping[str, Any], write_summary: Mapp
         str(key): value
         for key, value in dict(write_summary.get('staging_station_ids_by_hash', {})).items()
     }
+    body_ids_by_hash = {
+        str(key): value
+        for key, value in dict(write_summary.get('staging_body_ids_by_hash', {})).items()
+    }
+    ring_ids_by_hash = {
+        str(key): value
+        for key, value in dict(write_summary.get('staging_ring_ids_by_hash', {})).items()
+    }
     for row in result.get('raw_records_planned', []):
         row['db_id'] = raw_ids_by_hash.get(str(row.get('source_record_hash')))
     for row in result.get('staged_rows', []):
-        row['db_id'] = staging_ids_by_hash.get(str(row.get('source_record_hash')))
+        row_hash = str(row.get('source_record_hash'))
+        row['db_id'] = staging_ids_by_hash.get(row_hash, body_ids_by_hash.get(row_hash))
+    for row in result.get('staged_body_rows', []):
+        row['db_id'] = body_ids_by_hash.get(str(row.get('source_record_hash')))
+    for row in result.get('staged_ring_rows', []):
+        row['db_id'] = ring_ids_by_hash.get(str(row.get('source_record_hash')))
+    for row in result.get('planned_rows', []):
+        row_hash = str(row.get('source_record_hash'))
+        if row_hash in ring_ids_by_hash:
+            row['db_id'] = ring_ids_by_hash[row_hash]
 
     result['summary'].update({
         'dry_run_only': False,
@@ -500,6 +641,8 @@ def build_report_from_staged_rows(report: Mapping[str, Any], write_summary: Mapp
         'source_file_id': write_summary.get('source_file_id'),
         'raw_records_written': int(write_summary.get('raw_records_written', 0)),
         'staging_station_rows_written': int(write_summary.get('staging_station_rows_written', 0)),
+        'staging_body_rows_written': int(write_summary.get('staging_body_rows_written', 0)),
+        'staging_ring_rows_written': int(write_summary.get('staging_ring_rows_written', 0)),
         'errors': int(write_summary.get('errors', 0)),
         'canonical_writes_planned': 0,
     })
@@ -718,6 +861,192 @@ def upsert_staging_edsm_station(
             station_row.get('source_updated_at'),
             _jsonb(station_row.get('raw_payload', {})),
             _jsonb(station_row.get('provenance', {})),
+        ),
+    )
+    return _returned_id(cur)
+
+
+def upsert_staging_edsm_body(
+    cur: Any,
+    source_run_id: int,
+    source_file_id: int,
+    raw_record_id: int | None,
+    body_row: Mapping[str, Any],
+) -> int:
+    cur.execute(
+        """
+        INSERT INTO staging_edsm_bodies (
+            source_run_id,
+            source_file_id,
+            raw_record_id,
+            source_record_key,
+            source_record_hash,
+            system_id64,
+            system_name,
+            source_body_id,
+            body_name,
+            body_type,
+            subtype,
+            distance_to_arrival,
+            is_main_star,
+            is_landable,
+            is_terraformable,
+            estimated_scan_value,
+            estimated_mapping_value,
+            signals,
+            materials,
+            source_class,
+            confidence,
+            freshness_class,
+            source_updated_at,
+            raw_payload,
+            provenance
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s,
+            %s, %s, %s::jsonb, %s::jsonb
+        )
+        ON CONFLICT (source_run_id, source_record_hash) DO UPDATE SET
+            source_file_id = EXCLUDED.source_file_id,
+            raw_record_id = EXCLUDED.raw_record_id,
+            source_record_key = EXCLUDED.source_record_key,
+            system_id64 = EXCLUDED.system_id64,
+            system_name = EXCLUDED.system_name,
+            source_body_id = EXCLUDED.source_body_id,
+            body_name = EXCLUDED.body_name,
+            body_type = EXCLUDED.body_type,
+            subtype = EXCLUDED.subtype,
+            distance_to_arrival = EXCLUDED.distance_to_arrival,
+            is_main_star = EXCLUDED.is_main_star,
+            is_landable = EXCLUDED.is_landable,
+            is_terraformable = EXCLUDED.is_terraformable,
+            estimated_scan_value = EXCLUDED.estimated_scan_value,
+            estimated_mapping_value = EXCLUDED.estimated_mapping_value,
+            signals = EXCLUDED.signals,
+            materials = EXCLUDED.materials,
+            source_class = EXCLUDED.source_class,
+            confidence = EXCLUDED.confidence,
+            freshness_class = EXCLUDED.freshness_class,
+            source_updated_at = EXCLUDED.source_updated_at,
+            raw_payload = EXCLUDED.raw_payload,
+            provenance = EXCLUDED.provenance
+        RETURNING id
+        """,
+        (
+            source_run_id,
+            source_file_id,
+            raw_record_id,
+            body_row.get('source_record_key'),
+            body_row.get('source_record_hash'),
+            body_row.get('system_id64'),
+            body_row.get('system_name'),
+            body_row.get('source_body_id'),
+            body_row.get('body_name'),
+            body_row.get('body_type'),
+            body_row.get('subtype'),
+            body_row.get('distance_to_arrival'),
+            body_row.get('is_main_star'),
+            body_row.get('is_landable'),
+            body_row.get('is_terraformable'),
+            body_row.get('estimated_scan_value'),
+            body_row.get('estimated_mapping_value'),
+            _jsonb(body_row.get('signals', {})),
+            _jsonb(body_row.get('materials', {})),
+            body_row.get('source_class'),
+            body_row.get('confidence'),
+            body_row.get('freshness_class'),
+            body_row.get('source_updated_at'),
+            _jsonb(body_row.get('raw_payload', {})),
+            _jsonb(body_row.get('provenance', {})),
+        ),
+    )
+    return _returned_id(cur)
+
+
+def upsert_staging_body_ring(
+    cur: Any,
+    source_run_id: int,
+    source_file_id: int,
+    raw_record_id: int | None,
+    ring_row: Mapping[str, Any],
+) -> int:
+    cur.execute(
+        """
+        INSERT INTO staging_body_rings (
+            source_run_id,
+            source_file_id,
+            raw_record_id,
+            source_record_key,
+            source_record_hash,
+            system_id64,
+            system_name,
+            source_body_id,
+            body_name,
+            ring_name,
+            ring_type,
+            ring_class,
+            mass_mt,
+            inner_radius,
+            outer_radius,
+            association_status,
+            source_class,
+            confidence,
+            freshness_class,
+            source_updated_at,
+            raw_payload,
+            provenance
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb
+        )
+        ON CONFLICT (source_run_id, source_record_hash) DO UPDATE SET
+            source_file_id = EXCLUDED.source_file_id,
+            raw_record_id = EXCLUDED.raw_record_id,
+            source_record_key = EXCLUDED.source_record_key,
+            system_id64 = EXCLUDED.system_id64,
+            system_name = EXCLUDED.system_name,
+            source_body_id = EXCLUDED.source_body_id,
+            body_name = EXCLUDED.body_name,
+            ring_name = EXCLUDED.ring_name,
+            ring_type = EXCLUDED.ring_type,
+            ring_class = EXCLUDED.ring_class,
+            mass_mt = EXCLUDED.mass_mt,
+            inner_radius = EXCLUDED.inner_radius,
+            outer_radius = EXCLUDED.outer_radius,
+            association_status = EXCLUDED.association_status,
+            source_class = EXCLUDED.source_class,
+            confidence = EXCLUDED.confidence,
+            freshness_class = EXCLUDED.freshness_class,
+            source_updated_at = EXCLUDED.source_updated_at,
+            raw_payload = EXCLUDED.raw_payload,
+            provenance = EXCLUDED.provenance
+        RETURNING id
+        """,
+        (
+            source_run_id,
+            source_file_id,
+            raw_record_id,
+            ring_row.get('source_record_key'),
+            ring_row.get('source_record_hash'),
+            ring_row.get('system_id64'),
+            ring_row.get('system_name'),
+            ring_row.get('source_body_id'),
+            ring_row.get('body_name'),
+            ring_row.get('ring_name'),
+            ring_row.get('ring_type'),
+            ring_row.get('ring_class'),
+            ring_row.get('mass_mt'),
+            ring_row.get('inner_radius'),
+            ring_row.get('outer_radius'),
+            ring_row.get('association_status', 'source_only'),
+            ring_row.get('source_class'),
+            ring_row.get('confidence'),
+            ring_row.get('freshness_class'),
+            ring_row.get('source_updated_at'),
+            _jsonb(ring_row.get('raw_payload', {})),
+            _jsonb(ring_row.get('provenance', {})),
         ),
     )
     return _returned_id(cur)
