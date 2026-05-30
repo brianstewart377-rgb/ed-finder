@@ -300,22 +300,30 @@ def test_all_records_batches_are_checkpointed_and_apply_without_manual_yes(tmp_p
     empty = report(system=system_two)
     empty['stations']['systems'] = []
     empty['summary']['systems_processed'] = 0
+    # Batch 1 (system_one) needs a metadata pass, so the guard runs:
+    #   initial dry-run -> metadata apply -> after-metadata dry-run -> final dry-run.
+    # Batch 2 (system_two) is a no-op batch, so the guard runs a single
+    # initial dry-run and skips the final re-fetch.
+    # Batch 3 sees no eligible systems and exits without re-running.
     outputs = [
         report(system=system_one, metadata=[metadata_update(system_id64=1)]),
         report(system=system_one, metadata=[metadata_update(system_id64=1)], dirty_planned=1, dirty_marked=1),
         report(system=system_one),
         report(system=system_one),
         report(system=system_two),
-        report(system=system_two),
         empty,
     ]
     modes = []
     checkpoint_flags = []
+    checkpoint_path_in_cmd: list[str] = []
 
     def fake_runner(cmd, _cwd, output_path):
         checkpoint_flags.append('--checkpoint-read-only' in cmd)
         assert '--limit' in cmd
         assert cmd[cmd.index('--limit') + 1] == '2'
+        # The CLI checkpoint path always travels via the docker-compose mount.
+        ck_index = cmd.index('--checkpoint-file')
+        checkpoint_path_in_cmd.append(cmd[ck_index + 1])
         if '--apply-station-metadata' in cmd:
             modes.append('metadata')
         elif '--apply-confirmed-links' in cmd:
@@ -325,18 +333,233 @@ def test_all_records_batches_are_checkpointed_and_apply_without_manual_yes(tmp_p
         write_report(output_path, outputs.pop(0))
         return guard.CommandResult(returncode=0)
 
-    args = guard.parse_args(['--all-records', '--batch-size', '2', '--output-dir', str(tmp_path)])
+    checkpoint_override = tmp_path / 'state' / 'all-records-checkpoint.json'
+    args = guard.parse_args([
+        '--all-records',
+        '--batch-size',
+        '2',
+        '--output-dir',
+        str(tmp_path),
+        '--checkpoint-file',
+        str(checkpoint_override),
+    ])
 
     assert args.allow_apply is True
 
     runner = guard.GuardedStationEnrichmentRunner(args, command_runner=fake_runner)
-    output_dir = runner.run()
+    runner.run()
 
-    checkpoint = output_dir / 'station-enrichment-checkpoint.json'
-    checkpoint_payload = json.loads(checkpoint.read_text(encoding='utf-8'))
+    checkpoint_payload = json.loads(checkpoint_override.read_text(encoding='utf-8'))
     assert checkpoint_payload['processed_system_id64s'] == [1, 2]
-    assert modes == ['dry_run', 'metadata', 'dry_run', 'dry_run', 'dry_run', 'dry_run', 'dry_run']
+    # No-op batch (system_two) skips its final dry-run; batch 3 sees no eligible
+    # rows and is the only dry-run. So the modes list is shorter than before.
+    assert modes == ['dry_run', 'metadata', 'dry_run', 'dry_run', 'dry_run', 'dry_run']
     assert all(checkpoint_flags)
+    # Every batch must mount the same checkpoint path (no per-batch path drift).
+    assert len(set(checkpoint_path_in_cmd)) == 1
+
+
+def test_all_records_default_checkpoint_path_is_stable_across_runs(tmp_path, monkeypatch):
+    """When --checkpoint-file is omitted the guard MUST use a stable global
+    path so a second run resumes from the first run's checkpoint instead of
+    starting again from system 0.
+    """
+    stable_root = tmp_path / 'edfinder-station-enrichment'
+    monkeypatch.setattr(guard, 'DEFAULT_OUTPUT_ROOT', stable_root)
+    monkeypatch.setattr(
+        guard,
+        'DEFAULT_ALL_RECORDS_CHECKPOINT',
+        stable_root / 'all-records-station-enrichment-checkpoint.json',
+    )
+
+    empty_report_payload = report()
+    empty_report_payload['stations']['systems'] = []
+    empty_report_payload['summary']['systems_processed'] = 0
+
+    def fake_runner(_cmd, _cwd, output_path):
+        write_report(output_path, empty_report_payload)
+        return guard.CommandResult(returncode=0)
+
+    # Pre-seed a checkpoint with system 7 already processed.
+    checkpoint = stable_root / 'all-records-station-enrichment-checkpoint.json'
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint.write_text(
+        json.dumps({'processed_system_id64s': [7], 'last_system_id64': 7}),
+        encoding='utf-8',
+    )
+
+    args = guard.parse_args(['--all-records', '--batch-size', '2'])
+    runner = guard.GuardedStationEnrichmentRunner(
+        args,
+        output_dir=tmp_path / 'run',
+        command_runner=fake_runner,
+    )
+    runner.run()
+
+    # The checkpoint file MUST be the stable default path, not a per-run dir.
+    payload = json.loads(checkpoint.read_text(encoding='utf-8'))
+    assert payload['processed_system_id64s'] == [7]
+
+
+def test_all_records_does_not_checkpoint_systems_that_only_failed_to_fetch(tmp_path):
+    """Systems listed under ``systems_fetch_failed`` MUST NOT be checkpointed
+    so a later batch can retry them once the rate-limit clears.
+    """
+    success_one = {'id64': 1, 'name': 'Alpha'}
+    failed_two = {'id64': 2, 'name': 'Beta'}
+    failed_three = {'id64': 3, 'name': 'Gamma'}
+
+    initial = report(system=success_one)
+    initial['stations']['systems'] = [dict(success_one)]
+    initial['stations']['systems_fetch_failed'] = [dict(failed_two), dict(failed_three)]
+    initial['stations']['fetch_errors'] = [
+        {'system': dict(failed_two), 'reason': 'edsm_fetch_failed', 'message': '429 Too Many Requests',
+         'rate_limited': True, 'system_id64': 2},
+        {'system': dict(failed_three), 'reason': 'edsm_fetch_failed', 'message': 'timeout',
+         'system_id64': 3},
+    ]
+    initial['summary']['systems_processed'] = 1
+    initial['summary']['stations']['fetch_errors'] = 2
+    initial['summary']['stations']['systems_fetch_failed'] = 2
+
+    empty = report()
+    empty['stations']['systems'] = []
+    empty['summary']['systems_processed'] = 0
+
+    outputs = [initial, empty]
+
+    def fake_runner(_cmd, _cwd, output_path):
+        write_report(output_path, outputs.pop(0))
+        return guard.CommandResult(returncode=0)
+
+    checkpoint_override = tmp_path / 'state' / 'checkpoint.json'
+    args = guard.parse_args([
+        '--all-records',
+        '--batch-size',
+        '5',
+        '--output-dir',
+        str(tmp_path),
+        '--checkpoint-file',
+        str(checkpoint_override),
+    ])
+    runner = guard.GuardedStationEnrichmentRunner(args, command_runner=fake_runner)
+    runner.run()
+
+    payload = json.loads(checkpoint_override.read_text(encoding='utf-8'))
+    assert payload['processed_system_id64s'] == [1]
+    assert 2 not in payload['processed_system_id64s']
+    assert 3 not in payload['processed_system_id64s']
+
+
+def test_all_records_aborts_when_every_system_fails_to_fetch(tmp_path):
+    """If a batch contains only fetch failures, the guard must stop instead
+    of busy-looping; the checkpoint stays empty so the next run retries the
+    same systems.
+    """
+    failed_two = {'id64': 2, 'name': 'Beta'}
+    initial = report(system=failed_two)
+    initial['stations']['systems'] = []
+    initial['stations']['systems_fetch_failed'] = [dict(failed_two)]
+    initial['stations']['fetch_errors'] = [
+        {'system': dict(failed_two), 'reason': 'edsm_fetch_failed', 'message': '429',
+         'rate_limited': True, 'system_id64': 2},
+    ]
+    initial['summary']['systems_processed'] = 0
+    initial['summary']['stations']['fetch_errors'] = 1
+    initial['summary']['stations']['systems_fetch_failed'] = 1
+
+    runner_calls: list[str] = []
+
+    def fake_runner(_cmd, _cwd, output_path):
+        runner_calls.append(output_path.name)
+        write_report(output_path, initial)
+        return guard.CommandResult(returncode=0)
+
+    checkpoint_override = tmp_path / 'state' / 'checkpoint.json'
+    args = guard.parse_args([
+        '--all-records',
+        '--batch-size',
+        '5',
+        '--output-dir',
+        str(tmp_path),
+        '--checkpoint-file',
+        str(checkpoint_override),
+    ])
+    runner = guard.GuardedStationEnrichmentRunner(args, command_runner=fake_runner)
+    runner.run()
+
+    # The guard should bail out after a single batch instead of looping.
+    assert sum(1 for name in runner_calls if name.startswith('01_initial_dryrun')) == 1
+    if checkpoint_override.exists():
+        payload = json.loads(checkpoint_override.read_text(encoding='utf-8'))
+        assert payload.get('processed_system_id64s', []) == []
+
+
+def test_no_op_initial_dryrun_skips_final_rerun(tmp_path):
+    """When the initial dry-run has 0 metadata + 0 confirmed-link plans we
+    must NOT run a second 'final dry-run' (it would re-fetch every system
+    from EDSM and risk introducing distance jitter).
+    """
+    runner_calls: list[str] = []
+
+    def fake_runner(_cmd, _cwd, output_path):
+        runner_calls.append(output_path.name)
+        write_report(output_path, report())
+        return guard.CommandResult(returncode=0)
+
+    args = guard.parse_args(['--limit', '500', '--yes'])
+    runner = guard.GuardedStationEnrichmentRunner(
+        args,
+        output_dir=tmp_path / 'run',
+        command_runner=fake_runner,
+    )
+    runner.run()
+
+    assert runner_calls == ['01_initial_dryrun.json']
+
+
+def test_write_batch_still_runs_final_dryrun(tmp_path):
+    """When the guard actually applies metadata writes, the final dry-run
+    re-fetch is still required so we validate the write landed cleanly.
+    """
+    outputs = [
+        report(metadata=[metadata_update()]),
+        report(metadata=[metadata_update()], dirty_planned=1, dirty_marked=1),
+        report(),
+        report(),
+    ]
+    runner_calls: list[str] = []
+
+    def fake_runner(_cmd, _cwd, output_path):
+        runner_calls.append(output_path.name)
+        write_report(output_path, outputs.pop(0))
+        return guard.CommandResult(returncode=0)
+
+    args = guard.parse_args(['--limit', '500', '--yes'])
+    runner = guard.GuardedStationEnrichmentRunner(
+        args,
+        output_dir=tmp_path / 'run',
+        command_runner=fake_runner,
+    )
+    runner.run()
+
+    assert 'final_dryrun.json' in runner_calls
+
+
+def test_successful_system_id64s_excludes_fetch_failed():
+    success = {'id64': 11, 'name': 'Ok'}
+    failed = {'id64': 22, 'name': 'Bad'}
+    payload = report(
+        system=success,
+        fetch_errors=[
+            {'system': dict(failed), 'reason': 'edsm_fetch_failed', 'message': '429',
+             'rate_limited': True, 'system_id64': 22},
+        ],
+        systems_fetch_failed=[failed],
+    )
+
+    assert guard.successful_system_id64s(payload) == {11}
+    assert guard.report_system_id64s(payload) == {11, 22}
 
 
 @pytest.mark.parametrize('raw', ['', '{not-json'])
@@ -346,3 +569,74 @@ def test_empty_or_invalid_json_fails(tmp_path, raw):
 
     with pytest.raises(guard.GuardFailure):
         guard.load_report_file(path)
+
+
+@pytest.mark.parametrize(
+    'line,expected',
+    [
+        ('Fetching EDSM station enrichment system=Exioce id64=42\n', False),
+        ('EDSM rate limit retry system=Exioce endpoint=stations next_attempt=2/3 reason=429\n', True),
+        ('http 429 Too Many Requests\n', True),
+        ('status=429 reason=blocked\n', True),
+        ('EDSM fetch retry next_attempt=2/3 reason=timeout\n', False),
+    ],
+)
+def test_is_rate_limit_log_classifies_lines(line, expected):
+    assert guard._is_rate_limit_log(line) is expected
+
+
+def test_run_docker_compose_command_streams_and_counts_429(tmp_path, capsys):
+    """The live runner streams importer stderr to our stderr line-by-line and
+    detects consecutive 429 lines so the guard can warn the operator.
+    """
+    output_path = tmp_path / 'phase.json'
+    # /bin/sh script that emits a tiny JSON report to stdout and 4 fake 429
+    # log lines to stderr (above the warning threshold of 3).
+    script = (
+        r'''printf '{"stations":{"systems":[]}}' && \
+        for i in 1 2 3 4; do \
+          echo "EDSM rate limit retry system=Test endpoint=stations next_attempt=$i/5 reason=429 Too Many Requests" 1>&2; \
+        done'''
+    )
+    cmd = ['/bin/sh', '-c', script]
+
+    result = guard.run_docker_compose_command(cmd, tmp_path, output_path)
+
+    captured = capsys.readouterr()
+    # JSON stdout has been written to disk verbatim.
+    assert json.loads(output_path.read_text(encoding='utf-8'))['stations']['systems'] == []
+    # Streaming worked: every 429 line and the warning landed on our stderr.
+    assert captured.err.count('EDSM rate limit retry') == 4
+    assert '[guard] EDSM 429 observed' in captured.err
+    # The CommandResult surfaces the consecutive count for higher-level logic.
+    assert result.consecutive_rate_limits >= guard.RATE_LIMIT_RUN_THRESHOLD
+    # Captured stderr is also persisted alongside the JSON report.
+    stderr_path = output_path.with_name(f'{output_path.name}.stderr.txt')
+    assert stderr_path.exists()
+    persisted = stderr_path.read_text(encoding='utf-8')
+    assert persisted.count('EDSM rate limit retry') == 4
+    assert '[guard] EDSM 429 observed' in persisted
+    assert result.returncode == 0
+
+
+def test_run_docker_compose_command_resets_429_counter_on_normal_output(tmp_path, capsys):
+    """A non-rate-limit log line resets the consecutive 429 counter so a
+    transient burst that recovers does not trip the warning.
+    """
+    output_path = tmp_path / 'phase.json'
+    script = (
+        r'''printf '{"stations":{"systems":[]}}' && \
+        echo "Fetching EDSM station enrichment system=Alpha id64=1" 1>&2 && \
+        echo "http 429 Too Many Requests" 1>&2 && \
+        echo "Fetching EDSM station enrichment system=Beta id64=2" 1>&2 && \
+        echo "http 429 Too Many Requests" 1>&2 && \
+        echo "Fetching EDSM station enrichment system=Gamma id64=3" 1>&2'''
+    )
+    cmd = ['/bin/sh', '-c', script]
+
+    result = guard.run_docker_compose_command(cmd, tmp_path, output_path)
+
+    captured = capsys.readouterr()
+    # The warning must NOT fire because the 429s were not consecutive.
+    assert '[guard] EDSM 429 observed' not in captured.err
+    assert result.consecutive_rate_limits == 0

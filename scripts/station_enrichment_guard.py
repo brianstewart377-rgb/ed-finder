@@ -11,6 +11,7 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,9 @@ from typing import Any, Callable, Mapping, Sequence
 
 
 DEFAULT_OUTPUT_ROOT = Path('/tmp/edfinder-station-enrichment')
+DEFAULT_ALL_RECORDS_CHECKPOINT = (
+    DEFAULT_OUTPUT_ROOT / 'all-records-station-enrichment-checkpoint.json'
+)
 TRUSTED_EDSM_SOURCE = 'edsm_system_api'
 TRUSTED_STATION_IDENTITY_CONFIDENCE = 'exact_station_identity'
 RISKY_CONFLICT_TYPES = {
@@ -41,6 +45,7 @@ class GuardFailure(RuntimeError):
 class CommandResult:
     returncode: int
     stderr: str = ''
+    consecutive_rate_limits: int = 0
 
 
 @dataclass(frozen=True)
@@ -314,6 +319,11 @@ def print_compact_summary(phase: str, report: Mapping[str, Any], path: Path) -> 
 
 
 def report_system_id64s(report: Mapping[str, Any]) -> set[int]:
+    """All system ids touched by the report (success + fetch failure).
+
+    Used for diagnostics and the no-eligible-systems exit. Do *not* use this
+    for checkpoint append: see :func:`successful_system_id64s`.
+    """
     section = station_report_section(report)
     system_ids: set[int] = set()
     for key in ('systems', 'systems_fetch_failed'):
@@ -324,6 +334,47 @@ def report_system_id64s(report: Mapping[str, Any]) -> set[int]:
             if id64 is not None:
                 system_ids.add(id64)
     return system_ids
+
+
+def successful_system_id64s(report: Mapping[str, Any]) -> set[int]:
+    """System ids that finished without a fetch/rate-limit error.
+
+    Only these may be appended to the resumable checkpoint, so that systems
+    that failed transiently are retried in a later batch instead of being
+    silently skipped.
+    """
+    section = station_report_section(report)
+    success: set[int] = set()
+    for system in _list_value(section, 'systems'):
+        if not isinstance(system, Mapping):
+            continue
+        id64 = _optional_int_value(_first_present(system.get('id64'), system.get('system_id64')))
+        if id64 is not None:
+            success.add(id64)
+    failed = _failed_system_id64s(section)
+    return success - failed
+
+
+def _failed_system_id64s(section: Mapping[str, Any]) -> set[int]:
+    failed: set[int] = set()
+    for system in _list_value(section, 'systems_fetch_failed'):
+        if not isinstance(system, Mapping):
+            continue
+        id64 = _optional_int_value(_first_present(system.get('id64'), system.get('system_id64')))
+        if id64 is not None:
+            failed.add(id64)
+    for entry in _list_value(section, 'fetch_errors'):
+        if not isinstance(entry, Mapping):
+            continue
+        candidate = entry.get('system') if isinstance(entry.get('system'), Mapping) else entry
+        id64 = _optional_int_value(_first_present(
+            entry.get('system_id64'),
+            candidate.get('id64') if isinstance(candidate, Mapping) else None,
+            candidate.get('system_id64') if isinstance(candidate, Mapping) else None,
+        ))
+        if id64 is not None:
+            failed.add(id64)
+    return failed
 
 
 def load_checkpoint_system_ids(path: Path) -> set[int]:
@@ -391,6 +442,7 @@ class GuardedStationEnrichmentRunner:
             print('Dry-run only: no apply phases run.', flush=True)
             return initial_report
 
+        applied_anything = False
         metadata_pass = 0
         while analyse_report(current).metadata_updates > 0:
             self._require_apply(f'metadata apply pass {metadata_pass + 1}')
@@ -405,6 +457,7 @@ class GuardedStationEnrichmentRunner:
                 mode='metadata',
             )
             assert_safe_to_continue(metadata_apply, phase=f'metadata apply {metadata_pass}')
+            applied_anything = True
             current = self._run_phase(
                 f'after metadata {metadata_pass} dry-run',
                 f'after_metadata_{metadata_pass}_dryrun',
@@ -420,26 +473,50 @@ class GuardedStationEnrichmentRunner:
                 mode='confirmed_links',
             )
             assert_safe_to_continue(links_apply, phase='confirmed links apply')
+            applied_anything = True
+
+        if not applied_anything:
+            # No-op batch: the initial dry-run already proved the batch is
+            # clean. A second "final" dry-run would re-fetch every system from
+            # EDSM, costing rate-limit budget and potentially reintroducing
+            # spurious live deltas (e.g. distanceToArrival jitter for orbiting
+            # stations). Use the initial dry-run as the final report.
+            print(
+                'final dry-run: skipped (no metadata or confirmed-link writes were applied; '
+                'initial dry-run already showed a clean batch).',
+                flush=True,
+            )
+            assert_final_clean(initial_report, phase='initial dry-run (no-op batch)')
+            return initial_report
 
         final_path = self.output_dir / 'final_dryrun.json'
         final_report = self._run_command_to_file('final dry-run', final_path, mode='dry_run')
         print_compact_summary('final dry-run', final_report, final_path)
         assert_final_clean(final_report)
-        return initial_report
+        return final_report
 
     def _run_all_records(self) -> Path:
-        checkpoint_path = (
-            checkpoint_host_path(self.args.checkpoint_file, self.repo_root)
-            if self.args.checkpoint_file
-            else self.output_dir / 'station-enrichment-checkpoint.json'
-        )
+        if self.args.checkpoint_file:
+            checkpoint_path = checkpoint_host_path(self.args.checkpoint_file, self.repo_root)
+            checkpoint_origin = 'cli'
+        else:
+            checkpoint_path = DEFAULT_ALL_RECORDS_CHECKPOINT.resolve()
+            checkpoint_origin = 'default'
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        existing_checkpoint = load_checkpoint_system_ids(checkpoint_path)
         print(f'Output directory: {self.output_dir}', flush=True)
-        print(f'Checkpoint file: {checkpoint_path}', flush=True)
+        print(
+            f'Checkpoint file ({checkpoint_origin}): {checkpoint_path} '
+            f'(processed_so_far={len(existing_checkpoint)})',
+            flush=True,
+        )
         print(f'Batch size: {self.args.batch_size}', flush=True)
+        if self.args.max_batches is not None:
+            print(f'Max batches: {self.args.max_batches}', flush=True)
 
         batches = 0
         total_added = 0
+        total_failed_carried_forward = 0
         while True:
             if self.args.max_batches is not None and batches >= self.args.max_batches:
                 print(f'Stopped after --max-batches={self.args.max_batches}.', flush=True)
@@ -461,23 +538,48 @@ class GuardedStationEnrichmentRunner:
                 output_dir=batch_output_dir,
                 command_runner=self.command_runner,
             )
-            initial_report = batch_runner._run_guarded_sequence(stop_after_empty_initial=True)
-            system_ids = report_system_id64s(initial_report)
-            if not system_ids:
+            batch_report = batch_runner._run_guarded_sequence(stop_after_empty_initial=True)
+            touched = report_system_id64s(batch_report)
+            if not touched:
                 break
 
-            added, checkpoint_total = append_checkpoint_system_ids(checkpoint_path, system_ids)
+            successful = successful_system_id64s(batch_report)
+            failed_now = touched - successful
+            if failed_now:
+                total_failed_carried_forward += len(failed_now)
+                print(
+                    f'all-records batch {batch_number}: skipping checkpoint append for '
+                    f'systems_fetch_failed={len(failed_now)} (will retry in a later batch)',
+                    flush=True,
+                )
+            added, checkpoint_total = append_checkpoint_system_ids(checkpoint_path, successful)
             total_added += added
             batches += 1
             print(
-                f'all-records batch {batch_number}: checkpoint_added={added} '
-                f'checkpoint_total={checkpoint_total}',
+                f'all-records batch {batch_number}: '
+                f'checkpoint_added={added} '
+                f'checkpoint_total={checkpoint_total} '
+                f'fetch_failed_this_batch={len(failed_now)}',
                 flush=True,
             )
+            if not successful and failed_now:
+                # Every system in this batch failed to fetch; bailing out
+                # avoids busy-looping on the same retry candidates while the
+                # EDSM service is degraded or rate limiting us. Re-running
+                # the guard later will resume from the same checkpoint.
+                print(
+                    'all-records aborted: every system in this batch hit a fetch/rate-limit '
+                    'error. Re-run later; checkpoint is preserved so already-processed systems '
+                    'are not retried.',
+                    flush=True,
+                )
+                break
 
         print(
             f'All-record station enrichment completed: batches={batches} '
-            f'checkpoint_added={total_added} checkpoint_file={checkpoint_path}',
+            f'checkpoint_added={total_added} '
+            f'fetch_failed_carried_forward={total_failed_carried_forward} '
+            f'checkpoint_file={checkpoint_path}',
             flush=True,
         )
         return self.output_dir
@@ -572,18 +674,83 @@ def build_docker_compose_command(args: argparse.Namespace, *, mode: str, repo_ro
     ]
 
 
+RATE_LIMIT_RUN_THRESHOLD = 3
+
+
 def run_docker_compose_command(cmd: Sequence[str], cwd: Path, output_path: Path) -> CommandResult:
-    completed = subprocess.run(
+    """Run the importer under docker compose, streaming stderr live.
+
+    Stdout is JSON; we write it verbatim to ``output_path`` so the rest of the
+    guard can parse a real report. Stderr carries per-system progress and
+    rate-limit messages and is mirrored to the guard's own stderr line by line
+    so the operator sees progress during long --all-records runs. We also
+    persist the captured stderr alongside the JSON for postmortems.
+    """
+    process = subprocess.Popen(
         list(cmd),
         cwd=str(cwd),
         text=True,
-        capture_output=True,
-        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
     )
-    output_path.write_text(completed.stdout, encoding='utf-8')
-    if completed.stderr:
-        output_path.with_name(f'{output_path.name}.stderr.txt').write_text(completed.stderr, encoding='utf-8')
-    return CommandResult(returncode=completed.returncode, stderr=completed.stderr)
+    assert process.stdout is not None and process.stderr is not None
+
+    captured_stderr: list[str] = []
+    rate_limit_lock = threading.Lock()
+    rate_limit_state = {'count': 0, 'warned': False}
+
+    def _drain_stderr() -> None:
+        for line in process.stderr:  # type: ignore[union-attr]
+            captured_stderr.append(line)
+            sys.stderr.write(line)
+            sys.stderr.flush()
+            with rate_limit_lock:
+                if _is_rate_limit_log(line):
+                    rate_limit_state['count'] += 1
+                    if (
+                        rate_limit_state['count'] >= RATE_LIMIT_RUN_THRESHOLD
+                        and not rate_limit_state['warned']
+                    ):
+                        rate_limit_state['warned'] = True
+                        warning = (
+                            f'[guard] EDSM 429 observed {rate_limit_state["count"]} times in this '
+                            f'phase; consider raising --edsm-429-backoff-seconds, --edsm-request-delay-seconds, '
+                            f'or aborting and resuming later. (Checkpoint is preserved.)\n'
+                        )
+                        sys.stderr.write(warning)
+                        sys.stderr.flush()
+                        captured_stderr.append(warning)
+                else:
+                    rate_limit_state['count'] = 0
+
+    drain_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    drain_thread.start()
+
+    stdout_text = process.stdout.read()
+    return_code = process.wait()
+    drain_thread.join()
+    stderr_text = ''.join(captured_stderr)
+    consecutive_rate_limits = rate_limit_state['count']
+
+    output_path.write_text(stdout_text, encoding='utf-8')
+    if stderr_text:
+        output_path.with_name(f'{output_path.name}.stderr.txt').write_text(stderr_text, encoding='utf-8')
+    return CommandResult(
+        returncode=return_code,
+        stderr=stderr_text,
+        consecutive_rate_limits=consecutive_rate_limits,
+    )
+
+
+def _is_rate_limit_log(line: str) -> bool:
+    text = line.lower()
+    return (
+        'too many requests' in text
+        or 'http 429' in text
+        or 'status=429' in text
+        or 'rate limit retry' in text
+    )
 
 
 def _risky_station_keys(report: Mapping[str, Any]) -> set[tuple[str, int | None, Any]]:

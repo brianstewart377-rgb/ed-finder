@@ -147,7 +147,10 @@ def test_edsm_fetch_timeout_exhausts_retries(monkeypatch):
     assert any('attempt=3/3' in line for line in logs)
 
 
-def test_edsm_fetch_429_honours_retry_after(monkeypatch):
+def test_edsm_fetch_429_honours_retry_after_with_floor(monkeypatch):
+    """Retry-After is honoured but clamped to MIN_RATE_LIMIT_RETRY_AFTER_SECONDS
+    so a hostile/short Retry-After cannot push us straight back into another 429.
+    """
     calls = []
     sleeps = []
     logs = []
@@ -184,9 +187,47 @@ def test_edsm_fetch_429_honours_retry_after(monkeypatch):
     )
 
     assert len(calls) == 3
-    assert sleeps == [2.5]
+    # Retry-After 2.5s is clamped up to the safety floor (5.0s by default).
+    assert sleeps == [max(probe.MIN_RATE_LIMIT_RETRY_AFTER_SECONDS, 2.5)]
     assert payload['bodies']['bodies'][0]['name'] == 'Exioce 1'
     assert any('EDSM rate limit retry' in line and "retry_after='2.5'" in line for line in logs)
+
+
+def test_edsm_fetch_429_honours_long_retry_after_unclamped(monkeypatch):
+    """A Retry-After comfortably above the floor is honoured verbatim."""
+    sleeps = []
+    body_attempts = 0
+
+    def fake_urlopen(request, timeout):
+        nonlocal body_attempts
+        if '/stations?' in request.full_url:
+            return FakeHttpResponse({'stations': [{'name': 'Harper Plant'}]})
+        body_attempts += 1
+        if body_attempts == 1:
+            raise HTTPError(
+                request.full_url,
+                429,
+                'Too Many Requests',
+                {'Retry-After': '120'},
+                None,
+            )
+        return FakeHttpResponse({'bodies': [{'name': 'Exioce 1'}]})
+
+    monkeypatch.setattr(probe, 'urlopen', fake_urlopen)
+
+    probe.fetch_edsm_system(
+        'Exioce',
+        timeout=7,
+        retries=1,
+        retry_backoff_seconds=0.5,
+        request_delay_seconds=0,
+        rate_limit_backoff_seconds=60,
+        sleep=sleeps.append,
+        logger=lambda _line: None,
+        system_id64=2008132031194,
+    )
+
+    assert sleeps == [120.0]
 
 
 def test_edsm_fetch_429_uses_configured_backoff_without_retry_after(monkeypatch):
@@ -218,7 +259,10 @@ def test_edsm_fetch_429_uses_configured_backoff_without_retry_after(monkeypatch)
     )
 
     assert len(calls) == 4
-    assert sleeps == [4, 12]
+    # First sleep: configured backoff (4s) is below the safety floor → clamped
+    # to MIN_RATE_LIMIT_RETRY_AFTER_SECONDS (5s). Second sleep is 4 * 3 = 12s
+    # which is comfortably above the floor and is honoured verbatim.
+    assert sleeps == [max(probe.MIN_RATE_LIMIT_RETRY_AFTER_SECONDS, 4.0), 12.0]
     assert payload['bodies']['bodies'][0]['name'] == 'Exioce 1'
 
 
@@ -871,7 +915,13 @@ def test_untrusted_legacy_distance_precision_delta_still_plans_metadata_update()
     assert report['metadata_updates_planned'][0]['new_value'] == 289173.920225
 
 
-def test_large_trusted_exact_edsm_distance_delta_still_plans_metadata_update():
+def test_large_trusted_exact_edsm_distance_delta_does_not_replan_metadata_update():
+    """Trust-and-hold contract: once a station distance has trusted EDSM/exact
+    provenance we MUST NOT replan a distance_from_star update, even when the
+    live EDSM value drifts noticeably. Orbital stations show natural
+    distanceToArrival jitter between EDSM refreshes and replanning would
+    churn the column on every nightly run.
+    """
     report = report_for(
         local_station(
             station_type='Coriolis',
@@ -889,9 +939,68 @@ def test_large_trusted_exact_edsm_distance_delta_still_plans_metadata_update():
 
     station = first_station(report)
 
-    assert 'distance_from_star' in station['fields_that_would_change']
-    assert [update['field'] for update in report['metadata_updates_planned']] == ['distance_from_star']
+    assert 'distance_from_star' not in station['fields_that_would_change']
+    assert report['metadata_updates_planned'] == []
+    # The conflict signal must still be surfaced for diagnostics even though
+    # we deliberately do not act on it.
     assert 'station_distance_mismatch' in conflict_types(station)
+
+
+def test_missing_local_distance_still_populated_from_edsm():
+    """Population case (must keep working): local row has no distance,
+    EDSM provides one — we must plan a write.
+    """
+    report = report_for(
+        local_station(
+            station_type='Coriolis',
+            distance_from_star=None,
+        ),
+        {
+            'id': 1001,
+            'name': 'Harper Plant',
+            'type': 'Coriolis Starport',
+            'distanceToArrival': 289174.2,
+        },
+    )
+
+    station = first_station(report)
+
+    assert 'distance_from_star' in station['fields_that_would_change']
+    fields = [update['field'] for update in report['metadata_updates_planned']]
+    assert 'distance_from_star' in fields
+
+
+def test_min_retry_after_floor_clamps_short_retry_after():
+    """A short Retry-After (e.g. 1 second) must be clamped to the safety floor
+    so honouring it does not immediately trip another 429.
+    """
+    floor = probe.MIN_RATE_LIMIT_RETRY_AFTER_SECONDS
+
+    short_delay = probe._rate_limit_delay_seconds(
+        retry_after_seconds=1.0,
+        backoff_seconds=60.0,
+        multiplier=2.0,
+        failed_attempt=1,
+    )
+    assert short_delay == max(floor, 1.0)
+
+    long_delay = probe._rate_limit_delay_seconds(
+        retry_after_seconds=120.0,
+        backoff_seconds=60.0,
+        multiplier=2.0,
+        failed_attempt=1,
+    )
+    assert long_delay == 120.0
+
+    no_header_delay = probe._rate_limit_delay_seconds(
+        retry_after_seconds=None,
+        backoff_seconds=0.0,
+        multiplier=2.0,
+        failed_attempt=1,
+    )
+    # With no Retry-After and no configured backoff we still must respect the
+    # floor instead of returning 0 and hammering EDSM.
+    assert no_header_delay >= floor
 
 
 def test_known_station_type_mismatch_suppresses_all_station_metadata_writes():

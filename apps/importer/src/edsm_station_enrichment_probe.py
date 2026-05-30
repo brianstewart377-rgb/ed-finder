@@ -78,6 +78,13 @@ DEFAULT_HTTP_RETRY_BACKOFF_SECONDS = _env_float('EDSM_HTTP_RETRY_BACKOFF_SECONDS
 DEFAULT_HTTP_REQUEST_DELAY_SECONDS = _env_float('EDSM_HTTP_REQUEST_DELAY_SECONDS', 0.5)
 DEFAULT_HTTP_429_BACKOFF_SECONDS = _env_float('EDSM_HTTP_429_BACKOFF_SECONDS', 60.0)
 DEFAULT_HTTP_429_BACKOFF_MULTIPLIER = _env_float('EDSM_HTTP_429_BACKOFF_MULTIPLIER', 2.0)
+# EDSM occasionally answers 429 with a tiny Retry-After (e.g. 1 or 2 seconds);
+# obeying that literally still trips the next request and pushes us into a
+# tighter rate-limit. Treat any Retry-After below this floor as the floor.
+MIN_RATE_LIMIT_RETRY_AFTER_SECONDS = _env_float('EDSM_MIN_RETRY_AFTER_SECONDS', 5.0)
+# Number of consecutive 429s after which we log a TODO/recommendation that the
+# operator should raise the global backoff or pause and resume later.
+REPEATED_RATE_LIMIT_WARNING_THRESHOLD = _env_int('EDSM_REPEATED_429_WARNING_THRESHOLD', 3)
 STATION_DISTANCE_CONFLICT_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
 TRUSTED_STATION_DISTANCE_PRECISION_TOLERANCE_LS = 0.05
 BODY_DISTANCE_MATCH_TOLERANCE_LS = DISTANCE_MATCH_TOLERANCE_LS
@@ -423,10 +430,15 @@ def _rate_limit_delay_seconds(
     failed_attempt: int,
 ) -> float:
     if retry_after_seconds is not None:
-        return max(0.0, retry_after_seconds)
+        # Honour Retry-After but clamp to the safety floor so a hostile/short
+        # Retry-After does not push us into another 429 on the very next call.
+        return max(MIN_RATE_LIMIT_RETRY_AFTER_SECONDS, float(retry_after_seconds))
     base_delay = max(0.0, float(backoff_seconds or 0.0))
     factor = max(1.0, float(multiplier or 1.0))
-    return base_delay * (factor ** max(0, failed_attempt - 1))
+    return max(
+        MIN_RATE_LIMIT_RETRY_AFTER_SECONDS,
+        base_delay * (factor ** max(0, failed_attempt - 1)),
+    )
 
 
 def _retry_after_header(exc_or_response: Any) -> str | None:
@@ -1940,12 +1952,23 @@ def _has_trusted_station_metadata(station: Mapping[str, Any], *, prefix: str) ->
 
 
 def _station_distance_metadata_update_needed(local_station: Mapping[str, Any], edsm_distance: float) -> bool:
+    """Decide whether ``stations.distance_from_star`` should be replanned.
+
+    Population: if the local row has no distance, plan to populate it.
+    Replace untrusted: if the local row's distance has weak provenance,
+    plan to replace it with the EDSM exact value.
+    Trust-and-hold: if the local row already has trusted EDSM/exact-station
+    identity provenance, do **not** replan even when the live EDSM value
+    differs. Orbital stations around bodies have natural distanceToArrival
+    drift between EDSM refreshes; once we have an exact-identity write we
+    must not churn the column on every nightly run.
+    """
     local_distance = _read_float(local_station.get('distance_from_star'))
     if local_distance is None:
         return True
     if not _has_trusted_station_metadata(local_station, prefix='distance'):
         return True
-    return abs(local_distance - edsm_distance) > TRUSTED_STATION_DISTANCE_PRECISION_TOLERANCE_LS
+    return False
 
 
 def _extract_edsm_stations(payload: Any) -> list[Mapping[str, Any]]:

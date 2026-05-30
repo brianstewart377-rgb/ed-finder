@@ -1,0 +1,337 @@
+# EDSM station enrichment — production roadmap & runbook
+
+> **Audience:** anyone running the guarded EDSM station enrichment on the
+> Hetzner production host (or a staging clone), or extending the importer/guard
+> code in this repo.
+>
+> **Scope:** the apply path that writes verified `stations.station_type`,
+> `stations.distance_from_star`, `stations.body_name`, and confirmed
+> `station_body_links` rows from EDSM. Ring enrichment lives in the same
+> importer entrypoint but follows a separate Spansh-first contract.
+
+This file is the source of truth for how we run station enrichment safely at
+scale. If a procedural step in this document conflicts with what you see in
+the code, the code wins — please update this doc in the same PR.
+
+---
+
+## 1. Components
+
+| Path | Role |
+|---|---|
+| `apps/importer/src/enrich_system_data.py` | Importer entrypoint. Implements the dry-run / metadata-apply / confirmed-link-apply contract per system. Emits a single JSON report on stdout, progress on stderr, and writes the database via `apps/importer/src/edsm_station_enrichment_probe.py`. |
+| `apps/importer/src/edsm_station_enrichment_probe.py` | The actual EDSM HTTP client + change planner. Owns identity matching, conflict classification, the trust-and-hold rules for `distance_from_star`, and the rate-limit retry loop. |
+| `scripts/station_enrichment_guard.py` | Production wrapper. Runs the importer in a docker-compose `importer` service, validates each phase JSON, gates apply behind safety analysis, writes per-batch artifacts, and maintains the resumable all-records checkpoint. **Never** call the importer directly in production — use the guard. |
+| `scripts/run_station_enrichment_guarded.sh` | One-line shell shim around the guard so cron/Hetzner systemd timers can invoke it without remembering the python path. |
+| `scripts/station_enrichment_status.py` | Read-only status helper. Inspects the latest run output dir and the checkpoint without touching EDSM or the database. |
+| `tests/test_edsm_station_enrichment_probe.py` | Importer-level unit tests (no live EDSM). |
+| `tests/test_station_enrichment_guard.py` | Guard-level unit tests with fake command runners (no docker, no live EDSM). |
+| `tests/test_station_enrichment_status.py` | Status helper unit tests. |
+
+---
+
+## 2. Safety invariants the guard upholds
+
+These are **hard contracts**. If any of them looks wrong in a live run, stop
+the run and report it before re-running.
+
+1. **Single source of truth.** Trusted writes always carry
+   `source = "edsm_system_api"` and
+   `confidence = "exact_station_identity"`. Anything weaker is a bug.
+2. **Identity gate.** A station must match by EDSM id/marketId AND name before
+   any column is updated.
+3. **Trust-and-hold for `distance_from_star`.** Once a station's distance is
+   already at trusted EDSM/exact provenance we **never** replan a distance
+   update, even when the live EDSM value drifts. Orbital stations show
+   natural `distanceToArrival` jitter between EDSM refreshes; replanning would
+   re-touch the column on every nightly run. Population (NULL → value) and
+   replacement of untrusted legacy distances still happen.
+4. **Permanent station types only.** `Unknown` may be promoted to a known
+   permanent type (Orbis, Coriolis, Asteroid Base, …). Carriers and other
+   transient stations are ignored — never written.
+5. **Risky conflicts block apply.** `id_name_mismatch`,
+   `known_station_type_mismatch`, `station_economy_mismatch` and any
+   `*_unsafe` write-safety marker abort the apply phase. The guard refuses to
+   continue.
+6. **Final dry-run validates writes.** When the guard applied any metadata or
+   confirmed-link write it reruns a final dry-run and asserts that
+   `metadata_updates_planned == 0` and `confirmed_link_updates_planned == 0`.
+   No-op batches skip this re-fetch (see §4).
+7. **Success-only checkpointing.** Only systems that returned a non-failed
+   station report are appended to the resumable checkpoint. Systems that
+   tripped a fetch / rate-limit error are deliberately left off the
+   checkpoint so a later batch retries them.
+
+---
+
+## 3. Resumable checkpoint contract
+
+Long `--all-records` runs are batched (default `--batch-size 2000`). Each
+batch is a full guarded sequence (`initial dry-run → metadata applies →
+confirmed-link apply → final dry-run`) restricted to the next batch of
+systems that are not yet on the checkpoint.
+
+### Default checkpoint path
+
+If `--checkpoint-file` is **not** provided, the guard uses
+
+```
+/tmp/edfinder-station-enrichment/all-records-station-enrichment-checkpoint.json
+```
+
+This path is stable across runs by design: a second invocation resumes from
+the first one's checkpoint instead of starting from scratch. The guard prints
+the resolved checkpoint path at run start so the operator can verify it. To
+override this for staged production runs, pass `--checkpoint-file
+/path/to/your-state.json`.
+
+### What goes into the checkpoint
+
+```json
+{
+  "processed_system_id64s": [<sorted, deduplicated successful ids>],
+  "last_system_id64": <max of the above>
+}
+```
+
+The guard **only** appends to `processed_system_id64s` when the batch's
+guarded sequence finishes cleanly **and** the system did not appear under
+`stations.systems_fetch_failed` / `stations.fetch_errors`. Failed systems are
+left for the next batch.
+
+### Failure handling
+
+* If a batch contains some failed systems and some successful ones, the
+  successful ones are checkpointed and the run continues with the next batch.
+  The failed system ids will reappear in the next batch's eligible set
+  because they are still missing trusted provenance.
+* If **every** system in a batch fails (typical EDSM outage / rate-limit
+  storm), the guard logs a clear "all-records aborted" message and exits.
+  The checkpoint stays exactly as it was so the next run resumes from the
+  same point. **Do not** delete the checkpoint to "force a retry"; that would
+  redo every previously-processed system.
+
+---
+
+## 4. No-op batch handling
+
+If the initial dry-run for a batch reports zero metadata updates and zero
+confirmed-link updates, the guard treats the batch as a clean no-op:
+
+* No metadata apply runs.
+* No confirmed-link apply runs.
+* **No final dry-run is re-fetched.** A second EDSM round-trip on a clean
+  batch costs rate-limit budget and risks reintroducing spurious live deltas
+  (notably `distanceToArrival` jitter for orbiting stations).
+* The batch's successful system ids are still checkpointed.
+
+When a metadata or confirmed-link apply *did* run in the batch, the final
+dry-run re-fetch is unconditional and its zero-plan assertion is the
+acceptance test for the writes.
+
+---
+
+## 5. EDSM rate-limit handling
+
+The probe enforces a layered defence:
+
+1. **Per-request retry budget** — `--edsm-retries` (default 3) attempts per
+   endpoint. Non-429 errors use the exponential `--edsm-retry-backoff-seconds`
+   ladder.
+2. **Retry-After floor** — when EDSM returns a 429 with a Retry-After header
+   we honour it but clamp it to `EDSM_MIN_RETRY_AFTER_SECONDS` (default
+   **5 seconds**). EDSM occasionally answers with very short Retry-Afters
+   (1–2 s); obeying them literally guarantees another 429 on the next call.
+3. **Configured backoff floor** — when no Retry-After header is present the
+   probe falls back to `--edsm-429-backoff-seconds` ×
+   `--edsm-429-backoff-multiplier^attempt`, then clamps the result up to the
+   same 5 s floor.
+4. **Repeated-429 escalation** — the guard mirrors importer stderr live and
+   counts consecutive rate-limit log lines per phase. After 3 in a row it
+   prints a one-shot warning recommending a higher
+   `--edsm-429-backoff-seconds` / `--edsm-request-delay-seconds`, or aborting
+   and resuming later. The checkpoint is preserved either way.
+
+If you see the warning more than once per run, **abort and let EDSM cool
+down** rather than turning up the dials further; we are part of a wider EDSM
+load-shedding window in that case.
+
+---
+
+## 6. Observability
+
+While a run is in flight the guard now streams importer stderr live to its
+own stderr, line-by-line, so the operator can watch per-system progress in
+real time. Each batch persists:
+
+* `01_initial_dryrun.json[.stderr.txt]`
+* `02_metadata_apply_*.json[.stderr.txt]` (if any apply ran)
+* `03_after_metadata_*_dryrun.json[.stderr.txt]`
+* `04_confirmed_links_apply.json[.stderr.txt]` (if any apply ran)
+* `final_dryrun.json[.stderr.txt]` (skipped on no-op batches)
+
+The guard prints a compact summary line per phase with the counters spec
+asked for:
+
+```
+initial dry-run: systems_processed=N metadata_updates=M confirmed_links=L
+                 conflicts=C skipped=S fetch_errors=F systems_fetch_failed=K
+                 suppressed_station_writes=W ignored_transient_non_slot=I
+                 dirty_marked/planned=D/P file=...
+```
+
+To inspect run state from a separate shell (or to feed into nagios/an
+operator dashboard) use `scripts/station_enrichment_status.py`:
+
+```sh
+# Default: stable all-records checkpoint, default output root.
+python3 scripts/station_enrichment_status.py
+
+# Inspect a custom checkpoint and ask whether system 2008132031194 is
+# already checkpointed.
+python3 scripts/station_enrichment_status.py \
+  --checkpoint-file /var/lib/edfinder/state/all-records.json \
+  --system-id64 2008132031194
+
+# Machine-readable for cron/email.
+python3 scripts/station_enrichment_status.py --json
+```
+
+---
+
+## 7. Hetzner production runbook
+
+Run from the host as the deploy user, with the docker-compose `import`
+profile already provisioned (the guard executes
+`docker compose --profile import run --rm -T importer ...` for every phase).
+
+### 7.1 Smoke check (always do this first)
+
+```sh
+cd /opt/ed-finder
+# Process at most 2 systems, never apply. Confirms the importer + guard pipeline
+# and the EDSM connectivity path without touching the database.
+python3 scripts/station_enrichment_guard.py --limit 2 --dry-run-only
+```
+
+Expect: a fresh dir under `/tmp/edfinder-station-enrichment/`, an
+`01_initial_dryrun.json`, a `final_dryrun.json` if any apply ran (it won't,
+because of `--dry-run-only`), and a one-line summary per phase. No errors on
+stderr.
+
+### 7.2 Bounded apply
+
+```sh
+cd /opt/ed-finder
+# Apply on a small slice. If anything goes wrong only N stations are touched.
+python3 scripts/station_enrichment_guard.py --limit 100 --yes
+```
+
+Inspect:
+* Last `final_dryrun.json` should have `metadata_updates_planned == 0` and
+  `confirmed_link_updates_planned == 0`.
+* `summary.stations.fetch_errors` and `summary.stations.systems_fetch_failed`
+  are 0 on a healthy run.
+
+### 7.3 Resumable all-records run
+
+```sh
+cd /opt/ed-finder
+nohup python3 scripts/station_enrichment_guard.py \
+    --all-records \
+    --batch-size 2000 \
+    --max-batches 50 \
+    > /var/log/edfinder/station-enrichment.$(date -u +%Y%m%dT%H%M%SZ).log 2>&1 &
+```
+
+Notes:
+* No `--checkpoint-file` is needed: the guard uses the stable default at
+  `/tmp/edfinder-station-enrichment/all-records-station-enrichment-checkpoint.json`.
+  If you want the checkpoint to survive `/tmp` cleanup across reboots, point
+  at a path under `/var/lib/edfinder/state/` instead.
+* `--max-batches` keeps any single shell session bounded; re-running with the
+  same default checkpoint resumes where the previous session stopped.
+* Use `tail -f` on the log file (or
+  `python3 scripts/station_enrichment_status.py --json --output-root
+  /tmp/edfinder-station-enrichment`) for live progress.
+
+### 7.4 Healthy-day rate-limit knobs
+
+For a quiet EDSM window the defaults are appropriate. When EDSM is hot you
+can either:
+
+```sh
+# Slow the request cadence and increase the no-Retry-After backoff.
+python3 scripts/station_enrichment_guard.py --all-records \
+    --edsm-request-delay-seconds 1.5 \
+    --edsm-429-backoff-seconds 120
+```
+
+…or pause the run, wait, and restart — the checkpoint is preserved either
+way.
+
+### 7.5 What to do on the warnings the guard prints
+
+| Guard message | Operator action |
+|---|---|
+| `[guard] EDSM 429 observed N times in this phase; consider raising --edsm-429-backoff-seconds…` | If first time in a run: keep going, the backoff floor will absorb it. If repeated: abort, raise the delays, restart later. |
+| `all-records batch X: skipping checkpoint append for systems_fetch_failed=N` | Expected when EDSM blips. Those systems will be retried in the next batch. |
+| `all-records aborted: every system in this batch hit a fetch/rate-limit error` | EDSM is degraded. Stop the run, investigate, retry later. The checkpoint stays accurate. |
+| `Guard failed: ... blocked by safety gate` | Safety net tripped. Inspect the most recent `*_dryrun.json` for `conflicts` and `metadata_updates_planned`. **Do not** force-apply by editing the JSON. |
+
+### 7.6 Recovery from a partial / interrupted run
+
+The guard never deletes the checkpoint. If you `Ctrl+C` mid-batch the
+already-completed batches are recorded; the in-flight batch is lost (its JSON
+files remain on disk for inspection but no rows from it were checkpointed
+unless they were applied successfully before the interruption). Re-run with
+the same arguments and the next batch resumes from the next un-processed
+system id64.
+
+---
+
+## 8. Roadmap
+
+The list below is intentionally narrow — anything not on it should be
+treated as a separate proposal.
+
+* **Status integration**: pipe `station_enrichment_status.py --json` into the
+  ed-finder operator dashboard so we can see live progress without
+  ssh'ing.
+* **Sticky failed-system retry queue**: today, fetch-failed systems naturally
+  re-enter the next batch because they have no trusted provenance yet. If
+  that becomes too slow for very large outages, materialise a separate
+  retry queue (with its own backoff schedule) instead of pulling them in
+  via the regular eligible-station SQL.
+* **PostgreSQL-backed checkpoint**: the JSON file is fine for one-host ops.
+  When we move to multi-host nightly enrichment we should put the
+  checkpoint in Postgres (`enrichment_progress` table) so multiple workers
+  can coordinate without stepping on each other.
+* **Optional `--retry-failed` mode**: a second top-level mode that only
+  re-runs the systems that appeared in any historical `systems_fetch_failed`
+  list, with a tighter rate-limit profile.
+* **Ring enrichment guarded mode**: parity wrapper for the Spansh-first ring
+  enrichment, sharing the same checkpoint discipline.
+
+---
+
+## 9. Suggested local test commands
+
+These all run offline; they never touch EDSM or the production database.
+
+```sh
+# Importer probe (distance trust-and-hold, 429 floor, identity gating, …)
+python3 -m pytest tests/test_edsm_station_enrichment_probe.py -q
+
+# Guard wrapper (checkpoint, no-op skip, success-only checkpointing, …)
+python3 -m pytest tests/test_station_enrichment_guard.py -q
+
+# Status helper
+python3 -m pytest tests/test_station_enrichment_status.py -q
+
+# All three together
+python3 -m pytest \
+    tests/test_edsm_station_enrichment_probe.py \
+    tests/test_station_enrichment_guard.py \
+    tests/test_station_enrichment_status.py -q
+```
