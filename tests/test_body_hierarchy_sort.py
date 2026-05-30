@@ -79,8 +79,8 @@ def test_api_body_payload_exposes_hierarchy_sort_key():
     assert body['body_sort_key'] == natural_body_sort_key_string('Exioce 4 a a', 'Exioce')
 
 
-def test_ring_state_true_from_scan_fact():
-    assert _ring_fields_from_scan_fact(True, ['eddn_scan']) == (True, 'ringed')
+def test_ring_state_true_scan_fact_without_trusted_ring_row_is_unknown():
+    assert _ring_fields_from_scan_fact(True, ['eddn_scan']) == (None, 'unknown')
 
 
 def test_ring_state_false_from_scan_fact():
