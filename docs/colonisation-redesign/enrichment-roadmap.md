@@ -300,7 +300,7 @@ planner must not perform network access and must not write to the database.
 |---|---|---|
 | JSON fixtures / offline samples | Unit tests, deterministic examples, trust-classification edge cases, and CI. | Fixtures are not enough to prove SQL joins, schema compatibility, null/enum behaviour under real database adapters, or production-scale performance. |
 | Non-production DB | Integration testing against the real schema, joins, null handling, enum handling, and migrations. | Safer than production, but slower and more complex than fixtures. It should still use offline source data, not live enrichment APIs. |
-| Existing local production tables | Production dry-runs using the real local source of truth. Required for galaxy-scale validation because it exercises the actual body/ring population and current trust state. | Must remain read-only until a guarded apply phase exists. Use only for dry-run reads and report generation. |
+| Existing local production tables | Production dry-runs using the real local source of truth. Required for galaxy-scale validation because it exercises the actual body/ring population and current trust state. | Must remain read-only in this warehouse path. Use only for dry-run reads and report generation. |
 | Offline snapshots / staging data | Preferred external source for large-scale enrichment and repeatable validation. | Needs a parser/normaliser and versioned snapshot handling, but gives stable inputs, batchability, and rerunnable reports. |
 | Live APIs | Small manual diagnostics only, if ever needed outside this planner contract. | Avoid for large all-record enrichment: rate limits, latency, upstream volatility, and poor repeatability make them unsuitable for deterministic galaxy-scale planning. |
 
@@ -315,7 +315,7 @@ external snapshot/file
 -> read-only local DB fetch
 -> pure planner
 -> versioned dry-run report
--> later guarded apply phase
+-> separately designed write path only if explicitly approved later
 ```
 
 For production scale, the preferred path is existing local tables plus
@@ -339,9 +339,10 @@ real-data classification without modifying rows.
 3. **Stage C: production read-only dry-run.** Read existing local production
    tables and offline snapshots only, use checkpointed batching for scale, and
    write versioned reports without touching production data.
-4. **Stage D: future guarded apply mode.** Add writes only after dry-run
-   reports are boring, predictable, and covered by the same kind of guard
-   discipline used for station enrichment.
+4. **Stage D: future write-path design review.** Keep this out of the current
+   warehouse implementation. Any canonical writes need a separate proposal,
+   safety review, and test plan after dry-run reports are boring and
+   predictable.
 
 ### 8.4 Body/ring trust model
 
@@ -353,6 +354,58 @@ The body/ring planner must preserve the current trust distinction:
   existing tests.
 * Trusted local-matched `body_rings` rows are required before promoting a body
   to confirmed ringed state.
+
+## 8.5 Offline enrichment warehouse foundation
+
+The first warehouse foundation is documented in
+`docs/colonisation-redesign/enrichment-staging-architecture.md` and implemented
+by:
+
+| Path | Role |
+|---|---|
+| `sql/026_enrichment_staging_foundation.sql` | Additive source-run, raw-record, normalised staging, and derived dry-run intelligence tables. |
+| `apps/importer/src/enrichment_staging.py` | Pure canonicalisation, hashing, source classification, validation, and report skeleton helpers. |
+| `apps/importer/src/enrichment_snapshot_loader.py` | Offline-only local JSON/JSON.GZ loader for EDSM station and body/ring snapshot-style records. |
+| `apps/importer/src/enrichment_staging_db_loader.py` | Explicitly gated staging-only DB loader, schema preflight, staged-row reports, and read-only reconciliation CLI. |
+| `apps/importer/src/enrichment_warehouse.py` / `apps/importer/src/enrichment_warehouse_repository.py` | Warehouse boundary, SQL safety checks, and repository-backed access to warehouse tables. |
+| `apps/importer/src/enrichment_write_plans.py` | Pure staging write-plan builders used before DB execution. |
+| `apps/importer/src/enrichment_reconciliation.py` / `apps/importer/src/enrichment_reconciliation_scoring.py` | Read-only candidate shaping and report-only confidence/risk scoring. |
+| `apps/importer/src/enrichment_analytics.py` | Pure report-only analytics, colonisation, and mission-density signal scaffolds. |
+| `tests/fixtures/edsm_station_snapshot.json` | Tiny deterministic EDSM station snapshot fixture. |
+| `tests/fixtures/edsm_body_ring_snapshot.json` | Tiny deterministic EDSM body/ring snapshot fixture. |
+| `tests/test_enrichment_staging.py` / `tests/test_enrichment_snapshot_loader.py` | Fixture-backed tests for hashes, source classes, report versions, JSON/GZIP loading, skipped rows, and deterministic output. |
+
+This warehouse path is deliberately not wired into any operations job. It does
+not call EDSM, invoke Docker, connect to production Postgres, run migrations,
+update canonical station/body/system rows, or create station-body links. The
+default mode emits `enrichment_snapshot_load_plan/v1` dry-run reports only.
+Staging DB writes are opt-in and require `--write-staging`, `--dsn`, and
+`--confirm-staging-db`; they target only the enrichment warehouse tables.
+
+Run the local fixture loader from the repo root:
+
+```sh
+python3 apps/importer/src/enrichment_snapshot_loader.py \
+    --source edsm_nightly_stations \
+    --source-file tests/fixtures/edsm_station_snapshot.json \
+    --json
+```
+
+Use `--limit N` for bounded inspection of larger local snapshots. `--dry-run`
+is the default. `--apply`, `--write`, and `--commit` fail closed.
+
+The current warehouse also supports local body/ring snapshots through
+`--source edsm_nightly_bodies`, read-only reconciliation via
+`--report-reconciliation`, staged-row summaries via `--report-staged-run`, and
+pure report-only analytics/signals. Optional real-Postgres smoke tests for the
+staging loaders and reconciliation are skipped by default unless
+`EDFINDER_STAGING_TEST_DSN` and `EDFINDER_CONFIRM_STAGING_TEST_DB=yes` are set.
+
+This is the long-term replacement direction for large live API crawls: load
+repeatable offline snapshots into raw/staging evidence, compare read-only
+against canonical ED-Finder tables, produce pure versioned dry-run plans, and
+keep warehouse output report-only unless a separate canonical write design is
+approved later.
 
 ---
 
@@ -378,6 +431,15 @@ treated as a separate proposal.
   list, with a tighter rate-limit profile.
 * **Ring enrichment guarded mode**: parity wrapper for the Spansh-first ring
   enrichment, sharing the same checkpoint discipline.
+* **Warehouse reconciliation hardening**: broaden read-only reconciliation
+  quality checks across staged station, body, and ring evidence while
+  preserving `distanceToArrival` as volatile evidence instead of a churn
+  source.
+* **Report-only analytics maturation**: improve confidence/risk explanations,
+  source coverage summaries, colonisation signals, and mission-density signals
+  without writing canonical data.
+* **Optional smoke coverage**: keep real-Postgres smoke tests skipped by
+  default and focused on staging tables plus read-only reports.
 
 ---
 

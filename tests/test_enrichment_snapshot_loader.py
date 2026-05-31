@@ -1,0 +1,357 @@
+import gzip
+import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+
+os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
+os.environ.setdefault('LOG_FILE', '/dev/null')
+
+ROOT = Path(__file__).resolve().parents[1]
+IMPORTER_SRC = ROOT / 'apps' / 'importer' / 'src'
+if str(IMPORTER_SRC) not in sys.path:
+    sys.path.insert(0, str(IMPORTER_SRC))
+
+import enrichment_snapshot_loader as loader  # noqa: E402
+
+
+FIXTURE = ROOT / 'tests' / 'fixtures' / 'edsm_station_snapshot.json'
+
+
+def test_loader_reads_local_edsm_station_snapshot_fixture():
+    report = loader.build_snapshot_load_report(
+        source_file=FIXTURE,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['schema_version'] == 'enrichment_snapshot_load_plan/v1'
+    assert report['dry_run'] is True
+    assert report['source_run']['source'] == 'edsm_nightly_stations'
+    assert report['source_run']['source_class'] == 'semi-stable'
+    assert report['source_file']['source_file_name'] == 'edsm_station_snapshot.json'
+    assert len(report['source_file']['file_sha256']) == 64
+    assert report['summary']['raw_records'] == 3
+    assert report['summary']['staged_rows'] == 2
+    assert report['summary']['staged_edsm_stations'] == 2
+    assert report['summary']['skipped_rows'] == 1
+    assert report['summary']['canonical_writes_planned'] == 0
+    assert report['summary']['distance_to_arrival_classification'] == 'volatile'
+
+    by_name = {row['station_name']: row for row in report['staged_rows']}
+    macmillan = by_name['Macmillan Depot']
+    assert macmillan['system_id64'] == 2008132031194
+    assert macmillan['market_id'] == 128666
+    assert macmillan['edsm_station_id'] == 128666
+    assert macmillan['station_type'] == 'Orbis Starport'
+    assert macmillan['distance_to_arrival'] == 592.25
+    assert macmillan['body_name'] == 'Exioce 3 d'
+    assert macmillan['controlling_faction'] == 'Exioce Blue Mafia'
+    assert macmillan['provenance']['distance_to_arrival_classification'] == 'volatile'
+    assert macmillan['provenance']['canonical_write_allowed'] is False
+    assert macmillan['raw_payload']['distanceToArrival'] == 592.25
+
+
+def test_loader_honours_limit_without_loading_or_writing_canonical_data():
+    report = loader.build_snapshot_load_report(
+        source_file=FIXTURE,
+        source='edsm_nightly_stations',
+        limit=1,
+    )
+
+    assert report['summary']['records_seen'] == 1
+    assert report['summary']['raw_records'] == 1
+    assert report['summary']['staged_rows'] == 1
+    assert report['summary']['skipped_rows'] == 0
+    assert report['planned_rows'] == []
+    assert report['dry_run'] is True
+    assert report['summary']['dry_run_only'] is True
+    assert report['summary']['canonical_writes_planned'] == 0
+
+
+def test_loader_reads_gzipped_local_fixture(tmp_path):
+    gz_path = tmp_path / 'edsm_station_snapshot.json.gz'
+    with gzip.open(gz_path, 'wt', encoding='utf-8') as handle:
+        handle.write(FIXTURE.read_text(encoding='utf-8'))
+
+    report = loader.build_snapshot_load_report(
+        source_file=gz_path,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['source_file']['compression'] == 'gzip'
+    assert report['summary']['raw_records'] == 3
+    assert report['summary']['staged_rows'] == 2
+
+
+def test_invalid_records_are_skipped_with_warnings_not_crashes():
+    report = loader.build_snapshot_load_report(
+        source_file=FIXTURE,
+        source='edsm_nightly_stations',
+    )
+
+    skipped = report['skipped_rows']
+    assert len(skipped) == 1
+    assert skipped[0]['reason'] == 'invalid_station_snapshot_record'
+    assert skipped[0]['warnings'] == [
+        {'field': 'station_name', 'reason': 'missing_required_field'},
+    ]
+
+
+def test_normalisation_accepts_edsm_station_snapshot_shapes():
+    row = loader.normalise_edsm_station_snapshot_record(
+        {
+            'systemName': 'Sol',
+            'systemId64': '10477373803',
+            'marketId': '322',
+            'id': '1234',
+            'name': 'Galileo',
+            'type': 'Coriolis Starport',
+            'distanceToArrival': '503.2',
+            'bodyName': 'Moon',
+            'services': ['Dock', 'Shipyard'],
+            'economy': 'High Tech',
+            'secondEconomy': 'Service',
+            'controllingFaction': {'name': 'Mother Gaia'},
+            'updatedAt': '2026-01-02T00:00:00Z',
+        },
+        source='edsm_nightly_stations',
+    )
+
+    assert row['system_id64'] == 10477373803
+    assert row['market_id'] == 322
+    assert row['edsm_station_id'] == 1234
+    assert row['distance_to_arrival'] == 503.2
+    assert row['economies'] == ['High Tech', 'Service']
+    assert row['controlling_faction'] == 'Mother Gaia'
+    assert row['freshness_class'] == 'source_updated_at'
+    assert row['source_record_hash']
+
+
+def test_report_output_is_deterministic_for_fixed_fixture():
+    first = loader.build_snapshot_load_report(
+        source_file=FIXTURE,
+        source='edsm_nightly_stations',
+    )
+    second = loader.build_snapshot_load_report(
+        source_file=FIXTURE,
+        source='edsm_nightly_stations',
+    )
+
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_cli_outputs_json_report(capsys):
+    exit_code = loader.main([
+        '--source-file',
+        str(FIXTURE),
+        '--source',
+        'edsm_nightly_stations',
+        '--json',
+        '--limit',
+        '2',
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload['summary']['records_seen'] == 2
+    assert payload['summary']['staged_rows'] == 2
+
+
+def test_apply_flags_fail_closed():
+    with pytest.raises(SystemExit):
+        loader.parse_args([
+            '--source-file',
+            str(FIXTURE),
+            '--source',
+            'edsm_nightly_stations',
+            '--apply',
+        ])
+
+
+def test_dry_run_is_default_and_write_flags_are_absent_from_report():
+    args = loader.parse_args([
+        '--source-file',
+        str(FIXTURE),
+        '--source',
+        'edsm_nightly_stations',
+    ])
+    report = loader.build_snapshot_load_report(
+        source_file=Path(args.source_file),
+        source=args.source,
+    )
+
+    assert args.dry_run is True
+    assert report['dry_run'] is True
+    assert report['source_run']['dry_run'] is True
+    assert report['summary']['canonical_writes_planned'] == 0
+    assert report['planned_rows'] == []
+
+
+def test_loader_rejects_live_or_remote_source_paths():
+    with pytest.raises(ValueError, match='local path'):
+        loader.build_snapshot_load_report(
+            source_file=Path('https://www.edsm.net/dump.json'),
+            source='edsm_nightly_stations',
+        )
+
+
+def test_loader_rejects_unknown_source_adapter():
+    with pytest.raises(ValueError, match='unsupported offline source'):
+        loader.build_snapshot_load_report(
+            source_file=FIXTURE,
+            source='mystery_vendor_snapshot',
+        )
+
+
+def test_missing_source_file_fails_clearly(tmp_path, capsys):
+    missing_file = tmp_path / 'missing-stations.json'
+
+    with pytest.raises(ValueError, match='source file does not exist'):
+        loader.build_snapshot_load_report(
+            source_file=missing_file,
+            source='edsm_nightly_stations',
+        )
+
+    exit_code = loader.main([
+        '--source-file',
+        str(missing_file),
+        '--source',
+        'edsm_nightly_stations',
+    ])
+
+    assert exit_code == 2
+    assert 'source file does not exist' in capsys.readouterr().err
+
+
+def test_duplicate_station_records_share_source_hash_and_report_deterministically(tmp_path):
+    station = {
+        'systemName': 'Duplicate Test',
+        'systemId64': 42,
+        'marketId': 123,
+        'id': 123,
+        'name': 'Repeat Depot',
+        'type': 'Outpost',
+        'distanceToArrival': 15.5,
+    }
+    source_file = tmp_path / 'duplicate-stations.json'
+    source_file.write_text(json.dumps([station, dict(station)]), encoding='utf-8')
+
+    first = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+    second = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    assert first == second
+    assert first['summary']['raw_records'] == 2
+    assert first['summary']['staged_rows'] == 2
+    raw_hashes = [row['source_record_hash'] for row in first['raw_records_planned']]
+    staged_hashes = [row['source_record_hash'] for row in first['staged_rows']]
+    assert len(set(raw_hashes)) == 1
+    assert len(set(staged_hashes)) == 1
+    assert len({row['source_record_key'] for row in first['raw_records_planned']}) == 2
+
+
+def test_unknown_extra_fields_are_retained_in_raw_and_staging_evidence(tmp_path):
+    station = {
+        'systemName': 'Extra Fields',
+        'systemId64': 43,
+        'marketId': 777,
+        'id': 777,
+        'name': 'Archive Terminal',
+        'type': 'Coriolis Starport',
+        'distanceToArrival': 250.75,
+        'unexpectedNested': {
+            'futureField': 'retained',
+            'values': [1, {'deep': True}],
+        },
+    }
+    source_file = tmp_path / 'extra-fields.json'
+    source_file.write_text(json.dumps([station]), encoding='utf-8')
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['summary']['staged_rows'] == 1
+    assert report['raw_records_planned'][0]['raw_payload']['unexpectedNested']['futureField'] == 'retained'
+    assert report['staged_rows'][0]['raw_payload']['unexpectedNested']['values'][1]['deep'] is True
+
+
+def test_sparse_valid_station_record_uses_defaults_and_warning_not_skip(tmp_path):
+    source_file = tmp_path / 'sparse-station.json'
+    source_file.write_text(
+        json.dumps([
+            {
+                'systemName': 'Sparse System',
+                'name': 'Bare Station',
+            }
+        ]),
+        encoding='utf-8',
+    )
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+    row = report['staged_rows'][0]
+
+    assert report['summary']['staged_rows'] == 1
+    assert report['summary']['skipped_rows'] == 0
+    assert report['summary']['warnings'] == 1
+    assert row['system_id64'] is None
+    assert row['market_id'] is None
+    assert row['edsm_station_id'] is None
+    assert row['services'] == []
+    assert row['economies'] == []
+    assert row['freshness_class'] == 'file_snapshot'
+    assert row['validation_warnings'] == [
+        {'field': 'market_id', 'reason': 'missing_station_source_identity'},
+    ]
+
+
+def test_malformed_non_object_records_are_reported_as_skipped_not_successful(tmp_path):
+    source_file = tmp_path / 'malformed-records.json'
+    source_file.write_text(
+        json.dumps([
+            {
+                'systemName': 'Valid System',
+                'marketId': 9001,
+                'name': 'Valid Station',
+            },
+            12,
+            'not an object',
+        ]),
+        encoding='utf-8',
+    )
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['summary']['records_seen'] == 3
+    assert report['summary']['staged_rows'] == 1
+    assert report['summary']['skipped_rows'] == 2
+    assert [row['reason'] for row in report['skipped_rows']] == [
+        'record_is_not_object',
+        'record_is_not_object',
+    ]
+
+
+def test_loader_source_does_not_import_network_db_or_container_write_paths():
+    source = Path(loader.__file__).read_text(encoding='utf-8').lower()
+
+    assert 'urlopen' not in source
+    assert 'requests' not in source
+    assert 'psycopg2' not in source
+    assert 'subprocess' not in source
+    assert 'docker compose' not in source
+    assert 'psql' not in source
