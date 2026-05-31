@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 
 
+_IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
 WAREHOUSE_SOURCE_RUNS_TABLE = 'enrichment_source_runs'
 WAREHOUSE_SOURCE_FILES_TABLE = 'enrichment_source_files'
 WAREHOUSE_RAW_RECORDS_TABLE = 'enrichment_raw_records'
@@ -77,6 +79,15 @@ def warehouse_write_tables_for_source(source: str | None) -> tuple[str, ...]:
     return WAREHOUSE_STATION_WRITE_TABLES
 
 
+def render_table_name(table: str, schema: str | None = None) -> str:
+    """Render an optionally schema-qualified table name with strict identifiers."""
+    _validate_identifier(table, 'table')
+    if schema is None:
+        return table
+    _validate_identifier(schema, 'schema')
+    return f'{schema}.{table}'
+
+
 def is_write_sql(sql: str) -> bool:
     """Return true if a SQL string contains a write or DDL keyword."""
     return bool(_WRITE_KEYWORD_RE.search(_strip_sql_comments(sql)))
@@ -127,6 +138,11 @@ def _leading_keyword(sql: str) -> str | None:
 def _normalise_table_name(name: str) -> str:
     table = name.replace('"', '').split('.')[-1]
     return table.lower()
+
+
+def _validate_identifier(identifier: str, kind: str) -> None:
+    if not _IDENTIFIER_RE.fullmatch(identifier):
+        raise ValueError(f'unsafe {kind} identifier: {identifier!r}')
 
 
 def _strip_sql_comments(sql: str) -> str:

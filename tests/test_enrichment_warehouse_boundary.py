@@ -63,6 +63,28 @@ def test_write_allowlist_and_canonical_denylist_are_disjoint():
     )
 
 
+def test_render_table_name_is_unqualified_by_default_and_can_schema_qualify():
+    assert warehouse.render_table_name('staging_edsm_stations') == 'staging_edsm_stations'
+    assert (
+        warehouse.render_table_name('staging_edsm_stations', schema='enrichment_staging')
+        == 'enrichment_staging.staging_edsm_stations'
+    )
+
+
+@pytest.mark.parametrize(
+    ('table', 'schema'),
+    [
+        ('staging_edsm_stations;drop table systems', None),
+        ('staging-edsm-stations', None),
+        ('staging_edsm_stations', 'public;drop'),
+        ('staging_edsm_stations', 'bad-schema'),
+    ],
+)
+def test_render_table_name_rejects_unsafe_identifiers(table, schema):
+    with pytest.raises(ValueError):
+        warehouse.render_table_name(table, schema=schema)
+
+
 def test_safe_insert_upsert_into_warehouse_is_accepted():
     sql = """
     INSERT INTO enrichment_raw_records (
