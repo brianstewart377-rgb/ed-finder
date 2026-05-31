@@ -518,14 +518,14 @@ def returned_id(cur: Any) -> int:
 
 def fetchall_dicts(cur: Any) -> list[dict[str, Any]]:
     rows = cur.fetchall()
-    return [row_to_dict(row) for row in rows]
+    return [_cursor_row_to_dict(cur, row) for row in rows]
 
 
 def fetchone_dict(cur: Any) -> dict[str, Any]:
     row = cur.fetchone()
     if row is None:
         return {}
-    return row_to_dict(row)
+    return _cursor_row_to_dict(cur, row)
 
 
 def row_to_dict(row: Any) -> dict[str, Any]:
@@ -534,6 +534,48 @@ def row_to_dict(row: Any) -> dict[str, Any]:
     if hasattr(row, 'keys'):
         return {key: row[key] for key in row.keys()}
     raise TypeError('DB cursor rows must be mapping-like for staged report/preflight helpers')
+
+
+def _cursor_row_to_dict(cur: Any, row: Any) -> dict[str, Any]:
+    try:
+        return row_to_dict(row)
+    except TypeError:
+        if not _is_positional_row(row):
+            raise
+    column_names = _cursor_column_names(cur)
+    if len(column_names) != len(row):
+        raise TypeError(
+            'DB cursor row length does not match cursor.description for staged report/preflight helpers'
+        )
+    return dict(zip(column_names, row))
+
+
+def _is_positional_row(row: Any) -> bool:
+    return isinstance(row, Sequence) and not isinstance(row, (str, bytes, bytearray))
+
+
+def _cursor_column_names(cur: Any) -> list[str]:
+    description = getattr(cur, 'description', None)
+    if not description:
+        raise TypeError(
+            'DB cursor rows must be mapping-like or cursor.description must define columns '
+            'for staged report/preflight helpers'
+        )
+    return [_description_column_name(column) for column in description]
+
+
+def _description_column_name(column: Any) -> str:
+    if isinstance(column, str):
+        return column
+    name = getattr(column, 'name', None)
+    if name is not None:
+        return str(name)
+    try:
+        return str(column[0])
+    except (TypeError, IndexError, KeyError):
+        raise TypeError(
+            'cursor.description entries must expose column names for staged report/preflight helpers'
+        ) from None
 
 
 def close_cursor(cur: Any) -> None:

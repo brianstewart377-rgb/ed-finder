@@ -16,6 +16,7 @@ if str(IMPORTER_SRC) not in sys.path:
 import enrichment_snapshot_loader as snapshot_loader  # noqa: E402
 import enrichment_warehouse as warehouse  # noqa: E402
 import enrichment_warehouse_repository as repository  # noqa: E402
+import enrichment_warehouse_sql as warehouse_sql  # noqa: E402
 
 
 STATION_FIXTURE = ROOT / 'tests' / 'fixtures' / 'edsm_station_snapshot.json'
@@ -113,6 +114,24 @@ class FakeConn:
         return FakeCursor(self)
 
 
+class TupleRowCursor:
+    description = (
+        ('table_name', None, None, None, None, None, None),
+        ('column_name', None, None, None, None, None, None),
+    )
+
+    def __init__(self, rows):
+        self.rows = list(rows)
+
+    def fetchall(self):
+        return list(self.rows)
+
+    def fetchone(self):
+        if self.rows:
+            return self.rows.pop(0)
+        return None
+
+
 def station_row(**overrides):
     row = {
         'staging_station_id': 1,
@@ -180,6 +199,29 @@ def insert_targets(statements):
                 targets.append(table)
                 break
     return targets
+
+
+def test_fetchall_dicts_supports_tuple_rows_from_dbapi_cursor_description():
+    cur = TupleRowCursor([
+        ('enrichment_raw_records', 'id'),
+        ('enrichment_raw_records', 'source_run_id'),
+    ])
+
+    assert warehouse_sql.fetchall_dicts(cur) == [
+        {'table_name': 'enrichment_raw_records', 'column_name': 'id'},
+        {'table_name': 'enrichment_raw_records', 'column_name': 'source_run_id'},
+    ]
+
+
+def test_fetchone_dict_supports_list_rows_from_dbapi_cursor_description():
+    cur = TupleRowCursor([
+        ['enrichment_source_runs', 'source_run_key'],
+    ])
+
+    assert warehouse_sql.fetchone_dict(cur) == {
+        'table_name': 'enrichment_source_runs',
+        'column_name': 'source_run_key',
+    }
 
 
 def test_repository_schema_preflight_uses_expected_warehouse_tables():
