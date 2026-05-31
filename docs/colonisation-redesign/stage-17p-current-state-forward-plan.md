@@ -45,22 +45,30 @@ Use this order before starting new colonisation work:
 3. `docs/colonisation-redesign/engine-roadmap.md` for broad engine history and delivered stage summaries.
 4. `docs/colonisation-redesign/enrichment-roadmap.md` for station/body/ring enrichment, warehouse, and operator-roadmap work.
 5. Specific stage docs only when they directly apply to the task.
-6. `docs/reference/colonisation/README.md` and `docs/reference/colonisation/source-priority.md` once the reference pack is committed.
+6. For mechanics-heavy or source-sensitive work, read `docs/reference/colonisation/README.md`, `docs/reference/colonisation/source-priority.md`, and `docs/reference/colonisation/source-inventory.md`.
 
 If this file conflicts with an older "recommended next stage" section, treat this file as newer planning control unless the older doc is being used only for historical context.
 
 ## Source Authority Rule
 
-The source-pack issue from Stage 17A is still important. Mechanics-heavy work should not rely on a local ZIP or uncommitted reference archive as if it were repo truth.
-
-Before future mechanics-heavy implementation, add or verify the committed reference-pack path:
+The source-pack issue from Stage 17A remains important, but Stage 17Q now adds
+the committed reference entry point:
 
 - `docs/reference/colonisation/README.md`
 - `docs/reference/colonisation/source-priority.md`
+- `docs/reference/colonisation/source-inventory.md`
 - `docs/reference/colonisation/codex-reference-prompt-snippet.md`
-- permitted guide/spreadsheet/diagram references or placeholders
 
-Until that path exists, implementation prompts must explicitly state whether they are using committed docs, attached files, or local/operator knowledge. Do not claim direct source verification from files that are not committed or attached.
+The committed path records the source hierarchy, conflict rules, and inventory
+placeholders. It does not commit restricted guide files, spreadsheets, PDFs,
+screenshots, or third-party assets unless their redistribution status is
+explicitly safe.
+
+Future mechanics-heavy implementation prompts must read the committed reference
+docs first, then explicitly state whether direct source verification used
+committed docs, attached files, external sources, or local/operator-only files.
+Do not claim direct source verification from files that are not committed or
+attached.
 
 ## Non-Negotiable Product Boundaries
 
