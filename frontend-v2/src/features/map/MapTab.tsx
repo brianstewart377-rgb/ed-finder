@@ -18,10 +18,10 @@ export interface MapTabProps {
   reference:  { name: string; x: number; z: number };
 }
 
-const VIEW_MODES: { id: MapViewMode; label: string }[] = [
-  { id: 'results',   label: 'Results' },
-  { id: 'galaxy',    label: 'Galaxy' },
-  { id: 'reference', label: 'Reference' },
+const VIEW_MODES: { id: MapViewMode; label: string; description: string }[] = [
+  { id: 'results',   label: 'Results',   description: 'Fits the current Finder result dots.' },
+  { id: 'galaxy',    label: 'Galaxy',    description: 'Frames the full galactic disc and axes.' },
+  { id: 'reference', label: 'Reference', description: 'Centers the chosen reference system.' },
 ];
 
 export function MapTab({ systems, reference }: MapTabProps) {
@@ -46,6 +46,14 @@ export function MapTab({ systems, reference }: MapTabProps) {
   const sourceLabel = activeLayers.length === 0
     ? 'Showing Finder results'
     : ['Finder results', ...activeLayers].join(' + ');
+  const activeLayerSummary = [
+    'Finder dots',
+    showFrame ? 'Galactic frame' : null,
+    showRegions ? 'Regions' : null,
+    showHeatmap ? 'Heatmap' : null,
+    showClusters ? 'Clusters' : null,
+  ].filter(Boolean).join(' + ');
+  const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewMode) ?? VIEW_MODES[0];
 
   return (
     <section data-testid="map-tab" aria-label="Galactic map tab" className="space-y-5">
@@ -125,6 +133,12 @@ export function MapTab({ systems, reference }: MapTabProps) {
         </span>
       </header>
 
+      <MapLegend
+        activeLayerSummary={activeLayerSummary}
+        currentViewLabel={currentViewMode.label}
+        currentViewDescription={currentViewMode.description}
+      />
+
       {systems.length === 0 ? (
         <div className="panel-thin text-center py-16 px-4">
           <div className="text-3xl mb-2" aria-hidden>🗺️</div>
@@ -198,6 +212,45 @@ export function MapTab({ systems, reference }: MapTabProps) {
         </div>
       )}
     </section>
+  );
+}
+
+function MapLegend({
+  activeLayerSummary,
+  currentViewLabel,
+  currentViewDescription,
+}: {
+  activeLayerSummary: string;
+  currentViewLabel: string;
+  currentViewDescription: string;
+}) {
+  return (
+    <details
+      data-testid="map-legend"
+      className="panel-thin px-4 py-2 text-[11px] text-silver-dk"
+    >
+      <summary className="cursor-pointer select-none font-mono text-orange-lt tracking-wider">
+        Map legend · {currentViewLabel}: {currentViewDescription} · Active: {activeLayerSummary}
+      </summary>
+      <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+        <LegendItem label="Results" value="Fits the current Finder result dots." />
+        <LegendItem label="Galaxy" value="Frames the full galactic disc and axes." />
+        <LegendItem label="Reference" value="Centers the chosen reference system." />
+        <LegendItem label="Finder dots" value="Scored systems from the current Finder results." />
+        <LegendItem label="Regions" value="Canonical galaxy region labels." />
+        <LegendItem label="Heatmap" value="Voxel cells summarising local rating density." />
+        <LegendItem label="Clusters" value="Approximate hulls around high-scoring grouped systems." />
+      </div>
+    </details>
+  );
+}
+
+function LegendItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="font-mono text-[10px] uppercase tracking-wider text-silver">{label}</div>
+      <div className="leading-snug">{value}</div>
+    </div>
   );
 }
 

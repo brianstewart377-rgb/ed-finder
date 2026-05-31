@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MapTab } from './MapTab';
 import { useMapLayers } from './useMapLayers';
@@ -53,6 +53,49 @@ describe('MapTab', () => {
 
     expect(screen.getByTestId('map-source-badge')).toBeTruthy();
     expect(screen.getByText('Showing Finder results')).toBeTruthy();
+  });
+
+  it('renders a compact map legend and control summary', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    const legend = screen.getByTestId('map-legend');
+    expect(legend).toBeTruthy();
+    expect(within(legend).getByText(/Map legend/)).toBeTruthy();
+    expect(within(legend).getByText(/Active: Finder dots \+ Galactic frame/)).toBeTruthy();
+    expect(within(legend).getByText('Scored systems from the current Finder results.')).toBeTruthy();
+    expect(within(legend).getByText('Canonical galaxy region labels.')).toBeTruthy();
+    expect(within(legend).getByText('Voxel cells summarising local rating density.')).toBeTruthy();
+    expect(within(legend).getByText('Approximate hulls around high-scoring grouped systems.')).toBeTruthy();
+  });
+
+  it('updates the legend active-layer summary as toggles change', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    const legend = screen.getByTestId('map-legend');
+    fireEvent.click(screen.getByTestId('map-regions-toggle'));
+    fireEvent.click(screen.getByTestId('map-heatmap-toggle'));
+    fireEvent.click(screen.getByTestId('map-clusters-toggle'));
+    expect(
+      within(legend).getByText(/Active: Finder dots \+ Galactic frame \+ Regions \+ Heatmap \+ Clusters/),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('map-frame-toggle'));
+    expect(within(legend).getByText(/Active: Finder dots \+ Regions \+ Heatmap \+ Clusters/)).toBeTruthy();
+  });
+
+  it('keeps view mode descriptions accessible through the legend', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    const legend = screen.getByTestId('map-legend');
+    expect(within(legend).getByText('Fits the current Finder result dots.')).toBeTruthy();
+    expect(within(legend).getByText('Frames the full galactic disc and axes.')).toBeTruthy();
+    expect(within(legend).getByText('Centers the chosen reference system.')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('map-view-galaxy'));
+    expect(within(legend).getByText(/Galaxy: Frames the full galactic disc and axes/)).toBeTruthy();
   });
 
   it('renders GalacticMap canvas when systems are present', () => {
