@@ -20,17 +20,21 @@ export interface MapTabProps {
 
 export function MapTab({ systems, reference }: MapTabProps) {
   const [selected, setSelected] = useState<SystemResult | null>(null);
+  const [showFrame, setShowFrame] = useState(true);
   const [showRegions, setShowRegions] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showClusters, setShowClusters] = useState(false);
 
   const layers = useMapLayers({
-    regions: { enabled: showRegions },
-    heatmap: { enabled: showHeatmap },
+    regions:  { enabled: showRegions },
+    heatmap:  { enabled: showHeatmap },
+    clusters: { enabled: showClusters },
   });
 
   const activeLayers = [
     showRegions && layers.regions.data ? 'Regions' : null,
     showHeatmap && layers.heatmap.data ? 'Heatmap' : null,
+    showClusters && layers.clusters.data ? 'Clusters' : null,
   ].filter(Boolean);
   const sourceLabel = activeLayers.length === 0
     ? 'Showing Finder results'
@@ -46,6 +50,16 @@ export function MapTab({ systems, reference }: MapTabProps) {
           {systems.length} systems plotted from current search
         </span>
         <span className="flex-1" />
+        <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="map-frame-toggle"
+            checked={showFrame}
+            onChange={(e) => setShowFrame(e.target.checked)}
+            className="accent-orange"
+          />
+          Galactic frame
+        </label>
         <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk cursor-pointer select-none">
           <input
             type="checkbox"
@@ -65,6 +79,16 @@ export function MapTab({ systems, reference }: MapTabProps) {
             className="accent-orange"
           />
           Heatmap
+        </label>
+        <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="map-clusters-toggle"
+            checked={showClusters}
+            onChange={(e) => setShowClusters(e.target.checked)}
+            className="accent-orange"
+          />
+          Clusters
         </label>
         <span className="font-mono text-[10px] text-silver-dk">
           Drag to pan · scroll to zoom · click a star to inspect
@@ -116,6 +140,16 @@ export function MapTab({ systems, reference }: MapTabProps) {
                 Heatmap failed
               </span>
             )}
+            {showClusters && layers.clusters.isLoading && (
+              <span className="font-mono text-[10px] text-silver-dk animate-pulse">
+                Loading clusters…
+              </span>
+            )}
+            {showClusters && layers.clusters.isError && (
+              <span className="font-mono text-[10px] text-red">
+                Clusters failed
+              </span>
+            )}
           </div>
           <div className="grid lg:grid-cols-[1fr_280px] gap-4">
             <GalacticMap
@@ -125,6 +159,8 @@ export function MapTab({ systems, reference }: MapTabProps) {
               onSelect={setSelected}
               regions={layers.regions.data?.regions}
               heatmap={layers.heatmap.data}
+              clusters={layers.clusters.data?.clusters}
+              showGalacticFrame={showFrame}
             />
             <SelectionPanel system={selected} />
           </div>

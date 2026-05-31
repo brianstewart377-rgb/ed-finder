@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasKnownCoords, ratingTier } from '@/lib/format';
 import type { SystemResult } from '@/types/api';
-import type { MapRegion, MapHeatmapResponse } from '@/lib/api';
+import type { MapRegion, MapHeatmapResponse, MapClusterHull } from '@/lib/api';
+
+/**
+ * Galaxy frame geometry (ED-Finder-native context, NOT copied in-game art).
+ *
+ * In ED galactic coordinates Sol sits at the origin and the galactic centre
+ * (Sagittarius A*) lies ~25,900 LY toward +Z. The Milky Way disc is ~100k LY
+ * across, so a conservative drawing radius of 50,000 LY frames the populated
+ * bubble inside a much larger galaxy. These are only used for the subtle
+ * context disc / rings; nothing here drives data fetching or auto-fit.
+ */
+const GALAXY_CENTER = { x: 25.2, z: 25899.9 } as const;
+const GALAXY_RADIUS_LY = 50_000;
 
 /**
  * Galactic map — top-down 2-D scatter plot of `systems` on the X/Z plane.
@@ -28,10 +40,15 @@ export interface GalacticMapProps {
   regions?:       MapRegion[];
   /** Optional voxel-aggregated density heatmap to draw behind everything. */
   heatmap?:       MapHeatmapResponse;
+  /** Optional cluster-anchor hulls (translucent circles) to draw behind stars. */
+  clusters?:      MapClusterHull[];
+  /** Draw the subtle ED-native galaxy disc / axes context. Default true. */
+  showGalacticFrame?: boolean;
 }
 
 export function GalacticMap({
-  systems, reference, selectedId64, onSelect, initialRadius, regions, heatmap,
+  systems, reference, selectedId64, onSelect, initialRadius, regions, heatmap, clusters,
+  showGalacticFrame = true,
 }: GalacticMapProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Camera state: centre is in galactic LY coords, scale = pixels per LY.
@@ -98,6 +115,50 @@ export function GalacticMap({
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, w, h);
 
+    // ── Galactic frame (subtle ED-native context, behind everything) ─
+    if (showGalacticFrame) {
+      const gcx = wx(GALAXY_CENTER.x);
+      const gcz = wz(GALAXY_CENTER.z);
+      const discR = GALAXY_RADIUS_LY * view.scale;
+
+      ctx.save();
+      // Faint disc glow toward the galactic centre.
+      const discGrad = ctx.createRadialGradient(gcx, gcz, 0, gcx, gcz, discR);
+      discGrad.addColorStop(0,    'rgba(255,122,20,0.05)');   // orange core haze
+      discGrad.addColorStop(0.55, 'rgba(120,140,170,0.035)'); // steel mid
+      discGrad.addColorStop(1,    'rgba(120,140,170,0)');     // fade to space
+      ctx.beginPath();
+      ctx.arc(gcx, gcz, discR, 0, Math.PI * 2);
+      ctx.fillStyle = discGrad;
+      ctx.fill();
+
+      // Outer boundary ring + concentric context rings (25/50/75/100%).
+      ctx.strokeStyle = 'rgba(160,176,196,0.16)';   // steel
+      ctx.lineWidth = 1;
+      for (const frac of [0.25, 0.5, 0.75, 1]) {
+        ctx.beginPath();
+        ctx.arc(gcx, gcz, discR * frac, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Galactic centre marker (small steel cross) when on screen.
+      if (gcx > -20 && gcx < w + 20 && gcz > -20 && gcz < h + 20) {
+        ctx.strokeStyle = 'rgba(255,122,20,0.5)';
+        ctx.beginPath();
+        ctx.moveTo(gcx - 6, gcz); ctx.lineTo(gcx + 6, gcz);
+        ctx.moveTo(gcx, gcz - 6); ctx.lineTo(gcx, gcz + 6);
+        ctx.stroke();
+      }
+
+      // Galactic axis lines through the origin (Sol) — x=0 and z=0.
+      ctx.strokeStyle = 'rgba(160,176,196,0.10)';
+      ctx.beginPath();
+      ctx.moveTo(wx(0), 0); ctx.lineTo(wx(0), h);   // z-axis (x = 0)
+      ctx.moveTo(0, wz(0)); ctx.lineTo(w, wz(0));   // x-axis (z = 0)
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Background grid every 10 LY at scales > 2 px/LY
     if (view.scale >= 2) {
       const step = 10;
@@ -133,6 +194,31 @@ export function GalacticMap({
         ctx.globalAlpha = 0.16;
         ctx.fillStyle = tier.fillColor;
         ctx.fillRect(px - half, py - half, cell, cell);
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    // ── Cluster hulls (translucent circles, above heatmap) ──────────
+    if (clusters && clusters.length > 0) {
+      ctx.save();
+      for (const c of clusters) {
+        if (c.x == null || c.z == null) continue;
+        const px = wx(c.x);
+        const py = wz(c.z);
+        const rad = c.radius_ly * view.scale;
+        if (px + rad < 0 || py + rad < 0 || px - rad > w || py - rad > h) continue;
+        const tier = ratingTier(c.top_score ?? null);
+        // subtle translucent fill + slightly stronger ring
+        ctx.beginPath();
+        ctx.arc(px, py, rad, 0, Math.PI * 2);
+        ctx.globalAlpha = 0.08;
+        ctx.fillStyle = tier.fillColor;
+        ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = tier.fillColor;
+        ctx.stroke();
       }
       ctx.restore();
       ctx.globalAlpha = 1;
@@ -257,7 +343,7 @@ export function GalacticMap({
       ctx.fillStyle = 'rgba(200,204,209,0.65)';
       ctx.fillText(`${barLy} LY`, bx, by - 8);
     }
-  }, [plottableSystems, view, reference.x, reference.z, reference.name, selectedId64, regions, heatmap]);
+  }, [plottableSystems, view, reference.x, reference.z, reference.name, selectedId64, regions, heatmap, clusters, showGalacticFrame]);
 
   // ── Pointer handlers ───────────────────────────────────────────────
   const drag = useRef<{ x: number; y: number; cx: number; cz: number } | null>(null);

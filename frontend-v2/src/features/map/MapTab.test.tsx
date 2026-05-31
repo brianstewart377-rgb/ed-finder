@@ -254,4 +254,106 @@ describe('MapTab', () => {
     fireEvent.click(screen.getByTestId('map-heatmap-toggle'));
     expect(screen.getByText('Finder results + Heatmap')).toBeTruthy();
   });
+
+  it('does not fetch clusters by default', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    expect(screen.getByTestId('map-clusters-toggle')).toBeTruthy();
+    expect((screen.getByTestId('map-clusters-toggle') as HTMLInputElement).checked).toBe(false);
+    expect(vi.mocked(useMapLayers)).toHaveBeenCalledWith(
+      expect.objectContaining({ clusters: { enabled: false } }),
+    );
+  });
+
+  it('enables the clusters layer when toggled', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-clusters-toggle'));
+    expect(vi.mocked(useMapLayers)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ clusters: { enabled: true } }),
+    );
+  });
+
+  it('shows cluster loading state when toggled', () => {
+    vi.mocked(useMapLayers).mockReturnValue({
+      regions:  { data: undefined, isLoading: false, isError: false, error: null },
+      clusters: { data: undefined, isLoading: true, isError: false, error: null },
+      heatmap:  { data: undefined, isLoading: false, isError: false, error: null },
+      timeline: { data: undefined, isLoading: false, isError: false, error: null },
+      isLoading: true,
+      isError:   false,
+    } as ReturnType<typeof useMapLayers>);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-clusters-toggle'));
+    expect(screen.getByText('Loading clusters…')).toBeTruthy();
+  });
+
+  it('shows cluster error state when fetch fails', () => {
+    vi.mocked(useMapLayers).mockReturnValue({
+      regions:  { data: undefined, isLoading: false, isError: false, error: null },
+      clusters: { data: undefined, isLoading: false, isError: true, error: new Error('fail') },
+      heatmap:  { data: undefined, isLoading: false, isError: false, error: null },
+      timeline: { data: undefined, isLoading: false, isError: false, error: null },
+      isLoading: false,
+      isError:   true,
+    } as ReturnType<typeof useMapLayers>);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-clusters-toggle'));
+    expect(screen.getByText('Clusters failed')).toBeTruthy();
+  });
+
+  it('updates badge when clusters are loaded', () => {
+    vi.mocked(useMapLayers).mockReturnValue({
+      regions:  { data: undefined, isLoading: false, isError: false, error: null },
+      clusters: {
+        data: {
+          clusters: [{
+            anchor_id64: 1, anchor_name: 'Hub', x: 0, y: 0, z: 0,
+            radius_ly: 500, system_count: 30, top_economy: 'HighTech', top_score: 88,
+          }],
+          count: 1,
+          cached: false,
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      },
+      heatmap:  { data: undefined, isLoading: false, isError: false, error: null },
+      timeline: { data: undefined, isLoading: false, isError: false, error: null },
+      isLoading: false,
+      isError:   false,
+    } as ReturnType<typeof useMapLayers>);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-clusters-toggle'));
+    expect(screen.getByText('Finder results + Clusters')).toBeTruthy();
+  });
+
+  it('shows the galactic frame control enabled by default', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    const toggle = screen.getByTestId('map-frame-toggle') as HTMLInputElement;
+    expect(toggle).toBeTruthy();
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('toggles the galactic frame off', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    const toggle = screen.getByTestId('map-frame-toggle') as HTMLInputElement;
+    fireEvent.click(toggle);
+    expect(toggle.checked).toBe(false);
+  });
 });

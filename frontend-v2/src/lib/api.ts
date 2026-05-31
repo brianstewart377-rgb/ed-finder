@@ -137,6 +137,63 @@ export interface ProfileSyncPush {
   blob_bytes: number;
 }
 
+// ── Map layer types (backend returns `unknown` in generated OpenAPI) ────
+export interface MapRegion {
+  id: number;
+  name: string;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  system_count: number | null;
+}
+export interface MapRegionsResponse {
+  regions: MapRegion[];
+  total_regions: number;
+}
+
+export interface MapClusterHull {
+  anchor_id64: number;
+  anchor_name: string;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  radius_ly: number;
+  system_count: number;
+  top_economy: string | null;
+  top_score: number | null;
+}
+export interface MapClusterHullsResponse {
+  clusters: MapClusterHull[];
+  count: number;
+  cached: boolean;
+}
+
+export interface MapHeatmapCell {
+  cx: number;
+  cy: number;
+  cz: number;
+  n: number;
+  avg_score: number | null;
+  max_score: number | null;
+}
+export interface MapHeatmapResponse {
+  voxel_size: number;
+  voxel_bucket: number;
+  economy: string | null;
+  cells: MapHeatmapCell[];
+  count: number;
+}
+
+export interface MapTimelinePoint {
+  date: string | null;
+  count: number;
+}
+export interface MapTimelineResponse {
+  bucket: string;
+  points: MapTimelinePoint[];
+  total: number;
+}
+
 export const api = {
   health(): Promise<{ status: string; database: string; version: string }> {
     return jsonFetch('/api/health');
@@ -355,6 +412,35 @@ export const api = {
       body:   JSON.stringify(request),
     });
   },
+
+  // ── Map layers ────────────────────────────────────────────────────────
+  mapRegions(): Promise<MapRegionsResponse> {
+    return jsonFetch('/map/regions');
+  },
+
+  mapClusterHulls(opts?: { min_count?: number; max_hulls?: number }): Promise<MapClusterHullsResponse> {
+    const params = new URLSearchParams();
+    if (opts?.min_count !== undefined) params.set('min_count', String(opts.min_count));
+    if (opts?.max_hulls !== undefined) params.set('max_hulls', String(opts.max_hulls));
+    const qs = params.toString();
+    return jsonFetch(`/map/clusters/hulls${qs ? `?${qs}` : ''}`);
+  },
+
+  mapHeatmap(opts?: { voxel_size?: number; min_systems?: number; economy?: string | null }): Promise<MapHeatmapResponse> {
+    const params = new URLSearchParams();
+    if (opts?.voxel_size !== undefined) params.set('voxel_size', String(opts.voxel_size));
+    if (opts?.min_systems !== undefined) params.set('min_systems', String(opts.min_systems));
+    if (opts?.economy != null) params.set('economy', opts.economy);
+    const qs = params.toString();
+    return jsonFetch(`/map/heatmap${qs ? `?${qs}` : ''}`);
+  },
+
+  mapTimeline(opts?: { bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year' }): Promise<MapTimelineResponse> {
+    const params = new URLSearchParams();
+    if (opts?.bucket) params.set('bucket', opts.bucket);
+    const qs = params.toString();
+    return jsonFetch(`/map/timeline${qs ? `?${qs}` : ''}`);
+  },
 };
 
 export function getSlotPredictions(id64: number): Promise<SlotPredictionResponse> {
@@ -455,6 +541,29 @@ export function reviewPredictionValidation(
   request: ValidationReviewRequest,
 ): Promise<ValidationReviewResponse> {
   return api.reviewPredictionValidation(request);
+}
+
+// ── Map layer helpers ─────────────────────────────────────────────────
+export function getMapRegions(): Promise<MapRegionsResponse> {
+  return api.mapRegions();
+}
+
+export function getMapClusterHulls(
+  opts?: Parameters<typeof api.mapClusterHulls>[0],
+): Promise<MapClusterHullsResponse> {
+  return api.mapClusterHulls(opts);
+}
+
+export function getMapHeatmap(
+  opts?: Parameters<typeof api.mapHeatmap>[0],
+): Promise<MapHeatmapResponse> {
+  return api.mapHeatmap(opts);
+}
+
+export function getMapTimeline(
+  opts?: Parameters<typeof api.mapTimeline>[0],
+): Promise<MapTimelineResponse> {
+  return api.mapTimeline(opts);
 }
 
 /** Shape of one row from /api/watchlist. */

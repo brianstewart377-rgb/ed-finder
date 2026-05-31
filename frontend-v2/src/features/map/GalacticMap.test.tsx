@@ -172,4 +172,113 @@ describe('GalacticMap', () => {
     expect(ctx.fillRect).toHaveBeenCalled();
     getContext.mockRestore();
   });
+
+  it('renders cluster hulls without crashing', () => {
+    // jsdom returns null from getContext by default, so stub a recording 2D
+    // context to verify the cluster hull draw path emits arc/stroke calls.
+    const ctx = {
+      setTransform: vi.fn(),
+      clearRect: vi.fn(),
+      fillRect: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      arc: vi.fn(),
+      stroke: vi.fn(),
+      fill: vi.fn(),
+      closePath: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      fillText: vi.fn(),
+      createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    } as unknown as CanvasRenderingContext2D;
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(ctx as unknown as RenderingContext);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 0, y: 0, z: 0 } })];
+    const clusters = [
+      {
+        anchor_id64: 1, anchor_name: 'Hub', x: 0, y: 0, z: 0,
+        radius_ly: 500, system_count: 30, top_economy: 'HighTech', top_score: 88,
+      },
+    ];
+    render(
+      <GalacticMap
+        systems={systems}
+        reference={reference}
+        clusters={clusters}
+      />,
+    );
+
+    expect(screen.getByTestId('galactic-map-canvas')).toBeTruthy();
+    // A visible hull cue is drawn via arc + stroke.
+    expect(ctx.arc).toHaveBeenCalled();
+    expect(ctx.stroke).toHaveBeenCalled();
+    getContext.mockRestore();
+  });
+
+  it('renders the galactic frame when enabled (default)', () => {
+    const order: string[] = [];
+    const ctx = makeRecordingContext(order);
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(ctx as unknown as RenderingContext);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 0, y: 0, z: 0 } })];
+    render(<GalacticMap systems={systems} reference={reference} />);
+
+    expect(screen.getByTestId('galactic-map-canvas')).toBeTruthy();
+    // Two radial gradients per render pass: the backdrop, then the frame disc
+    // glow. (Disabled-frame test below confirms only the backdrop exists.)
+    const gradients = order.filter((o) => o === 'radialGradient');
+    expect(gradients.length).toBeGreaterThanOrEqual(2);
+    // The frame disc gradient (2nd radialGradient) is filled immediately, and
+    // this happens before the reference/star fills — proving the frame is drawn
+    // behind the foreground map elements.
+    const discGradientIdx = order.indexOf('radialGradient', order.indexOf('radialGradient') + 1);
+    const discFillIdx = order.indexOf('fill', discGradientIdx);
+    expect(discGradientIdx).toBeGreaterThan(0);
+    expect(discFillIdx).toBeGreaterThan(discGradientIdx);
+    getContext.mockRestore();
+  });
+
+  it('does not render the galactic frame when disabled', () => {
+    const order: string[] = [];
+    const ctx = makeRecordingContext(order);
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(ctx as unknown as RenderingContext);
+
+    // Empty systems + frame off → only the backdrop radial gradient is created
+    // (no frame disc glow, no star halos).
+    render(<GalacticMap systems={[]} reference={reference} showGalacticFrame={false} />);
+
+    expect(screen.getByTestId('galactic-map-canvas')).toBeTruthy();
+    const gradients = order.filter((o) => o === 'radialGradient');
+    expect(gradients.length).toBe(1);
+    getContext.mockRestore();
+  });
 });
+
+function makeRecordingContext(order: string[]): CanvasRenderingContext2D {
+  const rec = (name: string) => vi.fn(() => { order.push(name); });
+  return {
+    setTransform: rec('setTransform'),
+    clearRect: rec('clearRect'),
+    fillRect: rec('fillRect'),
+    beginPath: rec('beginPath'),
+    moveTo: rec('moveTo'),
+    lineTo: rec('lineTo'),
+    arc: rec('arc'),
+    stroke: rec('stroke'),
+    fill: rec('fill'),
+    closePath: rec('closePath'),
+    save: rec('save'),
+    restore: rec('restore'),
+    fillText: rec('fillText'),
+    createRadialGradient: vi.fn(() => { order.push('radialGradient'); return { addColorStop: vi.fn() }; }),
+    createLinearGradient: vi.fn(() => { order.push('linearGradient'); return { addColorStop: vi.fn() }; }),
+  } as unknown as CanvasRenderingContext2D;
+}
