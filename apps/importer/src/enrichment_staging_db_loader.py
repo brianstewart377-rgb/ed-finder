@@ -21,20 +21,29 @@ from typing import Any
 
 from enrichment_snapshot_loader import build_snapshot_load_report
 from enrichment_staging import canonicalise_json_payload, normalise_source_adapter
+from enrichment_warehouse import (
+    CANONICAL_BODIES_TABLE,
+    CANONICAL_BODY_RINGS_TABLE,
+    CANONICAL_SYSTEMS_TABLE,
+    CANONICAL_STATIONS_TABLE,
+    WAREHOUSE_BASE_TABLES,
+    WAREHOUSE_BODY_RING_WRITE_TABLES,
+    WAREHOUSE_RAW_RECORDS_TABLE,
+    WAREHOUSE_SOURCE_FILES_TABLE,
+    WAREHOUSE_SOURCE_RUNS_TABLE,
+    WAREHOUSE_STAGING_BODIES_TABLE,
+    WAREHOUSE_STAGING_BODY_RINGS_TABLE,
+    WAREHOUSE_STAGING_STATIONS_TABLE,
+    WAREHOUSE_STATION_WRITE_TABLES,
+    assert_reconciliation_sql_is_read_only,
+    assert_staging_write_sql_is_safe,
+    warehouse_write_tables_for_source,
+)
 
 
-BASE_TARGET_TABLES = (
-    'enrichment_source_runs',
-    'enrichment_source_files',
-    'enrichment_raw_records',
-)
-STATION_TARGET_TABLES = BASE_TARGET_TABLES + (
-    'staging_edsm_stations',
-)
-BODY_RING_TARGET_TABLES = BASE_TARGET_TABLES + (
-    'staging_edsm_bodies',
-    'staging_body_rings',
-)
+BASE_TARGET_TABLES = WAREHOUSE_BASE_TABLES
+STATION_TARGET_TABLES = WAREHOUSE_STATION_WRITE_TABLES
+BODY_RING_TARGET_TABLES = WAREHOUSE_BODY_RING_WRITE_TABLES
 TARGET_TABLES = STATION_TARGET_TABLES
 SUPPORTED_SOURCES = {'edsm_nightly_stations', 'edsm_nightly_bodies'}
 PREFLIGHT_SCHEMA_VERSION = 'enrichment_staging_schema_preflight/v1'
@@ -42,7 +51,7 @@ STAGED_ROWS_REPORT_SCHEMA_VERSION = 'enrichment_staged_rows_summary/v1'
 RECONCILIATION_REPORT_SCHEMA_VERSION = 'enrichment_staging_reconciliation/v1'
 
 REQUIRED_SCHEMA_COLUMNS = {
-    'enrichment_source_runs': (
+    WAREHOUSE_SOURCE_RUNS_TABLE: (
         'id',
         'source_run_key',
         'source',
@@ -53,7 +62,7 @@ REQUIRED_SCHEMA_COLUMNS = {
         'dry_run',
         'metadata',
     ),
-    'enrichment_source_files': (
+    WAREHOUSE_SOURCE_FILES_TABLE: (
         'id',
         'source_run_id',
         'source_file_key',
@@ -65,7 +74,7 @@ REQUIRED_SCHEMA_COLUMNS = {
         'file_sha256',
         'metadata',
     ),
-    'enrichment_raw_records': (
+    WAREHOUSE_RAW_RECORDS_TABLE: (
         'id',
         'source_run_id',
         'source_file_id',
@@ -76,7 +85,7 @@ REQUIRED_SCHEMA_COLUMNS = {
         'validation_status',
         'validation_warnings',
     ),
-    'staging_edsm_stations': (
+    WAREHOUSE_STAGING_STATIONS_TABLE: (
         'id',
         'source_run_id',
         'source_file_id',
@@ -92,7 +101,7 @@ REQUIRED_SCHEMA_COLUMNS = {
         'raw_payload',
         'provenance',
     ),
-    'staging_edsm_bodies': (
+    WAREHOUSE_STAGING_BODIES_TABLE: (
         'id',
         'source_run_id',
         'source_file_id',
@@ -110,7 +119,7 @@ REQUIRED_SCHEMA_COLUMNS = {
         'raw_payload',
         'provenance',
     ),
-    'staging_body_rings': (
+    WAREHOUSE_STAGING_BODY_RINGS_TABLE: (
         'id',
         'source_run_id',
         'source_file_id',
@@ -278,9 +287,7 @@ def connect_staging_db(dsn: str):
 
 def target_tables_for_source(source: str | None) -> tuple[str, ...]:
     normalised_source = normalise_source_adapter(source)
-    if normalised_source == 'edsm_nightly_bodies':
-        return BODY_RING_TARGET_TABLES
-    return STATION_TARGET_TABLES
+    return warehouse_write_tables_for_source(normalised_source)
 
 
 def check_staging_schema(conn: Any, *, source: str | None = None) -> dict[str, Any]:
@@ -353,7 +360,7 @@ def build_staged_rows_summary_report(
     cur = conn.cursor()
     try:
         cur.execute(
-            """
+            f"""
             SELECT
                 sr.id AS source_run_id,
                 sr.source_run_key,
@@ -369,8 +376,8 @@ def build_staged_rows_summary_report(
                 sf.file_sha256,
                 sf.file_size_bytes,
                 sf.compression
-            FROM enrichment_source_runs sr
-            LEFT JOIN enrichment_source_files sf
+            FROM {WAREHOUSE_SOURCE_RUNS_TABLE} sr
+            LEFT JOIN {WAREHOUSE_SOURCE_FILES_TABLE} sf
               ON sf.source_run_id = sr.id
              AND (%s IS NULL OR sf.source_file_key = %s)
             WHERE sr.source_run_key = %s
@@ -383,7 +390,7 @@ def build_staged_rows_summary_report(
         report_source = _report_source(source, source_rows)
         if report_source == 'edsm_nightly_bodies':
             cur.execute(
-                """
+                f"""
                 SELECT
                     COUNT(DISTINCT sr.id)::integer AS source_runs,
                     COUNT(DISTINCT sf.id)::integer AS source_files,
@@ -397,17 +404,17 @@ def build_staged_rows_summary_report(
                     COUNT(DISTINCT rr.id) FILTER (
                         WHERE rr.validation_status IN ('invalid', 'conflict')
                     )::integer AS error_records
-                FROM enrichment_source_runs sr
-                LEFT JOIN enrichment_source_files sf
+                FROM {WAREHOUSE_SOURCE_RUNS_TABLE} sr
+                LEFT JOIN {WAREHOUSE_SOURCE_FILES_TABLE} sf
                   ON sf.source_run_id = sr.id
                  AND (%s IS NULL OR sf.source_file_key = %s)
-                LEFT JOIN enrichment_raw_records rr
+                LEFT JOIN {WAREHOUSE_RAW_RECORDS_TABLE} rr
                   ON rr.source_run_id = sr.id
                  AND (sf.id IS NULL OR rr.source_file_id = sf.id)
-                LEFT JOIN staging_edsm_bodies sb
+                LEFT JOIN {WAREHOUSE_STAGING_BODIES_TABLE} sb
                   ON sb.source_run_id = sr.id
                  AND (sf.id IS NULL OR sb.source_file_id = sf.id)
-                LEFT JOIN staging_body_rings br
+                LEFT JOIN {WAREHOUSE_STAGING_BODY_RINGS_TABLE} br
                   ON br.source_run_id = sr.id
                  AND (sf.id IS NULL OR br.source_file_id = sf.id)
                 WHERE sr.source_run_key = %s
@@ -416,7 +423,7 @@ def build_staged_rows_summary_report(
             )
         else:
             cur.execute(
-                """
+                f"""
                 SELECT
                     COUNT(DISTINCT sr.id)::integer AS source_runs,
                     COUNT(DISTINCT sf.id)::integer AS source_files,
@@ -429,14 +436,14 @@ def build_staged_rows_summary_report(
                     COUNT(DISTINCT rr.id) FILTER (
                         WHERE rr.validation_status IN ('invalid', 'conflict')
                     )::integer AS error_records
-                FROM enrichment_source_runs sr
-                LEFT JOIN enrichment_source_files sf
+                FROM {WAREHOUSE_SOURCE_RUNS_TABLE} sr
+                LEFT JOIN {WAREHOUSE_SOURCE_FILES_TABLE} sf
                   ON sf.source_run_id = sr.id
                  AND (%s IS NULL OR sf.source_file_key = %s)
-                LEFT JOIN enrichment_raw_records rr
+                LEFT JOIN {WAREHOUSE_RAW_RECORDS_TABLE} rr
                   ON rr.source_run_id = sr.id
                  AND (sf.id IS NULL OR rr.source_file_id = sf.id)
-                LEFT JOIN staging_edsm_stations st
+                LEFT JOIN {WAREHOUSE_STAGING_STATIONS_TABLE} st
                   ON st.source_run_id = sr.id
                  AND (sf.id IS NULL OR st.source_file_id = sf.id)
                 WHERE sr.source_run_key = %s
@@ -626,9 +633,9 @@ def fetch_station_reconciliation_rows(
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key
-            FROM staging_edsm_stations ss
-            JOIN enrichment_source_runs sr ON sr.id = ss.source_run_id
-            LEFT JOIN enrichment_source_files sf ON sf.id = ss.source_file_id
+            FROM {WAREHOUSE_STAGING_STATIONS_TABLE} ss
+            JOIN {WAREHOUSE_SOURCE_RUNS_TABLE} sr ON sr.id = ss.source_run_id
+            LEFT JOIN {WAREHOUSE_SOURCE_FILES_TABLE} sf ON sf.id = ss.source_file_id
             WHERE sr.source = %s
               AND (%s IS NULL OR sr.source_run_key = %s)
               AND (%s IS NULL OR sf.source_file_key = %s)
@@ -649,7 +656,7 @@ def fetch_station_reconciliation_rows(
             st.government AS canonical_government,
             COUNT(st.id) OVER (PARTITION BY staged.staging_station_id)::integer AS canonical_match_count
         FROM staged
-        LEFT JOIN systems sys
+        LEFT JOIN {CANONICAL_SYSTEMS_TABLE} sys
           ON (
               staged.system_id64 IS NOT NULL
               AND sys.id64 = staged.system_id64
@@ -659,7 +666,7 @@ def fetch_station_reconciliation_rows(
               AND staged.system_name IS NOT NULL
               AND lower(sys.name) = lower(staged.system_name)
           )
-        LEFT JOIN stations st
+        LEFT JOIN {CANONICAL_STATIONS_TABLE} st
           ON st.system_id64 = COALESCE(sys.id64, staged.system_id64)
          AND (
               (staged.market_id IS NOT NULL AND st.id = staged.market_id)
@@ -713,9 +720,9 @@ def fetch_body_reconciliation_rows(
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key
-            FROM staging_edsm_bodies sb
-            JOIN enrichment_source_runs sr ON sr.id = sb.source_run_id
-            LEFT JOIN enrichment_source_files sf ON sf.id = sb.source_file_id
+            FROM {WAREHOUSE_STAGING_BODIES_TABLE} sb
+            JOIN {WAREHOUSE_SOURCE_RUNS_TABLE} sr ON sr.id = sb.source_run_id
+            LEFT JOIN {WAREHOUSE_SOURCE_FILES_TABLE} sf ON sf.id = sb.source_file_id
             WHERE sr.source = %s
               AND (%s IS NULL OR sr.source_run_key = %s)
               AND (%s IS NULL OR sf.source_file_key = %s)
@@ -739,7 +746,7 @@ def fetch_body_reconciliation_rows(
             b.estimated_mapping_value AS canonical_estimated_mapping_value,
             COUNT(b.id) OVER (PARTITION BY staged.staging_body_id)::integer AS canonical_match_count
         FROM staged
-        LEFT JOIN systems sys
+        LEFT JOIN {CANONICAL_SYSTEMS_TABLE} sys
           ON (
               staged.system_id64 IS NOT NULL
               AND sys.id64 = staged.system_id64
@@ -749,7 +756,7 @@ def fetch_body_reconciliation_rows(
               AND staged.system_name IS NOT NULL
               AND lower(sys.name) = lower(staged.system_name)
           )
-        LEFT JOIN bodies b
+        LEFT JOIN {CANONICAL_BODIES_TABLE} b
           ON b.system_id64 = COALESCE(sys.id64, staged.system_id64)
          AND (
               (staged.source_body_id IS NOT NULL AND b.id = staged.source_body_id)
@@ -802,9 +809,9 @@ def fetch_ring_reconciliation_rows(
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key
-            FROM staging_body_rings br
-            JOIN enrichment_source_runs sr ON sr.id = br.source_run_id
-            LEFT JOIN enrichment_source_files sf ON sf.id = br.source_file_id
+            FROM {WAREHOUSE_STAGING_BODY_RINGS_TABLE} br
+            JOIN {WAREHOUSE_SOURCE_RUNS_TABLE} sr ON sr.id = br.source_run_id
+            LEFT JOIN {WAREHOUSE_SOURCE_FILES_TABLE} sf ON sf.id = br.source_file_id
             WHERE sr.source = %s
               AND (%s IS NULL OR sr.source_run_key = %s)
               AND (%s IS NULL OR sf.source_file_key = %s)
@@ -828,7 +835,7 @@ def fetch_ring_reconciliation_rows(
             canonical_ring.association_status AS canonical_association_status,
             COUNT(canonical_ring.id) OVER (PARTITION BY staged.staging_ring_id)::integer AS canonical_match_count
         FROM staged
-        LEFT JOIN systems sys
+        LEFT JOIN {CANONICAL_SYSTEMS_TABLE} sys
           ON (
               staged.system_id64 IS NOT NULL
               AND sys.id64 = staged.system_id64
@@ -838,13 +845,13 @@ def fetch_ring_reconciliation_rows(
               AND staged.system_name IS NOT NULL
               AND lower(sys.name) = lower(staged.system_name)
           )
-        LEFT JOIN bodies b
+        LEFT JOIN {CANONICAL_BODIES_TABLE} b
           ON b.system_id64 = COALESCE(sys.id64, staged.system_id64)
          AND (
               (staged.source_body_id IS NOT NULL AND b.id = staged.source_body_id)
               OR (staged.body_name IS NOT NULL AND lower(b.name) = lower(staged.body_name))
          )
-        LEFT JOIN body_rings canonical_ring
+        LEFT JOIN {CANONICAL_BODY_RINGS_TABLE} canonical_ring
           ON canonical_ring.system_id64 = COALESCE(sys.id64, staged.system_id64)
          AND (
               (b.id IS NOT NULL AND canonical_ring.body_id = b.id)
@@ -862,6 +869,7 @@ def fetch_ring_reconciliation_rows(
 
 
 def _select_rows(conn: Any, sql: str, params: Sequence[Any]) -> list[dict[str, Any]]:
+    assert_reconciliation_sql_is_read_only(sql)
     cur = conn.cursor()
     try:
         cur.execute(sql, tuple(params))
@@ -870,6 +878,11 @@ def _select_rows(conn: Any, sql: str, params: Sequence[Any]) -> list[dict[str, A
         close = getattr(cur, 'close', None)
         if callable(close):
             close()
+
+
+def _execute_staging_write(cur: Any, sql: str, params: Sequence[Any]) -> None:
+    assert_staging_write_sql_is_safe(sql)
+    cur.execute(sql, tuple(params))
 
 
 def _station_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -1386,9 +1399,8 @@ def build_report_from_staged_rows(report: Mapping[str, Any], write_summary: Mapp
 
 
 def upsert_source_run(cur: Any, source_run: Mapping[str, Any]) -> int:
-    cur.execute(
-        """
-        INSERT INTO enrichment_source_runs (
+    sql = f"""
+        INSERT INTO {WAREHOUSE_SOURCE_RUNS_TABLE} (
             source_run_key,
             source,
             adapter_name,
@@ -1410,7 +1422,10 @@ def upsert_source_run(cur: Any, source_run: Mapping[str, Any]) -> int:
             dry_run = EXCLUDED.dry_run,
             metadata = EXCLUDED.metadata
         RETURNING id
-        """,
+        """
+    _execute_staging_write(
+        cur,
+        sql,
         (
             source_run.get('source_run_key'),
             source_run.get('source'),
@@ -1427,9 +1442,8 @@ def upsert_source_run(cur: Any, source_run: Mapping[str, Any]) -> int:
 
 
 def upsert_source_file(cur: Any, source_run_id: int, source_file: Mapping[str, Any]) -> int:
-    cur.execute(
-        """
-        INSERT INTO enrichment_source_files (
+    sql = f"""
+        INSERT INTO {WAREHOUSE_SOURCE_FILES_TABLE} (
             source_run_id,
             source_file_key,
             source_path,
@@ -1452,7 +1466,10 @@ def upsert_source_file(cur: Any, source_run_id: int, source_file: Mapping[str, A
             source_updated_at = EXCLUDED.source_updated_at,
             metadata = EXCLUDED.metadata
         RETURNING id
-        """,
+        """
+    _execute_staging_write(
+        cur,
+        sql,
         (
             source_run_id,
             source_file.get('source_file_key'),
@@ -1470,9 +1487,8 @@ def upsert_source_file(cur: Any, source_run_id: int, source_file: Mapping[str, A
 
 
 def upsert_raw_record(cur: Any, source_run_id: int, source_file_id: int, raw_record: Mapping[str, Any]) -> int:
-    cur.execute(
-        """
-        INSERT INTO enrichment_raw_records (
+    sql = f"""
+        INSERT INTO {WAREHOUSE_RAW_RECORDS_TABLE} (
             source_run_id,
             source_file_id,
             record_index,
@@ -1485,13 +1501,16 @@ def upsert_raw_record(cur: Any, source_run_id: int, source_file_id: int, raw_rec
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb)
         ON CONFLICT (source_run_id, source_file_id, source_record_hash) DO UPDATE SET
-            source_record_key = COALESCE(enrichment_raw_records.source_record_key, EXCLUDED.source_record_key),
+            source_record_key = COALESCE({WAREHOUSE_RAW_RECORDS_TABLE}.source_record_key, EXCLUDED.source_record_key),
             source_updated_at = EXCLUDED.source_updated_at,
             raw_payload = EXCLUDED.raw_payload,
             validation_status = EXCLUDED.validation_status,
             validation_warnings = EXCLUDED.validation_warnings
         RETURNING id
-        """,
+        """
+    _execute_staging_write(
+        cur,
+        sql,
         (
             source_run_id,
             source_file_id,
@@ -1514,9 +1533,8 @@ def upsert_staging_edsm_station(
     raw_record_id: int | None,
     station_row: Mapping[str, Any],
 ) -> int:
-    cur.execute(
-        """
-        INSERT INTO staging_edsm_stations (
+    sql = f"""
+        INSERT INTO {WAREHOUSE_STAGING_STATIONS_TABLE} (
             source_run_id,
             source_file_id,
             raw_record_id,
@@ -1571,7 +1589,10 @@ def upsert_staging_edsm_station(
             raw_payload = EXCLUDED.raw_payload,
             provenance = EXCLUDED.provenance
         RETURNING id
-        """,
+        """
+    _execute_staging_write(
+        cur,
+        sql,
         (
             source_run_id,
             source_file_id,
@@ -1609,9 +1630,8 @@ def upsert_staging_edsm_body(
     raw_record_id: int | None,
     body_row: Mapping[str, Any],
 ) -> int:
-    cur.execute(
-        """
-        INSERT INTO staging_edsm_bodies (
+    sql = f"""
+        INSERT INTO {WAREHOUSE_STAGING_BODIES_TABLE} (
             source_run_id,
             source_file_id,
             raw_record_id,
@@ -1668,7 +1688,10 @@ def upsert_staging_edsm_body(
             raw_payload = EXCLUDED.raw_payload,
             provenance = EXCLUDED.provenance
         RETURNING id
-        """,
+        """
+    _execute_staging_write(
+        cur,
+        sql,
         (
             source_run_id,
             source_file_id,
@@ -1707,9 +1730,8 @@ def upsert_staging_body_ring(
     raw_record_id: int | None,
     ring_row: Mapping[str, Any],
 ) -> int:
-    cur.execute(
-        """
-        INSERT INTO staging_body_rings (
+    sql = f"""
+        INSERT INTO {WAREHOUSE_STAGING_BODY_RINGS_TABLE} (
             source_run_id,
             source_file_id,
             raw_record_id,
@@ -1759,7 +1781,10 @@ def upsert_staging_body_ring(
             raw_payload = EXCLUDED.raw_payload,
             provenance = EXCLUDED.provenance
         RETURNING id
-        """,
+        """
+    _execute_staging_write(
+        cur,
+        sql,
         (
             source_run_id,
             source_file_id,
