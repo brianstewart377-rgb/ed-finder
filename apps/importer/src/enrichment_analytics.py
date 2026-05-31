@@ -68,10 +68,23 @@ def build_enrichment_analytics_signals(reconciliation_report: Mapping[str, Any])
 
 def build_colonisation_candidate_signals(analytics_report: Mapping[str, Any]) -> dict[str, Any]:
     """Build conservative report-only colonisation review signals from analytics output."""
-    source_signals = _rows(analytics_report.get('source_coverage_signals', ()))
-    body_signals = _rows(analytics_report.get('body_quality_signals', ()))
-    ring_signals = _rows(analytics_report.get('ring_quality_signals', ()))
-    system_buckets = _system_signal_buckets(source_signals + body_signals + ring_signals)
+    station_signals = [
+        signal for signal in _rows(analytics_report.get('station_quality_signals', ()))
+        if _has_system_identity(signal)
+    ]
+    source_signals = [
+        signal for signal in _rows(analytics_report.get('source_coverage_signals', ()))
+        if _has_system_identity(signal)
+    ]
+    body_signals = [
+        signal for signal in _rows(analytics_report.get('body_quality_signals', ()))
+        if _has_system_identity(signal)
+    ]
+    ring_signals = [
+        signal for signal in _rows(analytics_report.get('ring_quality_signals', ()))
+        if _has_system_identity(signal)
+    ]
+    system_buckets = _system_signal_buckets(station_signals + source_signals + body_signals + ring_signals)
     candidates = []
     for system_key, signals in sorted(system_buckets.items()):
         severities = Counter(signal.get('severity', 'review') for signal in signals)
@@ -262,6 +275,10 @@ def _signal(candidate: Mapping[str, Any], signal: str, severity: str) -> dict[st
 def _missing_system_identity(candidate: Mapping[str, Any]) -> bool:
     source = candidate.get('source') or {}
     return _missing(source.get('system_id64')) and _missing(source.get('system_name'))
+
+
+def _has_system_identity(signal: Mapping[str, Any]) -> bool:
+    return not _missing(signal.get('system_id64')) or not _missing(signal.get('system_name'))
 
 
 def _missing_body_identity(candidate: Mapping[str, Any]) -> bool:

@@ -151,7 +151,26 @@ def test_colonisation_candidate_signals_are_report_only_and_conservative():
     assert report['summary']['canonical_writes_planned'] == 0
     assert report['summary']['review_candidates'] >= 1
     assert all(candidate['candidate_action'] == 'needs_review' for candidate in report['candidate_systems'])
+    assert all(candidate['system_key'] != 'unknown-system' for candidate in report['candidate_systems'])
     assert _stable_json(report) == _stable_json(analytics.build_colonisation_candidate_signals(quality_report))
+
+
+def test_colonisation_candidate_signals_ignore_aggregate_rows_without_system_identity():
+    analytics_report = {
+        'source_coverage_signals': [
+            {'signal': 'candidate_action:ambiguous_match', 'severity': 'info', 'count': 3},
+            {'signal': 'high_warning_rate', 'severity': 'review', 'warnings': 2, 'candidates': 4},
+        ],
+        'station_quality_signals': [],
+        'body_quality_signals': [],
+        'ring_quality_signals': [],
+    }
+
+    report = analytics.build_colonisation_candidate_signals(analytics_report)
+
+    assert report['summary']['systems_considered'] == 0
+    assert report['summary']['review_candidates'] == 0
+    assert report['candidate_systems'] == []
 
 
 def test_mission_density_signals_count_source_evidence_by_system():
