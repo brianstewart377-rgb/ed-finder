@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { GalacticMap } from './GalacticMap';
+import { useMapLayers } from './useMapLayers';
 import type { SystemResult } from '@/types/api';
 import { ratingTier, formatPopulationForSystem, formatDistance, formatCoords } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
@@ -19,9 +20,14 @@ export interface MapTabProps {
 
 export function MapTab({ systems, reference }: MapTabProps) {
   const [selected, setSelected] = useState<SystemResult | null>(null);
+  const [showRegions, setShowRegions] = useState(false);
+
+  const layers = useMapLayers({
+    regions: { enabled: showRegions },
+  });
 
   return (
-    <section data-testid="map-tab" className="space-y-5">
+    <section data-testid="map-tab" aria-label="Galactic map tab" className="space-y-5">
       <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
         <h2 className="font-display text-orange tracking-[0.14em] text-lg">
           🗺️ Galactic Map
@@ -30,6 +36,16 @@ export function MapTab({ systems, reference }: MapTabProps) {
           {systems.length} systems plotted from current search
         </span>
         <span className="flex-1" />
+        <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="map-regions-toggle"
+            checked={showRegions}
+            onChange={(e) => setShowRegions(e.target.checked)}
+            className="accent-orange"
+          />
+          Regions
+        </label>
         <span className="font-mono text-[10px] text-silver-dk">
           Drag to pan · scroll to zoom · click a star to inspect
         </span>
@@ -40,18 +56,51 @@ export function MapTab({ systems, reference }: MapTabProps) {
           <div className="text-3xl mb-2" aria-hidden>🗺️</div>
           <h3 className="font-display text-orange text-sm tracking-wider mb-1">No systems to plot</h3>
           <p className="text-silver-dk text-xs max-w-sm mx-auto">
-            Run a search in the Finder tab — its results are plotted here.
+            Run a search in the Finder tab and switch back here — results are plotted automatically.
           </p>
         </div>
       ) : (
-        <div className="grid lg:grid-cols-[1fr_280px] gap-4">
-          <GalacticMap
-            systems={systems}
-            reference={reference}
-            selectedId64={selected?.id64 ?? null}
-            onSelect={setSelected}
-          />
-          <SelectionPanel system={selected} />
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div
+              data-testid="map-source-badge"
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-chunk-sm text-[11px] font-mono text-silver-dk"
+              style={{
+                background: 'linear-gradient(180deg, rgba(28, 31, 36, 0.6), rgba(18, 20, 24, 0.6))',
+                border: '1px solid hsl(216 10% 24%)',
+              }}
+            >
+              <span
+                className="inline-block w-2 h-2 rounded-full"
+                style={{ backgroundColor: '#3ddc84' }}
+              />
+              <span>
+                {showRegions && layers.regions.data
+                  ? 'Finder results + Regions'
+                  : 'Showing Finder results'}
+              </span>
+            </div>
+            {showRegions && layers.regions.isLoading && (
+              <span className="font-mono text-[10px] text-silver-dk animate-pulse">
+                Loading regions…
+              </span>
+            )}
+            {showRegions && layers.regions.isError && (
+              <span className="font-mono text-[10px] text-red">
+                Regions failed
+              </span>
+            )}
+          </div>
+          <div className="grid lg:grid-cols-[1fr_280px] gap-4">
+            <GalacticMap
+              systems={systems}
+              reference={reference}
+              selectedId64={selected?.id64 ?? null}
+              onSelect={setSelected}
+              regions={layers.regions.data?.regions}
+            />
+            <SelectionPanel system={selected} />
+          </div>
         </div>
       )}
     </section>

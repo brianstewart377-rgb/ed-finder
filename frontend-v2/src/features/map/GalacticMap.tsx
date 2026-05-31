@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasKnownCoords, ratingTier } from '@/lib/format';
 import type { SystemResult } from '@/types/api';
+import type { MapRegion } from '@/lib/api';
 
 /**
  * Galactic map — top-down 2-D scatter plot of `systems` on the X/Z plane.
@@ -23,10 +24,12 @@ export interface GalacticMapProps {
   onSelect?:      (sys: SystemResult | null) => void;
   /** Initial half-extent in LY (default = auto-fit to data + 20%). */
   initialRadius?: number;
+  /** Optional canonical galaxy region labels to draw behind stars. */
+  regions?:       MapRegion[];
 }
 
 export function GalacticMap({
-  systems, reference, selectedId64, onSelect, initialRadius,
+  systems, reference, selectedId64, onSelect, initialRadius, regions,
 }: GalacticMapProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Camera state: centre is in galactic LY coords, scale = pixels per LY.
@@ -195,6 +198,19 @@ export function GalacticMap({
       ctx.globalAlpha = 1;
     }
 
+    // ── Region labels (dim, behind HUD) ─────────────────────────────
+    if (regions && regions.length > 0) {
+      ctx.fillStyle = 'rgba(200,204,209,0.18)';
+      ctx.font = '600 10px JetBrains Mono, ui-monospace, monospace';
+      for (const reg of regions) {
+        if (reg.x == null || reg.z == null) continue;
+        const rpx = wx(reg.x);
+        const rpy = wz(reg.z);
+        if (rpx < -50 || rpy < -10 || rpx > w + 50 || rpy > h + 10) continue;
+        ctx.fillText(reg.name, rpx, rpy);
+      }
+    }
+
     // ── HUD: scale indicator + scale bar ────────────────────────────
     ctx.fillStyle = 'rgba(200,204,209,0.65)';   // silver-dk
     ctx.font = '600 11px JetBrains Mono, ui-monospace, monospace';
@@ -218,7 +234,7 @@ export function GalacticMap({
       ctx.fillStyle = 'rgba(200,204,209,0.65)';
       ctx.fillText(`${barLy} LY`, bx, by - 8);
     }
-  }, [plottableSystems, view, reference.x, reference.z, reference.name, selectedId64]);
+  }, [plottableSystems, view, reference.x, reference.z, reference.name, selectedId64, regions]);
 
   // ── Pointer handlers ───────────────────────────────────────────────
   const drag = useRef<{ x: number; y: number; cx: number; cz: number } | null>(null);
@@ -274,6 +290,7 @@ export function GalacticMap({
       <canvas
         ref={canvasRef}
         data-testid="galactic-map-canvas"
+        aria-label="Galactic map canvas. Drag to pan, scroll to zoom, click a star to select."
         className="w-full h-full cursor-grab active:cursor-grabbing"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
