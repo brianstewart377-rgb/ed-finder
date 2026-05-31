@@ -1,0 +1,43 @@
+[
+  {
+    "systemName": "Exioce",
+    "systemId64": 2008132031194,
+    "id": 128666,
+    "marketId": 128666,
+    "name": "Macmillan Depot",
+    "type": "Orbis Starport",
+    "distanceToArrival": 592.25,
+    "bodyName": "Exioce 3 d",
+    "services": ["Dock", "Market", "Outfitting"],
+    "economies": [
+      {"name": "High Tech", "proportion": 0.8},
+      {"name": "Industrial", "proportion": 0.2}
+    ],
+    "controllingFaction": {"name": "Exioce Blue Mafia"},
+    "allegiance": "Independent",
+    "government": "Corporate",
+    "updatedAt": "2026-01-01T00:00:00Z"
+  },
+  {
+    "systemName": "Sol",
+    "systemId64": 10477373803,
+    "id": 322,
+    "marketId": 322,
+    "name": "Galileo",
+    "type": "Coriolis Starport",
+    "distanceToArrival": 503.2,
+    "bodyName": "Moon",
+    "services": ["Dock", "Shipyard"],
+    "economy": "High Tech",
+    "secondEconomy": "Service",
+    "controllingFaction": "Mother Gaia",
+    "allegiance": "Federation",
+    "government": "Democracy",
+    "updatedAt": "2026-01-02T00:00:00Z"
+  },
+  {
+    "systemName": "Broken Example",
+    "marketId": 999,
+    "distanceToArrival": 12
+  }
+]
