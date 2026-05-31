@@ -46,6 +46,17 @@ def test_economy_enum_value():
     assert economy_enum_value('Foo')          is None
 
 
+def test_canonical_economy_key():
+    """Resolves user-facing economy forms to DB column suffixes."""
+    from search_economies import canonical_economy_key
+
+    assert canonical_economy_key('HighTech')  == 'hightech'
+    assert canonical_economy_key('High Tech') == 'hightech'
+    assert canonical_economy_key('high-tech') == 'hightech'
+    assert canonical_economy_key('tourism')   == 'tourism'
+    assert canonical_economy_key('Foo')       is None
+
+
 def test_ratings_score_column():
     """Per-economy score column lookup, including the audit's §C5
     Extraction-was-missing regression."""

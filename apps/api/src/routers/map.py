@@ -4,12 +4,12 @@ from typing import Any, Optional
 
 import asyncpg
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from config  import settings, limiter, log
 from deps    import get_pool, get_redis, cache_get, cache_set
-from search_economies import ratings_score_column
+from search_economies import canonical_economy_key, ratings_score_column
 from state   import metrics as _metrics
 
 router = APIRouter(tags=['map'])
@@ -194,12 +194,12 @@ async def map_heatmap(
     density map would never provide.
     """
     eco_col = None
+    eco_key = None
     if economy:
-        col = ratings_score_column(economy)
-        # ratings_score_column returns 'score' for unknown/empty; we only
-        # want a per-economy column here (None → use the overall 'score').
-        if col != 'score':
-            eco_col = col
+        eco_key = canonical_economy_key(economy)
+        if eco_key is None:
+            raise HTTPException(status_code=422, detail=f'Invalid economy: {economy}')
+        eco_col = ratings_score_column(eco_key)
 
     cache_key = f'map:heatmap:v1:{voxel_size}:{min_systems}:{eco_col or "overall"}'
     if redis:
@@ -225,10 +225,10 @@ async def map_heatmap(
 
     # eco_col → which max_<eco> column on the MV. None = max_score.
     _eco_col = (
-        f'max_{economy.lower()}' if eco_col else 'max_score'
+        f'max_{eco_key}' if eco_key else 'max_score'
     )
     _filter_col = (
-        f'max_{economy.lower()}' if eco_col else 'max_score'
+        f'max_{eco_key}' if eco_key else 'max_score'
     )
 
     score_col = eco_col or 'score'
