@@ -280,6 +280,10 @@ def test_station_candidate_matching_canonical_data_is_no_change():
 
     candidate = report['station_candidates'][0]
     assert candidate['candidate_action'] == 'no_change'
+    assert candidate['confidence'] == 'high'
+    assert candidate['identifier_quality'] == 'stable'
+    assert candidate['evidence_quality'] == 'strong'
+    assert candidate['risk_flags'] == []
     assert candidate['canonical']['station_id'] == 1001
     assert candidate['differences'] == []
     assert report['summary']['canonical_matches_found'] == 1
@@ -295,6 +299,9 @@ def test_station_candidate_differing_staged_evidence_is_candidate_update():
 
     candidate = report['station_candidates'][0]
     assert candidate['candidate_action'] == 'candidate_update'
+    assert candidate['confidence'] == 'medium'
+    assert candidate['identifier_quality'] == 'stable'
+    assert candidate['risk_flags'] == []
     assert candidate['differences'] == [
         {'field': 'station_type', 'staged': 'Ocellus Starport', 'canonical': 'Orbis Starport'},
     ]
@@ -312,6 +319,9 @@ def test_station_ambiguous_match_is_not_guessed():
 
     candidate = report['station_candidates'][0]
     assert candidate['candidate_action'] == 'ambiguous_match'
+    assert candidate['confidence'] == 'low'
+    assert candidate['identifier_quality'] == 'ambiguous'
+    assert candidate['risk_flags'] == ['ambiguous_canonical_match']
     assert candidate['canonical'] is None
     assert [row['station_id'] for row in candidate['canonical_matches']] == [1001, 1002]
     assert report['summary']['ambiguous_matches'] == 1
@@ -327,6 +337,8 @@ def test_body_candidate_matches_by_system_address_and_body_id():
 
     candidate = report['body_candidates'][0]
     assert candidate['candidate_action'] == 'candidate_update'
+    assert candidate['confidence'] == 'medium'
+    assert candidate['identifier_quality'] == 'stable'
     assert candidate['source']['source_body_id'] == 7
     assert candidate['canonical']['body_id'] == 7
     assert candidate['differences'] == [
@@ -364,9 +376,35 @@ def test_sparse_staged_records_become_insufficient_evidence():
     report = db_loader.build_reconciliation_report(conn)
 
     assert report['station_candidates'][0]['candidate_action'] == 'insufficient_evidence'
+    assert report['station_candidates'][0]['confidence'] == 'low'
+    assert report['station_candidates'][0]['identifier_quality'] == 'missing'
+    assert report['station_candidates'][0]['risk_flags'] == ['insufficient_identifiers']
     assert report['body_candidates'][0]['candidate_action'] == 'insufficient_evidence'
+    assert report['body_candidates'][0]['confidence'] == 'low'
     assert report['ring_candidates'][0]['candidate_action'] == 'insufficient_evidence'
+    assert report['ring_candidates'][0]['confidence'] == 'low'
     assert report['summary']['insufficient_evidence'] == 3
+    assert_read_only_sql(conn)
+
+
+def test_volatile_only_station_difference_does_not_raise_update_confidence():
+    conn = FakeConn(station_rows=[
+        station_row(distance_to_arrival=123.4, canonical_distance_to_arrival=99.9),
+    ])
+
+    report = db_loader.build_reconciliation_report(conn, source='edsm_nightly_stations')
+
+    candidate = report['station_candidates'][0]
+    assert candidate['candidate_action'] == 'no_change'
+    assert candidate['differences'] == []
+    assert candidate['confidence'] == 'medium'
+    assert candidate['risk_flags'] == ['volatile_source_evidence']
+    assert candidate['warnings'] == [{
+        'entity': 'station',
+        'field': 'distance_to_arrival',
+        'reason': 'volatile_source_evidence_not_canonical_update',
+        'source_record_hash': 'station-hash',
+    }]
     assert_read_only_sql(conn)
 
 
