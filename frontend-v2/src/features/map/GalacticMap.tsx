@@ -44,11 +44,20 @@ export interface GalacticMapProps {
   clusters?:      MapClusterHull[];
   /** Draw the subtle ED-native galaxy disc / axes context. Default true. */
   showGalacticFrame?: boolean;
+  /**
+   * Viewport preset. Changing it resets pan/zoom:
+   *   • 'results'   — auto-fit Finder result dots (default)
+   *   • 'galaxy'    — zoom out to frame the whole galaxy disc/rings
+   *   • 'reference' — centre on the reference point at a local scale
+   */
+  viewMode?:      MapViewMode;
 }
+
+export type MapViewMode = 'results' | 'galaxy' | 'reference';
 
 export function GalacticMap({
   systems, reference, selectedId64, onSelect, initialRadius, regions, heatmap, clusters,
-  showGalacticFrame = true,
+  showGalacticFrame = true, viewMode = 'results',
 }: GalacticMapProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Camera state: centre is in galactic LY coords, scale = pixels per LY.
@@ -69,8 +78,33 @@ export function GalacticMap({
     [systems],
   );
 
-  // ── Auto-fit on first render & when systems list size changes a lot ─
+  // ── Viewport presets. Re-applied when the mode or data changes. ─────
+  // Each mode resets pan/zoom to a sensible framing; the user can still
+  // freely pan/zoom afterwards (state lives in `view`).
   useEffect(() => {
+    const el = canvasRef.current;
+    const w = el?.clientWidth  ?? 600;
+    const h = el?.clientHeight ?? 400;
+    const fitScale = (radiusLy: number) =>
+      Math.max(0.5, Math.min(w, h) / (2 * radiusLy));
+
+    if (viewMode === 'galaxy') {
+      // Frame the whole galaxy disc + a little margin around the rings.
+      setView({
+        cx: GALAXY_CENTER.x,
+        cz: GALAXY_CENTER.z,
+        scale: fitScale(GALAXY_RADIUS_LY * 1.1),
+      });
+      return;
+    }
+
+    if (viewMode === 'reference') {
+      // Centre on the reference point at a comfortable local scale.
+      setView({ cx: reference.x, cz: reference.z, scale: fitScale(initialRadius ?? 50) });
+      return;
+    }
+
+    // 'results' — auto-fit Finder result dots around the reference.
     if (plottableSystems.length === 0) return;
     const radius =
       initialRadius ??
@@ -80,12 +114,8 @@ export function GalacticMap({
           Math.hypot(s.coords!.x! - reference.x, s.coords!.z! - reference.z),
         ),
       ) * 1.1;
-    const el = canvasRef.current;
-    const w = el?.clientWidth  ?? 600;
-    const h = el?.clientHeight ?? 400;
-    const fit = Math.min(w, h) / (2 * radius);
-    setView({ cx: reference.x, cz: reference.z, scale: Math.max(0.5, fit) });
-  }, [autoFitSignature, plottableSystems, reference.x, reference.z, initialRadius]);
+    setView({ cx: reference.x, cz: reference.z, scale: fitScale(radius) });
+  }, [viewMode, autoFitSignature, plottableSystems, reference.x, reference.z, initialRadius]);
 
   // ── Render loop. Re-runs on view/systems/selection changes. ────────
   useEffect(() => {

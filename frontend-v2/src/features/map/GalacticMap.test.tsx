@@ -260,6 +260,39 @@ describe('GalacticMap', () => {
     expect(gradients.length).toBe(1);
     getContext.mockRestore();
   });
+
+  it('recentres the camera on the galactic centre in galaxy view mode', () => {
+    // The reference cross-hair's outer pulse ring is drawn with radius 22.
+    // Its screen X reveals where the reference point lands: in 'results' mode
+    // the camera centres on the reference (so it sits near screen centre),
+    // while 'galaxy' mode centres on GALAXY_CENTER, shifting the reference off.
+    const refRingX = (mode: 'results' | 'galaxy') => {
+      const order: string[] = [];
+      const ctx = makeRecordingContext(order);
+      const getContext = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue(ctx as unknown as RenderingContext);
+      const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 0, y: 0, z: 0 } })];
+      const { unmount } = render(
+        <GalacticMap systems={systems} reference={reference} viewMode={mode} />,
+      );
+      const arcMock = ctx.arc as unknown as ReturnType<typeof vi.fn>;
+      // Use the LAST radius-22 ring: the first render pass uses the default
+      // camera before the viewport-preset effect re-centres the map.
+      const rings = arcMock.mock.calls.filter((c) => c[2] === 22);
+      const ring = rings[rings.length - 1];
+      unmount();
+      getContext.mockRestore();
+      return ring ? (ring[0] as number) : NaN;
+    };
+
+    const resultsX = refRingX('results');
+    const galaxyX = refRingX('galaxy');
+    expect(Number.isNaN(resultsX)).toBe(false);
+    expect(Number.isNaN(galaxyX)).toBe(false);
+    // Different camera centre → reference lands at a different screen X.
+    expect(galaxyX).not.toBe(resultsX);
+  });
 });
 
 function makeRecordingContext(order: string[]): CanvasRenderingContext2D {

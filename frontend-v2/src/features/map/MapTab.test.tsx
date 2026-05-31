@@ -356,4 +356,31 @@ describe('MapTab', () => {
     fireEvent.click(toggle);
     expect(toggle.checked).toBe(false);
   });
+
+  it('defaults the view mode to Results', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    expect(screen.getByTestId('map-view-mode')).toBeTruthy();
+    expect(screen.getByTestId('map-view-results').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('map-view-galaxy').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('map-view-reference').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('selects the Galaxy view mode', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-view-galaxy'));
+    expect(screen.getByTestId('map-view-galaxy').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('map-view-results').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('selects the Reference view mode', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-view-reference'));
+    expect(screen.getByTestId('map-view-reference').getAttribute('aria-pressed')).toBe('true');
+  });
 });

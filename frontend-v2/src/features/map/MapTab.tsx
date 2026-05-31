@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GalacticMap } from './GalacticMap';
+import { GalacticMap, type MapViewMode } from './GalacticMap';
 import { useMapLayers } from './useMapLayers';
 import type { SystemResult } from '@/types/api';
 import { ratingTier, formatPopulationForSystem, formatDistance, formatCoords } from '@/lib/format';
@@ -18,8 +18,15 @@ export interface MapTabProps {
   reference:  { name: string; x: number; z: number };
 }
 
+const VIEW_MODES: { id: MapViewMode; label: string }[] = [
+  { id: 'results',   label: 'Results' },
+  { id: 'galaxy',    label: 'Galaxy' },
+  { id: 'reference', label: 'Reference' },
+];
+
 export function MapTab({ systems, reference }: MapTabProps) {
   const [selected, setSelected] = useState<SystemResult | null>(null);
+  const [viewMode, setViewMode] = useState<MapViewMode>('results');
   const [showFrame, setShowFrame] = useState(true);
   const [showRegions, setShowRegions] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -50,6 +57,29 @@ export function MapTab({ systems, reference }: MapTabProps) {
           {systems.length} systems plotted from current search
         </span>
         <span className="flex-1" />
+        <div
+          data-testid="map-view-mode"
+          role="group"
+          aria-label="Map view mode"
+          className="flex items-center rounded-chunk-sm overflow-hidden border border-[hsl(216_10%_24%)]"
+        >
+          {VIEW_MODES.map((mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              data-testid={`map-view-${mode.id}`}
+              aria-pressed={viewMode === mode.id}
+              onClick={() => setViewMode(mode.id)}
+              className={`px-2.5 py-1 font-mono text-[10px] tracking-wider transition-colors ${
+                viewMode === mode.id
+                  ? 'bg-orange/20 text-orange'
+                  : 'text-silver-dk hover:text-silver'
+              }`}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
         <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk cursor-pointer select-none">
           <input
             type="checkbox"
@@ -161,6 +191,7 @@ export function MapTab({ systems, reference }: MapTabProps) {
               heatmap={layers.heatmap.data}
               clusters={layers.clusters.data?.clusters}
               showGalacticFrame={showFrame}
+              viewMode={viewMode}
             />
             <SelectionPanel system={selected} />
           </div>
