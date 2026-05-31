@@ -171,4 +171,87 @@ describe('MapTab', () => {
     fireEvent.click(screen.getByTestId('map-regions-toggle'));
     expect(screen.getByText('Finder results + Regions')).toBeTruthy();
   });
+
+  it('does not fetch heatmap by default', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    expect(screen.getByTestId('map-heatmap-toggle')).toBeTruthy();
+    expect((screen.getByTestId('map-heatmap-toggle') as HTMLInputElement).checked).toBe(false);
+    expect(vi.mocked(useMapLayers)).toHaveBeenCalledWith(
+      expect.objectContaining({ heatmap: { enabled: false } }),
+    );
+  });
+
+  it('enables the heatmap layer when toggled', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-heatmap-toggle'));
+    expect(vi.mocked(useMapLayers)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ heatmap: { enabled: true } }),
+    );
+  });
+
+  it('shows heatmap loading state when toggled', () => {
+    vi.mocked(useMapLayers).mockReturnValue({
+      regions:  { data: undefined, isLoading: false, isError: false, error: null },
+      clusters: { data: undefined, isLoading: false, isError: false, error: null },
+      heatmap:  { data: undefined, isLoading: true, isError: false, error: null },
+      timeline: { data: undefined, isLoading: false, isError: false, error: null },
+      isLoading: true,
+      isError:   false,
+    } as ReturnType<typeof useMapLayers>);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-heatmap-toggle'));
+    expect(screen.getByText('Loading heatmap…')).toBeTruthy();
+  });
+
+  it('shows heatmap error state when fetch fails', () => {
+    vi.mocked(useMapLayers).mockReturnValue({
+      regions:  { data: undefined, isLoading: false, isError: false, error: null },
+      clusters: { data: undefined, isLoading: false, isError: false, error: null },
+      heatmap:  { data: undefined, isLoading: false, isError: true, error: new Error('fail') },
+      timeline: { data: undefined, isLoading: false, isError: false, error: null },
+      isLoading: false,
+      isError:   true,
+    } as ReturnType<typeof useMapLayers>);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-heatmap-toggle'));
+    expect(screen.getByText('Heatmap failed')).toBeTruthy();
+  });
+
+  it('updates badge when heatmap is loaded', () => {
+    vi.mocked(useMapLayers).mockReturnValue({
+      regions:  { data: undefined, isLoading: false, isError: false, error: null },
+      clusters: { data: undefined, isLoading: false, isError: false, error: null },
+      heatmap:  {
+        data: {
+          voxel_size: 200,
+          voxel_bucket: 200,
+          economy: null,
+          cells: [{ cx: 0, cy: 0, cz: 0, n: 12, avg_score: 70, max_score: 90 }],
+          count: 1,
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      },
+      timeline: { data: undefined, isLoading: false, isError: false, error: null },
+      isLoading: false,
+      isError:   false,
+    } as ReturnType<typeof useMapLayers>);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-heatmap-toggle'));
+    expect(screen.getByText('Finder results + Heatmap')).toBeTruthy();
+  });
 });

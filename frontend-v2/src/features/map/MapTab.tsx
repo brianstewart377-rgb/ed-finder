@@ -21,10 +21,20 @@ export interface MapTabProps {
 export function MapTab({ systems, reference }: MapTabProps) {
   const [selected, setSelected] = useState<SystemResult | null>(null);
   const [showRegions, setShowRegions] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   const layers = useMapLayers({
     regions: { enabled: showRegions },
+    heatmap: { enabled: showHeatmap },
   });
+
+  const activeLayers = [
+    showRegions && layers.regions.data ? 'Regions' : null,
+    showHeatmap && layers.heatmap.data ? 'Heatmap' : null,
+  ].filter(Boolean);
+  const sourceLabel = activeLayers.length === 0
+    ? 'Showing Finder results'
+    : ['Finder results', ...activeLayers].join(' + ');
 
   return (
     <section data-testid="map-tab" aria-label="Galactic map tab" className="space-y-5">
@@ -45,6 +55,16 @@ export function MapTab({ systems, reference }: MapTabProps) {
             className="accent-orange"
           />
           Regions
+        </label>
+        <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="map-heatmap-toggle"
+            checked={showHeatmap}
+            onChange={(e) => setShowHeatmap(e.target.checked)}
+            className="accent-orange"
+          />
+          Heatmap
         </label>
         <span className="font-mono text-[10px] text-silver-dk">
           Drag to pan · scroll to zoom · click a star to inspect
@@ -74,11 +94,7 @@ export function MapTab({ systems, reference }: MapTabProps) {
                 className="inline-block w-2 h-2 rounded-full"
                 style={{ backgroundColor: '#3ddc84' }}
               />
-              <span>
-                {showRegions && layers.regions.data
-                  ? 'Finder results + Regions'
-                  : 'Showing Finder results'}
-              </span>
+              <span>{sourceLabel}</span>
             </div>
             {showRegions && layers.regions.isLoading && (
               <span className="font-mono text-[10px] text-silver-dk animate-pulse">
@@ -90,6 +106,16 @@ export function MapTab({ systems, reference }: MapTabProps) {
                 Regions failed
               </span>
             )}
+            {showHeatmap && layers.heatmap.isLoading && (
+              <span className="font-mono text-[10px] text-silver-dk animate-pulse">
+                Loading heatmap…
+              </span>
+            )}
+            {showHeatmap && layers.heatmap.isError && (
+              <span className="font-mono text-[10px] text-red">
+                Heatmap failed
+              </span>
+            )}
           </div>
           <div className="grid lg:grid-cols-[1fr_280px] gap-4">
             <GalacticMap
@@ -98,6 +124,7 @@ export function MapTab({ systems, reference }: MapTabProps) {
               selectedId64={selected?.id64 ?? null}
               onSelect={setSelected}
               regions={layers.regions.data?.regions}
+              heatmap={layers.heatmap.data}
             />
             <SelectionPanel system={selected} />
           </div>

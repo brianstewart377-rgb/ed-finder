@@ -123,4 +123,53 @@ describe('GalacticMap', () => {
 
     expect(screen.getByTestId('galactic-map-canvas')).toBeTruthy();
   });
+
+  it('renders heatmap cells without crashing', () => {
+    // jsdom returns null from getContext by default, so stub a recording 2D
+    // context to verify the heatmap draw path actually emits fillRect calls.
+    const ctx = {
+      setTransform: vi.fn(),
+      clearRect: vi.fn(),
+      fillRect: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      arc: vi.fn(),
+      stroke: vi.fn(),
+      fill: vi.fn(),
+      closePath: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      fillText: vi.fn(),
+      createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    } as unknown as CanvasRenderingContext2D;
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(ctx as unknown as RenderingContext);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 0, y: 0, z: 0 } })];
+    const heatmap = {
+      voxel_size: 200,
+      voxel_bucket: 200,
+      economy: null,
+      cells: [
+        { cx: 0, cy: 0, cz: 0, n: 20, avg_score: 75, max_score: 95 },
+        { cx: 200, cy: 0, cz: 200, n: 8, avg_score: 40, max_score: 60 },
+      ],
+      count: 2,
+    };
+    render(
+      <GalacticMap
+        systems={systems}
+        reference={reference}
+        heatmap={heatmap}
+      />,
+    );
+
+    expect(screen.getByTestId('galactic-map-canvas')).toBeTruthy();
+    // A visible heatmap cue is drawn via fillRect for at least one cell.
+    expect(ctx.fillRect).toHaveBeenCalled();
+    getContext.mockRestore();
+  });
 });

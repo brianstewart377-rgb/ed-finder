@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasKnownCoords, ratingTier } from '@/lib/format';
 import type { SystemResult } from '@/types/api';
-import type { MapRegion } from '@/lib/api';
+import type { MapRegion, MapHeatmapResponse } from '@/lib/api';
 
 /**
  * Galactic map — top-down 2-D scatter plot of `systems` on the X/Z plane.
@@ -26,10 +26,12 @@ export interface GalacticMapProps {
   initialRadius?: number;
   /** Optional canonical galaxy region labels to draw behind stars. */
   regions?:       MapRegion[];
+  /** Optional voxel-aggregated density heatmap to draw behind everything. */
+  heatmap?:       MapHeatmapResponse;
 }
 
 export function GalacticMap({
-  systems, reference, selectedId64, onSelect, initialRadius, regions,
+  systems, reference, selectedId64, onSelect, initialRadius, regions, heatmap,
 }: GalacticMapProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Camera state: centre is in galactic LY coords, scale = pixels per LY.
@@ -113,6 +115,27 @@ export function GalacticMap({
         ctx.moveTo(0, wz(z)); ctx.lineTo(w, wz(z));
       }
       ctx.stroke();
+    }
+
+    // ── Heatmap voxels (behind everything except backdrop/grid) ─────
+    if (heatmap && heatmap.cells.length > 0) {
+      const cell = heatmap.voxel_size * view.scale;
+      // Half-cell offset: backend cx/cz are voxel CENTRES.
+      const half = cell / 2;
+      ctx.save();
+      for (const c of heatmap.cells) {
+        const px = wx(c.cx);
+        const py = wz(c.cz);
+        if (px + half < 0 || py + half < 0 || px - half > w || py - half > h) continue;
+        const score = c.avg_score ?? 0;
+        const tier = ratingTier(score);
+        // Subtle fill; never strong enough to swamp star dots above it.
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = tier.fillColor;
+        ctx.fillRect(px - half, py - half, cell, cell);
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
     // ── Reference cross-hair (orange glow ring) ─────────────────────
@@ -234,7 +257,7 @@ export function GalacticMap({
       ctx.fillStyle = 'rgba(200,204,209,0.65)';
       ctx.fillText(`${barLy} LY`, bx, by - 8);
     }
-  }, [plottableSystems, view, reference.x, reference.z, reference.name, selectedId64, regions]);
+  }, [plottableSystems, view, reference.x, reference.z, reference.name, selectedId64, regions, heatmap]);
 
   // ── Pointer handlers ───────────────────────────────────────────────
   const drag = useRef<{ x: number; y: number; cx: number; cz: number } | null>(null);
