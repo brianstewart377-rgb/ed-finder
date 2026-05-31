@@ -24,6 +24,7 @@ It supersedes the old assumption that the project should simply continue from St
 | Document | Status | Purpose |
 |---|---|---|
 | [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) | Active control | Current state, source-authority warning, non-negotiable boundaries, and next work queue. |
+| [`../reference/colonisation/README.md`](../reference/colonisation/README.md) | Source authority entry point | Committed source hierarchy, inventory placeholders, and future Codex prompt snippet for mechanics-heavy work. |
 | [`engine-roadmap.md`](./engine-roadmap.md) | Living historical roadmap | Broad colonisation engine evolution and delivered stage summaries. |
 | [`enrichment-roadmap.md`](./enrichment-roadmap.md) | Active for enrichment | Guarded station enrichment, body/ring enrichment, offline warehouse, reconciliation, and operator-status roadmap. |
 | [`simulation-preview-ui-architecture.md`](./simulation-preview-ui-architecture.md) | Architecture reference | Simulation Preview / Colony Planner component ownership and delivered UI architecture notes. |
@@ -57,13 +58,14 @@ Instead:
 
 ## Source Pack Reminder
 
-Stage 17A identified that the expected reference-pack path was missing from `main` at the time of review. Mechanics-heavy work should not claim direct source verification from uncommitted local files.
+Stage 17A identified that the expected reference-pack path was missing from
+`main` at the time of review. Stage 17Q adds the committed reference entry
+point under [`docs/reference/colonisation/`](../reference/colonisation/),
+including source priority, source inventory placeholders, and a Codex prompt
+snippet.
 
-Before future mechanics-heavy work, commit or verify:
-
-- `docs/reference/colonisation/README.md`
-- `docs/reference/colonisation/source-priority.md`
-- `docs/reference/colonisation/codex-reference-prompt-snippet.md`
-- permitted source inventories, placeholders, or redistributable references
-
-Until then, prompts and PRs must clearly say whether they used committed docs, attached files, or local/operator knowledge.
+The reference entry point does not commit restricted guide files, spreadsheets,
+PDFs, screenshots, or third-party assets. Mechanics-heavy work should read the
+committed reference docs first, then clearly state whether any direct source
+verification used committed docs, attached files, external sources, or
+local/operator-only files.
