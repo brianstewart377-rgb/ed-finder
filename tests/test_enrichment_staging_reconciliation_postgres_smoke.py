@@ -30,6 +30,8 @@ if str(IMPORTER_SRC) not in sys.path:
     sys.path.insert(0, str(IMPORTER_SRC))
 
 import enrichment_staging_db_loader as db_loader  # noqa: E402
+import enrichment_warehouse_repository as repository  # noqa: E402
+import enrichment_warehouse_sql as warehouse_sql  # noqa: E402
 
 
 STATION_FIXTURE = ROOT / 'tests' / 'fixtures' / 'edsm_station_snapshot.json'
@@ -260,7 +262,14 @@ def assert_reconciliation_sql_is_read_only() -> None:
             db_loader.fetch_station_reconciliation_rows,
             db_loader.fetch_body_reconciliation_rows,
             db_loader.fetch_ring_reconciliation_rows,
-            db_loader._select_rows,
+            repository.build_reconciliation_report,
+            repository.fetch_station_reconciliation_rows,
+            repository.fetch_body_reconciliation_rows,
+            repository.fetch_ring_reconciliation_rows,
+            repository._select_rows,
+            warehouse_sql.station_reconciliation_query,
+            warehouse_sql.body_reconciliation_query,
+            warehouse_sql.ring_reconciliation_query,
         )
     )
     assert WRITE_SQL_RE.search(source) is None
