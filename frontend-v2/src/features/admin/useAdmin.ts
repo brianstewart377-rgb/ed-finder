@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AppStatus, CacheStats, EnrichmentStationStatus } from '@/types/api';
+import type { AppStatus, CacheStats, EnrichmentStationStatus, EnrichmentWarehouseStatus } from '@/types/api';
 
 const TOKEN_KEY = 'ed_admin_token';
 
@@ -20,10 +20,13 @@ export interface UseAdmin {
   status:      AppStatus | null;
   cache:       CacheStats | null;
   enrichmentStatus: EnrichmentStationStatus | null;
+  warehouseStatus: EnrichmentWarehouseStatus | null;
   metaLoading: boolean;
   metaError:   string | null;
   enrichmentLoading: boolean;
   enrichmentError: string | null;
+  warehouseLoading: boolean;
+  warehouseError: string | null;
   refresh:     () => Promise<void>;
 
   // Action state machine: idle → busy → ok | err
@@ -43,10 +46,13 @@ export function useAdmin(): UseAdmin {
   const [status,      setStatus]      = useState<AppStatus | null>(null);
   const [cache,       setCache]       = useState<CacheStats | null>(null);
   const [enrichmentStatus, setEnrichmentStatus] = useState<EnrichmentStationStatus | null>(null);
+  const [warehouseStatus, setWarehouseStatus] = useState<EnrichmentWarehouseStatus | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError,   setMetaError]   = useState<string | null>(null);
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
+  const [warehouseLoading, setWarehouseLoading] = useState(false);
+  const [warehouseError, setWarehouseError] = useState<string | null>(null);
   const [actionState, setActionState] = useState<UseAdmin['actionState']>({ kind: 'idle' });
 
   const setToken = useCallback((t: string) => {
@@ -72,8 +78,11 @@ export function useAdmin(): UseAdmin {
 
     if (!token) {
       setEnrichmentStatus(null);
+      setWarehouseStatus(null);
       setEnrichmentError(null);
+      setWarehouseError(null);
       setEnrichmentLoading(false);
+      setWarehouseLoading(false);
       return;
     }
     setEnrichmentLoading(true);
@@ -85,6 +94,17 @@ export function useAdmin(): UseAdmin {
       setEnrichmentError(e instanceof Error ? e.message : String(e));
     } finally {
       setEnrichmentLoading(false);
+    }
+
+    setWarehouseLoading(true);
+    setWarehouseError(null);
+    try {
+      setWarehouseStatus(await api.enrichmentWarehouseStatus(token));
+    } catch (e: unknown) {
+      setWarehouseStatus(null);
+      setWarehouseError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWarehouseLoading(false);
     }
   }, [token]);
 
@@ -118,7 +138,8 @@ export function useAdmin(): UseAdmin {
   return {
     token, setToken, forgetToken,
     hasToken: token.length > 0,
-    status, cache, enrichmentStatus, metaLoading, metaError, enrichmentLoading, enrichmentError, refresh,
+    status, cache, enrichmentStatus, warehouseStatus,
+    metaLoading, metaError, enrichmentLoading, enrichmentError, warehouseLoading, warehouseError, refresh,
     actionState,
     clearCache:      () => runAction('clearCache',      () => api.cacheClear(token)),
     rebuildClusters: () => runAction('rebuildClusters', () => api.rebuildClusters(token)),

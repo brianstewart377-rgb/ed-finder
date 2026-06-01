@@ -15,6 +15,7 @@ import type {
   AutocompleteResponse,
   CacheStats,
   EnrichmentStationStatus,
+  EnrichmentWarehouseStatus,
   FacilityTemplate,
   LayoutImportRequest,
   LayoutImportResponse,
@@ -344,6 +345,11 @@ export const api = {
   },
   enrichmentStationStatus(token: string): Promise<EnrichmentStationStatus> {
     return jsonFetch('/admin/enrichment/station-status', {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  enrichmentWarehouseStatus(token: string): Promise<EnrichmentWarehouseStatus> {
+    return jsonFetch('/admin/enrichment/warehouse-status', {
       headers: { 'X-Admin-Token': token },
     });
   },

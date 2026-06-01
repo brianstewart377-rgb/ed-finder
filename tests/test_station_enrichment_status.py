@@ -15,7 +15,10 @@ if str(API_SRC) not in sys.path:
     sys.path.insert(0, str(API_SRC))
 
 import station_enrichment_status as status  # noqa: E402
-from enrichment_operator_status import read_enrichment_status_snapshot  # noqa: E402
+from enrichment_operator_status import (  # noqa: E402
+    read_enrichment_status_snapshot,
+    read_warehouse_status_snapshot,
+)
 
 
 def write_checkpoint(path: Path, ids: list[int]) -> None:
@@ -477,3 +480,158 @@ def test_operator_status_snapshot_missing_or_invalid_keeps_unknown_values(tmp_pa
     assert unsafe_payload['warnings'] == ['unavailable']
     assert str(tmp_path) not in rendered_unsafe
     assert 'postgresql://' not in rendered_unsafe
+
+
+def test_warehouse_status_snapshot_sanitizes_report_and_preserves_review_counts(tmp_path):
+    artifact = tmp_path / 'shared' / 'warehouse-status.json'
+    artifact.parent.mkdir()
+    artifact.write_text(json.dumps({
+        'schema_version': 'enrichment_staging_reconciliation/v1',
+        'dry_run': True,
+        'filters': {
+            'source_run_key': 'run-warehouse',
+            'source_file_key': 'file-warehouse',
+            'source': 'edsm_nightly_stations',
+            'limit': 1000,
+        },
+        'summary': {
+            'staged_station_rows_considered': 12,
+            'staged_body_rows_considered': 8,
+            'staged_ring_rows_considered': 3,
+            'canonical_matches_found': 10,
+            'canonical_misses': 2,
+            'ambiguous_matches': 1,
+            'insufficient_evidence': 1,
+            'warnings': 2,
+            'errors': 0,
+            'canonical_writes_planned': 0,
+        },
+        'source_coverage_summary': {
+            'entities': {
+                'station': {'candidates': 12},
+                'body': {'candidates': 8},
+                'ring': {'candidates': 3},
+            },
+            'ring_evidence': {
+                'staged_ring_candidates': 3,
+                'trusted_local_matched_ring_candidates': 1,
+            },
+        },
+        'warehouse_coverage_report': {
+            'schema_version': 'enrichment_warehouse_coverage_report/v1',
+            'dry_run': True,
+            'report_only': True,
+            'canonical_writes_planned': 0,
+            'summary': {
+                'systems_with_station_evidence': 4,
+                'systems_missing_station_evidence': 2,
+                'trusted_ring_evidence_bodies': 1,
+                'unknown_ring_evidence_bodies': 3,
+                'explicit_no_ring_evidence_bodies': 1,
+                'unresolved_stations': 5,
+                'source_files_considered': 2,
+                'malformed_or_skipped_source_rows': 6,
+                'source_identity_conflicts': 2,
+                'high_value_systems_needing_better_evidence': 3,
+                'canonical_writes_planned': 0,
+            },
+            'operator_review': {
+                'needs_attention_buckets': {
+                    'stale_or_undated_sources': 7,
+                    'duplicate_source_records': 4,
+                    'source_identity_conflicts': 2,
+                    'skipped_or_malformed_raw_records': 6,
+                    'high_value_systems_needing_better_evidence': 3,
+                },
+            },
+            'source_freshness': {
+                'stale_or_undated_evidence': {
+                    'records_without_source_updated_at': 7,
+                    'file_snapshot_candidate_records': 2,
+                },
+            },
+            'source_quality': {
+                'malformed_or_skipped_source_rows': {'count': 6},
+                'duplicate_source_records': {'duplicate_records': 4},
+                'source_identity_conflicts': {'count': 2},
+            },
+            'source_formats': {
+                'source_type_distribution': {'edsm_nightly_stations': 1},
+                'source_format_distribution': {'json': 1},
+            },
+        },
+        'confidence_risk_summary': {
+            'risk_class_distribution': {
+                'blocked': 2,
+                'risky': 3,
+                'stale': 4,
+                'volatile': 1,
+            },
+        },
+        'warnings': [
+            {'reason': 'volatile_source_evidence_not_canonical_update'},
+            f'{tmp_path}/unsafe-warning',
+        ],
+        'errors': [],
+    }), encoding='utf-8')
+
+    payload = read_warehouse_status_snapshot(str(artifact))
+    rendered = json.dumps(payload, sort_keys=True)
+
+    assert payload['available'] is True
+    assert payload['state'] == 'blocked'
+    assert payload['source'] == 'warehouse_reconciliation_status_json'
+    assert payload['artifact']['file_name'] == 'warehouse-status.json'
+    assert payload['latest_snapshot_load']['source_run_key'] == 'run-warehouse'
+    assert payload['latest_reconciliation_run']['schema_version'] == 'enrichment_staging_reconciliation/v1'
+    assert payload['latest_reconciliation_run']['coverage_schema_version'] == 'enrichment_warehouse_coverage_report/v1'
+    assert payload['latest_reconciliation_run']['canonical_writes_planned'] == 0
+    assert payload['source_coverage']['systems_with_station_evidence'] == 4
+    assert payload['source_coverage']['systems_missing_station_evidence'] == 2
+    assert payload['source_coverage']['trusted_ring_evidence_bodies'] == 1
+    assert payload['evidence_health']['unresolved_stations'] == 5
+    assert payload['evidence_health']['blocked_conflicts'] == 2
+    assert payload['evidence_health']['risky_conflicts'] == 3
+    assert payload['evidence_health']['stale_or_undated_source_records'] == 7
+    assert payload['evidence_health']['duplicate_source_records'] == 4
+    assert payload['evidence_health']['source_identity_conflicts'] == 2
+    assert payload['canonical_safety'] == {
+        'canonical_tables_untouched': True,
+        'canonical_writes_planned': 0,
+        'dry_run': True,
+        'report_only': True,
+    }
+    assert payload['warnings'] == ['volatile_source_evidence_not_canonical_update', 'unavailable']
+    assert str(tmp_path) not in rendered
+
+
+def test_warehouse_status_snapshot_missing_invalid_and_unsafe_states(tmp_path):
+    not_configured = read_warehouse_status_snapshot(None)
+    assert not_configured['available'] is False
+    assert not_configured['state'] == 'not_configured'
+    assert not_configured['source_coverage'] is None
+
+    missing = read_warehouse_status_snapshot(str(tmp_path / 'missing.json'))
+    assert missing['available'] is False
+    assert missing['state'] == 'missing'
+    assert missing['latest_reconciliation_run'] is None
+
+    invalid = tmp_path / 'invalid-warehouse.json'
+    invalid.write_text('[1, 2, 3]', encoding='utf-8')
+    invalid_payload = read_warehouse_status_snapshot(str(invalid))
+    assert invalid_payload['available'] is False
+    assert invalid_payload['state'] == 'invalid_json'
+    assert invalid_payload['artifact']['file_name'] == 'invalid-warehouse.json'
+
+    unsafe = tmp_path / 'unsafe-warehouse.json'
+    unsafe.write_text(json.dumps({
+        'schema_version': 'enrichment_staging_reconciliation/v1',
+        'dry_run': True,
+        'summary': {'canonical_writes_planned': 1},
+        'warnings': ['ok'],
+        'errors': [],
+    }), encoding='utf-8')
+    unsafe_payload = read_warehouse_status_snapshot(str(unsafe))
+    assert unsafe_payload['available'] is True
+    assert unsafe_payload['state'] == 'unsafe'
+    assert unsafe_payload['canonical_safety']['canonical_tables_untouched'] is False

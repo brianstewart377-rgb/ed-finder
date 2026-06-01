@@ -149,6 +149,21 @@ Stage 18B broadens the read-only reconciliation report with named sections:
   are embedded as report-only signal sections with
   `canonical_writes_planned = 0`.
 
+## Operator Status Surface
+
+Stage 18G makes warehouse evidence status visible in the existing token-gated
+Admin surface without adding a live warehouse job runner. The API reads only a
+configured JSON artifact, `ENRICHMENT_WAREHOUSE_STATUS_JSON_PATH`, and returns
+sanitized status for latest snapshot/reconciliation state, source coverage,
+unresolved/risky/blocked/stale evidence, skipped or duplicate source records,
+and canonical-safety flags. Missing, invalid, unset, or unsafe artifacts remain
+unavailable/unknown rather than zero.
+
+The status endpoint hides full filesystem paths and does not query the
+warehouse database, generate reports, invoke Docker, call live APIs, or write
+canonical rows. Operators publish the artifact from a separate reviewed
+warehouse run, usually a reconciliation report.
+
 ## Offline Fixture Loader
 
 Run from the repo root:
