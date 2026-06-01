@@ -557,6 +557,32 @@ Acceptance:
 Plan doc:
 `stage-18j-q2-readonly-production-reconciliation-plan.md`.
 
+### Stage 18J-Q3 — Read-Only Production Reconciliation Artifact
+
+Purpose: run the read-only/report-only production reconciliation artifact
+generation path only if all pre-run safety checks are satisfied.
+
+Scope:
+
+- Verify the command shape, read-only DSN/access, approved source run/file,
+  read-only session option, and operator-managed output path.
+- Generate and validate the `enrichment_staging_reconciliation/v1` artifact
+  only when those gates pass.
+- Stop and document blockers before any production-connected command if any
+  gate is missing.
+
+Current result:
+
+- The pre-run gate failed because no verified read-only/report-only DSN,
+  approved source run/file, read-only session option, or operator-managed
+  output path was available.
+- No production-connected reconciliation command was run.
+- No production artifact was generated or approved.
+- Stage 18J-P remains blocked.
+
+Report:
+`stage-18j-q3-readonly-production-reconciliation-artifact.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -594,5 +620,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 17. Stage 18T canonical safety test environment.
 18. Stage 18J-Q production reconciliation artifact readiness.
 19. Stage 18J-Q2 read-only production reconciliation plan.
+20. Stage 18J-Q3 read-only production reconciliation artifact gate.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

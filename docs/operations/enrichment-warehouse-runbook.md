@@ -486,6 +486,12 @@ generation plan in
 It names the later `--report-reconciliation` command, required source scope,
 read-only DSN proof, output handling, contract checks, and stop conditions.
 
+Stage 18J-Q3 records the first attempted artifact-generation pass in
+`docs/colonisation-redesign/stage-18j-q3-readonly-production-reconciliation-artifact.md`.
+It stopped before any production-connected command because the verified
+read-only DSN, source run/file scope, read-only session option, and
+operator-managed output path were not available.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables
