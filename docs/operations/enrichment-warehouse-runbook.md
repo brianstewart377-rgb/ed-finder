@@ -297,6 +297,13 @@ Important sections:
   `station_body_links` write plan.
 - `source_coverage_summary`: entity coverage, source files/runs, volatile
   warning counts, and ring evidence state.
+- `warehouse_coverage_report`: Stage 18E operator review coverage. It shows
+  systems with station evidence, systems with only body/ring evidence, trusted
+  ring evidence, unknown ring evidence, explicit trusted no-ring scan evidence,
+  confirmed/inferred/unresolved station-body links, stale or undated evidence,
+  malformed/skipped source rows, duplicate source-record hashes, source
+  identity conflicts, high-value systems needing better evidence, and source
+  type/source-format coverage.
 - `confidence_risk_summary`: confidence, evidence quality, identifier quality,
   and risk-flag distributions.
 
@@ -317,8 +324,28 @@ Warnings that block any later stage:
 - `volatile_source_evidence` where an operator expected a stable-field change
 - `source_only_association`, `ambiguous_staged_body_evidence`,
   `missing_staged_body_evidence`, or `missing_station_body_name`
+- non-zero `warehouse_coverage_report.operator_review.needs_attention_buckets`
+  values that the operator cannot explain from the source file and staging
+  filters
 - any non-zero `errors`
 - any report that omits `canonical_writes_planned = 0`
+
+Coverage report rules:
+
+- `warehouse_coverage_report` is deterministic and report-only. It is not a
+  write plan and must keep `canonical_writes_planned = 0`.
+- Missing station evidence means no staged station evidence for a system that
+  does have staged body or ring evidence in the current report scope; it is not
+  a galaxy-wide absence claim.
+- Trusted ring evidence requires matched local `body_rings` rows with trusted
+  association status.
+- Source-only ring rows remain source-only and do not confirm ring truth.
+- Explicit no-ring coverage is counted only from trusted local scan facts such
+  as `body_scan_facts.is_ringed = false`. Missing arrays and empty source
+  arrays remain review evidence, not canonical no-rings.
+- Stale or undated coverage uses source timestamp/freshness fields only; the
+  report does not apply a wall-clock age threshold so output stays
+  deterministic and offline-safe.
 
 ## Staged-Row Summary
 

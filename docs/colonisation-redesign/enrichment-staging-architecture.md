@@ -116,6 +116,13 @@ body/ring `ring_array_evidence`. Missing ring arrays remain
 `unknown_not_false`; empty arrays are source evidence only and do not become a
 canonical no-rings conclusion.
 
+Stage 18E keeps those semantics in warehouse coverage reports: source-only ring
+rows are counted separately from trusted local `body_rings` evidence, missing
+ring arrays stay unknown, and explicit no-ring coverage is counted only from
+trusted local scan facts such as `body_scan_facts.is_ringed = false`. Empty
+source arrays remain review evidence unless a future source adapter proves
+stronger semantics.
+
 Stage 18B broadens the read-only reconciliation report with named sections:
 
 * `station_body_association_candidates` records staged station/body-name
@@ -124,6 +131,13 @@ Stage 18B broadens the read-only reconciliation report with named sections:
 * `source_coverage_summary` records per-entity action/confidence/source
   coverage, volatile warning counts, and ring-evidence state. Missing ring
   arrays remain `unknown_not_false`.
+* `warehouse_coverage_report` records Stage 18E operator coverage sections for
+  systems with and missing station evidence, trusted/unknown/explicit no-ring
+  body coverage, confirmed/inferred/unresolved station-body links, stale or
+  undated source evidence, duplicate and skipped source coverage, high-value
+  systems needing better evidence, and source type/format coverage. It is
+  versioned as `enrichment_warehouse_coverage_report/v1`, deterministic, and
+  report-only.
 * `confidence_risk_summary` keeps aggregate confidence, identifier/evidence
   quality, and risk-flag distributions explainable.
 * `analytics_signals`, `colonisation_signals`, and `mission_density_signals`
