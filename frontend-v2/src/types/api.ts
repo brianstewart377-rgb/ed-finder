@@ -205,6 +205,61 @@ export interface EnrichmentWarehouseStatus {
   errors: string[];
 }
 
+// ─── Stage 18H Warehouse-to-Planner Evidence Bridge (read-only) ───────────
+//
+// A typed, read-only model for surfacing carefully selected warehouse /
+// report-only evidence context in planner-facing UI. It is EVIDENCE, NOT
+// TRUTH. It must never mutate planner state, Build Plans, roles, observed
+// evidence, validation, scoring, Simulation Preview, optimiser output, or
+// canonical data. See
+// `docs/colonisation-redesign/stage-18h-warehouse-planner-evidence-bridge.md`.
+//
+// Stage 18H ships the model plus a safe, source-labelled placeholder card.
+// The current Stage 18G warehouse artifact is admin-gated and aggregate-only
+// (no per-system linkage), so the planner card defaults to the `unavailable`
+// (unknown) state rather than guessing. Missing evidence stays unknown — it
+// never means false / no evidence.
+
+/** Where a piece of planner evidence comes from. Always shown to the user. */
+export type WarehouseEvidenceSource =
+  | 'canonical'              // ED-Finder canonical app data (the planner's truth)
+  | 'observed'               // user/imported observed evidence
+  | 'warehouse_report_only'  // offline warehouse reconciliation report evidence
+  | 'unknown';               // source not established / not safely linkable
+
+/** Whether any warehouse evidence summary is available for display. */
+export type WarehouseEvidenceAvailability =
+  | 'unavailable'   // no artifact / not safely linkable -> remains unknown
+  | 'report_only';  // a report-only evidence summary is present
+
+/** Conservative, source-labelled finding wording. No promotion language. */
+export type WarehouseEvidenceLabel =
+  | 'report_only'
+  | 'needs_review'
+  | 'verify'
+  | 'unresolved'
+  | 'stale'
+  | 'blocked'
+  | 'unknown';
+
+export interface PlannerWarehouseEvidenceItem {
+  label:   WarehouseEvidenceLabel;
+  source:  WarehouseEvidenceSource;
+  /** Short, human-readable summary. Must not contain secrets, DSNs, or paths. */
+  summary: string;
+}
+
+export interface PlannerWarehouseEvidence {
+  availability: WarehouseEvidenceAvailability;
+  /**
+   * Always true in Stage 18H: warehouse-derived evidence is report-only and is
+   * never canonical truth. Typed as the literal `true` so callers cannot mark
+   * warehouse evidence as canonical.
+   */
+  reportOnly:   true;
+  items:        PlannerWarehouseEvidenceItem[];
+}
+
 export interface SlotReason {
   factor: string;
   delta?: number | null;

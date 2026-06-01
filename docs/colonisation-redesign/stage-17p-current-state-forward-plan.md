@@ -375,6 +375,15 @@ Acceptance:
 
 - The planner can display warehouse evidence context without treating report-only evidence as canonical data.
 
+Status: delivered (conservative placeholder path). The Stage 18G warehouse
+artifact is admin-gated and aggregate-only, so per-system linking is not yet
+safe. Stage 18H shipped a typed read-only `PlannerWarehouseEvidence` model, a
+compact source-labelled planner card defaulting to a safe unavailable/unknown
+state, no-mutation tests, and a design doc with the future per-system
+integration path
+(`stage-18h-warehouse-planner-evidence-bridge.md`). No backend endpoint, no live
+calls, no canonical or planner state mutation.
+
 ### Stage 18I — Canonical Write Design Review
 
 Purpose: design, but not implement, the rules for promoting warehouse evidence into canonical data.

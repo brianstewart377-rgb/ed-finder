@@ -445,6 +445,16 @@ missing, invalid, unset, or oversized artifacts as unavailable instead of zero.
 It does not query the warehouse database, invoke Docker, call live APIs, run
 importer scripts, or write canonical data.
 
+Stage 18H adds a read-only warehouse-to-planner evidence bridge in the Colony
+Planner. It presents warehouse evidence as report-only, never canonical truth.
+Because this warehouse status artifact is admin-gated and aggregate-only (it has
+no per-`system_id64` rows), the planner card cannot safely link evidence to a
+system yet and defaults to a safe unavailable/unknown state. It adds no backend
+endpoint, makes no live calls, and changes no planner, Build Plan, role,
+observed-evidence, validation, scoring, Preview, optimiser, or canonical state.
+The future per-system artifact contract is documented in
+`docs/colonisation-redesign/stage-18h-warehouse-planner-evidence-bridge.md`.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

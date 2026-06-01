@@ -164,6 +164,19 @@ warehouse database, generate reports, invoke Docker, call live APIs, or write
 canonical rows. Operators publish the artifact from a separate reviewed
 warehouse run, usually a reconciliation report.
 
+## Planner Evidence Bridge (Stage 18H)
+
+Stage 18H surfaces warehouse evidence in the Colony Planner as report-only
+evidence, not canonical truth. The current Stage 18G warehouse artifact is
+admin-token-gated and aggregate-only, so it cannot be safely joined to a planner
+system by `system_id64`. Following the stage decision gate, Stage 18H ships a
+typed read-only model (`PlannerWarehouseEvidence`), a compact source-labelled
+planner card that defaults to a safe unavailable/unknown state, no-mutation
+tests, and a design doc with the future per-system artifact contract. It adds no
+backend endpoint and makes no live calls. See
+`stage-18h-warehouse-planner-evidence-bridge.md` for the artifact contract and
+integration path.
+
 ## Offline Fixture Loader
 
 Run from the repo root:

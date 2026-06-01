@@ -2,6 +2,7 @@ import { ArrowLeft, Rocket } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { WholeSystemColonyPlanner } from './WholeSystemColonyPlanner';
+import { WarehouseEvidenceCard } from './WarehouseEvidenceCard';
 import { WorkspaceHeader, WorkspaceHeaderSkeleton } from './WorkspaceHeader';
 
 export interface ColonyPlannerWorkspaceProps {
@@ -72,6 +73,14 @@ export function ColonyPlannerWorkspace({
         onOpenSystemDetail={onOpenSystemDetail}
       />
       <WholeSystemColonyPlanner system={data} />
+      {/*
+       * Stage 18H: read-only warehouse evidence bridge. No data is passed
+       * today (the warehouse artifact is admin-gated and aggregate-only with
+       * no per-system linkage), so this renders the safe unavailable/unknown
+       * state. It never mutates planner state. See
+       * docs/colonisation-redesign/stage-18h-warehouse-planner-evidence-bridge.md.
+       */}
+      <WarehouseEvidenceCard />
     </WorkspaceShell>
   );
 }
