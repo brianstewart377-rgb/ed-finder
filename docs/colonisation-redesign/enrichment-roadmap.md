@@ -488,6 +488,13 @@ proof, output handling, stop conditions, and Stage 18J-P readiness criteria.
 See
 [`stage-18j-q2-readonly-production-reconciliation-plan.md`](./stage-18j-q2-readonly-production-reconciliation-plan.md).
 
+Stage 18J-Q3 attempted to move from plan to artifact generation, but the
+pre-run gate failed before any production-connected command because the
+verified read-only DSN, approved source run/file, read-only session option, and
+operator-managed output path were not available. Stage 18J-P remains blocked.
+See
+[`stage-18j-q3-readonly-production-reconciliation-artifact.md`](./stage-18j-q3-readonly-production-reconciliation-artifact.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.

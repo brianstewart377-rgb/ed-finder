@@ -335,6 +335,12 @@ Stage 18J-Q2 defines the exact later operator command plan and pre-run checklist
 for that read-only/report-only artifact generation:
 [`stage-18j-q2-readonly-production-reconciliation-plan.md`](./stage-18j-q2-readonly-production-reconciliation-plan.md).
 
+Stage 18J-Q3 records the next artifact-generation attempt. It stopped before
+running any production-connected command because the verified read-only DSN,
+approved source run/file, read-only session option, and operator-managed output
+path were unavailable:
+[`stage-18j-q3-readonly-production-reconciliation-artifact.md`](./stage-18j-q3-readonly-production-reconciliation-artifact.md).
+
 No production apply is authorized. No production artifact is approved for
 apply. Any future apply still requires a separate explicit instruction and
 approval naming the exact station-type dry-run artifact hash, candidate count,

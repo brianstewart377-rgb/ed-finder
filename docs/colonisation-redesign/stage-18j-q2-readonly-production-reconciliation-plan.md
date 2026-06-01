@@ -342,3 +342,9 @@ proves the DSN/access boundary. The generated artifact should remain outside
 git and be summarized only after it passes the contract checks.
 
 Stage 18J-P remains blocked until that artifact exists and passes validation.
+
+Stage 18J-Q3 attempted that artifact-generation step but stopped before any
+production-connected command because the required verified read-only DSN,
+approved source run/file, read-only session option, and operator-managed output
+path were not available. See
+[`stage-18j-q3-readonly-production-reconciliation-artifact.md`](./stage-18j-q3-readonly-production-reconciliation-artifact.md).

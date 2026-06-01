@@ -252,6 +252,12 @@ that prerequisite artifact. It does not authorize running the command or
 generating a station-type dry-run artifact:
 [`stage-18j-q2-readonly-production-reconciliation-plan.md`](./stage-18j-q2-readonly-production-reconciliation-plan.md).
 
+Stage 18J-Q3 attempted the prerequisite artifact-generation step and stopped
+before any production-connected command because the verified read-only DSN,
+approved source run/file, read-only session option, and operator-managed output
+path were not available:
+[`stage-18j-q3-readonly-production-reconciliation-artifact.md`](./stage-18j-q3-readonly-production-reconciliation-artifact.md).
+
 ## Stop Conditions
 
 Stop before dry-run generation if:
