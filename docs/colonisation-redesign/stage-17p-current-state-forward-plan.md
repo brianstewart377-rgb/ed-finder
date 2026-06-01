@@ -264,6 +264,8 @@ Acceptance:
 
 Purpose: make the warehouse safe and repeatable to run.
 
+Runbook: `docs/operations/enrichment-warehouse-runbook.md`.
+
 Scope:
 
 - Document where snapshots come from, where they are stored, how they are loaded, and how dry-run reconciliation is run.

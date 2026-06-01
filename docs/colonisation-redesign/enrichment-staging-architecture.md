@@ -141,6 +141,8 @@ The staging DB loader remains explicitly opt-in. Staging writes require
 `--write-staging`, `--dsn`, and `--confirm-staging-db`; read-only schema,
 staged-row, and reconciliation report modes require a DSN but do not require
 the staging-write confirmation flag. Canonical flags continue to fail closed.
+The Stage 18C operator workflow and exact command examples are documented in
+[`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 The repository writes only to:
 
 * `enrichment_source_runs`

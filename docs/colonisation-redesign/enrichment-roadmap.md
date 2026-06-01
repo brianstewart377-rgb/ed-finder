@@ -401,6 +401,10 @@ pure report-only analytics/signals. Optional real-Postgres smoke tests for the
 staging loaders and reconciliation are skipped by default unless
 `EDFINDER_STAGING_TEST_DSN` and `EDFINDER_CONFIRM_STAGING_TEST_DB=yes` are set.
 
+The operator workflow and current command examples live in
+[`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
+Use that runbook before loading any local snapshot into staging tables.
+
 This is the long-term replacement direction for large live API crawls: load
 repeatable offline snapshots into raw/staging evidence, compare read-only
 against canonical ED-Finder tables, produce pure versioned dry-run plans, and
