@@ -7,6 +7,7 @@ import {
   describeTopologySelection,
   type TopologySelection,
 } from './ColonyTopologyRail';
+import { buildBodyDataSlotEstimateMap } from './slotCapacityFallback';
 
 const templates: FacilityTemplate[] = [
   {
@@ -164,7 +165,6 @@ describe('ColonyTopologyRail', () => {
   });
 
   it('filters non-physical Barycentre and Null entries from the system tree and slot calculations', () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const customSystem = {
       ...system,
       bodies: [
@@ -175,41 +175,22 @@ describe('ColonyTopologyRail', () => {
       ],
     } as unknown as SystemDetail;
 
-    try {
-      render(
-        <ColonyTopologyRail
-          system={customSystem}
-          snapshot={{ placements: [], templates, targetArchetype: 'refinery_industrial', slotPredictions: null }}
-          selection={{ type: 'system' }}
-          onSelect={vi.fn()}
-        />,
-      );
+    const estimateMap = buildBodyDataSlotEstimateMap(customSystem, null);
 
-      expect(screen.getByTestId('topology-body-0')).toBeTruthy();
-      expect(screen.getByTestId('topology-body-1')).toBeTruthy();
-      expect(screen.queryByText(/Barycentre/i)).toBeNull();
-      expect(screen.queryByText(/Null Body/i)).toBeNull();
-      expect(logSpy).toHaveBeenCalledWith(
-        'Calculated Slots:',
-        expect.arrayContaining([
-          expect.objectContaining({ bodyId: '1' }),
-        ]),
-      );
-      expect(logSpy).not.toHaveBeenCalledWith(
-        'Calculated Slots:',
-        expect.arrayContaining([
-          expect.objectContaining({ bodyId: '99' }),
-        ]),
-      );
-      expect(logSpy).not.toHaveBeenCalledWith(
-        'Calculated Slots:',
-        expect.arrayContaining([
-          expect.objectContaining({ bodyId: '100' }),
-        ]),
-      );
-    } finally {
-      logSpy.mockRestore();
-    }
+    render(
+      <ColonyTopologyRail
+        system={customSystem}
+        snapshot={{ placements: [], templates, targetArchetype: 'refinery_industrial', slotPredictions: null }}
+        selection={{ type: 'system' }}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('topology-body-0')).toBeTruthy();
+    expect(screen.getByTestId('topology-body-1')).toBeTruthy();
+    expect(screen.queryByText(/Barycentre/i)).toBeNull();
+    expect(screen.queryByText(/Null Body/i)).toBeNull();
+    expect(Array.from(estimateMap.keys())).toEqual(['1']);
   });
 
   it('renders unknown and unassigned placement groups without exposing raw IDs by default', () => {
@@ -314,8 +295,7 @@ describe('ColonyTopologyRail', () => {
     expect(screen.getByTestId('2-ground-slot-4')).toBeTruthy();
   });
 
-  it('forces calculated body-data slots when confirmed slot predictions are empty', () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  it('uses calculated body-data slots when canonical slot predictions are absent', () => {
     const customSystem = {
       ...system,
       bodies: [
@@ -331,30 +311,23 @@ describe('ColonyTopologyRail', () => {
       ],
     } as unknown as SystemDetail;
 
-    try {
-      render(
-        <ColonyTopologyRail
-          system={customSystem}
-          snapshot={{ placements: [], templates, targetArchetype: 'refinery_industrial', slotPredictions: null }}
-          selection={{ type: 'system' }}
-          onSelect={vi.fn()}
-        />,
-      );
+    const estimateMap = buildBodyDataSlotEstimateMap(customSystem, null);
 
-      expect(screen.getByTestId('topology-slot-estimate-disclaimer').textContent).toContain(
-        'Slot layout estimated from body data',
-      );
-      expect(screen.getByTestId('2-orbital-slot-0')).toBeTruthy();
-      expect(screen.getByTestId('2-ground-slot-0')).toBeTruthy();
-      expect(logSpy).toHaveBeenCalledWith(
-        'Calculated Slots:',
-        expect.arrayContaining([
-          expect.objectContaining({ bodyId: '2', orbital: 1, surface: 1 }),
-        ]),
-      );
-    } finally {
-      logSpy.mockRestore();
-    }
+    render(
+      <ColonyTopologyRail
+        system={customSystem}
+        snapshot={{ placements: [], templates, targetArchetype: 'refinery_industrial', slotPredictions: null }}
+        selection={{ type: 'system' }}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('topology-slot-estimate-disclaimer').textContent).toContain(
+      'Slot layout estimated from body data',
+    );
+    expect(screen.getByTestId('2-orbital-slot-0')).toBeTruthy();
+    expect(screen.getByTestId('2-ground-slot-0')).toBeTruthy();
+    expect(estimateMap.get('2')).toEqual(expect.objectContaining({ bodyId: '2', orbital: 1, surface: 1 }));
   });
 
   it('shows overflow when structures exceed predicted capacity', () => {

@@ -18,7 +18,7 @@ const baseSystem = {
 } as unknown as SystemDetail;
 
 describe('existing infrastructure resolver', () => {
-  it('maps exact body names and orbital station types', () => {
+  it('maps legacy exact body-name fallbacks as inferred orbital station associations', () => {
     const resolution = resolveExistingInfrastructure({
       ...baseSystem,
       stations: [
@@ -37,10 +37,12 @@ describe('existing infrastructure resolver', () => {
     expect(resolution.mapped[0]).toEqual(expect.objectContaining({
       source: 'existing',
       body_id: '2',
-      body_match_confidence: 'exact',
+      body_match_confidence: 'inferred',
+      body_match_reason: 'Matched station body name; verify against backend resolver metadata.',
       lane: 'orbital',
-      association_status: 'confirmed',
-      association_confidence: 'exact',
+      association_status: 'inferred',
+      association_confidence: 'strong_inference',
+      association_source: 'frontend_body_name_fallback',
       economy: 'Refinery',
     }));
   });

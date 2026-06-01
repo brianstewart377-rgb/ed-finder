@@ -48,6 +48,13 @@ export interface ExistingInfrastructureResolution {
   }>;
 }
 
+type StationBodyMatch = {
+  body: SystemBody | null;
+  confidence: ExistingStructureBodyMatchConfidence;
+  reason: string;
+  source: string;
+};
+
 export function resolveExistingInfrastructure(system: SystemDetail): ExistingInfrastructureResolution {
   const bodies = (system.bodies ?? []).filter((body) => body?.id != null);
   const structures = (system.stations ?? []).map((station, index) => resolveStation(bodies, station, index));
@@ -165,7 +172,7 @@ function resolveStation(
     lane,
     association_status: bodyMatch.confidence === 'exact' ? 'confirmed' : bodyMatch.confidence === 'inferred' ? 'inferred' : 'unresolved',
     association_confidence: bodyMatch.confidence === 'exact' ? 'exact' : bodyMatch.confidence === 'inferred' ? 'strong_inference' : 'unresolved',
-    association_source: bodyMatch.confidence === 'exact' ? 'frontend_fallback' : bodyMatch.confidence === 'inferred' ? 'frontend_distance_fallback' : 'frontend_unresolved_fallback',
+    association_source: bodyMatch.source,
     economy: readString(record.primary_economy) ?? readEconomyName(record.economies, 0),
     secondary_economy: readString(record.secondary_economy) ?? readEconomyName(record.economies, 1),
     pad_size: readString(record.landing_pad_size) ?? readString(record.pad_size),
@@ -263,23 +270,33 @@ function matchStationBody(
   explicitBodyId: string | null,
   stationBodyName: string | null,
   stationDistanceFromStar: number | null,
-): { body: SystemBody | null; confidence: ExistingStructureBodyMatchConfidence; reason: string } {
+): StationBodyMatch {
   if (explicitBodyId) {
     const body = bodies.find((candidate) => sameBodyId(candidate.id, explicitBodyId));
     if (body) {
-      return { body, confidence: 'exact', reason: 'Matched exact body id.' };
+      return { body, confidence: 'exact', reason: 'Matched exact body id.', source: 'frontend_body_id_fallback' };
     }
-    return { body: null, confidence: 'unresolved', reason: 'Station body id does not match a known body.' };
+    return { body: null, confidence: 'unresolved', reason: 'Station body id does not match a known body.', source: 'frontend_body_id_fallback' };
   }
 
   if (stationBodyName) {
     const bodyName = normaliseName(stationBodyName);
     const matches = bodies.filter((candidate) => normaliseName(candidate.name) === bodyName);
     if (matches.length === 1) {
-      return { body: matches[0], confidence: 'exact', reason: 'Matched exact body name.' };
+      return {
+        body: matches[0],
+        confidence: 'inferred',
+        reason: 'Matched station body name; verify against backend resolver metadata.',
+        source: 'frontend_body_name_fallback',
+      };
     }
     if (matches.length > 1) {
-      return { body: null, confidence: 'unresolved', reason: 'Station body name matches multiple bodies.' };
+      return {
+        body: null,
+        confidence: 'unresolved',
+        reason: 'Station body name matches multiple bodies.',
+        source: 'frontend_body_name_fallback',
+      };
     }
   }
 
@@ -289,14 +306,29 @@ function matchStationBody(
       return bodyDistance != null && Math.abs(bodyDistance - stationDistanceFromStar) <= 0.01;
     });
     if (matches.length === 1) {
-      return { body: matches[0], confidence: 'inferred', reason: 'Inferred from unique distance-from-star match.' };
+      return {
+        body: matches[0],
+        confidence: 'inferred',
+        reason: 'Inferred from unique distance-from-star match.',
+        source: 'frontend_distance_fallback',
+      };
     }
     if (matches.length > 1) {
-      return { body: null, confidence: 'unresolved', reason: 'Distance-from-star match is ambiguous.' };
+      return {
+        body: null,
+        confidence: 'unresolved',
+        reason: 'Distance-from-star match is ambiguous.',
+        source: 'frontend_distance_fallback',
+      };
     }
   }
 
-  return { body: null, confidence: 'unresolved', reason: 'No reliable body association is available.' };
+  return {
+    body: null,
+    confidence: 'unresolved',
+    reason: 'No reliable body association is available.',
+    source: 'frontend_unresolved_fallback',
+  };
 }
 
 function readEconomyName(value: unknown, index: number): string | null {
