@@ -9,6 +9,7 @@ import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
 import { filterUsefulSuggestedBuilds, suggestedBuildScale, type SuggestedBuildScale } from './optimiserQualityUtils';
 import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
 import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
+import type { ObservedColonyRole } from '@/features/colony-planner/colonyRoleReview';
 import { buildSuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
 
 type GeneratedCandidateParams = {
@@ -34,6 +35,8 @@ export function OptimiserCandidatePanel({
   system = null,
   slotPredictions = null,
   declaredRoles = [],
+  observedRoles = [],
+  observedRolesLoaded = false,
 }: {
   systemId64: number;
   targetArchetype: string;
@@ -48,6 +51,8 @@ export function OptimiserCandidatePanel({
   system?: SystemDetail | null;
   slotPredictions?: SlotPredictionResponse | null;
   declaredRoles?: DeclaredColonyRole[];
+  observedRoles?: ObservedColonyRole[];
+  observedRolesLoaded?: boolean;
 }) {
   const [maxCandidates, setMaxCandidates] = useState(5);
   const [allowEstimatedData, setAllowEstimatedData] = useState(true);
@@ -76,9 +81,11 @@ export function OptimiserCandidatePanel({
       bodyLabelsById,
       currentPreviewPlacements,
       declaredRoles,
+      observedRoles,
+      observedRolesLoaded,
       slotPredictions,
     }),
-  ])), [bodyLabelsById, candidates, currentPreviewPlacements, declaredRoles, slotPredictions, system, templates]);
+  ])), [bodyLabelsById, candidates, currentPreviewPlacements, declaredRoles, observedRoles, observedRolesLoaded, slotPredictions, system, templates]);
   const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selectedId) ?? candidates[0];
   const selectedCandidateId = selectedCandidate?.candidate_id ?? null;
   const selectedAdvisor = selectedCandidate ? advisorLookup.get(selectedCandidate.candidate_id) : undefined;

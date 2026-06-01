@@ -325,14 +325,16 @@ function StrategyAdvisorSection({ advisor }: { advisor: SuggestedBuildStrategyAd
         <AdvisorFact title="Existing infrastructure" body={advisor.existingInfrastructure} />
         <AdvisorFact title="Slot pressure" body={advisor.slotPressure} />
         <AdvisorFact title="Economy intent" body={advisor.economyIntent} />
-        <AdvisorFact title="Declared roles" body={advisor.roleContext} />
+        <AdvisorFact title="Role guidance" body={advisor.roleContext} />
+        <AdvisorFact title="Role gaps" body={advisor.roleGaps} />
         <AdvisorFact title="Uncertainty" body={advisor.uncertainty} />
       </div>
       <details className="mt-3 border-t border-border/35 pt-2">
         <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
-          Projection and manual review
+          Projection, role sources, and manual review
         </summary>
         <div className="mt-2 space-y-1 text-[11px] leading-snug text-silver-dk">
+          <p>{advisor.roleSourceContext}</p>
           <p>{advisor.projectionEffect}</p>
           <p>{advisor.manualBoundary}</p>
         </div>

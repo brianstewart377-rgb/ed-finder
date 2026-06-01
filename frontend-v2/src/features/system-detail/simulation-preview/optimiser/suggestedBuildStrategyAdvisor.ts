@@ -8,7 +8,13 @@ import type {
   SystemDetail,
 } from '@/types/api';
 import type { BodyPlannerLane } from '@/features/colony-planner/BodySlotPlanner';
-import { roleCompactLabel, type DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
+import {
+  roleCompactLabel,
+  roleLabel,
+  type DeclaredColonyRole,
+  type DeclaredColonyRoleId,
+} from '@/features/colony-planner/colonyRoles';
+import type { ObservedColonyRole } from '@/features/colony-planner/colonyRoleReview';
 import { resolveExistingInfrastructure } from '@/features/colony-planner/existingInfrastructure';
 import { compactEconomyLabel, normalisePlanningEconomy } from '@/features/colony-planner/planningEconomy';
 import { buildBodyDataSlotEstimateMap, resolveSlotCapacity, systemBodyData } from '@/features/colony-planner/slotCapacityFallback';
@@ -23,6 +29,8 @@ export interface SuggestedBuildStrategyAdvisor {
   slotPressure: string;
   economyIntent: string;
   roleContext: string;
+  roleGaps: string;
+  roleSourceContext: string;
   uncertainty: string;
   projectionEffect: string;
   manualBoundary: string;
@@ -35,10 +43,12 @@ interface AdvisorInput {
   bodyLabelsById?: Record<string, string>;
   currentPreviewPlacements?: SimulateBuildPlacement[];
   declaredRoles?: DeclaredColonyRole[];
+  observedRoles?: ObservedColonyRole[];
+  observedRolesLoaded?: boolean;
   slotPredictions?: SlotPredictionResponse | null;
 }
 
-type PlacementLike = Pick<SimulateBuildPlacement | OptimiserCandidatePlacement, 'facility_template_id' | 'local_body_id'>;
+type PlacementLike = Pick<SimulateBuildPlacement | OptimiserCandidatePlacement, 'facility_template_id' | 'local_body_id' | 'is_primary_port'>;
 
 interface LaneCounts {
   orbital: number;
@@ -53,6 +63,13 @@ interface PlacementLaneSummary {
   missingTemplate: number;
 }
 
+interface RoleGuidanceSummary {
+  summary: string;
+  gaps: string;
+  sources: string;
+  hasReviewIssue: boolean;
+}
+
 export function buildSuggestedBuildStrategyAdvisor({
   candidate,
   system,
@@ -60,6 +77,8 @@ export function buildSuggestedBuildStrategyAdvisor({
   bodyLabelsById = {},
   currentPreviewPlacements = [],
   declaredRoles = [],
+  observedRoles = [],
+  observedRolesLoaded = false,
   slotPredictions = null,
 }: AdvisorInput): SuggestedBuildStrategyAdvisor {
   const templatesById = new Map(templates.map((template) => [template.id, template]));
@@ -82,6 +101,7 @@ export function buildSuggestedBuildStrategyAdvisor({
   const currentLaneSummary = summarizePlacementLanes(currentPreviewPlacements, templatesById, bodiesById);
   const projectedLaneSummary = summarizePlacementLanes(candidate.placements, templatesById, bodiesById);
   const existingResolution = system ? resolveExistingInfrastructure(system) : null;
+  const candidateRoleSignals = candidateRoleSignalsByBody(candidate, templatesById);
 
   const bodyChoice = describeBodyChoice({
     mainBodyId,
@@ -90,7 +110,14 @@ export function buildSuggestedBuildStrategyAdvisor({
     labelForBody,
     projectedLaneSummary,
   });
-  const roleContext = describeDeclaredRoles(usedBodyIds, declaredRoles, labelForBody);
+  const roleGuidance = describeRoleGuidance({
+    usedBodyIds,
+    declaredRoles,
+    observedRoles,
+    observedRolesLoaded,
+    candidateRoleSignals,
+    labelForBody,
+  });
   const existingInfrastructure = describeExistingInfrastructure({
     usedBodyIds,
     existingResolution,
@@ -113,15 +140,22 @@ export function buildSuggestedBuildStrategyAdvisor({
     slotPredictions,
   });
   const projectionEffect = describeProjectionEffect(candidate, usedBodyIds, projectedLaneSummary);
-  const manualBoundary = 'Manual boundary: select projects read-only ghosts, Load explicitly copies this candidate into the editable Build Plan, and Run Preview remains explicit.';
+  const manualBoundary = 'Manual boundary: select projects read-only ghosts, Load explicitly copies this candidate into the editable Build Plan, Run Preview remains explicit, and role guidance does not assign roles or alter ranking/scoring.';
 
   return {
-    cardLine: cardLineFor({ slotPressure, existingInfrastructure, uncertainty }),
+    cardLine: cardLineFor({
+      slotPressure,
+      existingInfrastructure,
+      uncertainty,
+      roleGuidance,
+    }),
     bodyChoice,
     existingInfrastructure,
     slotPressure,
     economyIntent,
-    roleContext,
+    roleContext: roleGuidance.summary,
+    roleGaps: roleGuidance.gaps,
+    roleSourceContext: roleGuidance.sources,
     uncertainty,
     projectionEffect,
     manualBoundary,
@@ -159,30 +193,168 @@ function describeBodyChoice({
   return `Body choice: main body is ${labelForBody(mainBodyId)}${tags ? ` (${tags})` : ''}.${support}${unresolved}`;
 }
 
-function describeDeclaredRoles(
-  usedBodyIds: string[],
-  declaredRoles: DeclaredColonyRole[],
-  labelForBody: (bodyId: string) => string,
-) {
-  if (declaredRoles.length === 0) return 'Declared roles: none available for candidate context.';
+function describeRoleGuidance({
+  usedBodyIds,
+  declaredRoles,
+  observedRoles,
+  observedRolesLoaded,
+  candidateRoleSignals,
+  labelForBody,
+}: {
+  usedBodyIds: string[];
+  declaredRoles: DeclaredColonyRole[];
+  observedRoles: ObservedColonyRole[];
+  observedRolesLoaded: boolean;
+  candidateRoleSignals: Map<string, Set<DeclaredColonyRoleId>>;
+  labelForBody: (bodyId: string) => string;
+}): RoleGuidanceSummary {
   const used = new Set(usedBodyIds);
-  const rolesByBody = new Map<string, string[]>();
-  declaredRoles.forEach((role) => {
-    const key = bodyIdKey(role.body_id);
-    if (!used.has(key)) return;
-    const labels = rolesByBody.get(key) ?? [];
-    labels.push(roleCompactLabel(role.role_id));
-    rolesByBody.set(key, labels);
+  const declaredOnCandidate = declaredRoles.filter((role) => used.has(bodyIdKey(role.body_id)));
+  const observedOnCandidate = observedRolesLoaded
+    ? observedRoles.filter((role) => used.has(bodyIdKey(role.body_id)))
+    : [];
+  const inferredParts = inferredRoleParts(candidateRoleSignals, labelForBody);
+  const supportParts = declaredOnCandidate
+    .filter((role) => roleSatisfiedByCandidate(role.role_id, candidateRoleSignals.get(bodyIdKey(role.body_id))))
+    .map((role) => `${labelForBody(bodyIdKey(role.body_id))} ${roleCompactLabel(role.role_id)}`);
+  const roleGapParts = declaredOnCandidate
+    .filter((role) => !roleSatisfiedByCandidate(role.role_id, candidateRoleSignals.get(bodyIdKey(role.body_id))))
+    .map((role) => gapTextForRole(role, labelForBody(bodyIdKey(role.body_id))));
+  const conflictParts = roleConflictParts({
+    declaredOnCandidate,
+    observedOnCandidate,
+    candidateRoleSignals,
+    labelForBody,
   });
 
-  if (rolesByBody.size === 0) {
-    return 'Declared roles: roles exist elsewhere, but none are on the projected candidate bodies.';
-  }
+  const inferredLine = inferredParts.length > 0
+    ? `Inferred: candidate appears to support ${inferredParts.slice(0, 4).join('; ')} from projected templates.`
+    : 'Inferred: no role pattern from projected templates yet.';
+  const declaredLine = supportParts.length > 0
+    ? `Declared: supports ${supportParts.slice(0, 4).join('; ')}.`
+    : declaredOnCandidate.length > 0
+      ? 'Declared: roles are present on projected bodies, but this candidate does not directly satisfy them.'
+      : declaredRoles.length > 0
+        ? 'Declared: roles exist elsewhere; none are on projected candidate bodies.'
+        : 'Declared: none.';
+  const observedLine = observedLineFor({
+    observedRolesLoaded,
+    observedOnCandidate,
+    labelForBody,
+  });
+  const roleReviewParts = [...conflictParts, ...roleGapParts].slice(0, 4);
+  const gapLine = roleReviewParts.length > 0
+    ? `Role gaps/conflicts: ${roleReviewParts.length} advisory item(s) need manual review. Advisory only; not blockers.`
+    : 'Role gaps/conflicts: none from available role context. Advisory only; not blockers.';
+  const reviewDetailLine = roleReviewParts.length > 0
+    ? `Advisory gap/conflict detail: ${roleReviewParts.join(' ')}`
+    : 'Advisory gap/conflict detail: no role gaps or conflicts from available source context.';
+  const sourceLine = `${inferredLine} ${declaredLine} ${observedLine} ${reviewDetailLine} Role guidance is display-only and does not change candidate ranking, scoring, Preview, declared roles, or the Build Plan.`;
 
-  const parts = Array.from(rolesByBody.entries()).map(([bodyId, labels]) => (
-    `${labelForBody(bodyId)}: ${Array.from(new Set(labels)).join(', ')}`
+  return {
+    summary: `Role guidance: ${inferredLine} ${declaredLine}`,
+    gaps: gapLine,
+    sources: `Role sources: ${sourceLine}`,
+    hasReviewIssue: roleGapParts.length > 0 || conflictParts.length > 0,
+  };
+}
+
+function inferredRoleParts(
+  candidateRoleSignals: Map<string, Set<DeclaredColonyRoleId>>,
+  labelForBody: (bodyId: string) => string,
+) {
+  return Array.from(candidateRoleSignals.entries())
+    .flatMap(([bodyId, roleIds]) => Array.from(roleIds).map((roleId) => (
+      `${labelForBody(bodyId)} ${roleCompactLabel(roleId)}`
+    )))
+    .slice(0, 6);
+}
+
+function observedLineFor({
+  observedRolesLoaded,
+  observedOnCandidate,
+  labelForBody,
+}: {
+  observedRolesLoaded: boolean;
+  observedOnCandidate: ObservedColonyRole[];
+  labelForBody: (bodyId: string) => string;
+}) {
+  if (!observedRolesLoaded) {
+    return 'Observed: not loaded in Suggested Builds; no observed role evidence is included in this advisor.';
+  }
+  if (observedOnCandidate.length === 0) {
+    return 'Observed: loaded, with no observed role evidence on projected candidate bodies.';
+  }
+  const parts = observedOnCandidate.slice(0, 4).map((role) => (
+    `${labelForBody(bodyIdKey(role.body_id))} ${role.label} (${role.evidenceLabel})`
   ));
-  return `Declared roles: ${parts.join('; ')}. Advisory only; no role mechanics are applied.`;
+  return `Observed: ${parts.join('; ')}.`;
+}
+
+function roleConflictParts({
+  declaredOnCandidate,
+  observedOnCandidate,
+  candidateRoleSignals,
+  labelForBody,
+}: {
+  declaredOnCandidate: DeclaredColonyRole[];
+  observedOnCandidate: ObservedColonyRole[];
+  candidateRoleSignals: Map<string, Set<DeclaredColonyRoleId>>;
+  labelForBody: (bodyId: string) => string;
+}) {
+  const conflicts = new Set<string>();
+  declaredOnCandidate.forEach((declared) => {
+    const bodyId = bodyIdKey(declared.body_id);
+    const body = labelForBody(bodyId);
+    const signals = candidateRoleSignals.get(bodyId);
+    if (declared.role_id === 'expansion_reserve') {
+      conflicts.add(`Declared conflict: ${body} is Expansion Reserve but this candidate projects placement there.`);
+    }
+    if (isIndustrialRole(declared.role_id) && signals?.has('tourism_agriculture_body')) {
+      conflicts.add(`Declared conflict: ${body} ${roleCompactLabel(declared.role_id)} may conflict with projected Tourism / Agri intent.`);
+    }
+    if (declared.role_id === 'tourism_agriculture_body' && hasIndustrialSignal(signals)) {
+      conflicts.add(`Declared conflict: ${body} Tourism / Agri may conflict with projected industrial intent.`);
+    }
+  });
+  observedOnCandidate.forEach((observed) => {
+    const bodyId = bodyIdKey(observed.body_id);
+    const body = labelForBody(bodyId);
+    const declaredHere = declaredOnCandidate.filter((role) => bodyIdKey(role.body_id) === bodyId);
+    if (observed.role_id === 'tourism_agriculture_body' && declaredHere.some((role) => isIndustrialRole(role.role_id))) {
+      conflicts.add(`Observed conflict: ${body} observed Tourism Focus differs from declared Industrial Core.`);
+    }
+    if (isIndustrialRole(observed.role_id) && declaredHere.some((role) => role.role_id === 'tourism_agriculture_body')) {
+      conflicts.add(`Observed conflict: ${body} observed ${observed.label} differs from declared Tourism / Agri.`);
+    }
+  });
+  return Array.from(conflicts);
+}
+
+function gapTextForRole(role: DeclaredColonyRole, bodyLabel: string) {
+  switch (role.role_id) {
+    case 'main_station_body':
+    case 'primary_port_body':
+      return `Declared gap: ${bodyLabel} ${roleLabel(role.role_id)} has no station/port placement in this candidate.`;
+    case 'industrial_core':
+      return `Declared gap: ${bodyLabel} Industrial Core has no industrial/refinery/extraction placement in this candidate.`;
+    case 'refinery_core':
+      return `Declared gap: ${bodyLabel} Refinery Core has no refinery placement in this candidate.`;
+    case 'extraction_support':
+      return `Declared gap: ${bodyLabel} Extraction Support has no extraction placement in this candidate.`;
+    case 'tourism_agriculture_body':
+      return `Declared gap: ${bodyLabel} Tourism / Agriculture Body has no tourism/agriculture placement in this candidate.`;
+    case 'security_military_body':
+      return `Declared gap: ${bodyLabel} Security / Military Body has no security/military placement in this candidate.`;
+    case 'support_body':
+      return `Declared gap: ${bodyLabel} Support Body has no support placement in this candidate.`;
+    case 'colony_anchor':
+      return `Declared gap: ${bodyLabel} Colony Anchor has no primary station/port signal in this candidate.`;
+    case 'expansion_reserve':
+      return `Declared gap: ${bodyLabel} Expansion Reserve is used by this candidate and needs manual review.`;
+    default:
+      return `Declared gap: ${bodyLabel} ${roleLabel(role.role_id)} needs manual review.`;
+  }
 }
 
 function describeExistingInfrastructure({
@@ -390,13 +562,16 @@ function cardLineFor({
   slotPressure,
   existingInfrastructure,
   uncertainty,
+  roleGuidance,
 }: {
   slotPressure: string;
   existingInfrastructure: string;
   uncertainty: string;
+  roleGuidance: RoleGuidanceSummary;
 }) {
   if (/exceed visible capacity/i.test(slotPressure)) return 'Slot pressure needs review before loading.';
   if (/unresolved|unknown-lane/i.test(existingInfrastructure)) return 'Existing or unresolved infrastructure is called out in details.';
+  if (roleGuidance.hasReviewIssue) return 'Role gaps or conflicts need manual review before loading.';
   if (/sparse|estimated|unknown|unavailable|missing/i.test(uncertainty)) return 'Sparse or estimated data is called out in details.';
   return 'Projection stays ghost-only until explicit load.';
 }
@@ -407,6 +582,111 @@ function candidateBodyIds(candidate: OptimiserCandidate): string[] {
       .map((placement) => bodyIdKey(placement.local_body_id))
       .filter((bodyId) => Boolean(bodyId)),
   ));
+}
+
+function candidateRoleSignalsByBody(
+  candidate: OptimiserCandidate,
+  templatesById: Map<string, FacilityTemplate>,
+) {
+  const signals = new Map<string, Set<DeclaredColonyRoleId>>();
+  candidate.placements.forEach((placement) => {
+    const bodyId = bodyIdKey(placement.local_body_id);
+    if (!bodyId) return;
+    const template = templatesById.get(placement.facility_template_id);
+    const text = [
+      placement.facility_template_id,
+      template?.id,
+      template?.name,
+      template?.category,
+      template?.economy,
+      candidate.target_archetype,
+      candidate.strategy,
+      ...candidate.tags,
+      ...candidate.rationale,
+    ].filter(Boolean).join(' ').toLowerCase();
+    const roleIds = roleSignalsForPlacement({ placement, template, text });
+    if (roleIds.size === 0) return;
+    const bodySignals = signals.get(bodyId) ?? new Set<DeclaredColonyRoleId>();
+    roleIds.forEach((roleId) => bodySignals.add(roleId));
+    signals.set(bodyId, bodySignals);
+  });
+  return signals;
+}
+
+function roleSignalsForPlacement({
+  placement,
+  template,
+  text,
+}: {
+  placement: PlacementLike;
+  template?: FacilityTemplate;
+  text: string;
+}) {
+  const roles = new Set<DeclaredColonyRoleId>();
+  if (placement.is_primary_port || template?.is_port || /\b(port|starport|station|outpost)\b/.test(text)) {
+    roles.add('main_station_body');
+    roles.add('primary_port_body');
+    roles.add('colony_anchor');
+  }
+  if (/\b(refinery|refining)\b/.test(text)) {
+    roles.add('refinery_core');
+    roles.add('industrial_core');
+  }
+  if (/\b(industrial|industry|manufactur|factory|fabricat|production)\b/.test(text)) {
+    roles.add('industrial_core');
+  }
+  if (/\b(extraction|extractive|mining|miner|resource)\b/.test(text)) {
+    roles.add('extraction_support');
+  }
+  if (/\b(tourism|tourist|agri|agriculture|terraform|food|civilian)\b/.test(text)) {
+    roles.add('tourism_agriculture_body');
+  }
+  if (/\b(security|military|defence|defense|navy|barracks|command)\b/.test(text)) {
+    roles.add('security_military_body');
+  }
+  if (template?.is_support_facility || /\b(support|logistics|supply)\b/.test(text)) {
+    roles.add('support_body');
+  }
+  return roles;
+}
+
+function roleSatisfiedByCandidate(
+  roleId: DeclaredColonyRoleId,
+  signals: Set<DeclaredColonyRoleId> | undefined,
+) {
+  if (!signals) return false;
+  switch (roleId) {
+    case 'colony_anchor':
+      return signals.has('colony_anchor') || signals.has('main_station_body') || signals.has('primary_port_body');
+    case 'main_station_body':
+      return signals.has('main_station_body') || signals.has('primary_port_body');
+    case 'primary_port_body':
+      return signals.has('primary_port_body') || signals.has('main_station_body');
+    case 'industrial_core':
+      return hasIndustrialSignal(signals);
+    case 'refinery_core':
+      return signals.has('refinery_core');
+    case 'extraction_support':
+      return signals.has('extraction_support');
+    case 'tourism_agriculture_body':
+      return signals.has('tourism_agriculture_body');
+    case 'security_military_body':
+      return signals.has('security_military_body');
+    case 'support_body':
+      return signals.has('support_body');
+    case 'expansion_reserve':
+      return false;
+    default:
+      return false;
+  }
+}
+
+function hasIndustrialSignal(signals: Set<DeclaredColonyRoleId> | undefined) {
+  return Boolean(signals?.has('industrial_core') || signals?.has('refinery_core') || signals?.has('extraction_support'));
+}
+
+function isIndustrialRole(roleId: DeclaredColonyRoleId) {
+  return roleId === 'industrial_core' || roleId === 'refinery_core' || roleId === 'extraction_support';
 }
 
 function summarizePlacementLanes(
