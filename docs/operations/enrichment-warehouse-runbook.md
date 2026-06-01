@@ -474,6 +474,12 @@ It adds a dedicated CI gate, a local runner, and disposable Postgres rehearsal
 coverage for the guarded Stage 18J station type apply path. This does not
 authorize production apply or production artifact creation.
 
+Stage 18J-Q documents production reconciliation artifact readiness in
+`docs/colonisation-redesign/stage-18j-q-production-reconciliation-artifact-readiness.md`.
+It defines the required `enrichment_staging_reconciliation/v1` artifact
+contract, read-only DSN checks, report-only command path, sanitisation checks,
+and blockers before Stage 18J-P may generate a station-type production dry-run.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

@@ -158,7 +158,9 @@ be green on the candidate branch:
 
 A production-connected reconciliation command still requires separately
 verified read-only/report-only DSN context. Stage 18T does not authorize that
-command.
+command. Stage 18J-Q documents the production reconciliation artifact
+prerequisite and the report-only generation contract:
+[`stage-18j-q-production-reconciliation-artifact-readiness.md`](./stage-18j-q-production-reconciliation-artifact-readiness.md).
 
 ## Tests Required Before Production Apply
 

@@ -474,6 +474,13 @@ for the guarded station type pilot. It does not authorize production apply,
 artifact approval, production DB access, or wider canonical backfill. See
 [`stage-18t-canonical-safety-test-environment.md`](./stage-18t-canonical-safety-test-environment.md).
 
+Stage 18J-Q documents the missing production reconciliation artifact
+prerequisite for Stage 18J-P. It searches local/configured artifact locations,
+defines the required `enrichment_staging_reconciliation/v1` contract, documents
+the read-only report generation path, and keeps Stage 18J-P blocked until a
+verified report-only production artifact exists. See
+[`stage-18j-q-production-reconciliation-artifact-readiness.md`](./stage-18j-q-production-reconciliation-artifact-readiness.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.

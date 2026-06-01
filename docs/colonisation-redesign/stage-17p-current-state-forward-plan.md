@@ -496,6 +496,36 @@ Acceptance:
 
 Environment doc: `stage-18t-canonical-safety-test-environment.md`.
 
+### Stage 18J-Q — Production Reconciliation Artifact Readiness
+
+Purpose: prepare the missing report-only production reconciliation artifact
+prerequisite before Stage 18J-P can generate a station-type production dry-run.
+
+Scope:
+
+- Search local/configured artifact locations for a suitable
+  `enrichment_staging_reconciliation/v1` production artifact.
+- Define the required artifact contract, read-only generation path,
+  DSN/access safety checks, sanitisation checks, and stop conditions.
+- Keep production apply and production artifact approval blocked.
+
+Non-goals:
+
+- No production apply.
+- No production canonical data changes.
+- No approved station-type dry-run artifact.
+- No broad canonical backfill.
+- No UI/API apply controls or scheduler wiring.
+
+Acceptance:
+
+- The repo documents whether a suitable artifact exists.
+- Stage 18J-P proceeds only if a verified report-only artifact exists and
+  passes the Stage 18J-Q contract.
+
+Readiness doc:
+`stage-18j-q-production-reconciliation-artifact-readiness.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -531,5 +561,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 15. Stage 18I.5 warehouse database boundary review.
 16. Stage 18J first narrow canonical write pilot.
 17. Stage 18T canonical safety test environment.
+18. Stage 18J-Q production reconciliation artifact readiness.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
