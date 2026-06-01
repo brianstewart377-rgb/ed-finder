@@ -62,6 +62,16 @@ optionally write only to warehouse/staging tables when explicitly gated with
 staging-only DB flags. They do not make network calls, invoke containers, run
 production migrations, or write canonical tables.
 
+Stage 18D hardens the snapshot boundary by making source normalisation visible
+in the dry-run report. Source runs/files now carry source format/version,
+record stream shape, source timestamp summaries, and freshness summaries.
+Skipped rows are counted by explicit reason, exact duplicate source payloads
+are reported by `source_record_hash`, and repeated source identities with
+conflicting payload hashes become report-only conflicts instead of silent
+merges. Unsupported nested source shapes, including future system-with-`bodies`
+inputs, are skipped with explicit unsupported-shape reasons until a dedicated
+adapter exists.
+
 ## Source Evidence Classes
 
 The foundation tracks source stability without treating any source as canonical
@@ -98,6 +108,13 @@ and pure signal helpers emit report-only analytics contracts such as
 summary counts, staged/planned rows, skipped rows, conflicts, warnings,
 confidence/freshness/source-class distributions, candidate confidence/risk
 fields, and deterministic sorting for stable diffs.
+
+The snapshot load plan also includes source-normalisation observability:
+`source_timestamp_summary`, `source_freshness_summary`,
+`source_record_duplicate_groups`, skipped-row reason distributions, and
+body/ring `ring_array_evidence`. Missing ring arrays remain
+`unknown_not_false`; empty arrays are source evidence only and do not become a
+canonical no-rings conclusion.
 
 Stage 18B broadens the read-only reconciliation report with named sections:
 
@@ -176,6 +193,13 @@ evidence with these fields when present:
 
 Missing or invalid required station fields are skipped with warnings. They do
 not crash the loader and do not imply canonical writes.
+
+The body/ring adapter normalises body records and source-only ring payloads
+separately. Ring payloads remain `association_status = "source_only"` unless a
+later read-only reconciliation finds trusted local ring evidence. Missing ring
+arrays are preserved as unknown, non-array ring fields are reported as malformed
+ring evidence, and unsupported nested source shapes are not inferred into body
+or ring rows.
 
 ## Trust Boundaries
 

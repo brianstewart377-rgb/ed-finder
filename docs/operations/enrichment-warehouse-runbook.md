@@ -143,15 +143,43 @@ A good dry-run has:
 - `schema_version = "enrichment_snapshot_load_plan/v1"`
 - `dry_run = true`
 - expected `records_seen`, `raw_records`, and staged-row counts
+- `source_format_version = "json_snapshot_stream/v1"` and the expected
+  `record_stream_shape`
+- `source_timestamp_summary` and `source_freshness_summary` matching the
+  intended snapshot age
 - `canonical_writes_planned = 0`
 - no unexpected skipped-row reasons
 - no source-file or unsupported-source errors
+
+Snapshot-normalisation fields to inspect before staging loads:
+
+- `source_run.metadata` and `source_file.metadata` capture the adapter version,
+  source format/version, record stream shape, and source timestamp summary.
+- `source_file.source_updated_at` is the latest source timestamp observed in
+  raw mapping records, when present. Missing timestamps stay unknown and are
+  counted in `source_timestamp_summary`.
+- `skipped_row_reasons` and `skipped_row_reason_distribution` explain
+  malformed records, unsupported nested source shapes, and invalid station,
+  body, or ring rows.
+- `source_record_duplicate_groups` reports exact duplicate source payloads by
+  `source_record_hash`. This is a dry-run/report signal; explicit staging
+  writes still use warehouse upsert keys and never imply canonical truth.
+- `conflicts` reports repeated source identities with conflicting payload
+  hashes as `duplicate_source_identity_conflict`. Treat these as blockers for
+  operator review.
+- Body/ring reports include `ring_array_evidence`. Missing ring arrays remain
+  `unknown_not_false`; empty arrays are source evidence only and not a
+  canonical no-rings conclusion; staged ring rows remain source-only evidence.
 
 Warnings that block moving to staging load:
 
 - required identity fields missing across most records
 - unexpected `record_is_not_object` or malformed JSON patterns
 - unsupported source adapter
+- unsupported nested source shape, such as future system-with-`bodies`
+  snapshots, until a dedicated adapter exists
+- `duplicate_source_identity_conflict`
+- non-array `rings` fields or malformed ring rows in body/ring snapshots
 - remote URL used as `--source-file`
 - surprising `distance_to_arrival_classification` values; current
   `distanceToArrival` should remain volatile
