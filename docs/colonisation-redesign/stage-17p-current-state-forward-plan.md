@@ -401,6 +401,11 @@ Acceptance:
 
 - Stage 18J cannot begin until this design review clearly defines the promotion boundary.
 
+Design review: `stage-18i-canonical-write-design-review.md`. Stage 18I remains
+documentation-only and does not authorize canonical writes. It recommends exact
+station type promotion as the first Stage 18J pilot only after Stage 18I.5
+settles the warehouse database boundary.
+
 ### Stage 18I.5 — Warehouse Database Boundary Review
 
 Purpose: decide and document the storage boundary before canonical write pilots begin.
