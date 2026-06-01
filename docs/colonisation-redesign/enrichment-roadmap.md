@@ -481,6 +481,13 @@ the read-only report generation path, and keeps Stage 18J-P blocked until a
 verified report-only production artifact exists. See
 [`stage-18j-q-production-reconciliation-artifact-readiness.md`](./stage-18j-q-production-reconciliation-artifact-readiness.md).
 
+Stage 18J-Q2 documents the exact later operator plan for generating that
+artifact without running production reconciliation in the planning stage. It
+defines the `--report-reconciliation` command, required inputs, read-only DSN
+proof, output handling, stop conditions, and Stage 18J-P readiness criteria.
+See
+[`stage-18j-q2-readonly-production-reconciliation-plan.md`](./stage-18j-q2-readonly-production-reconciliation-plan.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.

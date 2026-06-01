@@ -526,6 +526,37 @@ Acceptance:
 Readiness doc:
 `stage-18j-q-production-reconciliation-artifact-readiness.md`.
 
+### Stage 18J-Q2 — Read-Only Production Reconciliation Plan
+
+Purpose: define the exact safe command path for producing the missing
+production reconciliation artifact in a later explicitly approved operation.
+
+Scope:
+
+- Identify the existing `--report-reconciliation` tooling.
+- Define required staged warehouse inputs, read-only DSN/access proof,
+  environment variables, output path, artifact contract checks, and stop
+  conditions.
+- Keep Stage 18J-P, production reconciliation execution, station-type dry-run
+  generation, and production apply blocked.
+
+Non-goals:
+
+- No production-connected reconciliation command execution.
+- No production reconciliation artifact generation.
+- No production station-type dry-run artifact.
+- No production apply or approval.
+
+Acceptance:
+
+- The repo contains a precise operator plan for the later read-only/report-only
+  reconciliation command.
+- Stage 18J-P remains blocked until a verified artifact exists and passes the
+  contract checks.
+
+Plan doc:
+`stage-18j-q2-readonly-production-reconciliation-plan.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -562,5 +593,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 16. Stage 18J first narrow canonical write pilot.
 17. Stage 18T canonical safety test environment.
 18. Stage 18J-Q production reconciliation artifact readiness.
+19. Stage 18J-Q2 read-only production reconciliation plan.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
