@@ -263,6 +263,13 @@ These existing contracts remain unchanged:
 * No station/body/system canonical rows are updated by this foundation.
 * No station/body links are created by this foundation.
 
+Stage 18I.5 adds the warehouse database boundary decision in
+[`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md).
+It recommends moving the warehouse to a separate `edfinder_enrichment` database
+on the same Postgres stack if feasible, while keeping a future path to a
+separate instance. Until that boundary is implemented and accepted, warehouse
+output remains report-only.
+
 ## Next Recommended Stage
 
 Keep the next stage report-only: broaden warehouse-backed reconciliation and

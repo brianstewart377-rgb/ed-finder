@@ -351,6 +351,13 @@ Stage 18I.5 must decide:
 
 Until Stage 18I.5 lands, no canonical write pilot should be implemented.
 
+Stage 18I.5 decision document:
+[`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md).
+It recommends Option B, a separate `edfinder_enrichment` database on the same
+Postgres stack if feasible, and keeps Option C as the future separate-instance
+path. That decision is still design-only; it does not create databases, users,
+permissions, migrations, write scripts, or canonical apply paths.
+
 ## Recommended Stage 18J Pilot
 
 The recommended Stage 18J pilot is exact station type promotion only.

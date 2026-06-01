@@ -459,6 +459,14 @@ must decide the warehouse database boundary first, and any Stage 18J pilot
 should start with exact station type promotion only. See
 [`stage-18i-canonical-write-design-review.md`](./stage-18i-canonical-write-design-review.md).
 
+Stage 18I.5 documents the warehouse database boundary decision without
+implementing it. It recommends a separate `edfinder_enrichment` database on the
+same Postgres stack if feasible, preserves a future path to a separate Postgres
+instance, defines role/permission boundaries, snapshot/read-only comparison,
+write-plan transfer, audit ownership, retention, and Stage 18J readiness
+criteria. See
+[`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.
