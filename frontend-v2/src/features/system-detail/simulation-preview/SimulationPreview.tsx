@@ -373,6 +373,8 @@ export function SimulationPreview({
               system={system}
               slotPredictions={slotPredictionsQuery.data ?? null}
               declaredRoles={declaredRoles}
+              observedRoles={observedRoles}
+              observedRolesLoaded={Boolean(observedFactsQuery.data)}
             />
           )}
         </div>

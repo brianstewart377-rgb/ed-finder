@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOptimiserCandidates } from '@/lib/api';
 import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
 import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
+import type { ObservedColonyRole } from '@/features/colony-planner/colonyRoleReview';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
@@ -218,6 +219,30 @@ const advisorDeclaredRoles: DeclaredColonyRole[] = [
   },
 ];
 
+const advisorRoleReviewRoles: DeclaredColonyRole[] = [
+  ...advisorDeclaredRoles,
+  {
+    id: 'declared:1:industrial_core',
+    body_id: '1',
+    role_id: 'industrial_core',
+    source: 'declared',
+    confidence: 'strong',
+    label: 'Industrial Core',
+  },
+];
+
+const advisorObservedRoles: ObservedColonyRole[] = [
+  {
+    id: 'observed:1:tourism_agriculture_body:test',
+    body_id: '1',
+    role_id: 'tourism_agriculture_body',
+    source: 'observed',
+    confidence: 'strong',
+    label: 'Observed Tourism Focus',
+    evidenceLabel: 'Tourism economy',
+  },
+];
+
 function response(overrides: Partial<OptimiserCandidatesResponse> = {}): OptimiserCandidatesResponse {
   return {
     system_id64: 123,
@@ -380,7 +405,7 @@ describe('optimiser candidate comparison UI', () => {
     });
 
     expect(advisor.bodyChoice).toMatch(/main body is Advisor Test 1/i);
-    expect(advisor.roleContext).toMatch(/Advisor Test 1: Main Station/i);
+    expect(advisor.roleContext).toMatch(/Declared: supports Advisor Test 1 Main Station/i);
     expect(advisor.existingInfrastructure).toMatch(/2 existing slot occupant/i);
     expect(advisor.existingInfrastructure).toMatch(/1 confirmed, 1 verify\/inferred/i);
     expect(advisor.existingInfrastructure).toMatch(/unresolved.*unknown-lane/i);
@@ -541,7 +566,9 @@ describe('optimiser candidate comparison UI', () => {
     expect(container.textContent).toMatch(/Body choice: main body is Advisor Test 1/i);
     expect(container.textContent).toMatch(/Existing items remain Existing and are not Build Plan placements/i);
     expect(container.textContent).toMatch(/projection would exceed visible capacity by 1/i);
-    expect(container.textContent).toMatch(/Declared roles: Advisor Test 1: Main Station/i);
+    expect(container.textContent).toMatch(/Role guidance: Inferred:/i);
+    expect(container.textContent).toMatch(/Declared: supports Advisor Test 1 Main Station/i);
+    expect(container.textContent).toMatch(/Observed: not loaded in Suggested Builds/i);
     expect(container.textContent).toMatch(/Uncertainty: candidate warnings or assumptions use sparse/i);
     expect(container.textContent).toMatch(/ghost structure\(s\)/i);
     expect(container.textContent).toMatch(/Load explicitly copies this candidate into the editable Build Plan/i);
@@ -550,6 +577,51 @@ describe('optimiser candidate comparison UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
     expect(load).toHaveBeenCalledWith(selected);
+  });
+
+  it('shows role support, advisory conflicts, gaps, and source labels without mutating roles', () => {
+    const load = vi.fn();
+    const selected = {
+      ...candidate('role-advisor-candidate', 'Role advisor candidate'),
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: '1', is_primary_port: true, build_order: 1 },
+        { facility_template_id: 'agri_support_a', local_body_id: '1', is_primary_port: false, build_order: 2 },
+      ],
+    };
+    const beforeCandidate = structuredClone(selected);
+    const beforeDeclared = structuredClone(advisorRoleReviewRoles);
+    const advisor = buildSuggestedBuildStrategyAdvisor({
+      candidate: selected,
+      templates,
+      bodyLabelsById: { '1': 'Advisor Test 1' },
+      declaredRoles: advisorRoleReviewRoles,
+      observedRoles: advisorObservedRoles,
+      observedRolesLoaded: true,
+    });
+
+    const { container } = render(
+      <OptimiserCandidateDetails
+        candidate={selected}
+        response={response()}
+        onLoadCandidate={load}
+        templates={templates}
+        advisor={advisor}
+      />,
+    );
+
+    expect(advisor.cardLine).toMatch(/Role gaps or conflicts need manual review/i);
+    expect(container.textContent).toMatch(/Inferred:/i);
+    expect(container.textContent).toMatch(/Declared: supports Advisor Test 1 Main Station/i);
+    expect(container.textContent).toMatch(/Observed: Advisor Test 1 Observed Tourism Focus \(Tourism economy\)/i);
+    expect(container.textContent).toMatch(/Declared conflict: Advisor Test 1 Industrial may conflict with projected Tourism \/ Agri intent/i);
+    expect(container.textContent).toMatch(/Observed conflict: Advisor Test 1 observed Tourism Focus differs from declared Industrial Core/i);
+    expect(container.textContent).toMatch(/Declared gap: Advisor Test 1 Industrial Core has no industrial\/refinery\/extraction placement/i);
+    expect(container.textContent).toMatch(/Advisory only; not blockers/i);
+    expect(container.textContent).toMatch(/does not change candidate ranking, scoring, Preview, declared roles, or the Build Plan/i);
+    expect(container.textContent).toMatch(/Run Preview remains explicit/i);
+    expect(load).not.toHaveBeenCalled();
+    expect(selected).toEqual(beforeCandidate);
+    expect(advisorRoleReviewRoles).toEqual(beforeDeclared);
   });
 
   it('renders comparison empty copy when no current Build Plan exists', () => {
