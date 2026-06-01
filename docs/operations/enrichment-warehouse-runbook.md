@@ -455,6 +455,12 @@ observed-evidence, validation, scoring, Preview, optimiser, or canonical state.
 The future per-system artifact contract is documented in
 `docs/colonisation-redesign/stage-18h-warehouse-planner-evidence-bridge.md`.
 
+Stage 18I documents the future canonical-write design review in
+`docs/colonisation-redesign/stage-18i-canonical-write-design-review.md`. It is
+design-only and does not authorize any canonical apply workflow. Until Stage
+18I.5 and a later approved Stage 18J pilot exist, warehouse evidence and
+reconciliation candidates remain report-only.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

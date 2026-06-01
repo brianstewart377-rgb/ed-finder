@@ -450,6 +450,15 @@ It adds no backend endpoint, makes no live calls, and never mutates planner,
 Build Plan, role, observed-evidence, validation, scoring, Preview, optimiser, or
 canonical state.
 
+Stage 18I documents the canonical-write design review without implementing any
+write path. It defines future candidate write paths, evidence-only and banned
+paths, source/confidence requirements, audit and rollback requirements,
+operator approval, table risks, safety blocks, and required tests. Its
+conclusion is conservative: no canonical writes are authorized, Stage 18I.5
+must decide the warehouse database boundary first, and any Stage 18J pilot
+should start with exact station type promotion only. See
+[`stage-18i-canonical-write-design-review.md`](./stage-18i-canonical-write-design-review.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.
