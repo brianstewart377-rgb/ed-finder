@@ -241,6 +241,12 @@ Stage 18T adds the canonical safety test-environment gate that should pass
 before any future production dry-run or production apply attempt:
 [`stage-18t-canonical-safety-test-environment.md`](./stage-18t-canonical-safety-test-environment.md).
 
+Stage 18J-Q defines the missing production reconciliation artifact prerequisite
+for this dry-run readiness step. Stage 18J-P remains blocked until a verified
+report-only `enrichment_staging_reconciliation/v1` production artifact exists
+and passes that contract:
+[`stage-18j-q-production-reconciliation-artifact-readiness.md`](./stage-18j-q-production-reconciliation-artifact-readiness.md).
+
 ## Stop Conditions
 
 Stop before dry-run generation if:
