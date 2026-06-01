@@ -79,6 +79,7 @@ export interface RavenStructureSlot {
   status: 'existing' | 'planned' | 'projected' | 'unknown';
   economyContextLabel: string | null;
   warningLabels: string[];
+  trustStatus?: 'confirmed' | 'inferred' | 'unresolved';
 }
 
 interface BgsTelemetryStat {
@@ -125,6 +126,18 @@ export interface RavenPlannerRow {
   emptySlotCount: number;
   orbitalAddDisabledReason: string | null;
   groundAddDisabledReason: string | null;
+  orbitalOccupancy: RavenLaneOccupancySummary;
+  groundOccupancy: RavenLaneOccupancySummary;
+}
+
+interface RavenLaneOccupancySummary {
+  capacity: number | null;
+  existingCount: number;
+  inferredExistingCount: number;
+  plannedCount: number;
+  projectedCount: number;
+  remainingForPlan: number | null;
+  projectedOverflowCount: number;
 }
 
 interface BodyNode {
@@ -422,6 +435,7 @@ function RavenPlannerBodyRow({
           bodyName={row.displayName}
           lane="orbital"
           capacity={row.orbitalCapacity}
+          occupancy={row.orbitalOccupancy}
           slots={row.orbitalSlots}
           selectedPlacementIndex={selectedPlacementIndex}
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
@@ -436,6 +450,7 @@ function RavenPlannerBodyRow({
           bodyName={row.displayName}
           lane="ground"
           capacity={row.groundCapacity}
+          occupancy={row.groundOccupancy}
           slots={row.groundSlots}
           selectedPlacementIndex={selectedPlacementIndex}
           selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
@@ -495,10 +510,17 @@ function UnresolvedExistingInfrastructure({ structures }: { structures: Existing
           {visible.map((structure) => (
             <span
               key={structure.id}
-              title={`${structure.name} | ${existingStructureDisplayType(structure)} | ${structure.unresolved_reason ?? structure.body_match_reason}`}
+              data-testid="raven-unresolved-existing-structure"
+              title={[
+                structure.name,
+                existingStructureDisplayType(structure),
+                `Association: ${existingAssociationLabel(structure)}`,
+                `Source: ${structure.association_source}`,
+                structure.unresolved_reason ?? structure.body_match_reason,
+              ].filter(Boolean).join(' | ')}
               className="max-w-[14rem] truncate rounded border border-gold/30 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver"
             >
-              {structure.name} / {existingStructureDisplayType(structure)}
+              {structure.name} / {existingStructureDisplayType(structure)} / {existingAssociationLabel(structure)}
             </span>
           ))}
           {extra > 0 && (
@@ -510,6 +532,14 @@ function UnresolvedExistingInfrastructure({ structures }: { structures: Existing
       </div>
     </section>
   );
+}
+
+function existingAssociationLabel(structure: ExistingStructure): string {
+  if (structure.transient) return 'transient';
+  if (structure.association_status === 'unresolved') return 'unresolved';
+  if (structure.lane === 'unknown') return 'lane unknown';
+  if (structure.association_status === 'inferred') return 'verify';
+  return 'confirmed';
 }
 
 function TreeCell({
@@ -618,6 +648,7 @@ function RavenSlotLane({
   bodyName,
   lane,
   capacity,
+  occupancy,
   slots,
   selectedPlacementIndex,
   selectedProjectedPlacementIndex,
@@ -631,6 +662,7 @@ function RavenSlotLane({
   bodyName: string;
   lane: VisibleRavenLane;
   capacity: number | null;
+  occupancy: RavenLaneOccupancySummary;
   slots: RavenStructureSlot[];
   selectedPlacementIndex: number | null;
   selectedProjectedPlacementIndex: number | null;
@@ -655,59 +687,108 @@ function RavenSlotLane({
   const laneName = lane === 'orbital' ? 'orbital' : 'surface';
 
   return (
-    <div data-testid={`${bodyId}-${lane}-lane`} data-disabled={disabledReason ? 'true' : 'false'} className="flex min-w-0 items-center gap-2 pr-2">
-      <span className="flex min-w-[7rem] shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">
-        <span
-          data-testid={`${bodyId}-${lane}-capacity-badge`}
-          data-capacity={knownCount}
-          className="inline-flex items-baseline gap-0.5 rounded border border-cyan/35 bg-cyan/8 px-2 py-0.5 text-cyan"
-        >
-          <span className="text-[11px] font-semibold tracking-wide">{laneFullName}</span>
-          <span className="font-display text-[15px] font-bold leading-none tabular-nums">{knownCount}</span>
-        </span>
-        {showAddControl && (
-          <button
-            type="button"
-            data-testid={`${bodyId}-${lane}-add`}
-            aria-label={addLabel}
-            title={disabledReason ?? addLabel}
-            disabled={Boolean(disabledReason)}
-            onClick={requestAdd}
-            className="inline-flex items-center gap-1 rounded border border-orange/55 bg-orange/15 px-2.5 py-1 text-[11px] font-semibold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
+    <div data-testid={`${bodyId}-${lane}-lane`} data-disabled={disabledReason ? 'true' : 'false'} className="flex min-w-0 flex-col gap-1 pr-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-[7rem] shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">
+          <span
+            data-testid={`${bodyId}-${lane}-capacity-badge`}
+            data-capacity={knownCount}
+            className="inline-flex items-baseline gap-0.5 rounded border border-cyan/35 bg-cyan/8 px-2 py-0.5 text-cyan"
           >
-            <Plus size={12} />
-            {lane === 'orbital' ? 'Add Orbit' : 'Add Surface'}
-          </button>
-        )}
-      </span>
-      <div className="flex min-w-0 flex-wrap gap-1.5">
-        {visibleSlots.length > 0 ? visibleSlots.map((slot, index) => (
-          <RavenSlotBox
-            key={slot.id}
-            slot={slot}
-            lane={lane}
-            bodyName={bodyName}
-            testId={`${bodyId}-${lane}-slot-${index}`}
-            selected={(slot.placementIndex != null && slot.placementIndex === selectedPlacementIndex) || (slot.projectionIndex != null && slot.projectionIndex === selectedProjectedPlacementIndex)}
-            onSelect={onSelect}
-            onAdd={undefined}
-            warningCount={slot.placementIndex != null ? prerequisiteIssues.find((issue) => issue.placementIndex === slot.placementIndex)?.missing.length ?? 0 : 0}
-          />
-        )) : (
-          <LaneCompactState
-            laneName={laneName}
-            capacity={capacity}
-            selectedBody={selectedBody}
-            disabledReason={disabledReason}
-            testId={`${bodyId}-${lane}-compact-state`}
-          />
-        )}
-        {selectedBody && disabledReason && (
-          <span data-testid={`${bodyId}-${lane}-disabled-reason`} className="rounded border border-gold/35 bg-gold/10 px-1.5 py-1 font-mono text-[10px] text-gold">
-            {disabledReason}
+            <span className="text-[11px] font-semibold tracking-wide">{laneFullName}</span>
+            <span className="font-display text-[15px] font-bold leading-none tabular-nums">{knownCount}</span>
           </span>
-        )}
+          {showAddControl && (
+            <button
+              type="button"
+              data-testid={`${bodyId}-${lane}-add`}
+              aria-label={addLabel}
+              title={disabledReason ?? addLabel}
+              disabled={Boolean(disabledReason)}
+              onClick={requestAdd}
+              className="inline-flex items-center gap-1 rounded border border-orange/55 bg-orange/15 px-2.5 py-1 text-[11px] font-semibold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
+            >
+              <Plus size={12} />
+              {lane === 'orbital' ? 'Add Orbit' : 'Add Surface'}
+            </button>
+          )}
+        </span>
+        <div className="flex min-w-0 flex-wrap gap-1.5">
+          {visibleSlots.length > 0 ? visibleSlots.map((slot, index) => (
+            <RavenSlotBox
+              key={slot.id}
+              slot={slot}
+              lane={lane}
+              bodyName={bodyName}
+              testId={`${bodyId}-${lane}-slot-${index}`}
+              selected={(slot.placementIndex != null && slot.placementIndex === selectedPlacementIndex) || (slot.projectionIndex != null && slot.projectionIndex === selectedProjectedPlacementIndex)}
+              onSelect={onSelect}
+              onAdd={undefined}
+              warningCount={slot.placementIndex != null ? prerequisiteIssues.find((issue) => issue.placementIndex === slot.placementIndex)?.missing.length ?? 0 : 0}
+            />
+          )) : (
+            <LaneCompactState
+              laneName={laneName}
+              capacity={capacity}
+              selectedBody={selectedBody}
+              disabledReason={disabledReason}
+              testId={`${bodyId}-${lane}-compact-state`}
+            />
+          )}
+          {selectedBody && disabledReason && (
+            <span data-testid={`${bodyId}-${lane}-disabled-reason`} className="rounded border border-gold/35 bg-gold/10 px-1.5 py-1 font-mono text-[10px] text-gold">
+              {disabledReason}
+            </span>
+          )}
+        </div>
       </div>
+      <LaneOccupancySummary
+        testId={`${bodyId}-${lane}-occupancy-summary`}
+        laneLabel={laneName}
+        occupancy={occupancy}
+      />
+    </div>
+  );
+}
+
+function LaneOccupancySummary({
+  testId,
+  laneLabel,
+  occupancy,
+}: {
+  testId: string;
+  laneLabel: string;
+  occupancy: RavenLaneOccupancySummary;
+}) {
+  const slotsLabel = occupancy.capacity == null ? 'unknown' : String(occupancy.capacity);
+  const remainingLabel = occupancy.remainingForPlan == null ? 'unknown' : String(occupancy.remainingForPlan);
+  const inferredLabel = occupancy.inferredExistingCount > 0 ? ` / verify ${occupancy.inferredExistingCount}` : '';
+  const title = [
+    `${laneLabel} slots: ${slotsLabel}`,
+    `existing occupied: ${occupancy.existingCount}${inferredLabel}`,
+    `planned occupied: ${occupancy.plannedCount}`,
+    `projected ghost occupied: ${occupancy.projectedCount}`,
+    `remaining for Build Plan: ${remainingLabel}`,
+    'Projected ghosts do not reserve Build Plan capacity until loaded.',
+    occupancy.projectedOverflowCount > 0 ? `projection over capacity: +${occupancy.projectedOverflowCount}` : null,
+  ].filter(Boolean).join(' | ');
+
+  return (
+    <div
+      data-testid={testId}
+      title={title}
+      className="flex min-w-0 flex-wrap gap-1 font-mono text-[9px] uppercase tracking-[0.08em] text-silver-dk"
+    >
+      <span className="rounded border border-cyan/25 bg-cyan/8 px-1.5 py-0.5 text-cyan">Slots {slotsLabel}</span>
+      <span className="rounded border border-green/25 bg-green/8 px-1.5 py-0.5 text-green">Existing {occupancy.existingCount}{inferredLabel}</span>
+      <span className="rounded border border-orange/25 bg-orange/8 px-1.5 py-0.5 text-orange">Planned {occupancy.plannedCount}</span>
+      <span className="rounded border border-cyan/25 bg-cyan/8 px-1.5 py-0.5 text-cyan">Ghost {occupancy.projectedCount}</span>
+      <span className={occupancy.remainingForPlan === 0 ? 'rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-gold' : 'rounded border border-border/45 bg-bg3/30 px-1.5 py-0.5 text-silver'}>
+        Open {remainingLabel}
+      </span>
+      {occupancy.projectedOverflowCount > 0 && (
+        <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-gold">Ghost over +{occupancy.projectedOverflowCount}</span>
+      )}
     </div>
   );
 }
@@ -779,7 +860,8 @@ function RavenSlotBox({
   const primaryEconomy = slot.economySegments[0]?.economy;
   const color = primaryEconomy ? economyColor(primaryEconomy) : undefined;
   const isStructure = slot.kind === 'existing' || slot.kind === 'planned' || slot.kind === 'projected' || slot.kind === 'overflow';
-  const inferredExisting = slot.kind === 'existing' && slot.warningLabels.includes('Inferred association');
+  const inferredExisting = slot.kind === 'existing' && slot.trustStatus === 'inferred';
+  const confirmedExisting = slot.kind === 'existing' && slot.trustStatus === 'confirmed';
   const interactive = Boolean(onAdd || slot.placementIndex != null || slot.projectionIndex != null);
   const slotStyle: CSSProperties = {};
   if (slot.kind === 'existing') {
@@ -804,6 +886,11 @@ function RavenSlotBox({
       {inferredExisting && (
         <span data-testid="raven-inferred-existing-marker" className="absolute right-1 top-1 rounded border border-gold/45 bg-gold/15 px-1 text-[8px] leading-tight text-gold">
           verify
+        </span>
+      )}
+      {confirmedExisting && (
+        <span data-testid="raven-confirmed-existing-marker" className="absolute right-1 top-1 rounded border border-green/45 bg-green/15 px-1 text-[8px] leading-tight text-green">
+          known
         </span>
       )}
       {slot.economySegments.length > 0 && <StructureEconomyMicroBar segments={slot.economySegments} />}
@@ -1606,6 +1693,8 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
         const plannedCount = planned.orbital.length + planned.ground.length + planned.unassigned.length;
         const projectedCount = projected.orbital.length + projected.ground.length + projected.unassigned.length;
         const emptySlotCount = [...orbitalSlots, ...groundSlots].filter((slot) => slot.kind === 'empty').length;
+        const orbitalOccupancy = buildLaneOccupancy(orbitalCapacity, existing.orbital, planned.orbital.length, projected.orbital.length);
+        const groundOccupancy = buildLaneOccupancy(groundCapacity, existing.surface, planned.ground.length, projected.ground.length);
         return {
           orbitalSlots,
           groundSlots,
@@ -1617,6 +1706,8 @@ export function buildRavenPlannerRows(system: SystemDetail, snapshot: TopologyPl
           plannedCount,
           projectedCount,
           emptySlotCount,
+          orbitalOccupancy,
+          groundOccupancy,
           orbitalAddDisabledReason: addDisabledReasonForLane(node.body, 'orbital', orbitalCapacity, existing.orbital.length, planned.orbital.length),
           groundAddDisabledReason: addDisabledReasonForLane(node.body, 'surface', groundCapacity, existing.surface.length, planned.ground.length),
           warningCount: countRowWarnings(node.body, prediction, bodyLedger, overflowCount) + placementWarningCount,
@@ -1714,6 +1805,28 @@ function summarizeRavenPlannerRows(rows: RavenPlannerRow[], unresolvedExistingCo
   });
 }
 
+function buildLaneOccupancy(
+  capacity: number | null,
+  existingStructures: ExistingStructure[],
+  plannedCount: number,
+  projectedCount: number,
+): RavenLaneOccupancySummary {
+  const existingCount = existingStructures.length;
+  const inferredExistingCount = existingStructures
+    .filter((structure) => structure.association_status === 'inferred').length;
+  const remainingForPlan = capacity == null ? null : Math.max(0, capacity - existingCount - plannedCount);
+  const projectedOverflowCount = capacity == null ? 0 : Math.max(0, existingCount + plannedCount + projectedCount - capacity);
+  return {
+    capacity,
+    existingCount,
+    inferredExistingCount,
+    plannedCount,
+    projectedCount,
+    remainingForPlan,
+    projectedOverflowCount,
+  };
+}
+
 function countPlacementsInLane(
   placements: SimulateBuildPlacement[],
   templatesById: Map<string, FacilityTemplate>,
@@ -1741,8 +1854,14 @@ function addDisabledReasonForLane(
   const physicalReason = laneDisabledReason(body, lane);
   if (physicalReason) return physicalReason;
   if (capacity == null) return null;
-  if (capacity <= 0 || existingCount + plannedCount >= capacity) {
-    return lane === 'orbital' ? 'No empty orbital slots' : 'All surface slots occupied';
+  if (capacity <= 0) {
+    return lane === 'orbital' ? 'No orbital slots predicted.' : 'No surface slots predicted.';
+  }
+  if (existingCount + plannedCount >= capacity) {
+    const summary = `${capacity} slots, ${existingCount} existing, ${plannedCount} planned`;
+    return lane === 'orbital'
+      ? `No empty orbital slots (${summary}).`
+      : `All surface slots occupied (${summary}).`;
   }
   return null;
 }
@@ -2033,6 +2152,7 @@ function existingStructureSlot(
     status: 'existing',
     economyContextLabel: baselineSegments.length > 0 ? 'Economy: inherited/contextual baseline - run Preview for validated outcome.' : null,
     warningLabels: structure.association_status === 'inferred' ? ['Inferred association'] : [],
+    trustStatus: structure.association_status,
   };
 }
 

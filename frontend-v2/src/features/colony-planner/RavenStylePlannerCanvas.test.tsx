@@ -293,6 +293,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
       fullName: 'Holden Orbital',
       existingStructureId: 'existing-9001',
       warningLabels: ['Inferred association'],
+      trustStatus: 'inferred',
     }));
     expect(body?.orbitalSlots[1]).toEqual(expect.objectContaining({ kind: 'empty' }));
     expect(body?.groundSlots[0]).toEqual(expect.objectContaining({
@@ -316,8 +317,58 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getAllByText('Holden Orbital').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Kepler Surface Port').length).toBeGreaterThan(0);
     expect(screen.getAllByTitle(/Body match inferred \(frontend_body_name_fallback\).*verify against backend resolver metadata/i)).toHaveLength(2);
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Existing 1 / verify 1');
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Planned 0');
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Ghost 0');
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Open 1');
     expect((screen.getByTestId('2-orbital-add') as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTestId('2-ground-add') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('renders confirmed backend associations in lane with explicit known marker', () => {
+    const confirmedSystem = {
+      ...system,
+      stations: [
+        {
+          id: 9301,
+          market_id: 9301,
+          name: 'Confirmed Body Starport',
+          station_type: 'Coriolis',
+          body_id: 2,
+          body_name: 'Real Data System A 1',
+          lane: 'orbital',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'resolver_body_id',
+          resolver_notes: 'Exact body id from backend station resolver.',
+        },
+      ],
+    } as unknown as SystemDetail;
+    const confirmedSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [],
+      projection: null,
+    };
+    const row = buildRavenPlannerRows(confirmedSystem, confirmedSnapshot).find((candidate) => candidate.id === '2');
+
+    expect(row?.existingCount).toBe(1);
+    expect(row?.inferredExistingCount).toBe(0);
+    expect(row?.plannedCount).toBe(0);
+    expect(row?.orbitalSlots[0]).toEqual(expect.objectContaining({
+      kind: 'existing',
+      fullName: 'Confirmed Body Starport',
+      warningLabels: [],
+      trustStatus: 'confirmed',
+    }));
+
+    render(<RavenStylePlannerCanvas system={confirmedSystem} snapshot={confirmedSnapshot} selection={{ type: 'body', bodyId: '2' }} onSelect={vi.fn()} onRequestAddStructure={vi.fn()} />);
+
+    expect(screen.getByTestId('raven-confirmed-existing-marker').textContent).toContain('known');
+    expect(screen.queryByTestId('raven-inferred-existing-marker')).toBeNull();
+    expect(screen.getByTitle(/Body match confirmed \(resolver_body_id\)/i)).toBeTruthy();
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Existing 1');
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).not.toContain('verify');
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Open 1');
   });
 
   it('renders inferred backend associations in lane with explicit verify marker', () => {
@@ -361,6 +412,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(screen.getByText('1 inferred')).toBeTruthy();
     expect(screen.getByTestId('raven-inferred-existing-marker').textContent).toContain('verify');
     expect(screen.getByTitle(/Body match inferred \(resolver_distance\)/i)).toBeTruthy();
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Existing 1 / verify 1');
   });
 
   it('keeps transient backend unknown-lane associations out of lane capacity and unresolved warnings', () => {
@@ -390,6 +442,42 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     expect(buildRavenPlannerOccupancySummary(unknownLaneSystem, { ...snapshot, placements: [], projection: null }).unresolvedExistingCount).toBe(0);
   });
 
+  it('shows permanent unknown-lane infrastructure outside lane capacity', () => {
+    const unknownLaneSystem = {
+      ...system,
+      stations: [
+        {
+          id: 9302,
+          market_id: 9302,
+          name: 'Known Body Mystery Facility',
+          station_type: 'Unknown',
+          body_id: 2,
+          body_name: 'Real Data System A 1',
+          lane: 'unknown',
+          association_status: 'confirmed',
+          association_confidence: 'exact',
+          association_source: 'resolver_body_id',
+          resolver_notes: 'Backend confirmed the body but could not classify the lane.',
+        },
+      ],
+    } as unknown as SystemDetail;
+    const cleanSnapshot = { ...snapshot, placements: [], projection: null };
+    const rows = buildRavenPlannerRows(unknownLaneSystem, cleanSnapshot);
+    const row = rows.find((candidate) => candidate.id === '2');
+    const summary = buildRavenPlannerOccupancySummary(unknownLaneSystem, cleanSnapshot);
+
+    expect(row?.existingCount).toBe(0);
+    expect(row?.orbitalOccupancy.existingCount).toBe(0);
+    expect(row?.groundOccupancy.existingCount).toBe(0);
+    expect(summary.existingCount).toBe(0);
+    expect(summary.unresolvedExistingCount).toBe(1);
+
+    render(<RavenStylePlannerCanvas system={unknownLaneSystem} snapshot={cleanSnapshot} selection={{ type: 'system' }} onSelect={vi.fn()} />);
+
+    expect(screen.getByTestId('raven-unresolved-existing-structure').textContent).toContain('lane unknown');
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Existing 0');
+  });
+
   it('includes existing occupancy in add capacity and overflow calculations', () => {
     const oneExistingSystem = {
       ...system,
@@ -410,9 +498,17 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
       existingCount: 1,
       plannedCount: 1,
       remaining: 0,
-      disabledReason: 'No empty orbital slots',
+      disabledReason: expect.stringContaining('No empty orbital slots'),
     }));
+    expect(fullState.disabledReason).toContain('2 slots, 1 existing, 1 planned');
     expect(fullRow?.orbitalSlots.map((slot) => slot.kind)).toEqual(['existing', 'planned']);
+    expect(fullRow?.orbitalOccupancy).toEqual(expect.objectContaining({
+      capacity: 2,
+      existingCount: 1,
+      plannedCount: 1,
+      projectedCount: 0,
+      remainingForPlan: 0,
+    }));
     expect(fullRow?.orbitalSlots.some((slot) => slot.kind === 'overflow')).toBe(false);
 
     const overflowSnapshot: TopologyPlanSnapshot = {
@@ -428,6 +524,59 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     render(<RavenStylePlannerCanvas system={oneExistingSystem} snapshot={fullSnapshot} selection={{ type: 'body', bodyId: '2' }} onSelect={vi.fn()} onRequestAddStructure={vi.fn()} />);
     expect((screen.getByTestId('2-orbital-add') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('2-orbital-disabled-reason').textContent).toContain('No empty orbital slots');
+    expect(screen.getByTestId('2-orbital-disabled-reason').textContent).toContain('2 slots, 1 existing, 1 planned');
+    expect(screen.getByTestId('2-orbital-occupancy-summary').textContent).toContain('Open 0');
+  });
+
+  it('keeps Suggested Build projected occupancy ghost-only in lane capacity display', () => {
+    const oneExistingSystem = {
+      ...system,
+      stations: [occupiedSystem.stations?.[0]],
+    } as unknown as SystemDetail;
+    const ghostSnapshot: TopologyPlanSnapshot = {
+      ...snapshot,
+      placements: [],
+      projection: {
+        candidateId: 'ghost-orbit',
+        label: 'Ghost Orbit',
+        placements: [
+          { facility_template_id: 'dodec_starport', local_body_id: '2', build_order: 1 },
+        ],
+      },
+    };
+    const state = getRavenLaneCapacityState(oneExistingSystem, ghostSnapshot, '2', 'orbital');
+    const row = buildRavenPlannerRows(oneExistingSystem, ghostSnapshot).find((candidate) => candidate.id === '2');
+    const summary = buildRavenPlannerOccupancySummary(oneExistingSystem, ghostSnapshot);
+
+    expect(state).toEqual(expect.objectContaining({
+      capacity: 2,
+      existingCount: 1,
+      plannedCount: 0,
+      projectedCount: 1,
+      remaining: 1,
+      disabledReason: null,
+    }));
+    expect(row?.orbitalOccupancy).toEqual(expect.objectContaining({
+      existingCount: 1,
+      plannedCount: 0,
+      projectedCount: 1,
+      remainingForPlan: 1,
+    }));
+    expect(summary).toEqual(expect.objectContaining({
+      existingCount: 1,
+      plannedCount: 0,
+      projectedCount: 1,
+    }));
+
+    render(<RavenStylePlannerCanvas system={oneExistingSystem} snapshot={ghostSnapshot} selection={{ type: 'body', bodyId: '2' }} onSelect={vi.fn()} onRequestAddStructure={vi.fn()} />);
+
+    const occupancy = screen.getByTestId('2-orbital-occupancy-summary');
+    expect(occupancy.textContent).toContain('Existing 1 / verify 1');
+    expect(occupancy.textContent).toContain('Planned 0');
+    expect(occupancy.textContent).toContain('Ghost 1');
+    expect(occupancy.textContent).toContain('Open 1');
+    expect(screen.getByTestId('2-orbital-slot-1').textContent).toContain('Ghost');
+    expect((screen.getByTestId('2-orbital-add') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('shows unresolved permanent existing infrastructure compactly instead of forcing a body or lane', () => {
@@ -450,6 +599,7 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     const unresolved = screen.getByTestId('raven-unresolved-existing-infrastructure');
     expect(unresolved.textContent).toContain('Existing infrastructure not matched to body');
     expect(unresolved.textContent).toContain('Lost Outpost');
+    expect(unresolved.textContent).toContain('unresolved');
     expect(buildRavenPlannerOccupancySummary(unresolvedSystem, { ...snapshot, placements: [], projection: null }).unresolvedExistingCount).toBe(1);
   });
 
