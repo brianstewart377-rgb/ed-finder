@@ -140,6 +140,71 @@ export interface EnrichmentStationStatus {
   warnings: string[];
 }
 
+export interface EnrichmentWarehouseStatus {
+  available: boolean;
+  configured: boolean;
+  state: string;
+  message: string;
+  source: 'warehouse_reconciliation_status_json';
+  artifact?: EnrichmentStatusArtifact | null;
+  latest_snapshot_load?: {
+    source_run_key?: string | null;
+    source_file_key?: string | null;
+    source?: string | null;
+    source_files_considered?: number | null;
+    source_type_distribution?: Record<string, number> | null;
+    source_format_distribution?: Record<string, number> | null;
+  } | null;
+  latest_reconciliation_run?: {
+    schema_version?: string | null;
+    coverage_schema_version?: string | null;
+    dry_run?: boolean | null;
+    report_only?: boolean | null;
+    canonical_writes_planned?: number | null;
+    staged_station_rows_considered?: number | null;
+    staged_body_rows_considered?: number | null;
+    staged_ring_rows_considered?: number | null;
+    canonical_matches_found?: number | null;
+    canonical_misses?: number | null;
+    ambiguous_matches?: number | null;
+    insufficient_evidence?: number | null;
+    warnings?: number | null;
+    errors?: number | null;
+  } | null;
+  source_coverage?: {
+    station_candidates?: number | null;
+    body_candidates?: number | null;
+    ring_candidates?: number | null;
+    systems_with_station_evidence?: number | null;
+    systems_missing_station_evidence?: number | null;
+    trusted_ring_evidence_bodies?: number | null;
+    unknown_ring_evidence_bodies?: number | null;
+    explicit_no_ring_evidence_bodies?: number | null;
+    staged_ring_candidates?: number | null;
+    trusted_local_matched_ring_candidates?: number | null;
+  } | null;
+  evidence_health?: {
+    unresolved_stations?: number | null;
+    blocked_conflicts?: number | null;
+    risky_conflicts?: number | null;
+    stale_records?: number | null;
+    volatile_records?: number | null;
+    stale_or_undated_source_records?: number | null;
+    malformed_or_skipped_rows?: number | null;
+    duplicate_source_records?: number | null;
+    source_identity_conflicts?: number | null;
+    high_value_systems_needing_better_evidence?: number | null;
+  } | null;
+  canonical_safety?: {
+    canonical_tables_untouched?: boolean | null;
+    canonical_writes_planned?: number | null;
+    dry_run?: boolean | null;
+    report_only?: boolean | null;
+  } | null;
+  warnings: string[];
+  errors: string[];
+}
+
 export interface SlotReason {
   factor: string;
   delta?: number | null;

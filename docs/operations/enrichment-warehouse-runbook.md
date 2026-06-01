@@ -429,6 +429,22 @@ The status helper reads local files only. It does not call EDSM, connect to the
 database, invoke Docker, or mutate state. Missing status must stay unavailable,
 not zero.
 
+Stage 18G adds a second read-only Admin tab panel for warehouse status. The API
+does not generate reports from a request. Operators must publish a reviewed
+warehouse reconciliation/status JSON artifact, usually the output of
+`--report-reconciliation --json`, to a path mounted into the API container:
+
+```text
+ENRICHMENT_WAREHOUSE_STATUS_JSON_PATH=/data/logs/warehouse-status.json
+```
+
+The warehouse status endpoint sanitizes the artifact to file names, schema
+versions, source identifiers, coverage counts, unresolved/risky/stale/skipped
+counts, and canonical-safety flags. It hides full filesystem paths and treats
+missing, invalid, unset, or oversized artifacts as unavailable instead of zero.
+It does not query the warehouse database, invoke Docker, call live APIs, run
+importer scripts, or write canonical data.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

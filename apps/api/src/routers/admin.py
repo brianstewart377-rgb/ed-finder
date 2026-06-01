@@ -14,7 +14,10 @@ from fastapi.responses import JSONResponse
 
 from config  import limiter, settings
 from deps    import get_pool, get_redis, require_admin
-from enrichment_operator_status import read_enrichment_status_snapshot
+from enrichment_operator_status import (
+    read_enrichment_status_snapshot,
+    read_warehouse_status_snapshot,
+)
 from helpers import run_cluster_rebuild
 from models  import CacheStatsResponse
 from state   import active_jobs, active_jobs_lock, metrics
@@ -208,3 +211,17 @@ async def station_enrichment_operator_status():
     script, Docker, EDSM, or the database.
     """
     return read_enrichment_status_snapshot(settings.enrichment_status_json_path)
+
+
+@router.get(
+    '/api/admin/enrichment/warehouse-status',
+    dependencies=[Depends(require_admin)],
+    include_in_schema=False,
+)
+async def warehouse_enrichment_operator_status():
+    """Return a sanitized read-only warehouse reconciliation/status snapshot.
+
+    This endpoint reads only a configured JSON artifact. It never runs
+    warehouse importer scripts, Docker, live APIs, or database queries.
+    """
+    return read_warehouse_status_snapshot(settings.enrichment_warehouse_status_json_path)

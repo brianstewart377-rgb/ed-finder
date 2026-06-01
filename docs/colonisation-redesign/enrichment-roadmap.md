@@ -427,6 +427,14 @@ confirmed, inferred/verify, unresolved, source-only, stale, volatile, blocked,
 report-only, and unknown states for operator review only; they do not change
 planner scoring, canonical write eligibility, or any production job wiring.
 
+Stage 18G exposes warehouse run and evidence status in the token-gated Admin
+surface. The API reads only a configured, prepublished JSON artifact and
+returns sanitized counts for latest snapshot/reconciliation state, source
+coverage, unresolved/risky/blocked/stale evidence, skipped or duplicate source
+records, and canonical-safety flags. Missing or invalid artifacts remain
+unavailable/unknown; the panel does not run warehouse scripts, query the
+warehouse, call live APIs, or add write controls.
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.
@@ -444,9 +452,9 @@ approved later.
 The list below is intentionally narrow — anything not on it should be
 treated as a separate proposal.
 
-* **Status integration**: pipe `station_enrichment_status.py --json` into the
-  ed-finder operator dashboard so we can see live progress without
-  ssh'ing.
+* **Status integration hardening**: keep the station and warehouse Admin tab
+  status artifacts mounted from operator-managed paths, and add deployment
+  alerts around missing or stale artifacts if production operations need them.
 * **Sticky failed-system retry queue**: today, fetch-failed systems naturally
   re-enter the next batch because they have no trusted provenance yet. If
   that becomes too slow for very large outages, materialise a separate

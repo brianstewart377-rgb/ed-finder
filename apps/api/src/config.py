@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # at JSON produced by `scripts/station_enrichment_status.py --json` on a
     # filesystem mounted into the API container, for example under /data/logs.
     enrichment_status_json_path: Optional[str] = None
+    # Optional read-only warehouse reconciliation/status artifact. This should
+    # point at prepublished JSON, usually a warehouse reconciliation report.
+    # The API reads and sanitizes it only; it never invokes importer scripts.
+    enrichment_warehouse_status_json_path: Optional[str] = None
     # Per-connection PostgreSQL `statement_timeout` (milliseconds).
     # Applied at pool init by main.py::_init_conn so every query —
     # search, map, status — is bounded server-side. Picked to match the
