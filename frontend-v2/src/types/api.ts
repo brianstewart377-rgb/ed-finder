@@ -64,6 +64,82 @@ export type SimulationSummary     = Schemas['SimulationSummaryResponse'] & { reg
 export type BuildabilityResponse  = Schemas['BuildabilityResponse'];
 export type SystemBuildability    = BuildabilityResponse;
 
+export interface EnrichmentStatusArtifact {
+  file_name: string;
+  exists: boolean;
+  updated_at?: string | null;
+  age_seconds?: number | null;
+  path_visible: false;
+}
+
+export interface EnrichmentStationStatus {
+  available: boolean;
+  configured: boolean;
+  state: string;
+  message: string;
+  source: 'station_enrichment_status_json';
+  artifact?: EnrichmentStatusArtifact | null;
+  checkpoint?: {
+    exists?: boolean | null;
+    valid?: boolean | null;
+    processed_count?: number | null;
+    last_system_id64?: number | null;
+    invalid_entry_count?: number | null;
+    error?: string | null;
+  } | null;
+  latest_run?: {
+    output_root_exists?: boolean | null;
+    output_dir_name?: string | null;
+    latest_all_records_output_dir_name?: string | null;
+    latest_any_output_dir_name?: string | null;
+    latest_log_file_name?: string | null;
+    latest_log_file_exists?: boolean | null;
+  } | null;
+  latest_batch?: {
+    number?: number | null;
+    state?: string | null;
+    latest_phase_name?: string | null;
+    latest_report_file_name?: string | null;
+    latest_stderr_file_name?: string | null;
+  } | null;
+  latest_report?: {
+    valid?: boolean | null;
+    phase_name?: string | null;
+    systems_processed?: number | null;
+    metadata_updates?: number | null;
+    confirmed_links?: number | null;
+    conflicts?: number | null;
+    skipped?: number | null;
+    fetch_errors?: number | null;
+    systems_fetch_failed?: number | null;
+    suppressed_station_writes?: number | null;
+    ignored_transient_non_slot?: number | null;
+    dirty_marked_planned?: string | null;
+    error?: string | null;
+  } | null;
+  latest_progress?: {
+    current?: number | null;
+    total?: number | null;
+    batch_progress_percent?: number | null;
+    latest_system_name?: string | null;
+    latest_system_id64?: number | null;
+    fetch_errors?: number | null;
+    systems_fetch_failed?: number | null;
+    all_records_aborted?: boolean | null;
+  } | null;
+  rate_limit?: {
+    recent_429_lines?: number | null;
+    max_consecutive_429_lines?: number | null;
+    repeated_429_detected?: boolean | null;
+    guard_warning_429_count?: number | null;
+    most_recent_429_system?: string | null;
+    most_recent_429_system_id64?: number | null;
+    most_recent_retry_after?: string | null;
+    most_recent_backoff_seconds?: number | null;
+  } | null;
+  warnings: string[];
+}
+
 export interface SlotReason {
   factor: string;
   delta?: number | null;

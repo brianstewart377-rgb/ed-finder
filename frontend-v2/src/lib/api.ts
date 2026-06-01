@@ -14,6 +14,7 @@ import type {
   AppStatus,
   AutocompleteResponse,
   CacheStats,
+  EnrichmentStationStatus,
   FacilityTemplate,
   LayoutImportRequest,
   LayoutImportResponse,
@@ -338,6 +339,11 @@ export const api = {
   }> {
     return jsonFetch('/admin/rebuild-ratings', {
       method:  'POST',
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  enrichmentStationStatus(token: string): Promise<EnrichmentStationStatus> {
+    return jsonFetch('/admin/enrichment/station-status', {
       headers: { 'X-Admin-Token': token },
     });
   },

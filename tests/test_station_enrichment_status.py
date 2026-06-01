@@ -8,10 +8,14 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / 'scripts'
+API_SRC = ROOT / 'apps' / 'api' / 'src'
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+if str(API_SRC) not in sys.path:
+    sys.path.insert(0, str(API_SRC))
 
 import station_enrichment_status as status  # noqa: E402
+from enrichment_operator_status import read_enrichment_status_snapshot  # noqa: E402
 
 
 def write_checkpoint(path: Path, ids: list[int]) -> None:
@@ -384,3 +388,92 @@ def test_json_output_shape(tmp_path, capsys):
         'system_query',
     }
     assert payload['system_query']['is_checkpointed'] is True
+
+
+def test_operator_status_snapshot_sanitizes_paths_and_reports_counts(tmp_path):
+    checkpoint = tmp_path / 'state' / 'checkpoint.json'
+    write_checkpoint(checkpoint, [10, 20])
+    failed_system = {'id64': 30, 'name': 'Limited'}
+    fetch_error = {'system': failed_system, 'message': 'HTTP 429 Too Many Requests', 'rate_limited': True}
+    batch_dir = tmp_path / 'runs' / '20260530-181500-all-records' / 'batch-0003'
+    write_report(
+        batch_dir / 'final_dryrun.json',
+        systems=[{'id64': 20, 'name': 'Alpha'}],
+        fetch_errors=[fetch_error],
+        systems_fetch_failed=[failed_system],
+        conflicts=[{'type': 'station_economy_mismatch'}],
+    )
+    log_file = tmp_path / 'station-enrichment.log'
+    write_log(log_file, [
+        '=== all-records batch 3 ===',
+        "Station enrichment 7/10: system='Alpha' id64=20",
+        "EDSM rate limit retry system='Limited' id64=30 endpoint=stations "
+        "next_attempt=2/5 reason=HTTP 429 Too Many Requests backoff_seconds=60",
+    ])
+    args = status.parse_args([
+        '--checkpoint-file', str(checkpoint),
+        '--root', str(tmp_path / 'runs'),
+        '--log-file', str(log_file),
+        '--json',
+    ])
+    artifact = tmp_path / 'shared' / 'station-status.json'
+    artifact.parent.mkdir()
+    artifact.write_text(json.dumps(status.build_status(args)), encoding='utf-8')
+
+    payload = read_enrichment_status_snapshot(str(artifact))
+    rendered = json.dumps(payload, sort_keys=True)
+
+    assert payload['available'] is True
+    assert payload['checkpoint']['processed_count'] == 2
+    assert payload['latest_batch']['number'] == 3
+    assert payload['latest_report']['systems_processed'] == 1
+    assert payload['latest_report']['systems_fetch_failed'] == 1
+    assert payload['latest_report']['fetch_errors'] == 1
+    assert payload['latest_report']['conflicts'] == 1
+    assert payload['rate_limit']['recent_429_lines'] == 1
+    assert payload['artifact']['file_name'] == 'station-status.json'
+    assert payload['latest_batch']['latest_report_file_name'] == 'final_dryrun.json'
+    assert str(tmp_path) not in rendered
+    assert '/tmp/' not in rendered
+
+
+def test_operator_status_snapshot_missing_or_invalid_keeps_unknown_values(tmp_path):
+    not_configured = read_enrichment_status_snapshot(None)
+    assert not_configured['available'] is False
+    assert not_configured['state'] == 'not_configured'
+    assert not_configured['checkpoint'] is None
+
+    missing = read_enrichment_status_snapshot(str(tmp_path / 'missing.json'))
+    assert missing['available'] is False
+    assert missing['state'] == 'missing'
+    assert missing['latest_report'] is None
+
+    invalid = tmp_path / 'invalid.json'
+    invalid.write_text('{not json', encoding='utf-8')
+    invalid_payload = read_enrichment_status_snapshot(str(invalid))
+    assert invalid_payload['available'] is False
+    assert invalid_payload['state'] == 'invalid_json'
+    assert invalid_payload['artifact']['file_name'] == 'invalid.json'
+    assert str(tmp_path) not in json.dumps(invalid_payload)
+
+    unsafe = tmp_path / 'unsafe.json'
+    unsafe.write_text(json.dumps({
+        'checkpoint': {
+            'exists': True,
+            'valid': False,
+            'error': f'{tmp_path}/checkpoint.json',
+        },
+        'latest_report_summary': {
+            'valid': False,
+            'error': 'DATABASE_URL=postgresql://user:secret@example/db',
+        },
+        'warnings': [f'WARNING: checkpoint at {tmp_path}/checkpoint.json'],
+    }), encoding='utf-8')
+    unsafe_payload = read_enrichment_status_snapshot(str(unsafe))
+    rendered_unsafe = json.dumps(unsafe_payload)
+    assert unsafe_payload['available'] is True
+    assert unsafe_payload['checkpoint']['error'] == 'unavailable'
+    assert unsafe_payload['latest_report']['error'] == 'unavailable'
+    assert unsafe_payload['warnings'] == ['unavailable']
+    assert str(tmp_path) not in rendered_unsafe
+    assert 'postgresql://' not in rendered_unsafe

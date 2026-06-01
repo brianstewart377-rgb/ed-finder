@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AppStatus, CacheStats } from '@/types/api';
+import type { AppStatus, CacheStats, EnrichmentStationStatus } from '@/types/api';
 
 const TOKEN_KEY = 'ed_admin_token';
 
@@ -19,8 +19,11 @@ export interface UseAdmin {
 
   status:      AppStatus | null;
   cache:       CacheStats | null;
+  enrichmentStatus: EnrichmentStationStatus | null;
   metaLoading: boolean;
   metaError:   string | null;
+  enrichmentLoading: boolean;
+  enrichmentError: string | null;
   refresh:     () => Promise<void>;
 
   // Action state machine: idle → busy → ok | err
@@ -39,8 +42,11 @@ export function useAdmin(): UseAdmin {
   );
   const [status,      setStatus]      = useState<AppStatus | null>(null);
   const [cache,       setCache]       = useState<CacheStats | null>(null);
+  const [enrichmentStatus, setEnrichmentStatus] = useState<EnrichmentStationStatus | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError,   setMetaError]   = useState<string | null>(null);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
   const [actionState, setActionState] = useState<UseAdmin['actionState']>({ kind: 'idle' });
 
   const setToken = useCallback((t: string) => {
@@ -63,7 +69,24 @@ export function useAdmin(): UseAdmin {
     } finally {
       setMetaLoading(false);
     }
-  }, []);
+
+    if (!token) {
+      setEnrichmentStatus(null);
+      setEnrichmentError(null);
+      setEnrichmentLoading(false);
+      return;
+    }
+    setEnrichmentLoading(true);
+    setEnrichmentError(null);
+    try {
+      setEnrichmentStatus(await api.enrichmentStationStatus(token));
+    } catch (e: unknown) {
+      setEnrichmentStatus(null);
+      setEnrichmentError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEnrichmentLoading(false);
+    }
+  }, [token]);
 
   // Initial fetch + 30s poll. We don't poll faster — these endpoints hit
   // the DB and there's no value in sub-second updates for ops dashboards.
@@ -95,7 +118,7 @@ export function useAdmin(): UseAdmin {
   return {
     token, setToken, forgetToken,
     hasToken: token.length > 0,
-    status, cache, metaLoading, metaError, refresh,
+    status, cache, enrichmentStatus, metaLoading, metaError, enrichmentLoading, enrichmentError, refresh,
     actionState,
     clearCache:      () => runAction('clearCache',      () => api.cacheClear(token)),
     rebuildClusters: () => runAction('rebuildClusters', () => api.rebuildClusters(token)),
