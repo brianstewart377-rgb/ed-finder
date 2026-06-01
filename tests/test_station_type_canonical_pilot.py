@@ -284,6 +284,8 @@ def test_cli_apply_requires_full_explicit_approval_contract():
         'run-1',
         '--approval-id',
         'approval-1',
+        '--max-rows',
+        '1',
         '--dsn',
         'postgresql://apply/test',
         '--confirm-station-type-canonical-pilot',
@@ -348,6 +350,17 @@ def test_validate_apply_request_fails_closed_on_mismatched_approval_parameters()
             expected_candidate_count=1,
             approved_table='stations',
             approved_field='body_name',
+            approved_source_run='run-1',
+            approval_id='approval-1',
+            confirmation=True,
+        )
+    with pytest.raises(pilot.Stage18JPlanError, match='max rows'):
+        pilot.validate_apply_request(
+            artifact,
+            artifact_sha256_expected=checksum,
+            expected_candidate_count=1,
+            approved_table='stations',
+            approved_field='station_type',
             approved_source_run='run-1',
             approval_id='approval-1',
             confirmation=True,

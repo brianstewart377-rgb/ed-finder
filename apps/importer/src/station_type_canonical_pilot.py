@@ -387,7 +387,9 @@ def validate_apply_request(
     if expected_candidate_count < 0:
         raise Stage18JPlanError('expected candidate count must be >= 0')
     if max_rows is None:
-        max_rows = expected_candidate_count
+        raise Stage18JPlanError('explicit max rows is required')
+    if max_rows < 0:
+        raise Stage18JPlanError('max rows must be >= 0')
     if max_rows > MAX_FIRST_PILOT_LIMIT:
         raise Stage18JPlanError(f'max rows must be <= {MAX_FIRST_PILOT_LIMIT} for the first Stage 18J pilot')
     if len(candidates) > max_rows:
@@ -660,6 +662,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             '--approved-field': args.approved_field,
             '--approved-source-run': args.approved_source_run,
             '--approval-id': args.approval_id,
+            '--max-rows': args.max_rows,
             '--dsn': args.dsn,
         }
         missing = [name for name, value in required.items() if value in (None, '')]
