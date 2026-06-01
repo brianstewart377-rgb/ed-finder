@@ -348,3 +348,7 @@ production-connected command because the required verified read-only DSN,
 approved source run/file, read-only session option, and operator-managed output
 path were not available. See
 [`stage-18j-q3-readonly-production-reconciliation-artifact.md`](./stage-18j-q3-readonly-production-reconciliation-artifact.md).
+
+Stage 18J-Q4 defines the operator access packet and redacted sign-off checklist
+needed before Q3 can be retried:
+[`../operations/stage-18j-q4-operator-access-packet.md`](../operations/stage-18j-q4-operator-access-packet.md).

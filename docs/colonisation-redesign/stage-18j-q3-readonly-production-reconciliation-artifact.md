@@ -254,6 +254,10 @@ Before Q3 can be retried, the operator must provide and verify:
 - confirmation that the later command will not invoke live EDSM/API crawling,
   Docker, write-staging, apply, write, commit, confirmation, or rollback flags.
 
+Stage 18J-Q4 provides the operator-facing access packet and sign-off template
+for these missing variables:
+[`../operations/stage-18j-q4-operator-access-packet.md`](../operations/stage-18j-q4-operator-access-packet.md).
+
 Stage 18J-P also remains blocked by the possible missing explicit canonical
 external identity fields in the general reconciliation payload. If a future Q3
 artifact lacks `canonical.market_id` and `canonical.edsm_station_id`, Stage

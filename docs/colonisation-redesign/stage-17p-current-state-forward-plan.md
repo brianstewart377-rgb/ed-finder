@@ -583,6 +583,29 @@ Current result:
 Report:
 `stage-18j-q3-readonly-production-reconciliation-artifact.md`.
 
+### Stage 18J-Q4 — Operator Access Packet
+
+Purpose: define the safe operator checklist for providing the variables that
+Stage 18J-Q3 lacked.
+
+Scope:
+
+- Document the required read-only/report-only DSN, source run/file keys,
+  operator-managed artifact directory, and mandatory read-only `PGOPTIONS`.
+- Provide a redacted command template that matches the real loader CLI.
+- Define secret handling, sign-off, and rerun criteria without committing real
+  DSNs, credentials, hostnames, or production artifact paths.
+
+Non-goals:
+
+- No production-connected reconciliation command execution.
+- No production artifact generation or approval.
+- No station-type dry-run generation.
+- No production apply or canonical data changes.
+
+Access packet:
+`../operations/stage-18j-q4-operator-access-packet.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -621,5 +644,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 18. Stage 18J-Q production reconciliation artifact readiness.
 19. Stage 18J-Q2 read-only production reconciliation plan.
 20. Stage 18J-Q3 read-only production reconciliation artifact gate.
+21. Stage 18J-Q4 operator access packet.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
