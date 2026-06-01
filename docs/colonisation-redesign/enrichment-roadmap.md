@@ -419,6 +419,14 @@ source identity conflicts, high-value systems needing better evidence, and
 source type/source-format coverage. It remains dry-run/report-only and does
 not promote source-only evidence to canonical truth.
 
+Stage 18F hardens reconciliation confidence as a versioned, report-only model.
+Candidates now carry deterministic confidence levels, reason codes, source
+freshness impact, risk classes, review classifications, and future canonical
+review markers that explicitly disable auto-promotion. These labels explain
+confirmed, inferred/verify, unresolved, source-only, stale, volatile, blocked,
+report-only, and unknown states for operator review only; they do not change
+planner scoring, canonical write eligibility, or any production job wiring.
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.

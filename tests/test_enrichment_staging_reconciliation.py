@@ -301,6 +301,12 @@ def test_station_candidate_missing_canonical_becomes_insert_candidate():
     assert candidate['candidate_action'] == 'candidate_insert_missing_canonical'
     assert candidate['source']['station_name'] == 'Test Port'
     assert candidate['canonical'] is None
+    assert candidate['reconciliation_state'] == 'source_only'
+    assert candidate['risk_class'] == 'risky'
+    assert candidate['risk_flags'] == ['source_only_evidence']
+    assert candidate['review_classifications'] == ['report_only', 'risky', 'source_only']
+    assert candidate['future_canonical_review_candidate']['marker'] == 'future_canonical_review_candidate'
+    assert candidate['future_canonical_review_candidate']['canonical_writes_planned'] == 0
     assert report['summary']['canonical_misses'] == 1
     assert_read_only_sql(conn)
 
@@ -313,9 +319,16 @@ def test_station_candidate_matching_canonical_data_is_no_change():
     candidate = report['station_candidates'][0]
     assert candidate['candidate_action'] == 'no_change'
     assert candidate['confidence'] == 'high'
+    assert candidate['confidence_level'] == 'high'
+    assert candidate['confidence_model_version'] == 'enrichment_reconciliation_confidence/v1'
     assert candidate['identifier_quality'] == 'stable'
     assert candidate['evidence_quality'] == 'strong'
+    assert candidate['reconciliation_state'] == 'confirmed'
+    assert candidate['risk_class'] == 'clear'
+    assert candidate['review_classifications'] == ['confirmed', 'report_only']
+    assert candidate['source_freshness']['freshness_impact'] == 'timestamped_source'
     assert candidate['risk_flags'] == []
+    assert candidate['future_canonical_review_candidate']['marker'] == 'not_a_future_canonical_review_candidate'
     assert candidate['canonical']['station_id'] == 1001
     assert candidate['differences'] == []
     assert report['summary']['canonical_matches_found'] == 1
@@ -332,8 +345,13 @@ def test_station_candidate_differing_staged_evidence_is_candidate_update():
     candidate = report['station_candidates'][0]
     assert candidate['candidate_action'] == 'candidate_update'
     assert candidate['confidence'] == 'medium'
+    assert candidate['confidence_model_version'] == 'enrichment_reconciliation_confidence/v1'
     assert candidate['identifier_quality'] == 'stable'
-    assert candidate['risk_flags'] == []
+    assert candidate['risk_class'] == 'risky'
+    assert candidate['reconciliation_state'] == 'source_only'
+    assert candidate['risk_flags'] == ['canonical_difference_review']
+    assert candidate['future_canonical_review_candidate']['marker'] == 'future_canonical_review_candidate'
+    assert candidate['future_canonical_review_candidate']['auto_promote_to_canonical'] is False
     assert candidate['differences'] == [
         {'field': 'station_type', 'staged': 'Ocellus Starport', 'canonical': 'Orbis Starport'},
     ]
@@ -353,6 +371,9 @@ def test_station_ambiguous_match_is_not_guessed():
     assert candidate['candidate_action'] == 'ambiguous_match'
     assert candidate['confidence'] == 'low'
     assert candidate['identifier_quality'] == 'ambiguous'
+    assert candidate['risk_class'] == 'blocked'
+    assert candidate['reconciliation_state'] == 'blocked'
+    assert candidate['review_classifications'] == ['blocked', 'report_only', 'unknown']
     assert candidate['risk_flags'] == ['ambiguous_canonical_match']
     assert candidate['canonical'] is None
     assert [row['station_id'] for row in candidate['canonical_matches']] == [1001, 1002]
@@ -410,8 +431,13 @@ def test_station_body_association_candidates_are_report_only():
     assert candidate['entity'] == 'station_body_association'
     assert candidate['candidate_action'] == 'station_body_supported_by_staged_body'
     assert candidate['confidence'] == 'medium'
+    assert candidate['reconciliation_state'] == 'inferred_verify'
+    assert candidate['risk_class'] == 'risky'
+    assert candidate['review_classifications'] == ['inferred_verify', 'report_only', 'risky']
     assert candidate['report_only'] is True
     assert candidate['canonical_link_writes_planned'] == 0
+    assert candidate['future_canonical_review_candidate']['marker'] == 'future_canonical_review_candidate'
+    assert candidate['future_canonical_review_candidate']['auto_promote_to_canonical'] is False
     assert candidate['source']['station_name'] == 'Test Port'
     assert candidate['source']['body_name'] == 'Test 7'
     assert candidate['matched_body_evidence'] == [{
@@ -469,6 +495,8 @@ def test_sparse_staged_records_become_insufficient_evidence():
     assert report['station_candidates'][0]['candidate_action'] == 'insufficient_evidence'
     assert report['station_candidates'][0]['confidence'] == 'low'
     assert report['station_candidates'][0]['identifier_quality'] == 'missing'
+    assert report['station_candidates'][0]['risk_class'] == 'blocked'
+    assert 'unknown' in report['station_candidates'][0]['review_classifications']
     assert report['station_candidates'][0]['risk_flags'] == ['insufficient_identifiers']
     assert report['body_candidates'][0]['candidate_action'] == 'insufficient_evidence'
     assert report['body_candidates'][0]['confidence'] == 'low'
@@ -489,10 +517,14 @@ def test_volatile_only_station_difference_does_not_raise_update_confidence():
     assert candidate['candidate_action'] == 'no_change'
     assert candidate['differences'] == []
     assert candidate['confidence'] == 'medium'
+    assert candidate['risk_class'] == 'volatile'
+    assert candidate['reconciliation_state'] == 'confirmed'
+    assert candidate['review_classifications'] == ['confirmed', 'report_only', 'volatile']
     assert candidate['risk_flags'] == ['volatile_source_evidence']
     assert candidate['risk_explanations'] == [
         'Volatile source evidence is retained for review and must not churn canonical rows.',
     ]
+    assert 'Risk class is volatile.' in candidate['confidence_explanations']
     assert 'Output is report-only; it is not a write plan.' in candidate['confidence_explanations']
     assert candidate['warnings'] == [{
         'entity': 'station',
@@ -500,6 +532,61 @@ def test_volatile_only_station_difference_does_not_raise_update_confidence():
         'reason': 'volatile_source_evidence_not_canonical_update',
         'source_record_hash': 'station-hash',
     }]
+    assert_read_only_sql(conn)
+
+
+def test_stale_source_freshness_is_visible_without_wall_clock_threshold():
+    conn = FakeConn(station_rows=[
+        station_row(
+            freshness_class='file_snapshot',
+            source_updated_at=None,
+        ),
+    ])
+
+    report = db_loader.build_reconciliation_report(conn, source='edsm_nightly_stations')
+
+    candidate = report['station_candidates'][0]
+    assert candidate['candidate_action'] == 'no_change'
+    assert candidate['confidence'] == 'medium'
+    assert candidate['reconciliation_state'] == 'confirmed'
+    assert candidate['risk_class'] == 'stale'
+    assert candidate['risk_flags'] == ['stale_source_evidence']
+    assert candidate['review_classifications'] == ['confirmed', 'report_only', 'stale']
+    assert candidate['source_freshness'] == {
+        'freshness_class': 'file_snapshot',
+        'source_updated_at': None,
+        'freshness_impact': 'file_snapshot_review',
+        'review_reason': 'file_snapshot_without_record_timestamp',
+        'wall_clock_age_threshold_applied': False,
+    }
+    assert 'freshness_impact:file_snapshot_review' in candidate['confidence_reasons']
+
+    summary = report['confidence_risk_summary']
+    assert summary['risk_class_distribution'] == {'blocked': 1, 'stale': 1}
+    assert summary['source_freshness_impact_distribution'] == {'file_snapshot_review': 2}
+    assert summary['review_classification_distribution']['stale'] == 2
+    assert_read_only_sql(conn)
+
+
+def test_undated_source_freshness_preserves_unknown_not_false():
+    conn = FakeConn(body_rows=[
+        body_row(
+            freshness_class=None,
+            source_updated_at=None,
+        ),
+    ])
+
+    report = db_loader.build_reconciliation_report(conn, source='edsm_nightly_bodies')
+
+    candidate = report['body_candidates'][0]
+    assert candidate['candidate_action'] == 'no_change'
+    assert candidate['confidence'] == 'medium'
+    assert candidate['risk_class'] == 'stale'
+    assert candidate['risk_flags'] == ['undated_source_evidence']
+    assert candidate['source_freshness']['freshness_impact'] == 'undated_source_review'
+    assert candidate['source_freshness']['wall_clock_age_threshold_applied'] is False
+    assert 'undated_source_evidence' in candidate['risk_flags']
+    assert report['summary']['canonical_writes_planned'] == 0
     assert_read_only_sql(conn)
 
 
