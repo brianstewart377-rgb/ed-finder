@@ -467,6 +467,12 @@ write-plan transfer, audit ownership, retention, and Stage 18J readiness
 criteria. See
 [`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md).
 
+Stage 18J-R records the non-production rehearsal for the station-type-only
+canonical pilot. It uses fixture/disposable data to document dry-run artifact
+creation, guarded apply, audit, rollback pre-image, post-apply verification, and
+remaining production blocks. See
+[`stage-18j-r-station-type-nonprod-rehearsal.md`](./stage-18j-r-station-type-nonprod-rehearsal.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.

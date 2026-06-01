@@ -541,3 +541,8 @@ current operator examples. Future work may rename the warehouse DSN variable,
 move the warehouse schema, or require different read-only access patterns for
 canonical comparison. The hard boundary remains unchanged: warehouse data is
 evidence and reports, not canonical truth.
+
+The Stage 18J-R non-production station type rehearsal is documented in
+[`stage-18j-r-station-type-nonprod-rehearsal.md`](../colonisation-redesign/stage-18j-r-station-type-nonprod-rehearsal.md).
+It rehearses the guarded station-type-only path with fixture/disposable data
+only and does not authorize production apply.

@@ -462,6 +462,11 @@ Acceptance:
 
 - One narrow canonical write path is proven safe, auditable, reversible, and boring before any wider canonical expansion.
 
+Non-production rehearsal report:
+`stage-18j-r-station-type-nonprod-rehearsal.md`. Stage 18J-R rehearses the
+station-type-only pilot against fixture/disposable data and keeps production
+apply blocked.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
