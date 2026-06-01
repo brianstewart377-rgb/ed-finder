@@ -366,6 +366,65 @@ def test_ring_candidate_matches_by_body_and_ring_identifiers():
     assert_read_only_sql(conn)
 
 
+def test_station_body_association_candidates_are_report_only():
+    conn = FakeConn(
+        station_rows=[station_row(body_name='Test 7')],
+        body_rows=[body_row()],
+    )
+
+    report = db_loader.build_reconciliation_report(conn)
+
+    candidate = report['station_body_association_candidates'][0]
+    assert candidate['entity'] == 'station_body_association'
+    assert candidate['candidate_action'] == 'station_body_supported_by_staged_body'
+    assert candidate['confidence'] == 'medium'
+    assert candidate['report_only'] is True
+    assert candidate['canonical_link_writes_planned'] == 0
+    assert candidate['source']['station_name'] == 'Test Port'
+    assert candidate['source']['body_name'] == 'Test 7'
+    assert candidate['matched_body_evidence'] == [{
+        'source_record_hash': 'body-hash',
+        'source_body_id': 7,
+        'body_name': 'Test 7',
+        'candidate_action': 'no_change',
+        'confidence': 'high',
+    }]
+    assert report['summary']['station_body_association_candidates'] == 1
+    assert report['confidence_risk_summary']['risk_flag_distribution']['source_only_association'] == 1
+    assert_read_only_sql(conn)
+
+
+def test_station_body_association_candidates_keep_unresolved_and_ambiguous_states():
+    conn = FakeConn(
+        station_rows=[
+            station_row(staging_station_id=1, body_name=None),
+            station_row(staging_station_id=2, body_name='Missing Body', station_name='Unresolved Port'),
+            station_row(staging_station_id=3, body_name='Test 7', station_name='Ambiguous Port'),
+        ],
+        body_rows=[
+            body_row(staging_body_id=10, body_name='Test 7', source_record_hash='body-a'),
+            body_row(staging_body_id=11, body_name='Test 7', source_record_hash='body-b'),
+        ],
+    )
+
+    report = db_loader.build_reconciliation_report(conn)
+    by_station = {
+        candidate['source']['station_name']: candidate['candidate_action']
+        for candidate in report['station_body_association_candidates']
+    }
+
+    assert by_station == {
+        'Test Port': 'station_body_name_missing',
+        'Unresolved Port': 'station_body_unresolved_staged_body',
+        'Ambiguous Port': 'station_body_ambiguous_staged_body',
+    }
+    risk_distribution = report['confidence_risk_summary']['risk_flag_distribution']
+    assert risk_distribution['ambiguous_staged_body_evidence'] == 1
+    assert risk_distribution['missing_staged_body_evidence'] == 1
+    assert risk_distribution['missing_station_body_name'] == 1
+    assert_read_only_sql(conn)
+
+
 def test_sparse_staged_records_become_insufficient_evidence():
     conn = FakeConn(
         station_rows=[station_row(station_name=None, canonical_station_id=None, canonical_match_count=0)],
@@ -399,12 +458,67 @@ def test_volatile_only_station_difference_does_not_raise_update_confidence():
     assert candidate['differences'] == []
     assert candidate['confidence'] == 'medium'
     assert candidate['risk_flags'] == ['volatile_source_evidence']
+    assert candidate['risk_explanations'] == [
+        'Volatile source evidence is retained for review and must not churn canonical rows.',
+    ]
+    assert 'Output is report-only; it is not a write plan.' in candidate['confidence_explanations']
     assert candidate['warnings'] == [{
         'entity': 'station',
         'field': 'distance_to_arrival',
         'reason': 'volatile_source_evidence_not_canonical_update',
         'source_record_hash': 'station-hash',
     }]
+    assert_read_only_sql(conn)
+
+
+def test_reconciliation_report_includes_source_coverage_and_report_only_signals():
+    conn = FakeConn(
+        station_rows=[station_row(distance_to_arrival=123.4, canonical_distance_to_arrival=99.9)],
+        body_rows=[body_row()],
+        ring_rows=[],
+    )
+
+    report = db_loader.build_reconciliation_report(conn)
+
+    coverage = report['source_coverage_summary']
+    assert coverage['schema_version'] == 'enrichment_source_coverage_summary/v1'
+    assert coverage['report_only'] is True
+    assert coverage['canonical_writes_planned'] == 0
+    assert coverage['entities']['station']['candidates'] == 1
+    assert coverage['entities']['station']['volatile_warnings'] == 1
+    assert coverage['entities']['body']['source_runs'] == ['run-bodies']
+    assert coverage['ring_evidence'] == {
+        'staged_ring_candidates': 0,
+        'trusted_local_matched_ring_candidates': 0,
+        'missing_ring_arrays_state': 'unknown_not_false',
+        'ringed_truth_requires_trusted_body_rings': True,
+    }
+
+    assert report['analytics_signals']['schema_version'] == 'enrichment_analytics_signals/v1'
+    assert report['analytics_signals']['dry_run'] is True
+    assert report['colonisation_signals']['schema_version'] == 'colonisation_candidate_signals/v1'
+    assert report['colonisation_signals']['summary']['canonical_writes_planned'] == 0
+    assert report['mission_density_signals']['schema_version'] == 'mission_density_signals/v1'
+    assert report['mission_density_signals']['summary']['canonical_writes_planned'] == 0
+    assert_read_only_sql(conn)
+
+
+def test_source_only_ring_association_status_does_not_confirm_ringed():
+    conn = FakeConn(ring_rows=[
+        ring_row(
+            association_status='local_matched',
+            canonical_ring_id=None,
+            canonical_association_status=None,
+        ),
+    ])
+
+    report = db_loader.build_reconciliation_report(conn, source='edsm_nightly_bodies')
+
+    ring_evidence = report['source_coverage_summary']['ring_evidence']
+    assert ring_evidence['staged_ring_candidates'] == 1
+    assert ring_evidence['trusted_local_matched_ring_candidates'] == 0
+    assert ring_evidence['missing_ring_arrays_state'] == 'ring_evidence_present'
+    assert ring_evidence['ringed_truth_requires_trusted_body_rings'] is True
     assert_read_only_sql(conn)
 
 

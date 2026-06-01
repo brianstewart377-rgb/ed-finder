@@ -99,6 +99,20 @@ summary counts, staged/planned rows, skipped rows, conflicts, warnings,
 confidence/freshness/source-class distributions, candidate confidence/risk
 fields, and deterministic sorting for stable diffs.
 
+Stage 18B broadens the read-only reconciliation report with named sections:
+
+* `station_body_association_candidates` records staged station/body-name
+  association evidence as supported, unresolved, missing, or ambiguous. It is
+  report-only and does not create `station_body_links`.
+* `source_coverage_summary` records per-entity action/confidence/source
+  coverage, volatile warning counts, and ring-evidence state. Missing ring
+  arrays remain `unknown_not_false`.
+* `confidence_risk_summary` keeps aggregate confidence, identifier/evidence
+  quality, and risk-flag distributions explainable.
+* `analytics_signals`, `colonisation_signals`, and `mission_density_signals`
+  are embedded as report-only signal sections with
+  `canonical_writes_planned = 0`.
+
 ## Offline Fixture Loader
 
 Run from the repo root:

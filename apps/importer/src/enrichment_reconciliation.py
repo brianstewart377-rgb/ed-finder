@@ -23,6 +23,9 @@ def station_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list
             'market_id': first.get('market_id'),
             'edsm_station_id': first.get('edsm_station_id'),
             'station_name': first.get('station_name'),
+            'body_name': first.get('body_name'),
+            'source_class': first.get('source_class'),
+            'confidence': first.get('confidence'),
         }
         warnings = volatile_warnings(
             first,
@@ -64,6 +67,8 @@ def body_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list[di
             'system_name': first.get('system_name'),
             'source_body_id': first.get('source_body_id'),
             'body_name': first.get('body_name'),
+            'source_class': first.get('source_class'),
+            'confidence': first.get('confidence'),
         }
         warnings = volatile_warnings(
             first,
@@ -110,6 +115,9 @@ def ring_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list[di
             'source_body_id': first.get('source_body_id'),
             'body_name': first.get('body_name'),
             'ring_name': first.get('ring_name'),
+            'association_status': first.get('association_status'),
+            'source_class': first.get('source_class'),
+            'confidence': first.get('confidence'),
         }
         candidates.append(base_candidate(
             entity='ring',
@@ -222,6 +230,149 @@ def ring_canonical_matches(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, 
     return sort_candidate_rows(matches.values())
 
 
+def station_body_association_candidates(
+    station_candidates: Sequence[Mapping[str, Any]],
+    body_candidates: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build report-only station/body association review candidates.
+
+    This uses staged evidence already present in the reconciliation report. It
+    does not create station_body_links or promote source body names to truth.
+    """
+    body_index: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for body_candidate in body_candidates:
+        source = _source(body_candidate)
+        key = _association_key(source)
+        if key is not None:
+            body_index.setdefault(key, []).append(dict(body_candidate))
+
+    candidates = []
+    for station_candidate in station_candidates:
+        source = _source(station_candidate)
+        base = {
+            'entity': 'station_body_association',
+            'source': {
+                'source_record_hash': source.get('source_record_hash'),
+                'system_id64': source.get('system_id64'),
+                'system_name': source.get('system_name'),
+                'station_name': source.get('station_name'),
+                'body_name': source.get('body_name'),
+            },
+            'report_only': True,
+            'canonical_link_writes_planned': 0,
+        }
+        if _missing(source.get('body_name')):
+            candidates.append({
+                **base,
+                'candidate_action': 'station_body_name_missing',
+                'confidence': 'low',
+                'risk_flags': ['missing_station_body_name'],
+                'confidence_explanations': [
+                    'Station evidence has no body_name; association remains unknown.',
+                    'Output is report-only; it is not a station-body link write plan.',
+                ],
+                'matched_body_evidence': [],
+            })
+            continue
+
+        key = _association_key(source)
+        body_matches = body_index.get(key, []) if key is not None else []
+        if len(body_matches) == 1:
+            body_source = _source(body_matches[0])
+            candidates.append({
+                **base,
+                'candidate_action': 'station_body_supported_by_staged_body',
+                'confidence': 'medium',
+                'risk_flags': ['source_only_association'],
+                'confidence_explanations': [
+                    'Station body_name matches one staged body evidence row in the same system.',
+                    'The association remains report-only until a separate trusted write design exists.',
+                ],
+                'matched_body_evidence': [{
+                    'source_record_hash': body_source.get('source_record_hash'),
+                    'source_body_id': body_source.get('source_body_id'),
+                    'body_name': body_source.get('body_name'),
+                    'candidate_action': body_matches[0].get('candidate_action'),
+                    'confidence': body_matches[0].get('confidence'),
+                }],
+            })
+        elif len(body_matches) > 1:
+            candidates.append({
+                **base,
+                'candidate_action': 'station_body_ambiguous_staged_body',
+                'confidence': 'low',
+                'risk_flags': ['ambiguous_staged_body_evidence'],
+                'confidence_explanations': [
+                    'More than one staged body evidence row matched the station body_name.',
+                    'Manual review is required before any future association design.',
+                ],
+                'matched_body_evidence': [
+                    {
+                        'source_record_hash': _source(match).get('source_record_hash'),
+                        'source_body_id': _source(match).get('source_body_id'),
+                        'body_name': _source(match).get('body_name'),
+                        'candidate_action': match.get('candidate_action'),
+                        'confidence': match.get('confidence'),
+                    }
+                    for match in body_matches
+                ],
+            })
+        else:
+            candidates.append({
+                **base,
+                'candidate_action': 'station_body_unresolved_staged_body',
+                'confidence': 'low',
+                'risk_flags': ['missing_staged_body_evidence'],
+                'confidence_explanations': [
+                    'No staged body evidence matched the station body_name in the same system.',
+                    'The association stays unresolved and report-only.',
+                ],
+                'matched_body_evidence': [],
+            })
+    return sort_candidate_rows(candidates)
+
+
+def source_coverage_summary(
+    station_candidates: Sequence[Mapping[str, Any]],
+    body_candidates: Sequence[Mapping[str, Any]],
+    ring_candidates: Sequence[Mapping[str, Any]],
+    warnings: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Summarise source coverage without coercing unknown evidence to false."""
+    return {
+        'schema_version': 'enrichment_source_coverage_summary/v1',
+        'report_only': True,
+        'canonical_writes_planned': 0,
+        'entities': {
+            'station': _entity_coverage(station_candidates),
+            'body': _entity_coverage(body_candidates),
+            'ring': _entity_coverage(ring_candidates),
+        },
+        'ring_evidence': {
+            'staged_ring_candidates': len(ring_candidates),
+            'trusted_local_matched_ring_candidates': sum(
+                1 for candidate in ring_candidates
+                if (candidate.get('canonical') or {}).get('association_status') == 'local_matched'
+            ),
+            'missing_ring_arrays_state': 'unknown_not_false' if not ring_candidates else 'ring_evidence_present',
+            'ringed_truth_requires_trusted_body_rings': True,
+        },
+        'warnings': len(warnings),
+    }
+
+
+def confidence_risk_summary(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        'schema_version': 'enrichment_confidence_risk_summary/v1',
+        'report_only': True,
+        'canonical_writes_planned': 0,
+        'confidence_distribution': _distribution(candidates, 'confidence'),
+        'evidence_quality_distribution': _distribution(candidates, 'evidence_quality'),
+        'identifier_quality_distribution': _distribution(candidates, 'identifier_quality'),
+        'risk_flag_distribution': _risk_distribution(candidates),
+    }
+
+
 def diff_fields(row: Mapping[str, Any], field_pairs: Sequence[tuple[str, str]]) -> list[dict[str, Any]]:
     differences: list[dict[str, Any]] = []
     for staged_field, canonical_field in field_pairs:
@@ -280,3 +431,81 @@ def _normalise_compare_value(value: Any) -> Any:
         text = value.strip()
         return text or None
     return value
+
+
+def _source(candidate: Mapping[str, Any]) -> Mapping[str, Any]:
+    source = candidate.get('source')
+    return source if isinstance(source, Mapping) else {}
+
+
+def _association_key(source: Mapping[str, Any]) -> tuple[str, str] | None:
+    body_name = _normalise_key(source.get('body_name'))
+    if body_name is None:
+        return None
+    system_key = _system_key(source)
+    if system_key is None:
+        return None
+    return system_key, body_name
+
+
+def _system_key(source: Mapping[str, Any]) -> str | None:
+    if not _missing(source.get('system_id64')):
+        return f"id64:{source.get('system_id64')}"
+    system_name = _normalise_key(source.get('system_name'))
+    if system_name is not None:
+        return f'name:{system_name}'
+    return None
+
+
+def _normalise_key(value: Any) -> str | None:
+    if _missing(value):
+        return None
+    return str(value).strip().lower()
+
+
+def _entity_coverage(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        'candidates': len(candidates),
+        'candidate_actions': _distribution(candidates, 'candidate_action'),
+        'confidence': _distribution(candidates, 'confidence'),
+        'source_runs': sorted({
+            str(_source(candidate).get('source_run_key'))
+            for candidate in candidates
+            if not _missing(_source(candidate).get('source_run_key'))
+        }),
+        'source_files': sorted({
+            str(_source(candidate).get('source_file_key'))
+            for candidate in candidates
+            if not _missing(_source(candidate).get('source_file_key'))
+        }),
+        'missing_system_identifiers': sum(1 for candidate in candidates if _system_key(_source(candidate)) is None),
+        'volatile_warnings': sum(
+            1 for candidate in candidates
+            for warning in candidate.get('warnings', [])
+            if isinstance(warning, Mapping)
+            and warning.get('reason') == 'volatile_source_evidence_not_canonical_update'
+        ),
+    }
+
+
+def _distribution(candidates: Sequence[Mapping[str, Any]], field_name: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        value = candidate.get(field_name)
+        if value is None:
+            continue
+        key = str(value)
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _risk_distribution(candidates: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        flags = candidate.get('risk_flags', [])
+        if not isinstance(flags, Sequence) or isinstance(flags, (str, bytes, bytearray)):
+            continue
+        for flag in flags:
+            key = str(flag)
+            counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))

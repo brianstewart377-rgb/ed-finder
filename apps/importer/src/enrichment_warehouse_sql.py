@@ -266,6 +266,8 @@ def station_reconciliation_query(
                 ss.controlling_faction,
                 ss.allegiance,
                 ss.government,
+                ss.source_class,
+                ss.confidence,
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key
@@ -351,6 +353,8 @@ def body_reconciliation_query(
                 sb.is_terraformable,
                 sb.estimated_scan_value,
                 sb.estimated_mapping_value,
+                sb.source_class,
+                sb.confidence,
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key
@@ -438,6 +442,8 @@ def ring_reconciliation_query(
                 br.inner_radius,
                 br.outer_radius,
                 br.association_status,
+                br.source_class,
+                br.confidence,
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key
