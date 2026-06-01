@@ -331,6 +331,10 @@ document and summarized without secrets. Only after that can Stage 18J-P review
 whether a station-type production dry-run artifact can be generated with
 `--limit 5`.
 
+Stage 18J-Q2 defines the exact later operator command plan and pre-run checklist
+for that read-only/report-only artifact generation:
+[`stage-18j-q2-readonly-production-reconciliation-plan.md`](./stage-18j-q2-readonly-production-reconciliation-plan.md).
+
 No production apply is authorized. No production artifact is approved for
 apply. Any future apply still requires a separate explicit instruction and
 approval naming the exact station-type dry-run artifact hash, candidate count,

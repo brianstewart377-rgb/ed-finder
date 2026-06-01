@@ -480,6 +480,12 @@ It defines the required `enrichment_staging_reconciliation/v1` artifact
 contract, read-only DSN checks, report-only command path, sanitisation checks,
 and blockers before Stage 18J-P may generate a station-type production dry-run.
 
+Stage 18J-Q2 documents the exact read-only production reconciliation artifact
+generation plan in
+`docs/colonisation-redesign/stage-18j-q2-readonly-production-reconciliation-plan.md`.
+It names the later `--report-reconciliation` command, required source scope,
+read-only DSN proof, output handling, contract checks, and stop conditions.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

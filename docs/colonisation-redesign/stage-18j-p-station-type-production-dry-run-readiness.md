@@ -247,6 +247,11 @@ report-only `enrichment_staging_reconciliation/v1` production artifact exists
 and passes that contract:
 [`stage-18j-q-production-reconciliation-artifact-readiness.md`](./stage-18j-q-production-reconciliation-artifact-readiness.md).
 
+Stage 18J-Q2 defines the later read-only/report-only command plan for producing
+that prerequisite artifact. It does not authorize running the command or
+generating a station-type dry-run artifact:
+[`stage-18j-q2-readonly-production-reconciliation-plan.md`](./stage-18j-q2-readonly-production-reconciliation-plan.md).
+
 ## Stop Conditions
 
 Stop before dry-run generation if:
