@@ -53,6 +53,7 @@ BLOCKING_RISK_CLASSES = {'blocked', 'risky', 'stale', 'volatile', 'unknown'}
 BLOCKING_RECONCILIATION_STATES = {'blocked', 'source_only', 'unresolved', 'unknown'}
 BLOCKING_REVIEW_CLASSIFICATIONS = {
     'blocked',
+    'report_only',
     'risky',
     'stale',
     'volatile',
@@ -211,6 +212,8 @@ def evaluate_station_type_candidate(
     canonical_station_id = _read_int(canonical.get('station_id'))
     source_market_id = _read_int(source.get('market_id'))
     source_edsm_station_id = _read_int(source.get('edsm_station_id'))
+    canonical_market_id = _read_int(canonical.get('market_id'))
+    canonical_edsm_station_id = _read_int(canonical.get('edsm_station_id'))
     source_name = source.get('station_name')
     canonical_name = canonical.get('station_name')
 
@@ -232,6 +235,7 @@ def evaluate_station_type_candidate(
         'reconciliation_state_allowed': candidate.get('reconciliation_state') == 'confirmed',
         'no_blocking_risk_flags': not (set(candidate.get('risk_flags') or []) & BLOCKING_RISK_FLAGS),
         'no_blocking_review_classifications': not (set(candidate.get('review_classifications') or []) & BLOCKING_REVIEW_CLASSIFICATIONS),
+        'not_report_only_evidence': candidate.get('report_only') is not True,
         'source_record_hash_present': bool(source.get('source_record_hash')),
         'source_run_key_present': bool(source.get('source_run_key')),
         'source_file_key_present': bool(source.get('source_file_key')),
@@ -241,14 +245,17 @@ def evaluate_station_type_candidate(
     }
 
     identifier_match_type = None
-    if source_market_id is not None and canonical_station_id is not None and source_market_id == canonical_station_id:
+    # canonical.station_id is the database update target. It is not accepted as
+    # external identity proof unless the canonical payload also exposes the
+    # matching external identity field.
+    if source_market_id is not None and canonical_market_id is not None and source_market_id == canonical_market_id:
         checks['stable_station_identifier_matches'] = True
         identifier_match_type = 'market_id'
     elif (
         allow_edsm_station_id
         and source_edsm_station_id is not None
-        and canonical_station_id is not None
-        and source_edsm_station_id == canonical_station_id
+        and canonical_edsm_station_id is not None
+        and source_edsm_station_id == canonical_edsm_station_id
     ):
         checks['stable_station_identifier_matches'] = True
         identifier_match_type = 'edsm_station_id'
@@ -277,12 +284,18 @@ def evaluate_station_type_candidate(
         'canonical': {
             'station_id': canonical_station_id,
             'system_id64': canonical_system_id64,
+            'market_id': canonical_market_id,
+            'edsm_station_id': canonical_edsm_station_id,
             'station_name': canonical_name,
             'station_type': old_value,
         },
         'match_proof': {
             'canonical_match_count': len(canonical_matches),
             'identifier_match_type': identifier_match_type,
+            'source_market_id': source_market_id,
+            'canonical_market_id': canonical_market_id,
+            'source_edsm_station_id': source_edsm_station_id,
+            'canonical_edsm_station_id': canonical_edsm_station_id,
             'source_system_id64': source_system_id64,
             'canonical_system_id64': canonical_system_id64,
             'normalised_source_station_name': _normalise_name(source_name),
@@ -441,12 +454,15 @@ def apply_station_type_pilot(
                 SELECT id, system_id64, name, station_type::text AS station_type
                 FROM stations
                 WHERE id = %s AND system_id64 = %s
+                FOR UPDATE
                 """,
                 (station_id, system_id64),
             )
             current = _fetchone_mapping(cur)
             if not current:
                 raise Stage18JPlanError(f'canonical station missing before apply: {station_id}')
+            if _normalise_name(current.get('name')) != _normalise_name(candidate.get('canonical_station_name')):
+                raise Stage18JPlanError(f'canonical station identity pre-image mismatch for station {station_id}')
             if _normalise_station_type_value(current.get('station_type')) != _normalise_station_type_value(old_value):
                 raise Stage18JPlanError(f'canonical pre-image mismatch for station {station_id}')
             cur.execute(

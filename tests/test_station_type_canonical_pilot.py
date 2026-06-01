@@ -56,7 +56,9 @@ def station_candidate(**overrides):
         'canonical': {
             'system_id64': 424242,
             'system_name': 'Test System',
-            'station_id': 1001,
+            'station_id': 900001,
+            'market_id': 1001,
+            'edsm_station_id': None,
             'station_name': 'Harper Plant',
             'station_type': 'Unknown',
         },
@@ -64,7 +66,9 @@ def station_candidate(**overrides):
             {
                 'system_id64': 424242,
                 'system_name': 'Test System',
-                'station_id': 1001,
+                'station_id': 900001,
+                'market_id': 1001,
+                'edsm_station_id': None,
                 'station_name': 'Harper Plant',
                 'station_type': 'Unknown',
             }
@@ -87,7 +91,7 @@ def station_candidate(**overrides):
             'source_updated_at': '2026-05-31T12:00:00Z',
             'freshness_impact': 'timestamped_source',
         },
-        'report_only': True,
+        'report_only': False,
         'canonical_writes_planned': 0,
     }
     _deep_update(candidate, overrides)
@@ -134,8 +138,74 @@ def test_blocks_name_only_or_missing_stable_station_identifier():
     assert artifact['summary']['blocked_by_reason']['stable_station_identifier_matches'] == 1
 
 
+def test_blocks_internal_station_pk_match_without_canonical_external_identity():
+    candidate = station_candidate(
+        source={'market_id': 900001, 'edsm_station_id': None},
+        canonical={'market_id': None, 'edsm_station_id': None},
+        canonical_matches=[{
+            'system_id64': 424242,
+            'system_name': 'Test System',
+            'station_id': 900001,
+            'station_name': 'Harper Plant',
+            'station_type': 'Unknown',
+        }],
+    )
+
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(candidate),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    assert artifact['summary']['eligible_candidates'] == 0
+    blocked = artifact['blocked_candidates'][0]
+    assert 'stable_station_identifier_matches' in blocked['blocking_reasons']
+    assert blocked['canonical']['station_id'] == 900001
+    assert blocked['canonical']['market_id'] is None
+    assert blocked['match_proof']['source_market_id'] == 900001
+    assert blocked['match_proof']['canonical_market_id'] is None
+
+
+def test_blocks_internal_station_pk_match_when_canonical_external_identity_differs():
+    candidate = station_candidate(
+        source={'market_id': 900001, 'edsm_station_id': None},
+        canonical={'station_id': 900001, 'market_id': 1001, 'edsm_station_id': None},
+        canonical_matches=[{
+            'system_id64': 424242,
+            'system_name': 'Test System',
+            'station_id': 900001,
+            'market_id': 1001,
+            'edsm_station_id': None,
+            'station_name': 'Harper Plant',
+            'station_type': 'Unknown',
+        }],
+    )
+
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(candidate),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    assert artifact['summary']['eligible_candidates'] == 0
+    blocked = artifact['blocked_candidates'][0]
+    assert 'stable_station_identifier_matches' in blocked['blocking_reasons']
+    assert blocked['match_proof']['source_market_id'] == 900001
+    assert blocked['match_proof']['canonical_market_id'] == 1001
+
+
 def test_allows_edsm_station_id_only_when_explicitly_enabled():
-    candidate = station_candidate(source={'market_id': None, 'edsm_station_id': 1001})
+    candidate = station_candidate(
+        source={'market_id': None, 'edsm_station_id': 1001},
+        canonical={'market_id': None, 'edsm_station_id': 1001},
+        canonical_matches=[{
+            'system_id64': 424242,
+            'system_name': 'Test System',
+            'station_id': 900001,
+            'market_id': None,
+            'edsm_station_id': 1001,
+            'station_name': 'Harper Plant',
+            'station_type': 'Unknown',
+        }],
+    )
 
     without_flag = pilot.build_station_type_pilot_dry_run(
         report_with(candidate),
@@ -165,6 +235,8 @@ def test_allows_edsm_station_id_only_when_explicitly_enabled():
         ({'risk_class': 'stale'}, 'risk_class_clear'),
         ({'risk_flags': ['volatile_source_evidence']}, 'no_blocking_risk_flags'),
         ({'review_classifications': ['source_only']}, 'no_blocking_review_classifications'),
+        ({'review_classifications': ['report_only']}, 'no_blocking_review_classifications'),
+        ({'report_only': True}, 'not_report_only_evidence'),
         ({'source_freshness': {'freshness_impact': 'undated_source_review'}}, 'freshness_allowed'),
         ({'differences': [
             {'field': 'station_type', 'staged': 'Orbis Starport', 'canonical': 'Unknown'},
@@ -288,7 +360,7 @@ def test_guarded_apply_updates_only_station_type_and_emits_audit_rollback_and_ve
         generated_at='2026-06-01T00:00:00Z',
     )
     checksum = pilot.artifact_sha256(artifact)
-    conn = FakeApplyConn({(1001, 424242): {'id': 1001, 'system_id64': 424242, 'name': 'Harper Plant', 'station_type': 'Unknown'}})
+    conn = FakeApplyConn({(900001, 424242): {'id': 900001, 'system_id64': 424242, 'name': 'Harper Plant', 'station_type': 'Unknown'}})
 
     audit = pilot.apply_station_type_pilot(
         conn,
@@ -306,7 +378,7 @@ def test_guarded_apply_updates_only_station_type_and_emits_audit_rollback_and_ve
         generated_at='2026-06-01T00:00:00Z',
     )
 
-    assert conn.rows[(1001, 424242)]['station_type'] == 'Orbis'
+    assert conn.rows[(900001, 424242)]['station_type'] == 'Orbis'
     assert conn.commits == 1
     assert conn.rollbacks == 0
     assert audit['schema_version'] == 'station_type_canonical_pilot_apply/v1'
@@ -329,7 +401,7 @@ def test_guarded_apply_rolls_back_when_preimage_changed():
         generated_at='2026-06-01T00:00:00Z',
     )
     checksum = pilot.artifact_sha256(artifact)
-    conn = FakeApplyConn({(1001, 424242): {'id': 1001, 'system_id64': 424242, 'name': 'Harper Plant', 'station_type': 'Coriolis'}})
+    conn = FakeApplyConn({(900001, 424242): {'id': 900001, 'system_id64': 424242, 'name': 'Harper Plant', 'station_type': 'Coriolis'}})
 
     with pytest.raises(pilot.Stage18JPlanError, match='pre-image mismatch'):
         pilot.apply_station_type_pilot(
@@ -347,7 +419,34 @@ def test_guarded_apply_rolls_back_when_preimage_changed():
 
     assert conn.commits == 0
     assert conn.rollbacks == 1
-    assert conn.rows[(1001, 424242)]['station_type'] == 'Coriolis'
+    assert conn.rows[(900001, 424242)]['station_type'] == 'Coriolis'
+
+
+def test_guarded_apply_rolls_back_when_identity_preimage_changed():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(station_candidate()),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+    checksum = pilot.artifact_sha256(artifact)
+    conn = FakeApplyConn({(900001, 424242): {'id': 900001, 'system_id64': 424242, 'name': 'Renamed Plant', 'station_type': 'Unknown'}})
+
+    with pytest.raises(pilot.Stage18JPlanError, match='identity pre-image mismatch'):
+        pilot.apply_station_type_pilot(
+            conn,
+            artifact,
+            artifact_sha256_expected=checksum,
+            expected_candidate_count=1,
+            approved_table='stations',
+            approved_field='station_type',
+            approved_source_run='run-1',
+            approval_id='approval-1',
+            confirmation=True,
+            max_rows=1,
+        )
+
+    assert conn.commits == 0
+    assert conn.rollbacks == 1
+    assert conn.rows[(900001, 424242)]['station_type'] == 'Unknown'
 
 
 class FakeApplyConn:
