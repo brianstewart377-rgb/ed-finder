@@ -258,6 +258,13 @@ Stage 18J-Q4 provides the operator-facing access packet and sign-off template
 for these missing variables:
 [`../operations/stage-18j-q4-operator-access-packet.md`](../operations/stage-18j-q4-operator-access-packet.md).
 
+Stage 18J-Q4b records the local/operator note for the missing read-only DSN:
+[`../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md`](../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md).
+
+Stage 18J-Q4c defines the docs/ops-only provisioning plan for a dedicated
+read-only/report-only warehouse DSN:
+[`../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`](../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md).
+
 Stage 18J-P also remains blocked by the possible missing explicit canonical
 external identity fields in the general reconciliation payload. If a future Q3
 artifact lacks `canonical.market_id` and `canonical.edsm_station_id`, Stage

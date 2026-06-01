@@ -352,3 +352,9 @@ path were not available. See
 Stage 18J-Q4 defines the operator access packet and redacted sign-off checklist
 needed before Q3 can be retried:
 [`../operations/stage-18j-q4-operator-access-packet.md`](../operations/stage-18j-q4-operator-access-packet.md).
+
+Stage 18J-Q4b records the local/operator note for the missing
+`EDFINDER_WAREHOUSE_READ_DSN`, and Stage 18J-Q4c defines the docs/ops-only
+plan to provision a dedicated read-only/report-only warehouse DSN:
+[`../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md`](../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md),
+[`../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`](../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md).
