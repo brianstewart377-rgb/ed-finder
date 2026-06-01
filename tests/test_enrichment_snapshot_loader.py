@@ -31,14 +31,33 @@ def test_loader_reads_local_edsm_station_snapshot_fixture():
     assert report['dry_run'] is True
     assert report['source_run']['source'] == 'edsm_nightly_stations'
     assert report['source_run']['source_class'] == 'semi-stable'
+    assert report['source_run']['adapter_version'] == 'v1'
+    assert report['source_run']['metadata']['source_format_version'] == 'json_snapshot_stream/v1'
     assert report['source_file']['source_file_name'] == 'edsm_station_snapshot.json'
     assert len(report['source_file']['file_sha256']) == 64
+    assert report['source_file']['source_updated_at'] == '2026-01-02T00:00:00Z'
+    assert report['source_file']['metadata']['record_stream_shape'] == 'json_array'
+    assert report['source_file']['metadata']['source_timestamp_summary'] == {
+        'records_with_source_updated_at': 2,
+        'records_without_source_updated_at': 1,
+        'unique_source_updated_at_values': 2,
+        'earliest_source_updated_at': '2026-01-01T00:00:00Z',
+        'latest_source_updated_at': '2026-01-02T00:00:00Z',
+    }
     assert report['summary']['raw_records'] == 3
     assert report['summary']['staged_rows'] == 2
     assert report['summary']['staged_edsm_stations'] == 2
     assert report['summary']['skipped_rows'] == 1
+    assert report['summary']['skipped_row_reasons'] == {'invalid_station_snapshot_record': 1}
     assert report['summary']['canonical_writes_planned'] == 0
     assert report['summary']['distance_to_arrival_classification'] == 'volatile'
+    assert report['summary']['source_format_version'] == 'json_snapshot_stream/v1'
+    assert report['summary']['source_freshness_summary'] == {
+        'freshness_distribution': {'source_updated_at': 2},
+        'records_with_source_updated_at': 2,
+        'records_without_source_updated_at': 1,
+        'freshness_preserves_unknown': True,
+    }
 
     by_name = {row['station_name']: row for row in report['staged_rows']}
     macmillan = by_name['Macmillan Depot']
@@ -98,6 +117,9 @@ def test_invalid_records_are_skipped_with_warnings_not_crashes():
     assert skipped[0]['warnings'] == [
         {'field': 'station_name', 'reason': 'missing_required_field'},
     ]
+    assert report['summary']['skipped_row_reason_distribution'] == {
+        'invalid_station_snapshot_record': 1,
+    }
 
 
 def test_normalisation_accepts_edsm_station_snapshot_shapes():
@@ -256,6 +278,78 @@ def test_duplicate_station_records_share_source_hash_and_report_deterministicall
     assert len(set(raw_hashes)) == 1
     assert len(set(staged_hashes)) == 1
     assert len({row['source_record_key'] for row in first['raw_records_planned']}) == 2
+    assert first['summary']['duplicate_source_record_hashes'] == 1
+    assert first['summary']['duplicate_source_records'] == 1
+    assert first['source_record_duplicate_groups'] == [{
+        'source_record_hash': raw_hashes[0],
+        'count': 2,
+        'record_indexes': [1, 2],
+        'handling': 'reported_only_dry_run; explicit staging writes upsert by source_record_hash',
+    }]
+
+
+def test_unsupported_station_source_shape_is_reported_without_guessing(tmp_path):
+    source_file = tmp_path / 'unsupported-station-shape.json'
+    source_file.write_text(
+        json.dumps([
+            {
+                'systemName': 'Nested System',
+                'bodies': [{'name': 'Nested 1'}],
+            }
+        ]),
+        encoding='utf-8',
+    )
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['summary']['records_seen'] == 1
+    assert report['summary']['staged_rows'] == 0
+    assert report['summary']['raw_records'] == 1
+    assert report['summary']['unsupported_source_shapes'] == 1
+    assert report['skipped_rows'] == [{
+        'record_index': 1,
+        'source_record_hash': report['raw_records_planned'][0]['source_record_hash'],
+        'reason': 'unsupported_station_snapshot_source_shape',
+        'warnings': [{
+            'field': 'bodies',
+            'reason': 'unsupported_source_shape',
+            'source_shape': 'nested_body_collection',
+        }],
+        'raw_payload': {
+            'systemName': 'Nested System',
+            'bodies': [{'name': 'Nested 1'}],
+        },
+    }]
+    assert report['raw_records_planned'][0]['validation_status'] == 'skipped'
+
+
+def test_conflicting_station_records_with_same_source_identity_are_report_only(tmp_path):
+    station = {
+        'systemName': 'Conflict Test',
+        'systemId64': 424242,
+        'marketId': 7654,
+        'name': 'Conflict Port',
+        'type': 'Outpost',
+    }
+    changed_station = dict(station)
+    changed_station['type'] = 'Coriolis Starport'
+    source_file = tmp_path / 'conflicting-stations.json'
+    source_file.write_text(json.dumps([station, changed_station]), encoding='utf-8')
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['summary']['staged_rows'] == 2
+    assert report['summary']['conflicts'] == 1
+    assert report['conflicts'][0]['reason'] == 'duplicate_source_identity_conflict'
+    assert report['conflicts'][0]['entity'] == 'station'
+    assert report['conflicts'][0]['handling'] == 'report_only_conflict_no_canonical_write'
+    assert report['summary']['canonical_writes_planned'] == 0
 
 
 def test_unknown_extra_fields_are_retained_in_raw_and_staging_evidence(tmp_path):

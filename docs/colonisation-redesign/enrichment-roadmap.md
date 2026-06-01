@@ -373,7 +373,7 @@ by:
 | `apps/importer/src/enrichment_analytics.py` | Pure report-only analytics, colonisation, and mission-density signal scaffolds. |
 | `tests/fixtures/edsm_station_snapshot.json` | Tiny deterministic EDSM station snapshot fixture. |
 | `tests/fixtures/edsm_body_ring_snapshot.json` | Tiny deterministic EDSM body/ring snapshot fixture. |
-| `tests/test_enrichment_staging.py` / `tests/test_enrichment_snapshot_loader.py` | Fixture-backed tests for hashes, source classes, report versions, JSON/GZIP loading, skipped rows, and deterministic output. |
+| `tests/test_enrichment_staging.py` / `tests/test_enrichment_snapshot_loader.py` | Fixture-backed tests for hashes, source classes, report versions, JSON/GZIP loading, source metadata, skipped rows, duplicates, unsupported shapes, and deterministic output. |
 
 This warehouse path is deliberately not wired into any operations job. It does
 not call EDSM, invoke Docker, connect to production Postgres, run migrations,
@@ -400,6 +400,14 @@ The current warehouse also supports local body/ring snapshots through
 pure report-only analytics/signals. Optional real-Postgres smoke tests for the
 staging loaders and reconciliation are skipped by default unless
 `EDFINDER_STAGING_TEST_DSN` and `EDFINDER_CONFIRM_STAGING_TEST_DB=yes` are set.
+
+Stage 18D keeps this path report-only while making snapshot inputs more
+explainable: reports expose source format/version, record stream shape,
+source timestamp/freshness summaries, skipped-row reason distributions,
+duplicate source-record hashes, report-only source-identity conflicts, and
+body/ring ring-array evidence. Missing ring arrays remain unknown, source-only
+ring evidence remains source-only, and future nested body source shapes are
+reported as unsupported until a dedicated adapter exists.
 
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).

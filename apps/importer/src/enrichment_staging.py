@@ -282,6 +282,7 @@ def build_report_skeleton(
     skipped = _sort_rows(skipped_rows)
     conflict_rows = _sort_rows(conflicts)
     warning_rows = _sort_rows(warnings)
+    duplicate_groups = _source_record_duplicate_groups(raw_record_rows)
     summary = {
         'source_runs': 1,
         'source_files': 1 if source_file else 0,
@@ -291,6 +292,10 @@ def build_report_skeleton(
         'skipped_rows': len(skipped),
         'conflicts': len(conflict_rows),
         'warnings': len(warning_rows),
+        'skipped_row_reasons': _distribution(skipped, 'reason'),
+        'warning_reasons': _distribution(warning_rows, 'reason'),
+        'duplicate_source_record_hashes': len(duplicate_groups),
+        'duplicate_source_records': sum(group['count'] - 1 for group in duplicate_groups),
         'confidence_distribution': _distribution(staged + planned, 'confidence'),
         'freshness_distribution': _distribution(staged + planned, 'freshness_class'),
         'source_class_distribution': _distribution(staged + planned, 'source_class'),
@@ -308,6 +313,7 @@ def build_report_skeleton(
         'skipped_rows': skipped,
         'conflicts': conflict_rows,
         'warnings': warning_rows,
+        'source_record_duplicate_groups': duplicate_groups,
     }
 
 
@@ -575,6 +581,31 @@ def read_bool(value: Any) -> bool | None:
 def _distribution(rows: Sequence[Mapping[str, Any]], field_name: str) -> dict[str, int]:
     counter = Counter(str(row.get(field_name)) for row in rows if row.get(field_name) is not None)
     return dict(sorted(counter.items()))
+
+
+def _source_record_duplicate_groups(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        record_hash = row.get('source_record_hash')
+        if record_hash is None:
+            continue
+        grouped.setdefault(str(record_hash), []).append(row)
+
+    duplicates = []
+    for record_hash, group in grouped.items():
+        if len(group) < 2:
+            continue
+        duplicates.append({
+            'source_record_hash': record_hash,
+            'count': len(group),
+            'record_indexes': sorted(
+                int(row['record_index'])
+                for row in group
+                if isinstance(row.get('record_index'), int)
+            ),
+            'handling': 'reported_only_dry_run; explicit staging writes upsert by source_record_hash',
+        })
+    return sorted(duplicates, key=canonicalise_json_payload)
 
 
 def _sort_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

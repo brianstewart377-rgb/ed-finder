@@ -12,6 +12,7 @@ import gzip
 import hashlib
 import json
 import sys
+from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,8 @@ from enrichment_staging import (
 ADAPTER_NAME = 'enrichment_snapshot_loader'
 SUPPORTED_SOURCES = {'edsm_nightly_stations', 'edsm_nightly_bodies'}
 DEFAULT_CHUNK_SIZE = 64 * 1024
+SOURCE_FORMAT_VERSION = 'json_snapshot_stream/v1'
+RING_ARRAY_UNKNOWN_STATE = 'unknown_not_false'
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -97,11 +100,13 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
     _assert_local_file(source_file)
 
     file_sha256, file_size_bytes = file_digest(source_file)
+    file_format = source_file_format_metadata(source_file)
     source_file_summary = normalise_source_file_metadata(
         source=normalised_source,
         source_file=source_file,
         file_sha256=file_sha256,
         file_size_bytes=file_size_bytes,
+        metadata=file_format,
     )
     source_run = normalise_source_run_metadata(
         source=normalised_source,
@@ -109,13 +114,17 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
         adapter_version=ADAPTER_VERSION,
         source_file_keys=[source_file_summary['source_file_key']],
         dry_run=True,
-        metadata={'supported_adapter': 'edsm_station_snapshot'},
+        metadata={
+            'supported_adapter': 'edsm_station_snapshot',
+            **file_format,
+        },
     )
 
     raw_records: list[dict[str, Any]] = []
     staged_rows: list[dict[str, Any]] = []
     skipped_rows: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
 
     records_seen = 0
     for record_index, record in enumerate(iter_json_records(source_file), start=1):
@@ -140,6 +149,28 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
             source_updated_at=source_updated_at_from_record(record),
         )
         raw_records.append(raw_record)
+        unsupported_shape = unsupported_source_shape(record, normalised_source)
+        if unsupported_shape is not None:
+            shape_warning = {
+                'field': unsupported_shape['field'],
+                'reason': 'unsupported_source_shape',
+                'source_shape': unsupported_shape['source_shape'],
+            }
+            raw_record['validation_status'] = 'skipped'
+            raw_record['validation_warnings'] = [shape_warning]
+            skipped_rows.append({
+                'record_index': record_index,
+                'source_record_hash': raw_record['source_record_hash'],
+                'reason': unsupported_shape['skip_reason'],
+                'warnings': [shape_warning],
+                'raw_payload': dict(record),
+            })
+            warnings.append({
+                'record_index': record_index,
+                'source_record_hash': raw_record['source_record_hash'],
+                **shape_warning,
+            })
+            continue
         row = normalise_edsm_station_snapshot_record(
             record,
             source=normalised_source,
@@ -172,12 +203,28 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
                 **warning,
             })
 
+    conflicts = source_identity_conflicts(staged_rows, entity='station')
+    source_summary = source_observability_summary(
+        raw_records=raw_records,
+        staged_rows=staged_rows,
+        planned_rows=(),
+        skipped_rows=skipped_rows,
+        warnings=warnings,
+        file_format=file_format,
+    )
+    apply_source_observability_metadata(
+        source_run=source_run,
+        source_file=source_file_summary,
+        source_summary=source_summary,
+    )
+
     return build_enrichment_snapshot_load_plan(
         source_run=source_run,
         source_file=source_file_summary,
         raw_records=raw_records,
         staged_rows=staged_rows,
         skipped_rows=skipped_rows,
+        conflicts=conflicts,
         warnings=warnings,
         summary_extra={
             'source': normalised_source,
@@ -187,6 +234,7 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
             'dry_run_only': True,
             'canonical_writes_planned': 0,
             'distance_to_arrival_classification': classify_source_field(normalised_source, 'distanceToArrival'),
+            **source_summary,
         },
     )
 
@@ -204,11 +252,13 @@ def build_body_ring_snapshot_load_report(
     _assert_local_file(source_file)
 
     file_sha256, file_size_bytes = file_digest(source_file)
+    file_format = source_file_format_metadata(source_file)
     source_file_summary = normalise_source_file_metadata(
         source=normalised_source,
         source_file=source_file,
         file_sha256=file_sha256,
         file_size_bytes=file_size_bytes,
+        metadata=file_format,
     )
     source_run = normalise_source_run_metadata(
         source=normalised_source,
@@ -216,7 +266,10 @@ def build_body_ring_snapshot_load_report(
         adapter_version=ADAPTER_VERSION,
         source_file_keys=[source_file_summary['source_file_key']],
         dry_run=True,
-        metadata={'supported_adapter': 'edsm_body_ring_snapshot'},
+        metadata={
+            'supported_adapter': 'edsm_body_ring_snapshot',
+            **file_format,
+        },
     )
 
     raw_records: list[dict[str, Any]] = []
@@ -224,6 +277,7 @@ def build_body_ring_snapshot_load_report(
     ring_rows: list[dict[str, Any]] = []
     skipped_rows: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
+    ring_array_evidence = empty_ring_array_evidence_summary()
 
     records_seen = 0
     for record_index, record in enumerate(iter_json_records(source_file), start=1):
@@ -247,6 +301,28 @@ def build_body_ring_snapshot_load_report(
             source_updated_at=source_updated_at_from_record(record),
         )
         raw_records.append(raw_record)
+        unsupported_shape = unsupported_source_shape(record, normalised_source)
+        if unsupported_shape is not None:
+            shape_warning = {
+                'field': unsupported_shape['field'],
+                'reason': 'unsupported_source_shape',
+                'source_shape': unsupported_shape['source_shape'],
+            }
+            raw_record['validation_status'] = 'skipped'
+            raw_record['validation_warnings'] = [shape_warning]
+            skipped_rows.append({
+                'record_index': record_index,
+                'source_record_hash': raw_record['source_record_hash'],
+                'reason': unsupported_shape['skip_reason'],
+                'warnings': [shape_warning],
+                'raw_payload': dict(record),
+            })
+            warnings.append({
+                'record_index': record_index,
+                'source_record_hash': raw_record['source_record_hash'],
+                **shape_warning,
+            })
+            continue
         body_row = normalise_edsm_body_snapshot_record(
             record,
             source=normalised_source,
@@ -272,6 +348,9 @@ def build_body_ring_snapshot_load_report(
             continue
 
         body_row['validation_warnings'] = row_warnings
+        ring_state = classify_ring_array_evidence(record)
+        annotate_body_ring_array_evidence(body_row, ring_state)
+        update_ring_array_evidence_summary(ring_array_evidence, ring_state)
         body_rows.append(body_row)
         for warning in row_warnings:
             warnings.append({
@@ -280,6 +359,29 @@ def build_body_ring_snapshot_load_report(
                 **warning,
             })
 
+        if ring_state['state'] == 'non_array':
+            ring_warning = {
+                'field': 'rings',
+                'reason': 'ring_array_not_sequence',
+                'ring_array_state': 'non_array',
+            }
+            skipped_rows.append({
+                'record_index': record_index,
+                'source_record_hash': raw_record['source_record_hash'],
+                'reason': 'invalid_ring_snapshot_record',
+                'warnings': [ring_warning],
+                'raw_payload': dict(record),
+            })
+            warnings.append({
+                'record_index': record_index,
+                'source_record_hash': raw_record['source_record_hash'],
+                **ring_warning,
+            })
+            continue
+
+        for ring_skip in skipped_ring_rows_for_record(record, record_index, raw_record):
+            skipped_rows.append(ring_skip)
+
         for ring_row in normalise_edsm_body_ring_snapshot_records(
             record,
             source=normalised_source,
@@ -287,14 +389,48 @@ def build_body_ring_snapshot_load_report(
             raw_record=raw_record,
         ):
             if not ring_row.get('ring_name'):
+                ring_warning = {
+                    'field': 'ring_name',
+                    'reason': 'missing_ring_identity',
+                    'ring_index': ring_row['raw_payload']['ring_index'],
+                }
                 warnings.append({
                     'record_index': record_index,
                     'source_record_hash': ring_row['source_record_hash'],
-                    'field': 'ring_name',
-                    'reason': 'missing_ring_identity',
+                    **ring_warning,
+                })
+                skipped_rows.append({
+                    'record_index': record_index,
+                    'ring_index': ring_row['raw_payload']['ring_index'],
+                    'source_record_hash': ring_row['source_record_hash'],
+                    'reason': 'invalid_ring_snapshot_record',
+                    'warnings': [ring_warning],
+                    'raw_payload': ring_row['raw_payload'],
                 })
                 continue
             ring_rows.append(ring_row)
+
+    conflicts = (
+        source_identity_conflicts(body_rows, entity='body')
+        + source_identity_conflicts(ring_rows, entity='ring')
+    )
+    source_summary = source_observability_summary(
+        raw_records=raw_records,
+        staged_rows=body_rows,
+        planned_rows=ring_rows,
+        skipped_rows=skipped_rows,
+        warnings=warnings,
+        file_format=file_format,
+    )
+    source_summary['ring_array_evidence'] = finalise_ring_array_evidence_summary(
+        ring_array_evidence,
+        source_only_ring_rows=len(ring_rows),
+    )
+    apply_source_observability_metadata(
+        source_run=source_run,
+        source_file=source_file_summary,
+        source_summary=source_summary,
+    )
 
     report = build_enrichment_snapshot_load_plan(
         source_run=source_run,
@@ -303,6 +439,7 @@ def build_body_ring_snapshot_load_report(
         staged_rows=body_rows,
         planned_rows=ring_rows,
         skipped_rows=skipped_rows,
+        conflicts=conflicts,
         warnings=warnings,
         summary_extra={
             'source': normalised_source,
@@ -313,6 +450,7 @@ def build_body_ring_snapshot_load_report(
             'dry_run_only': True,
             'canonical_writes_planned': 0,
             'distance_to_arrival_classification': classify_source_field(normalised_source, 'distanceToArrival'),
+            **source_summary,
         },
     )
     report['staged_body_rows'] = report['staged_rows']
@@ -495,6 +633,335 @@ def _records_from_json_value(value: Any) -> Iterator[Any]:
                 yield station
         return
     yield value
+
+
+def source_file_format_metadata(source_file: Path) -> dict[str, Any]:
+    first_char = _first_non_whitespace_char(source_file)
+    if first_char == '[':
+        record_stream_shape = 'json_array'
+    elif first_char == '{':
+        record_stream_shape = 'json_object_or_ndjson'
+    elif first_char is None:
+        record_stream_shape = 'empty'
+    else:
+        record_stream_shape = 'ndjson'
+    return {
+        'source_format': 'json',
+        'source_format_version': SOURCE_FORMAT_VERSION,
+        'record_stream_shape': record_stream_shape,
+    }
+
+
+def unsupported_source_shape(record: Mapping[str, Any], source: str) -> dict[str, str] | None:
+    normalised_source = normalise_source_adapter(source)
+    if normalised_source == 'edsm_nightly_stations':
+        if isinstance(record.get('bodies'), list):
+            return {
+                'field': 'bodies',
+                'source_shape': 'nested_body_collection',
+                'skip_reason': 'unsupported_station_snapshot_source_shape',
+            }
+        if isinstance(record.get('systems'), list):
+            return {
+                'field': 'systems',
+                'source_shape': 'nested_system_collection',
+                'skip_reason': 'unsupported_station_snapshot_source_shape',
+            }
+    if normalised_source == 'edsm_nightly_bodies':
+        if isinstance(record.get('stations'), list):
+            return {
+                'field': 'stations',
+                'source_shape': 'nested_station_collection',
+                'skip_reason': 'unsupported_body_snapshot_source_shape',
+            }
+        if isinstance(record.get('systems'), list):
+            return {
+                'field': 'systems',
+                'source_shape': 'nested_system_collection',
+                'skip_reason': 'unsupported_body_snapshot_source_shape',
+            }
+        if isinstance(record.get('bodies'), list):
+            return {
+                'field': 'bodies',
+                'source_shape': 'nested_body_collection',
+                'skip_reason': 'unsupported_body_snapshot_source_shape',
+            }
+    return None
+
+
+def source_observability_summary(
+    *,
+    raw_records: Sequence[Mapping[str, Any]],
+    staged_rows: Sequence[Mapping[str, Any]],
+    planned_rows: Sequence[Mapping[str, Any]],
+    skipped_rows: Sequence[Mapping[str, Any]],
+    warnings: Sequence[Mapping[str, Any]],
+    file_format: Mapping[str, Any],
+) -> dict[str, Any]:
+    timestamp_summary = source_timestamp_summary(raw_records)
+    staged_and_planned = list(staged_rows) + list(planned_rows)
+    return {
+        'source_format': file_format.get('source_format'),
+        'source_format_version': file_format.get('source_format_version'),
+        'record_stream_shape': file_format.get('record_stream_shape'),
+        'source_timestamp_summary': timestamp_summary,
+        'source_freshness_summary': {
+            'freshness_distribution': field_distribution(staged_and_planned, 'freshness_class'),
+            'records_with_source_updated_at': timestamp_summary['records_with_source_updated_at'],
+            'records_without_source_updated_at': timestamp_summary['records_without_source_updated_at'],
+            'freshness_preserves_unknown': True,
+        },
+        'unsupported_source_shapes': sum(
+            1 for row in skipped_rows
+            if str(row.get('reason', '')).startswith('unsupported_')
+        ),
+        'malformed_rows': sum(
+            1 for row in skipped_rows
+            if row.get('reason') in {
+                'record_is_not_object',
+                'invalid_station_snapshot_record',
+                'invalid_body_snapshot_record',
+                'invalid_ring_snapshot_record',
+                'ring_record_is_not_object',
+            }
+        ),
+        'warning_reason_distribution': field_distribution(warnings, 'reason'),
+        'skipped_row_reason_distribution': field_distribution(skipped_rows, 'reason'),
+    }
+
+
+def apply_source_observability_metadata(
+    *,
+    source_run: dict[str, Any],
+    source_file: dict[str, Any],
+    source_summary: Mapping[str, Any],
+) -> None:
+    timestamp_summary = dict(source_summary.get('source_timestamp_summary') or {})
+    latest_source_updated_at = timestamp_summary.get('latest_source_updated_at')
+    if latest_source_updated_at is not None:
+        source_file['source_updated_at'] = latest_source_updated_at
+    source_file.setdefault('metadata', {}).update({
+        'source_format': source_summary.get('source_format'),
+        'source_format_version': source_summary.get('source_format_version'),
+        'record_stream_shape': source_summary.get('record_stream_shape'),
+        'source_timestamp_summary': timestamp_summary,
+    })
+    source_run.setdefault('metadata', {}).update({
+        'source_format': source_summary.get('source_format'),
+        'source_format_version': source_summary.get('source_format_version'),
+        'record_stream_shape': source_summary.get('record_stream_shape'),
+        'source_timestamp_summary': timestamp_summary,
+        'source_freshness_summary': source_summary.get('source_freshness_summary'),
+    })
+
+
+def source_timestamp_summary(raw_records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    timestamps = sorted({
+        str(row.get('source_updated_at'))
+        for row in raw_records
+        if row.get('source_updated_at') is not None
+    })
+    records_with_timestamp = sum(1 for row in raw_records if row.get('source_updated_at') is not None)
+    records_without_timestamp = len(raw_records) - records_with_timestamp
+    return {
+        'records_with_source_updated_at': records_with_timestamp,
+        'records_without_source_updated_at': records_without_timestamp,
+        'unique_source_updated_at_values': len(timestamps),
+        'earliest_source_updated_at': timestamps[0] if timestamps else None,
+        'latest_source_updated_at': timestamps[-1] if timestamps else None,
+    }
+
+
+def classify_ring_array_evidence(record: Mapping[str, Any]) -> dict[str, Any]:
+    if 'rings' in record:
+        field_name = 'rings'
+    elif 'Rings' in record:
+        field_name = 'Rings'
+    else:
+        return {
+            'field': None,
+            'state': 'missing',
+            'ring_count': None,
+            'meaning': RING_ARRAY_UNKNOWN_STATE,
+        }
+    rings = record.get(field_name)
+    if not isinstance(rings, Sequence) or isinstance(rings, (str, bytes, bytearray)):
+        return {
+            'field': field_name,
+            'state': 'non_array',
+            'ring_count': None,
+            'meaning': 'malformed_source_ring_array',
+        }
+    if len(rings) == 0:
+        return {
+            'field': field_name,
+            'state': 'empty',
+            'ring_count': 0,
+            'meaning': 'explicit_empty_source_array_report_only',
+        }
+    return {
+        'field': field_name,
+        'state': 'present',
+        'ring_count': len(rings),
+        'meaning': 'source_only_ring_evidence',
+    }
+
+
+def annotate_body_ring_array_evidence(body_row: dict[str, Any], ring_state: Mapping[str, Any]) -> None:
+    body_row['provenance'] = dict(body_row.get('provenance') or {})
+    body_row['provenance']['ring_array_state'] = ring_state.get('state')
+    body_row['provenance']['ring_array_meaning'] = ring_state.get('meaning')
+    body_row['provenance']['missing_ring_arrays_state'] = RING_ARRAY_UNKNOWN_STATE
+
+
+def empty_ring_array_evidence_summary() -> dict[str, int]:
+    return {
+        'body_rows_considered': 0,
+        'ring_arrays_present': 0,
+        'ring_arrays_empty': 0,
+        'ring_arrays_missing': 0,
+        'ring_arrays_non_array': 0,
+    }
+
+
+def update_ring_array_evidence_summary(summary: dict[str, int], ring_state: Mapping[str, Any]) -> None:
+    summary['body_rows_considered'] += 1
+    state = ring_state.get('state')
+    if state == 'present':
+        summary['ring_arrays_present'] += 1
+    elif state == 'empty':
+        summary['ring_arrays_empty'] += 1
+    elif state == 'missing':
+        summary['ring_arrays_missing'] += 1
+    elif state == 'non_array':
+        summary['ring_arrays_non_array'] += 1
+
+
+def finalise_ring_array_evidence_summary(
+    summary: Mapping[str, int],
+    *,
+    source_only_ring_rows: int,
+) -> dict[str, Any]:
+    return {
+        **dict(summary),
+        'source_only_ring_rows': source_only_ring_rows,
+        'missing_ring_arrays_state': RING_ARRAY_UNKNOWN_STATE,
+        'empty_ring_arrays_state': 'source_evidence_only_not_canonical_no_rings',
+        'source_only_ring_evidence_state': 'source_only_not_confirmed_truth',
+        'ringed_truth_requires_trusted_body_rings': True,
+    }
+
+
+def skipped_ring_rows_for_record(
+    record: Mapping[str, Any],
+    record_index: int,
+    raw_record: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    if 'rings' in record:
+        rings = record.get('rings')
+    elif 'Rings' in record:
+        rings = record.get('Rings')
+    else:
+        return []
+    if not isinstance(rings, Sequence) or isinstance(rings, (str, bytes, bytearray)):
+        return []
+    skipped = []
+    for ring_index, ring in enumerate(rings):
+        if isinstance(ring, Mapping):
+            continue
+        skipped.append({
+            'record_index': record_index,
+            'ring_index': ring_index,
+            'source_record_hash': raw_record.get('source_record_hash'),
+            'reason': 'ring_record_is_not_object',
+            'warnings': [{'field': 'rings', 'reason': 'ring_record_is_not_object'}],
+            'raw_payload': ring,
+        })
+    return skipped
+
+
+def source_identity_conflicts(rows: Sequence[Mapping[str, Any]], *, entity: str) -> list[dict[str, Any]]:
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        identity_key = source_identity_key(row, entity=entity)
+        if identity_key is None:
+            continue
+        grouped.setdefault(identity_key, []).append(row)
+
+    conflicts = []
+    for identity_key, group in grouped.items():
+        hashes = sorted({
+            str(row.get('source_record_hash'))
+            for row in group
+            if row.get('source_record_hash') is not None
+        })
+        if len(hashes) < 2:
+            continue
+        conflicts.append({
+            'entity': entity,
+            'reason': 'duplicate_source_identity_conflict',
+            'source_identity_key': identity_key,
+            'source_record_hashes': hashes,
+            'source_record_keys': sorted(
+                str(row.get('source_record_key'))
+                for row in group
+                if row.get('source_record_key') is not None
+            ),
+            'handling': 'report_only_conflict_no_canonical_write',
+        })
+    return sorted(conflicts, key=lambda row: json.dumps(row, sort_keys=True, separators=(',', ':')))
+
+
+def source_identity_key(row: Mapping[str, Any], *, entity: str) -> str | None:
+    system_key = identity_part(row, 'system_id64', 'system_name')
+    if system_key is None:
+        return None
+    if entity == 'station':
+        entity_key = identity_part(row, 'market_id', 'edsm_station_id', 'station_name')
+    elif entity == 'body':
+        entity_key = identity_part(row, 'source_body_id', 'body_name')
+    else:
+        body_key = identity_part(row, 'source_body_id', 'body_name')
+        ring_name = read_text(row.get('ring_name'))
+        if body_key is None or ring_name is None:
+            return None
+        entity_key = f'{body_key}|ring:{ring_name.lower()}'
+    if entity_key is None:
+        return None
+    return f'{entity}|{system_key}|{entity_key}'
+
+
+def identity_part(row: Mapping[str, Any], *fields: str) -> str | None:
+    for field in fields:
+        value = row.get(field)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                return f'{field}:{text.lower()}'
+            continue
+        return f'{field}:{value}'
+    return None
+
+
+def field_distribution(rows: Sequence[Mapping[str, Any]], field_name: str) -> dict[str, int]:
+    return dict(sorted(Counter(
+        str(row.get(field_name))
+        for row in rows
+        if row.get(field_name) is not None
+    ).items()))
+
+
+def _first_non_whitespace_char(source_file: Path) -> str | None:
+    with _open_text(source_file) as handle:
+        while True:
+            chunk = handle.read(1024)
+            if not chunk:
+                return None
+            stripped = chunk.lstrip()
+            if stripped:
+                return stripped[0]
 
 
 def _assert_local_file(path: Path) -> None:

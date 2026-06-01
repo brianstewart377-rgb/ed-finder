@@ -144,14 +144,39 @@ def test_body_ring_snapshot_loader_reads_json_fixture():
     assert report['schema_version'] == 'enrichment_snapshot_load_plan/v1'
     assert report['dry_run'] is True
     assert report['source_run']['source'] == 'edsm_nightly_bodies'
+    assert report['source_run']['metadata']['source_format_version'] == 'json_snapshot_stream/v1'
+    assert report['source_file']['source_updated_at'] == '2026-01-03T00:00:00Z'
+    assert report['source_file']['metadata']['source_timestamp_summary'] == {
+        'records_with_source_updated_at': 1,
+        'records_without_source_updated_at': 3,
+        'unique_source_updated_at_values': 1,
+        'earliest_source_updated_at': '2026-01-03T00:00:00Z',
+        'latest_source_updated_at': '2026-01-03T00:00:00Z',
+    }
     assert report['summary']['records_seen'] == 5
     assert report['summary']['raw_records'] == 4
     assert report['summary']['staged_edsm_bodies'] == 3
     assert report['summary']['staged_body_rings'] == 1
     assert report['summary']['skipped_rows'] == 2
+    assert report['summary']['skipped_row_reasons'] == {
+        'invalid_body_snapshot_record': 1,
+        'record_is_not_object': 1,
+    }
     assert report['summary']['warnings'] == 1
     assert report['summary']['canonical_writes_planned'] == 0
     assert report['summary']['distance_to_arrival_classification'] == 'volatile'
+    assert report['summary']['ring_array_evidence'] == {
+        'body_rows_considered': 3,
+        'ring_arrays_present': 1,
+        'ring_arrays_empty': 1,
+        'ring_arrays_missing': 1,
+        'ring_arrays_non_array': 0,
+        'source_only_ring_rows': 1,
+        'missing_ring_arrays_state': 'unknown_not_false',
+        'empty_ring_arrays_state': 'source_evidence_only_not_canonical_no_rings',
+        'source_only_ring_evidence_state': 'source_only_not_confirmed_truth',
+        'ringed_truth_requires_trusted_body_rings': True,
+    }
     assert report['staged_body_rows'] == report['staged_rows']
     assert report['staged_ring_rows'] == report['planned_rows']
 
@@ -170,6 +195,8 @@ def test_body_ring_snapshot_loader_reads_json_fixture():
 
     sparse = bodies_by_name['Sparse Body 1']
     assert sparse['source_body_id'] is None
+    assert sparse['provenance']['ring_array_state'] == 'missing'
+    assert sparse['provenance']['missing_ring_arrays_state'] == 'unknown_not_false'
     assert sparse['validation_warnings'] == [
         {'field': 'source_body_id', 'reason': 'missing_body_source_identity'},
     ]
@@ -410,6 +437,8 @@ def test_body_ring_duplicate_records_keep_stable_hashes_and_upserts(tmp_path):
     assert len(set(raw_hashes)) == 1
     assert len(set(body_hashes)) == 1
     assert len(set(ring_hashes)) == 1
+    assert report['summary']['duplicate_source_record_hashes'] == 1
+    assert report['summary']['duplicate_source_records'] == 1
     assert len({row['source_record_key'] for row in report['raw_records_planned']}) == 2
     assert len({row['db_id'] for row in report['staged_body_rows']}) == 1
     assert len({row['db_id'] for row in report['staged_ring_rows']}) == 1
@@ -417,6 +446,117 @@ def test_body_ring_duplicate_records_keep_stable_hashes_and_upserts(tmp_path):
     assert 'ON CONFLICT (source_run_id, source_file_id, source_record_hash)' in sql_text
     assert 'ON CONFLICT (source_run_id, source_record_hash)' in sql_text
     assert_only_body_ring_staging_sql(conn.statements)
+
+
+def test_body_ring_malformed_ring_rows_are_skipped_with_reasons(tmp_path):
+    source_file = tmp_path / 'malformed-rings.json'
+    source_file.write_text(
+        json.dumps([
+            {
+                'systemName': 'Malformed Rings',
+                'systemId64': 4343,
+                'id': 13,
+                'name': 'Malformed Rings 1',
+                'type': 'Planet',
+                'rings': [
+                    'not an object',
+                    {'type': 'Icy'},
+                ],
+            }
+        ]),
+        encoding='utf-8',
+    )
+
+    report = snapshot_loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_bodies',
+    )
+
+    assert report['summary']['staged_edsm_bodies'] == 1
+    assert report['summary']['staged_body_rings'] == 0
+    assert report['summary']['skipped_row_reasons'] == {
+        'invalid_ring_snapshot_record': 1,
+        'ring_record_is_not_object': 1,
+    }
+    by_reason = {row['reason']: row for row in report['skipped_rows']}
+    assert by_reason['ring_record_is_not_object']['ring_index'] == 0
+    assert by_reason['invalid_ring_snapshot_record']['ring_index'] == 1
+    assert by_reason['invalid_ring_snapshot_record']['warnings'] == [{
+        'field': 'ring_name',
+        'reason': 'missing_ring_identity',
+        'ring_index': 1,
+    }]
+    assert report['warnings'] == [{
+        'field': 'ring_name',
+        'reason': 'missing_ring_identity',
+        'record_index': 1,
+        'ring_index': 1,
+        'source_record_hash': by_reason['invalid_ring_snapshot_record']['source_record_hash'],
+    }]
+
+
+def test_body_ring_non_array_ring_field_is_reported_and_kept_unknown(tmp_path):
+    source_file = tmp_path / 'non-array-rings.json'
+    source_file.write_text(
+        json.dumps([
+            {
+                'systemName': 'Non Array Rings',
+                'systemId64': 4444,
+                'id': 14,
+                'name': 'Non Array Rings 1',
+                'type': 'Planet',
+                'rings': {'unexpected': True},
+            }
+        ]),
+        encoding='utf-8',
+    )
+
+    report = snapshot_loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_bodies',
+    )
+
+    body = report['staged_body_rows'][0]
+    assert body['provenance']['ring_array_state'] == 'non_array'
+    assert report['summary']['ring_array_evidence']['ring_arrays_non_array'] == 1
+    assert report['summary']['ring_array_evidence']['missing_ring_arrays_state'] == 'unknown_not_false'
+    assert report['summary']['skipped_row_reasons'] == {'invalid_ring_snapshot_record': 1}
+    assert report['skipped_rows'][0]['warnings'] == [{
+        'field': 'rings',
+        'reason': 'ring_array_not_sequence',
+        'ring_array_state': 'non_array',
+    }]
+
+
+def test_unsupported_body_source_shape_is_reported_for_future_spansh_style_input(tmp_path):
+    source_file = tmp_path / 'unsupported-body-shape.json'
+    source_file.write_text(
+        json.dumps([
+            {
+                'systemName': 'Nested System',
+                'systemId64': 4545,
+                'bodies': [{'name': 'Nested System 1'}],
+            }
+        ]),
+        encoding='utf-8',
+    )
+
+    report = snapshot_loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_bodies',
+    )
+
+    assert report['summary']['records_seen'] == 1
+    assert report['summary']['staged_edsm_bodies'] == 0
+    assert report['summary']['staged_body_rings'] == 0
+    assert report['summary']['unsupported_source_shapes'] == 1
+    assert report['skipped_rows'][0]['reason'] == 'unsupported_body_snapshot_source_shape'
+    assert report['skipped_rows'][0]['warnings'] == [{
+        'field': 'bodies',
+        'reason': 'unsupported_source_shape',
+        'source_shape': 'nested_body_collection',
+    }]
+    assert report['raw_records_planned'][0]['validation_status'] == 'skipped'
 
 
 def test_body_ring_unknown_source_and_canonical_flags_fail_closed():
