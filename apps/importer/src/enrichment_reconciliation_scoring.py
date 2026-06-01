@@ -39,9 +39,17 @@ def candidate_confidence(
             risk_flags=risk_flags,
             differences=differences,
         ),
+        'confidence_explanations': confidence_explanations(
+            action=action,
+            identifier_quality=identifier_quality,
+            evidence_quality=evidence_quality,
+            risk_flags=risk_flags,
+            differences=differences,
+        ),
         'evidence_quality': evidence_quality,
         'identifier_quality': identifier_quality,
         'risk_flags': risk_flags,
+        'risk_explanations': risk_explanations(risk_flags),
     }
 
 
@@ -124,6 +132,45 @@ def confidence_reasons(
         reasons.append('stable_field_differences_present')
     reasons.extend(f'risk:{flag}' for flag in risk_flags)
     return sorted(reasons)
+
+
+def confidence_explanations(
+    *,
+    action: str,
+    identifier_quality: str,
+    evidence_quality: str,
+    risk_flags: Sequence[str],
+    differences: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    explanations = [
+        _action_explanation(action),
+        f'Identifier quality is {identifier_quality}.',
+        f'Evidence quality is {evidence_quality}.',
+        'Output is report-only; it is not a write plan.',
+    ]
+    if differences:
+        explanations.append('Stable staged fields differ from the matched canonical row.')
+    explanations.extend(risk_explanations(risk_flags))
+    return sorted(dict.fromkeys(explanations))
+
+
+def risk_explanations(risk_flags: Sequence[str]) -> list[str]:
+    mapping = {
+        'ambiguous_canonical_match': 'Multiple canonical rows matched; manual review is required.',
+        'insufficient_identifiers': 'Source evidence is missing identifiers needed for a canonical conclusion.',
+        'volatile_source_evidence': 'Volatile source evidence is retained for review and must not churn canonical rows.',
+    }
+    return [mapping[flag] for flag in sorted(risk_flags) if flag in mapping]
+
+
+def _action_explanation(action: str) -> str:
+    return {
+        'ambiguous_match': 'Staged evidence matched more than one canonical row.',
+        'candidate_insert_missing_canonical': 'No canonical row matched this staged evidence.',
+        'candidate_update': 'One canonical row matched, but stable staged fields differ.',
+        'insufficient_evidence': 'Staged evidence is too sparse to reconcile.',
+        'no_change': 'Staged evidence matches one canonical row.',
+    }.get(action, f'Reconciliation action is {action}.')
 
 
 def _missing(value: Any) -> bool:

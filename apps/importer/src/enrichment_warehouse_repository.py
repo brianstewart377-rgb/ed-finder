@@ -11,9 +11,17 @@ from typing import Any
 
 from enrichment_reconciliation import (
     body_reconciliation_candidates,
+    confidence_risk_summary,
     ring_reconciliation_candidates,
     sort_candidate_rows,
+    source_coverage_summary,
+    station_body_association_candidates,
     station_reconciliation_candidates,
+)
+from enrichment_analytics import (
+    build_colonisation_candidate_signals,
+    build_enrichment_analytics_signals,
+    build_mission_density_signals,
 )
 from enrichment_staged_reports import (
     STAGED_ROWS_REPORT_SCHEMA_VERSION,
@@ -245,8 +253,9 @@ def build_reconciliation_report(
         for candidate in station_candidates + body_candidates + ring_candidates
         for warning in candidate.get('warnings', [])
     )
-    all_candidates = station_candidates + body_candidates + ring_candidates
-    return {
+    association_candidates = station_body_association_candidates(station_candidates, body_candidates)
+    all_candidates = station_candidates + body_candidates + ring_candidates + association_candidates
+    report = {
         'schema_version': RECONCILIATION_REPORT_SCHEMA_VERSION,
         'dry_run': True,
         'filters': {
@@ -287,13 +296,27 @@ def build_reconciliation_report(
             'warnings': len(warnings),
             'errors': 0,
             'canonical_writes_planned': 0,
+            'station_body_association_candidates': len(association_candidates),
         },
         'station_candidates': station_candidates,
         'body_candidates': body_candidates,
         'ring_candidates': ring_candidates,
+        'station_body_association_candidates': association_candidates,
+        'source_coverage_summary': source_coverage_summary(
+            station_candidates,
+            body_candidates,
+            ring_candidates,
+            warnings,
+        ),
+        'confidence_risk_summary': confidence_risk_summary(all_candidates),
         'warnings': warnings,
         'errors': [],
     }
+    analytics_signals = build_enrichment_analytics_signals(report)
+    report['analytics_signals'] = analytics_signals
+    report['colonisation_signals'] = build_colonisation_candidate_signals(analytics_signals)
+    report['mission_density_signals'] = build_mission_density_signals(report)
+    return report
 
 
 def fetch_station_reconciliation_rows(
