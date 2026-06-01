@@ -12,8 +12,9 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 
-from config  import limiter
+from config  import limiter, settings
 from deps    import get_pool, get_redis, require_admin
+from enrichment_operator_status import read_enrichment_status_snapshot
 from helpers import run_cluster_rebuild
 from models  import CacheStatsResponse
 from state   import active_jobs, active_jobs_lock, metrics
@@ -193,3 +194,17 @@ async def trigger_rebuild_ratings(request: Request):
         'cleared':      n_cleared,
     }
 
+
+@router.get(
+    '/api/admin/enrichment/station-status',
+    dependencies=[Depends(require_admin)],
+    include_in_schema=False,
+)
+async def station_enrichment_operator_status():
+    """Return a sanitized read-only station enrichment status snapshot.
+
+    This endpoint deliberately reads only a configured JSON artifact produced
+    by `station_enrichment_status.py --json`. It never invokes the enrichment
+    script, Docker, EDSM, or the database.
+    """
+    return read_enrichment_status_snapshot(settings.enrichment_status_json_path)
