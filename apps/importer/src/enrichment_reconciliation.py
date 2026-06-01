@@ -24,8 +24,11 @@ def station_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list
             'edsm_station_id': first.get('edsm_station_id'),
             'station_name': first.get('station_name'),
             'body_name': first.get('body_name'),
+            'source': first.get('source'),
             'source_class': first.get('source_class'),
             'confidence': first.get('confidence'),
+            'freshness_class': first.get('freshness_class'),
+            'source_updated_at': first.get('source_updated_at'),
         }
         warnings = volatile_warnings(
             first,
@@ -67,8 +70,12 @@ def body_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list[di
             'system_name': first.get('system_name'),
             'source_body_id': first.get('source_body_id'),
             'body_name': first.get('body_name'),
+            'source': first.get('source'),
             'source_class': first.get('source_class'),
             'confidence': first.get('confidence'),
+            'freshness_class': first.get('freshness_class'),
+            'source_updated_at': first.get('source_updated_at'),
+            **body_ring_array_source_fields(first),
         }
         warnings = volatile_warnings(
             first,
@@ -116,8 +123,11 @@ def ring_reconciliation_candidates(rows: Sequence[Mapping[str, Any]]) -> list[di
             'body_name': first.get('body_name'),
             'ring_name': first.get('ring_name'),
             'association_status': first.get('association_status'),
+            'source': first.get('source'),
             'source_class': first.get('source_class'),
             'confidence': first.get('confidence'),
+            'freshness_class': first.get('freshness_class'),
+            'source_updated_at': first.get('source_updated_at'),
         }
         candidates.append(base_candidate(
             entity='ring',
@@ -190,6 +200,8 @@ def station_canonical_matches(rows: Sequence[Mapping[str, Any]]) -> list[dict[st
             'station_id': row.get('canonical_station_id'),
             'station_name': row.get('canonical_station_name'),
             'station_type': row.get('canonical_station_type'),
+            'body_name': row.get('canonical_body_name'),
+            'station_body_link': station_body_link(row),
         }
         for row in rows
         if row.get('canonical_station_id') is not None
@@ -205,6 +217,7 @@ def body_canonical_matches(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, 
             'body_id': row.get('canonical_body_id'),
             'body_name': row.get('canonical_body_name'),
             'body_type': row.get('canonical_body_type'),
+            'ring_scan_fact': body_ring_scan_fact(row),
         }
         for row in rows
         if row.get('canonical_body_id') is not None
@@ -228,6 +241,56 @@ def ring_canonical_matches(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, 
         if row.get('canonical_ring_id') is not None
     }
     return sort_candidate_rows(matches.values())
+
+
+def station_body_link(row: Mapping[str, Any]) -> dict[str, Any]:
+    if (
+        _missing(row.get('canonical_station_body_link_body_id'))
+        and _missing(row.get('canonical_station_body_link_body_name'))
+        and _missing(row.get('canonical_station_body_link_status'))
+    ):
+        return {}
+    return {
+        'body_id': row.get('canonical_station_body_link_body_id'),
+        'body_name': row.get('canonical_station_body_link_body_name'),
+        'lane': row.get('canonical_station_body_link_lane'),
+        'association_status': row.get('canonical_station_body_link_status'),
+        'association_confidence': row.get('canonical_station_body_link_confidence'),
+        'association_source': row.get('canonical_station_body_link_source'),
+    }
+
+
+def body_ring_scan_fact(row: Mapping[str, Any]) -> dict[str, Any]:
+    if (
+        row.get('canonical_is_ringed') is None
+        and row.get('canonical_ring_scan_confidence') is None
+        and row.get('canonical_ring_scan_sources') is None
+    ):
+        return {}
+    data_sources = row.get('canonical_ring_scan_sources')
+    if isinstance(data_sources, str):
+        sources = [data_sources]
+    elif isinstance(data_sources, Sequence) and not isinstance(data_sources, (bytes, bytearray)):
+        sources = list(data_sources)
+    else:
+        sources = []
+    return {
+        'is_ringed': row.get('canonical_is_ringed'),
+        'confidence': row.get('canonical_ring_scan_confidence'),
+        'data_sources': sources,
+        'meaning': 'trusted_scan_fact_false' if row.get('canonical_is_ringed') is False else 'scan_fact_evidence',
+    }
+
+
+def body_ring_array_source_fields(row: Mapping[str, Any]) -> dict[str, Any]:
+    provenance = row.get('provenance')
+    if not isinstance(provenance, Mapping):
+        return {}
+    return {
+        'ring_array_state': provenance.get('ring_array_state'),
+        'ring_array_meaning': provenance.get('ring_array_meaning'),
+        'missing_ring_arrays_state': provenance.get('missing_ring_arrays_state'),
+    }
 
 
 def station_body_association_candidates(

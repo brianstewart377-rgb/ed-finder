@@ -49,6 +49,9 @@ class FakeCursor:
         if 'from staging_body_rings' in sql_lower:
             self._rows = _limited(self.conn.ring_rows, limit)
             return
+        if 'warning_reason_distribution' in sql_lower and 'enrichment_raw_records' in sql_lower:
+            self._rows = list(self.conn.source_coverage_rows)
+            return
         self._rows = []
 
     def fetchall(self):
@@ -65,10 +68,12 @@ class FakeConn:
         station_rows: list[dict[str, object]] | None = None,
         body_rows: list[dict[str, object]] | None = None,
         ring_rows: list[dict[str, object]] | None = None,
+        source_coverage_rows: list[dict[str, object]] | None = None,
     ) -> None:
         self.station_rows = station_rows or []
         self.body_rows = body_rows or []
         self.ring_rows = ring_rows or []
+        self.source_coverage_rows = source_coverage_rows or []
         self.statements: list[tuple[str, tuple[object, ...]]] = []
         self.commits = 0
         self.rollbacks = 0
@@ -124,6 +129,12 @@ def station_row(**overrides):
         'controlling_faction': 'Test Faction',
         'allegiance': 'Federation',
         'government': 'Democracy',
+        'source': 'edsm_nightly_stations',
+        'source_class': 'semi-stable',
+        'confidence': 'source_station_snapshot',
+        'freshness_class': 'source_updated_at',
+        'source_updated_at': '2026-01-02T00:00:00Z',
+        'provenance': {},
         'canonical_system_id64': 42,
         'canonical_system_name': 'Test System',
         'canonical_station_id': 1001,
@@ -134,6 +145,12 @@ def station_row(**overrides):
         'canonical_controlling_faction': 'Test Faction',
         'canonical_allegiance': 'Federation',
         'canonical_government': 'Democracy',
+        'canonical_station_body_link_body_id': None,
+        'canonical_station_body_link_body_name': None,
+        'canonical_station_body_link_lane': None,
+        'canonical_station_body_link_status': None,
+        'canonical_station_body_link_confidence': None,
+        'canonical_station_body_link_source': None,
         'canonical_match_count': 1,
     }
     row.update(overrides)
@@ -159,6 +176,12 @@ def body_row(**overrides):
         'is_terraformable': False,
         'estimated_scan_value': 1000,
         'estimated_mapping_value': 2000,
+        'source': 'edsm_nightly_bodies',
+        'source_class': 'semi-stable',
+        'confidence': 'source_body_snapshot',
+        'freshness_class': 'source_updated_at',
+        'source_updated_at': '2026-01-03T00:00:00Z',
+        'provenance': {'ring_array_state': 'missing', 'missing_ring_arrays_state': 'unknown_not_false'},
         'canonical_system_id64': 42,
         'canonical_system_name': 'Test System',
         'canonical_body_id': 7,
@@ -171,6 +194,9 @@ def body_row(**overrides):
         'canonical_is_terraformable': False,
         'canonical_estimated_scan_value': 1000,
         'canonical_estimated_mapping_value': 2000,
+        'canonical_is_ringed': None,
+        'canonical_ring_scan_confidence': None,
+        'canonical_ring_scan_sources': None,
         'canonical_match_count': 1,
     }
     row.update(overrides)
@@ -195,6 +221,12 @@ def ring_row(**overrides):
         'inner_radius': 10.0,
         'outer_radius': 20.0,
         'association_status': 'source_only',
+        'source': 'edsm_nightly_bodies',
+        'source_class': 'semi-stable',
+        'confidence': 'source_ring_payload',
+        'freshness_class': 'source_updated_at',
+        'source_updated_at': '2026-01-03T00:00:00Z',
+        'provenance': {'source_only_ring_evidence': True},
         'canonical_system_id64': 42,
         'canonical_system_name': 'Test System',
         'canonical_body_id': 7,
@@ -519,6 +551,242 @@ def test_source_only_ring_association_status_does_not_confirm_ringed():
     assert ring_evidence['trusted_local_matched_ring_candidates'] == 0
     assert ring_evidence['missing_ring_arrays_state'] == 'ring_evidence_present'
     assert ring_evidence['ringed_truth_requires_trusted_body_rings'] is True
+    assert_read_only_sql(conn)
+
+
+def test_warehouse_coverage_report_splits_operator_review_sections():
+    conn = FakeConn(
+        station_rows=[
+            station_row(
+                staging_station_id=1,
+                station_name='Confirmed Port',
+                body_name='Test 7',
+                source_record_hash='station-confirmed',
+                canonical_station_id=1001,
+                canonical_station_name='Confirmed Port',
+                canonical_body_name='Test 7',
+                canonical_station_body_link_body_id=7,
+                canonical_station_body_link_body_name='Test 7',
+                canonical_station_body_link_lane='surface',
+                canonical_station_body_link_status='confirmed',
+                canonical_station_body_link_confidence='exact',
+                canonical_station_body_link_source='edsm_body_name',
+            ),
+            station_row(
+                staging_station_id=2,
+                market_id=1002,
+                edsm_station_id=1002,
+                station_name='Verify Port',
+                body_name='Test 8',
+                source_record_hash='station-verify',
+                canonical_station_id=1002,
+                canonical_station_name='Verify Port',
+                canonical_body_name='Test 8',
+            ),
+            station_row(
+                staging_station_id=3,
+                system_id64=43,
+                system_name='Sparse System',
+                market_id=1003,
+                edsm_station_id=1003,
+                station_name='Loose Port',
+                body_name=None,
+                source_record_hash='station-unresolved',
+                canonical_system_id64=43,
+                canonical_system_name='Sparse System',
+                canonical_station_id=1003,
+                canonical_station_name='Loose Port',
+                canonical_body_name=None,
+            ),
+            station_row(
+                staging_station_id=4,
+                system_id64=50,
+                system_name='Conflict System',
+                market_id=2000,
+                edsm_station_id=2000,
+                station_name='Conflict Port',
+                source_record_hash='conflict-a',
+                canonical_system_id64=50,
+                canonical_system_name='Conflict System',
+                canonical_station_id=None,
+                canonical_station_name=None,
+                canonical_match_count=0,
+            ),
+            station_row(
+                staging_station_id=5,
+                system_id64=50,
+                system_name='Conflict System',
+                market_id=2000,
+                edsm_station_id=2000,
+                station_name='Conflict Port',
+                station_type='Ocellus Starport',
+                source_record_hash='conflict-b',
+                canonical_system_id64=50,
+                canonical_system_name='Conflict System',
+                canonical_station_id=None,
+                canonical_station_name=None,
+                canonical_match_count=0,
+            ),
+        ],
+        body_rows=[
+            body_row(
+                staging_body_id=10,
+                source_body_id=7,
+                body_name='Test 7',
+                source_record_hash='body-no-rings',
+                provenance={'ring_array_state': 'empty', 'missing_ring_arrays_state': 'unknown_not_false'},
+                canonical_is_ringed=False,
+                canonical_ring_scan_confidence=1.0,
+                canonical_ring_scan_sources=['eddn_scan'],
+            ),
+            body_row(
+                staging_body_id=11,
+                source_body_id=8,
+                body_name='Test 8',
+                source_record_hash='body-trusted-ring',
+                provenance={'ring_array_state': 'missing', 'missing_ring_arrays_state': 'unknown_not_false'},
+                canonical_body_id=8,
+                canonical_body_name='Test 8',
+            ),
+            body_row(
+                staging_body_id=12,
+                system_id64=99,
+                system_name='Body Only System',
+                source_body_id=1,
+                body_name='Body Only 1',
+                source_record_hash='body-only',
+                provenance={'ring_array_state': 'empty', 'missing_ring_arrays_state': 'unknown_not_false'},
+                canonical_system_id64=99,
+                canonical_system_name='Body Only System',
+                canonical_body_id=1,
+                canonical_body_name='Body Only 1',
+            ),
+        ],
+        ring_rows=[
+            ring_row(
+                staging_ring_id=20,
+                source_body_id=8,
+                body_name='Test 8',
+                ring_name='Test 8 A Ring',
+                source_record_hash='ring-trusted',
+                canonical_body_id=8,
+                canonical_body_name='Test 8',
+                canonical_ring_id=30,
+                canonical_ring_name='Test 8 A Ring',
+                canonical_association_status='local_matched',
+            ),
+            ring_row(
+                staging_ring_id=21,
+                system_id64=99,
+                system_name='Body Only System',
+                source_body_id=1,
+                body_name='Body Only 1',
+                ring_name='Body Only 1 A Ring',
+                source_record_hash='ring-source-only',
+                canonical_system_id64=99,
+                canonical_system_name='Body Only System',
+                canonical_body_id=1,
+                canonical_body_name='Body Only 1',
+                canonical_ring_id=None,
+                canonical_ring_name=None,
+                canonical_association_status=None,
+                canonical_match_count=0,
+            ),
+        ],
+        source_coverage_rows=[
+            {
+                'source_run_key': 'run-stations',
+                'source_file_key': 'file-stations',
+                'source_file_name': 'stations.json',
+                'source': 'edsm_nightly_stations',
+                'source_class': 'semi-stable',
+                'source_format': 'json',
+                'source_format_version': 'json_snapshot_stream/v1',
+                'record_stream_shape': 'json_array',
+                'raw_records': 6,
+                'accepted_raw_records': 5,
+                'skipped_raw_records': 1,
+                'invalid_raw_records': 0,
+                'conflict_raw_records': 0,
+                'duplicate_source_record_hashes': 1,
+                'duplicate_source_records': 1,
+                'records_with_source_updated_at': 5,
+                'records_without_source_updated_at': 1,
+                'latest_source_updated_at': '2026-01-02T00:00:00Z',
+                'warning_reason_distribution': {'missing_required_field': 1},
+            },
+            {
+                'source_run_key': 'run-bodies',
+                'source_file_key': 'file-bodies',
+                'source_file_name': 'bodies.json',
+                'source': 'edsm_nightly_bodies',
+                'source_class': 'semi-stable',
+                'source_format': 'json',
+                'source_format_version': 'json_snapshot_stream/v1',
+                'record_stream_shape': 'ndjson',
+                'raw_records': 3,
+                'accepted_raw_records': 3,
+                'skipped_raw_records': 0,
+                'invalid_raw_records': 0,
+                'conflict_raw_records': 0,
+                'duplicate_source_record_hashes': 0,
+                'duplicate_source_records': 0,
+                'records_with_source_updated_at': 3,
+                'records_without_source_updated_at': 0,
+                'latest_source_updated_at': '2026-01-03T00:00:00Z',
+                'warning_reason_distribution': {},
+            },
+        ],
+    )
+
+    report = db_loader.build_reconciliation_report(conn)
+    coverage = report['warehouse_coverage_report']
+
+    assert coverage['schema_version'] == 'enrichment_warehouse_coverage_report/v1'
+    assert coverage['dry_run'] is True
+    assert coverage['report_only'] is True
+    assert coverage['canonical_writes_planned'] == 0
+    assert coverage['station_evidence']['systems_with_station_evidence']['count'] == 3
+    assert coverage['station_evidence']['systems_missing_station_evidence']['examples'] == [{
+        'system_id64': 99,
+        'system_key': 'id64:99',
+        'system_name': 'Body Only System',
+    }]
+    assert coverage['ring_evidence']['bodies_with_trusted_ring_evidence']['count'] == 1
+    assert coverage['ring_evidence']['bodies_with_explicit_no_ring_evidence']['count'] == 1
+    assert coverage['ring_evidence']['bodies_with_unknown_ring_evidence']['count'] == 1
+    assert coverage['ring_evidence']['empty_source_arrays_not_promoted']['count'] == 1
+    assert coverage['ring_evidence']['ringed_truth_requires_trusted_body_rings'] is True
+    assert coverage['station_body_links']['stations_with_confirmed_body_links']['count'] == 1
+    assert coverage['station_body_links']['stations_with_inferred_or_verify_body_links']['count'] == 1
+    assert coverage['station_body_links']['unresolved_stations']['count'] == 3
+    assert coverage['source_freshness']['freshness_class_distribution'] == {'source_updated_at': 10}
+    assert (
+        coverage['source_freshness']['stale_or_undated_evidence']['records_without_source_updated_at']
+        == 1
+    )
+    assert coverage['source_quality']['malformed_or_skipped_source_rows']['count'] == 1
+    assert coverage['source_quality']['malformed_or_skipped_source_rows']['warning_reason_distribution'] == {
+        'missing_required_field': 1,
+    }
+    assert coverage['source_quality']['duplicate_source_records'] == {
+        'duplicate_hash_groups': 1,
+        'duplicate_records': 1,
+        'handling': 'report_only; staging upserts remain keyed by source run and source_record_hash',
+    }
+    assert coverage['source_quality']['source_identity_conflicts']['count'] == 1
+    assert coverage['source_formats']['source_type_distribution'] == {
+        'edsm_nightly_bodies': 1,
+        'edsm_nightly_stations': 1,
+    }
+    assert coverage['source_formats']['record_stream_shape_distribution'] == {
+        'json_array': 1,
+        'ndjson': 1,
+    }
+    assert coverage['high_value_systems_needing_better_evidence']['count'] == 2
+    assert coverage['operator_review']['needs_attention_buckets']['systems_missing_station_evidence'] == 1
+    assert coverage['operator_review']['needs_attention_buckets']['source_identity_conflicts'] == 1
+    assert report['summary']['canonical_writes_planned'] == 0
     assert_read_only_sql(conn)
 
 

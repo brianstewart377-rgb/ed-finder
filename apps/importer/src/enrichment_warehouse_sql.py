@@ -7,7 +7,9 @@ from typing import Any
 from enrichment_staging import canonicalise_json_payload, normalise_source_adapter
 from enrichment_warehouse import (
     CANONICAL_BODIES_TABLE,
+    CANONICAL_BODY_SCAN_FACTS_TABLE,
     CANONICAL_BODY_RINGS_TABLE,
+    CANONICAL_STATION_BODY_LINKS_TABLE,
     CANONICAL_SYSTEMS_TABLE,
     CANONICAL_STATIONS_TABLE,
     WAREHOUSE_BODY_RING_WRITE_TABLES,
@@ -45,6 +47,7 @@ REQUIRED_SCHEMA_COLUMNS = {
         'compression',
         'file_size_bytes',
         'file_sha256',
+        'source_updated_at',
         'metadata',
     ),
     WAREHOUSE_RAW_RECORDS_TABLE: (
@@ -54,6 +57,7 @@ REQUIRED_SCHEMA_COLUMNS = {
         'record_index',
         'source_record_key',
         'source_record_hash',
+        'source_updated_at',
         'raw_payload',
         'validation_status',
         'validation_warnings',
@@ -71,6 +75,10 @@ REQUIRED_SCHEMA_COLUMNS = {
         'edsm_station_id',
         'station_name',
         'distance_to_arrival',
+        'source_class',
+        'confidence',
+        'freshness_class',
+        'source_updated_at',
         'raw_payload',
         'provenance',
     ),
@@ -89,6 +97,10 @@ REQUIRED_SCHEMA_COLUMNS = {
         'distance_to_arrival',
         'signals',
         'materials',
+        'source_class',
+        'confidence',
+        'freshness_class',
+        'source_updated_at',
         'raw_payload',
         'provenance',
     ),
@@ -107,6 +119,10 @@ REQUIRED_SCHEMA_COLUMNS = {
         'ring_type',
         'ring_class',
         'association_status',
+        'source_class',
+        'confidence',
+        'freshness_class',
+        'source_updated_at',
         'raw_payload',
         'provenance',
     ),
@@ -232,6 +248,151 @@ def staged_counts_query(
     )
 
 
+def source_coverage_query(
+    *,
+    source_run_key: str | None,
+    source_file_key: str | None,
+    source: str | None,
+) -> tuple[str, list[Any]]:
+    normalised_source = normalise_source_adapter(source) if source else None
+    params: list[Any] = [
+        source_file_key,
+        source_file_key,
+        source_run_key,
+        source_run_key,
+        normalised_source,
+        normalised_source,
+    ]
+    return (
+        f"""
+        WITH scoped AS (
+            SELECT
+                sr.id AS source_run_id,
+                sr.source_run_key,
+                sr.source,
+                sr.source_class,
+                sr.metadata AS source_run_metadata,
+                sf.id AS source_file_id,
+                sf.source_file_key,
+                sf.source_file_name,
+                sf.source_updated_at AS source_file_updated_at,
+                sf.metadata AS source_file_metadata
+            FROM {WAREHOUSE_SOURCE_RUNS_TABLE} sr
+            LEFT JOIN {WAREHOUSE_SOURCE_FILES_TABLE} sf
+              ON sf.source_run_id = sr.id
+             AND (%s IS NULL OR sf.source_file_key = %s)
+            WHERE (%s IS NULL OR sr.source_run_key = %s)
+              AND (%s IS NULL OR sr.source = %s)
+        ),
+        duplicate_hashes AS (
+            SELECT
+                source_run_id,
+                source_file_id,
+                source_record_hash,
+                COUNT(*) AS count_per_hash
+            FROM {WAREHOUSE_RAW_RECORDS_TABLE}
+            GROUP BY source_run_id, source_file_id, source_record_hash
+        ),
+        raw_counts AS (
+            SELECT
+                scoped.source_run_id,
+                scoped.source_file_id,
+                COUNT(rr.id)::integer AS raw_records,
+                COUNT(rr.id) FILTER (WHERE rr.validation_status = 'accepted')::integer
+                    AS accepted_raw_records,
+                COUNT(rr.id) FILTER (WHERE rr.validation_status = 'skipped')::integer
+                    AS skipped_raw_records,
+                COUNT(rr.id) FILTER (WHERE rr.validation_status = 'invalid')::integer
+                    AS invalid_raw_records,
+                COUNT(rr.id) FILTER (WHERE rr.validation_status = 'conflict')::integer
+                    AS conflict_raw_records,
+                GREATEST(COUNT(rr.id) - COUNT(DISTINCT rr.source_record_hash), 0)::integer
+                    AS duplicate_source_records,
+                COUNT(DISTINCT rr.source_record_hash) FILTER (WHERE duplicate_hashes.count_per_hash > 1)::integer
+                    AS duplicate_source_record_hashes,
+                COUNT(rr.id) FILTER (WHERE rr.source_updated_at IS NOT NULL)::integer
+                    AS records_with_source_updated_at,
+                COUNT(rr.id) FILTER (WHERE rr.id IS NOT NULL AND rr.source_updated_at IS NULL)::integer
+                    AS records_without_source_updated_at,
+                MIN(rr.source_updated_at) AS earliest_source_updated_at,
+                MAX(rr.source_updated_at) AS latest_source_updated_at
+            FROM scoped
+            LEFT JOIN {WAREHOUSE_RAW_RECORDS_TABLE} rr
+              ON rr.source_run_id = scoped.source_run_id
+             AND (scoped.source_file_id IS NULL OR rr.source_file_id = scoped.source_file_id)
+            LEFT JOIN duplicate_hashes
+              ON duplicate_hashes.source_run_id = rr.source_run_id
+             AND duplicate_hashes.source_file_id IS NOT DISTINCT FROM rr.source_file_id
+             AND duplicate_hashes.source_record_hash = rr.source_record_hash
+            GROUP BY scoped.source_run_id, scoped.source_file_id
+        ),
+        warning_counts AS (
+            SELECT
+                scoped.source_run_id,
+                scoped.source_file_id,
+                warning.value ->> 'reason' AS reason,
+                COUNT(*)::integer AS warning_count
+            FROM scoped
+            JOIN {WAREHOUSE_RAW_RECORDS_TABLE} rr
+              ON rr.source_run_id = scoped.source_run_id
+             AND (scoped.source_file_id IS NULL OR rr.source_file_id = scoped.source_file_id)
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(rr.validation_warnings, '[]'::jsonb)) warning(value)
+            WHERE warning.value ? 'reason'
+            GROUP BY scoped.source_run_id, scoped.source_file_id, warning.value ->> 'reason'
+        ),
+        warning_json AS (
+            SELECT
+                source_run_id,
+                source_file_id,
+                jsonb_object_agg(reason, warning_count ORDER BY reason) AS warning_reason_distribution
+            FROM warning_counts
+            GROUP BY source_run_id, source_file_id
+        )
+        SELECT
+            scoped.source_run_key,
+            scoped.source_file_key,
+            scoped.source_file_name,
+            scoped.source,
+            scoped.source_class,
+            COALESCE(
+                scoped.source_file_metadata ->> 'source_format',
+                scoped.source_run_metadata ->> 'source_format'
+            ) AS source_format,
+            COALESCE(
+                scoped.source_file_metadata ->> 'source_format_version',
+                scoped.source_run_metadata ->> 'source_format_version'
+            ) AS source_format_version,
+            COALESCE(
+                scoped.source_file_metadata ->> 'record_stream_shape',
+                scoped.source_run_metadata ->> 'record_stream_shape'
+            ) AS record_stream_shape,
+            COALESCE(raw_counts.raw_records, 0) AS raw_records,
+            COALESCE(raw_counts.accepted_raw_records, 0) AS accepted_raw_records,
+            COALESCE(raw_counts.skipped_raw_records, 0) AS skipped_raw_records,
+            COALESCE(raw_counts.invalid_raw_records, 0) AS invalid_raw_records,
+            COALESCE(raw_counts.conflict_raw_records, 0) AS conflict_raw_records,
+            COALESCE(raw_counts.duplicate_source_record_hashes, 0) AS duplicate_source_record_hashes,
+            COALESCE(raw_counts.duplicate_source_records, 0) AS duplicate_source_records,
+            COALESCE(raw_counts.records_with_source_updated_at, 0) AS records_with_source_updated_at,
+            COALESCE(raw_counts.records_without_source_updated_at, 0) AS records_without_source_updated_at,
+            raw_counts.earliest_source_updated_at,
+            raw_counts.latest_source_updated_at,
+            scoped.source_file_updated_at,
+            COALESCE(warning_json.warning_reason_distribution, '{{}}'::jsonb)
+                AS warning_reason_distribution
+        FROM scoped
+        LEFT JOIN raw_counts
+          ON raw_counts.source_run_id = scoped.source_run_id
+         AND raw_counts.source_file_id IS NOT DISTINCT FROM scoped.source_file_id
+        LEFT JOIN warning_json
+          ON warning_json.source_run_id = scoped.source_run_id
+         AND warning_json.source_file_id IS NOT DISTINCT FROM scoped.source_file_id
+        ORDER BY scoped.source, scoped.source_run_key, scoped.source_file_key NULLS FIRST
+        """,
+        params,
+    )
+
+
 def station_reconciliation_query(
     *,
     source_run_key: str | None,
@@ -268,6 +429,9 @@ def station_reconciliation_query(
                 ss.government,
                 ss.source_class,
                 ss.confidence,
+                ss.freshness_class,
+                ss.source_updated_at,
+                ss.provenance,
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key
@@ -292,6 +456,12 @@ def station_reconciliation_query(
             st.controlling_faction AS canonical_controlling_faction,
             st.allegiance AS canonical_allegiance,
             st.government AS canonical_government,
+            sbl.body_id AS canonical_station_body_link_body_id,
+            sbl.body_name AS canonical_station_body_link_body_name,
+            sbl.lane AS canonical_station_body_link_lane,
+            sbl.association_status AS canonical_station_body_link_status,
+            sbl.association_confidence AS canonical_station_body_link_confidence,
+            sbl.association_source AS canonical_station_body_link_source,
             COUNT(st.id) OVER (PARTITION BY staged.staging_station_id)::integer AS canonical_match_count
         FROM staged
         LEFT JOIN {CANONICAL_SYSTEMS_TABLE} sys
@@ -311,6 +481,9 @@ def station_reconciliation_query(
               OR (staged.edsm_station_id IS NOT NULL AND st.id = staged.edsm_station_id)
               OR (staged.station_name IS NOT NULL AND lower(st.name) = lower(staged.station_name))
          )
+        LEFT JOIN {CANONICAL_STATION_BODY_LINKS_TABLE} sbl
+          ON st.id IS NOT NULL
+         AND sbl.station_id = st.id
         ORDER BY staged.system_id64 NULLS LAST, staged.system_name NULLS LAST, staged.station_name NULLS LAST,
                  staged.staging_station_id, st.id NULLS LAST
         """,
@@ -355,6 +528,9 @@ def body_reconciliation_query(
                 sb.estimated_mapping_value,
                 sb.source_class,
                 sb.confidence,
+                sb.freshness_class,
+                sb.source_updated_at,
+                sb.provenance,
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key
@@ -382,6 +558,9 @@ def body_reconciliation_query(
             b.is_terraformable AS canonical_is_terraformable,
             b.estimated_scan_value AS canonical_estimated_scan_value,
             b.estimated_mapping_value AS canonical_estimated_mapping_value,
+            bsf.is_ringed AS canonical_is_ringed,
+            bsf.confidence AS canonical_ring_scan_confidence,
+            bsf.data_sources AS canonical_ring_scan_sources,
             COUNT(b.id) OVER (PARTITION BY staged.staging_body_id)::integer AS canonical_match_count
         FROM staged
         LEFT JOIN {CANONICAL_SYSTEMS_TABLE} sys
@@ -399,6 +578,12 @@ def body_reconciliation_query(
          AND (
               (staged.source_body_id IS NOT NULL AND b.id = staged.source_body_id)
               OR (staged.body_name IS NOT NULL AND lower(b.name) = lower(staged.body_name))
+         )
+        LEFT JOIN {CANONICAL_BODY_SCAN_FACTS_TABLE} bsf
+          ON bsf.system_address = COALESCE(sys.id64, staged.system_id64)
+         AND (
+              (b.id IS NOT NULL AND bsf.body_id = b.id)
+              OR (staged.source_body_id IS NOT NULL AND bsf.body_id = staged.source_body_id)
          )
         ORDER BY staged.system_id64 NULLS LAST, staged.system_name NULLS LAST,
                  staged.source_body_id NULLS LAST, staged.body_name NULLS LAST,
@@ -444,6 +629,9 @@ def ring_reconciliation_query(
                 br.association_status,
                 br.source_class,
                 br.confidence,
+                br.freshness_class,
+                br.source_updated_at,
+                br.provenance,
                 sr.source_run_key,
                 sr.source,
                 sf.source_file_key

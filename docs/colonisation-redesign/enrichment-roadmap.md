@@ -409,6 +409,16 @@ body/ring ring-array evidence. Missing ring arrays remain unknown, source-only
 ring evidence remains source-only, and future nested body source shapes are
 reported as unsupported until a dedicated adapter exists.
 
+Stage 18E adds a versioned `warehouse_coverage_report` section to read-only
+reconciliation output. It is for operator review of evidence completeness:
+station coverage by system, missing station evidence where body/ring evidence
+exists, trusted versus unknown ring evidence, explicit trusted no-ring scan
+evidence, confirmed/inferred/unresolved station-body links, stale or undated
+source evidence, skipped/malformed source rows, duplicate source-record hashes,
+source identity conflicts, high-value systems needing better evidence, and
+source type/source-format coverage. It remains dry-run/report-only and does
+not promote source-only evidence to canonical truth.
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.

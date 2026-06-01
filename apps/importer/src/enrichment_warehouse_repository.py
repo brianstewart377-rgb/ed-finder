@@ -23,6 +23,7 @@ from enrichment_analytics import (
     build_enrichment_analytics_signals,
     build_mission_density_signals,
 )
+from enrichment_coverage_reports import build_warehouse_coverage_report
 from enrichment_staged_reports import (
     STAGED_ROWS_REPORT_SCHEMA_VERSION,
     build_report_from_staged_rows as staged_build_report_from_staged_rows,
@@ -39,6 +40,7 @@ from enrichment_warehouse_sql import (
     returned_id as _returned_id,
     ring_reconciliation_query,
     schema_columns_query,
+    source_coverage_query,
     station_reconciliation_query,
     target_tables_for_source as sql_target_tables_for_source,
 )
@@ -244,6 +246,12 @@ def build_reconciliation_report(
         if include_bodies
         else []
     )
+    source_coverage_rows = fetch_source_coverage_rows(
+        conn,
+        source_run_key=source_run_key,
+        source_file_key=source_file_key,
+        source=normalised_source,
+    )
 
     station_candidates = sort_candidate_rows(station_candidates)
     body_candidates = sort_candidate_rows(body_candidates)
@@ -308,6 +316,14 @@ def build_reconciliation_report(
             ring_candidates,
             warnings,
         ),
+        'warehouse_coverage_report': build_warehouse_coverage_report(
+            station_candidates=station_candidates,
+            body_candidates=body_candidates,
+            ring_candidates=ring_candidates,
+            station_body_association_candidates=association_candidates,
+            source_coverage_rows=source_coverage_rows,
+            warnings=warnings,
+        ),
         'confidence_risk_summary': confidence_risk_summary(all_candidates),
         'warnings': warnings,
         'errors': [],
@@ -360,6 +376,21 @@ def fetch_ring_reconciliation_rows(
         source_run_key=source_run_key,
         source_file_key=source_file_key,
         limit=limit,
+    )
+    return _select_rows(conn, sql, params)
+
+
+def fetch_source_coverage_rows(
+    conn: Any,
+    *,
+    source_run_key: str | None,
+    source_file_key: str | None,
+    source: str | None,
+) -> list[dict[str, Any]]:
+    sql, params = source_coverage_query(
+        source_run_key=source_run_key,
+        source_file_key=source_file_key,
+        source=source,
     )
     return _select_rows(conn, sql, params)
 
