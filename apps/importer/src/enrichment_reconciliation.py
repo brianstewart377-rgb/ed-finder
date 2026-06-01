@@ -4,7 +4,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from enrichment_reconciliation_scoring import candidate_confidence
+from enrichment_reconciliation_scoring import (
+    association_confidence_metadata,
+    candidate_confidence,
+)
 from enrichment_staging import canonicalise_json_payload
 
 
@@ -320,56 +323,51 @@ def station_body_association_candidates(
                 'system_name': source.get('system_name'),
                 'station_name': source.get('station_name'),
                 'body_name': source.get('body_name'),
+                'source_class': source.get('source_class'),
+                'freshness_class': source.get('freshness_class'),
+                'source_updated_at': source.get('source_updated_at'),
+                'source_confidence': source.get('confidence'),
             },
             'report_only': True,
             'canonical_link_writes_planned': 0,
         }
         if _missing(source.get('body_name')):
-            candidates.append({
-                **base,
-                'candidate_action': 'station_body_name_missing',
-                'confidence': 'low',
-                'risk_flags': ['missing_station_body_name'],
-                'confidence_explanations': [
-                    'Station evidence has no body_name; association remains unknown.',
-                    'Output is report-only; it is not a station-body link write plan.',
-                ],
-                'matched_body_evidence': [],
-            })
+            action = 'station_body_name_missing'
+            candidates.append(_association_candidate(
+                base,
+                action=action,
+                confidence='low',
+                risk_flags=['missing_station_body_name'],
+                matched_body_evidence=[],
+            ))
             continue
 
         key = _association_key(source)
         body_matches = body_index.get(key, []) if key is not None else []
         if len(body_matches) == 1:
             body_source = _source(body_matches[0])
-            candidates.append({
-                **base,
-                'candidate_action': 'station_body_supported_by_staged_body',
-                'confidence': 'medium',
-                'risk_flags': ['source_only_association'],
-                'confidence_explanations': [
-                    'Station body_name matches one staged body evidence row in the same system.',
-                    'The association remains report-only until a separate trusted write design exists.',
-                ],
-                'matched_body_evidence': [{
+            action = 'station_body_supported_by_staged_body'
+            candidates.append(_association_candidate(
+                base,
+                action=action,
+                confidence='medium',
+                risk_flags=['source_only_association'],
+                matched_body_evidence=[{
                     'source_record_hash': body_source.get('source_record_hash'),
                     'source_body_id': body_source.get('source_body_id'),
                     'body_name': body_source.get('body_name'),
                     'candidate_action': body_matches[0].get('candidate_action'),
                     'confidence': body_matches[0].get('confidence'),
                 }],
-            })
+            ))
         elif len(body_matches) > 1:
-            candidates.append({
-                **base,
-                'candidate_action': 'station_body_ambiguous_staged_body',
-                'confidence': 'low',
-                'risk_flags': ['ambiguous_staged_body_evidence'],
-                'confidence_explanations': [
-                    'More than one staged body evidence row matched the station body_name.',
-                    'Manual review is required before any future association design.',
-                ],
-                'matched_body_evidence': [
+            action = 'station_body_ambiguous_staged_body'
+            candidates.append(_association_candidate(
+                base,
+                action=action,
+                confidence='low',
+                risk_flags=['ambiguous_staged_body_evidence'],
+                matched_body_evidence=[
                     {
                         'source_record_hash': _source(match).get('source_record_hash'),
                         'source_body_id': _source(match).get('source_body_id'),
@@ -379,20 +377,40 @@ def station_body_association_candidates(
                     }
                     for match in body_matches
                 ],
-            })
+            ))
         else:
-            candidates.append({
-                **base,
-                'candidate_action': 'station_body_unresolved_staged_body',
-                'confidence': 'low',
-                'risk_flags': ['missing_staged_body_evidence'],
-                'confidence_explanations': [
-                    'No staged body evidence matched the station body_name in the same system.',
-                    'The association stays unresolved and report-only.',
-                ],
-                'matched_body_evidence': [],
-            })
+            action = 'station_body_unresolved_staged_body'
+            candidates.append(_association_candidate(
+                base,
+                action=action,
+                confidence='low',
+                risk_flags=['missing_staged_body_evidence'],
+                matched_body_evidence=[],
+            ))
     return sort_candidate_rows(candidates)
+
+
+def _association_candidate(
+    base: Mapping[str, Any],
+    *,
+    action: str,
+    confidence: str,
+    risk_flags: Sequence[str],
+    matched_body_evidence: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    source = base.get('source')
+    source_identity = source if isinstance(source, Mapping) else {}
+    return {
+        **dict(base),
+        'candidate_action': action,
+        **association_confidence_metadata(
+            action=action,
+            confidence=confidence,
+            source_identity=source_identity,
+            risk_flags=risk_flags,
+        ),
+        'matched_body_evidence': [dict(row) for row in matched_body_evidence],
+    }
 
 
 def source_coverage_summary(
@@ -430,9 +448,16 @@ def confidence_risk_summary(candidates: Sequence[Mapping[str, Any]]) -> dict[str
         'report_only': True,
         'canonical_writes_planned': 0,
         'confidence_distribution': _distribution(candidates, 'confidence'),
+        'confidence_level_distribution': _distribution(candidates, 'confidence_level'),
         'evidence_quality_distribution': _distribution(candidates, 'evidence_quality'),
         'identifier_quality_distribution': _distribution(candidates, 'identifier_quality'),
+        'reconciliation_state_distribution': _distribution(candidates, 'reconciliation_state'),
+        'risk_class_distribution': _distribution(candidates, 'risk_class'),
         'risk_flag_distribution': _risk_distribution(candidates),
+        'review_classification_distribution': _review_classification_distribution(candidates),
+        'source_freshness_impact_distribution': _source_freshness_impact_distribution(candidates),
+        'future_canonical_review_candidates': _future_review_candidate_count(candidates),
+        'important_review_examples': _important_review_examples(candidates),
     }
 
 
@@ -572,3 +597,58 @@ def _risk_distribution(candidates: Sequence[Mapping[str, Any]]) -> dict[str, int
             key = str(flag)
             counts[key] = counts.get(key, 0) + 1
     return dict(sorted(counts.items()))
+
+
+def _review_classification_distribution(candidates: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        classifications = candidate.get('review_classifications', [])
+        if not isinstance(classifications, Sequence) or isinstance(classifications, (str, bytes, bytearray)):
+            continue
+        for classification in classifications:
+            key = str(classification)
+            counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _source_freshness_impact_distribution(candidates: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        source_freshness = candidate.get('source_freshness')
+        if not isinstance(source_freshness, Mapping):
+            continue
+        impact = source_freshness.get('freshness_impact')
+        if _missing(impact):
+            continue
+        key = str(impact)
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _future_review_candidate_count(candidates: Sequence[Mapping[str, Any]]) -> int:
+    return sum(
+        1 for candidate in candidates
+        if isinstance(candidate.get('future_canonical_review_candidate'), Mapping)
+        and candidate['future_canonical_review_candidate'].get('marker') == 'future_canonical_review_candidate'
+    )
+
+
+def _important_review_examples(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    examples = []
+    for candidate in candidates:
+        if candidate.get('risk_class') not in {'blocked', 'risky', 'stale', 'volatile'}:
+            continue
+        source = _source(candidate)
+        examples.append({
+            'entity': candidate.get('entity'),
+            'candidate_action': candidate.get('candidate_action'),
+            'confidence': candidate.get('confidence'),
+            'reconciliation_state': candidate.get('reconciliation_state'),
+            'risk_class': candidate.get('risk_class'),
+            'risk_flags': list(candidate.get('risk_flags', [])),
+            'system_id64': source.get('system_id64'),
+            'system_name': source.get('system_name'),
+            'source_record_hash': source.get('source_record_hash'),
+            'report_only': True,
+        })
+    return sort_candidate_rows(examples)[:10]

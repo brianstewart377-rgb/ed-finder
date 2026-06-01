@@ -305,7 +305,11 @@ Important sections:
   identity conflicts, high-value systems needing better evidence, and source
   type/source-format coverage.
 - `confidence_risk_summary`: confidence, evidence quality, identifier quality,
-  and risk-flag distributions.
+  reconciliation state, risk-class, review-classification, source-freshness
+  impact, future-review-marker, and risk-flag distributions. Stage 18F
+  confidence fields explain why a candidate is confirmed, inferred/verify,
+  unresolved, source-only, stale, volatile, blocked, report-only, or unknown;
+  they are not canonical eligibility or write instructions.
 
 Candidate actions to expect:
 
@@ -329,6 +333,8 @@ Warnings that block any later stage:
   filters
 - any non-zero `errors`
 - any report that omits `canonical_writes_planned = 0`
+- confidence/risk output that labels a candidate as a future canonical review
+  candidate without also keeping `auto_promote_to_canonical = false`
 
 Coverage report rules:
 

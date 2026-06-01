@@ -139,7 +139,12 @@ Stage 18B broadens the read-only reconciliation report with named sections:
   versioned as `enrichment_warehouse_coverage_report/v1`, deterministic, and
   report-only.
 * `confidence_risk_summary` keeps aggregate confidence, identifier/evidence
-  quality, and risk-flag distributions explainable.
+  quality, risk-class, review-classification, source-freshness-impact, and
+  future-review-marker distributions explainable. Stage 18F keeps this model
+  report-only and versioned as `enrichment_reconciliation_confidence/v1`;
+  blocked, risky, stale, volatile, source-only, confirmed, inferred/verify,
+  unresolved, report-only, and unknown states are labels for operator review,
+  not canonical eligibility or write instructions.
 * `analytics_signals`, `colonisation_signals`, and `mission_density_signals`
   are embedded as report-only signal sections with
   `canonical_writes_planned = 0`.
