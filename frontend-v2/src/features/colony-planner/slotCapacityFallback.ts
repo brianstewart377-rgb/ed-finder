@@ -54,12 +54,12 @@ export function resolveSlotCapacity(
 
 export function buildBodyDataSlotEstimateMap(
   system: SystemDetail,
-  confirmedSlots: BodySlotPrediction[] | null | undefined,
+  slotPredictions: BodySlotPrediction[] | null | undefined,
 ): Map<string, BodyDataSlotEstimate> {
   const bodyData = systemBodyData(system);
-  if (!shouldUseBodyDataSlotFallback(system, confirmedSlots)) return new Map();
+  if (!shouldUseBodyDataSlotFallback(system, slotPredictions)) return new Map();
 
-  const calculatedArray = bodyData
+  const calculatedEstimates = bodyData
     .filter((body) => body.id != null)
     .map((body) => {
       const slots = estimateBodySlots(body, { allowMinimalBodyDataEstimate: true });
@@ -73,17 +73,15 @@ export function buildBodyDataSlotEstimateMap(
     })
     .filter((estimate): estimate is BodyDataSlotEstimate => estimate != null);
 
-  console.log('Calculated Slots:', calculatedArray);
-
-  return new Map(calculatedArray.map((estimate) => [estimate.bodyId, estimate]));
+  return new Map(calculatedEstimates.map((estimate) => [estimate.bodyId, estimate]));
 }
 
 export function shouldUseBodyDataSlotFallback(
   system: SystemDetail,
-  confirmedSlots: BodySlotPrediction[] | null | undefined,
+  slotPredictions: BodySlotPrediction[] | null | undefined,
 ): boolean {
   const bodyData = systemBodyData(system);
-  return (!confirmedSlots || confirmedSlots.length === 0) && bodyData.length > 0;
+  return (!slotPredictions || slotPredictions.length === 0) && bodyData.length > 0;
 }
 
 export function systemBodyData(system: SystemDetail): SystemBody[] {

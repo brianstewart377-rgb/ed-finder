@@ -286,19 +286,23 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
     const summary = buildRavenPlannerOccupancySummary(occupiedSystem, occupiedSnapshot);
 
     expect(body?.existingCount).toBe(2);
+    expect(body?.inferredExistingCount).toBe(2);
     expect(body?.plannedCount).toBe(0);
     expect(body?.orbitalSlots[0]).toEqual(expect.objectContaining({
       kind: 'existing',
       fullName: 'Holden Orbital',
       existingStructureId: 'existing-9001',
+      warningLabels: ['Inferred association'],
     }));
     expect(body?.orbitalSlots[1]).toEqual(expect.objectContaining({ kind: 'empty' }));
     expect(body?.groundSlots[0]).toEqual(expect.objectContaining({
       kind: 'existing',
       fullName: 'Kepler Surface Port',
+      warningLabels: ['Inferred association'],
     }));
     expect(summary).toEqual(expect.objectContaining({
       existingCount: 2,
+      inferredExistingCount: 2,
       plannedCount: 0,
       projectedCount: 0,
       emptySlotCount: 2,
@@ -308,8 +312,10 @@ describe('RavenStylePlannerCanvas real data adapter', () => {
 
     expect(screen.getByTestId('raven-existing-infrastructure-summary').textContent).toContain('Existing infrastructure detected');
     expect(screen.getAllByTestId('raven-existing-structure')).toHaveLength(2);
+    expect(screen.getAllByTestId('raven-inferred-existing-marker')).toHaveLength(2);
     expect(screen.getAllByText('Holden Orbital').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Kepler Surface Port').length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle(/Body match inferred \(frontend_body_name_fallback\).*verify against backend resolver metadata/i)).toHaveLength(2);
     expect((screen.getByTestId('2-orbital-add') as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTestId('2-ground-add') as HTMLButtonElement).disabled).toBe(false);
   });
