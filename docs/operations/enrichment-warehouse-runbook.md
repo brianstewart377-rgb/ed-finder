@@ -492,6 +492,13 @@ It stopped before any production-connected command because the verified
 read-only DSN, source run/file scope, read-only session option, and
 operator-managed output path were not available.
 
+Stage 18J-Q4 documents the operator access packet in
+`docs/operations/stage-18j-q4-operator-access-packet.md`. It defines the
+missing variables, read-only DSN requirements, source run/file approval, safe
+artifact directory requirements, mandatory `PGOPTIONS`, redacted command
+template, secret handling, and sign-off checklist needed before retrying
+Stage 18J-Q3.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables
