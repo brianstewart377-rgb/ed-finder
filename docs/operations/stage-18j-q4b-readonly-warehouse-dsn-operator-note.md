@@ -43,16 +43,17 @@ operator secret manager, deployment secret store, or private operator shell. It
 must not be written to committed docs, tracked `.env` files, PRs, issue
 comments, screenshots, or copied logs.
 
-If no read-only/report-only warehouse credential exists yet, the next work
-should be a separate docs/ops planning stage:
+If no read-only/report-only warehouse credential exists yet, the follow-up
+provisioning plan is:
 
 ```text
-Stage 18J-Q4b - Read-Only Warehouse DSN Provisioning Plan
+Stage 18J-Q4c - Read-Only Warehouse DSN Provisioning Plan
 ```
 
-That stage should define how to provision a dedicated read/report role and
-validate its grants before any production-connected reconciliation command is
-run.
+See
+[`stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`](./stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md).
+That plan defines how to provision a dedicated read/report role and validate
+its grants before any production-connected reconciliation command is run.
 
 ## Required Variables For A Later Q3 Retry
 

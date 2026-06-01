@@ -499,6 +499,16 @@ artifact directory requirements, mandatory `PGOPTIONS`, redacted command
 template, secret handling, and sign-off checklist needed before retrying
 Stage 18J-Q3.
 
+Stage 18J-Q4b records the local/operator note for the missing
+`EDFINDER_WAREHOUSE_READ_DSN` in
+`docs/operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md`.
+
+Stage 18J-Q4c documents the provisioning plan for a dedicated
+read-only/report-only warehouse DSN in
+`docs/operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`.
+It is docs/ops planning only and does not create roles, change deployment
+config, run reconciliation, generate artifacts, or authorize apply.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

@@ -606,6 +606,36 @@ Non-goals:
 Access packet:
 `../operations/stage-18j-q4-operator-access-packet.md`.
 
+### Stage 18J-Q4b/Q4c — Read-Only Warehouse DSN Operator Prep
+
+Purpose: document the missing read-only/report-only warehouse DSN and the
+operator plan to provision it safely before Stage 18J-Q3 is retried.
+
+Scope:
+
+- Confirm the repo does not already define a usable
+  `EDFINDER_WAREHOUSE_READ_DSN`.
+- Explain why a local/dev checkout such as DAVE2 is not sufficient unless it
+  has separately approved deployment database administration access.
+- Define the required read/report role properties, forbidden permissions,
+  private environment variables, redacted verification steps, and Q3 retry
+  criteria.
+
+Non-goals:
+
+- No production-connected reconciliation command execution.
+- No production artifact generation or approval.
+- No role creation, grant changes, deployment config changes, or database
+  access.
+- No station-type dry-run generation.
+- No production apply or canonical data changes.
+
+Operator note:
+`../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md`.
+
+Provisioning plan:
+`../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -645,5 +675,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 19. Stage 18J-Q2 read-only production reconciliation plan.
 20. Stage 18J-Q3 read-only production reconciliation artifact gate.
 21. Stage 18J-Q4 operator access packet.
+22. Stage 18J-Q4b/Q4c read-only warehouse DSN operator prep.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
