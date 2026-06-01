@@ -8,6 +8,7 @@ import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { OptimiserComparisonPanel, compareBuildSources, sourceFromCurrentPreview, sourceFromOptimiserCandidate } from './comparison';
 import { formatScore, rankTone, strategyLabel } from './optimiserUtils';
 import { suggestedBuildPresentation } from './optimiserQualityUtils';
+import type { SuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
 
 export function OptimiserCandidateDetails({
   candidate,
@@ -23,6 +24,7 @@ export function OptimiserCandidateDetails({
   currentControlTargetArchetype,
   bodyLabelsById,
   templates = [],
+  advisor,
 }: {
   candidate?: OptimiserCandidate;
   ranking?: RankedOptimiserCandidate;
@@ -37,6 +39,7 @@ export function OptimiserCandidateDetails({
   currentControlTargetArchetype?: string | null;
   bodyLabelsById?: Record<string, string>;
   templates?: FacilityTemplate[];
+  advisor?: SuggestedBuildStrategyAdvisor;
 }) {
   const [loadConfirmation, setLoadConfirmation] = useState<'replace' | 'stale' | 'stale_replace' | null>(null);
   const comparison = useMemo(() => {
@@ -144,6 +147,8 @@ export function OptimiserCandidateDetails({
         <SummaryBox title="Tradeoff" body={presentation.tradeoff} />
         <SummaryBox title="Next action" body={presentation.nextAction} />
       </div>
+
+      {advisor && <StrategyAdvisorSection advisor={advisor} />}
 
       <div className="rounded border border-orange/25 bg-orange/8 px-3 py-2">
         <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Plan scale</h5>
@@ -303,6 +308,43 @@ function SummaryBox({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
       <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">{title}</h5>
+      <p className="mt-1 text-[11px] leading-snug text-silver-dk">{body}</p>
+    </div>
+  );
+}
+
+function StrategyAdvisorSection({ advisor }: { advisor: SuggestedBuildStrategyAdvisor }) {
+  return (
+    <section
+      data-testid="suggested-build-strategy-advisor"
+      className="border-t border-border/45 pt-3"
+    >
+      <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Strategy advisor</h5>
+      <div className="mt-2 grid gap-x-4 gap-y-2 md:grid-cols-2">
+        <AdvisorFact title="Body choice" body={advisor.bodyChoice} />
+        <AdvisorFact title="Existing infrastructure" body={advisor.existingInfrastructure} />
+        <AdvisorFact title="Slot pressure" body={advisor.slotPressure} />
+        <AdvisorFact title="Economy intent" body={advisor.economyIntent} />
+        <AdvisorFact title="Declared roles" body={advisor.roleContext} />
+        <AdvisorFact title="Uncertainty" body={advisor.uncertainty} />
+      </div>
+      <details className="mt-3 border-t border-border/35 pt-2">
+        <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
+          Projection and manual review
+        </summary>
+        <div className="mt-2 space-y-1 text-[11px] leading-snug text-silver-dk">
+          <p>{advisor.projectionEffect}</p>
+          <p>{advisor.manualBoundary}</p>
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function AdvisorFact({ title, body }: { title: string; body: string }) {
+  return (
+    <div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">{title}</div>
       <p className="mt-1 text-[11px] leading-snug text-silver-dk">{body}</p>
     </div>
   );
