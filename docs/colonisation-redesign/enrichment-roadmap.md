@@ -435,6 +435,21 @@ records, and canonical-safety flags. Missing or invalid artifacts remain
 unavailable/unknown; the panel does not run warehouse scripts, query the
 warehouse, call live APIs, or add write controls.
 
+Stage 18H adds a read-only warehouse-to-planner evidence bridge. It lets the
+Colony Planner present selected warehouse/report-only evidence as evidence, not
+truth. Because the Stage 18G warehouse artifact is admin-token-gated and
+aggregate-only (it carries review counts, not per-`system_id64` rows), there is
+no safe key to link warehouse evidence to a planner system yet. Per the stage
+decision gate, Stage 18H ships the conservative path: a typed read-only
+`PlannerWarehouseEvidence` model, a compact source-labelled planner card that
+defaults to a safe unavailable/unknown state, tests proving the unavailable
+state and no-mutation guarantee, and a design doc with the future per-system
+integration path
+(`docs/colonisation-redesign/stage-18h-warehouse-planner-evidence-bridge.md`).
+It adds no backend endpoint, makes no live calls, and never mutates planner,
+Build Plan, role, observed-evidence, validation, scoring, Preview, optimiser, or
+canonical state.
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.
