@@ -468,6 +468,12 @@ Postgres stack if feasible, with a future path to a separate instance. This
 runbook still describes the current report-only workflow; no database creation,
 migration, permission, or canonical apply step is added by Stage 18I.5.
 
+Stage 18T documents the canonical safety test environment in
+`docs/colonisation-redesign/stage-18t-canonical-safety-test-environment.md`.
+It adds a dedicated CI gate, a local runner, and disposable Postgres rehearsal
+coverage for the guarded Stage 18J station type apply path. This does not
+authorize production apply or production artifact creation.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

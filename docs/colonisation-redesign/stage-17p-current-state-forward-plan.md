@@ -462,6 +462,40 @@ Acceptance:
 
 - One narrow canonical write path is proven safe, auditable, reversible, and boring before any wider canonical expansion.
 
+Stage 18J delivered the station type canonical pilot as the first
+canonical-write-capable path. Production apply remains unauthorized unless a
+separate future instruction approves the exact artifact, candidate count,
+source run/file, table, field, max row count, and apply DSN context.
+
+### Stage 18T — Canonical Safety Test Environment
+
+Purpose: make canonical-write-capable test coverage repeatable in CI and local
+development before further production dry-run or apply work.
+
+Scope:
+
+- Add a dedicated canonical safety CI job.
+- Install explicit test prerequisites, including `pytest-asyncio`.
+- Add a local one-command canonical safety test runner.
+- Add disposable Postgres rehearsal and permission-boundary tests for the
+  guarded Stage 18J station type apply path.
+
+Non-goals:
+
+- No production apply.
+- No production artifact.
+- No production DB access.
+- No broad canonical backfill.
+- No UI/API apply controls or scheduler wiring.
+
+Acceptance:
+
+- The canonical safety suite runs consistently in CI and locally.
+- Disposable Postgres rehearsal proves the guarded apply path and scoped
+  permissions without touching production.
+
+Environment doc: `stage-18t-canonical-safety-test-environment.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -496,5 +530,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 14. Stage 18I canonical write design review.
 15. Stage 18I.5 warehouse database boundary review.
 16. Stage 18J first narrow canonical write pilot.
+17. Stage 18T canonical safety test environment.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
