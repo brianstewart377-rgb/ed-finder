@@ -29,9 +29,11 @@ from enrichment_staging import (  # noqa: E402
     build_mission_intelligence_dry_run,
     build_station_snapshot_enrichment_dry_run,
     canonicalise_json_payload,
+    classify_station_type_evidence,
     classify_source_adapter,
     classify_source_field,
     idempotency_key,
+    normalise_station_type_label,
     normalise_source_file_metadata,
     normalise_source_run_metadata,
     payload_fingerprint,
@@ -121,6 +123,30 @@ def test_source_classification_covers_current_and_future_adapters():
     assert classify_source_field('edsm_nightly_stations', 'distanceToArrival') == 'volatile'
     assert classify_source_field('edsm_nightly_stations', 'distance_from_star') == 'semi-stable'
     assert classify_source_field('live_edsm_diagnostics', 'name') == 'diagnostic-only'
+
+
+def test_station_type_evidence_preserves_source_label_and_classifies_transients():
+    assert normalise_station_type_label('Orbis Starport') == 'Orbis'
+    assert normalise_station_type_label('Planetary Settlement') == 'PlanetaryOutpost'
+    assert normalise_station_type_label('Fleet Carrier') == 'FleetCarrier'
+    assert normalise_station_type_label('Carrier') == 'FleetCarrier'
+    assert normalise_station_type_label('Coriolis Logistics') == 'Unknown'
+    assert normalise_station_type_label(None) is None
+
+    assert classify_station_type_evidence('Orbis Starport') == {
+        'station_type_raw': 'Orbis Starport',
+        'station_type_normalized': 'Orbis',
+        'station_type_classification': 'permanent_colony_slot',
+        'station_type_preserved_as_source_label': True,
+    }
+    assert classify_station_type_evidence('Fleet Carrier') == {
+        'station_type_raw': 'Fleet Carrier',
+        'station_type_normalized': 'FleetCarrier',
+        'station_type_classification': 'transient_non_slot',
+        'station_type_preserved_as_source_label': True,
+    }
+    assert classify_station_type_evidence('Coriolis Logistics')['station_type_classification'] == 'unknown'
+    assert classify_station_type_evidence(None)['station_type_classification'] == 'missing'
 
 
 def test_report_skeletons_are_versioned_and_deterministic():

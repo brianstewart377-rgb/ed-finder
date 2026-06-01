@@ -32,7 +32,7 @@ Current supported source adapters:
 
 | Source | Input file | Current purpose |
 |---|---|---|
-| `edsm_nightly_stations` | Local `.json` or `.json.gz` station snapshot. JSON array, NDJSON, or small object wrapper with a `stations` array. | Station evidence dry-run, staging load, staged-row summary, reconciliation. |
+| `edsm_nightly_stations` | Local `.json` or `.json.gz` station snapshot. JSON array, NDJSON, small object wrapper with a `stations` array, or nested EDSM system records with a `stations` array. | Station evidence dry-run, staging load, staged-row summary, reconciliation. |
 | `edsm_nightly_bodies` | Local `.json` or `.json.gz` body records with optional `rings` arrays. JSON array or NDJSON. | Body/ring evidence dry-run, staging load, staged-row summary, reconciliation. |
 
 The scripts preserve source payloads and future/unknown fields in raw evidence.
@@ -40,6 +40,14 @@ Missing evidence remains unknown. Missing ring arrays are reported as
 `unknown_not_false`; they are not proof that a body has no rings. Source-only
 ring evidence is not trusted local ring truth unless later reconciled to trusted
 `body_rings` evidence.
+
+Nested EDSM system station snapshots are supported only for station extraction.
+The loader preserves each full system record in `enrichment_raw_records`,
+extracts deterministic station staging rows with station-specific source
+hashes, links them back to the parent raw system hash in provenance, and
+reports nested `bodies` collections as raw-only unsupported-source-shape
+warnings. Nested bodies do not populate body/ring staging tables through the
+station source path and do not become canonical truth.
 
 ## Safety Model
 
@@ -143,6 +151,8 @@ A good dry-run has:
 - `schema_version = "enrichment_snapshot_load_plan/v1"`
 - `dry_run = true`
 - expected `records_seen`, `raw_records`, and staged-row counts
+- for nested system station snapshots, expected
+  `nested_station_collections` and `nested_station_records_extracted`
 - `source_format_version = "json_snapshot_stream/v1"` and the expected
   `record_stream_shape`
 - `source_timestamp_summary` and `source_freshness_summary` matching the
@@ -176,8 +186,9 @@ Warnings that block moving to staging load:
 - required identity fields missing across most records
 - unexpected `record_is_not_object` or malformed JSON patterns
 - unsupported source adapter
-- unsupported nested source shape, such as future system-with-`bodies`
-  snapshots, until a dedicated adapter exists
+- unsupported nested source shape that is not the supported nested system
+  station form. Nested `bodies` on a supported station snapshot are warning
+  evidence only and should be reviewed before staging load.
 - `duplicate_source_identity_conflict`
 - non-array `rings` fields or malformed ring rows in body/ring snapshots
 - remote URL used as `--source-file`
@@ -508,6 +519,14 @@ read-only/report-only warehouse DSN in
 `docs/operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`.
 It is docs/ops planning only and does not create roles, change deployment
 config, run reconciliation, generate artifacts, or authorize apply.
+
+Stage 18J-Q5 documents nested EDSM station snapshot support in
+`docs/colonisation-redesign/stage-18j-q5-nested-edsm-station-snapshot-support.md`.
+It hardens the local loader for `/data/dumps/galaxy_stations.json.gz`-style
+nested system records without using production data. Stage 18J-Q3 remains
+blocked until this support is merged and a separate explicitly approved
+production staging load is retried; no production load, reconciliation, or
+apply is authorized by Q5.
 
 ## Optional Postgres Smoke Tests
 

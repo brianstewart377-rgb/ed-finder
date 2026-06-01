@@ -427,11 +427,15 @@ def write_station_snapshot_report(
             batches_attempted += 1
             for station_row in batch:
                 record_hash = str(station_row['source_record_hash'])
+                parent_record_hash = str(
+                    (station_row.get('provenance') or {}).get('parent_source_record_hash')
+                    or ''
+                )
                 staging_id = upsert_staging_station(
                     cur,
                     source_run_id,
                     source_file_id,
-                    raw_ids_by_hash.get(record_hash),
+                    raw_ids_by_hash.get(record_hash) or raw_ids_by_hash.get(parent_record_hash),
                     station_row,
                 )
                 staging_ids_by_hash[record_hash] = staging_id

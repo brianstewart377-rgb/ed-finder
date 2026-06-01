@@ -1,0 +1,48 @@
+[
+  {
+    "id": 7001,
+    "name": "Nested Alpha",
+    "systemId64": 111111111,
+    "updatedAt": "2026-05-30T00:00:00Z",
+    "stations": [
+      {
+        "id": 1001,
+        "marketId": 9001001,
+        "name": "Alpha Orbital",
+        "type": "Orbis Starport",
+        "distanceToArrival": 101.5,
+        "bodyName": "Nested Alpha 1"
+      },
+      {
+        "id": 1002,
+        "marketId": 9001002,
+        "name": "FC Test",
+        "type": "Fleet Carrier",
+        "distanceToArrival": 2048.0
+      }
+    ],
+    "bodies": [
+      {
+        "id": 1,
+        "name": "Nested Alpha 1",
+        "type": "Planet"
+      }
+    ]
+  },
+  {
+    "systemName": "Nested Beta",
+    "id64": 222222222,
+    "stations": [
+      {
+        "edsmStationId": 1003,
+        "marketId": 9001003,
+        "stationName": "Beta Plant",
+        "stationType": "Planetary Settlement",
+        "services": ["Dock", "Market"],
+        "body": {
+          "name": "Nested Beta A 2"
+        }
+      }
+    ]
+  }
+]

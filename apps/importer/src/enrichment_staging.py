@@ -78,6 +78,44 @@ SOURCE_CLASS_BY_ADAPTER = {
     'live_edsm_diagnostics': SOURCE_CLASS_DIAGNOSTIC_ONLY,
 }
 
+PERMANENT_COLONY_SLOT_STATION_TYPES = {
+    'Coriolis',
+    'Orbis',
+    'Ocellus',
+    'Outpost',
+    'AsteroidBase',
+    'PlanetaryPort',
+    'PlanetaryOutpost',
+}
+
+TRANSIENT_NON_SLOT_STATION_TYPES = {
+    'FleetCarrier',
+    'MegaShip',
+}
+
+STATION_TYPE_LABELS = {
+    'coriolis': 'Coriolis',
+    'coriolisstarport': 'Coriolis',
+    'orbis': 'Orbis',
+    'orbisstarport': 'Orbis',
+    'ocellus': 'Ocellus',
+    'ocellusstarport': 'Ocellus',
+    'outpost': 'Outpost',
+    'asteroidbase': 'AsteroidBase',
+    'planetaryport': 'PlanetaryPort',
+    'planetaryoutpost': 'PlanetaryOutpost',
+    'planetarysettlement': 'PlanetaryOutpost',
+    'settlement': 'PlanetaryOutpost',
+    'surfacesettlement': 'PlanetaryOutpost',
+    'surfacestation': 'PlanetaryPort',
+    'craterport': 'PlanetaryPort',
+    'crateroutpost': 'PlanetaryOutpost',
+    'fleetcarrier': 'FleetCarrier',
+    'carrier': 'FleetCarrier',
+    'megaship': 'MegaShip',
+    'unknown': 'Unknown',
+}
+
 VOLATILE_FIELDS = {
     'distancetoarrival',
     'distance_to_arrival',
@@ -386,6 +424,31 @@ def read_float(value: Any) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def normalise_station_type_label(station_type: Any) -> str | None:
+    token = ''.join(ch for ch in str(station_type or '').lower() if ch.isalnum())
+    if not token:
+        return None
+    return STATION_TYPE_LABELS.get(token, 'Unknown')
+
+
+def classify_station_type_evidence(station_type: Any) -> dict[str, Any]:
+    normalised = normalise_station_type_label(station_type)
+    if normalised is None:
+        classification = 'missing'
+    elif normalised in TRANSIENT_NON_SLOT_STATION_TYPES:
+        classification = 'transient_non_slot'
+    elif normalised in PERMANENT_COLONY_SLOT_STATION_TYPES:
+        classification = 'permanent_colony_slot'
+    else:
+        classification = 'unknown'
+    return {
+        'station_type_raw': read_text(station_type),
+        'station_type_normalized': normalised,
+        'station_type_classification': classification,
+        'station_type_preserved_as_source_label': True,
+    }
 
 
 def normalise_json_array(value: Any) -> list[Any]:
