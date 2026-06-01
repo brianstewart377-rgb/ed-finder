@@ -437,6 +437,12 @@ Acceptance:
 - The recommendation is explicit: separate `edfinder_enrichment` database now if feasible, with a clean route to a separate instance/server later.
 - Future Stage 18J cannot start until this boundary review is complete.
 
+Boundary review: `stage-18i5-warehouse-database-boundary-review.md`.
+Stage 18I.5 recommends Option B, a separate `edfinder_enrichment` database on
+the same Postgres stack if feasible, while preserving Option C as the future
+separate-instance path. It remains documentation-only and does not create
+databases, users, permissions, or migrations.
+
 ### Stage 18J — First Narrow Canonical Write Pilot
 
 Purpose: prove one narrow canonical write path can be trusted.

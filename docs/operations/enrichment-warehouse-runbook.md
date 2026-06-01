@@ -461,6 +461,13 @@ design-only and does not authorize any canonical apply workflow. Until Stage
 18I.5 and a later approved Stage 18J pilot exist, warehouse evidence and
 reconciliation candidates remain report-only.
 
+Stage 18I.5 documents the database-boundary decision in
+`docs/colonisation-redesign/stage-18i5-warehouse-database-boundary-review.md`.
+It recommends a separate `edfinder_enrichment` warehouse database on the same
+Postgres stack if feasible, with a future path to a separate instance. This
+runbook still describes the current report-only workflow; no database creation,
+migration, permission, or canonical apply step is added by Stage 18I.5.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables
@@ -523,14 +530,14 @@ If reconciliation shows conflicts or warnings:
 
 ## Future DB Boundary Notes
 
-Stage 18I.5 is expected to review the database boundary. The preferred future
-direction may move the warehouse from same-database staging tables toward a
-separate `edfinder_enrichment` database on the same Postgres server, with a
-path to a separate instance later if operational load or retention risk
+Stage 18I.5 reviewed the database boundary. The preferred future direction is
+to move the warehouse from same-database staging tables toward a separate
+`edfinder_enrichment` database on the same Postgres server/stack if feasible,
+with a path to a separate instance later if operational load or retention risk
 requires it.
 
-Until that review lands, treat DSNs and paths in this runbook as current
-operator examples. Future work may rename the warehouse DSN variable, move the
-warehouse schema, or require different read-only access patterns for canonical
-comparison. The hard boundary remains unchanged: warehouse data is evidence and
-reports, not canonical truth.
+Until that architecture is implemented, treat DSNs and paths in this runbook as
+current operator examples. Future work may rename the warehouse DSN variable,
+move the warehouse schema, or require different read-only access patterns for
+canonical comparison. The hard boundary remains unchanged: warehouse data is
+evidence and reports, not canonical truth.
