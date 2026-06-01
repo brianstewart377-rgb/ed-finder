@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOptimiserCandidates } from '@/lib/api';
-import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking, SimulateBuildPlacement } from '@/types/api';
+import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
+import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
@@ -9,6 +10,7 @@ import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { candidatePlacementsToPreviewPlacements, sortCandidatesForDisplay } from './optimiserUtils';
 import { filterUsefulSuggestedBuilds, suggestedBuildPresentation, suggestedBuildScale } from './optimiserQualityUtils';
+import { buildSuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
@@ -123,6 +125,98 @@ const ranking: OptimiserRanking = {
   warnings: [],
   assumptions: [],
 };
+
+const advisorSystem = {
+  id64: 123,
+  name: 'Advisor Test',
+  bodies: [
+    {
+      id: 1,
+      name: 'Advisor Test 1',
+      body_type: 'Planet',
+      subtype: 'High metal content world',
+      is_landable: true,
+      is_water_world: false,
+      is_ringed: true,
+      radius: 4500,
+    },
+    {
+      id: 2,
+      name: 'Advisor Test 2',
+      body_type: 'Planet',
+      subtype: 'Icy body',
+      is_landable: false,
+      is_water_world: false,
+      is_ringed: false,
+    },
+  ],
+  stations: [
+    {
+      id: 1001,
+      name: 'Known Orbital',
+      station_type: 'Coriolis',
+      body_id: 1,
+      body_name: 'Advisor Test 1',
+      lane: 'orbital',
+      association_status: 'confirmed',
+      association_confidence: 'exact',
+      association_source: 'imported_architect',
+    },
+    {
+      id: 1002,
+      name: 'Verify Surface Port',
+      station_type: 'PlanetaryPort',
+      body_id: 1,
+      body_name: 'Advisor Test 1',
+      lane: 'surface',
+      association_status: 'inferred',
+      association_confidence: 'strong_inference',
+      association_source: 'resolver',
+      resolver_notes: 'Matched by body name.',
+    },
+    {
+      id: 1003,
+      name: 'Unresolved Facility',
+      station_type: 'Installation',
+      lane: 'unknown',
+      association_status: 'unresolved',
+      association_confidence: 'unresolved',
+      association_source: 'resolver',
+      resolver_notes: 'No reliable body association is available.',
+    },
+  ],
+} as SystemDetail;
+
+const advisorSlotPredictions: SlotPredictionResponse = {
+  system_id64: 123,
+  data_source: 'eddn',
+  body_count: 2,
+  prediction_status: 'predicted',
+  prediction_version: 'test',
+  disclaimer: 'test',
+  validation_note: 'test',
+  predictions: [
+    {
+      system_address: 123,
+      body_id: 1,
+      body_name: 'Advisor Test 1',
+      predicted_orbital_slots: 2,
+      predicted_ground_slots: 1,
+      prediction_status: 'predicted',
+    },
+  ],
+};
+
+const advisorDeclaredRoles: DeclaredColonyRole[] = [
+  {
+    id: 'declared:1:main_station_body',
+    body_id: '1',
+    role_id: 'main_station_body',
+    source: 'declared',
+    confidence: 'strong',
+    label: 'Main Station Body',
+  },
+];
 
 function response(overrides: Partial<OptimiserCandidatesResponse> = {}): OptimiserCandidatesResponse {
   return {
@@ -259,6 +353,49 @@ describe('optimiser candidate comparison UI', () => {
     expect(suggestedBuildPresentation(starter).bodyCount).toBe(3);
   });
 
+  it('builds strategic advisor context without mutating candidate or current Build Plan inputs', () => {
+    const selected = {
+      ...candidate('advisor-candidate', 'Advisor candidate'),
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: '1', is_primary_port: true, build_order: 1 },
+        { facility_template_id: 'agri_support_a', local_body_id: '1', is_primary_port: false, build_order: 2 },
+      ],
+      warnings: ['Candidate scale is limited by sparse body or facility data.'],
+      assumptions: ['Generate additional data/imports to unlock larger strategic plans for this system.'],
+    };
+    const currentPlacements: SimulateBuildPlacement[] = [
+      { facility_template_id: 'generic_port_alpha', local_body_id: '2', is_primary_port: true, build_order: 1 },
+    ];
+    const beforeCandidate = structuredClone(selected);
+    const beforeCurrent = structuredClone(currentPlacements);
+
+    const advisor = buildSuggestedBuildStrategyAdvisor({
+      candidate: selected,
+      system: advisorSystem,
+      templates,
+      bodyLabelsById: { '1': 'Advisor Test 1', '2': 'Advisor Test 2' },
+      currentPreviewPlacements: currentPlacements,
+      declaredRoles: advisorDeclaredRoles,
+      slotPredictions: advisorSlotPredictions,
+    });
+
+    expect(advisor.bodyChoice).toMatch(/main body is Advisor Test 1/i);
+    expect(advisor.roleContext).toMatch(/Advisor Test 1: Main Station/i);
+    expect(advisor.existingInfrastructure).toMatch(/2 existing slot occupant/i);
+    expect(advisor.existingInfrastructure).toMatch(/1 confirmed, 1 verify\/inferred/i);
+    expect(advisor.existingInfrastructure).toMatch(/unresolved.*unknown-lane/i);
+    expect(advisor.slotPressure).toMatch(/Advisor Test 1 Surface/i);
+    expect(advisor.slotPressure).toMatch(/projected ghost 1/i);
+    expect(advisor.slotPressure).toMatch(/exceed visible capacity by 1/i);
+    expect(advisor.economyIntent).toMatch(/Agri x1/i);
+    expect(advisor.uncertainty).toMatch(/sparse, estimated, or incomplete data/i);
+    expect(advisor.projectionEffect).toMatch(/ghost structure/i);
+    expect(advisor.manualBoundary).toMatch(/Load explicitly/i);
+    expect(advisor.manualBoundary).toMatch(/Run Preview remains explicit/i);
+    expect(selected).toEqual(beforeCandidate);
+    expect(currentPlacements).toEqual(beforeCurrent);
+  });
+
   it('defaults Suggested Builds scale to Expansion and avoids bootstrap-first display', async () => {
     const bootstrap = {
       ...candidate('bootstrap-option', 'Bootstrap option'),
@@ -367,6 +504,52 @@ describe('optimiser candidate comparison UI', () => {
     expect(screen.queryByText(/advisory and preview-only/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show comparison' }));
     expect(screen.getByText(/advisory and preview-only/i)).toBeTruthy();
+  });
+
+  it('renders compact strategy advisor details while keeping load and Preview explicit', () => {
+    const load = vi.fn();
+    const selected = {
+      ...candidate('advisor-candidate', 'Advisor candidate'),
+      placements: [
+        { facility_template_id: 'generic_port_alpha', local_body_id: '1', is_primary_port: true, build_order: 1 },
+        { facility_template_id: 'agri_support_a', local_body_id: '1', is_primary_port: false, build_order: 2 },
+      ],
+      warnings: ['Candidate scale is limited by sparse body or facility data.'],
+      assumptions: ['Generate additional data/imports to unlock larger strategic plans for this system.'],
+    };
+    const advisor = buildSuggestedBuildStrategyAdvisor({
+      candidate: selected,
+      system: advisorSystem,
+      templates,
+      bodyLabelsById: { '1': 'Advisor Test 1', '2': 'Advisor Test 2' },
+      declaredRoles: advisorDeclaredRoles,
+      slotPredictions: advisorSlotPredictions,
+    });
+
+    const { container } = render(
+      <OptimiserCandidateDetails
+        candidate={selected}
+        response={response()}
+        onLoadCandidate={load}
+        templates={templates}
+        advisor={advisor}
+      />,
+    );
+
+    expect(screen.getByTestId('suggested-build-strategy-advisor')).toBeTruthy();
+    expect(screen.getByText('Strategy advisor')).toBeTruthy();
+    expect(container.textContent).toMatch(/Body choice: main body is Advisor Test 1/i);
+    expect(container.textContent).toMatch(/Existing items remain Existing and are not Build Plan placements/i);
+    expect(container.textContent).toMatch(/projection would exceed visible capacity by 1/i);
+    expect(container.textContent).toMatch(/Declared roles: Advisor Test 1: Main Station/i);
+    expect(container.textContent).toMatch(/Uncertainty: candidate warnings or assumptions use sparse/i);
+    expect(container.textContent).toMatch(/ghost structure\(s\)/i);
+    expect(container.textContent).toMatch(/Load explicitly copies this candidate into the editable Build Plan/i);
+    expect(container.textContent).toMatch(/Run Preview remains explicit/i);
+    expect(load).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load into Planner Workspace' }));
+    expect(load).toHaveBeenCalledWith(selected);
   });
 
   it('renders comparison empty copy when no current Build Plan exists', () => {

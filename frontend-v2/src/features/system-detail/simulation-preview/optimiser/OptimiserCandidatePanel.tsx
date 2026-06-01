@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchOptimiserCandidates } from '@/lib/api';
-import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
+import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserEmptyState } from './OptimiserEmptyState';
@@ -8,6 +8,8 @@ import { OptimiserErrorState } from './OptimiserErrorState';
 import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
 import { filterUsefulSuggestedBuilds, suggestedBuildScale, type SuggestedBuildScale } from './optimiserQualityUtils';
 import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
+import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
+import { buildSuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
 
 type GeneratedCandidateParams = {
   targetArchetype: string;
@@ -29,6 +31,9 @@ export function OptimiserCandidatePanel({
   currentTargetArchetype,
   currentPreviewLabel,
   templates = [],
+  system = null,
+  slotPredictions = null,
+  declaredRoles = [],
 }: {
   systemId64: number;
   targetArchetype: string;
@@ -40,6 +45,9 @@ export function OptimiserCandidatePanel({
   currentTargetArchetype?: string | null;
   currentPreviewLabel?: string;
   templates?: FacilityTemplate[];
+  system?: SystemDetail | null;
+  slotPredictions?: SlotPredictionResponse | null;
+  declaredRoles?: DeclaredColonyRole[];
 }) {
   const [maxCandidates, setMaxCandidates] = useState(5);
   const [allowEstimatedData, setAllowEstimatedData] = useState(true);
@@ -59,8 +67,21 @@ export function OptimiserCandidatePanel({
     () => allUsefulCandidates.filter((candidate) => scaleMatchesFilter(suggestedBuildScale(candidate), scale)),
     [allUsefulCandidates, scale],
   );
+  const advisorLookup = useMemo(() => new Map(candidates.map((candidate) => [
+    candidate.candidate_id,
+    buildSuggestedBuildStrategyAdvisor({
+      candidate,
+      system,
+      templates,
+      bodyLabelsById,
+      currentPreviewPlacements,
+      declaredRoles,
+      slotPredictions,
+    }),
+  ])), [bodyLabelsById, candidates, currentPreviewPlacements, declaredRoles, slotPredictions, system, templates]);
   const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selectedId) ?? candidates[0];
   const selectedCandidateId = selectedCandidate?.candidate_id ?? null;
+  const selectedAdvisor = selectedCandidate ? advisorLookup.get(selectedCandidate.candidate_id) : undefined;
   const lastNotifiedCandidateIdRef = useRef<string | null | undefined>(undefined);
   const currentParams: GeneratedCandidateParams = { targetArchetype, maxCandidates, allowEstimatedData, scale };
   const controlsChangedSinceGeneration = Boolean(generatedParams && (
@@ -232,6 +253,7 @@ export function OptimiserCandidatePanel({
                 key={candidate.candidate_id}
                 candidate={candidate}
                 ranking={rankLookup.get(candidate.candidate_id)}
+                advisor={advisorLookup.get(candidate.candidate_id)}
                 selected={candidate.candidate_id === selectedCandidate?.candidate_id}
                 onSelect={() => setSelectedId(candidate.candidate_id)}
               />
@@ -251,6 +273,7 @@ export function OptimiserCandidatePanel({
             currentControlTargetArchetype={currentParams.targetArchetype}
             bodyLabelsById={bodyLabelsById}
             templates={templates}
+            advisor={selectedAdvisor}
           />
         </div>
       )}

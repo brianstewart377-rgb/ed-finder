@@ -1,15 +1,18 @@
 import type { OptimiserCandidate, RankedOptimiserCandidate } from '@/types/api';
 import { formatPercent, formatScore, rankTone, strategyLabel } from './optimiserUtils';
 import { suggestedBuildPresentation } from './optimiserQualityUtils';
+import type { SuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
 
 export function OptimiserCandidateCard({
   candidate,
   ranking,
+  advisor,
   selected,
   onSelect,
 }: {
   candidate: OptimiserCandidate;
   ranking?: RankedOptimiserCandidate;
+  advisor?: SuggestedBuildStrategyAdvisor;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -52,6 +55,11 @@ export function OptimiserCandidateCard({
             </span>
           </div>
           <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-silver-dk">{presentation.purpose}</p>
+          {advisor && (
+            <p className="mt-1 line-clamp-2 font-mono text-[10px] leading-snug text-silver-dk">
+              Advisor: {advisor.cardLine}
+            </p>
+          )}
           <div className="mt-2 truncate text-sm font-semibold text-silver">{candidate.label}</div>
           <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
             {strategyLabel(candidate.strategy)}

@@ -370,6 +370,9 @@ export function SimulationPreview({
               onCandidateSelect={handleSuggestedCandidateSelection}
               bodyLabelsById={bodyLabelsById}
               templates={templates}
+              system={system}
+              slotPredictions={slotPredictionsQuery.data ?? null}
+              declaredRoles={declaredRoles}
             />
           )}
         </div>
