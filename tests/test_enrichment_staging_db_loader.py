@@ -20,6 +20,7 @@ import enrichment_staging_db_loader as db_loader  # noqa: E402
 
 
 FIXTURE = ROOT / 'tests' / 'fixtures' / 'edsm_station_snapshot.json'
+NESTED_FIXTURE = ROOT / 'tests' / 'fixtures' / 'edsm_nested_system_station_snapshot.json'
 CANONICAL_WRITE_RE = re.compile(
     r'\b(insert\s+into|update|delete\s+from|alter\s+table)\s+'
     r'(systems|stations|bodies|body_rings|body_scan_facts|station_body_links)\b',
@@ -382,6 +383,42 @@ def test_gzipped_snapshot_works_through_staging_db_loader(tmp_path):
     assert report['summary']['raw_records_written'] == 3
     assert report['summary']['staging_station_rows_written'] == 2
     assert len([sql for sql, _params in conn.statements if 'INSERT INTO' in sql]) == 7
+    assert_only_safe_sql(conn.statements)
+
+
+def test_nested_system_snapshot_writes_only_supported_station_staging_rows():
+    conn = FakeConn()
+
+    report = db_loader.load_station_snapshot_to_staging_db(
+        source_file=NESTED_FIXTURE,
+        source='edsm_nightly_stations',
+        conn=conn,
+        write_staging=True,
+    )
+
+    assert report['dry_run'] is False
+    assert report['summary']['records_seen'] == 2
+    assert report['summary']['raw_records_written'] == 2
+    assert report['summary']['staging_station_rows_written'] == 3
+    assert report['summary']['staging_body_rows_written'] == 0
+    assert report['summary']['staging_ring_rows_written'] == 0
+    assert report['summary']['canonical_writes_planned'] == 0
+    assert report['summary']['nested_station_records_extracted'] == 3
+    assert len({row['source_record_hash'] for row in report['staged_rows']}) == 3
+    assert all(row['provenance']['source_record_kind'] == 'nested_station_record' for row in report['staged_rows'])
+
+    staging_statements = [
+        (sql, params)
+        for sql, params in conn.statements
+        if 'INSERT INTO staging_edsm_stations' in sql
+    ]
+    assert len(staging_statements) == 3
+    assert all(params[2] is not None for _sql, params in staging_statements)
+    sql_text = '\n'.join(sql for sql, _params in conn.statements)
+    assert 'INSERT INTO staging_edsm_stations' in sql_text
+    assert 'INSERT INTO staging_edsm_bodies' not in sql_text
+    assert 'INSERT INTO staging_body_rings' not in sql_text
+    assert CANONICAL_WRITE_RE.search(sql_text) is None
     assert_only_safe_sql(conn.statements)
 
 

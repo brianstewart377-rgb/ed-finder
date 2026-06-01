@@ -21,6 +21,15 @@ Stage 18J-Q found no suitable local or configured production
 until an operator produces a verified report-only production reconciliation
 artifact from already staged warehouse data.
 
+Stage 18J-Q5 adds an earlier blocker found during production/server
+inspection: the warehouse schema and read-only role exist, but the warehouse
+tables are empty, and the available `/data/dumps/galaxy_stations.json.gz`
+source shape is nested EDSM system records with station/body collections rather
+than a flat station-only snapshot. The staging load must not be retried until
+the nested station loader support is merged and the operator explicitly
+approves a separate production staging load. This Q2 reconciliation plan still
+starts only after staged warehouse station rows exist.
+
 Additional blocker: the current general reconciliation candidate payload
 appears to expose `canonical.station_id` but not explicit `canonical.market_id`
 or `canonical.edsm_station_id`. Stage 18J identity safety requires explicit

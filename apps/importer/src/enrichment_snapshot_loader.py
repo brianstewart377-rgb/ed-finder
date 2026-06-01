@@ -22,9 +22,11 @@ from enrichment_staging import (
     ADAPTER_VERSION,
     build_enrichment_snapshot_load_plan,
     build_raw_record,
+    classify_station_type_evidence,
     classify_source_adapter,
     classify_source_field,
     first_present,
+    idempotency_key,
     normalise_json_array,
     normalise_edsm_body_ring_snapshot_records,
     normalise_edsm_body_snapshot_record,
@@ -44,6 +46,12 @@ SUPPORTED_SOURCES = {'edsm_nightly_stations', 'edsm_nightly_bodies'}
 DEFAULT_CHUNK_SIZE = 64 * 1024
 SOURCE_FORMAT_VERSION = 'json_snapshot_stream/v1'
 RING_ARRAY_UNKNOWN_STATE = 'unknown_not_false'
+STATION_COLLECTION_FIELDS = ('stations', 'Stations')
+BODY_COLLECTION_FIELDS = ('bodies', 'Bodies')
+SYSTEM_COLLECTION_FIELDS = ('systems', 'Systems')
+SYSTEM_NAME_FIELDS = ('systemName', 'system_name', 'system', 'name')
+SYSTEM_ID64_FIELDS = ('systemId64', 'system_id64', 'systemAddress', 'id64')
+SOURCE_UPDATED_AT_FIELDS = ('updatedAt', 'updated_at', 'updateTime', 'lastUpdate', 'lastUpdated', 'date')
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -127,7 +135,10 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
     conflicts: list[dict[str, Any]] = []
 
     records_seen = 0
-    for record_index, record in enumerate(iter_json_records(source_file), start=1):
+    nested_station_collections = 0
+    nested_station_records_extracted = 0
+    nested_station_records_skipped = 0
+    for record_index, record in enumerate(iter_json_records(source_file, expand_station_collections=False), start=1):
         if limit is not None and records_seen >= limit:
             break
         records_seen += 1
@@ -149,6 +160,98 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
             source_updated_at=source_updated_at_from_record(record),
         )
         raw_records.append(raw_record)
+        nested_station_collection = station_collection_from_record(record)
+        if nested_station_collection is not None:
+            nested_station_collections += 1
+            station_collection_field, station_records = nested_station_collection
+            body_warning = unsupported_nested_body_collection_warning(record)
+            if body_warning is not None:
+                raw_record['validation_warnings'] = [*raw_record.get('validation_warnings', []), body_warning]
+                warnings.append({
+                    'record_index': record_index,
+                    'source_record_hash': raw_record['source_record_hash'],
+                    **body_warning,
+                })
+            for station_index, station_record in enumerate(station_records):
+                if not isinstance(station_record, Mapping):
+                    nested_station_records_skipped += 1
+                    station_warning = {
+                        'field': station_collection_field,
+                        'reason': 'nested_station_record_is_not_object',
+                        'station_index': station_index,
+                    }
+                    skipped_rows.append({
+                        'record_index': record_index,
+                        'station_index': station_index,
+                        'source_record_hash': raw_record['source_record_hash'],
+                        'reason': 'nested_station_record_is_not_object',
+                        'warnings': [station_warning],
+                        'raw_payload': station_record,
+                    })
+                    warnings.append({
+                        'record_index': record_index,
+                        'source_record_hash': raw_record['source_record_hash'],
+                        **station_warning,
+                    })
+                    continue
+
+                nested_station_records_extracted += 1
+                station_payload = nested_station_payload(record, station_record)
+                nested_raw_record = nested_station_raw_record(
+                    source=normalised_source,
+                    parent_raw_record=raw_record,
+                    station_payload=station_payload,
+                    station_index=station_index,
+                )
+                row = normalise_edsm_station_snapshot_record(
+                    station_payload,
+                    source=normalised_source,
+                    raw_record=nested_raw_record,
+                )
+                row['provenance'].update({
+                    'source_record_kind': 'nested_station_record',
+                    'parent_source_record_key': raw_record['source_record_key'],
+                    'parent_source_record_hash': raw_record['source_record_hash'],
+                    'source_system_identity': source_system_identity(record),
+                    'station_collection_field': station_collection_field,
+                    'station_index': station_index,
+                    'nested_body_collection_state': (
+                        'unsupported_source_only'
+                        if body_warning is not None
+                        else 'not_present'
+                    ),
+                })
+                validation = validate_staging_record(row, required_fields=('system_name', 'station_name'))
+                row_warnings = station_row_warnings(row, validation=validation)
+                if not validation['valid']:
+                    skipped_rows.append({
+                        'record_index': record_index,
+                        'station_index': station_index,
+                        'source_record_hash': row['source_record_hash'],
+                        'parent_source_record_hash': raw_record['source_record_hash'],
+                        'reason': 'invalid_station_snapshot_record',
+                        'warnings': row_warnings,
+                        'raw_payload': dict(station_payload),
+                    })
+                    for warning in row_warnings:
+                        warnings.append({
+                            'record_index': record_index,
+                            'station_index': station_index,
+                            'source_record_hash': row['source_record_hash'],
+                            **warning,
+                        })
+                    continue
+                row['validation_warnings'] = row_warnings
+                staged_rows.append(row)
+                for warning in row_warnings:
+                    warnings.append({
+                        'record_index': record_index,
+                        'station_index': station_index,
+                        'source_record_hash': row['source_record_hash'],
+                        **warning,
+                    })
+            continue
+
         unsupported_shape = unsupported_source_shape(record, normalised_source)
         if unsupported_shape is not None:
             shape_warning = {
@@ -177,12 +280,7 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
             raw_record=raw_record,
         )
         validation = validate_staging_record(row, required_fields=('system_name', 'station_name'))
-        row_warnings = list(validation['warnings'])
-        if row.get('market_id') is None and row.get('edsm_station_id') is None:
-            row_warnings.append({
-                'field': 'market_id',
-                'reason': 'missing_station_source_identity',
-            })
+        row_warnings = station_row_warnings(row, validation=validation)
         if not validation['valid']:
             raw_record['validation_status'] = 'skipped'
             raw_record['validation_warnings'] = row_warnings
@@ -231,6 +329,9 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
             'adapter_name': ADAPTER_NAME,
             'records_seen': records_seen,
             'staged_edsm_stations': len(staged_rows),
+            'nested_station_collections': nested_station_collections,
+            'nested_station_records_extracted': nested_station_records_extracted,
+            'nested_station_records_skipped': nested_station_records_skipped,
             'dry_run_only': True,
             'canonical_writes_planned': 0,
             'distance_to_arrival_classification': classify_source_field(normalised_source, 'distanceToArrival'),
@@ -280,7 +381,7 @@ def build_body_ring_snapshot_load_report(
     ring_array_evidence = empty_ring_array_evidence_summary()
 
     records_seen = 0
-    for record_index, record in enumerate(iter_json_records(source_file), start=1):
+    for record_index, record in enumerate(iter_json_records(source_file, expand_station_collections=False), start=1):
         if limit is not None and records_seen >= limit:
             break
         records_seen += 1
@@ -486,6 +587,12 @@ def normalise_edsm_station_snapshot_record(
             if value is not None
         ]
 
+    body_name = first_present(record, 'bodyName', 'body_name')
+    if body_name is None and isinstance(record.get('body'), Mapping):
+        body_name = first_present(record['body'], 'name', 'bodyName', 'body_name')
+    station_type = read_text(first_present(record, 'type', 'stationType', 'station_type'))
+    station_type_evidence = classify_station_type_evidence(station_type)
+
     row = {
         'source_run_key': raw_record.get('source_run_key') if raw_record else None,
         'source_file_key': raw_record.get('source_file_key') if raw_record else None,
@@ -496,7 +603,7 @@ def normalise_edsm_station_snapshot_record(
         'market_id': read_int(first_present(record, 'marketId', 'market_id', 'marketID')),
         'edsm_station_id': read_int(first_present(record, 'id', 'edsmStationId', 'edsm_station_id')),
         'station_name': read_text(first_present(record, 'name', 'stationName', 'station_name')),
-        'station_type': read_text(first_present(record, 'type', 'stationType', 'station_type')),
+        'station_type': station_type,
         'distance_to_arrival': read_float(first_present(
             record,
             'distanceToArrival',
@@ -504,7 +611,7 @@ def normalise_edsm_station_snapshot_record(
             'distanceFromStar',
             'distance_from_star',
         )),
-        'body_name': read_text(first_present(record, 'bodyName', 'body_name')),
+        'body_name': read_text(body_name),
         'services': normalise_json_array(first_present(record, 'services', 'otherServices', 'stationServices')),
         'economies': normalise_json_array(economies),
         'controlling_faction': read_text(controlling_faction),
@@ -519,12 +626,115 @@ def normalise_edsm_station_snapshot_record(
             'source': normalise_source_adapter(source),
             'distance_to_arrival_classification': classify_source_field(source, 'distanceToArrival'),
             'canonical_write_allowed': False,
+            **station_type_evidence,
         },
     }
     return row
 
 
-def iter_json_records(source_file: Path, *, chunk_size: int = DEFAULT_CHUNK_SIZE) -> Iterator[Any]:
+def station_row_warnings(
+    row: Mapping[str, Any],
+    *,
+    validation: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    row_warnings = list(validation['warnings'])
+    if row.get('market_id') is None and row.get('edsm_station_id') is None:
+        row_warnings.append({
+            'field': 'market_id',
+            'reason': 'missing_station_source_identity',
+        })
+    station_type_classification = row.get('provenance', {}).get('station_type_classification')
+    if station_type_classification == 'transient_non_slot':
+        row_warnings.append({
+            'field': 'station_type',
+            'reason': 'transient_non_slot_station_type',
+            'station_type_normalized': row.get('provenance', {}).get('station_type_normalized'),
+        })
+    return row_warnings
+
+
+def station_collection_from_record(record: Mapping[str, Any]) -> tuple[str, list[Any]] | None:
+    for field_name in STATION_COLLECTION_FIELDS:
+        stations = record.get(field_name)
+        if isinstance(stations, list):
+            return field_name, stations
+    return None
+
+
+def nested_station_payload(system_record: Mapping[str, Any], station_record: Mapping[str, Any]) -> dict[str, Any]:
+    payload = dict(station_record)
+    system_name = read_text(first_present(system_record, *SYSTEM_NAME_FIELDS))
+    system_id64 = read_int(first_present(system_record, *SYSTEM_ID64_FIELDS))
+    source_updated_at = source_updated_at_from_record(system_record)
+
+    if system_name is not None and first_present(payload, 'systemName', 'system_name', 'system') is None:
+        payload['systemName'] = system_name
+    if system_id64 is not None and first_present(payload, *SYSTEM_ID64_FIELDS) is None:
+        payload['systemId64'] = system_id64
+    if source_updated_at is not None and first_present(payload, *SOURCE_UPDATED_AT_FIELDS) is None:
+        payload['updatedAt'] = source_updated_at
+    payload['source_system'] = source_system_identity(system_record)
+    return payload
+
+
+def nested_station_raw_record(
+    *,
+    source: str,
+    parent_raw_record: Mapping[str, Any],
+    station_payload: Mapping[str, Any],
+    station_index: int,
+) -> dict[str, Any]:
+    station_hash = source_record_hash(
+        source,
+        {
+            'parent_source_record_hash': parent_raw_record.get('source_record_hash'),
+            'station_index': station_index,
+            'station': station_payload,
+        },
+    )
+    return {
+        'source_run_key': parent_raw_record.get('source_run_key'),
+        'source_file_key': parent_raw_record.get('source_file_key'),
+        'source_record_key': idempotency_key(
+            'nested_station_source_record_key',
+            parent_raw_record.get('source_record_key'),
+            station_index,
+            station_hash,
+        ),
+        'source_record_hash': station_hash,
+    }
+
+
+def source_system_identity(record: Mapping[str, Any]) -> dict[str, Any]:
+    identity: dict[str, Any] = {
+        'system_name': read_text(first_present(record, *SYSTEM_NAME_FIELDS)),
+        'system_id64': read_int(first_present(record, *SYSTEM_ID64_FIELDS)),
+        'source_system_id': read_int(first_present(record, 'systemId', 'system_id', 'id')),
+    }
+    coords = first_present(record, 'coords', 'coordinates')
+    if isinstance(coords, Mapping):
+        identity['coordinates'] = dict(coords)
+    return {key: value for key, value in identity.items() if value is not None}
+
+
+def unsupported_nested_body_collection_warning(record: Mapping[str, Any]) -> dict[str, Any] | None:
+    for field_name in BODY_COLLECTION_FIELDS:
+        if isinstance(record.get(field_name), list):
+            return {
+                'field': field_name,
+                'reason': 'unsupported_source_shape',
+                'source_shape': 'nested_body_collection',
+                'handling': 'preserved_in_raw_record_only_not_staged',
+            }
+    return None
+
+
+def iter_json_records(
+    source_file: Path,
+    *,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    expand_station_collections: bool = True,
+) -> Iterator[Any]:
     """Yield records from a local JSON array, NDJSON file, or small object wrapper."""
     decoder = json.JSONDecoder()
     with _open_text(source_file) as handle:
@@ -571,7 +781,10 @@ def iter_json_records(source_file: Path, *, chunk_size: int = DEFAULT_CHUNK_SIZE
                     else:
                         eof = True
                     continue
-                yield from _records_from_json_value(value)
+                yield from _records_from_json_value(
+                    value,
+                    expand_station_collections=expand_station_collections,
+                )
                 buffer = buffer[end_index:]
                 continue
 
@@ -581,7 +794,10 @@ def iter_json_records(source_file: Path, *, chunk_size: int = DEFAULT_CHUNK_SIZE
                     if eof:
                         line = buffer.strip()
                         if line:
-                            yield from _records_from_json_value(json.loads(line))
+                            yield from _records_from_json_value(
+                                json.loads(line),
+                                expand_station_collections=expand_station_collections,
+                            )
                         return
                     chunk = handle.read(chunk_size)
                     if chunk:
@@ -592,7 +808,10 @@ def iter_json_records(source_file: Path, *, chunk_size: int = DEFAULT_CHUNK_SIZE
                 line = buffer[:newline].strip()
                 buffer = buffer[newline + 1:]
                 if line:
-                    yield from _records_from_json_value(json.loads(line))
+                    yield from _records_from_json_value(
+                        json.loads(line),
+                        expand_station_collections=expand_station_collections,
+                    )
 
 
 def source_updated_at_from_record(record: Mapping[str, Any]) -> str | None:
@@ -617,8 +836,8 @@ def file_digest(path: Path) -> tuple[str, int]:
     return hasher.hexdigest(), size
 
 
-def _records_from_json_value(value: Any) -> Iterator[Any]:
-    if isinstance(value, Mapping) and isinstance(value.get('stations'), list):
+def _records_from_json_value(value: Any, *, expand_station_collections: bool = True) -> Iterator[Any]:
+    if expand_station_collections and isinstance(value, Mapping) and isinstance(value.get('stations'), list):
         system_context = {
             key: item
             for key, item in value.items()
@@ -655,37 +874,49 @@ def source_file_format_metadata(source_file: Path) -> dict[str, Any]:
 def unsupported_source_shape(record: Mapping[str, Any], source: str) -> dict[str, str] | None:
     normalised_source = normalise_source_adapter(source)
     if normalised_source == 'edsm_nightly_stations':
-        if isinstance(record.get('bodies'), list):
+        body_field = nested_collection_field(record, BODY_COLLECTION_FIELDS)
+        if body_field is not None:
             return {
-                'field': 'bodies',
+                'field': body_field,
                 'source_shape': 'nested_body_collection',
                 'skip_reason': 'unsupported_station_snapshot_source_shape',
             }
-        if isinstance(record.get('systems'), list):
+        system_field = nested_collection_field(record, SYSTEM_COLLECTION_FIELDS)
+        if system_field is not None:
             return {
-                'field': 'systems',
+                'field': system_field,
                 'source_shape': 'nested_system_collection',
                 'skip_reason': 'unsupported_station_snapshot_source_shape',
             }
     if normalised_source == 'edsm_nightly_bodies':
-        if isinstance(record.get('stations'), list):
+        station_field = nested_collection_field(record, STATION_COLLECTION_FIELDS)
+        if station_field is not None:
             return {
-                'field': 'stations',
+                'field': station_field,
                 'source_shape': 'nested_station_collection',
                 'skip_reason': 'unsupported_body_snapshot_source_shape',
             }
-        if isinstance(record.get('systems'), list):
+        system_field = nested_collection_field(record, SYSTEM_COLLECTION_FIELDS)
+        if system_field is not None:
             return {
-                'field': 'systems',
+                'field': system_field,
                 'source_shape': 'nested_system_collection',
                 'skip_reason': 'unsupported_body_snapshot_source_shape',
             }
-        if isinstance(record.get('bodies'), list):
+        body_field = nested_collection_field(record, BODY_COLLECTION_FIELDS)
+        if body_field is not None:
             return {
-                'field': 'bodies',
+                'field': body_field,
                 'source_shape': 'nested_body_collection',
                 'skip_reason': 'unsupported_body_snapshot_source_shape',
             }
+    return None
+
+
+def nested_collection_field(record: Mapping[str, Any], field_names: Sequence[str]) -> str | None:
+    for field_name in field_names:
+        if isinstance(record.get(field_name), list):
+            return field_name
     return None
 
 
@@ -712,8 +943,8 @@ def source_observability_summary(
             'freshness_preserves_unknown': True,
         },
         'unsupported_source_shapes': sum(
-            1 for row in skipped_rows
-            if str(row.get('reason', '')).startswith('unsupported_')
+            1 for warning in warnings
+            if warning.get('reason') == 'unsupported_source_shape'
         ),
         'malformed_rows': sum(
             1 for row in skipped_rows
@@ -723,6 +954,7 @@ def source_observability_summary(
                 'invalid_body_snapshot_record',
                 'invalid_ring_snapshot_record',
                 'ring_record_is_not_object',
+                'nested_station_record_is_not_object',
             }
         ),
         'warning_reason_distribution': field_distribution(warnings, 'reason'),

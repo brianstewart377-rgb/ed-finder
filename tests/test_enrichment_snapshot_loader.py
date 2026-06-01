@@ -19,6 +19,7 @@ import enrichment_snapshot_loader as loader  # noqa: E402
 
 
 FIXTURE = ROOT / 'tests' / 'fixtures' / 'edsm_station_snapshot.json'
+NESTED_FIXTURE = ROOT / 'tests' / 'fixtures' / 'edsm_nested_system_station_snapshot.json'
 
 
 def test_loader_reads_local_edsm_station_snapshot_fixture():
@@ -324,6 +325,115 @@ def test_unsupported_station_source_shape_is_reported_without_guessing(tmp_path)
         },
     }]
     assert report['raw_records_planned'][0]['validation_status'] == 'skipped'
+
+
+def test_nested_system_station_snapshot_extracts_supported_station_rows():
+    report = loader.build_snapshot_load_report(
+        source_file=NESTED_FIXTURE,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['dry_run'] is True
+    assert report['summary']['records_seen'] == 2
+    assert report['summary']['raw_records'] == 2
+    assert report['summary']['staged_rows'] == 3
+    assert report['summary']['staged_edsm_stations'] == 3
+    assert report['summary']['nested_station_collections'] == 2
+    assert report['summary']['nested_station_records_extracted'] == 3
+    assert report['summary']['nested_station_records_skipped'] == 0
+    assert report['summary']['canonical_writes_planned'] == 0
+    assert report['planned_rows'] == []
+    assert 'staged_body_rows' not in report
+
+    raw_hashes = {row['source_record_hash'] for row in report['raw_records_planned']}
+    staged_hashes = {row['source_record_hash'] for row in report['staged_rows']}
+    assert len(raw_hashes) == 2
+    assert len(staged_hashes) == 3
+    assert raw_hashes.isdisjoint(staged_hashes)
+    assert all(row['source_run_key'] == report['source_run']['source_run_key'] for row in report['staged_rows'])
+    assert all(row['source_file_key'] == report['source_file']['source_file_key'] for row in report['staged_rows'])
+    assert {row['provenance']['parent_source_record_hash'] for row in report['staged_rows']} == raw_hashes
+
+    by_name = {row['station_name']: row for row in report['staged_rows']}
+    alpha = by_name['Alpha Orbital']
+    assert alpha['system_name'] == 'Nested Alpha'
+    assert alpha['system_id64'] == 111111111
+    assert alpha['market_id'] == 9001001
+    assert alpha['edsm_station_id'] == 1001
+    assert alpha['station_type'] == 'Orbis Starport'
+    assert alpha['provenance']['station_type_normalized'] == 'Orbis'
+    assert alpha['provenance']['station_type_classification'] == 'permanent_colony_slot'
+    assert alpha['provenance']['source_record_kind'] == 'nested_station_record'
+    assert alpha['provenance']['nested_body_collection_state'] == 'unsupported_source_only'
+    assert alpha['provenance']['canonical_write_allowed'] is False
+
+    beta = by_name['Beta Plant']
+    assert beta['system_name'] == 'Nested Beta'
+    assert beta['system_id64'] == 222222222
+    assert beta['market_id'] == 9001003
+    assert beta['edsm_station_id'] == 1003
+    assert beta['station_type'] == 'Planetary Settlement'
+    assert beta['body_name'] == 'Nested Beta A 2'
+    assert beta['provenance']['station_type_normalized'] == 'PlanetaryOutpost'
+
+
+def test_nested_system_body_collection_remains_warning_not_body_truth():
+    report = loader.build_snapshot_load_report(
+        source_file=NESTED_FIXTURE,
+        source='edsm_nightly_stations',
+    )
+
+    body_warnings = [
+        warning for warning in report['warnings']
+        if warning.get('reason') == 'unsupported_source_shape'
+        and warning.get('source_shape') == 'nested_body_collection'
+    ]
+    assert body_warnings == [{
+        'record_index': 1,
+        'source_record_hash': report['raw_records_planned'][0]['source_record_hash'],
+        'field': 'bodies',
+        'reason': 'unsupported_source_shape',
+        'source_shape': 'nested_body_collection',
+        'handling': 'preserved_in_raw_record_only_not_staged',
+    }]
+    assert report['summary']['unsupported_source_shapes'] == 1
+    assert report['summary']['warning_reason_distribution']['unsupported_source_shape'] == 1
+    assert report['raw_records_planned'][0]['raw_payload']['bodies'][0]['name'] == 'Nested Alpha 1'
+    assert report['raw_records_planned'][0]['validation_status'] == 'accepted'
+    assert report['raw_records_planned'][0]['validation_warnings'] == [
+        {
+            'field': 'bodies',
+            'reason': 'unsupported_source_shape',
+            'source_shape': 'nested_body_collection',
+            'handling': 'preserved_in_raw_record_only_not_staged',
+        },
+    ]
+    assert all('bodies' not in row['raw_payload'] for row in report['staged_rows'])
+    assert report['summary']['canonical_writes_planned'] == 0
+
+
+def test_nested_fleet_carrier_station_type_is_labelled_not_canonical_truth():
+    report = loader.build_snapshot_load_report(
+        source_file=NESTED_FIXTURE,
+        source='edsm_nightly_stations',
+    )
+
+    carrier = {row['station_name']: row for row in report['staged_rows']}['FC Test']
+    assert carrier['station_type'] == 'Fleet Carrier'
+    assert carrier['provenance']['station_type_normalized'] == 'FleetCarrier'
+    assert carrier['provenance']['station_type_classification'] == 'transient_non_slot'
+    assert carrier['validation_warnings'] == [
+        {
+            'field': 'station_type',
+            'reason': 'transient_non_slot_station_type',
+            'station_type_normalized': 'FleetCarrier',
+        },
+    ]
+    assert any(
+        warning.get('reason') == 'transient_non_slot_station_type'
+        and warning.get('source_record_hash') == carrier['source_record_hash']
+        for warning in report['warnings']
+    )
 
 
 def test_conflicting_station_records_with_same_source_identity_are_report_only(tmp_path):

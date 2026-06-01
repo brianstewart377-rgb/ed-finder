@@ -239,6 +239,14 @@ No valid `enrichment_staging_reconciliation/v1` production artifact was
 generated, no artifact checksum exists, no candidate counts exist, and no
 source run/file scope was verified. Stage 18J-P remains blocked.
 
+Later production/server inspection also found the warehouse tables present but
+empty. The available `/data/dumps/galaxy_stations.json.gz` file appears to be a
+nested EDSM system snapshot with station/body collections, not a flat
+station-only snapshot. Stage 18J-Q5 hardens the loader for that station shape,
+but Q3 remains blocked until Q5 is merged and a separate, explicitly approved
+production staging load is retried. No production load, reconciliation, or
+apply is authorized by Q5 itself.
+
 ## Remaining Blockers
 
 Before Q3 can be retried, the operator must provide and verify:
@@ -251,6 +259,9 @@ Before Q3 can be retried, the operator must provide and verify:
 - approved `SOURCE_FILE_KEY`,
 - operator-managed `SAFE_ARTIFACT_DIR` outside git,
 - confirmation that the staged source run/file already exists,
+- if the intended source file is the nested
+  `/data/dumps/galaxy_stations.json.gz` shape, confirmation that Stage 18J-Q5
+  support is merged and a separate production staging load has succeeded,
 - confirmation that the later command will not invoke live EDSM/API crawling,
   Docker, write-staging, apply, write, commit, confirmation, or rollback flags.
 

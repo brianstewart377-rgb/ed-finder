@@ -68,9 +68,11 @@ record stream shape, source timestamp summaries, and freshness summaries.
 Skipped rows are counted by explicit reason, exact duplicate source payloads
 are reported by `source_record_hash`, and repeated source identities with
 conflicting payload hashes become report-only conflicts instead of silent
-merges. Unsupported nested source shapes, including future system-with-`bodies`
-inputs, are skipped with explicit unsupported-shape reasons until a dedicated
-adapter exists.
+merges. Stage 18J-Q5 adds support for nested EDSM system records that contain
+`stations`: the full source system record remains raw evidence, extracted
+station rows receive station-specific source hashes, and nested `bodies`
+collections stay warning evidence only until an explicit body adapter supports
+that shape.
 
 ## Source Evidence Classes
 
@@ -240,6 +242,14 @@ evidence with these fields when present:
 
 Missing or invalid required station fields are skipped with warnings. They do
 not crash the loader and do not imply canonical writes.
+
+Nested EDSM system station records are normalized by combining station payloads
+with source system identity (`system_name` / `system_id64`) and parent raw
+record provenance. The station source label is preserved in `station_type`,
+while provenance records a normalized station-type label and classification
+such as `permanent_colony_slot`, `transient_non_slot`, `unknown`, or
+`missing`. Fleet carriers and megaships remain labelled transient/non-slot
+evidence and are not canonical write instructions.
 
 The body/ring adapter normalises body records and source-only ring payloads
 separately. Ring payloads remain `association_status = "source_only"` unless a
