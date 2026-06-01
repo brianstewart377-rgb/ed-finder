@@ -237,6 +237,10 @@ approval must name:
 The production cap remains tiny: default 5 and max 20 unless a later stage
 changes it.
 
+Stage 18T adds the canonical safety test-environment gate that should pass
+before any future production dry-run or production apply attempt:
+[`stage-18t-canonical-safety-test-environment.md`](./stage-18t-canonical-safety-test-environment.md).
+
 ## Stop Conditions
 
 Stop before dry-run generation if:

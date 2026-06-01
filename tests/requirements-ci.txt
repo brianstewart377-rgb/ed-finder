@@ -1,0 +1,10 @@
+# Canonical safety and CI test dependencies.
+#
+# Runtime dependencies are pulled from the app manifests so test imports match
+# CI/runtime behavior instead of depending on whatever happens to be installed
+# in a local virtualenv.
+-r ../apps/api/requirements.txt
+-r ../apps/importer/requirements.txt
+
+pytest==8.3.4
+pytest-asyncio==0.24.0

@@ -467,6 +467,13 @@ write-plan transfer, audit ownership, retention, and Stage 18J readiness
 criteria. See
 [`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md).
 
+Stage 18T hardens the canonical safety test environment for Stage 18J-class
+work. It adds a dedicated CI job, explicit test prerequisites, a one-command
+local runner, and disposable Postgres rehearsal/permission-boundary coverage
+for the guarded station type pilot. It does not authorize production apply,
+artifact approval, production DB access, or wider canonical backfill. See
+[`stage-18t-canonical-safety-test-environment.md`](./stage-18t-canonical-safety-test-environment.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.

@@ -137,6 +137,66 @@ jobs:
           LOG_LEVEL:    WARNING
         run: python -m pytest tests/integration/ -v
 
+  # ─── Canonical safety tests ────────────────────────────────────────
+  # Stage 18T: keep canonical-write-capable code behind deterministic
+  # unit gates plus a disposable Postgres rehearsal of the guarded apply
+  # path and role boundary.
+  canonical-safety:
+    name: Canonical safety tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER:     edfinder
+          POSTGRES_PASSWORD: edfinder
+          POSTGRES_DB:       edfinder
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            tests/requirements-ci.txt
+            apps/api/requirements.txt
+            apps/importer/requirements.txt
+
+      - name: Install canonical safety test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements-ci.txt
+
+      - name: Run canonical safety suite
+        run: |
+          python -m pytest \
+            tests/test_station_type_canonical_pilot.py \
+            tests/test_enrichment_warehouse_boundary.py \
+            tests/test_enrichment_staging_db_loader.py \
+            tests/test_enrichment_report_contracts.py \
+            tests/test_edsm_station_normalization.py \
+            -q
+
+      - name: Compile canonical safety modules
+        run: |
+          python -m py_compile \
+            apps/importer/src/station_type_canonical_pilot.py \
+            tests/test_station_type_canonical_pilot.py \
+            tests/test_station_type_canonical_pilot_postgres.py
+
+      - name: Run disposable Postgres canonical rehearsal
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          EDFINDER_CANONICAL_TEST_DSN: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          EDFINDER_CONFIRM_CANONICAL_TEST_DB: "yes"
+        run: python -m pytest tests/test_station_type_canonical_pilot_postgres.py -q
+
 
   # ─── Frontend v2 ────────────────────────────────────────────────────
   # Catches the exact class of "file got swallowed by .gitignore" bug we
