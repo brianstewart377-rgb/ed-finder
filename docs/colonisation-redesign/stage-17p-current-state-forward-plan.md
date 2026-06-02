@@ -776,11 +776,11 @@ Scope:
   canonical apply.
 - Preserve the Stage 18J continuation path: Q9 compact review, strict-filter
   hardening, operator-safe dry-run wrapper, P2 identity diagnostics, P3/P4
-  external identity design, P5 migration draft, P6 evidence loader/
-  reconciliation design, P7 production readiness review, P8 schema-only
-  migration apply if approved, P9 identity evidence load/reconciliation with no
-  station-type writes, and P10 strict station-type dry-run retry with confirmed
-  external identity.
+  external identity design, P5 migration draft, P6 production readiness review,
+  P7 schema-only application packet, P8 schema-only migration apply if
+  approved, P9 evidence loader/reconciliation design, P10 identity evidence
+  load/reconciliation with no station-type writes, and only later a strict
+  station-type dry-run retry with confirmed external identity.
 
 Non-goals:
 
@@ -1007,6 +1007,35 @@ Non-goals:
 Support doc:
 `stage-18j-p5-external-station-identity-migration-draft.md`.
 
+### Stage 18J-P6 - External Identity Migration Production Readiness Review
+
+Purpose: review `sql/027_station_external_identity.sql` before any production
+schema application stage.
+
+Scope:
+
+- Confirm the migration is additive and schema-only.
+- Confirm it does not alter `stations`.
+- Confirm it does not write canonical station-type data.
+- Review constraints, indexes, provenance fields, conflict handling, rollback
+  expectations, preflight checks, and post-apply checks.
+- Record the readiness verdict for a future schema-only Hetzner operator stage.
+- Keep identity evidence loading, reconciliation, station-type dry-run, and
+  canonical apply blocked.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No production migration apply.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p6-external-identity-migration-production-readiness.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1087,10 +1116,11 @@ Do not add another large planner feature immediately. The healthiest next sequen
 33. Stage 18J-P3 canonical external station identity model.
 34. Stage 18J-P4 external station identity schema design.
 35. Stage 18J-P5 external station identity migration draft, not applied to production.
-36. Stage 18J-P6 external identity evidence loader/reconciliation design.
-37. Stage 18J-P7 external identity migration production readiness review.
+36. Stage 18J-P6 external identity migration production readiness review.
+37. Stage 18J-P7 schema-only external identity migration application packet.
 38. Stage 18J-P8 apply external identity schema migration only, if approved.
-39. Stage 18J-P9 load/reconcile identity evidence, no station-type writes.
-40. Stage 18J-P10 retry strict station-type dry-run with confirmed external identity.
+39. Stage 18J-P9 external identity evidence loader/reconciliation design.
+40. Stage 18J-P10 load/reconcile identity evidence, no station-type writes.
+41. Later: retry strict station-type dry-run with confirmed external identity.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
