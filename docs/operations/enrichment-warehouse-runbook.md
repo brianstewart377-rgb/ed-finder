@@ -658,6 +658,24 @@ diagnostic summary does not relax eligibility, does not create approvals, and
 keeps `canonical_writes_planned = 0`. Any rerun for these diagnostics is still
 a separate Hetzner/operator step and must not run apply.
 
+Stage 18J-P3 records the follow-up identity-model finding in
+`docs/colonisation-redesign/stage-18j-p3-canonical-external-station-identity-model.md`.
+Canonical `stations` has no `market_id` or `edsm_station_id`; existing
+`s.id AS market_id` usage is only a compatibility alias/update target; and
+`station_body_links.market_id` is association-scoped, not a general external
+station identity model. This is why the strict filter correctly produced zero
+eligible candidates.
+
+Stage 18J-P4 designs the external identity schema in
+`docs/colonisation-redesign/stage-18j-p4-external-station-identity-schema-design.md`.
+The recommended model is a separate provenance-backed
+`station_external_identity` table with source run/file/hash provenance,
+confidence, freshness, identity status, and visible conflict handling. Only
+`confirmed` identity rows should later be eligible as canonical external
+identity proof in read-only reconciliation. Do not treat warehouse source-only
+evidence, station-name matches, internal `stations.id` equality, or
+station/body link association evidence as station-type proof.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

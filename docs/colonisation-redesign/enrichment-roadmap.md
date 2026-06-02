@@ -571,6 +571,24 @@ payload. The strict filter is unchanged, `canonical_writes_planned` stays `0`,
 and the next operator action is diagnostic rerun only. See
 [`stage-18j-p2-station-type-identity-coverage-diagnostics.md`](./stage-18j-p2-station-type-identity-coverage-diagnostics.md).
 
+Stage 18J-P3 records the external station identity model investigation. It
+confirms that canonical `stations` has no `market_id` or `edsm_station_id`,
+that `s.id AS market_id` is a compatibility alias/update target rather than
+external identity proof, and that `station_body_links.market_id` is scoped to
+station/body association evidence. The recommendation is a separate
+provenance-backed `station_external_identity` table, not relaxed station-type
+filtering. See
+[`stage-18j-p3-canonical-external-station-identity-model.md`](./stage-18j-p3-canonical-external-station-identity-model.md).
+
+Stage 18J-P4 designs the external station identity schema. The preferred model
+keeps identity rows separate from `stations`, preserves source run/file/hash
+provenance, tracks confidence/freshness/status, blocks conflicting evidence,
+and allows only `identity_status = 'confirmed'` rows to prove canonical
+external station identity in read-only reconciliation. It does not add a SQL
+migration, run production commands, run imports, run reconciliation, run
+station-type dry-run, or authorize apply. See
+[`stage-18j-p4-external-station-identity-schema-design.md`](./stage-18j-p4-external-station-identity-schema-design.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -644,6 +662,14 @@ treated as a separate proposal.
 * **Operator-safe station-type dry-run wrapper**: Stage 18J-P-dryrun-ops adds
   the Hetzner-only wrapper, checksum guard, max-row cap, and compact blocked
   output required before the future production dry-run operator step.
+* **External station identity schema**: Stage 18J-P3/P4 confirm the blocker and
+  design a separate provenance-backed `station_external_identity` table. Do not
+  relax the strict station-type filter or reuse `stations.id` as external
+  proof.
+* **External identity follow-up sequence**: continue with P5 migration draft
+  not applied to production, P6 non-canonical evidence extraction, P7 read-only
+  coverage, P8 confirmed identity integration into reconciliation, P9 dry-run
+  retry, and P10 dry-run review packet before any later apply approval packet.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
   Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse

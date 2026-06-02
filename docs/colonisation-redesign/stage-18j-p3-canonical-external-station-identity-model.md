@@ -86,6 +86,9 @@ Reasons:
 
 The recommended table name is `station_external_identity`.
 
+Stage 18J-P4 refines this recommendation into the explicit schema design:
+`stage-18j-p4-external-station-identity-schema-design.md`.
+
 ## Why Not Relax The Filter
 
 Do not accept name-only matches, system/name matches, or `stations.id == source.market_id` as station-type write eligibility.
@@ -161,6 +164,10 @@ Recommended status semantics:
 - `conflict`: source evidence disagrees with an existing active mapping or maps one external ID to multiple canonical stations.
 - `retired`: old mapping retained for audit/history but not used as active proof.
 
+Stage 18J-P4 renames and expands this status model to `proposed`,
+`confirmed`, `conflicting`, `rejected`, and `superseded` so failed and
+historical evidence are visible without being accepted as proof.
+
 ## Backfill Strategy
 
 Backfill should be its own stage and must be separate from station-type dry-run/apply.
@@ -231,13 +238,14 @@ This stage does not:
 
 ## Recommended Next Stages
 
-- Stage 18J-P4 - External station identity model design review.
-- Stage 18J-P5 - External identity schema migration, not applied to production yet.
-- Stage 18J-P6 - Warehouse-to-identity evidence loader/reconciliation, non-canonical station-type.
-- Stage 18J-P7 - Read-only identity coverage artifact.
-- Stage 18J-P8 - Retry station-type dry-run with canonical external identity available.
-- Stage 18J-P9 - Dry-run review packet.
-- Only later: tiny apply approval packet, if any candidates pass.
+- Stage 18J-P4 - External station identity schema design.
+- Stage 18J-P5 - External station identity migration draft, not applied to production.
+- Stage 18J-P6 - Identity evidence extraction/reconciliation from warehouse, non-canonical station-type.
+- Stage 18J-P7 - Read-only external identity coverage artifact.
+- Stage 18J-P8 - Confirmed identity integration into reconciliation output.
+- Stage 18J-P9 - Retry station-type dry-run with confirmed external identity.
+- Stage 18J-P10 - Dry-run review packet.
+- Later only: tiny apply approval packet, if candidates pass.
 
 ## Final Recommendation
 

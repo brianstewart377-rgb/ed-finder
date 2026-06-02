@@ -82,11 +82,15 @@ Stage 18J-P-dryrun-ops adds compact blocked-candidate output controls so the fut
 
 Stage 18J-P2 adds `identity_coverage_summary` to future dry-run artifacts. It counts source/canonical external ID presence, external ID matches and mismatches, `system_id64` and station-name mismatches, canonical match count distribution, and possible canonical external IDs missing from the reconciliation payload. These diagnostics explain rejection causes without relaxing the strict filter or changing `canonical_writes_planned = 0`.
 
-## Stage 18J-P3 Identity Model Implication
+## Stage 18J-P3/P4 Identity Model Implication
 
 The bounded P2 dry-run found source EDSM station IDs present but canonical `market_id` and `edsm_station_id` absent. The production schema check confirmed that `stations` does not contain those external identity columns.
 
 That result does not weaken the filter. It proves the canonical identity model is incomplete for strict station-type promotion. The filter must continue to reject all candidates until read-only reconciliation can expose confirmed canonical external station identity from a modeled source such as a future `station_external_identity` table.
+
+Stage 18J-P4 designs that table as a separate provenance-backed identity model,
+not as direct columns on `stations` and not as reuse of `station_body_links`.
+Only `identity_status = 'confirmed'` rows should count as strict proof.
 
 Do not change the filter to accept:
 
@@ -147,4 +151,12 @@ Stage 18J-P remains blocked until that separate operator step is requested and c
 
 ## Final Recommendation
 
-Keep the strict filter hardening. The P2 zero-eligible result is not a reason to loosen it. The next step is the Stage 18J-P3 external station identity model, followed by a separate schema/evidence-loader stage before any station-type dry-run retry can produce eligible rows.
+Keep the strict filter hardening. The P2 zero-eligible result is not a reason
+to loosen it. The P3/P4 identity design sequence confirms that a separate
+schema/evidence-loader path is required before any station-type dry-run retry
+can produce eligible rows.
+
+Stage 18J-P4 refines the immediate path: draft the external identity schema in
+P5 without applying it to production, extract and reconcile identity evidence
+in P6, publish read-only coverage in P7, integrate confirmed identity into
+reconciliation in P8, and only then retry the station-type dry-run in P9.
