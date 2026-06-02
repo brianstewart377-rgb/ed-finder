@@ -82,7 +82,10 @@ Internal canonical `station_id` remains only the update target. It is never acce
 
 The P2 diagnostics answered the core question: the missing identity proof is not primarily source-side absence. Source EDSM station IDs are present in the source payload, but canonical external station IDs are absent from the canonical payload because canonical `stations` does not model them.
 
-This shifts the next step from dry-run retry to identity-model design. See `stage-18j-p3-canonical-external-station-identity-model.md`.
+This shifts the next step from dry-run retry to identity-model design. See
+`stage-18j-p3-canonical-external-station-identity-model.md` and the refined
+schema design in
+`stage-18j-p4-external-station-identity-schema-design.md`.
 
 ## Boundaries
 
@@ -92,7 +95,13 @@ No follow-up should relax the identity filter or reinterpret internal primary ke
 
 ## Roadmap Impact
 
-Stage 18J-P is not ready for any apply path. The next appropriate step is Stage 18J-P3: design canonical external station identity evidence. If a later identity table is added and populated, a future read-only identity coverage artifact should prove that canonical `market_id` or `edsm_station_id` values are available before retrying the station-type dry-run.
+Stage 18J-P is not ready for any apply path. Stage 18J-P3 identified the
+external identity model gap, and Stage 18J-P4 designs the separate
+provenance-backed `station_external_identity` table. The next appropriate
+implementation step is a migration draft that is not applied to production,
+followed by non-canonical evidence extraction, a read-only identity coverage
+artifact, and confirmed identity integration into reconciliation output. Only
+after that should the station-type dry-run be retried.
 
 Stage 18K remains not started.
 

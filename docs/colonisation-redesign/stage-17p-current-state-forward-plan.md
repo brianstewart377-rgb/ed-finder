@@ -774,9 +774,12 @@ Scope:
   apply only.
 - State that scheduler work must remain disabled by default and must never run
   canonical apply.
-- Preserve the Stage 18J continuation path: Q9 compact review, 18J-P dry-run
-  retry only, 18J-P2 review packet, 18J-P3 tiny approval packet, and 18J-P4
-  tiny apply only if explicitly approved.
+- Preserve the Stage 18J continuation path: Q9 compact review, strict-filter
+  hardening, operator-safe dry-run wrapper, P2 identity diagnostics, P3/P4
+  external identity design, P5 migration draft, P6 evidence extraction, P7
+  read-only coverage, P8 confirmed identity reconciliation integration, P9
+  dry-run retry, P10 review packet, and only later a tiny apply approval packet
+  if candidates pass.
 
 Non-goals:
 
@@ -906,6 +909,68 @@ Non-goals:
 Support doc:
 `stage-18j-p2-station-type-identity-coverage-diagnostics.md`.
 
+### Stage 18J-P3 - Canonical External Station Identity Model
+
+Purpose: record why Stage 18J-P produced zero eligible station-type candidates
+under the strict filter and identify the missing canonical external identity
+model.
+
+Scope:
+
+- Confirm canonical `stations` has no `market_id` or `edsm_station_id`.
+- Confirm existing `s.id AS market_id` usage is a compatibility alias/update
+  target, not external identity proof.
+- Confirm `station_body_links.market_id` is association-scoped and not a
+  general external station identity registry.
+- Recommend a separate provenance-backed `station_external_identity` table.
+- Keep the strict station-type filter unchanged.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p3-canonical-external-station-identity-model.md`.
+
+### Stage 18J-P4 - External Station Identity Schema Design
+
+Purpose: design the external station identity schema that can eventually let
+read-only reconciliation prove canonical station identity with explicit
+external IDs.
+
+Scope:
+
+- Define a separate `station_external_identity` table shape.
+- Preserve `canonical_station_id`, `system_id64`, station name, source,
+  nullable `market_id`, nullable `edsm_station_id`, source run/file/hash
+  provenance, source update time, evidence first/last seen timestamps,
+  confidence, freshness, identity status, and conflict reason.
+- Use statuses `proposed`, `confirmed`, `conflicting`, `rejected`, and
+  `superseded`.
+- Allow only `confirmed` rows to serve as read-only reconciliation proof.
+- Keep station-type writes blocked until confirmed external identity is
+  available.
+- Recommend P5 through P10 follow-up stages before any later apply approval
+  packet.
+
+Non-goals:
+
+- No live SQL migration under `sql/`.
+- No production commands.
+- No production DB access.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p4-external-station-identity-schema-design.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -983,5 +1048,13 @@ Do not add another large planner feature immediately. The healthiest next sequen
 30. Stage 18J-P-filter strict station-type dry-run filter hardening.
 31. Stage 18J-P-dryrun-ops operator-safe station-type dry-run wrapper.
 32. Stage 18J-P2 station-type identity coverage diagnostics.
+33. Stage 18J-P3 canonical external station identity model.
+34. Stage 18J-P4 external station identity schema design.
+35. Stage 18J-P5 external station identity migration draft, not applied to production.
+36. Stage 18J-P6 identity evidence extraction/reconciliation from warehouse.
+37. Stage 18J-P7 read-only external identity coverage artifact.
+38. Stage 18J-P8 confirmed identity integration into reconciliation output.
+39. Stage 18J-P9 station-type dry-run retry with confirmed external identity.
+40. Stage 18J-P10 dry-run review packet.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
