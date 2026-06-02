@@ -595,6 +595,23 @@ still contain production identities even after payload/path sanitization. Do
 not commit production summaries unless a separate review explicitly marks a
 synthetic or sanitized output safe.
 
+Stage 19A.1 documents operator command contexts in
+`docs/operations/operator-command-contexts.md` and adds fail-fast operator
+scripts under `scripts/operator/`. Codex/local development should edit and
+validate these scripts, but Hetzner-only commands must run from the production
+operator shell. The Stage 18J compact summary operator wrapper is:
+
+```sh
+cd /opt/ed-finder
+scripts/operator/stage18j_run_compact_summary.sh
+```
+
+That wrapper checks the expected host, `/opt/ed-finder`, Docker Compose
+availability, and the Stage 18J artifact directory before reading production
+artifacts. It never runs reconciliation, station-type dry-run, or apply. The
+optional canonical station count check is disabled unless the operator sets
+`CHECK_CANONICAL_COUNT=yes`.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

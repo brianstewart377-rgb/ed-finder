@@ -541,6 +541,15 @@ remain separate chunks. Scheduler work remains design-only and disabled by
 default; scheduled jobs must never run canonical apply. See
 [`stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`](./stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md).
 
+Stage 19A.1 adds operator path guardrails after Codex/local and Hetzner command
+contexts were repeatedly confused. It adds a reusable Hetzner environment guard,
+a Stage 18J compact-summary operator wrapper, and
+`docs/operations/operator-command-contexts.md`. Codex remains for repo/code/docs
+and PR work; `/opt/ed-finder`, `/var/lib/ed-finder`, Docker Compose production
+services, production Postgres containers, and production artifacts belong in
+the Hetzner operator shell. The scripts are tooling/docs only and do not start
+Stage 18J-P, Stage 18K, scheduler wiring, or canonical apply.
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.
@@ -583,11 +592,14 @@ treated as a separate proposal.
   contract before broader warehouse domains are added. Keep load,
   reconciliation, compact summary, dry-run, approval, and apply artifacts
   separate.
+* **Operator path guardrails**: Stage 19A.1 keeps Codex/local work separate
+  from Hetzner operator commands and adds fail-fast guards for server-only
+  scripts.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
-  Stage 19A taxonomy are boring, Stage 19 should broaden warehouse source
-  coverage and design freshness/scheduler support. Scheduler or cron
-  implementation is not part of Q6/Q8/19A.
+  Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse
+  source coverage and design freshness/scheduler support. Scheduler or cron
+  implementation is not part of Q6/Q8/19A/19A.1.
 * **Report-only analytics maturation**: improve confidence/risk explanations,
   source coverage summaries, colonisation signals, and mission-density signals
   without writing canonical data.
