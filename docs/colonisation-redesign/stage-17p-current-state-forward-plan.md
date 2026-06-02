@@ -776,10 +776,11 @@ Scope:
   canonical apply.
 - Preserve the Stage 18J continuation path: Q9 compact review, strict-filter
   hardening, operator-safe dry-run wrapper, P2 identity diagnostics, P3/P4
-  external identity design, P5 migration draft, P6 evidence extraction, P7
-  read-only coverage, P8 confirmed identity reconciliation integration, P9
-  dry-run retry, P10 review packet, and only later a tiny apply approval packet
-  if candidates pass.
+  external identity design, P5 migration draft, P6 evidence loader/
+  reconciliation design, P7 production readiness review, P8 schema-only
+  migration apply if approved, P9 identity evidence load/reconciliation with no
+  station-type writes, and P10 strict station-type dry-run retry with confirmed
+  external identity.
 
 Non-goals:
 
@@ -955,8 +956,9 @@ Scope:
 - Allow only `confirmed` rows to serve as read-only reconciliation proof.
 - Keep station-type writes blocked until confirmed external identity is
   available.
-- Recommend P5 through P10 follow-up stages before any later apply approval
-  packet.
+- Recommend a draft migration first, then a separate production readiness
+  review before any schema application, identity evidence load, or dry-run
+  retry.
 
 Non-goals:
 
@@ -970,6 +972,40 @@ Non-goals:
 
 Support doc:
 `stage-18j-p4-external-station-identity-schema-design.md`.
+
+### Stage 18J-P5 - External Station Identity Migration Draft
+
+Purpose: draft the additive schema migration for the external station identity
+model without applying it to production.
+
+Scope:
+
+- Add `sql/027_station_external_identity.sql`.
+- Create `station_external_identity` with canonical station reference,
+  `system_id64`, station name, source, nullable `market_id`, nullable
+  `edsm_station_id`, source run/file/hash provenance, source update time,
+  evidence first/last seen timestamps, confidence, freshness, identity status,
+  conflict reason, and timestamps.
+- Require at least one external ID.
+- Allow identity statuses `proposed`, `confirmed`, `conflicting`, `rejected`,
+  and `superseded`.
+- Add partial unique indexes for confirmed external identities and lookup
+  indexes for station, system, external IDs, source run/file, and status.
+- Add migration contract tests for constraints, indexes, status behavior,
+  additive scope, and no station-type write implication.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No production migration apply.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p5-external-station-identity-migration-draft.md`.
 
 ### Stage 19A.1 - Operator Path Guardrails
 
@@ -1051,10 +1087,10 @@ Do not add another large planner feature immediately. The healthiest next sequen
 33. Stage 18J-P3 canonical external station identity model.
 34. Stage 18J-P4 external station identity schema design.
 35. Stage 18J-P5 external station identity migration draft, not applied to production.
-36. Stage 18J-P6 identity evidence extraction/reconciliation from warehouse.
-37. Stage 18J-P7 read-only external identity coverage artifact.
-38. Stage 18J-P8 confirmed identity integration into reconciliation output.
-39. Stage 18J-P9 station-type dry-run retry with confirmed external identity.
-40. Stage 18J-P10 dry-run review packet.
+36. Stage 18J-P6 external identity evidence loader/reconciliation design.
+37. Stage 18J-P7 external identity migration production readiness review.
+38. Stage 18J-P8 apply external identity schema migration only, if approved.
+39. Stage 18J-P9 load/reconcile identity evidence, no station-type writes.
+40. Stage 18J-P10 retry strict station-type dry-run with confirmed external identity.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

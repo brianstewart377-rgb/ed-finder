@@ -144,6 +144,10 @@ Recommended constraints for a later migration draft:
 The final migration draft should choose exact index names, timestamp defaults,
 and trigger/update mechanics. P4 intentionally does not add that migration.
 
+Stage 18J-P5 follows this design with the draft additive migration
+`sql/027_station_external_identity.sql`. P5 does not apply the migration to
+production and does not backfill identity evidence.
+
 ## Identity Status Model
 
 Recommended statuses:
@@ -328,6 +332,9 @@ Recommended migration-draft rules:
 The migration draft should remain separate from evidence extraction and
 separate from any station-type dry-run retry.
 
+Stage 18J-P5 implements this draft step in repo only. Production application is
+still deferred to a later explicit readiness review and approval stage.
+
 ## Production Safety Gates
 
 Before any production identity load or station-type dry-run retry, require:
@@ -348,13 +355,12 @@ Before any production identity load or station-type dry-run retry, require:
 
 - Stage 18J-P5 - External station identity migration draft, not applied to
   production.
-- Stage 18J-P6 - Identity evidence extraction/reconciliation from warehouse,
-  non-canonical station-type.
-- Stage 18J-P7 - Read-only external identity coverage artifact.
-- Stage 18J-P8 - Confirmed identity integration into reconciliation output.
-- Stage 18J-P9 - Retry station-type dry-run with confirmed external identity.
-- Stage 18J-P10 - Dry-run review packet.
-- Later only: tiny apply approval packet if candidates pass.
+- Stage 18J-P6 - External identity evidence loader/reconciliation design.
+- Stage 18J-P7 - External identity migration production readiness review.
+- Stage 18J-P8 - Apply external identity schema migration only, if approved.
+- Stage 18J-P9 - Load/reconcile identity evidence, no station-type writes.
+- Stage 18J-P10 - Retry strict station-type dry-run with confirmed external
+  identity.
 
 ## Final Recommendation
 

@@ -676,6 +676,15 @@ identity proof in read-only reconciliation. Do not treat warehouse source-only
 evidence, station-name matches, internal `stations.id` equality, or
 station/body link association evidence as station-type proof.
 
+Stage 18J-P5 drafts that schema migration in
+`sql/027_station_external_identity.sql` and documents it in
+`docs/colonisation-redesign/stage-18j-p5-external-station-identity-migration-draft.md`.
+The migration is additive and creates only `station_external_identity` plus
+indexes and constraints. It is not applied to production by P5, does not load
+or reconcile identity evidence, does not update `stations`, and does not
+authorize station-type dry-run or apply. Any production schema application
+requires a later explicit readiness review and approval stage.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
