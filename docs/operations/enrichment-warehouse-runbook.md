@@ -685,6 +685,18 @@ or reconcile identity evidence, does not update `stations`, and does not
 authorize station-type dry-run or apply. Any production schema application
 requires a later explicit readiness review and approval stage.
 
+Stage 18J-P6 records that readiness review in
+`docs/colonisation-redesign/stage-18j-p6-external-identity-migration-production-readiness.md`.
+The verdict is `Ready for schema-only production application`, limited to a
+future operator stage that applies only `sql/027_station_external_identity.sql`.
+The P6 review requires Hetzner `/opt/ed-finder` preflight checks, proof that PR
+#126 is present on main, confirmation that `station_external_identity` does not
+already exist, a backup/snapshot or explicit schema-only risk acceptance, no
+active imports/reconciliation/apply jobs, disposable/local SQL syntax testing,
+and post-apply verification that the new table is empty and `stations` is
+unchanged. Applying this schema later must still not load identity data,
+backfill, run station-type dry-run, or run canonical apply.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

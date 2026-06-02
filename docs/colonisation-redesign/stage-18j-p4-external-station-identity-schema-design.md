@@ -334,6 +334,8 @@ separate from any station-type dry-run retry.
 
 Stage 18J-P5 implements this draft step in repo only. Production application is
 still deferred to a later explicit readiness review and approval stage.
+Stage 18J-P6 records that readiness review and limits its approval to a future
+schema-only production application stage.
 
 ## Production Safety Gates
 
@@ -355,12 +357,13 @@ Before any production identity load or station-type dry-run retry, require:
 
 - Stage 18J-P5 - External station identity migration draft, not applied to
   production.
-- Stage 18J-P6 - External identity evidence loader/reconciliation design.
-- Stage 18J-P7 - External identity migration production readiness review.
+- Stage 18J-P6 - External identity migration production readiness review.
+- Stage 18J-P7 - Schema-only external identity migration application packet.
 - Stage 18J-P8 - Apply external identity schema migration only, if approved.
-- Stage 18J-P9 - Load/reconcile identity evidence, no station-type writes.
-- Stage 18J-P10 - Retry strict station-type dry-run with confirmed external
-  identity.
+- Stage 18J-P9 - External identity evidence loader/reconciliation design.
+- Stage 18J-P10 - Load/reconcile identity evidence, no station-type writes.
+- Later: retry strict station-type dry-run only after confirmed external
+  identity appears in read-only reconciliation output.
 
 ## Final Recommendation
 
