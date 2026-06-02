@@ -570,6 +570,31 @@ before printing. Datetimes and dates are emitted as ISO-8601 strings; decimals
 are emitted as strings. If JSON printing fails, treat the artifact as invalid,
 keep Stage 18J-P blocked, and do not proceed to station-type dry-run or apply.
 
+Stage 18J-Q8 documents the compact reconciliation summary tool in
+`docs/colonisation-redesign/stage-18j-q8-compact-reconciliation-summary.md`.
+It exists because the valid read-only reconciliation artifact is too large for
+normal review. The Q8 tool reads an existing artifact offline, streams candidate
+arrays in bounded memory, and emits a compact deterministic JSON extract with
+the source basename, file size, SHA-256, schema, candidate counts,
+confidence/risk distributions, coverage counts, and capped sanitized candidate
+samples.
+
+Compact summary command:
+
+```sh
+python3 apps/importer/src/reconciliation_artifact_summary.py \
+    --artifact /operator/artifacts/enrichment_staging_reconciliation_YYYYMMDDTHHMMSSZ.json \
+    --output /operator/artifacts/enrichment_staging_reconciliation_summary_YYYYMMDDTHHMMSSZ.json \
+    --max-candidate-samples 50
+```
+
+The summary tool does not connect to a database, run reconciliation, run
+station-type dry-run, or apply canonical writes. Its output sets
+`safe_for_git = false` by default because production candidate samples may
+still contain production identities even after payload/path sanitization. Do
+not commit production summaries unless a separate review explicitly marks a
+synthetic or sanitized output safe.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

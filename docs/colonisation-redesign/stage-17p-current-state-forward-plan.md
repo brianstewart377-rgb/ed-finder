@@ -35,6 +35,9 @@ Current merged direction, based on the latest roadmap trail:
 - Stage 17N.2c recovered trust around unknown coordinates, unknown distances, stale/saturated ratings, and legacy rationale language.
 - Stage 17N.2d/17N.2d-H moved existing-infrastructure awareness and station/body association toward backend-backed trust metadata.
 - Stage 17N.2d-P and the enrichment roadmap introduced a safer offline/staging warehouse direction for repeatable enrichment evidence and report-only reconciliation.
+- Stage 18J-Q8 keeps the first production-scale reconciliation review offline
+  and compact: large artifacts must be summarized before Stage 18J-P can
+  proceed, and production summaries remain non-git by default.
 
 ## Read-Order For Future Work
 
@@ -721,6 +724,38 @@ read-only reconciliation artifact exists.
 Support doc:
 `stage-18j-q7-reconciliation-json-serialization-fix.md`.
 
+### Stage 18J-Q8 - Compact Reconciliation Summary
+
+Purpose: make the valid large reconciliation artifact reviewable without
+loading or committing the full production artifact.
+
+Scope:
+
+- Add an offline CLI that streams an existing
+  `enrichment_staging_reconciliation/v1` JSON artifact in bounded memory.
+- Output source basename only, SHA-256, file size, schema,
+  `canonical_writes_planned`, candidate counts, update/insert counts, blocking
+  reasons, confidence/risk counts, coverage counts, and capped sanitized
+  candidate samples.
+- Exclude raw payloads, private paths, DSNs, and secrets from the compact
+  output.
+- Mark compact output `safe_for_git = false` by default.
+
+Non-goals:
+
+- No production reconciliation run from development.
+- No production data or artifact commits.
+- No station-type dry-run.
+- No canonical apply.
+- No production DB access.
+- No Stage 18J-P or Stage 18K work.
+
+Q8 is a review-enabling extraction step only. Stage 18J-P remains blocked until
+a compact review output exists and is explicitly reviewed.
+
+Support doc:
+`stage-18j-q8-compact-reconciliation-summary.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -764,5 +799,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 23. Stage 18J-Q5 nested EDSM station snapshot support.
 24. Stage 18J-Q6 memory-safe warehouse station load.
 25. Stage 18J-Q7 reconciliation JSON serialization fix.
+26. Stage 18J-Q8 compact reconciliation summary.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

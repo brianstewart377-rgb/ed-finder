@@ -245,3 +245,21 @@ apply was run, and Stage 18J-P remained blocked.
 Stage 18J-Q7 fixes reconciliation report serialization before retrying the
 Stage 18J-Q3 read-only artifact path. Q7 does not authorize station-type
 dry-run, canonical apply, Stage 18J-P, Stage 18K, or scheduler work.
+
+## Q8 Follow-Up
+
+After Q7 merged, the controlled read-only reconciliation artifact was generated
+successfully and validated outside git. Its size makes direct review
+impractical, so Stage 18J-Q8 adds an offline, memory-safe compact summary tool.
+
+Q8 reads an existing `enrichment_staging_reconciliation/v1` artifact from an
+operator-managed path and writes a compact deterministic extract with the source
+basename, file size, SHA-256, schema, candidate counts, update/insert counts,
+blocking reasons, confidence/risk counts, coverage counts, and capped sanitized
+candidate samples.
+
+Q8 does not authorize production data commits, production artifact commits,
+production reconciliation from development, station-type dry-run, canonical
+apply, production DB access from development, Stage 18J-P, Stage 18K, or
+scheduler work. Stage 18J-P remains blocked until a compact review output
+exists and is explicitly reviewed.
