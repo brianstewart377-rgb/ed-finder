@@ -2,25 +2,17 @@
 
 ## Purpose
 
-Stage 18J-P2 adds compact identity coverage diagnostics to the strict
-station-type dry-run output. The first bounded Hetzner/operator dry-run was
-safe and compact, but it found zero eligible station-type update candidates
-because every station candidate failed external identity proof.
+Stage 18J-P2 adds compact identity coverage diagnostics to the strict station-type dry-run output. The first bounded Hetzner/operator dry-run was safe and compact, but it found zero eligible station-type update candidates because every station candidate failed external identity proof.
 
-This stage is diagnostic/review tooling only. It does not run production
-commands, touch the production DB, run imports, run reconciliation, run the
-summarizer against production artifacts, run production station-type dry-run,
-run canonical apply, create approval records, or start Stage 18K.
+This stage is diagnostic/review tooling only. It does not run production commands, touch the production DB, run imports, run reconciliation, run the summarizer against production artifacts, run production station-type dry-run, run canonical apply, create approval records, or start Stage 18K.
 
 ## Input Dry-Run Result
 
 The operator dry-run artifact reported:
 
 - schema: `station_type_canonical_pilot_dry_run/v1`
-- dry-run artifact SHA-256:
-  `29a95f910d86707d90ef4b1cbd393ca37831ed2cca9e320446ab0101fef3d4e7`
-- source reconciliation artifact SHA-256:
-  `0bacd62b7de0adf749b3c0de59ac3eebd4f67a6bea18eb96510d29f999935802`
+- dry-run artifact SHA-256: `29a95f910d86707d90ef4b1cbd393ca37831ed2cca9e320446ab0101fef3d4e7`
+- source reconciliation artifact SHA-256: `0bacd62b7de0adf749b3c0de59ac3eebd4f67a6bea18eb96510d29f999935802`
 - `canonical_writes_planned`: `0`
 - `total_candidates_seen`: `298177`
 - `eligible_station_type_updates`: `0`
@@ -34,17 +26,11 @@ The leading rejection count was:
 
 - `rejected_missing_external_identity`: `298177`
 
-That means the strict filter behaved safely, but it did not explain whether
-the failure came from missing source IDs, missing canonical IDs, mismatched IDs,
-system/name mismatches, ambiguous match counts, or omitted canonical external
-IDs in the reconciliation payload.
+That means the strict filter behaved safely, but it did not explain whether the failure came from missing source IDs, missing canonical IDs, mismatched IDs, system/name mismatches, ambiguous match counts, or omitted canonical external IDs in the reconciliation payload.
 
 ## Diagnostic Output
 
-`station_type_canonical_pilot.py` now emits
-`identity_coverage_summary` in dry-run artifacts. The summary is compact,
-deterministic, and count-only. It does not include raw payloads and does not
-change candidate eligibility.
+`station_type_canonical_pilot.py` now emits `identity_coverage_summary` in dry-run artifacts. The summary is compact, deterministic, and count-only. It does not include raw payloads and does not change candidate eligibility.
 
 The summary records:
 
@@ -56,21 +42,32 @@ The summary records:
 - source and canonical station-name presence and mismatch counts,
 - canonical match count distribution,
 - canonical station presence,
-- canonical station present while external IDs are absent from the
-  reconciliation payload,
+- canonical station present while external IDs are absent from the reconciliation payload,
 - possible omitted canonical external IDs in reconciliation payload,
 - internal primary-key-only cases that remain insufficient identity proof,
 - external identity proof present/absent counts.
 
+## Production Finding After P2
+
+The follow-up Hetzner/operator finding confirmed that canonical `stations` has no `market_id` or `edsm_station_id` columns. The attempted coverage query failed on missing `market_id`, and the P2 identity coverage reported:
+
+- `source_edsm_station_id_present`: `298177`
+- `canonical_edsm_station_id_present`: `0`
+- `canonical_market_id_present`: `0`
+- `external_identity_proof_present`: `0`
+- `external_identity_proof_absent`: `298177`
+- `canonical_station_present_but_external_ids_missing_in_payload`: `262579`
+- `possible_canonical_external_ids_omitted_from_reconciliation_payload`: `262579`
+
+The updated conclusion is that Stage 18J-P cannot produce eligible station-type update candidates until external station identity is modeled and populated safely. Re-running the same strict dry-run without canonical external identity available should continue to produce zero eligible rows.
+
 ## Eligibility Boundary
 
-The diagnostics do not relax the strict filter. A candidate is still eligible
-only when the existing Stage 18J-P-filter rules pass:
+The diagnostics do not relax the strict filter. A candidate is still eligible only when the existing Stage 18J-P-filter rules pass:
 
 - update-only station candidate,
 - station-type delta only,
-- `source.market_id == canonical.market_id`, or
-  `source.edsm_station_id == canonical.edsm_station_id`,
+- `source.market_id == canonical.market_id`, or `source.edsm_station_id == canonical.edsm_station_id`,
 - exactly one canonical match,
 - matching `system_id64`,
 - matching normalized station name,
@@ -79,50 +76,26 @@ only when the existing Stage 18J-P-filter rules pass:
 - eligible canonical old value,
 - explicit max-row bound.
 
-Internal canonical `station_id` remains only the update target. It is never
-accepted as identity proof.
+Internal canonical `station_id` remains only the update target. It is never accepted as identity proof.
 
-## What The Next Diagnostic Rerun Should Answer
+## What The Diagnostics Answered
 
-After this change merges, a separate Hetzner/operator bounded dry-run can
-produce the new identity coverage summary. That rerun should answer:
+The P2 diagnostics answered the core question: the missing identity proof is not primarily source-side absence. Source EDSM station IDs are present in the source payload, but canonical external station IDs are absent from the canonical payload because canonical `stations` does not model them.
 
-- whether source `market_id` values are absent,
-- whether canonical `market_id` values are absent from reconciliation output,
-- whether both sides have `market_id` values but disagree,
-- whether source `edsm_station_id` values are absent,
-- whether canonical `edsm_station_id` values are absent from reconciliation
-  output,
-- whether both sides have `edsm_station_id` values but disagree,
-- whether `system_id64` or station names fail the identity guard,
-- whether canonical match counts are not exactly one,
-- whether canonical station rows are present but external IDs are missing from
-  the reconciliation payload.
+This shifts the next step from dry-run retry to identity-model design. See `stage-18j-p3-canonical-external-station-identity-model.md`.
 
 ## Boundaries
 
-This stage creates no approval record and authorizes no apply. The dry-run
-artifact remains review input only. `canonical_writes_planned` remains `0`,
-`apply_run` remains `false`, and `approval_record_created` remains `false`.
+This stage creates no approval record and authorizes no apply. The dry-run artifact remains review input only. `canonical_writes_planned` remains `0`, `apply_run` remains `false`, and `approval_record_created` remains `false`.
 
-Production rerun, if requested later, must still use the Hetzner operator
-wrapper, the known reconciliation checksum, bounded `MAX_ROWS`, compact blocked
-samples, and no apply arguments.
+No follow-up should relax the identity filter or reinterpret internal primary keys as external proof. Production reruns, if requested later, must still use the Hetzner operator wrapper, the known reconciliation checksum, bounded `MAX_ROWS`, compact blocked samples, and no apply arguments.
 
 ## Roadmap Impact
 
-Stage 18J-P is not ready for any apply path. The next appropriate step after
-merge is a separate bounded Hetzner/operator dry-run rerun for diagnostics
-only. If the new identity coverage summary shows canonical external IDs are
-missing from the reconciliation payload, the follow-up should inspect and
-repair reconciliation identity payload coverage before considering any apply
-approval packet.
+Stage 18J-P is not ready for any apply path. The next appropriate step is Stage 18J-P3: design canonical external station identity evidence. If a later identity table is added and populated, a future read-only identity coverage artifact should prove that canonical `market_id` or `edsm_station_id` values are available before retrying the station-type dry-run.
 
 Stage 18K remains not started.
 
 ## Final Recommendation
 
-Merge the identity coverage diagnostics, then rerun the bounded Hetzner
-station-type dry-run only as a separate operator-shell diagnostic step. Do not
-create an approval packet or apply plan until the identity coverage summary is
-reviewed and the source of the missing external identity proof is understood.
+Keep the strict filter. Do not create an approval packet or apply plan from the zero-eligible P2 result. Model external station identity separately, preserve provenance and conflict status, and retry station-type dry-run only after canonical external identity is available in read-only reconciliation output.
