@@ -543,6 +543,17 @@ non-ambiguous, non-volatile, permanent station-type candidates with an explicit
 max-row bound. See
 [`stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md`](./stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md).
 
+Stage 18J-P-filter hardens the station-type dry-run filter before any
+production dry-run retry. The pilot now requires external station identity via
+matching `market_id` or matching `edsm_station_id`, rejects internal
+primary-key-only identity proof, excludes ambiguous/source-only/volatile/
+transient/non-station-type candidates, keeps missing `station_body_name` as a
+station/body-link blocker only, requires an explicit max-row bound, records the
+input reconciliation artifact checksum, and keeps dry-run
+`canonical_writes_planned = 0`. It does not run Stage 18J-P or authorize apply.
+See
+[`stage-18j-p-filter-strict-station-type-dry-run-filter.md`](./stage-18j-p-filter-strict-station-type-dry-run-filter.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -610,6 +621,9 @@ treated as a separate proposal.
 * **Station-type dry-run readiness**: Stage 18J-Q9 allows only a filtered
   station-type dry-run readiness path. Do not run Stage 18J-P against the full
   station reconciliation candidate set.
+* **Strict station-type filter hardening**: Stage 18J-P-filter implements the
+  strict filter and synthetic tests. A future Stage 18J-P production dry-run
+  can proceed only as a separate operator step after this hardening merges.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
   Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse

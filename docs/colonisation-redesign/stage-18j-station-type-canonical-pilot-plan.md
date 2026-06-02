@@ -63,7 +63,7 @@ The pilot may read warehouse staging evidence, source-run metadata, source-file 
 | Canonical field | `station_type` only. |
 | Canonical row requirement | Existing row only; exactly one row matched. |
 | Evidence source | Offline staged station snapshot evidence, preferably from a named source run/file. |
-| Identity keys | Exact `system_id64`, normalized station name, and stable station identifier. Prefer `market_id`; allow `edsm_station_id` only when the source adapter proves stability. |
+| Identity keys | Exact `system_id64`, normalized station name, and explicit external station identifier: matching `market_id` or matching `edsm_station_id`. |
 | Artifact outputs | Dry-run artifact, approval record, apply artifact, audit record, rollback pre-image, post-apply verification artifact. |
 | Limits | Very small bounded pilot; default 5 rows and first-production maximum 20 rows. |
 
@@ -100,11 +100,11 @@ The core eligibility rule is that the source row must prove exact identity to on
 | Existing canonical station | The candidate must target an already-existing `stations` row. `candidate_insert_missing_canonical` is never eligible. |
 | Exact match cardinality | The candidate must resolve to exactly one canonical station. Zero matches and multiple matches block. |
 | System identity | Source `system_id64` must be present and equal to canonical `stations.system_id64`/canonical system `id64`. Name-only system identity is insufficient. |
-| Stable station identifier | Prefer `market_id`; allow `edsm_station_id` only if the adapter documents that the value is stable for this source. The approved identifier and value must be recorded. |
+| Stable station identifier | Require an explicit external match: source `market_id` to canonical `market_id`, or source `edsm_station_id` to canonical `edsm_station_id`. Internal canonical `station_id`/primary-key equality is never identity proof. |
 | Station name | Source station name and canonical station name must match after the same canonicalisation rule used by the pilot. Case-only differences may match; punctuation/spacing rules must be deterministic and recorded. |
 | Source station type | Source station type must be present, valid, normalized, and in the approved permanent-station-type allow-list. Unknown, blank, placeholder, carrier, transient, mobile, unsupported, or unrecognized values block. |
 | Current canonical value | Current canonical station type must be missing, blank, unknown, placeholder, or explicitly eligible under a separately approved narrow replacement rule. Existing known types should not be overwritten by default. |
-| Evidence quality | Candidate must have `risk_class = clear` or a Stage 18J-specific equivalent that is stricter than current report-only scoring. It must have no blocking, risky, stale, volatile, source-only, report-only, or unknown labels in the selected apply set. |
+| Evidence quality | Candidate must satisfy the Stage 18J-specific strict filter. Source-only inserts, ambiguous identity, stale/undated evidence without exception, volatile evidence, non-station-type deltas, and transient/non-slot station types block. `missing_station_body_name` remains a station/body-link blocker but does not block an externally proven station-type comparison. |
 | Source metadata | Candidate must include source name, adapter version, source run key, source file key, source record key/hash, freshness/timestamp state, and immutable source identity. |
 | Duplicate/skip hygiene | Source identity conflicts, malformed/skipped rows, unsupported source linkage, or duplicate identity conflicts block. |
 | Determinism | Candidate must be selected from a deterministic dry-run artifact whose canonical JSON SHA-256 is approved by the operator. |
@@ -132,7 +132,7 @@ The pilot should prefer **block** over **guess**. A block should be explicit, re
 | Missing, malformed, unsupported, duplicate, or conflicting source identity | Source evidence is not stable enough. |
 | Source station type missing, unknown, invalid, carrier, transient, mobile, or unsupported | No safe permanent station type to promote. |
 | Existing canonical station type known and not explicitly eligible | Avoids overwriting current truth with staged evidence. |
-| Risk class blocked, risky, stale, volatile, source-only, report-only, or unknown | Evidence is not safe for first canonical write. |
+| Risk class blocked, stale, volatile, source-only insert, or unknown | Evidence is not safe for first canonical write. Report-only candidate updates may feed a dry-run only after Stage 18J-specific eligibility passes; they are still not write instructions. |
 | Freshness missing/undated without explicit operator freshness exception | Avoids silently promoting stale snapshot data. |
 | Any candidate includes non-station-type differences as apply changes | Prevents scope creep. |
 | Any apply SQL targets non-approved table or field | Prevents catastrophic broad write. |
@@ -173,14 +173,19 @@ Each eligible candidate should include the following row-level fields.
 | `field` | Always `station_type`. |
 | `old_value` | Current canonical station type pre-image. |
 | `new_value` | Normalized approved permanent station type. |
-| `source_identity` | `system_id64`, `market_id`, optional approved `edsm_station_id`, station name, station type, source run/file/record keys, and source record hash. |
+| `source_identity` | `system_id64`, `market_id`, `edsm_station_id` when available, station name, station type, source run/file/record keys, and source record hash. |
 | `match_proof` | Exact system match, stable identifier match type, normalized name comparison, canonical match count, duplicate checks. |
 | `eligibility` | Pass/fail booleans for every rule, even for selected candidates. |
 | `confidence` | Confidence/risk labels, reasons, source class, freshness class, timestamp state, and non-volatile field classification. |
 | `rollback_pre_image` | Full pre-image needed to restore this field on this row. |
 | `audit_metadata` | Reason codes, operator-review text, source metadata, and tool version. |
 
-The dry-run artifact should keep `canonical_writes_planned` equal to the count of eligible station-type updates only within this new pilot schema. Existing warehouse reconciliation and coverage reports must continue to report `canonical_writes_planned = 0`, because those report families are not write plans.[4] [5]
+The dry-run artifact must keep `canonical_writes_planned = 0`; eligible rows are
+reported separately as `eligible_station_type_updates`. Existing warehouse
+reconciliation and coverage reports also continue to report
+`canonical_writes_planned = 0`, because these report families are not canonical
+apply instructions.[4] [5] Stage 18J-P-filter records the hardened filter in
+[`stage-18j-p-filter-strict-station-type-dry-run-filter.md`](./stage-18j-p-filter-strict-station-type-dry-run-filter.md).
 
 ## Apply Contract
 
@@ -357,7 +362,7 @@ Tests should be written before implementation or alongside the first dry-run-onl
 | Identity rejection | Zero matches, multiple matches, name-only matches, mismatched system ID64, mismatched normalized station name, duplicate identity conflict, and malformed/skipped linkage block. |
 | Source type rejection | Missing, unknown, placeholder, unrecognized, carrier, transient, mobile, or unsupported station types block. |
 | Current value rejection | Existing known canonical station types are not overwritten by default. |
-| Evidence-state rejection | Ambiguous, insufficient, source-only, stale, undated without approved exception, risky, blocked, volatile, unknown, and report-only candidates block. |
+| Evidence-state rejection | Ambiguous, insufficient, source-only inserts, stale, undated without approved exception, volatile, unknown, and non-station-type candidates block. Report-only reconciliation rows may feed the dry-run only after Stage 18J-specific eligibility passes; they are never canonical write instructions by themselves. |
 | Scope rejection | Distance, body name, services, economies, faction, government, allegiance, systems, bodies, links, rings, scan facts, planner, scoring, optimizer, Simulation Preview, role, and Build Plan mutations block. |
 | Apply gating | Apply requires artifact path, artifact SHA-256, expected count, approved table, approved field, approved source run, approval ID, and confirmation flag. |
 | Pre-image safety | Apply fails if current canonical pre-image differs from dry-run pre-image. |
@@ -409,7 +414,7 @@ You are implementing Stage 18J for ED-Finder. Before changing code, read:
 
 Hard scope: implement only exact `stations.station_type` canonical pilot support for existing canonical stations matched by exact trusted station identity. Do not implement station inserts, deletes, systems writes, bodies writes, station_body_links writes, body_rings writes, body_scan_facts writes, distance writes, service/economy/faction/government/allegiance writes, planner mutation, Build Plan mutation, scoring changes, Simulation Preview changes, optimizer changes, role changes, live EDSM/API crawl, UI/API Docker invocation, production scheduler wiring, or broad backfill.
 
-Start with tests and a dry-run-only artifact builder. The dry-run artifact must be deterministic and versioned as `station_type_canonical_pilot_dry_run/v1`. Eligible candidates must require exact `system_id64`, exactly one canonical station match, stable station identifier, normalized station name match, valid permanent source station type, eligible old canonical value, clear risk state, no stale/volatile/source-only/risky/blocked/unknown/report-only selected evidence, source run/file/record metadata, rollback pre-image, and audit metadata.
+Start with tests and a dry-run-only artifact builder. The dry-run artifact must be deterministic and versioned as `station_type_canonical_pilot_dry_run/v1`. Eligible candidates must require exact `system_id64`, exactly one canonical station match, external station identity by matching `market_id` or `edsm_station_id`, normalized station name match, valid permanent source station type, eligible old canonical value, no ambiguous/source-only-insert/stale/volatile/transient/non-station-type selected evidence, source run/file/record metadata, rollback pre-image, and audit metadata.
 
 Do not make ordinary warehouse loaders able to write canonical tables. Do not reuse report-only `candidate_update` rows as executable write instructions. Current reconciliation reports must continue to keep `canonical_writes_planned = 0` and `auto_promote_to_canonical = false`.
 

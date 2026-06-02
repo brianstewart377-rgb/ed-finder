@@ -626,6 +626,17 @@ externally proven. A dry-run retry still requires a separate prompt, an
 explicit max-row bound, recorded reconciliation checksum, compact output, and
 no canonical apply.
 
+Stage 18J-P-filter hardens the station-type dry-run eligibility code before
+any future operator retry. The filter accepts only update-only station-type
+candidates with external identity proof by matching `market_id` or
+`edsm_station_id`; internal canonical `station_id` is never identity proof.
+It emits explicit rejection counts for ambiguous identity, source-only inserts,
+missing external identity, volatile evidence, transient/non-slot station types,
+non-station-type changes, missing station-type deltas, and max-row exclusions.
+Dry-run output keeps `canonical_writes_planned = 0`, records the input
+reconciliation artifact checksum, creates no approval record, and does not run
+apply. This hardening does not itself authorize or run Stage 18J-P.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
