@@ -531,6 +531,16 @@ canonical apply, or Stage 18J-P/18K work. Stage 18J-P remains blocked until a
 compact review output exists and has been reviewed. See
 [`stage-18j-q8-compact-reconciliation-summary.md`](./stage-18j-q8-compact-reconciliation-summary.md).
 
+Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
+the warehouse broadens beyond the station reconciliation path. It separates
+stations, bodies, rings, station/body links, markets, services, economies,
+colonisation, freshness, coverage, analytics, and future write-plan artifacts;
+standardizes domain-qualified names; and requires source inventory, load,
+reconciliation, compact summary, dry-run, approval packet, and manual apply to
+remain separate chunks. Scheduler work remains design-only and disabled by
+default; scheduled jobs must never run canonical apply. See
+[`stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`](./stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.
@@ -569,11 +579,15 @@ treated as a separate proposal.
   quality checks across staged station, body, and ring evidence while
   preserving `distanceToArrival` as volatile evidence instead of a churn
   source.
+* **Warehouse artifact taxonomy**: Stage 19A fixes the naming and chunking
+  contract before broader warehouse domains are added. Keep load,
+  reconciliation, compact summary, dry-run, approval, and apply artifacts
+  separate.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
-  staging retry, read-only artifact path, and compact reconciliation review are
-  boring, Stage 19 should broaden warehouse source coverage and design
-  freshness/scheduler support. Scheduler or cron implementation is not part of
-  Q6/Q8.
+  staging retry, read-only artifact path, compact reconciliation review, and
+  Stage 19A taxonomy are boring, Stage 19 should broaden warehouse source
+  coverage and design freshness/scheduler support. Scheduler or cron
+  implementation is not part of Q6/Q8/19A.
 * **Report-only analytics maturation**: improve confidence/risk explanations,
   source coverage summaries, colonisation signals, and mission-density signals
   without writing canonical data.

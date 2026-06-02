@@ -756,6 +756,39 @@ a compact review output exists and is explicitly reviewed.
 Support doc:
 `stage-18j-q8-compact-reconciliation-summary.md`.
 
+### Stage 19A - Warehouse Artifact Taxonomy and Chunked Roadmap
+
+Purpose: define how warehouse artifacts are named, separated, reviewed, and
+sequenced before Stage 19 broadens beyond station reconciliation.
+
+Scope:
+
+- Separate artifact families for stations, bodies, rings, station/body links,
+  markets, services, economies, colonisation, freshness, coverage, analytics,
+  and future write plans.
+- Standardize domain-qualified artifact names for loads, reconciliation,
+  compact summaries, freshness status, operator status, and future write plans.
+- Require source inventory before load, load before reconciliation,
+  reconciliation before compact summary, compact summary before dry-run,
+  dry-run before approval packet, approval packet before apply, and manual
+  apply only.
+- State that scheduler work must remain disabled by default and must never run
+  canonical apply.
+- Preserve the Stage 18J continuation path: Q9 compact review, 18J-P dry-run
+  retry only, 18J-P2 review packet, 18J-P3 tiny approval packet, and 18J-P4
+  tiny apply only if explicitly approved.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No imports, reconciliation, station-type dry-run, or apply.
+- No cron/scheduler wiring.
+- No Stage 18J-P or Stage 18K work.
+
+Support doc:
+`stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -800,5 +833,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 24. Stage 18J-Q6 memory-safe warehouse station load.
 25. Stage 18J-Q7 reconciliation JSON serialization fix.
 26. Stage 18J-Q8 compact reconciliation summary.
+27. Stage 19A warehouse artifact taxonomy and chunked roadmap.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
