@@ -789,6 +789,33 @@ Non-goals:
 Support doc:
 `stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 
+### Stage 19A.1 - Operator Path Guardrails
+
+Purpose: prevent Codex/local prompts from accidentally running Hetzner
+production operator commands.
+
+Scope:
+
+- Add a reusable shell guard that checks the Hetzner host, `/opt/ed-finder`,
+  Docker Compose availability, and required operator artifact directories.
+- Add a Stage 18J compact-summary operator wrapper that calls the guard before
+  reading production artifacts.
+- Document Codex, DAVE2/local dev, and Hetzner production operator command
+  contexts.
+- Keep operator scripts fail-fast outside the production operator shell.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No cron/scheduler wiring.
+- No Stage 18J-P or Stage 18K work.
+
+Support doc:
+`../operations/operator-command-contexts.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -834,5 +861,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 25. Stage 18J-Q7 reconciliation JSON serialization fix.
 26. Stage 18J-Q8 compact reconciliation summary.
 27. Stage 19A warehouse artifact taxonomy and chunked roadmap.
+28. Stage 19A.1 operator path guardrails.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

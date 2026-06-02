@@ -158,3 +158,21 @@ canonical apply manual-only behind explicit approval. Stage 18J station-type
 work should finish its compact-summary and dry-run review sequence before any
 tiny apply is considered; Stage 19 should broaden warehouse evidence without
 quietly starting Stage 18K or scheduler-driven writes.
+
+## Stage 19A.1 Follow-Up
+
+Stage 19A.1 adds operator path guardrails for this taxonomy. The key rule is
+that Codex/local repo work and Hetzner operator work are separate command
+contexts:
+
+- Codex/local: edit scripts and docs, run local tests, open PRs.
+- Hetzner operator shell: run `/opt/ed-finder`, `/var/lib/ed-finder`, Docker
+  Compose production service checks, production artifact reads, and
+  operator-approved production commands.
+
+Stage 19A.1 adds `scripts/operator/require_hetzner_operator_env.sh` and
+`scripts/operator/stage18j_run_compact_summary.sh`. Server-only scripts should
+call the shared guard and fail fast outside the expected Hetzner host/path.
+This does not run production commands from Codex, touch production DBs, run
+imports, run reconciliation, run station-type dry-run, run apply, implement
+scheduler wiring, start Stage 18J-P, or start Stage 18K.
