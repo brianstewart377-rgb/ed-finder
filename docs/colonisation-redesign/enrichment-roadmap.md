@@ -531,6 +531,18 @@ canonical apply, or Stage 18J-P/18K work. Stage 18J-P remains blocked until a
 compact review output exists and has been reviewed. See
 [`stage-18j-q8-compact-reconciliation-summary.md`](./stage-18j-q8-compact-reconciliation-summary.md).
 
+Stage 18J-Q9 reviews the compact summary counts and records the station-type
+dry-run readiness verdict. The compact summary is valid and useful, but the
+unfiltered reconciliation scope is too broad: `298177` station candidates,
+`163722` station candidate updates, `35340` source-only missing-canonical
+candidates, `258` ambiguous matches, and all `298177` station/body association
+candidates blocked by missing station body names. The verdict is
+`Ready only with strict filter`; Stage 18J-P remains blocked until the
+station-type dry-run scope is explicitly filtered to externally proven,
+non-ambiguous, non-volatile, permanent station-type candidates with an explicit
+max-row bound. See
+[`stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md`](./stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -595,6 +607,9 @@ treated as a separate proposal.
 * **Operator path guardrails**: Stage 19A.1 keeps Codex/local work separate
   from Hetzner operator commands and adds fail-fast guards for server-only
   scripts.
+* **Station-type dry-run readiness**: Stage 18J-Q9 allows only a filtered
+  station-type dry-run readiness path. Do not run Stage 18J-P against the full
+  station reconciliation candidate set.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
   Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse
