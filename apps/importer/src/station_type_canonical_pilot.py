@@ -48,6 +48,7 @@ APPROVED_TABLE = 'stations'
 APPROVED_FIELD = 'station_type'
 DEFAULT_LIMIT = 5
 MAX_FIRST_PILOT_LIMIT = 20
+DEFAULT_BLOCKED_CANDIDATE_SAMPLE_LIMIT = 100
 ELIGIBLE_OLD_TYPE_LABELS = {None, '', 'Unknown'}
 VOLATILE_RISK_FLAGS = {'volatile_source_class', 'volatile_source_evidence'}
 SOURCE_ONLY_RISK_FLAGS = {'source_only_evidence'}
@@ -111,6 +112,7 @@ def build_station_type_pilot_dry_run(
     reconciliation_artifact_sha256: str | None = None,
     reconciliation_artifact_basename: str | None = None,
     reconciliation_artifact_size_bytes: int | None = None,
+    blocked_candidate_sample_limit: int | None = DEFAULT_BLOCKED_CANDIDATE_SAMPLE_LIMIT,
     generated_at: str | None = None,
     git_commit: str | None = None,
 ) -> dict[str, Any]:
@@ -121,6 +123,7 @@ def build_station_type_pilot_dry_run(
         raise Stage18JPlanError('limit must be >= 0')
     if limit > MAX_FIRST_PILOT_LIMIT:
         raise Stage18JPlanError(f'limit must be <= {MAX_FIRST_PILOT_LIMIT} for the first Stage 18J pilot')
+    blocked_sample_limit = _validate_blocked_candidate_sample_limit(blocked_candidate_sample_limit)
 
     source_scope = _source_scope(
         reconciliation_report,
@@ -129,7 +132,9 @@ def build_station_type_pilot_dry_run(
         reconciliation_artifact_size_bytes=reconciliation_artifact_size_bytes,
     )
     eligible: list[dict[str, Any]] = []
-    blocked: list[dict[str, Any]] = []
+    blocked_samples: list[dict[str, Any]] = []
+    blocked_count = 0
+    rejection_reason_counts: dict[str, int] = {}
     rows_considered = 0
 
     for candidate in reconciliation_report.get('station_candidates', []) or []:
@@ -144,20 +149,32 @@ def build_station_type_pilot_dry_run(
         if decision['eligible'] and len(eligible) < limit:
             eligible.append(decision['candidate'])
         elif decision['eligible']:
-            blocked.append({
-                'candidate_id': decision['candidate']['candidate_id'],
-                'source_identity': decision['candidate']['source_identity'],
-                'canonical': decision['candidate']['canonical'],
-                'rejection_reasons': ['rejected_by_max_row_bound'],
-                'blocking_reasons': ['rejected_by_max_row_bound'],
-                'eligible_if_limit_allows': True,
-            })
+            blocked_count = _record_blocked_candidate(
+                {
+                    'candidate_id': decision['candidate']['candidate_id'],
+                    'source_identity': decision['candidate']['source_identity'],
+                    'canonical': decision['candidate']['canonical'],
+                    'rejection_reasons': ['rejected_by_max_row_bound'],
+                    'blocking_reasons': ['rejected_by_max_row_bound'],
+                    'eligible_if_limit_allows': True,
+                },
+                blocked_samples=blocked_samples,
+                blocked_count=blocked_count,
+                rejection_reason_counts=rejection_reason_counts,
+                sample_limit=blocked_sample_limit,
+            )
         else:
-            blocked.append(decision['blocked_candidate'])
+            blocked_count = _record_blocked_candidate(
+                decision['blocked_candidate'],
+                blocked_samples=blocked_samples,
+                blocked_count=blocked_count,
+                rejection_reason_counts=rejection_reason_counts,
+                sample_limit=blocked_sample_limit,
+            )
 
     eligible = sorted(eligible, key=canonical_json)
-    blocked = sorted(blocked, key=canonical_json)
-    rejection_reason_counts = _blocked_reason_distribution(blocked)
+    blocked = sorted(blocked_samples, key=canonical_json)
+    rejection_reason_counts = dict(sorted(rejection_reason_counts.items()))
     rejection_summary = _rejection_summary(rejection_reason_counts)
     now = generated_at or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
     artifact: dict[str, Any] = {
@@ -182,6 +199,7 @@ def build_station_type_pilot_dry_run(
         'filters': {
             'limit': limit,
             'max_row_bound': limit,
+            'blocked_candidate_sample_limit': blocked_sample_limit,
             'allow_edsm_station_id': allow_edsm_station_id,
             'allow_undated_source_exception': allow_undated_source_exception,
             'requires_external_identity_proof': True,
@@ -197,7 +215,10 @@ def build_station_type_pilot_dry_run(
             'station_candidates_considered': rows_considered,
             'eligible_station_type_updates': len(eligible),
             'eligible_candidates': len(eligible),
-            'blocked_candidates': len(blocked),
+            'blocked_candidates': blocked_count,
+            'blocked_candidate_samples_included': len(blocked),
+            'blocked_candidate_sample_limit': blocked_sample_limit,
+            'blocked_candidate_samples_omitted': max(blocked_count - len(blocked), 0),
             'rejection_reason_counts': rejection_reason_counts,
             'blocked_by_reason': rejection_reason_counts,
             'canonical_writes_planned': 0,
@@ -210,6 +231,14 @@ def build_station_type_pilot_dry_run(
             'warnings': 0,
         },
         'eligible_candidates': eligible,
+        'blocked_candidate_output': {
+            'sampled': True,
+            'sample_limit': blocked_sample_limit,
+            'samples_included': len(blocked),
+            'total_blocked_candidates': blocked_count,
+            'samples_omitted': max(blocked_count - len(blocked), 0),
+            'sampling': 'first_n_by_input_order_sorted_for_output',
+        },
         'blocked_candidates': blocked,
         'operator_review': {
             'manual_approval_required': True,
@@ -678,9 +707,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--reconciliation-report', default=None, help='Path to read-only warehouse reconciliation JSON for dry-run mode.')
     parser.add_argument('--output', default=None, help='Optional output path. Defaults to stdout only.')
     parser.add_argument('--limit', type=int, default=DEFAULT_LIMIT, help='Explicit max-row bound for eligible dry-run candidates.')
+    parser.add_argument('--blocked-candidate-sample-limit', type=int, default=DEFAULT_BLOCKED_CANDIDATE_SAMPLE_LIMIT, help='Maximum blocked candidate samples to include in dry-run output.')
     parser.add_argument('--allow-edsm-station-id', action='store_true', help='Compatibility flag; edsm_station_id is allowed as external identity by the strict filter.')
     parser.add_argument('--allow-undated-source-exception', action='store_true', help='Allow otherwise eligible undated/file-snapshot rows in dry-run review.')
     parser.add_argument('--json', action='store_true', help='Accepted for compatibility; output is always JSON.')
+    parser.add_argument('--quiet', action='store_true', help='When --output is set, do not also print the JSON artifact to stdout.')
     parser.add_argument('--dry-run', action='store_true', default=True, help='Dry-run mode. This is the default.')
     parser.add_argument('--apply', action='store_true', help='Run guarded apply mode from a checksumed dry-run artifact.')
     parser.add_argument('--artifact', default=None, help='Dry-run artifact path for apply mode.')
@@ -701,6 +732,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error('--write/--commit are not supported; use --apply with explicit Stage 18J approval parameters')
     if not args.apply and args.limit is None:
         parser.error('dry-run mode requires an explicit --limit max-row bound')
+    if not args.apply and args.blocked_candidate_sample_limit is not None and args.blocked_candidate_sample_limit < 0:
+        parser.error('--blocked-candidate-sample-limit must be >= 0')
     if args.apply:
         required = {
             '--artifact': args.artifact,
@@ -757,6 +790,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 reconciliation_artifact_sha256=_file_sha256(reconciliation_report_path),
                 reconciliation_artifact_basename=reconciliation_report_path.name,
                 reconciliation_artifact_size_bytes=reconciliation_report_path.stat().st_size,
+                blocked_candidate_sample_limit=args.blocked_candidate_sample_limit,
             )
     except (OSError, ValueError, TypeError) as exc:
         print(f'Stage 18J station type pilot failed: {exc}', file=sys.stderr)
@@ -765,7 +799,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     output = json.dumps(artifact, sort_keys=True, indent=2)
     if args.output:
         Path(args.output).write_text(output + '\n', encoding='utf-8')
-    print(output)
+    if not args.quiet or not args.output:
+        print(output)
     return 0
 
 
@@ -990,6 +1025,31 @@ def _candidate_id(*, source: Mapping[str, Any], canonical_station_id: int | None
         APPROVED_FIELD,
         new_value,
     ]).encode('utf-8')).hexdigest()
+
+
+def _validate_blocked_candidate_sample_limit(value: int | None) -> int | None:
+    if value is None:
+        return None
+    if value < 0:
+        raise Stage18JPlanError('blocked candidate sample limit must be >= 0')
+    return value
+
+
+def _record_blocked_candidate(
+    candidate: Mapping[str, Any],
+    *,
+    blocked_samples: list[dict[str, Any]],
+    blocked_count: int,
+    rejection_reason_counts: dict[str, int],
+    sample_limit: int | None,
+) -> int:
+    row = dict(candidate)
+    for reason in row.get('rejection_reasons') or row.get('blocking_reasons') or []:
+        key = str(reason)
+        rejection_reason_counts[key] = rejection_reason_counts.get(key, 0) + 1
+    if sample_limit is None or len(blocked_samples) < sample_limit:
+        blocked_samples.append(row)
+    return blocked_count + 1
 
 
 def _blocked_reason_distribution(blocked: Sequence[Mapping[str, Any]]) -> dict[str, int]:

@@ -167,6 +167,29 @@ Optional environment overrides:
 The compact summary script calls the shared environment guard first. It fails
 fast outside the expected host/path/Docker/artifact context.
 
+For a future Stage 18J-P station-type dry-run, after the operator has been
+separately prompted, run from Hetzner only:
+
+```sh
+cd /opt/ed-finder
+MAX_ROWS=5 scripts/operator/stage18j_run_station_type_dry_run.sh
+```
+
+Optional environment overrides:
+
+- `ART_DIR`
+- `RECON_ARTIFACT`
+- `EXPECTED_RECON_SHA256`
+- `DRY_RUN_ARTIFACT`
+- `MAX_ROWS`
+- `BLOCKED_CANDIDATE_SAMPLE_LIMIT`
+
+The station-type dry-run wrapper calls the shared environment guard, verifies
+the reconciliation artifact checksum, refuses `MAX_ROWS > 20`, writes output
+under the operator artifact directory, and prints only compact summary fields.
+It does not connect to the database, create approval records, or run canonical
+apply.
+
 ## Stage 18J Current Operator Artifacts
 
 Stage 18J currently uses an operator-managed reconciliation artifact basename:
@@ -179,6 +202,12 @@ The compact summary output basename is:
 
 ```text
 reconciliation_compact_summary_20260602T112948Z.json
+```
+
+The future station-type dry-run wrapper defaults to this output basename:
+
+```text
+station_type_canonical_pilot_dry_run_20260602T112948Z.json
 ```
 
 Both are production/operator artifacts and must stay out of git unless a future

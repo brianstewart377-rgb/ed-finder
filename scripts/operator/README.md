@@ -21,5 +21,10 @@ Current scripts:
 - `stage18j_run_compact_summary.sh`: generates the Stage 18J compact
   reconciliation summary from an existing operator-managed artifact. It never
   runs reconciliation, station-type dry-run, or apply.
+- `stage18j_run_station_type_dry_run.sh`: generates the Stage 18J-P
+  station-type dry-run artifact from the validated reconciliation artifact
+  after verifying its SHA-256. It requires bounded `MAX_ROWS`, caps blocked
+  candidate samples, writes under the operator artifact directory, and never
+  touches the database, creates approval records, or runs canonical apply.
 
 Production artifacts are private operator files and should not be committed.

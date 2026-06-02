@@ -637,6 +637,17 @@ Dry-run output keeps `canonical_writes_planned = 0`, records the input
 reconciliation artifact checksum, creates no approval record, and does not run
 apply. This hardening does not itself authorize or run Stage 18J-P.
 
+Stage 18J-P-dryrun-ops adds the Hetzner-only wrapper for the future
+station-type dry-run:
+`scripts/operator/stage18j_run_station_type_dry_run.sh`. The wrapper calls the
+shared operator environment guard, verifies the known reconciliation artifact
+checksum before running, requires bounded `MAX_ROWS` with a hard first-pilot cap
+of `20`, passes the compact blocked-candidate sample limit to the pilot tool,
+and writes the dry-run artifact under the operator artifact directory. It never
+passes apply-mode or database connection arguments, creates no approval record,
+and keeps `canonical_writes_planned = 0`. This wrapper must be run only from
+the Hetzner operator shell and only after a separate Stage 18J-P prompt.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
