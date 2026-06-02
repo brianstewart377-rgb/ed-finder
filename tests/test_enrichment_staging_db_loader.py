@@ -170,8 +170,11 @@ def test_explicit_staging_write_targets_only_enrichment_warehouse_tables():
     assert report['summary']['canonical_writes_planned'] == 0
     assert report['source_run']['db_id'] == 1001
     assert report['source_file']['db_id'] == 1002
+    assert report['compact_write_summary'] is True
+    assert report['raw_records_planned'] == []
+    assert report['staged_rows'] == []
     assert conn.cursors[-1].closed is True
-    assert conn.commits == 1
+    assert conn.commits == 2
     assert conn.rollbacks == 0
 
     assert_only_safe_sql(conn.statements)
@@ -313,10 +316,22 @@ def test_parse_args_requires_explicit_staging_write_and_rejects_apply_flags():
         '--dsn',
         'postgresql://test/test',
         '--confirm-staging-db',
+        '--batch-size',
+        '25',
     ])
     assert write_args.write_staging is True
     assert write_args.confirm_staging_db is True
     assert write_args.dry_run is False
+    assert write_args.batch_size == 25
+    with pytest.raises(SystemExit):
+        db_loader.parse_args([
+            '--source-file',
+            str(FIXTURE),
+            '--source',
+            'edsm_nightly_stations',
+            '--batch-size',
+            '0',
+        ])
     check_args = db_loader.parse_args([
         '--check-staging-schema',
         '--dsn',
@@ -382,7 +397,7 @@ def test_gzipped_snapshot_works_through_staging_db_loader(tmp_path):
     assert report['source_file']['compression'] == 'gzip'
     assert report['summary']['raw_records_written'] == 3
     assert report['summary']['staging_station_rows_written'] == 2
-    assert len([sql for sql, _params in conn.statements if 'INSERT INTO' in sql]) == 7
+    assert len([sql for sql, _params in conn.statements if 'INSERT INTO' in sql]) == 9
     assert_only_safe_sql(conn.statements)
 
 
@@ -404,8 +419,10 @@ def test_nested_system_snapshot_writes_only_supported_station_staging_rows():
     assert report['summary']['staging_ring_rows_written'] == 0
     assert report['summary']['canonical_writes_planned'] == 0
     assert report['summary']['nested_station_records_extracted'] == 3
-    assert len({row['source_record_hash'] for row in report['staged_rows']}) == 3
-    assert all(row['provenance']['source_record_kind'] == 'nested_station_record' for row in report['staged_rows'])
+    assert report['summary']['unsupported_source_shapes'] > 0
+    assert report['summary']['warning_reason_distribution']['unsupported_source_shape'] > 0
+    assert report['staged_rows'] == []
+    assert report['raw_records_planned'] == []
 
     staging_statements = [
         (sql, params)
@@ -414,6 +431,21 @@ def test_nested_system_snapshot_writes_only_supported_station_staging_rows():
     ]
     assert len(staging_statements) == 3
     assert all(params[2] is not None for _sql, params in staging_statements)
+    assert len({params[4] for _sql, params in staging_statements}) == 3
+    assert all(
+        json.loads(params[23])['source_record_kind'] == 'nested_station_record'
+        for _sql, params in staging_statements
+    )
+    raw_warning_payloads = [
+        json.loads(params[8])
+        for sql, params in conn.statements
+        if 'INSERT INTO enrichment_raw_records' in sql
+    ]
+    assert any(
+        warning.get('reason') == 'unsupported_source_shape'
+        for warnings in raw_warning_payloads
+        for warning in warnings
+    )
     sql_text = '\n'.join(sql for sql, _params in conn.statements)
     assert 'INSERT INTO staging_edsm_stations' in sql_text
     assert 'INSERT INTO staging_edsm_bodies' not in sql_text
@@ -442,16 +474,93 @@ def test_duplicate_records_keep_stable_hashes_and_idempotent_upsert_sql(tmp_path
         conn=conn,
         write_staging=True,
     )
+    dry_run_report = db_loader.build_staging_loader_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+        write_staging=False,
+    )
 
-    raw_hashes = [row['source_record_hash'] for row in report['raw_records_planned']]
-    staging_hashes = [row['source_record_hash'] for row in report['staged_rows']]
+    raw_hashes = [row['source_record_hash'] for row in dry_run_report['raw_records_planned']]
+    staging_hashes = [row['source_record_hash'] for row in dry_run_report['staged_rows']]
     assert len(set(raw_hashes)) == 1
     assert len(set(staging_hashes)) == 1
-    assert len({row['source_record_key'] for row in report['raw_records_planned']}) == 2
-    assert len({row['db_id'] for row in report['staged_rows']}) == 1
+    assert len({row['source_record_key'] for row in dry_run_report['raw_records_planned']}) == 2
+    assert report['source_run']['source_run_key'] == dry_run_report['source_run']['source_run_key']
+    assert report['source_file']['source_file_key'] == dry_run_report['source_file']['source_file_key']
+    assert report['raw_records_planned'] == []
+    assert report['staged_rows'] == []
+    assert report['summary']['duplicate_source_record_hashes'] is None
+    assert report['summary']['duplicate_source_records'] is None
+    assert 'upserts make reruns idempotent' in report['summary']['idempotency_model']
     sql_text = '\n'.join(sql for sql, _params in conn.statements)
     assert 'ON CONFLICT (source_run_id, source_file_id, source_record_hash)' in sql_text
     assert 'ON CONFLICT (source_run_id, source_record_hash)' in sql_text
+
+
+def test_large_nested_station_snapshot_streams_in_source_record_batches(tmp_path):
+    records = []
+    for index in range(6):
+        records.append({
+            'name': f'Batch System {index}',
+            'id64': 9_000 + index,
+            'updatedAt': f'2026-01-{index + 1:02d} 00:00:00+00',
+            'stations': [
+                {
+                    'id': 10_000 + (index * 2),
+                    'marketId': 20_000 + (index * 2),
+                    'name': f'Batch Port {index}A',
+                    'type': 'Outpost',
+                    'distanceToArrival': 100 + index,
+                },
+                {
+                    'id': 10_001 + (index * 2),
+                    'marketId': 20_001 + (index * 2),
+                    'name': f'Batch Port {index}B',
+                    'type': 'FleetCarrier' if index == 5 else 'Coriolis',
+                    'distanceToArrival': 200 + index,
+                },
+            ],
+            'bodies': [{'name': f'Batch Body {index}', 'bodyId': index}],
+        })
+    source_file = tmp_path / 'large-ish-nested-stations.json'
+    source_file.write_text(json.dumps(records), encoding='utf-8')
+    conn = FakeConn()
+
+    report = db_loader.load_station_snapshot_to_staging_db(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+        conn=conn,
+        write_staging=True,
+        batch_size=2,
+    )
+
+    assert report['dry_run'] is False
+    assert report['compact_write_summary'] is True
+    assert report['raw_records_planned'] == []
+    assert report['staged_rows'] == []
+    assert report['summary']['records_seen'] == 6
+    assert report['summary']['raw_records'] == 6
+    assert report['summary']['raw_records_written'] == 6
+    assert report['summary']['staged_edsm_stations'] == 12
+    assert report['summary']['staging_station_rows_written'] == 12
+    assert report['summary']['nested_station_records_extracted'] == 12
+    assert report['summary']['batches_written'] == 3
+    assert report['summary']['write_batches_attempted'] == 3
+    assert report['summary']['batch_size'] == 2
+    assert report['summary']['target_tables'] == list(db_loader.TARGET_TABLES)
+    assert report['summary']['canonical_writes_planned'] == 0
+    assert report['summary']['warning_reason_distribution']['unsupported_source_shape'] == 6
+    assert report['summary']['warning_reason_distribution']['transient_non_slot_station_type'] == 1
+    assert conn.commits == 4
+    assert len([
+        sql for sql, _params in conn.statements
+        if 'INSERT INTO enrichment_raw_records' in sql
+    ]) == 6
+    assert len([
+        sql for sql, _params in conn.statements
+        if 'INSERT INTO staging_edsm_stations' in sql
+    ]) == 12
+    assert_only_safe_sql(conn.statements)
 
 
 def test_malformed_records_are_skipped_and_not_written_as_staging_success(tmp_path):
@@ -477,10 +586,15 @@ def test_malformed_records_are_skipped_and_not_written_as_staging_success(tmp_pa
     assert report['summary']['raw_records_written'] == 2
     assert report['summary']['staging_station_rows_written'] == 1
     assert report['summary']['skipped_rows'] == 2
-    assert [row['reason'] for row in report['skipped_rows']] == [
-        'record_is_not_object',
-        'invalid_station_snapshot_record',
-    ]
+    assert report['summary']['skipped_row_reasons'] == {
+        'invalid_station_snapshot_record': 1,
+        'record_is_not_object': 1,
+    }
+    assert report['summary']['skipped_row_reason_distribution'] == {
+        'invalid_station_snapshot_record': 1,
+        'record_is_not_object': 1,
+    }
+    assert report['skipped_rows'] == []
     staging_statements = [
         (sql, params)
         for sql, params in conn.statements
@@ -627,7 +741,7 @@ def test_main_write_requires_confirmation_and_can_write_with_fake_db(monkeypatch
     assert payload['summary']['write_mode'] == 'staging_only'
     assert payload['summary']['raw_records_written'] == 3
     assert payload['summary']['staging_station_rows_written'] == 2
-    assert conn.commits == 1
+    assert conn.commits == 2
     assert conn.rollbacks == 0
     assert_only_safe_sql(conn.statements)
 

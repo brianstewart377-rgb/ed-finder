@@ -93,18 +93,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | None = None) -> dict[str, Any]:
-    """Build a deterministic dry-run report for a local offline source file."""
+def build_station_snapshot_source_context(*, source_file: Path, source: str) -> dict[str, Any]:
+    """Build deterministic source run/file metadata for station snapshot loading."""
     normalised_source = normalise_source_adapter(source)
-    if normalised_source not in SUPPORTED_SOURCES:
-        raise ValueError(f'unsupported offline source {source!r}; supported sources: {sorted(SUPPORTED_SOURCES)}')
-    if normalised_source == 'edsm_nightly_bodies':
-        return build_body_ring_snapshot_load_report(
-            source_file=source_file,
-            source=normalised_source,
-            limit=limit,
-        )
-
+    if normalised_source != 'edsm_nightly_stations':
+        raise ValueError('station snapshot loading requires source edsm_nightly_stations')
     _assert_local_file(source_file)
 
     file_sha256, file_size_bytes = file_digest(source_file)
@@ -127,6 +120,30 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
             **file_format,
         },
     )
+    return {
+        'source': normalised_source,
+        'source_file': source_file_summary,
+        'source_run': source_run,
+        'file_format': file_format,
+    }
+
+
+def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | None = None) -> dict[str, Any]:
+    """Build a deterministic dry-run report for a local offline source file."""
+    normalised_source = normalise_source_adapter(source)
+    if normalised_source not in SUPPORTED_SOURCES:
+        raise ValueError(f'unsupported offline source {source!r}; supported sources: {sorted(SUPPORTED_SOURCES)}')
+    if normalised_source == 'edsm_nightly_bodies':
+        return build_body_ring_snapshot_load_report(
+            source_file=source_file,
+            source=normalised_source,
+            limit=limit,
+        )
+
+    context = build_station_snapshot_source_context(source_file=source_file, source=normalised_source)
+    file_format = context['file_format']
+    source_file_summary = context['source_file']
+    source_run = context['source_run']
 
     raw_records: list[dict[str, Any]] = []
     staged_rows: list[dict[str, Any]] = []
@@ -138,17 +155,93 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
     nested_station_collections = 0
     nested_station_records_extracted = 0
     nested_station_records_skipped = 0
+    for entry in iter_station_snapshot_load_entries(
+        source_file=source_file,
+        source=normalised_source,
+        source_run=source_run,
+        source_file_summary=source_file_summary,
+        limit=limit,
+    ):
+        records_seen += 1
+        raw_record = entry.get('raw_record')
+        if raw_record is not None:
+            raw_records.append(raw_record)
+        staged_rows.extend(entry['staged_rows'])
+        skipped_rows.extend(entry['skipped_rows'])
+        warnings.extend(entry['warnings'])
+        nested_station_collections += int(entry.get('nested_station_collections', 0))
+        nested_station_records_extracted += int(entry.get('nested_station_records_extracted', 0))
+        nested_station_records_skipped += int(entry.get('nested_station_records_skipped', 0))
+
+    conflicts = source_identity_conflicts(staged_rows, entity='station')
+    source_summary = source_observability_summary(
+        raw_records=raw_records,
+        staged_rows=staged_rows,
+        planned_rows=(),
+        skipped_rows=skipped_rows,
+        warnings=warnings,
+        file_format=file_format,
+    )
+    apply_source_observability_metadata(
+        source_run=source_run,
+        source_file=source_file_summary,
+        source_summary=source_summary,
+    )
+
+    return build_enrichment_snapshot_load_plan(
+        source_run=source_run,
+        source_file=source_file_summary,
+        raw_records=raw_records,
+        staged_rows=staged_rows,
+        skipped_rows=skipped_rows,
+        conflicts=conflicts,
+        warnings=warnings,
+        summary_extra={
+            'source': normalised_source,
+            'adapter_name': ADAPTER_NAME,
+            'records_seen': records_seen,
+            'staged_edsm_stations': len(staged_rows),
+            'nested_station_collections': nested_station_collections,
+            'nested_station_records_extracted': nested_station_records_extracted,
+            'nested_station_records_skipped': nested_station_records_skipped,
+            'dry_run_only': True,
+            'canonical_writes_planned': 0,
+            'distance_to_arrival_classification': classify_source_field(normalised_source, 'distanceToArrival'),
+            **source_summary,
+        },
+    )
+
+
+def iter_station_snapshot_load_entries(
+    *,
+    source_file: Path,
+    source: str,
+    source_run: Mapping[str, Any],
+    source_file_summary: Mapping[str, Any],
+    limit: int | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield per-source-record station load entries without accumulating the file."""
+    normalised_source = normalise_source_adapter(source)
+    records_seen = 0
     for record_index, record in enumerate(iter_json_records(source_file, expand_station_collections=False), start=1):
         if limit is not None and records_seen >= limit:
             break
         records_seen += 1
         if not isinstance(record, Mapping):
-            skip = {
+            yield {
                 'record_index': record_index,
-                'reason': 'record_is_not_object',
-                'raw_payload': record,
+                'raw_record': None,
+                'staged_rows': [],
+                'skipped_rows': [{
+                    'record_index': record_index,
+                    'reason': 'record_is_not_object',
+                    'raw_payload': record,
+                }],
+                'warnings': [],
+                'nested_station_collections': 0,
+                'nested_station_records_extracted': 0,
+                'nested_station_records_skipped': 0,
             }
-            skipped_rows.append(skip)
             continue
 
         raw_record = build_raw_record(
@@ -159,10 +252,16 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
             payload=record,
             source_updated_at=source_updated_at_from_record(record),
         )
-        raw_records.append(raw_record)
+        staged_rows: list[dict[str, Any]] = []
+        skipped_rows: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
+        nested_station_collections = 0
+        nested_station_records_extracted = 0
+        nested_station_records_skipped = 0
+
         nested_station_collection = station_collection_from_record(record)
         if nested_station_collection is not None:
-            nested_station_collections += 1
+            nested_station_collections = 1
             station_collection_field, station_records = nested_station_collection
             body_warning = unsupported_nested_body_collection_warning(record)
             if body_warning is not None:
@@ -250,6 +349,16 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
                         'source_record_hash': row['source_record_hash'],
                         **warning,
                     })
+            yield {
+                'record_index': record_index,
+                'raw_record': raw_record,
+                'staged_rows': staged_rows,
+                'skipped_rows': skipped_rows,
+                'warnings': warnings,
+                'nested_station_collections': nested_station_collections,
+                'nested_station_records_extracted': nested_station_records_extracted,
+                'nested_station_records_skipped': nested_station_records_skipped,
+            }
             continue
 
         unsupported_shape = unsupported_source_shape(record, normalised_source)
@@ -273,7 +382,18 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
                 'source_record_hash': raw_record['source_record_hash'],
                 **shape_warning,
             })
+            yield {
+                'record_index': record_index,
+                'raw_record': raw_record,
+                'staged_rows': staged_rows,
+                'skipped_rows': skipped_rows,
+                'warnings': warnings,
+                'nested_station_collections': 0,
+                'nested_station_records_extracted': 0,
+                'nested_station_records_skipped': 0,
+            }
             continue
+
         row = normalise_edsm_station_snapshot_record(
             record,
             source=normalised_source,
@@ -291,53 +411,25 @@ def build_snapshot_load_report(*, source_file: Path, source: str, limit: int | N
                 'warnings': row_warnings,
                 'raw_payload': dict(record),
             })
-            continue
-        row['validation_warnings'] = row_warnings
-        staged_rows.append(row)
-        for warning in row_warnings:
-            warnings.append({
-                'record_index': record_index,
-                'source_record_hash': raw_record['source_record_hash'],
-                **warning,
-            })
-
-    conflicts = source_identity_conflicts(staged_rows, entity='station')
-    source_summary = source_observability_summary(
-        raw_records=raw_records,
-        staged_rows=staged_rows,
-        planned_rows=(),
-        skipped_rows=skipped_rows,
-        warnings=warnings,
-        file_format=file_format,
-    )
-    apply_source_observability_metadata(
-        source_run=source_run,
-        source_file=source_file_summary,
-        source_summary=source_summary,
-    )
-
-    return build_enrichment_snapshot_load_plan(
-        source_run=source_run,
-        source_file=source_file_summary,
-        raw_records=raw_records,
-        staged_rows=staged_rows,
-        skipped_rows=skipped_rows,
-        conflicts=conflicts,
-        warnings=warnings,
-        summary_extra={
-            'source': normalised_source,
-            'adapter_name': ADAPTER_NAME,
-            'records_seen': records_seen,
-            'staged_edsm_stations': len(staged_rows),
-            'nested_station_collections': nested_station_collections,
-            'nested_station_records_extracted': nested_station_records_extracted,
-            'nested_station_records_skipped': nested_station_records_skipped,
-            'dry_run_only': True,
-            'canonical_writes_planned': 0,
-            'distance_to_arrival_classification': classify_source_field(normalised_source, 'distanceToArrival'),
-            **source_summary,
-        },
-    )
+        else:
+            row['validation_warnings'] = row_warnings
+            staged_rows.append(row)
+            for warning in row_warnings:
+                warnings.append({
+                    'record_index': record_index,
+                    'source_record_hash': raw_record['source_record_hash'],
+                    **warning,
+                })
+        yield {
+            'record_index': record_index,
+            'raw_record': raw_record,
+            'staged_rows': staged_rows,
+            'skipped_rows': skipped_rows,
+            'warnings': warnings,
+            'nested_station_collections': 0,
+            'nested_station_records_extracted': 0,
+            'nested_station_records_skipped': 0,
+        }
 
 
 def build_body_ring_snapshot_load_report(

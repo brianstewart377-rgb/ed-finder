@@ -201,7 +201,7 @@ Set the DSN only in your shell or secret manager. Do not paste real DSNs into
 docs, PRs, issue comments, or committed files.
 
 ```sh
-export EDFINDER_STAGING_DSN='postgresql://USER:PASSWORD@HOST:PORT/DBNAME'
+export EDFINDER_STAGING_DSN="<private-staging-warehouse-dsn>"
 ```
 
 Read-only schema/preflight check:
@@ -237,6 +237,7 @@ python3 apps/importer/src/enrichment_staging_db_loader.py \
     --limit 1000 \
     --write-staging \
     --dsn "$EDFINDER_STAGING_DSN" \
+    --batch-size 500 \
     --confirm-staging-db \
     --json
 ```
@@ -263,6 +264,24 @@ A good staging load has:
   input contains valid records
 - target tables limited to the warehouse table family
 - `summary.canonical_writes_planned = 0`
+
+For `edsm_nightly_stations`, write-staging mode streams the source file and
+flushes warehouse rows by source-record batch. The default `--batch-size` is
+500 source records. The station write report is a compact summary: it keeps
+counts such as `records_seen`, `raw_records_written`,
+`staging_station_rows_written`, `nested_station_records_extracted`,
+`batches_written`, warnings, errors, target tables, and
+`canonical_writes_planned`, but it does not materialize every raw or staged
+row in the final JSON output. Use dry-run mode when exact row payloads are
+needed for small-file inspection.
+
+Station staging writes are idempotent at the warehouse evidence layer. Source
+runs/files and raw/station rows use deterministic keys and `source_record_hash`
+upserts. If a streaming station load is interrupted after one or more batches
+commit, retry the same source file with the same source adapter; committed
+warehouse evidence is updated in place rather than duplicated. Do not proceed
+to read-only reconciliation until the retry completes with zero errors and the
+operator has verified the staged-row counts.
 
 Staging-load warnings that block progress:
 
@@ -528,6 +547,15 @@ blocked until this support is merged and a separate explicitly approved
 production staging load is retried; no production load, reconciliation, or
 apply is authorized by Q5.
 
+Stage 18J-Q6 documents memory-safe station warehouse loading in
+`docs/colonisation-redesign/stage-18j-q6-memory-safe-warehouse-station-load.md`.
+It changes the `edsm_nightly_stations` write-staging path to stream and commit
+source-record batches with compact output. After Q6 merges, the next server
+action is a controlled retry of the warehouse station staging load. If that
+succeeds, move to read-only reconciliation artifact generation. Stage 18J-P
+remains blocked until a valid reconciliation artifact exists, and Stage 18K is
+not started by Q6.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables
@@ -574,6 +602,16 @@ If reconciliation shows conflicts or warnings:
   `body_rings` rows support it.
 - Station/body association candidates remain report-only until a separate
   canonical write design exists.
+
+If a station staging load is interrupted:
+
+- Do not run reconciliation against an incomplete or failed load.
+- Confirm the canonical station count did not change.
+- Confirm warehouse row counts and the compact loader output before retrying.
+- Retry only the warehouse staging load with the same source file/source
+  adapter and explicit staging flags.
+- Treat the retry as a staging-only operation. It must not run station-type
+  dry-run, reconciliation apply, canonical apply, or scheduler work.
 
 ## What Not To Do
 

@@ -68,3 +68,17 @@ separate approved operation.
 After a successful separate staging load, Stage 18J-Q3 can retry its read-only
 reconciliation artifact path. Stage 18J-P and Stage 18K remain blocked until
 their own prerequisites are satisfied.
+
+## Q6 Follow-Up
+
+After Q5 merged, a full warehouse station staging load was attempted separately
+by an operator using the warehouse loader role. The process was killed before
+completion, the failed output files were empty, and the safety check showed no
+canonical station-count change and no warehouse rows persisted.
+
+Stage 18J-Q6 is the follow-up hardening stage. It keeps Q5 nested station
+extraction, but changes the explicit `edsm_nightly_stations` write-staging path
+to stream source-record batches and return a compact write summary. Q5 does not
+authorize a production retry by itself; after Q6 merges, the next server action
+is a controlled warehouse staging load retry only. Read-only reconciliation
+artifact generation comes after that retry succeeds.
