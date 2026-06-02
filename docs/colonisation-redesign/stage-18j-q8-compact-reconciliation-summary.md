@@ -133,3 +133,18 @@ Merge Q8 before any Stage 18J-P decision. Generate and review a compact
 operator-managed summary from the existing valid reconciliation artifact, keep
 production outputs out of git, and do not run station-type dry-run, canonical
 apply, Stage 18J-P, or Stage 18K from this stage.
+
+## Stage 19A Follow-Up
+
+Stage 19A defines the artifact taxonomy and chunked roadmap that should govern
+any broader warehouse expansion after Q8. The station compact summary remains a
+station-domain artifact and should use the domain-qualified naming direction
+from Stage 19A, such as
+`reconciliation_compact_summary_stations_<timestamp>.json`, for future operator
+outputs.
+
+Do not use Stage 19A to skip the Stage 18J continuation gates. The next station
+steps remain Q9 compact summary review / station-type dry-run readiness, then
+18J-P production dry-run retry only if explicitly approved, followed by review
+and tiny manual apply approval packets if the dry-run is boring. Stage 19A does
+not start Stage 18J-P, Stage 18K, scheduler wiring, or any canonical apply.

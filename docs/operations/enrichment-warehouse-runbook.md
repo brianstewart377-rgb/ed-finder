@@ -595,6 +595,29 @@ still contain production identities even after payload/path sanitization. Do
 not commit production summaries unless a separate review explicitly marks a
 synthetic or sanitized output safe.
 
+Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
+`docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
+Use domain-qualified artifact families for stations, bodies, rings,
+station/body links, markets, services, economies, colonisation, freshness,
+coverage, analytics, and future write plans. Do not mix lifecycle steps in one
+artifact: source inventory comes before load, load before reconciliation,
+reconciliation before compact summary, compact summary before dry-run, dry-run
+before approval packet, and approval packet before any manual apply.
+
+Preferred naming patterns:
+
+```text
+warehouse_<domain>_load_<timestamp>.json
+enrichment_staging_reconciliation_<domain>_<timestamp>.json
+reconciliation_compact_summary_<domain>_<timestamp>.json
+warehouse_<domain>_freshness_status_<timestamp>.json
+warehouse_operator_status_<timestamp>.json
+canonical_write_plan_<domain>_<timestamp>.json
+```
+
+Scheduler work must stay disabled by default until a later approved stage, and
+scheduler jobs must never run canonical apply.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables
