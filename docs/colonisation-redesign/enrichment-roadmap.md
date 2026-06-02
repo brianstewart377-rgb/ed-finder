@@ -521,6 +521,16 @@ before retrying Stage 18J-Q3. Stage 18J-P remains blocked until a valid
 reconciliation artifact exists. See
 [`stage-18j-q7-reconciliation-json-serialization-fix.md`](./stage-18j-q7-reconciliation-json-serialization-fix.md).
 
+Stage 18J-Q8 adds an offline compact summary tool for very large
+`enrichment_staging_reconciliation/v1` artifacts. It streams an existing JSON
+artifact without DB access, records the source basename, file size, SHA-256,
+schema, candidate counts, update/insert counts, blocking reasons,
+confidence/risk counts, coverage counts, and capped sanitized candidate
+samples. It does not run production reconciliation, station-type dry-run,
+canonical apply, or Stage 18J-P/18K work. Stage 18J-P remains blocked until a
+compact review output exists and has been reviewed. See
+[`stage-18j-q8-compact-reconciliation-summary.md`](./stage-18j-q8-compact-reconciliation-summary.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.
@@ -560,9 +570,10 @@ treated as a separate proposal.
   preserving `distanceToArrival` as volatile evidence instead of a churn
   source.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
-  staging retry and read-only artifact path are boring, Stage 19 should broaden
-  warehouse source coverage and design freshness/scheduler support. Scheduler
-  or cron implementation is not part of Q6.
+  staging retry, read-only artifact path, and compact reconciliation review are
+  boring, Stage 19 should broaden warehouse source coverage and design
+  freshness/scheduler support. Scheduler or cron implementation is not part of
+  Q6/Q8.
 * **Report-only analytics maturation**: improve confidence/risk explanations,
   source coverage summaries, colonisation signals, and mission-density signals
   without writing canonical data.
