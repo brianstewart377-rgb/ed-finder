@@ -83,6 +83,18 @@ included up to the explicit `--limit`.
 The default blocked sample limit is `100`; the operator wrapper passes
 `BLOCKED_CANDIDATE_SAMPLE_LIMIT`, also defaulting to `100`.
 
+## Identity Coverage Diagnostics
+
+Stage 18J-P2 adds `identity_coverage_summary` to future dry-run artifacts. The
+summary is count-only and explains external identity coverage without including
+raw payloads. It records source/canonical `market_id`, `edsm_station_id`,
+`system_id64`, station-name, canonical match count, canonical station presence,
+and possible missing canonical external IDs in the reconciliation payload.
+
+The diagnostics do not relax the strict filter. They are intended to explain
+why the bounded operator dry-run can produce zero eligible station-type updates
+while still keeping `canonical_writes_planned = 0`.
+
 ## Output Contract
 
 Dry-run output remains:
@@ -102,6 +114,7 @@ The artifact records:
 - `summary.rejection_reason_counts`,
 - `summary.blocked_candidate_samples_included`,
 - `summary.blocked_candidate_samples_omitted`,
+- `identity_coverage_summary`,
 - `source_scope.input_artifact_basename`,
 - `source_scope.input_artifact_sha256`,
 - `artifact_integrity.canonical_json_sha256`.

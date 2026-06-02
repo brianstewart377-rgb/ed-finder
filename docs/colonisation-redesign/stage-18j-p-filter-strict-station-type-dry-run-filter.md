@@ -104,6 +104,13 @@ production reconciliation artifact. The dry-run artifact keeps all counts and
 rejection distributions, includes eligible rows up to the explicit limit, and
 caps blocked row samples through `--blocked-candidate-sample-limit`.
 
+Stage 18J-P2 adds `identity_coverage_summary` to future dry-run artifacts. It
+counts source/canonical external ID presence, external ID matches and
+mismatches, `system_id64` and station-name mismatches, canonical match count
+distribution, and possible canonical external IDs missing from the
+reconciliation payload. These diagnostics explain rejection causes without
+relaxing the strict filter or changing `canonical_writes_planned = 0`.
+
 ## Tests
 
 Synthetic tests cover:

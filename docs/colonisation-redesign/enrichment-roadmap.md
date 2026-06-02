@@ -562,6 +562,15 @@ under the operator artifact directory, and prints compact summary fields. It
 does not run from Codex, touch the DB, create approvals, or run apply. See
 [`stage-18j-p-dryrun-operator-safe-wrapper.md`](./stage-18j-p-dryrun-operator-safe-wrapper.md).
 
+Stage 18J-P2 adds identity coverage diagnostics after the first bounded
+Hetzner/operator station-type dry-run safely produced zero eligible candidates.
+The dry-run artifact now records compact counts for source/canonical
+`market_id`, `edsm_station_id`, `system_id64`, station-name, canonical match
+count, and possible missing canonical external IDs in the reconciliation
+payload. The strict filter is unchanged, `canonical_writes_planned` stays `0`,
+and the next operator action is diagnostic rerun only. See
+[`stage-18j-p2-station-type-identity-coverage-diagnostics.md`](./stage-18j-p2-station-type-identity-coverage-diagnostics.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
