@@ -789,6 +789,34 @@ Non-goals:
 Support doc:
 `stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 
+### Stage 18J-Q9 - Compact Summary Review / Station-Type Dry-Run Readiness
+
+Purpose: review the valid compact reconciliation summary and decide whether
+Stage 18J-P can retry the station-type production dry-run.
+
+Scope:
+
+- Record compact summary counts for station candidates, update candidates,
+  missing-canonical insert candidates, ambiguous matches, confidence/risk
+  distributions, and station/body association blockers.
+- Set the readiness verdict to `Ready only with strict filter`.
+- Require external identity proof, non-ambiguous canonical match, non-volatile
+  evidence, permanent station type, station-type-only scope, no station/body
+  association writes, no source-only inserts, and an explicit max-row bound
+  before any Stage 18J-P retry.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No artifact approval or approval record.
+- No Stage 18J-P or Stage 18K work.
+
+Support doc:
+`stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -862,5 +890,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 26. Stage 18J-Q8 compact reconciliation summary.
 27. Stage 19A warehouse artifact taxonomy and chunked roadmap.
 28. Stage 19A.1 operator path guardrails.
+29. Stage 18J-Q9 compact summary review / station-type dry-run readiness.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

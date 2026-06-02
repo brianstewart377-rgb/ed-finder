@@ -612,6 +612,20 @@ artifacts. It never runs reconciliation, station-type dry-run, or apply. The
 optional canonical station count check is disabled unless the operator sets
 `CHECK_CANONICAL_COUNT=yes`.
 
+Stage 18J-Q9 documents compact summary review and station-type dry-run
+readiness in
+`docs/colonisation-redesign/stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md`.
+The review verdict is `Ready only with strict filter`. Do not run Stage 18J-P
+against the full `298177` station candidate set. Any station-type dry-run retry
+must exclude ambiguous matches, source-only missing-canonical candidates,
+volatile evidence, station/body association writes, fleet carriers/transient
+station types, and candidates without explicit external identity proof. Missing
+`station_body_name` remains a blocker for station/body-link work but must not
+by itself block station-type comparison when station identity is otherwise
+externally proven. A dry-run retry still requires a separate prompt, an
+explicit max-row bound, recorded reconciliation checksum, compact output, and
+no canonical apply.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

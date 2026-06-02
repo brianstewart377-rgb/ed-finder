@@ -148,3 +148,22 @@ steps remain Q9 compact summary review / station-type dry-run readiness, then
 18J-P production dry-run retry only if explicitly approved, followed by review
 and tiny manual apply approval packets if the dry-run is boring. Stage 19A does
 not start Stage 18J-P, Stage 18K, scheduler wiring, or any canonical apply.
+
+## Q9 Follow-Up
+
+Stage 18J-Q9 reviews the generated compact summary and records the readiness
+verdict for Stage 18J-P:
+
+```text
+Ready only with strict filter
+```
+
+The compact summary is valid and useful, but it is not a dry-run approval. It
+shows that the full station reconciliation scope is too broad for Stage 18J-P.
+Any station-type dry-run retry must be limited to externally identified,
+non-ambiguous, non-volatile, permanent station-type candidates with an explicit
+max-row bound and compact reviewable output. Station/body association work
+remains blocked separately.
+
+Q9 does not run station-type dry-run, approve an artifact, create an approval
+record, run canonical apply, start Stage 18J-P, or start Stage 18K.
