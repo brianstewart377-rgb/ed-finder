@@ -2,15 +2,9 @@
 
 ## Purpose
 
-Stage 18J-P-filter hardens the station-type dry-run candidate filter before any
-future Stage 18J-P production dry-run retry. It converts the Stage 18J-Q9
-readiness verdict, `Ready only with strict filter`, into code-level dry-run
-eligibility rules and synthetic test coverage.
+Stage 18J-P-filter hardens the station-type dry-run candidate filter before any future Stage 18J-P production dry-run retry. It converts the Stage 18J-Q9 readiness verdict, `Ready only with strict filter`, into code-level dry-run eligibility rules and synthetic test coverage.
 
-This stage does not run production commands, touch the production DB, run
-imports, run reconciliation, run the summarizer against production artifacts,
-run a production station-type dry-run, run canonical apply, create approval
-records, start Stage 18J-P, or start Stage 18K.
+This stage does not run production commands, touch the production DB, run imports, run reconciliation, run the summarizer against production artifacts, run a production station-type dry-run, run canonical apply, create approval records, start Stage 18J-P, or start Stage 18K.
 
 ## Inputs
 
@@ -25,19 +19,14 @@ Stage 18J-Q9 reviewed the compact reconciliation summary and found:
 - volatile evidence present,
 - `15014` high-confidence rows.
 
-Those counts show that the full station reconciliation candidate set is too
-broad for a production station-type dry-run. The future retry must be bounded
-and filtered before an operator runs it.
+Those counts show that the full station reconciliation candidate set is too broad for a production station-type dry-run. The future retry must be bounded and filtered before an operator runs it.
 
 ## Filter Contract
 
 The station-type dry-run planner now requires:
 
-- explicit external station identity proof by matching `source.market_id` to
-  `canonical.market_id`, or matching `source.edsm_station_id` to
-  `canonical.edsm_station_id`;
-- no identity proof from internal canonical `station_id` or primary-key
-  equality alone;
+- explicit external station identity proof by matching `source.market_id` to `canonical.market_id`, or matching `source.edsm_station_id` to `canonical.edsm_station_id`;
+- no identity proof from internal canonical `station_id` or primary-key equality alone;
 - exactly one canonical station match;
 - `candidate_action = candidate_update`;
 - `stations.station_type` as the only target field;
@@ -50,14 +39,11 @@ The station-type dry-run planner now requires:
 - no non-station-type canonical writes;
 - a required explicit max-row bound.
 
-Missing `station_body_name` remains a station/body-link blocker, but it no
-longer blocks an otherwise externally proven station-type comparison. This
-keeps station-type comparison separate from station/body association work.
+Missing `station_body_name` remains a station/body-link blocker, but it no longer blocks an otherwise externally proven station-type comparison. This keeps station-type comparison separate from station/body association work.
 
 ## Rejection Reasons
 
-Every excluded station candidate receives machine-readable rejection reasons.
-The dry-run summary includes these counts:
+Every excluded station candidate receives machine-readable rejection reasons. The dry-run summary includes these counts:
 
 - `total_candidates_seen`
 - `eligible_station_type_updates`
@@ -73,16 +59,11 @@ The dry-run summary includes these counts:
 - `rejected_freshness`
 - `rejected_by_max_row_bound`
 
-The artifact keeps `rejection_reason_counts` and the legacy
-`blocked_by_reason` map aligned so existing review flows can still inspect the
-distribution.
+The artifact keeps `rejection_reason_counts` and the legacy `blocked_by_reason` map aligned so existing review flows can still inspect the distribution.
 
 ## Dry-Run Output
 
-The dry-run artifact remains `station_type_canonical_pilot_dry_run/v1` and is
-still deterministic. It now records the input reconciliation artifact basename,
-size, and SHA-256 when invoked through the CLI, so a future operator review can
-tie the dry-run to the exact read-only reconciliation artifact.
+The dry-run artifact remains `station_type_canonical_pilot_dry_run/v1` and is still deterministic. It records the input reconciliation artifact basename, size, and SHA-256 when invoked through the CLI, so a future operator review can tie the dry-run to the exact read-only reconciliation artifact.
 
 The dry-run output explicitly records:
 
@@ -95,21 +76,27 @@ The dry-run output explicitly records:
 - `summary.approval_record_created = false`,
 - `operator_review.production_artifact_approved = false`.
 
-Eligible rows are reported as `eligible_station_type_updates`; they are not
-canonical writes, approval records, or apply instructions.
+Eligible rows are reported as `eligible_station_type_updates`; they are not canonical writes, approval records, or apply instructions.
 
-Stage 18J-P-dryrun-ops adds compact blocked-candidate output controls so the
-future operator dry-run does not emit every blocked row from the large
-production reconciliation artifact. The dry-run artifact keeps all counts and
-rejection distributions, includes eligible rows up to the explicit limit, and
-caps blocked row samples through `--blocked-candidate-sample-limit`.
+Stage 18J-P-dryrun-ops adds compact blocked-candidate output controls so the future operator dry-run does not emit every blocked row from the large production reconciliation artifact. The dry-run artifact keeps all counts and rejection distributions, includes eligible rows up to the explicit limit, and caps blocked row samples through `--blocked-candidate-sample-limit`.
 
-Stage 18J-P2 adds `identity_coverage_summary` to future dry-run artifacts. It
-counts source/canonical external ID presence, external ID matches and
-mismatches, `system_id64` and station-name mismatches, canonical match count
-distribution, and possible canonical external IDs missing from the
-reconciliation payload. These diagnostics explain rejection causes without
-relaxing the strict filter or changing `canonical_writes_planned = 0`.
+Stage 18J-P2 adds `identity_coverage_summary` to future dry-run artifacts. It counts source/canonical external ID presence, external ID matches and mismatches, `system_id64` and station-name mismatches, canonical match count distribution, and possible canonical external IDs missing from the reconciliation payload. These diagnostics explain rejection causes without relaxing the strict filter or changing `canonical_writes_planned = 0`.
+
+## Stage 18J-P3 Identity Model Implication
+
+The bounded P2 dry-run found source EDSM station IDs present but canonical `market_id` and `edsm_station_id` absent. The production schema check confirmed that `stations` does not contain those external identity columns.
+
+That result does not weaken the filter. It proves the canonical identity model is incomplete for strict station-type promotion. The filter must continue to reject all candidates until read-only reconciliation can expose confirmed canonical external station identity from a modeled source such as a future `station_external_identity` table.
+
+Do not change the filter to accept:
+
+- internal `stations.id` equality,
+- station-name-only matches,
+- system/name matches without external ID equality,
+- source-only EDSM IDs,
+- candidate or conflicted identity evidence.
+
+Only confirmed canonical external identity should satisfy this filter.
 
 ## Tests
 
@@ -120,8 +107,7 @@ Synthetic tests cover:
 - internal primary-key-only matching does not qualify;
 - ambiguous matches are rejected;
 - source-only insert candidates are rejected;
-- missing `station_body_name` does not block externally proven station-type
-  comparison;
+- missing `station_body_name` does not block externally proven station-type comparison;
 - missing `station_body_name` remains blocked for station/body-link candidates;
 - volatile evidence is rejected;
 - fleet carriers and megaships are rejected as transient/non-slot;
@@ -129,12 +115,12 @@ Synthetic tests cover:
 - an explicit max-row bound is required;
 - rejection reason counts are present;
 - `canonical_writes_planned` remains `0`;
-- the dry-run path does not invoke apply.
+- the dry-run path does not invoke apply;
+- identity coverage counts explain why missing canonical external IDs produce zero eligible rows.
 
 ## Boundaries
 
-This stage does not authorize Stage 18J-P. It only hardens the local code and
-tests so a future operator command can be reviewed against the strict filter.
+This stage does not authorize Stage 18J-P. It only hardens the local code and tests so a future operator command can be reviewed against the strict filter.
 
 Still blocked:
 
@@ -147,21 +133,18 @@ Still blocked:
 
 ## Future Stage 18J-P Effect
 
-After this stage merges, a future Stage 18J-P production dry-run can proceed
-only when separately prompted in the Hetzner operator shell, after the
-operator-safe wrapper has merged, and only with:
+After this stage merges, a future Stage 18J-P production dry-run can proceed only when separately prompted in the Hetzner operator shell, after the operator-safe wrapper has merged, and only with:
 
 - the reviewed production reconciliation artifact,
 - the explicit max-row bound,
 - the recorded source artifact checksum,
 - compact/reviewable dry-run output,
+- confirmed canonical external identity available in reconciliation output,
 - no approval record,
 - no canonical apply.
 
-Stage 18J-P remains blocked until that separate operator step is requested.
+Stage 18J-P remains blocked until that separate operator step is requested and canonical external identity is modeled.
 
 ## Final Recommendation
 
-Merge the strict filter hardening before retrying Stage 18J-P. After merge, the
-future production dry-run is technically eligible to proceed as a separate
-operator step, but it is not started or approved by this stage.
+Keep the strict filter hardening. The P2 zero-eligible result is not a reason to loosen it. The next step is the Stage 18J-P3 external station identity model, followed by a separate schema/evidence-loader stage before any station-type dry-run retry can produce eligible rows.
