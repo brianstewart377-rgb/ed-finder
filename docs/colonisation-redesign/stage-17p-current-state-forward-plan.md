@@ -636,6 +636,62 @@ Operator note:
 Provisioning plan:
 `../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`.
 
+### Stage 18J-Q5 — Nested EDSM Station Snapshot Support
+
+Purpose: support the nested EDSM system station snapshot shape observed on the
+server without committing production data or running production loads.
+
+Scope:
+
+- Preserve full source system records as raw warehouse evidence.
+- Extract deterministic station staging rows from nested `stations` arrays.
+- Preserve source run/file keys, station source hashes, parent raw provenance,
+  station identity, and station-type labels.
+- Keep nested `bodies` collections as raw-only unsupported-source-shape
+  warning evidence.
+
+Non-goals:
+
+- No production load.
+- No production reconciliation.
+- No station-type dry-run.
+- No canonical apply.
+- No Stage 18J-P or Stage 18K work.
+
+Support doc:
+`stage-18j-q5-nested-edsm-station-snapshot-support.md`.
+
+### Stage 18J-Q6 — Memory-Safe Warehouse Station Load
+
+Purpose: make the explicit station warehouse staging load safe for the large
+nested EDSM station snapshot after the post-Q5 full load attempt was killed.
+
+Scope:
+
+- Stream `edsm_nightly_stations` source records in write-staging mode.
+- Add source-record batch sizing for station writes.
+- Keep dry-run as the default/no-write full report path.
+- Emit compact write summaries instead of materializing every raw/staged row
+  in the final JSON output.
+- Document idempotent retry expectations for interrupted staging loads.
+
+Non-goals:
+
+- No production load during the development stage.
+- No production reconciliation or artifact generation.
+- No station-type dry-run.
+- No canonical apply.
+- No scheduler/cron implementation.
+- No Stage 18J-P or Stage 18K work.
+
+After Q6 merges, the next server action is a controlled retry of the warehouse
+station staging load. If that succeeds, move to read-only reconciliation
+artifact generation. Stage 18J-P remains blocked until a valid reconciliation
+artifact exists.
+
+Support doc:
+`stage-18j-q6-memory-safe-warehouse-station-load.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -676,5 +732,7 @@ Do not add another large planner feature immediately. The healthiest next sequen
 20. Stage 18J-Q3 read-only production reconciliation artifact gate.
 21. Stage 18J-Q4 operator access packet.
 22. Stage 18J-Q4b/Q4c read-only warehouse DSN operator prep.
+23. Stage 18J-Q5 nested EDSM station snapshot support.
+24. Stage 18J-Q6 memory-safe warehouse station load.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

@@ -495,6 +495,23 @@ operator-managed output path were not available. Stage 18J-P remains blocked.
 See
 [`stage-18j-q3-readonly-production-reconciliation-artifact.md`](./stage-18j-q3-readonly-production-reconciliation-artifact.md).
 
+Stage 18J-Q5 added support for the nested EDSM system station snapshot shape
+observed on the production server. It extracts deterministic station staging
+rows from nested `stations` arrays while preserving parent system raw records
+and keeping nested `bodies` collections as warning evidence only. See
+[`stage-18j-q5-nested-edsm-station-snapshot-support.md`](./stage-18j-q5-nested-edsm-station-snapshot-support.md).
+
+Stage 18J-Q6 follows the failed full warehouse station staging load attempt.
+It makes explicit station write-staging memory-safe by streaming source-record
+batches and emitting a compact write summary rather than retaining all raw and
+staged rows in memory. After Q6 merges, the next server action is a controlled
+retry of the warehouse station staging load. If that succeeds, move to
+read-only reconciliation artifact generation. Stage 18J-P remains blocked
+until a valid reconciliation artifact exists. Stage 19 should expand the
+warehouse broadly and design freshness/scheduler support, but no cron/scheduler
+implementation is allowed in Q6. See
+[`stage-18j-q6-memory-safe-warehouse-station-load.md`](./stage-18j-q6-memory-safe-warehouse-station-load.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.
@@ -533,6 +550,10 @@ treated as a separate proposal.
   quality checks across staged station, body, and ring evidence while
   preserving `distanceToArrival` as volatile evidence instead of a churn
   source.
+* **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
+  staging retry and read-only artifact path are boring, Stage 19 should broaden
+  warehouse source coverage and design freshness/scheduler support. Scheduler
+  or cron implementation is not part of Q6.
 * **Report-only analytics maturation**: improve confidence/risk explanations,
   source coverage summaries, colonisation signals, and mission-density signals
   without writing canonical data.

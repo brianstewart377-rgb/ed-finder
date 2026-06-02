@@ -74,6 +74,14 @@ station rows receive station-specific source hashes, and nested `bodies`
 collections stay warning evidence only until an explicit body adapter supports
 that shape.
 
+Stage 18J-Q6 hardens the `edsm_nightly_stations` write-staging path for large
+nested station snapshots. Dry-run mode still materializes deterministic
+small-file reports for inspection. Explicit station write-staging mode streams
+source records, writes raw and station rows in batches, and emits a compact
+summary instead of retaining every raw/staged row in memory. Source run/file
+keys, source record hashes, parent raw provenance, nested body warnings, and
+`canonical_writes_planned = 0` remain unchanged.
+
 ## Source Evidence Classes
 
 The foundation tracks source stability without treating any source as canonical
@@ -110,6 +118,16 @@ and pure signal helpers emit report-only analytics contracts such as
 summary counts, staged/planned rows, skipped rows, conflicts, warnings,
 confidence/freshness/source-class distributions, candidate confidence/risk
 fields, and deterministic sorting for stable diffs.
+
+Station write-staging reports are a compact variant of
+`enrichment_snapshot_load_plan/v1`: they preserve source run/file metadata and
+summary counters, but leave `raw_records_planned`, `staged_rows`,
+`planned_rows`, `skipped_rows`, and `warnings` empty to avoid large final JSON
+payloads. The summary records `records_seen`, `raw_records`,
+`raw_records_written`, `staged_edsm_stations`,
+`staging_station_rows_written`, nested-station extraction counts,
+`batches_written`, warning/error distributions, target tables, idempotency
+notes, and `canonical_writes_planned = 0`.
 
 The snapshot load plan also includes source-normalisation observability:
 `source_timestamp_summary`, `source_freshness_summary`,
@@ -207,6 +225,8 @@ The staging DB loader remains explicitly opt-in. Staging writes require
 `--write-staging`, `--dsn`, and `--confirm-staging-db`; read-only schema,
 staged-row, and reconciliation report modes require a DSN but do not require
 the staging-write confirmation flag. Canonical flags continue to fail closed.
+For station snapshots, `--batch-size` controls source-record batches during
+write-staging mode. The default remains dry-run/no-write.
 The Stage 18C operator workflow and exact command examples are documented in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 The repository writes only to:
