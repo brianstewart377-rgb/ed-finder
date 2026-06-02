@@ -232,3 +232,16 @@ and staged-row counts to verify the retry. If the retry succeeds cleanly,
 generate the read-only reconciliation artifact next. Do not start Stage 18J-P,
 Stage 18K, or any canonical apply path until their documented prerequisites are
 satisfied.
+
+## Q7 Follow-Up
+
+After Q6 merged, the controlled warehouse station staging load succeeded and
+canonical station count remained unchanged. The next read-only reconciliation
+attempt failed before artifact generation because the report contained
+DB-native datetime values that the CLI JSON printer could not serialize. The
+artifact file was 0 bytes, no station-type dry-run was generated, no canonical
+apply was run, and Stage 18J-P remained blocked.
+
+Stage 18J-Q7 fixes reconciliation report serialization before retrying the
+Stage 18J-Q3 read-only artifact path. Q7 does not authorize station-type
+dry-run, canonical apply, Stage 18J-P, Stage 18K, or scheduler work.

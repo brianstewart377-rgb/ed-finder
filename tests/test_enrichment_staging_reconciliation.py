@@ -2,6 +2,8 @@ import json
 import os
 import re
 import sys
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -911,8 +913,60 @@ def test_reconciliation_report_is_deterministic():
     assert_read_only_sql(conn_two)
 
 
+def test_reconciliation_report_serializes_db_native_values():
+    conn = FakeConn(
+        station_rows=[station_row(
+            source_updated_at=datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+        )],
+        ring_rows=[ring_row(
+            source_updated_at=date(2026, 1, 3),
+            mass_mt=Decimal('1001.5'),
+            canonical_mass_mt=Decimal('1000.0'),
+        )],
+        source_coverage_rows=[{
+            'source_run_key': 'run-stations',
+            'source_file_key': 'file-stations',
+            'source_file_name': 'stations.json',
+            'source': 'edsm_nightly_stations',
+            'source_class': 'semi-stable',
+            'source_format': 'json',
+            'source_format_version': 'json_snapshot_stream/v1',
+            'record_stream_shape': 'json_array',
+            'raw_records': Decimal('2'),
+            'accepted_raw_records': Decimal('2'),
+            'skipped_raw_records': 0,
+            'invalid_raw_records': 0,
+            'conflict_raw_records': 0,
+            'duplicate_source_record_hashes': 0,
+            'duplicate_source_records': 0,
+            'records_with_source_updated_at': 2,
+            'records_without_source_updated_at': 0,
+            'latest_source_updated_at': datetime(2026, 1, 4, 0, 0, tzinfo=timezone.utc),
+            'warning_reason_distribution': {},
+        }],
+    )
+
+    report = db_loader.build_reconciliation_report(conn)
+    dumped = json.dumps(report, sort_keys=True)
+    payload = json.loads(dumped)
+
+    assert payload['schema_version'] == 'enrichment_staging_reconciliation/v1'
+    assert payload['summary']['canonical_writes_planned'] == 0
+    assert payload['station_candidates'][0]['source']['source_updated_at'] == '2026-01-02T03:04:05+00:00'
+    assert payload['ring_candidates'][0]['source']['source_updated_at'] == '2026-01-03'
+    assert payload['ring_candidates'][0]['differences'] == [{
+        'field': 'mass_mt',
+        'staged': '1001.5',
+        'canonical': '1000.0',
+    }]
+    assert payload['station_candidates']
+    assert_read_only_sql(conn)
+
+
 def test_reconciliation_main_outputs_json_without_writes(monkeypatch, capsys):
-    conn = FakeConn(station_rows=[station_row()])
+    conn = FakeConn(station_rows=[station_row(
+        source_updated_at=datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+    )])
     monkeypatch.setattr(db_loader, 'connect_staging_db', lambda _dsn: conn)
 
     exit_code = db_loader.main([
@@ -929,4 +983,5 @@ def test_reconciliation_main_outputs_json_without_writes(monkeypatch, capsys):
     assert payload['schema_version'] == 'enrichment_staging_reconciliation/v1'
     assert payload['summary']['staged_station_rows_considered'] == 1
     assert payload['summary']['canonical_writes_planned'] == 0
+    assert payload['station_candidates'][0]['source']['source_updated_at'] == '2026-01-02T03:04:05+00:00'
     assert_read_only_sql(conn)
