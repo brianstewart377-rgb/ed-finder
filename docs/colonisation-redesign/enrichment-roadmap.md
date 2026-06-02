@@ -512,6 +512,15 @@ warehouse broadly and design freshness/scheduler support, but no cron/scheduler
 implementation is allowed in Q6. See
 [`stage-18j-q6-memory-safe-warehouse-station-load.md`](./stage-18j-q6-memory-safe-warehouse-station-load.md).
 
+Stage 18J-Q7 fixes the next read-only artifact blocker. After the successful
+Q6 staging load, reconciliation report generation failed while printing JSON
+because DB-native datetime values were not serializable. The artifact file was
+0 bytes and canonical data remained unchanged. Q7 makes
+`enrichment_staging_reconciliation/v1` output JSON-safe and deterministic
+before retrying Stage 18J-Q3. Stage 18J-P remains blocked until a valid
+reconciliation artifact exists. See
+[`stage-18j-q7-reconciliation-json-serialization-fix.md`](./stage-18j-q7-reconciliation-json-serialization-fix.md).
+
 The operator workflow and current command examples live in
 [`../operations/enrichment-warehouse-runbook.md`](../operations/enrichment-warehouse-runbook.md).
 Use that runbook before loading any local snapshot into staging tables.

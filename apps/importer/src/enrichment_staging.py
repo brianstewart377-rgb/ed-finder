@@ -141,6 +141,11 @@ def canonicalise_json_payload(payload: Any) -> str:
     )
 
 
+def json_safe_value(value: Any) -> Any:
+    """Return a JSON-native copy while preserving deterministic report content."""
+    return _canonical_json_value(value)
+
+
 def payload_fingerprint(payload: Any, *, algorithm: str = 'sha256') -> str:
     """Hash a JSON-compatible payload after stable canonicalisation."""
     hasher = hashlib.new(algorithm)

@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -101,6 +102,11 @@ class FakeConn:
             'controlling_faction': None,
             'allegiance': None,
             'government': None,
+            'source': 'edsm_nightly_stations',
+            'source_class': 'semi-stable',
+            'confidence': 'source_station_snapshot',
+            'freshness_class': 'source_updated_at',
+            'source_updated_at': datetime(2026, 1, 2, 0, 0, tzinfo=timezone.utc),
             'canonical_system_id64': 42,
             'canonical_system_name': 'Contract System',
             'canonical_station_id': None,
@@ -213,6 +219,7 @@ def test_reconciliation_report_contract_is_stable_and_read_only():
         'source': 'edsm_nightly_stations',
         'limit': 1,
     }
+    assert first['station_candidates'][0]['source']['source_updated_at'] == '2026-01-02T00:00:00+00:00'
     assert first['summary']['staged_station_rows_considered'] == 1
     assert first['summary']['canonical_writes_planned'] == 0
     assert_no_writes(first_conn)

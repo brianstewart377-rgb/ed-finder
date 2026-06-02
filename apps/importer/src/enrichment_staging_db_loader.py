@@ -26,7 +26,7 @@ from enrichment_snapshot_loader import (
     build_station_snapshot_source_context,
     iter_station_snapshot_load_entries,
 )
-from enrichment_staging import classify_source_field, normalise_source_adapter
+from enrichment_staging import classify_source_field, json_safe_value, normalise_source_adapter
 from enrichment_warehouse import (
     WAREHOUSE_BASE_TABLES,
     WAREHOUSE_BODY_RING_WRITE_TABLES,
@@ -162,7 +162,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.check_staging_schema:
             with connect_staging_db(args.dsn) as conn:
                 report = check_staging_schema(conn, source=args.source)
-            print(json.dumps(report, sort_keys=True, indent=2))
+            print(json_dumps_report(report))
             return 0 if report['ok'] else 2
         if args.report_staged_run:
             with connect_staging_db(args.dsn) as conn:
@@ -172,7 +172,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     source_file_key=args.source_file_key,
                     source=args.source,
                 )
-            print(json.dumps(report, sort_keys=True, indent=2))
+            print(json_dumps_report(report))
             return 0
         if args.report_reconciliation:
             with connect_staging_db(args.dsn) as conn:
@@ -183,7 +183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     source=args.source,
                     limit=args.limit,
                 )
-            print(json.dumps(report, sort_keys=True, indent=2))
+            print(json_dumps_report(report))
             return 0
         if args.write_staging:
             with connect_staging_db(args.dsn) as conn:
@@ -206,7 +206,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f'enrichment staging DB loader failed: {exc}', file=sys.stderr)
         return 2
 
-    print(json.dumps(report, sort_keys=True, indent=2))
+    print(json_dumps_report(report))
     return 0
 
 
@@ -251,12 +251,18 @@ def build_reconciliation_report(
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Read-only comparison of staged warehouse evidence against canonical rows."""
-    return EnrichmentWarehouseRepository(conn).build_reconciliation_report(
+    report = EnrichmentWarehouseRepository(conn).build_reconciliation_report(
         source_run_key=source_run_key,
         source_file_key=source_file_key,
         source=source,
         limit=limit,
     )
+    return json_safe_value(report)
+
+
+def json_dumps_report(report: Mapping[str, Any]) -> str:
+    """Dump deterministic report JSON after converting DB-native scalar values."""
+    return json.dumps(json_safe_value(report), sort_keys=True, indent=2)
 
 
 def fetch_station_reconciliation_rows(

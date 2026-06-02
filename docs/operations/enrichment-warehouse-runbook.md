@@ -556,6 +556,20 @@ succeeds, move to read-only reconciliation artifact generation. Stage 18J-P
 remains blocked until a valid reconciliation artifact exists, and Stage 18K is
 not started by Q6.
 
+Stage 18J-Q7 documents the read-only reconciliation JSON serialization fix in
+`docs/colonisation-redesign/stage-18j-q7-reconciliation-json-serialization-fix.md`.
+The first post-Q6 reconciliation attempt failed before artifact generation
+because DB-native timestamp values were not JSON serializable. The failed
+artifact was 0 bytes, canonical data was unchanged, and Stage 18J-P remained
+blocked. Q7 makes report output JSON-safe before retrying the Stage 18J-Q3
+read-only artifact path.
+
+When generating reconciliation artifacts, the CLI converts DB-native report
+values such as timestamps and decimals into deterministic JSON-safe values
+before printing. Datetimes and dates are emitted as ISO-8601 strings; decimals
+are emitted as strings. If JSON printing fails, treat the artifact as invalid,
+keep Stage 18J-P blocked, and do not proceed to station-type dry-run or apply.
+
 ## Optional Postgres Smoke Tests
 
 These tests are skipped by default. They write only to warehouse staging tables

@@ -692,6 +692,35 @@ artifact exists.
 Support doc:
 `stage-18j-q6-memory-safe-warehouse-station-load.md`.
 
+### Stage 18J-Q7 — Reconciliation JSON Serialization Fix
+
+Purpose: fix the read-only reconciliation artifact path after the first
+post-Q6 reconciliation attempt failed while printing JSON.
+
+Scope:
+
+- Convert DB-native reconciliation report values such as datetimes, dates, and
+  decimals into deterministic JSON-safe values.
+- Preserve `enrichment_staging_reconciliation/v1` content and deterministic
+  `sort_keys=True` output.
+- Keep station candidates and `canonical_writes_planned = 0` visible.
+- Document the 0-byte artifact failure and the blocked Stage 18J-P state.
+
+Non-goals:
+
+- No production reconciliation run from development.
+- No production artifact generation or approval.
+- No station-type dry-run.
+- No canonical apply.
+- No production DB access.
+- No Stage 18J-P or Stage 18K work.
+
+Q7 fixes serialization only. Stage 18J-P remains blocked until a valid
+read-only reconciliation artifact exists.
+
+Support doc:
+`stage-18j-q7-reconciliation-json-serialization-fix.md`.
+
 ## Historical Docs Status
 
 Older docs should not be deleted by default. They contain useful context, rationale, boundaries, and acceptance criteria. Treat them as historical/reference unless this file points to them as active.
@@ -734,5 +763,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 22. Stage 18J-Q4b/Q4c read-only warehouse DSN operator prep.
 23. Stage 18J-Q5 nested EDSM station snapshot support.
 24. Stage 18J-Q6 memory-safe warehouse station load.
+25. Stage 18J-Q7 reconciliation JSON serialization fix.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
