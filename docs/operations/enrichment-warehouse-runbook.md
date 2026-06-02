@@ -697,6 +697,17 @@ and post-apply verification that the new table is empty and `stations` is
 unchanged. Applying this schema later must still not load identity data,
 backfill, run station-type dry-run, or run canonical apply.
 
+Stage 18J-P7 records the schema-only production apply closeout in
+`docs/colonisation-redesign/stage-18j-p7-external-identity-schema-production-apply-closeout.md`.
+The migration `sql/027_station_external_identity.sql` has been applied on
+Hetzner. `station_external_identity` exists with the expected constraints and
+indexes, its row count is `0`, and the recorded canonical `stations` count
+stayed unchanged at `284763`. No identity evidence was loaded, no imports,
+reconciliation, summarizer, station-type dry-run, or canonical apply were run,
+and no station-type data changed. The table is present but empty, so
+station-type dry-run remains blocked until confirmed external identity evidence
+is loaded and integrated into read-only reconciliation.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

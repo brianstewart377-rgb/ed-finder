@@ -187,14 +187,20 @@ Stage 18J-P6 performs that readiness review in
 migration ready for a future schema-only production application stage, provided
 the required preflight and post-apply checks pass.
 
+Stage 18J-P7 later records the schema-only production apply closeout in
+`stage-18j-p7-external-identity-schema-production-apply-closeout.md`. The
+schema is now present on Hetzner, `station_external_identity` has row count `0`,
+and no identity evidence, reconciliation, station-type dry-run, or canonical
+apply was run.
+
 ## Reconciliation Impact
 
 No reconciliation code is changed in P5. Current reconciliation output remains
 unchanged.
 
-After a later approved schema application and evidence load, read-only
-reconciliation can be extended to join only `identity_status = 'confirmed'`
-rows and expose canonical external identity fields such as:
+Now that P7 records the schema as present, a later approved evidence load can
+let read-only reconciliation join only `identity_status = 'confirmed'` rows and
+expose canonical external identity fields such as:
 
 - `canonical.market_id`;
 - `canonical.edsm_station_id`;
@@ -247,19 +253,22 @@ The migration tests verify:
 ## Recommended Next Stages
 
 - Stage 18J-P6 - External identity migration production readiness review.
-- Stage 18J-P7 - Schema-only external identity migration application packet.
-- Stage 18J-P8 - Apply external identity schema migration only, if approved.
-- Stage 18J-P9 - External identity evidence loader/reconciliation design.
-- Stage 18J-P10 - Load/reconcile identity evidence, no station-type writes.
-- Later: retry strict station-type dry-run only after confirmed external
-  identity appears in read-only reconciliation output.
+- Stage 18J-P7 - External identity schema production apply closeout.
+- Stage 18J-P8 - External identity evidence loader/reconciliation design.
+- Stage 18J-P9 - External identity evidence load dry-run.
+- Stage 18J-P10 - External identity evidence write-staging/load, no
+  station-type writes.
+- Stage 18J-P11 - Identity coverage artifact.
+- Stage 18J-P12 - Reconciliation integration with confirmed identity.
+- Stage 18J-P13 - Retry strict station-type dry-run.
 
 ## Final Recommendation
 
-Keep `sql/027_station_external_identity.sql` as a draft additive migration
-until a later production readiness review approves applying only the schema.
+P5 correctly kept `sql/027_station_external_identity.sql` as a draft additive
+migration. P6 approved schema-only application, and P7 records that the schema
+is now present but empty.
 
 Do not backfill identity evidence, alter the strict station-type filter, or
-start any station-type dry-run/apply path in P5. The correct next step is an
-external identity evidence loader/reconciliation design that can populate and
-review the table safely after the schema has been separately approved.
+start any station-type dry-run/apply path from this migration. The correct next
+step is an external identity evidence loader/reconciliation design that can
+populate and review the table safely without station-type writes.

@@ -608,6 +608,14 @@ DB, load identity evidence, run reconciliation, run station-type dry-run, or
 authorize apply. See
 [`stage-18j-p6-external-identity-migration-production-readiness.md`](./stage-18j-p6-external-identity-migration-production-readiness.md).
 
+Stage 18J-P7 records the schema-only production application closeout for
+`sql/027_station_external_identity.sql`. The `station_external_identity` table
+now exists on Hetzner with the expected constraints and indexes, has row count
+`0`, and the recorded canonical `stations` count stayed unchanged at `284763`. No
+identity evidence was loaded, no reconciliation/import/summarizer/station-type
+dry-run/apply was run, and no station-type data changed. See
+[`stage-18j-p7-external-identity-schema-production-apply-closeout.md`](./stage-18j-p7-external-identity-schema-production-apply-closeout.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -691,11 +699,14 @@ treated as a separate proposal.
 * **External identity migration readiness**: Stage 18J-P6 reviews migration 027
   and finds it ready for a later schema-only production application stage with
   explicit preflight and post-apply checks.
-* **External identity follow-up sequence**: continue with P7 schema-only
-  application packet, P8 schema-only migration apply if approved, P9 evidence
-  loader/reconciliation design, P10 identity evidence load/reconciliation with
-  no station-type writes, and only later retry strict station-type dry-run with
-  confirmed external identity.
+* **External identity schema closeout**: Stage 18J-P7 records that migration
+  027 has been applied on Hetzner as schema-only. The identity table exists but
+  is empty, so strict station-type dry-run remains blocked.
+* **External identity follow-up sequence**: after the P7 schema closeout,
+  continue with P8 evidence loader/reconciliation design, P9 evidence load
+  dry-run, P10 write-staging/load with no station-type writes, P11 identity
+  coverage artifact, P12 reconciliation integration with confirmed identity,
+  and P13 strict station-type dry-run retry.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
   Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse
