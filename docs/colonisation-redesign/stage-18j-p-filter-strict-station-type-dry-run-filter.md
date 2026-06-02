@@ -88,12 +88,21 @@ The dry-run output explicitly records:
 
 - `dry_run = true`,
 - `summary.canonical_writes_planned = 0`,
+- `summary.total_candidates_seen`,
+- `summary.eligible_station_type_updates`,
+- `summary.rejection_reason_counts`,
 - `summary.apply_run = false`,
 - `summary.approval_record_created = false`,
 - `operator_review.production_artifact_approved = false`.
 
 Eligible rows are reported as `eligible_station_type_updates`; they are not
 canonical writes, approval records, or apply instructions.
+
+Stage 18J-P-dryrun-ops adds compact blocked-candidate output controls so the
+future operator dry-run does not emit every blocked row from the large
+production reconciliation artifact. The dry-run artifact keeps all counts and
+rejection distributions, includes eligible rows up to the explicit limit, and
+caps blocked row samples through `--blocked-candidate-sample-limit`.
 
 ## Tests
 
@@ -132,7 +141,8 @@ Still blocked:
 ## Future Stage 18J-P Effect
 
 After this stage merges, a future Stage 18J-P production dry-run can proceed
-only when separately prompted in the Hetzner operator shell and only with:
+only when separately prompted in the Hetzner operator shell, after the
+operator-safe wrapper has merged, and only with:
 
 - the reviewed production reconciliation artifact,
 - the explicit max-row bound,

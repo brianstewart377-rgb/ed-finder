@@ -848,6 +848,34 @@ Non-goals:
 Support doc:
 `stage-18j-p-filter-strict-station-type-dry-run-filter.md`.
 
+### Stage 18J-P-dryrun-ops - Operator-Safe Station-Type Dry-Run Wrapper
+
+Purpose: add the Hetzner-only wrapper and compact-output controls required
+before any future Stage 18J-P production station-type dry-run.
+
+Scope:
+
+- Add `scripts/operator/stage18j_run_station_type_dry_run.sh`.
+- Require the shared Hetzner operator environment guard.
+- Verify the validated reconciliation artifact checksum before dry-run.
+- Require bounded `MAX_ROWS`, with first-pilot refusal above `20`.
+- Write the dry-run artifact under the operator artifact directory.
+- Cap blocked candidate samples while preserving full rejection counts and
+  total candidate counts.
+- Print compact summary fields and artifact checksum.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access.
+- No imports, reconciliation, production summarizer run, production
+  station-type dry-run, or canonical apply.
+- No approval record.
+- No Stage 18J-P or Stage 18K work.
+
+Support doc:
+`stage-18j-p-dryrun-operator-safe-wrapper.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -923,5 +951,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 28. Stage 19A.1 operator path guardrails.
 29. Stage 18J-Q9 compact summary review / station-type dry-run readiness.
 30. Stage 18J-P-filter strict station-type dry-run filter hardening.
+31. Stage 18J-P-dryrun-ops operator-safe station-type dry-run wrapper.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

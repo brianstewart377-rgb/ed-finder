@@ -280,12 +280,14 @@ Stage 18J should continue with a narrow station-type dry-run readiness path:
 1. Q9 records this review and the strict filter.
 2. Stage 18J-P-filter hardens the strict dry-run eligibility filter in code
    and synthetic tests without running production commands.
-3. Stage 18J-P may retry station-type production dry-run only if separately
+3. Stage 18J-P-dryrun-ops adds the Hetzner-only wrapper, reconciliation
+   checksum verification, max-row guard, and compact blocked-candidate output.
+4. Stage 18J-P may retry station-type production dry-run only if separately
    prompted and if the strict filter is implemented or reconfirmed.
-4. Stage 18J-P2 reviews the filtered dry-run artifact.
-5. Stage 18J-P3 prepares a tiny apply approval packet only if the dry-run is
+5. Stage 18J-P2 reviews the filtered dry-run artifact.
+6. Stage 18J-P3 prepares a tiny apply approval packet only if the dry-run is
    boring and bounded.
-6. Stage 18J-P4 performs a tiny manual apply only if explicitly approved.
+7. Stage 18J-P4 performs a tiny manual apply only if explicitly approved.
 
 Stage 19 warehouse expansion remains separate and report-only. Stage 18K is not
 started by Q9.
@@ -300,4 +302,5 @@ apply unauthorized, and keep Stage 18J-P blocked until a separate prompt
 implements or reconfirms the filtered dry-run scope.
 
 Stage 18J-P-filter is the implementation hardening step for that filter. It
-does not run the production dry-run or approve any artifact.
+does not run the production dry-run or approve any artifact. Stage
+18J-P-dryrun-ops adds the operator wrapper needed before that future dry-run.

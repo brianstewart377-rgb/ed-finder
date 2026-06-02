@@ -554,6 +554,14 @@ input reconciliation artifact checksum, and keeps dry-run
 See
 [`stage-18j-p-filter-strict-station-type-dry-run-filter.md`](./stage-18j-p-filter-strict-station-type-dry-run-filter.md).
 
+Stage 18J-P-dryrun-ops adds the Hetzner-only wrapper for the future strict
+station-type dry-run. The wrapper verifies the validated reconciliation
+artifact SHA-256, requires bounded `MAX_ROWS` and refuses values above `20`,
+passes compact blocked-candidate output options, writes the dry-run artifact
+under the operator artifact directory, and prints compact summary fields. It
+does not run from Codex, touch the DB, create approvals, or run apply. See
+[`stage-18j-p-dryrun-operator-safe-wrapper.md`](./stage-18j-p-dryrun-operator-safe-wrapper.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -624,6 +632,9 @@ treated as a separate proposal.
 * **Strict station-type filter hardening**: Stage 18J-P-filter implements the
   strict filter and synthetic tests. A future Stage 18J-P production dry-run
   can proceed only as a separate operator step after this hardening merges.
+* **Operator-safe station-type dry-run wrapper**: Stage 18J-P-dryrun-ops adds
+  the Hetzner-only wrapper, checksum guard, max-row cap, and compact blocked
+  output required before the future production dry-run operator step.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
   Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse

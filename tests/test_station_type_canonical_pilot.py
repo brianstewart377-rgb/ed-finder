@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import hashlib
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -315,6 +316,67 @@ def test_summary_contains_strict_rejection_reason_counts():
     assert artifact['summary']['rejection_reason_counts']['rejected_missing_external_identity'] == 1
 
 
+def test_compact_mode_caps_blocked_samples_but_keeps_full_counts():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(source={'source_record_key': 'record-eligible', 'source_record_hash': 'hash-eligible'}),
+            station_candidate(source={'source_record_key': 'record-missing-id', 'source_record_hash': 'hash-missing-id', 'market_id': None, 'edsm_station_id': None}),
+            station_candidate(source={'source_record_key': 'record-volatile', 'source_record_hash': 'hash-volatile'}, risk_flags=['volatile_source_evidence']),
+            station_candidate(source={'source_record_key': 'record-source-only', 'source_record_hash': 'hash-source-only'}, candidate_action='candidate_insert_missing_canonical'),
+        ),
+        limit=1,
+        blocked_candidate_sample_limit=2,
+        reconciliation_artifact_sha256='source-sha',
+        reconciliation_artifact_basename='reconciliation.json',
+        reconciliation_artifact_size_bytes=123,
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    assert artifact['summary']['total_candidates_seen'] == 4
+    assert artifact['summary']['eligible_station_type_updates'] == 1
+    assert artifact['summary']['eligible_candidates'] == 1
+    assert len(artifact['eligible_candidates']) == 1
+    assert artifact['summary']['blocked_candidates'] == 3
+    assert artifact['summary']['blocked_candidate_samples_included'] == 2
+    assert artifact['summary']['blocked_candidate_sample_limit'] == 2
+    assert artifact['summary']['blocked_candidate_samples_omitted'] == 1
+    assert len(artifact['blocked_candidates']) == 2
+    assert artifact['summary']['rejected_missing_external_identity'] == 1
+    assert artifact['summary']['rejected_volatile_evidence'] == 1
+    assert artifact['summary']['rejected_source_only_insert'] == 1
+    assert artifact['source_scope']['input_artifact_sha256'] == 'source-sha'
+    assert artifact['source_scope']['input_artifact_basename'] == 'reconciliation.json'
+    assert artifact['source_scope']['input_artifact_size_bytes'] == 123
+
+
+def test_blocked_candidate_sample_limit_zero_keeps_counts_without_samples():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(source={'market_id': None, 'edsm_station_id': None}),
+            station_candidate(risk_flags=['volatile_source_evidence']),
+        ),
+        limit=1,
+        blocked_candidate_sample_limit=0,
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    assert artifact['summary']['blocked_candidates'] == 2
+    assert artifact['summary']['blocked_candidate_samples_included'] == 0
+    assert artifact['summary']['blocked_candidate_samples_omitted'] == 2
+    assert artifact['blocked_candidates'] == []
+    assert artifact['summary']['rejected_missing_external_identity'] == 1
+    assert artifact['summary']['rejected_volatile_evidence'] == 1
+
+
+def test_blocked_candidate_sample_limit_must_be_non_negative():
+    with pytest.raises(pilot.Stage18JPlanError, match='sample limit'):
+        pilot.build_station_type_pilot_dry_run(
+            report_with(station_candidate(source={'market_id': None, 'edsm_station_id': None})),
+            blocked_candidate_sample_limit=-1,
+            generated_at='2026-06-01T00:00:00Z',
+        )
+
+
 def test_limit_exclusion_is_reported_as_rejection_reason():
     artifact = pilot.build_station_type_pilot_dry_run(
         report_with(
@@ -389,9 +451,39 @@ def test_cli_writes_dry_run_json_artifact(tmp_path):
     assert payload['schema_version'] == 'station_type_canonical_pilot_dry_run/v1'
     assert payload['summary']['eligible_candidates'] == 1
     assert payload['summary']['canonical_writes_planned'] == 0
+    assert payload['summary']['blocked_candidate_sample_limit'] == 100
     assert payload['source_scope']['input_artifact_basename'] == 'reconciliation.json'
     assert payload['source_scope']['input_artifact_sha256'] == _file_sha256(report_path)
     assert payload['source_scope']['input_artifact_size_bytes'] == report_path.stat().st_size
+
+
+def test_cli_quiet_writes_without_stdout_and_respects_blocked_sample_limit(tmp_path, capsys):
+    report_path = tmp_path / 'reconciliation.json'
+    output_path = tmp_path / 'stage18j.json'
+    report_path.write_text(json.dumps(report_with(
+        station_candidate(source={'market_id': None, 'edsm_station_id': None}),
+        station_candidate(risk_flags=['volatile_source_evidence']),
+    )), encoding='utf-8')
+
+    result = pilot.main([
+        '--reconciliation-report',
+        str(report_path),
+        '--output',
+        str(output_path),
+        '--limit',
+        '1',
+        '--blocked-candidate-sample-limit',
+        '1',
+        '--quiet',
+    ])
+
+    captured = capsys.readouterr()
+    payload = json.loads(output_path.read_text(encoding='utf-8'))
+    assert result == 0
+    assert captured.out == ''
+    assert payload['summary']['blocked_candidates'] == 2
+    assert payload['summary']['blocked_candidate_samples_included'] == 1
+    assert len(payload['blocked_candidates']) == 1
 
 
 def test_cli_dry_run_rejects_dsn_and_does_not_invoke_apply(tmp_path, monkeypatch):
@@ -419,6 +511,23 @@ def test_cli_dry_run_rejects_dsn_and_does_not_invoke_apply(tmp_path, monkeypatch
             '--dsn',
             'postgresql://dry-run/test',
         ])
+
+
+def test_operator_station_type_dry_run_script_is_syntax_valid_and_guarded():
+    script = ROOT / 'scripts' / 'operator' / 'stage18j_run_station_type_dry_run.sh'
+
+    subprocess.run(['bash', '-n', str(script)], check=True)
+    text = script.read_text(encoding='utf-8')
+    assert 'scripts/operator/require_hetzner_operator_env.sh' in text
+    assert '--apply' not in text
+    assert '--dsn' not in text
+    assert '--limit "$MAX_ROWS"' in text
+    assert '--blocked-candidate-sample-limit "$BLOCKED_CANDIDATE_SAMPLE_LIMIT"' in text
+    assert 'MAX_ROWS > 20' in text
+    assert '[[ ! -s "$RECON_ARTIFACT" ]]' in text
+    assert 'checksum mismatch' in text
+    assert 'canonical_writes_planned_zero' in text
+    assert 'approval_record_created_false' in text
 
 
 def test_validate_apply_request_fails_closed_on_mismatched_approval_parameters():
