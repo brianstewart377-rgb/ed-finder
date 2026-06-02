@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ if str(IMPORTER_SRC) not in sys.path:
     sys.path.insert(0, str(IMPORTER_SRC))
 
 import station_type_canonical_pilot as pilot  # noqa: E402
+from enrichment_reconciliation import station_body_association_candidates  # noqa: E402
 
 
 def report_with(*candidates):
@@ -91,7 +93,7 @@ def station_candidate(**overrides):
             'source_updated_at': '2026-05-31T12:00:00Z',
             'freshness_impact': 'timestamped_source',
         },
-        'report_only': False,
+        'report_only': True,
         'canonical_writes_planned': 0,
     }
     _deep_update(candidate, overrides)
@@ -118,7 +120,12 @@ def test_dry_run_builds_deterministic_station_type_artifact():
     assert first['pilot_scope']['canonical_table'] == 'stations'
     assert first['pilot_scope']['canonical_field'] == 'station_type'
     assert first['pilot_scope']['apply_requires_separate_guarded_mode'] is True
-    assert first['summary']['canonical_writes_planned'] == 1
+    assert first['summary']['total_candidates_seen'] == 1
+    assert first['summary']['eligible_station_type_updates'] == 1
+    assert first['summary']['canonical_writes_planned'] == 0
+    assert first['summary']['dry_run_only'] is True
+    assert first['summary']['apply_run'] is False
+    assert first['summary']['approval_record_created'] is False
     candidate = first['eligible_candidates'][0]
     assert candidate['canonical_table'] == 'stations'
     assert candidate['field'] == 'station_type'
@@ -135,7 +142,8 @@ def test_blocks_name_only_or_missing_stable_station_identifier():
     artifact = pilot.build_station_type_pilot_dry_run(report, generated_at='2026-06-01T00:00:00Z')
 
     assert artifact['summary']['eligible_candidates'] == 0
-    assert artifact['summary']['blocked_by_reason']['stable_station_identifier_matches'] == 1
+    assert artifact['summary']['rejected_missing_external_identity'] == 1
+    assert artifact['summary']['rejection_reason_counts']['rejected_missing_external_identity'] == 1
 
 
 def test_blocks_internal_station_pk_match_without_canonical_external_identity():
@@ -158,7 +166,7 @@ def test_blocks_internal_station_pk_match_without_canonical_external_identity():
 
     assert artifact['summary']['eligible_candidates'] == 0
     blocked = artifact['blocked_candidates'][0]
-    assert 'stable_station_identifier_matches' in blocked['blocking_reasons']
+    assert 'rejected_missing_external_identity' in blocked['rejection_reasons']
     assert blocked['canonical']['station_id'] == 900001
     assert blocked['canonical']['market_id'] is None
     assert blocked['match_proof']['source_market_id'] == 900001
@@ -187,12 +195,12 @@ def test_blocks_internal_station_pk_match_when_canonical_external_identity_diffe
 
     assert artifact['summary']['eligible_candidates'] == 0
     blocked = artifact['blocked_candidates'][0]
-    assert 'stable_station_identifier_matches' in blocked['blocking_reasons']
+    assert 'rejected_missing_external_identity' in blocked['rejection_reasons']
     assert blocked['match_proof']['source_market_id'] == 900001
     assert blocked['match_proof']['canonical_market_id'] == 1001
 
 
-def test_allows_edsm_station_id_only_when_explicitly_enabled():
+def test_allows_edsm_station_id_external_identity_match():
     candidate = station_candidate(
         source={'market_id': None, 'edsm_station_id': 1001},
         canonical={'market_id': None, 'edsm_station_id': 1001},
@@ -207,41 +215,35 @@ def test_allows_edsm_station_id_only_when_explicitly_enabled():
         }],
     )
 
-    without_flag = pilot.build_station_type_pilot_dry_run(
+    artifact = pilot.build_station_type_pilot_dry_run(
         report_with(candidate),
-        generated_at='2026-06-01T00:00:00Z',
-    )
-    with_flag = pilot.build_station_type_pilot_dry_run(
-        report_with(candidate),
-        allow_edsm_station_id=True,
         generated_at='2026-06-01T00:00:00Z',
     )
 
-    assert without_flag['summary']['eligible_candidates'] == 0
-    assert with_flag['summary']['eligible_candidates'] == 1
-    assert with_flag['eligible_candidates'][0]['match_proof']['identifier_match_type'] == 'edsm_station_id'
+    assert artifact['summary']['eligible_candidates'] == 1
+    assert artifact['eligible_candidates'][0]['match_proof']['identifier_match_type'] == 'edsm_station_id'
 
 
 @pytest.mark.parametrize(
     'overrides,reason',
     [
-        ({'canonical_matches': []}, 'exactly_one_canonical_match'),
-        ({'canonical_matches': [{'station_id': 1001}, {'station_id': 1002}]}, 'exactly_one_canonical_match'),
-        ({'source': {'system_id64': 999}}, 'system_id64_matches'),
-        ({'source': {'station_name': 'Wrong Name'}}, 'station_name_matches'),
-        ({'differences': [{'field': 'station_type', 'staged': 'Fleet Carrier', 'canonical': 'Unknown'}]}, 'source_station_type_permanent'),
-        ({'differences': [{'field': 'station_type', 'staged': 'Coriolis Logistics', 'canonical': 'Unknown'}]}, 'source_station_type_permanent'),
-        ({'canonical': {'station_type': 'Coriolis'}}, 'canonical_old_value_eligible'),
-        ({'risk_class': 'stale'}, 'risk_class_clear'),
-        ({'risk_flags': ['volatile_source_evidence']}, 'no_blocking_risk_flags'),
-        ({'review_classifications': ['source_only']}, 'no_blocking_review_classifications'),
-        ({'review_classifications': ['report_only']}, 'no_blocking_review_classifications'),
-        ({'report_only': True}, 'not_report_only_evidence'),
-        ({'source_freshness': {'freshness_impact': 'undated_source_review'}}, 'freshness_allowed'),
+        ({'canonical_matches': []}, 'rejected_ambiguous_identity'),
+        ({'canonical_matches': [{'station_id': 1001}, {'station_id': 1002}]}, 'rejected_ambiguous_identity'),
+        ({'candidate_action': 'ambiguous_match'}, 'rejected_ambiguous_identity'),
+        ({'candidate_action': 'candidate_insert_missing_canonical'}, 'rejected_source_only_insert'),
+        ({'source': {'system_id64': 999}}, 'rejected_missing_external_identity'),
+        ({'source': {'station_name': 'Wrong Name'}}, 'rejected_missing_external_identity'),
+        ({'differences': [{'field': 'station_type', 'staged': 'Fleet Carrier', 'canonical': 'Unknown'}]}, 'rejected_transient_non_slot'),
+        ({'differences': [{'field': 'station_type', 'staged': 'MegaShip', 'canonical': 'Unknown'}]}, 'rejected_transient_non_slot'),
+        ({'canonical': {'station_type': 'Coriolis'}}, 'rejected_ineligible_canonical_old_value'),
+        ({'risk_flags': ['volatile_source_evidence']}, 'rejected_volatile_evidence'),
+        ({'source': {'source_class': 'volatile'}}, 'rejected_volatile_evidence'),
+        ({'source_freshness': {'freshness_impact': 'undated_source_review'}}, 'rejected_freshness'),
+        ({'differences': []}, 'rejected_missing_station_type_delta'),
         ({'differences': [
             {'field': 'station_type', 'staged': 'Orbis Starport', 'canonical': 'Unknown'},
             {'field': 'distance_to_arrival', 'staged': 12.0, 'canonical': None},
-        ]}, 'target_difference_is_station_type_only'),
+        ]}, 'rejected_non_station_type_change'),
     ],
 )
 def test_blocks_unsafe_candidate_states(overrides, reason):
@@ -252,6 +254,80 @@ def test_blocks_unsafe_candidate_states(overrides, reason):
 
     assert artifact['summary']['eligible_candidates'] == 0
     assert artifact['summary']['blocked_by_reason'][reason] == 1
+    assert artifact['blocked_candidates'][0]['rejection_reasons'][0].startswith('rejected_')
+
+
+def test_missing_station_body_name_does_not_block_external_station_type_update():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(station_candidate(
+            risk_class='blocked',
+            risk_flags=['missing_station_body_name', 'canonical_difference_review'],
+            review_classifications=['blocked', 'report_only', 'source_only', 'unknown'],
+        )),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    assert artifact['summary']['eligible_station_type_updates'] == 1
+    assert artifact['eligible_candidates'][0]['source_reconciliation']['risk_flags'] == [
+        'canonical_difference_review',
+        'missing_station_body_name',
+    ]
+    assert artifact['summary']['canonical_writes_planned'] == 0
+
+
+def test_missing_station_body_name_remains_station_body_link_blocker():
+    association_candidates = station_body_association_candidates([station_candidate()], [])
+
+    assert len(association_candidates) == 1
+    candidate = association_candidates[0]
+    assert candidate['entity'] == 'station_body_association'
+    assert candidate['candidate_action'] == 'station_body_name_missing'
+    assert candidate['canonical_link_writes_planned'] == 0
+    assert 'missing_station_body_name' in candidate['risk_flags']
+    assert 'blocked' in candidate['review_classifications']
+
+
+def test_requires_explicit_max_row_bound():
+    with pytest.raises(pilot.Stage18JPlanError, match='max-row bound'):
+        pilot.build_station_type_pilot_dry_run(
+            report_with(station_candidate()),
+            limit=None,
+            generated_at='2026-06-01T00:00:00Z',
+        )
+
+
+def test_summary_contains_strict_rejection_reason_counts():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(source={'market_id': None, 'edsm_station_id': None}),
+            station_candidate(candidate_action='candidate_insert_missing_canonical'),
+            station_candidate(risk_flags=['volatile_source_evidence']),
+        ),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    assert artifact['summary']['total_candidates_seen'] == 3
+    assert artifact['summary']['eligible_station_type_updates'] == 0
+    assert artifact['summary']['canonical_writes_planned'] == 0
+    assert artifact['summary']['rejected_missing_external_identity'] == 1
+    assert artifact['summary']['rejected_source_only_insert'] == 1
+    assert artifact['summary']['rejected_volatile_evidence'] == 1
+    assert artifact['summary']['rejection_reason_counts']['rejected_missing_external_identity'] == 1
+
+
+def test_limit_exclusion_is_reported_as_rejection_reason():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(source={'source_record_key': 'record-1', 'source_record_hash': 'hash-1'}),
+            station_candidate(source={'source_record_key': 'record-2', 'source_record_hash': 'hash-2'}),
+        ),
+        limit=1,
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    assert artifact['summary']['eligible_station_type_updates'] == 1
+    assert artifact['summary']['rejected_by_max_row_bound'] == 1
+    assert artifact['blocked_candidates'][0]['eligible_if_limit_allows'] is True
 
 
 def test_cli_rejects_unsupported_write_commit_flags():
@@ -312,6 +388,37 @@ def test_cli_writes_dry_run_json_artifact(tmp_path):
     payload = json.loads(output_path.read_text(encoding='utf-8'))
     assert payload['schema_version'] == 'station_type_canonical_pilot_dry_run/v1'
     assert payload['summary']['eligible_candidates'] == 1
+    assert payload['summary']['canonical_writes_planned'] == 0
+    assert payload['source_scope']['input_artifact_basename'] == 'reconciliation.json'
+    assert payload['source_scope']['input_artifact_sha256'] == _file_sha256(report_path)
+    assert payload['source_scope']['input_artifact_size_bytes'] == report_path.stat().st_size
+
+
+def test_cli_dry_run_rejects_dsn_and_does_not_invoke_apply(tmp_path, monkeypatch):
+    report_path = tmp_path / 'reconciliation.json'
+    output_path = tmp_path / 'stage18j.json'
+    report_path.write_text(json.dumps(report_with(station_candidate())), encoding='utf-8')
+
+    def fail_apply(*_args, **_kwargs):
+        raise AssertionError('apply path must not be invoked during dry-run')
+
+    monkeypatch.setattr(pilot, 'apply_station_type_pilot', fail_apply)
+
+    assert pilot.main([
+        '--reconciliation-report',
+        str(report_path),
+        '--output',
+        str(output_path),
+        '--limit',
+        '1',
+    ]) == 0
+    with pytest.raises(SystemExit):
+        pilot.parse_args([
+            '--reconciliation-report',
+            str(report_path),
+            '--dsn',
+            'postgresql://dry-run/test',
+        ])
 
 
 def test_validate_apply_request_fails_closed_on_mismatched_approval_parameters():
@@ -518,3 +625,7 @@ def _deep_update(target, overrides):
             _deep_update(target[key], value)
         else:
             target[key] = value
+
+
+def _file_sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()

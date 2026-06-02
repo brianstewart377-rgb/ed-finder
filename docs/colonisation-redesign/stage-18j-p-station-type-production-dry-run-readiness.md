@@ -162,8 +162,7 @@ must show:
 - `field = "station_type"`.
 - `canonical.station_type` is unknown/empty/eligible under the narrow rule.
 - `new_value` is an approved permanent station type.
-- `match_proof.identifier_match_type` is `market_id`, or `edsm_station_id`
-  only when explicitly allowed.
+- `match_proof.identifier_match_type` is `market_id` or `edsm_station_id`.
 - The source and canonical external identity values match on explicit fields.
 - The candidate count is small enough for complete manual review.
 
@@ -182,8 +181,7 @@ report-only evidence must remain blocked.
 The merged Stage 18J pilot code enforces the important identity boundary:
 
 - `source.market_id` matches explicit `canonical.market_id` only.
-- `source.edsm_station_id` matches explicit `canonical.edsm_station_id` only
-  when the EDSM flag is used.
+- `source.edsm_station_id` matches explicit `canonical.edsm_station_id`.
 - `canonical.station_id` is treated as the internal database primary key and
   update target, not as external identity proof.
 - Internal primary key equality alone cannot satisfy stable identity.
@@ -207,11 +205,12 @@ No production source freshness, risk, or blocking distribution was available.
 
 Future review must confirm:
 
-- `risk_class = clear` for every eligible candidate.
-- `reconciliation_state = confirmed` for every eligible candidate.
-- `report_only` evidence is not selected.
-- stale, volatile, risky, source-only, unknown, and blocked classifications are
-  not selected.
+- Stage 18J-specific eligibility passes for every candidate.
+- Source-only inserts, ambiguous identity, stale/undated evidence without
+  exception, volatile evidence, transient/non-slot station types, unknown
+  station-type deltas, and non-station-type changes are not selected.
+- Report-only reconciliation rows are not write instructions; they may feed the
+  dry-run only after the strict filter passes.
 - source run key, source file key, source record key/hash, and source freshness
   are present.
 - missing or undated source evidence is either blocked or covered by a
@@ -278,8 +277,8 @@ Stop before any future apply if:
 - approved table/field/source run/source file mismatches,
 - max row count is missing or too high,
 - current canonical pre-image differs,
-- any selected candidate is source-only, stale, volatile, risky, blocked,
-  unknown, report-only, ambiguous, or identity-unsafe,
+- any selected candidate is source-only insert, stale, volatile, blocked,
+  unknown, ambiguous, transient/non-slot, non-station-type, or identity-unsafe,
 - any write would target a table or field outside `stations.station_type`,
 - post-apply verification cannot be emitted and reviewed.
 
@@ -308,3 +307,27 @@ access. Once that artifact exists, rerun the Stage 18J dry-run command with
 `--limit 5`, review every eligible candidate manually, and approve nothing
 until the exact artifact hash, candidate count, table, field, source run/file,
 and max row count are explicitly accepted.
+
+## Stage 18J-P-filter Follow-Up
+
+Stage 18J-Q9 later reviewed the compact reconciliation summary and set the
+verdict to `Ready only with strict filter`. Stage 18J-P-filter hardens that
+filter in code before any production dry-run retry:
+
+- external identity proof requires matching `market_id` or matching
+  `edsm_station_id`;
+- internal canonical `station_id` / primary-key equality alone cannot prove
+  identity;
+- ambiguous matches, source-only inserts, volatile evidence, transient/non-slot
+  station types, and non-station-type changes are rejected;
+- missing `station_body_name` remains a station/body-link blocker but does not
+  block an otherwise externally proven station-type comparison;
+- dry-run output keeps `canonical_writes_planned = 0` and reports eligible
+  rows separately as `eligible_station_type_updates`;
+- the input reconciliation artifact checksum is recorded in the dry-run
+  output.
+
+See
+[`stage-18j-p-filter-strict-station-type-dry-run-filter.md`](./stage-18j-p-filter-strict-station-type-dry-run-filter.md).
+This does not start Stage 18J-P, approve an artifact, or authorize canonical
+apply.

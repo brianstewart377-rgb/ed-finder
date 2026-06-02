@@ -278,12 +278,14 @@ must not be committed to git.
 Stage 18J should continue with a narrow station-type dry-run readiness path:
 
 1. Q9 records this review and the strict filter.
-2. Stage 18J-P may retry station-type production dry-run only if separately
+2. Stage 18J-P-filter hardens the strict dry-run eligibility filter in code
+   and synthetic tests without running production commands.
+3. Stage 18J-P may retry station-type production dry-run only if separately
    prompted and if the strict filter is implemented or reconfirmed.
-3. Stage 18J-P2 reviews the filtered dry-run artifact.
-4. Stage 18J-P3 prepares a tiny apply approval packet only if the dry-run is
+4. Stage 18J-P2 reviews the filtered dry-run artifact.
+5. Stage 18J-P3 prepares a tiny apply approval packet only if the dry-run is
    boring and bounded.
-5. Stage 18J-P4 performs a tiny manual apply only if explicitly approved.
+6. Stage 18J-P4 performs a tiny manual apply only if explicitly approved.
 
 Stage 19 warehouse expansion remains separate and report-only. Stage 18K is not
 started by Q9.
@@ -296,3 +298,6 @@ station-type-only dry-run filter, an explicit max-row bound, and compact
 reviewable output. Keep station/body association work blocked, keep canonical
 apply unauthorized, and keep Stage 18J-P blocked until a separate prompt
 implements or reconfirms the filtered dry-run scope.
+
+Stage 18J-P-filter is the implementation hardening step for that filter. It
+does not run the production dry-run or approve any artifact.

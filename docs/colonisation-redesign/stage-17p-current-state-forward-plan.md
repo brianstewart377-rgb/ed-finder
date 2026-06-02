@@ -817,6 +817,37 @@ Non-goals:
 Support doc:
 `stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md`.
 
+### Stage 18J-P-filter - Strict Station-Type Dry-Run Filter Hardening
+
+Purpose: harden the station-type dry-run eligibility filter before any future
+Stage 18J-P production dry-run retry.
+
+Scope:
+
+- Require explicit external station identity proof by matching `market_id` or
+  matching `edsm_station_id`; internal canonical `station_id` is not identity
+  proof.
+- Reject ambiguous identity, source-only inserts, volatile evidence,
+  transient/non-slot station types, non-station-type changes, missing
+  station-type deltas, and candidates outside the explicit max-row bound.
+- Preserve `missing_station_body_name` as a station/body-link blocker while
+  allowing externally proven station-type comparisons.
+- Keep dry-run output at `canonical_writes_planned = 0`, record the input
+  reconciliation artifact checksum, and report explicit rejection counts.
+- Add synthetic tests only.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No imports, reconciliation, production summarizer run, production
+  station-type dry-run, or canonical apply.
+- No approval record.
+- No Stage 18J-P or Stage 18K work.
+
+Support doc:
+`stage-18j-p-filter-strict-station-type-dry-run-filter.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -891,5 +922,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 27. Stage 19A warehouse artifact taxonomy and chunked roadmap.
 28. Stage 19A.1 operator path guardrails.
 29. Stage 18J-Q9 compact summary review / station-type dry-run readiness.
+30. Stage 18J-P-filter strict station-type dry-run filter hardening.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
