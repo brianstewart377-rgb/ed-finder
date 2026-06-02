@@ -88,6 +88,9 @@ The recommended table name is `station_external_identity`.
 
 Stage 18J-P4 refines this recommendation into the explicit schema design:
 `stage-18j-p4-external-station-identity-schema-design.md`.
+Stage 18J-P5 then drafts the additive migration as
+`sql/027_station_external_identity.sql` without applying it to production or
+backfilling identity evidence.
 
 ## Why Not Relax The Filter
 
@@ -120,11 +123,12 @@ CREATE TABLE IF NOT EXISTS station_external_identity (
     source_file_key TEXT DEFAULT NULL,
     source_record_hash TEXT NOT NULL,
     confidence TEXT NOT NULL,
-    identity_status TEXT NOT NULL DEFAULT 'candidate' CHECK (identity_status IN (
-        'candidate',
+    identity_status TEXT NOT NULL DEFAULT 'proposed' CHECK (identity_status IN (
+        'proposed',
         'confirmed',
-        'conflict',
-        'retired'
+        'conflicting',
+        'rejected',
+        'superseded'
     )),
     match_method TEXT NOT NULL,
     source_updated_at TIMESTAMPTZ DEFAULT NULL,
@@ -139,11 +143,11 @@ CREATE TABLE IF NOT EXISTS station_external_identity (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_station_external_identity_source_market
     ON station_external_identity (source, market_id)
-    WHERE market_id IS NOT NULL AND identity_status IN ('candidate', 'confirmed');
+    WHERE market_id IS NOT NULL AND identity_status = 'confirmed';
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_station_external_identity_source_edsm
     ON station_external_identity (source, edsm_station_id)
-    WHERE edsm_station_id IS NOT NULL AND identity_status IN ('candidate', 'confirmed');
+    WHERE edsm_station_id IS NOT NULL AND identity_status = 'confirmed';
 
 CREATE INDEX IF NOT EXISTS idx_station_external_identity_station
     ON station_external_identity (canonical_station_id, identity_status);
@@ -159,14 +163,13 @@ The table is intended to store canonical-station-to-external-ID mapping evidence
 
 Recommended status semantics:
 
-- `candidate`: one source snapshot suggests the mapping; not yet enough for canonical write eligibility.
+- `proposed`: one source snapshot suggests the mapping; not yet enough for canonical write eligibility.
 - `confirmed`: mapping has passed the identity evidence stage's rules and can be used by read-only reconciliation as canonical external identity.
-- `conflict`: source evidence disagrees with an existing active mapping or maps one external ID to multiple canonical stations.
-- `retired`: old mapping retained for audit/history but not used as active proof.
+- `conflicting`: source evidence disagrees with an existing active mapping or maps one external ID to multiple canonical stations.
+- `rejected`: evidence was reviewed or classified as not acceptable proof.
+- `superseded`: old mapping retained for audit/history but not used as active proof.
 
-Stage 18J-P4 renames and expands this status model to `proposed`,
-`confirmed`, `conflicting`, `rejected`, and `superseded` so failed and
-historical evidence are visible without being accepted as proof.
+Stage 18J-P5 drafts this status model in `sql/027_station_external_identity.sql`.
 
 ## Backfill Strategy
 
@@ -177,7 +180,7 @@ Recommended backfill path:
 1. Read warehouse station evidence from staged, already reviewed offline snapshots.
 2. Match to canonical stations conservatively inside the same `system_id64`.
 3. Prefer source rows with explicit `market_id` and/or `edsm_station_id`, station name, source run/file keys, and source record hash.
-4. Require exactly one canonical station candidate by strict criteria before creating a `candidate` or `confirmed` identity row.
+4. Require exactly one canonical station candidate by strict criteria before creating a `proposed` or `confirmed` identity row.
 5. Detect conflicts before writes:
    - one external ID mapping to multiple canonical stations,
    - one canonical station mapping to multiple active external IDs for the same source identity kind,
@@ -200,7 +203,10 @@ After the identity table exists and is populated, read-only reconciliation can j
 - `canonical.external_identity_confidence`
 - `canonical.external_identity_source_record_hash`
 
-Only `identity_status = 'confirmed'` should count as strict proof for station-type dry-run eligibility. `candidate`, `conflict`, and `retired` rows should be visible in diagnostics but not accepted by the strict filter.
+Only `identity_status = 'confirmed'` should count as strict proof for
+station-type dry-run eligibility. `proposed`, `conflicting`, `rejected`, and
+`superseded` rows should be visible in diagnostics but not accepted by the
+strict filter.
 
 The Stage 18J station-type dry-run filter should remain unchanged in spirit: explicit external ID match, exactly one canonical station, matching `system_id64`, matching normalized station name, station-type-only delta, no volatile evidence, no transient type, and `canonical_writes_planned = 0` in dry-run output.
 
@@ -214,7 +220,7 @@ After a confirmed identity table exists, the read-only reconciliation artifact s
 - `apply_run = false`
 - `approval_record_created = false`
 - explicit identity coverage counts
-- rejected candidates for missing, candidate-only, conflict, or stale identity mappings
+- rejected candidates for missing, proposed-only, conflicting, or stale identity mappings
 
 A non-zero eligible count would still not authorize apply. It would only support a later review packet.
 
@@ -240,12 +246,11 @@ This stage does not:
 
 - Stage 18J-P4 - External station identity schema design.
 - Stage 18J-P5 - External station identity migration draft, not applied to production.
-- Stage 18J-P6 - Identity evidence extraction/reconciliation from warehouse, non-canonical station-type.
-- Stage 18J-P7 - Read-only external identity coverage artifact.
-- Stage 18J-P8 - Confirmed identity integration into reconciliation output.
-- Stage 18J-P9 - Retry station-type dry-run with confirmed external identity.
-- Stage 18J-P10 - Dry-run review packet.
-- Later only: tiny apply approval packet, if candidates pass.
+- Stage 18J-P6 - External identity evidence loader/reconciliation design.
+- Stage 18J-P7 - External identity migration production readiness review.
+- Stage 18J-P8 - Apply external identity schema migration only, if approved.
+- Stage 18J-P9 - Load/reconcile identity evidence, no station-type writes.
+- Stage 18J-P10 - Retry strict station-type dry-run with confirmed external identity.
 
 ## Final Recommendation
 
