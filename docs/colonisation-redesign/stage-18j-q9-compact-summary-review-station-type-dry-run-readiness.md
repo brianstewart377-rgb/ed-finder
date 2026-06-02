@@ -284,10 +284,13 @@ Stage 18J should continue with a narrow station-type dry-run readiness path:
    checksum verification, max-row guard, and compact blocked-candidate output.
 4. Stage 18J-P may retry station-type production dry-run only if separately
    prompted and if the strict filter is implemented or reconfirmed.
-5. Stage 18J-P2 reviews the filtered dry-run artifact.
-6. Stage 18J-P3 prepares a tiny apply approval packet only if the dry-run is
-   boring and bounded.
-7. Stage 18J-P4 performs a tiny manual apply only if explicitly approved.
+5. Stage 18J-P2 adds identity coverage diagnostics if the filtered dry-run
+   finds zero eligible station-type updates because external identity proof is
+   missing.
+6. A separate bounded operator rerun may collect those diagnostics for review.
+7. Stage 18J-P3 prepares a tiny apply approval packet only if a later dry-run
+   is boring, bounded, externally identity-proven, and explicitly reviewed.
+8. Stage 18J-P4 performs a tiny manual apply only if explicitly approved.
 
 Stage 19 warehouse expansion remains separate and report-only. Stage 18K is not
 started by Q9.
@@ -304,3 +307,5 @@ implements or reconfirms the filtered dry-run scope.
 Stage 18J-P-filter is the implementation hardening step for that filter. It
 does not run the production dry-run or approve any artifact. Stage
 18J-P-dryrun-ops adds the operator wrapper needed before that future dry-run.
+Stage 18J-P2 adds identity coverage diagnostics so a zero-eligible bounded
+dry-run can be understood before any approval-packet discussion.

@@ -876,6 +876,36 @@ Non-goals:
 Support doc:
 `stage-18j-p-dryrun-operator-safe-wrapper.md`.
 
+### Stage 18J-P2 - Station-Type Identity Coverage Diagnostics
+
+Purpose: explain why the first bounded operator station-type dry-run produced
+zero eligible update candidates after every candidate failed external identity
+proof.
+
+Scope:
+
+- Add count-only `identity_coverage_summary` to the strict station-type dry-run
+  artifact.
+- Count source/canonical `market_id` and `edsm_station_id` presence, matches,
+  and mismatches.
+- Count `system_id64` and station-name matches and mismatches.
+- Count canonical match distribution and canonical station rows whose external
+  IDs are absent from the reconciliation payload.
+- Keep the strict filter unchanged and keep `canonical_writes_planned = 0`.
+- Support a future bounded Hetzner/operator diagnostic rerun.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access.
+- No imports, reconciliation, production summarizer run, production
+  station-type dry-run, or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p2-station-type-identity-coverage-diagnostics.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -952,5 +982,6 @@ Do not add another large planner feature immediately. The healthiest next sequen
 29. Stage 18J-Q9 compact summary review / station-type dry-run readiness.
 30. Stage 18J-P-filter strict station-type dry-run filter hardening.
 31. Stage 18J-P-dryrun-ops operator-safe station-type dry-run wrapper.
+32. Stage 18J-P2 station-type identity coverage diagnostics.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

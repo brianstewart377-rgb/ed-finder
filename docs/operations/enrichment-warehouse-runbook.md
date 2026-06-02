@@ -648,6 +648,16 @@ passes apply-mode or database connection arguments, creates no approval record,
 and keeps `canonical_writes_planned = 0`. This wrapper must be run only from
 the Hetzner operator shell and only after a separate Stage 18J-P prompt.
 
+The first bounded operator dry-run succeeded safely but found zero eligible
+station-type update candidates because all `298177` candidates failed external
+identity proof. Stage 18J-P2 adds `identity_coverage_summary` to future dry-run
+artifacts so a diagnostic rerun can show whether the missing proof comes from
+absent source IDs, absent canonical IDs in the reconciliation payload, ID
+mismatches, system/name mismatches, or non-exact canonical match counts. The
+diagnostic summary does not relax eligibility, does not create approvals, and
+keeps `canonical_writes_planned = 0`. Any rerun for these diagnostics is still
+a separate Hetzner/operator step and must not run apply.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

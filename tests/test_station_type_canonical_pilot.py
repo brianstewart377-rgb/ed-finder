@@ -127,6 +127,11 @@ def test_dry_run_builds_deterministic_station_type_artifact():
     assert first['summary']['dry_run_only'] is True
     assert first['summary']['apply_run'] is False
     assert first['summary']['approval_record_created'] is False
+    assert first['identity_coverage_summary'] == second['identity_coverage_summary']
+    assert first['identity_coverage_summary']['total_candidates_seen'] == 1
+    assert first['identity_coverage_summary']['market_id_match'] == 1
+    assert first['identity_coverage_summary']['external_identity_proof_present'] == 1
+    assert all(isinstance(value, int) for value in first['identity_coverage_summary'].values())
     candidate = first['eligible_candidates'][0]
     assert candidate['canonical_table'] == 'stations'
     assert candidate['field'] == 'station_type'
@@ -145,6 +150,7 @@ def test_blocks_name_only_or_missing_stable_station_identifier():
     assert artifact['summary']['eligible_candidates'] == 0
     assert artifact['summary']['rejected_missing_external_identity'] == 1
     assert artifact['summary']['rejection_reason_counts']['rejected_missing_external_identity'] == 1
+    assert artifact['identity_coverage_summary']['external_identity_proof_absent'] == 1
 
 
 def test_blocks_internal_station_pk_match_without_canonical_external_identity():
@@ -172,6 +178,9 @@ def test_blocks_internal_station_pk_match_without_canonical_external_identity():
     assert blocked['canonical']['market_id'] is None
     assert blocked['match_proof']['source_market_id'] == 900001
     assert blocked['match_proof']['canonical_market_id'] is None
+    assert artifact['identity_coverage_summary']['internal_primary_key_only_not_identity_proof'] == 1
+    assert artifact['identity_coverage_summary']['canonical_station_present_but_external_ids_missing_in_payload'] == 1
+    assert artifact['identity_coverage_summary']['possible_canonical_external_ids_omitted_from_reconciliation_payload'] == 1
 
 
 def test_blocks_internal_station_pk_match_when_canonical_external_identity_differs():
@@ -223,6 +232,114 @@ def test_allows_edsm_station_id_external_identity_match():
 
     assert artifact['summary']['eligible_candidates'] == 1
     assert artifact['eligible_candidates'][0]['match_proof']['identifier_match_type'] == 'edsm_station_id'
+
+
+def test_identity_coverage_summary_counts_market_id_presence_and_match_states():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(),
+            station_candidate(source={'market_id': None}),
+            station_candidate(canonical={'market_id': None}),
+            station_candidate(source={'market_id': 2002}),
+        ),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    summary = artifact['identity_coverage_summary']
+    assert summary['total_candidates_seen'] == 4
+    assert summary['source_market_id_present'] == 3
+    assert summary['source_market_id_missing'] == 1
+    assert summary['canonical_market_id_present'] == 3
+    assert summary['canonical_market_id_missing'] == 1
+    assert summary['market_id_both_present'] == 2
+    assert summary['market_id_match'] == 1
+    assert summary['market_id_mismatch'] == 1
+    assert summary['market_id_canonical_only'] == 1
+    assert summary['market_id_source_only'] == 1
+
+
+def test_identity_coverage_summary_counts_edsm_station_id_presence_and_match_states():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(source={'market_id': None}, canonical={'market_id': None}),
+            station_candidate(source={'market_id': None}, canonical={'market_id': None, 'edsm_station_id': 7001}),
+            station_candidate(source={'market_id': None, 'edsm_station_id': 7002}, canonical={'market_id': None}),
+            station_candidate(source={'market_id': None, 'edsm_station_id': 7003}, canonical={'market_id': None, 'edsm_station_id': 7003}),
+            station_candidate(source={'market_id': None, 'edsm_station_id': 7004}, canonical={'market_id': None, 'edsm_station_id': 7005}),
+        ),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    summary = artifact['identity_coverage_summary']
+    assert summary['total_candidates_seen'] == 5
+    assert summary['source_edsm_station_id_present'] == 3
+    assert summary['source_edsm_station_id_missing'] == 2
+    assert summary['canonical_edsm_station_id_present'] == 3
+    assert summary['canonical_edsm_station_id_missing'] == 2
+    assert summary['edsm_station_id_both_missing'] == 1
+    assert summary['edsm_station_id_canonical_only'] == 1
+    assert summary['edsm_station_id_source_only'] == 1
+    assert summary['edsm_station_id_both_present'] == 2
+    assert summary['edsm_station_id_match'] == 1
+    assert summary['edsm_station_id_mismatch'] == 1
+
+
+def test_identity_coverage_summary_counts_system_id64_and_station_name_mismatches():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(),
+            station_candidate(source={'system_id64': 999999}),
+            station_candidate(source={'station_name': 'Renamed Plant'}),
+        ),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    summary = artifact['identity_coverage_summary']
+    assert summary['source_system_id64_present'] == 3
+    assert summary['canonical_system_id64_present'] == 3
+    assert summary['system_id64_both_present'] == 3
+    assert summary['system_id64_match'] == 2
+    assert summary['system_id64_mismatch'] == 1
+    assert summary['source_station_name_present'] == 3
+    assert summary['canonical_station_name_present'] == 3
+    assert summary['station_name_both_present'] == 3
+    assert summary['station_name_match'] == 2
+    assert summary['station_name_mismatch'] == 1
+
+
+def test_identity_coverage_summary_counts_ambiguous_canonical_match_counts():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(),
+            station_candidate(canonical_matches=[]),
+            station_candidate(canonical_matches=[{'station_id': 1001}, {'station_id': 1002}]),
+        ),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    summary = artifact['identity_coverage_summary']
+    assert summary['canonical_match_count_exactly_one'] == 1
+    assert summary['canonical_match_count_not_one'] == 2
+    assert summary['canonical_match_count_zero'] == 1
+    assert summary['canonical_match_count_multiple'] == 1
+    assert artifact['summary']['blocked_by_reason']['rejected_ambiguous_identity'] == 2
+
+
+def test_zero_eligible_candidates_remains_valid_when_external_identity_is_absent():
+    artifact = pilot.build_station_type_pilot_dry_run(
+        report_with(
+            station_candidate(source={'market_id': None, 'edsm_station_id': None}),
+            station_candidate(source={'market_id': None, 'edsm_station_id': None}, risk_flags=['volatile_source_evidence']),
+        ),
+        generated_at='2026-06-01T00:00:00Z',
+    )
+
+    assert artifact['summary']['eligible_candidates'] == 0
+    assert artifact['summary']['canonical_writes_planned'] == 0
+    assert artifact['summary']['apply_run'] is False
+    assert artifact['summary']['approval_record_created'] is False
+    assert artifact['identity_coverage_summary']['external_identity_proof_absent'] == 2
+    assert artifact['identity_coverage_summary']['external_identity_proof_present'] == 0
 
 
 @pytest.mark.parametrize(

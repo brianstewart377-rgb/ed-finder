@@ -135,12 +135,14 @@ def build_station_type_pilot_dry_run(
     blocked_samples: list[dict[str, Any]] = []
     blocked_count = 0
     rejection_reason_counts: dict[str, int] = {}
+    identity_coverage_summary = _new_identity_coverage_summary()
     rows_considered = 0
 
     for candidate in reconciliation_report.get('station_candidates', []) or []:
         if not isinstance(candidate, Mapping):
             continue
         rows_considered += 1
+        _record_identity_coverage(identity_coverage_summary, candidate, allow_edsm_station_id=allow_edsm_station_id)
         decision = evaluate_station_type_candidate(
             candidate,
             allow_edsm_station_id=allow_edsm_station_id,
@@ -231,6 +233,7 @@ def build_station_type_pilot_dry_run(
             'warnings': 0,
         },
         'eligible_candidates': eligible,
+        'identity_coverage_summary': identity_coverage_summary,
         'blocked_candidate_output': {
             'sampled': True,
             'sample_limit': blocked_sample_limit,
@@ -1050,6 +1053,175 @@ def _record_blocked_candidate(
     if sample_limit is None or len(blocked_samples) < sample_limit:
         blocked_samples.append(row)
     return blocked_count + 1
+
+
+def _new_identity_coverage_summary() -> dict[str, int]:
+    return {
+        'total_candidates_seen': 0,
+        'source_market_id_present': 0,
+        'source_market_id_missing': 0,
+        'canonical_market_id_present': 0,
+        'canonical_market_id_missing': 0,
+        'market_id_both_present': 0,
+        'market_id_both_missing': 0,
+        'market_id_source_only': 0,
+        'market_id_canonical_only': 0,
+        'market_id_match': 0,
+        'market_id_mismatch': 0,
+        'source_edsm_station_id_present': 0,
+        'source_edsm_station_id_missing': 0,
+        'canonical_edsm_station_id_present': 0,
+        'canonical_edsm_station_id_missing': 0,
+        'edsm_station_id_both_present': 0,
+        'edsm_station_id_both_missing': 0,
+        'edsm_station_id_source_only': 0,
+        'edsm_station_id_canonical_only': 0,
+        'edsm_station_id_match': 0,
+        'edsm_station_id_mismatch': 0,
+        'source_system_id64_present': 0,
+        'source_system_id64_missing': 0,
+        'canonical_system_id64_present': 0,
+        'canonical_system_id64_missing': 0,
+        'system_id64_both_present': 0,
+        'system_id64_match': 0,
+        'system_id64_mismatch': 0,
+        'source_station_name_present': 0,
+        'source_station_name_missing': 0,
+        'canonical_station_name_present': 0,
+        'canonical_station_name_missing': 0,
+        'station_name_both_present': 0,
+        'station_name_match': 0,
+        'station_name_mismatch': 0,
+        'canonical_match_count_exactly_one': 0,
+        'canonical_match_count_not_one': 0,
+        'canonical_match_count_zero': 0,
+        'canonical_match_count_multiple': 0,
+        'canonical_station_present': 0,
+        'canonical_station_missing': 0,
+        'canonical_station_present_but_external_ids_missing_in_payload': 0,
+        'possible_canonical_external_ids_omitted_from_reconciliation_payload': 0,
+        'external_identity_proof_present': 0,
+        'external_identity_proof_absent': 0,
+        'internal_primary_key_only_not_identity_proof': 0,
+    }
+
+
+def _record_identity_coverage(
+    counts: dict[str, int],
+    candidate: Mapping[str, Any],
+    *,
+    allow_edsm_station_id: bool,
+) -> None:
+    source = _mapping(candidate.get('source'))
+    canonical = _mapping(candidate.get('canonical'))
+    canonical_matches = _sequence_of_mappings(candidate.get('canonical_matches'))
+
+    source_market_id = _read_int(source.get('market_id'))
+    canonical_market_id = _read_int(canonical.get('market_id'))
+    source_edsm_station_id = _read_int(source.get('edsm_station_id'))
+    canonical_edsm_station_id = _read_int(canonical.get('edsm_station_id'))
+    source_system_id64 = _read_int(source.get('system_id64'))
+    canonical_system_id64 = _read_int(canonical.get('system_id64'))
+    canonical_station_id = _read_int(canonical.get('station_id'))
+    source_name = _normalise_name(source.get('station_name'))
+    canonical_name = _normalise_name(canonical.get('station_name'))
+
+    counts['total_candidates_seen'] += 1
+
+    _record_pair_coverage(
+        counts,
+        prefix='market_id',
+        source_value=source_market_id,
+        canonical_value=canonical_market_id,
+    )
+    _record_pair_coverage(
+        counts,
+        prefix='edsm_station_id',
+        source_value=source_edsm_station_id,
+        canonical_value=canonical_edsm_station_id,
+    )
+    _record_pair_coverage(
+        counts,
+        prefix='system_id64',
+        source_value=source_system_id64,
+        canonical_value=canonical_system_id64,
+        include_source_only=False,
+    )
+    _record_pair_coverage(
+        counts,
+        prefix='station_name',
+        source_value=source_name,
+        canonical_value=canonical_name,
+        include_source_only=False,
+    )
+
+    match_count = len(canonical_matches)
+    if match_count == 1:
+        counts['canonical_match_count_exactly_one'] += 1
+    else:
+        counts['canonical_match_count_not_one'] += 1
+        if match_count == 0:
+            counts['canonical_match_count_zero'] += 1
+        else:
+            counts['canonical_match_count_multiple'] += 1
+
+    if canonical_station_id is None:
+        counts['canonical_station_missing'] += 1
+    else:
+        counts['canonical_station_present'] += 1
+        if canonical_market_id is None and canonical_edsm_station_id is None:
+            counts['canonical_station_present_but_external_ids_missing_in_payload'] += 1
+            counts['possible_canonical_external_ids_omitted_from_reconciliation_payload'] += 1
+
+    identifier_match_type = _station_external_identifier_match_type(
+        source_market_id=source_market_id,
+        canonical_market_id=canonical_market_id,
+        source_edsm_station_id=source_edsm_station_id,
+        canonical_edsm_station_id=canonical_edsm_station_id,
+        allow_edsm_station_id=allow_edsm_station_id,
+    )
+    if identifier_match_type is None:
+        counts['external_identity_proof_absent'] += 1
+    else:
+        counts['external_identity_proof_present'] += 1
+
+    if (
+        identifier_match_type is None
+        and canonical_station_id is not None
+        and canonical_station_id in {source_market_id, source_edsm_station_id}
+    ):
+        counts['internal_primary_key_only_not_identity_proof'] += 1
+
+
+def _record_pair_coverage(
+    counts: dict[str, int],
+    *,
+    prefix: str,
+    source_value: Any,
+    canonical_value: Any,
+    include_source_only: bool = True,
+) -> None:
+    if source_value is None:
+        counts[f'source_{prefix}_missing'] += 1
+    else:
+        counts[f'source_{prefix}_present'] += 1
+    if canonical_value is None:
+        counts[f'canonical_{prefix}_missing'] += 1
+    else:
+        counts[f'canonical_{prefix}_present'] += 1
+
+    if source_value is not None and canonical_value is not None:
+        counts[f'{prefix}_both_present'] += 1
+        if source_value == canonical_value:
+            counts[f'{prefix}_match'] += 1
+        else:
+            counts[f'{prefix}_mismatch'] += 1
+    elif include_source_only and source_value is None and canonical_value is None:
+        counts[f'{prefix}_both_missing'] += 1
+    elif include_source_only and source_value is None:
+        counts[f'{prefix}_canonical_only'] += 1
+    elif include_source_only and canonical_value is None:
+        counts[f'{prefix}_source_only'] += 1
 
 
 def _blocked_reason_distribution(blocked: Sequence[Mapping[str, Any]]) -> dict[str, int]:
