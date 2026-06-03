@@ -35,6 +35,10 @@ Known state:
 - Stage 18J-P12/P13 records the bounded load-plan artifact review and adds an
   offline planned-row review packet generator.
 - Stage 18J-P12/P13 verdict: `Ready only after planned-row manual review`.
+- The first Hetzner offline review-packet run completed safely but exposed a
+  packet contract issue: `manual_review_items` were not self-contained enough
+  for manual row review. Stage 18J-P13A hardens the contract so each item
+  embeds `planned_row`, boolean `checks`, and `reviewer_notes = null`.
 - Stage 18K remains untouched.
 
 ## Why We Are Optimising
@@ -113,6 +117,8 @@ Exit criteria:
 
 - exact load-plan artifact path and checksum recorded;
 - each of the `20` planned rows can be inspected in a compact review packet;
+- every manual review item embeds the exact planned row being reviewed;
+- every manual review item embeds non-empty boolean review checks;
 - every review item defaults to `needs_manual_review`;
 - rejected/source-only and ambiguous rows remain non-loadable;
 - `identity_rows_written = 0`;

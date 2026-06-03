@@ -24,27 +24,17 @@ TOOL_VERSION = 'v1'
 MAX_PLANNED_ROWS_CAP = 20
 WRITE_FLAG_ERROR = 'write/apply/load/commit flags are not available; this tool only emits an offline review packet'
 MANUAL_REVIEW_STATUS = 'needs_manual_review'
-REVIEW_CHECKS: tuple[tuple[str, str], ...] = (
-    (
-        'canonical_station_match',
-        'Confirm the planned canonical_station_id is the intended station for the source system/name evidence.',
-    ),
-    (
-        'external_identifier_present',
-        'Confirm the planned row has at least one source external identifier, edsm_station_id or market_id.',
-    ),
-    (
-        'source_provenance_present',
-        'Confirm source_run_key, source_file_key, and source_record_hash are present and match the reviewed load plan.',
-    ),
-    (
-        'identity_status_confirmed_only',
-        "Confirm identity_status is 'confirmed' and conflict_reason is null for this bounded row.",
-    ),
-    (
-        'no_station_type_or_canonical_write',
-        'Confirm the row does not plan station_type writes, canonical writes, imports, reconciliation, or apply.',
-    ),
+REVIEW_CHECK_KEYS: tuple[str, ...] = (
+    'canonical_station_id_present',
+    'system_id64_present',
+    'station_name_present',
+    'source_run_key_present',
+    'source_file_key_present',
+    'source_record_hash_present',
+    'external_id_present',
+    'identity_status_is_confirmed',
+    'conflict_reason_is_null',
+    'station_type_write_not_planned',
 )
 
 
@@ -216,6 +206,7 @@ def build_review_packet(
         'summary': {
             'planned_rows_available': len(planned_rows_raw),
             'planned_rows_included': len(planned_rows),
+            'planned_rows_count': len(planned_rows),
             'planned_rows_capped': len(planned_rows_raw) > len(planned_rows),
             'manual_review_items_count': len(manual_review_items),
             'manual_review_status_counts': {MANUAL_REVIEW_STATUS: len(manual_review_items)},
@@ -264,7 +255,7 @@ def _manual_review_item(
     source_artifact_sha256: str,
 ) -> dict[str, Any]:
     row = _json_clone(planned_row)
-    item = {
+    return {
         'review_item_id': hashlib.sha256(
             canonical_json([
                 'station_external_identity_review_packet_item',
@@ -275,21 +266,27 @@ def _manual_review_item(
             ]).encode('utf-8'),
         ).hexdigest(),
         'planned_row_index': index,
-        'plan_row_id': row.get('plan_row_id'),
-        'candidate_id': row.get('candidate_id'),
-        'canonical_station_id': row.get('canonical_station_id'),
-        'source_record_hash': row.get('source_record_hash'),
         'review_status': MANUAL_REVIEW_STATUS,
-        'review_checks': [
-            {
-                'check_id': check_id,
-                'prompt': prompt,
-                'review_status': MANUAL_REVIEW_STATUS,
-            }
-            for check_id, prompt in REVIEW_CHECKS
-        ],
+        'planned_row': row,
+        'checks': _planned_row_checks(row),
+        'reviewer_notes': None,
     }
-    return item
+
+
+def _planned_row_checks(row: Mapping[str, Any]) -> dict[str, bool]:
+    checks = {
+        'canonical_station_id_present': row.get('canonical_station_id') is not None,
+        'system_id64_present': row.get('system_id64') is not None,
+        'station_name_present': bool(row.get('station_name')),
+        'source_run_key_present': bool(row.get('source_run_key')),
+        'source_file_key_present': bool(row.get('source_file_key')),
+        'source_record_hash_present': bool(row.get('source_record_hash')),
+        'external_id_present': row.get('market_id') is not None or row.get('edsm_station_id') is not None,
+        'identity_status_is_confirmed': row.get('identity_status') == 'confirmed',
+        'conflict_reason_is_null': row.get('conflict_reason') is None,
+        'station_type_write_not_planned': row.get('station_type_writes_planned') == 0,
+    }
+    return {key: bool(checks[key]) for key in REVIEW_CHECK_KEYS}
 
 
 def _assert_load_plan_is_no_write(load_plan: Mapping[str, Any]) -> None:

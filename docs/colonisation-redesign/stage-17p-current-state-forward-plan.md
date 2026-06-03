@@ -1291,6 +1291,41 @@ Non-goals:
 Support doc:
 `stage-18j-p12-p13-load-plan-review-packet.md`.
 
+### Stage 18J-P13A - Review Packet Contract Hardening
+
+Purpose: fix the P12/P13 offline review packet contract so manual review items
+are self-contained and human-reviewable.
+
+Scope:
+
+- Record that the first Hetzner offline review-packet run completed safely but
+  had insufficient `manual_review_items` structure for row review.
+- Keep `station_external_identity_review_packet/v1` as the packet schema.
+- Embed the exact planned row inside each `manual_review_items` entry.
+- Add a non-empty boolean `checks` object to each manual review item.
+- Add `reviewer_notes = null`.
+- Keep the top-level `planned_rows` list and require it to match embedded
+  manual review rows exactly.
+- Harden the operator wrapper summary so it validates and prints planned row
+  count, manual review item count, and first-item planned-row/check presence.
+- Add regression tests for embedded row/check fields, safety fields,
+  deterministic JSON, checksum failures, max-row caps, write/load refusal, and
+  no DSN acceptance.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access from Codex.
+- No identity evidence load.
+- No writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p12-p13-load-plan-review-packet.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1379,9 +1414,10 @@ Do not add another large planner feature immediately. The healthiest next sequen
 41. Stage 18J-P11 bounded external identity load-plan artifact, no DB writes.
 42. Stage 18J-P-OPT identity evidence execution board.
 43. Stage 18J-P12/P13 load-plan review packet, no DB writes.
-44. Chunk B: Stage 18J-P14 controlled identity load tooling.
-45. Chunk C: Stage 18J-P15 post-load identity coverage.
-46. Chunk D: Stage 18J-P16 reconciliation integration with confirmed identity.
-47. Chunk E: Stage 18J-P17 retry strict station-type dry-run.
+44. Stage 18J-P13A review packet contract hardening, no DB writes.
+45. Chunk B: Stage 18J-P14 controlled identity load tooling.
+46. Chunk C: Stage 18J-P15 post-load identity coverage.
+47. Chunk D: Stage 18J-P16 reconciliation integration with confirmed identity.
+48. Chunk E: Stage 18J-P17 retry strict station-type dry-run.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

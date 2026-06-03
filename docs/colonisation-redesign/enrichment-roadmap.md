@@ -671,6 +671,14 @@ no DSN, caps planned rows at `20`, and defaults every row review item to
 `Ready only after planned-row manual review`. See
 [`stage-18j-p12-p13-load-plan-review-packet.md`](./stage-18j-p12-p13-load-plan-review-packet.md).
 
+Stage 18J-P13A fixes the P12/P13 review packet contract after the first
+offline Hetzner packet proved safe but not human-reviewable enough. Each
+`manual_review_items` entry now embeds the full planned row, boolean review
+checks, and `reviewer_notes = null`, while the top-level `planned_rows` list
+remains for convenience and must match the embedded rows exactly. The wrapper
+prints and validates these contract fields before declaring the packet
+generated.
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -777,6 +785,10 @@ treated as a separate proposal.
   the bounded load-plan review and adds an offline packet generator for manual
   review of the `20` planned rows. It writes no identity rows and keeps
   station-type dry-run and canonical apply blocked.
+* **External identity review packet contract hardening**: Stage 18J-P13A makes
+  manual review items self-contained with embedded planned rows and boolean
+  checks, then requires a future offline packet rerun before planned rows can
+  be reviewed.
 * **External identity follow-up sequence**: use the execution board for Chunk A
   P12/P13 review pack, Chunk B P14 controlled identity load tooling, Chunk C
   P15 post-load identity coverage, Chunk D P16 read-only reconciliation
