@@ -699,6 +699,14 @@ review packet SHA-256
 The verdict is `Ready only after approval allowlist artifact`. See
 [`stage-18j-p14b-identity-load-dry-run-review.md`](./stage-18j-p14b-identity-load-dry-run-review.md).
 
+Stage 18J-P14C adds the offline approval allowlist artifact generator in
+`apps/importer/src/station_external_identity_approval_allowlist.py` and a
+Hetzner-only wrapper in
+`scripts/operator/stage18j_run_identity_approval_allowlist.sh`. The allowlist
+approves exact external identity evidence rows only; it is not station-type
+approval, canonical apply approval, or a production approval record. See
+[`stage-18j-p14c-approval-allowlist-artifact.md`](./stage-18j-p14c-approval-allowlist-artifact.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -817,6 +825,10 @@ treated as a separate proposal.
   load dry-run result and sets the verdict to `Ready only after approval
   allowlist artifact`. The selected rows are structurally loadable but not yet
   approved for insertion.
+* **External identity approval allowlist artifact**: Stage 18J-P14C adds the
+  offline allowlist generator and Hetzner-only wrapper for exact selected
+  review item IDs and plan row IDs. It approves external identity evidence load
+  scope only and still loads no rows.
 * **External identity follow-up sequence**: use the execution board for Chunk A
   P12/P13 review pack, Chunk B P14/P14B controlled identity load tooling and
   dry-run review, P14C approval allowlist, P14D controlled write-reviewed load,

@@ -125,6 +125,15 @@ Before any controlled write-reviewed load:
 - run no imports, reconciliation, summarizer, station-type dry-run, canonical
   apply, or production approval-record creation as part of the allowlist step.
 
+Stage 18J-P14C adds this offline allowlist artifact tooling in
+`apps/importer/src/station_external_identity_approval_allowlist.py` and a
+Hetzner-only wrapper in
+`scripts/operator/stage18j_run_identity_approval_allowlist.sh`. The allowlist
+approves only external identity evidence loading for exact selected rows. It
+does not approve station-type writes, canonical apply, or production
+approval-record creation. See
+[`stage-18j-p14c-approval-allowlist-artifact.md`](./stage-18j-p14c-approval-allowlist-artifact.md).
+
 ## What Was Not Run
 
 Stage 18J-P14B did not run:

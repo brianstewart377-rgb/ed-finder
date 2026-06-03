@@ -47,6 +47,10 @@ Known state:
   `canonical_writes_planned = 0`, `station_type_writes_planned = 0`, and
   `station_external_identity` row count remained `0`. Its verdict is
   `Ready only after approval allowlist artifact`.
+- Stage 18J-P14C adds offline approval allowlist artifact tooling for exact
+  selected review item IDs and plan row IDs. The allowlist approves only
+  external identity evidence loading and is not station-type approval, canonical
+  apply approval, or a production approval record.
 - Stage 18K remains untouched.
 
 ## Why We Are Optimising
@@ -158,6 +162,11 @@ P14B records that the P14 dry-run completed safely. It proves the selected
 `20` rows are structurally loadable, but it does not approve a write. The next
 gate is a separate `station_external_identity_load_approval_allowlist/v1`
 artifact for exact selected review item IDs or plan row IDs.
+
+P14C supplies that allowlist artifact generator and Hetzner-only wrapper. It
+does not load rows. The controlled write-reviewed load remains a later tiny
+operator action and must still verify the allowlist before writing anything to
+`station_external_identity`.
 
 ### Chunk C - P15 Post-load Identity Coverage
 
@@ -296,11 +305,13 @@ Recommended next actions:
    Chunk A merges.
 4. Use `stage-18j-p14b-identity-load-dry-run-review.md` as the Chunk B
    dry-run review record.
-5. Create a separate approval allowlist only if the dry-run plan and planned
+5. Use `stage-18j-p14c-approval-allowlist-artifact.md` as the approval
+   allowlist tooling and artifact contract record.
+6. Create the separate approval allowlist only if the dry-run plan and planned
    rows are manually accepted.
-6. Run a controlled write-reviewed identity load only after that allowlist
+7. Run a controlled write-reviewed identity load only after that allowlist
    exists and is explicitly approved.
-7. Keep station-type dry-run blocked until post-load coverage and read-only
+8. Keep station-type dry-run blocked until post-load coverage and read-only
    reconciliation prove confirmed identity coverage.
 
 ## Final Recommendation

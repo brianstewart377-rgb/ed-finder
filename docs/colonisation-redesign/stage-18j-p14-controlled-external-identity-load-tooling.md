@@ -134,6 +134,17 @@ P14 implements a separate approval allowlist artifact for write mode:
 - `reviewed_at`;
 - `declaration`.
 
+Stage 18J-P14C adds offline allowlist artifact tooling in
+`apps/importer/src/station_external_identity_approval_allowlist.py` and a
+Hetzner-only wrapper in
+`scripts/operator/stage18j_run_identity_approval_allowlist.sh`. The generated
+artifact also records `offline = true`, `read_only = true`,
+`approval_record_created = false`, source review packet basename/checksum,
+source review packet integrity checksum, reviewer attestation, approved row
+count, `identity_rows_written = 0`, `canonical_writes_planned = 0`, and
+`station_type_writes_planned = 0`. See
+[`stage-18j-p14c-approval-allowlist-artifact.md`](./stage-18j-p14c-approval-allowlist-artifact.md).
+
 The allowlist is not a canonical apply approval. It only approves loading exact
 external identity evidence rows into `station_external_identity`.
 
@@ -252,7 +263,7 @@ Before any future production write-reviewed run:
 
 - use the P14B-reviewed load dry-run result;
 - inspect the execution plan artifact and checksum;
-- create a separate approval allowlist artifact for exact reviewed rows;
+- create the P14C separate approval allowlist artifact for exact reviewed rows;
 - verify the allowlist references the exact review packet SHA-256;
 - verify selected row IDs and plan row IDs match the manual review;
 - record pre-check `station_external_identity` row count;
@@ -267,7 +278,7 @@ Recommended sequence:
 
 - use the P14B load dry-run review as the dry-run gate record;
 - manually review the load execution plan;
-- prepare a separate approval allowlist artifact only if rows are accepted;
+- prepare the P14C approval allowlist artifact only if rows are accepted;
 - add a future guarded write operator action only after the approval allowlist
   is reviewed;
 - proceed to post-load coverage only after an approved controlled load has run.

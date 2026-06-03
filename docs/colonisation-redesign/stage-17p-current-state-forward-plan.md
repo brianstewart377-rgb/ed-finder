@@ -1414,6 +1414,43 @@ Non-goals:
 Support doc:
 `stage-18j-p14b-identity-load-dry-run-review.md`.
 
+### Stage 18J-P14C - Approval Allowlist Artifact
+
+Purpose: add offline approval allowlist artifact tooling for the exact reviewed
+external identity rows before any controlled write-reviewed load.
+
+Scope:
+
+- Add `apps/importer/src/station_external_identity_approval_allowlist.py`.
+- Emit `station_external_identity_load_approval_allowlist/v1`.
+- Verify the review packet SHA-256 exactly.
+- Require explicit confirmation and
+  `reviewer_decision = approve_selected_identity_rows`.
+- Cap approved rows at `20`.
+- Approve exact review item IDs and plan row IDs only.
+- Include reviewer attestation for external identity evidence load scope only.
+- Record `approval_record_created = false`.
+- Record `identity_rows_written = 0`.
+- Record `canonical_writes_planned = 0`.
+- Record `station_type_writes_planned = 0`.
+- Add `scripts/operator/stage18j_run_identity_approval_allowlist.sh` as a
+  Hetzner-only offline wrapper.
+- Add synthetic tests and docs/runbook updates.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access from Codex.
+- No production identity evidence load.
+- No production writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No production approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p14c-approval-allowlist-artifact.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
