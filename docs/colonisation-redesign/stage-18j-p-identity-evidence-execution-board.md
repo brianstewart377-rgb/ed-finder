@@ -32,6 +32,9 @@ Known state:
   - `station_external_identity` row count remained `0`.
 - Stage 18J-P10 verdict: `Ready only for bounded identity load dry-run`.
 - Stage 18J-P11 produced the bounded no-write load-plan tool/artifact path.
+- Stage 18J-P12/P13 records the bounded load-plan artifact review and adds an
+  offline planned-row review packet generator.
+- Stage 18J-P12/P13 verdict: `Ready only after planned-row manual review`.
 - Stage 18K remains untouched.
 
 ## Why We Are Optimising
@@ -110,8 +113,10 @@ Exit criteria:
 
 - exact load-plan artifact path and checksum recorded;
 - each of the `20` planned rows can be inspected in a compact review packet;
+- every review item defaults to `needs_manual_review`;
 - rejected/source-only and ambiguous rows remain non-loadable;
 - `identity_rows_written = 0`;
+- `approval_record_created = false`;
 - station-type writes remain blocked.
 
 ### Chunk B - P14 Controlled Identity Load Tooling
@@ -264,11 +269,11 @@ Production safety rules:
 Recommended next actions:
 
 1. Use this execution board as the remaining Stage 18J-P tracker.
-2. Proceed with Chunk A as one repo PR: load-plan review plus planned-row review
-   packet tooling/tests/docs, no DB writes.
-3. Run the planned-row review packet as a tiny Hetzner action after Chunk A
-   merges.
-4. Proceed with Chunk B only after the planned rows are accepted.
+2. Use `stage-18j-p12-p13-load-plan-review-packet.md` as the Chunk A review
+   record.
+3. Run the planned-row review packet as a tiny Hetzner offline action after
+   Chunk A merges.
+4. Proceed with Chunk B only after the planned rows are manually accepted.
 5. Keep station-type dry-run blocked until post-load coverage and read-only
    reconciliation prove confirmed identity coverage.
 

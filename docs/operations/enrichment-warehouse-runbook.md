@@ -765,6 +765,21 @@ actions. Never combine identity load with station-type dry-run, never combine
 station-type dry-run with canonical apply, and never run apply without a
 separate approval packet.
 
+Stage 18J-P12/P13 records the bounded no-write identity load-plan review and
+adds the offline planned-row review packet generator in
+`apps/importer/src/station_external_identity_review_packet.py`. The
+Hetzner-only wrapper is
+`scripts/operator/stage18j_run_identity_review_packet.sh`. It calls the
+operator environment guard, verifies the exact load-plan artifact SHA-256
+`3da39530223f92e89d7129d447944d39199b6510eee473ba1e84ceeb168c9db1`, writes
+the review packet under
+`/var/lib/ed-finder/operator-artifacts/stage-18j`, applies mode `600`, and
+prints the packet path, checksum, and summary fields. It does not source DB
+environment, connect to Postgres, load identity evidence, run imports,
+reconciliation, summarizer, station-type dry-run, approval-record creation, or
+canonical apply. The verdict remains
+`Ready only after planned-row manual review`.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

@@ -182,6 +182,14 @@ Stage 18J-P11 implements this as
 `--max-rows`, rejects values above `20`, rejects write/apply/load flags, and
 writes no database rows.
 
+Stage 18J-P12/P13 then records the first bounded load-plan artifact review and
+adds `apps/importer/src/station_external_identity_review_packet.py`. The
+review packet tool verifies the exact load-plan artifact checksum, reads only
+local JSON, accepts no DSN, caps planned rows at `20`, and emits
+`station_external_identity_review_packet/v1` with each row defaulting to
+`needs_manual_review`. The P12/P13 verdict is
+`Ready only after planned-row manual review`.
+
 ## Required Operator Preconditions
 
 Before any future bounded load-plan or controlled load stage, require:

@@ -660,6 +660,17 @@ Chunk D P16 read-only reconciliation integration, and Chunk E P17 strict
 station-type dry-run retry. See
 [`stage-18j-p-identity-evidence-execution-board.md`](./stage-18j-p-identity-evidence-execution-board.md).
 
+Stage 18J-P12/P13 implements Chunk A from that board. It records the bounded
+load-plan artifact review and adds the offline planned-row review packet
+generator in `apps/importer/src/station_external_identity_review_packet.py`,
+plus a Hetzner-only wrapper in
+`scripts/operator/stage18j_run_identity_review_packet.sh`. The packet tool
+verifies the exact load-plan artifact SHA-256, reads only local JSON, accepts
+no DSN, caps planned rows at `20`, and defaults every row review item to
+`needs_manual_review`. The readiness verdict is
+`Ready only after planned-row manual review`. See
+[`stage-18j-p12-p13-load-plan-review-packet.md`](./stage-18j-p12-p13-load-plan-review-packet.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -762,6 +773,10 @@ treated as a separate proposal.
 * **External identity execution board**: Stage 18J-P-OPT groups remaining
   repo work into larger safe chunks while keeping Hetzner production actions
   tiny and single-purpose.
+* **External identity planned-row review packet**: Stage 18J-P12/P13 records
+  the bounded load-plan review and adds an offline packet generator for manual
+  review of the `20` planned rows. It writes no identity rows and keeps
+  station-type dry-run and canonical apply blocked.
 * **External identity follow-up sequence**: use the execution board for Chunk A
   P12/P13 review pack, Chunk B P14 controlled identity load tooling, Chunk C
   P15 post-load identity coverage, Chunk D P16 read-only reconciliation

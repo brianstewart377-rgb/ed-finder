@@ -183,6 +183,30 @@ Before any controlled identity evidence load:
 - confirm skipped conflicting/ambiguous candidates are not planned;
 - confirm the plan does not imply station-type writes.
 
+## P12/P13 Follow-up Review
+
+Stage 18J-P12/P13 records the first bounded operator load-plan artifact and
+adds the offline planned-row review packet tool.
+
+Reviewed load-plan artifact:
+
+- path:
+  `/var/lib/ed-finder/operator-artifacts/stage-18j/station_external_identity_load_plan_20260603T071913Z.json`;
+- artifact SHA-256:
+  `3da39530223f92e89d7129d447944d39199b6510eee473ba1e84ceeb168c9db1`;
+- artifact integrity SHA-256:
+  `f8cf7260425ba82b1fc476d3cd239dbf41e2b246040ad9b461750ae4322a544f`;
+- planned rows: `20`;
+- identity rows written: `0`;
+- `station_external_identity` row count after: `0`.
+
+P12/P13 readiness verdict:
+
+`Ready only after planned-row manual review`
+
+See
+[`stage-18j-p12-p13-load-plan-review-packet.md`](./stage-18j-p12-p13-load-plan-review-packet.md).
+
 ## What This Does Not Write
 
 P11 writes nothing to:
@@ -210,12 +234,13 @@ the summarizer, run station-type dry-run, run canonical apply, or start Stage
 
 ## Final Recommendation
 
-Use the P11 tool to produce a bounded no-write load-plan artifact after merge.
+Use the P11 tool to produce bounded no-write load-plan artifacts, then use the
+P12/P13 offline review packet flow to manually review the planned rows.
 
 Do not load identity evidence until the bounded plan has been generated,
-reviewed, and accepted with exact source filters, artifact checksum, and a
-small explicit max-row bound. Keep station-type dry-run and canonical apply
-blocked.
+reviewed as a packet, and accepted with exact source filters, artifact
+checksum, reviewed row identifiers, and a small explicit max-row bound. Keep
+station-type dry-run and canonical apply blocked.
 
 Use `stage-18j-p-identity-evidence-execution-board.md` as the remaining
 Stage 18J-P tracker so repo work can be bundled safely while Hetzner actions
