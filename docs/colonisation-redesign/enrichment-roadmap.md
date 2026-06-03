@@ -616,6 +616,16 @@ identity evidence was loaded, no reconciliation/import/summarizer/station-type
 dry-run/apply was run, and no station-type data changed. See
 [`stage-18j-p7-external-identity-schema-production-apply-closeout.md`](./stage-18j-p7-external-identity-schema-production-apply-closeout.md).
 
+Stage 18J-P8 designs the external identity evidence loader/reconciliation
+workflow. It selects existing `edsm_nightly_stations` warehouse rows as the
+first evidence source, maps `staging_edsm_stations` fields to
+`station_external_identity`, defines read-only candidate matching/status rules,
+and requires a dry-run identity candidate artifact before any identity evidence
+load. It keeps station-type writes blocked and does not run production
+commands, load identity evidence, run reconciliation, run station-type dry-run,
+or run apply. See
+[`stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md`](./stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -702,11 +712,13 @@ treated as a separate proposal.
 * **External identity schema closeout**: Stage 18J-P7 records that migration
   027 has been applied on Hetzner as schema-only. The identity table exists but
   is empty, so strict station-type dry-run remains blocked.
-* **External identity follow-up sequence**: after the P7 schema closeout,
-  continue with P8 evidence loader/reconciliation design, P9 evidence load
-  dry-run, P10 write-staging/load with no station-type writes, P11 identity
-  coverage artifact, P12 reconciliation integration with confirmed identity,
-  and P13 strict station-type dry-run retry.
+* **External identity loader design**: Stage 18J-P8 requires a read-only
+  identity candidate artifact from staged EDSM station evidence before any
+  writes to `station_external_identity`.
+* **External identity follow-up sequence**: after the P8 design, continue with
+  P9 evidence load dry-run, P10 write-staging/load with no station-type writes,
+  P11 identity coverage artifact, P12 reconciliation integration with confirmed
+  identity, and P13 strict station-type dry-run retry.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
   Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse

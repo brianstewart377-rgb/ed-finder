@@ -326,6 +326,11 @@ preflight/post-apply SQL checks and should record the exact outputs.
 application after this readiness review, and Stage 18J-P7 records that the
 schema is now present with no identity evidence rows.
 
+Stage 18J-P8 designs the later identity evidence candidate artifact and
+write-staging/load workflow. That design keeps identity loading separate from
+reconciliation integration, station-type dry-run, canonical apply, and approval
+record creation.
+
 Do not combine the now-present schema with station-type writes. The next work
 should design evidence loading and reconciliation while keeping strict
 station-type dry-run blocked until confirmed identity coverage exists.
