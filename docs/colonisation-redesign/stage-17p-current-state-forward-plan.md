@@ -1247,6 +1247,50 @@ Non-goals:
 Support doc:
 `stage-18j-p-identity-evidence-execution-board.md`.
 
+### Stage 18J-P12/P13 - Load-Plan Review + Planned Row Review Packet
+
+Purpose: implement Chunk A from the identity evidence execution board by
+recording the bounded load-plan review and adding offline planned-row review
+packet tooling.
+
+Scope:
+
+- Record the reviewed `station_external_identity_load_plan/v1` operator
+  artifact path, file checksum, internal integrity checksum, source run/file
+  keys, candidate counts, and no-write result.
+- Add `apps/importer/src/station_external_identity_review_packet.py`.
+- Accept `--load-plan-artifact`, `--expected-load-plan-sha256`, `--output`,
+  `--json`, and `--max-planned-rows`.
+- Reject `--max-planned-rows` above `20`.
+- Verify the source artifact file checksum before parsing.
+- Parse only local JSON and accept no DSN.
+- Reject write/apply/load/commit flags.
+- Emit `station_external_identity_review_packet/v1`.
+- Include capped planned rows and one manual review item per row, defaulting
+  to `needs_manual_review`.
+- Keep `canonical_writes_planned = 0`,
+  `station_type_writes_planned = 0`, `identity_rows_written = 0`, and
+  `approval_record_created = false`.
+- Add `scripts/operator/stage18j_run_identity_review_packet.sh` as a
+  Hetzner-only offline wrapper guarded by
+  `scripts/operator/require_hetzner_operator_env.sh`.
+- Add synthetic tests for checksum enforcement, missing artifacts, row caps,
+  refusal flags, review defaults, safety fields, and deterministic JSON.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access from Codex.
+- No identity evidence load.
+- No writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p12-p13-load-plan-review-packet.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1334,7 +1378,7 @@ Do not add another large planner feature immediately. The healthiest next sequen
 40. Stage 18J-P10 external identity candidate artifact review.
 41. Stage 18J-P11 bounded external identity load-plan artifact, no DB writes.
 42. Stage 18J-P-OPT identity evidence execution board.
-43. Chunk A: Stage 18J-P12/P13 review pack, no DB writes.
+43. Stage 18J-P12/P13 load-plan review packet, no DB writes.
 44. Chunk B: Stage 18J-P14 controlled identity load tooling.
 45. Chunk C: Stage 18J-P15 post-load identity coverage.
 46. Chunk D: Stage 18J-P16 reconciliation integration with confirmed identity.
