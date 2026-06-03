@@ -817,6 +817,17 @@ write-reviewed identity load, create and review a separate
 review item IDs or plan row IDs. Do not treat that allowlist as canonical apply
 approval.
 
+Stage 18J-P14C adds the offline allowlist artifact generator in
+`apps/importer/src/station_external_identity_approval_allowlist.py` and a
+Hetzner-only wrapper in
+`scripts/operator/stage18j_run_identity_approval_allowlist.sh`. The wrapper
+requires `CONFIRM_IDENTITY_ALLOWLIST=yes`, verifies the review packet checksum,
+caps selected rows at `20`, and writes only
+`station_external_identity_load_approval_allowlist/v1` under the Stage 18J
+operator artifact directory. It does not source DB env, connect to DB, load
+rows, run imports, run reconciliation, run summarizer, run station-type
+dry-run, run canonical apply, or create a production approval record.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
