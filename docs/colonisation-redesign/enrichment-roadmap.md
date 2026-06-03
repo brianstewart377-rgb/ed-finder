@@ -626,6 +626,14 @@ commands, load identity evidence, run reconciliation, run station-type dry-run,
 or run apply. See
 [`stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md`](./stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md).
 
+Stage 18J-P9 adds the read-only external identity candidate artifact generator
+in `apps/importer/src/station_external_identity_candidates.py`. It reads staged
+EDSM station evidence through an explicit read-only DSN, matches by
+`system_id64` plus normalized station name, preserves source run/file/hash
+provenance, emits compact deterministic JSON with capped samples and integrity
+hash, and writes no identity or canonical rows. See
+[`stage-18j-p9-readonly-external-identity-candidate-artifact.md`](./stage-18j-p9-readonly-external-identity-candidate-artifact.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -715,10 +723,13 @@ treated as a separate proposal.
 * **External identity loader design**: Stage 18J-P8 requires a read-only
   identity candidate artifact from staged EDSM station evidence before any
   writes to `station_external_identity`.
-* **External identity follow-up sequence**: after the P8 design, continue with
-  P9 evidence load dry-run, P10 write-staging/load with no station-type writes,
-  P11 identity coverage artifact, P12 reconciliation integration with confirmed
-  identity, and P13 strict station-type dry-run retry.
+* **External identity candidate artifact**: Stage 18J-P9 implements the
+  read-only candidate artifact generator. It proposes reviewable identities but
+  writes nothing to `station_external_identity`.
+* **External identity follow-up sequence**: after the P9 artifact, continue
+  with P10 write-staging/load with no station-type writes, P11 identity coverage
+  artifact, P12 reconciliation integration with confirmed identity, and P13
+  strict station-type dry-run retry.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
   Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse

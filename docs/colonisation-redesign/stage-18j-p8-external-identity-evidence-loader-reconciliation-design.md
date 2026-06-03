@@ -199,6 +199,9 @@ reject any canonical write flag.
 ## Proposed Dry-Run Artifact
 
 Stage 18J-P9 should produce an identity evidence dry-run artifact only.
+Stage 18J-P9 implements this as
+`apps/importer/src/station_external_identity_candidates.py`, a read-only JSON
+artifact generator.
 
 Suggested artifact schema:
 
@@ -373,7 +376,6 @@ Open questions for P9/P10 design:
 
 ## Recommended Next Stages
 
-- Stage 18J-P9 - External identity evidence load dry-run.
 - Stage 18J-P10 - External identity evidence write-staging/load, no
   station-type writes.
 - Stage 18J-P11 - Identity coverage artifact.

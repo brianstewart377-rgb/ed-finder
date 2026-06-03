@@ -719,6 +719,16 @@ source run/file/hash provenance, keep conflicts visible, leave `stations` and
 `station_type` unchanged, and keep station-type dry-run blocked until confirmed
 identity coverage is reviewed.
 
+Stage 18J-P9 adds that read-only artifact generator in
+`apps/importer/src/station_external_identity_candidates.py` and documents it in
+`docs/colonisation-redesign/stage-18j-p9-readonly-external-identity-candidate-artifact.md`.
+It requires an explicit read-only DSN plus `--source-run-key`, supports
+`--source-file-key`, `--limit`, `--sample-limit`, `--json`, and `--output`, and
+rejects write/apply/load flags. The artifact is review-only: it writes nothing
+to `station_external_identity`, does not update `stations` or `station_type`,
+and must not be combined with imports, reconciliation, station-type dry-run, or
+canonical apply.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

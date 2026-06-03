@@ -157,10 +157,11 @@ station/body link association evidence remain insufficient.
 Stage 18J-P8 designs the next step: a read-only external identity evidence
 candidate artifact and later write-staging/load workflow that preserves
 provenance while keeping station-type writes blocked.
+Stage 18J-P9 implements the read-only candidate artifact generator without
+writing to `station_external_identity`.
 
 ## Recommended Next Stages
 
-- Stage 18J-P9 - External identity evidence load dry-run.
 - Stage 18J-P10 - External identity evidence write-staging/load, no
   station-type writes.
 - Stage 18J-P11 - Identity coverage artifact.
