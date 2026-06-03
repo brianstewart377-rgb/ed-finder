@@ -1326,6 +1326,50 @@ Non-goals:
 Support doc:
 `stage-18j-p12-p13-load-plan-review-packet.md`.
 
+### Stage 18J-P14 - Controlled External Identity Load Tooling
+
+Purpose: add controlled external identity load tooling and a dry-run execution
+plan path while keeping production writes blocked in repo work.
+
+Scope:
+
+- Add `apps/importer/src/station_external_identity_loader.py`.
+- Support `--dry-run` to validate a review packet and emit
+  `station_external_identity_load_execution_plan/v1` without opening a DB
+  connection or writing rows.
+- Support `--write-reviewed` only with a separate
+  `station_external_identity_load_approval_allowlist/v1` artifact and explicit
+  confirmation flags.
+- Require `--review-packet`, `--expected-review-packet-sha256`, `--dsn`,
+  `--max-rows`, `--output`, and exactly one mode.
+- Refuse `--max-rows > 20`.
+- Refuse packets with bad schema, bad checksum, non-zero write counters,
+  approval records, missing planned rows/checks, failed checks, non-confirmed
+  identity status, non-null conflict reason, missing provenance, or missing
+  external IDs.
+- Reject import, reconciliation, summarizer, station-type dry-run, canonical
+  apply, generic write, and commit flags.
+- Add `scripts/operator/stage18j_run_identity_load_dry_run.sh` as a
+  Hetzner-only dry-run wrapper guarded by
+  `scripts/operator/require_hetzner_operator_env.sh`.
+- Add synthetic tests for dry-run refusal modes, approval allowlist handling,
+  fake-DB write-reviewed behavior, duplicate skip behavior, and deterministic
+  JSON.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access from Codex.
+- No production identity evidence load.
+- No production writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No production approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p14-controlled-external-identity-load-tooling.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1415,7 +1459,7 @@ Do not add another large planner feature immediately. The healthiest next sequen
 42. Stage 18J-P-OPT identity evidence execution board.
 43. Stage 18J-P12/P13 load-plan review packet, no DB writes.
 44. Stage 18J-P13A review packet contract hardening, no DB writes.
-45. Chunk B: Stage 18J-P14 controlled identity load tooling.
+45. Stage 18J-P14 controlled identity load tooling and dry-run plan.
 46. Chunk C: Stage 18J-P15 post-load identity coverage.
 47. Chunk D: Stage 18J-P16 reconciliation integration with confirmed identity.
 48. Chunk E: Stage 18J-P17 retry strict station-type dry-run.

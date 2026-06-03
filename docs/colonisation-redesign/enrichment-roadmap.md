@@ -679,6 +679,16 @@ remains for convenience and must match the embedded rows exactly. The wrapper
 prints and validates these contract fields before declaring the packet
 generated.
 
+Stage 18J-P14 adds controlled external identity load tooling in
+`apps/importer/src/station_external_identity_loader.py` and a dry-run-only
+Hetzner wrapper in `scripts/operator/stage18j_run_identity_load_dry_run.sh`.
+The loader validates verified review packets and emits
+`station_external_identity_load_execution_plan/v1`; write mode requires a
+separate `station_external_identity_load_approval_allowlist/v1` artifact plus
+explicit confirmation flags. This PR keeps production identity writes blocked
+and does not add a production write operator script. See
+[`stage-18j-p14-controlled-external-identity-load-tooling.md`](./stage-18j-p14-controlled-external-identity-load-tooling.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -789,6 +799,10 @@ treated as a separate proposal.
   manual review items self-contained with embedded planned rows and boolean
   checks, then requires a future offline packet rerun before planned rows can
   be reviewed.
+* **External identity controlled load tooling**: Stage 18J-P14 adds load
+  validation and dry-run execution plan tooling, plus approval allowlist support
+  for later write-reviewed runs. Production identity writes remain blocked in
+  this PR.
 * **External identity follow-up sequence**: use the execution board for Chunk A
   P12/P13 review pack, Chunk B P14 controlled identity load tooling, Chunk C
   P15 post-load identity coverage, Chunk D P16 read-only reconciliation

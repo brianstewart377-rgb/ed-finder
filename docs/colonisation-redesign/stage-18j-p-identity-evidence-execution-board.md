@@ -39,6 +39,9 @@ Known state:
   packet contract issue: `manual_review_items` were not self-contained enough
   for manual row review. Stage 18J-P13A hardens the contract so each item
   embeds `planned_row`, boolean `checks`, and `reviewer_notes = null`.
+- Stage 18J-P14 adds controlled external identity load tooling and a
+  dry-run-only Hetzner wrapper. It also defines a separate approval allowlist
+  artifact for future `--write-reviewed` runs.
 - Stage 18K remains untouched.
 
 ## Why We Are Optimising
@@ -141,8 +144,10 @@ Bundle:
 - add tests for refusal modes and no accidental canonical writes;
 - update docs/runbook.
 
-Repo work must not run production. The Hetzner production load remains a
-separate tiny operator action after review.
+P14 repo work must not run production. The added Hetzner wrapper is dry-run
+only. A production identity load remains blocked until a separate approval
+allowlist artifact exists and a later tiny operator write action is explicitly
+approved.
 
 ### Chunk C - P15 Post-load Identity Coverage
 
@@ -279,8 +284,10 @@ Recommended next actions:
    record.
 3. Run the planned-row review packet as a tiny Hetzner offline action after
    Chunk A merges.
-4. Proceed with Chunk B only after the planned rows are manually accepted.
-5. Keep station-type dry-run blocked until post-load coverage and read-only
+4. Run the P14 load dry-run wrapper after P14 merges.
+5. Create a separate approval allowlist only if the dry-run plan and planned
+   rows are manually accepted.
+6. Keep station-type dry-run blocked until post-load coverage and read-only
    reconciliation prove confirmed identity coverage.
 
 ## Final Recommendation
