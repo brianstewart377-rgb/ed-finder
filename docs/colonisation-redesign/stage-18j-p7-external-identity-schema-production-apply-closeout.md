@@ -154,9 +154,12 @@ read-only reconciliation as canonical external identity proof. Name-only
 matches, warehouse source-only evidence, internal `stations.id` equality, and
 station/body link association evidence remain insufficient.
 
+Stage 18J-P8 designs the next step: a read-only external identity evidence
+candidate artifact and later write-staging/load workflow that preserves
+provenance while keeping station-type writes blocked.
+
 ## Recommended Next Stages
 
-- Stage 18J-P8 - External identity evidence loader/reconciliation design.
 - Stage 18J-P9 - External identity evidence load dry-run.
 - Stage 18J-P10 - External identity evidence write-staging/load, no
   station-type writes.

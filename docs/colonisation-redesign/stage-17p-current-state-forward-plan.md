@@ -1068,6 +1068,40 @@ Non-goals:
 Support doc:
 `stage-18j-p7-external-identity-schema-production-apply-closeout.md`.
 
+### Stage 18J-P8 - External Identity Evidence Loader / Reconciliation Design
+
+Purpose: design how external station identity evidence will be loaded and
+reconciled into the now-present `station_external_identity` table.
+
+Scope:
+
+- Identify `edsm_nightly_stations` warehouse evidence as the first identity
+  source candidate.
+- Map `staging_edsm_stations` fields to `station_external_identity`.
+- Define candidate matching rules using external IDs, source provenance,
+  `system_id64`, normalized station name, and exactly one canonical station
+  match.
+- Define `proposed`, `confirmed`, `conflicting`, `rejected`, and `superseded`
+  status rules.
+- Define a read-only identity candidate artifact before any identity writes.
+- Define future write-staging/load boundaries for `station_external_identity`
+  only.
+- Keep strict station-type dry-run blocked until confirmed identity coverage is
+  reviewed and exposed through read-only reconciliation.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No identity evidence load.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner

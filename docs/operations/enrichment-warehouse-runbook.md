@@ -708,6 +708,17 @@ and no station-type data changed. The table is present but empty, so
 station-type dry-run remains blocked until confirmed external identity evidence
 is loaded and integrated into read-only reconciliation.
 
+Stage 18J-P8 designs the identity evidence loader/reconciliation workflow in
+`docs/colonisation-redesign/stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md`.
+Use existing `edsm_nightly_stations` warehouse evidence as the first candidate
+source, but produce a read-only identity candidate artifact before writing
+anything to `station_external_identity`. Candidate confirmation must not rely
+on name-only matching, internal `stations.id` equality, or source-only evidence
+by default. Future identity loading must write only the identity table, preserve
+source run/file/hash provenance, keep conflicts visible, leave `stations` and
+`station_type` unchanged, and keep station-type dry-run blocked until confirmed
+identity coverage is reviewed.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
