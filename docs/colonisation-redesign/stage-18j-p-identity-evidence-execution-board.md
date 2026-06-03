@@ -42,6 +42,11 @@ Known state:
 - Stage 18J-P14 adds controlled external identity load tooling and a
   dry-run-only Hetzner wrapper. It also defines a separate approval allowlist
   artifact for future `--write-reviewed` runs.
+- Stage 18J-P14B records the first controlled load dry-run result:
+  `identity_rows_selected = 20`, `identity_rows_written = 0`,
+  `canonical_writes_planned = 0`, `station_type_writes_planned = 0`, and
+  `station_external_identity` row count remained `0`. Its verdict is
+  `Ready only after approval allowlist artifact`.
 - Stage 18K remains untouched.
 
 ## Why We Are Optimising
@@ -148,6 +153,11 @@ P14 repo work must not run production. The added Hetzner wrapper is dry-run
 only. A production identity load remains blocked until a separate approval
 allowlist artifact exists and a later tiny operator write action is explicitly
 approved.
+
+P14B records that the P14 dry-run completed safely. It proves the selected
+`20` rows are structurally loadable, but it does not approve a write. The next
+gate is a separate `station_external_identity_load_approval_allowlist/v1`
+artifact for exact selected review item IDs or plan row IDs.
 
 ### Chunk C - P15 Post-load Identity Coverage
 
@@ -284,10 +294,13 @@ Recommended next actions:
    record.
 3. Run the planned-row review packet as a tiny Hetzner offline action after
    Chunk A merges.
-4. Run the P14 load dry-run wrapper after P14 merges.
+4. Use `stage-18j-p14b-identity-load-dry-run-review.md` as the Chunk B
+   dry-run review record.
 5. Create a separate approval allowlist only if the dry-run plan and planned
    rows are manually accepted.
-6. Keep station-type dry-run blocked until post-load coverage and read-only
+6. Run a controlled write-reviewed identity load only after that allowlist
+   exists and is explicitly approved.
+7. Keep station-type dry-run blocked until post-load coverage and read-only
    reconciliation prove confirmed identity coverage.
 
 ## Final Recommendation

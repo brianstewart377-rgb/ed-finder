@@ -689,6 +689,16 @@ explicit confirmation flags. This PR keeps production identity writes blocked
 and does not add a production write operator script. See
 [`stage-18j-p14-controlled-external-identity-load-tooling.md`](./stage-18j-p14-controlled-external-identity-load-tooling.md).
 
+Stage 18J-P14B reviews the first controlled identity load dry-run. The
+execution plan selected `20` review items and `20` plan rows from
+`station_external_identity_review_packet_20260603T110848Z.json`, verified
+review packet SHA-256
+`8cf118d552e6bc35d23ab302d9e1020092385b372729dbb9b2bae5cd5f0758b6`, kept
+`canonical_writes_planned = 0`, `station_type_writes_planned = 0`, and
+`identity_rows_written = 0`, and left `station_external_identity` at `0` rows.
+The verdict is `Ready only after approval allowlist artifact`. See
+[`stage-18j-p14b-identity-load-dry-run-review.md`](./stage-18j-p14b-identity-load-dry-run-review.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -803,9 +813,14 @@ treated as a separate proposal.
   validation and dry-run execution plan tooling, plus approval allowlist support
   for later write-reviewed runs. Production identity writes remain blocked in
   this PR.
+* **External identity load dry-run review**: Stage 18J-P14B records the safe
+  load dry-run result and sets the verdict to `Ready only after approval
+  allowlist artifact`. The selected rows are structurally loadable but not yet
+  approved for insertion.
 * **External identity follow-up sequence**: use the execution board for Chunk A
-  P12/P13 review pack, Chunk B P14 controlled identity load tooling, Chunk C
-  P15 post-load identity coverage, Chunk D P16 read-only reconciliation
+  P12/P13 review pack, Chunk B P14/P14B controlled identity load tooling and
+  dry-run review, P14C approval allowlist, P14D controlled write-reviewed load,
+  Chunk C P15 post-load identity coverage, Chunk D P16 read-only reconciliation
   integration, and Chunk E P17 strict station-type dry-run retry.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and

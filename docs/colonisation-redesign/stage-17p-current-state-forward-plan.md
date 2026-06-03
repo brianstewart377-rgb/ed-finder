@@ -1370,6 +1370,50 @@ Non-goals:
 Support doc:
 `stage-18j-p14-controlled-external-identity-load-tooling.md`.
 
+### Stage 18J-P14B - Identity Load Dry-Run Review
+
+Purpose: review the first controlled identity load dry-run before any identity
+evidence write is approved.
+
+Result:
+
+- Reviewed `station_external_identity_load_execution_plan/v1`.
+- Source review packet:
+  `station_external_identity_review_packet_20260603T110848Z.json`.
+- Review packet SHA-256:
+  `8cf118d552e6bc35d23ab302d9e1020092385b372729dbb9b2bae5cd5f0758b6`.
+- `identity_rows_selected = 20`.
+- `identity_rows_written = 0`.
+- `canonical_writes_planned = 0`.
+- `station_type_writes_planned = 0`.
+- `station_external_identity` row count remained `0`.
+- Secret/path sanity check was clean.
+- Hardened execution plans to emit `approval_record_created = false`.
+
+Verdict:
+`Ready only after approval allowlist artifact`.
+
+Next gate:
+
+- Create `station_external_identity_load_approval_allowlist/v1`.
+- Tie it to the exact review packet SHA-256.
+- Include exact approved review item IDs or plan row IDs.
+- Keep it separate from canonical apply approval.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access from Codex.
+- No production identity evidence load.
+- No production writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No production approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p14b-identity-load-dry-run-review.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1460,8 +1504,11 @@ Do not add another large planner feature immediately. The healthiest next sequen
 43. Stage 18J-P12/P13 load-plan review packet, no DB writes.
 44. Stage 18J-P13A review packet contract hardening, no DB writes.
 45. Stage 18J-P14 controlled identity load tooling and dry-run plan.
-46. Chunk C: Stage 18J-P15 post-load identity coverage.
-47. Chunk D: Stage 18J-P16 reconciliation integration with confirmed identity.
-48. Chunk E: Stage 18J-P17 retry strict station-type dry-run.
+46. Stage 18J-P14B identity load dry-run review.
+47. Stage 18J-P14C approval allowlist artifact for selected identity rows.
+48. Stage 18J-P14D controlled write-reviewed identity load.
+49. Chunk C: Stage 18J-P15 post-load identity coverage.
+50. Chunk D: Stage 18J-P16 reconciliation integration with confirmed identity.
+51. Chunk E: Stage 18J-P17 retry strict station-type dry-run.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

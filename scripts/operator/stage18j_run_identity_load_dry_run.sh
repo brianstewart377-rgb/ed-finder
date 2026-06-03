@@ -93,6 +93,7 @@ checks = {
     'canonical_writes_planned_zero': payload.get('canonical_writes_planned') == 0,
     'station_type_writes_planned_zero': payload.get('station_type_writes_planned') == 0,
     'identity_rows_written_zero': payload.get('identity_rows_written') == 0,
+    'approval_record_created_false': payload.get('approval_record_created') is False,
     'all_required_checks_passed': validation.get('all_required_checks_passed') is True,
 }
 
@@ -108,6 +109,7 @@ for key, value in (
     ('review_packet_sha256', payload.get('review_packet_sha256')),
     ('identity_rows_selected', payload.get('identity_rows_selected')),
     ('identity_rows_written', payload.get('identity_rows_written')),
+    ('approval_record_created', payload.get('approval_record_created')),
     ('max_rows', payload.get('max_rows')),
     ('selected_review_item_ids_count', len(payload.get('selected_review_item_ids') or [])),
     ('selected_plan_row_ids_count', len(payload.get('selected_plan_row_ids') or [])),

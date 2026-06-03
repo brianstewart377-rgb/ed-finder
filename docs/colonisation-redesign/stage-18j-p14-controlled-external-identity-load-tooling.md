@@ -160,6 +160,7 @@ Dry-run emits `station_external_identity_load_execution_plan/v1` with:
 - `station_type_writes_planned = 0`;
 - `identity_rows_selected`;
 - `identity_rows_written = 0`;
+- `approval_record_created = false`;
 - `max_rows`;
 - review packet basename and SHA-256;
 - selected review item IDs;
@@ -170,6 +171,20 @@ Dry-run emits `station_external_identity_load_execution_plan/v1` with:
 
 Dry-run may select up to `--max-rows` valid review rows for the execution plan.
 It writes no database rows.
+
+Stage 18J-P14B records the first Hetzner dry-run result. It selected `20`
+review items and `20` plan rows from
+`station_external_identity_review_packet_20260603T110848Z.json`, verified
+review packet SHA-256
+`8cf118d552e6bc35d23ab302d9e1020092385b372729dbb9b2bae5cd5f0758b6`, kept
+`canonical_writes_planned = 0`, `station_type_writes_planned = 0`, and
+`identity_rows_written = 0`, and left `station_external_identity` at `0` rows.
+The P14B verdict is `Ready only after approval allowlist artifact`. See
+[`stage-18j-p14b-identity-load-dry-run-review.md`](./stage-18j-p14b-identity-load-dry-run-review.md).
+
+P14B also hardens the execution-plan contract so artifacts explicitly emit
+top-level `approval_record_created = false` and
+`validation_summary.approval_record_created = false`.
 
 ## Write-reviewed Boundaries
 
@@ -235,7 +250,7 @@ P14 does not enable:
 
 Before any future production write-reviewed run:
 
-- run the P14 load dry-run wrapper after this PR merges;
+- use the P14B-reviewed load dry-run result;
 - inspect the execution plan artifact and checksum;
 - create a separate approval allowlist artifact for exact reviewed rows;
 - verify the allowlist references the exact review packet SHA-256;
@@ -250,7 +265,7 @@ Before any future production write-reviewed run:
 
 Recommended sequence:
 
-- run P14 load dry-run as a tiny Hetzner offline validation action after merge;
+- use the P14B load dry-run review as the dry-run gate record;
 - manually review the load execution plan;
 - prepare a separate approval allowlist artifact only if rows are accepted;
 - add a future guarded write operator action only after the approval allowlist
