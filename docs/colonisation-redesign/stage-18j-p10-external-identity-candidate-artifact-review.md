@@ -176,6 +176,12 @@ The next load-planning stage should:
 - keep `station_type_writes_planned = 0`;
 - keep `identity_rows_written = 0`.
 
+Stage 18J-P11 implements this as
+`apps/importer/src/station_external_identity_load_plan.py`, emitting
+`station_external_identity_load_plan/v1` artifacts. The tool requires
+`--max-rows`, rejects values above `20`, rejects write/apply/load flags, and
+writes no database rows.
+
 ## Required Operator Preconditions
 
 Before any future bounded load-plan or controlled load stage, require:

@@ -742,6 +742,18 @@ and `identity_rows_written = 0`. The verdict is `Ready only for bounded
 identity load dry-run`; the next operator step must be a bounded no-write
 load-plan artifact, not a bulk insert into `station_external_identity`.
 
+Stage 18J-P11 adds that bounded no-write load-plan artifact generator in
+`apps/importer/src/station_external_identity_load_plan.py` and documents it in
+`docs/colonisation-redesign/stage-18j-p11-bounded-external-identity-load-plan-artifact.md`.
+The tool requires a read-only DSN, explicit `--source-run-key`, optional
+`--source-file-key`, and explicit `--max-rows`; it rejects `--max-rows` above
+`20` for the first bounded plan. It emits
+`station_external_identity_load_plan/v1`, plans only eligible
+`confirmed_candidate` rows, preserves source run/file/hash provenance, rejects
+write/apply/load flags, and keeps `identity_rows_written = 0`. This is still a
+review artifact and must not be combined with identity evidence load,
+reconciliation, summarizer, station-type dry-run, or canonical apply.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
