@@ -779,10 +779,11 @@ Scope:
   external identity design, P5 migration draft, P6 production readiness review,
   P7 schema production apply closeout, P8 evidence loader/reconciliation
   design, P9 read-only identity candidate artifact, P10 candidate artifact
-  review, P11 bounded no-write load-plan artifact, P12 load-plan review, P13
-  controlled identity load with no station-type writes, P14 identity coverage
-  artifact, P15 reconciliation integration with confirmed identity, and P16
-  strict station-type dry-run retry.
+  review, P11 bounded no-write load-plan artifact, P-OPT execution board,
+  Chunk A P12/P13 review pack, Chunk B P14 controlled identity load tooling,
+  Chunk C P15 post-load identity coverage, Chunk D P16 reconciliation
+  integration with confirmed identity, and Chunk E P17 strict station-type
+  dry-run retry.
 
 Non-goals:
 
@@ -1210,6 +1211,42 @@ Non-goals:
 Support doc:
 `stage-18j-p11-bounded-external-identity-load-plan-artifact.md`.
 
+### Stage 18J-P-OPT - Identity Evidence Execution Board
+
+Purpose: optimise the remaining external identity evidence workflow into
+larger safe repo chunks while preserving tiny Hetzner production actions.
+
+Scope:
+
+- Add `stage-18j-p-identity-evidence-execution-board.md`.
+- Record current state: `station_external_identity` exists, row count is `0`,
+  read-only candidate artifact exists, bounded no-write load-plan exists, and
+  the load plan saw `298177` candidates, `261938` eligible confirmed
+  candidates, `20` planned rows, and `0` written rows.
+- Define what must stay small: Hetzner operator actions, controlled loads,
+  coverage generation, reconciliation generation, strict dry-run retry,
+  approval packets, and apply.
+- Define what can be bundled: tool, tests, operator script, docs, and roadmap
+  updates when they share one safety boundary.
+- Define Chunk A through Chunk E for the remaining Stage 18J-P identity work.
+- Define the standard operator action shape: pre-check row counts, guarded
+  script, artifact path, checksum, compact summary, post-check row counts, and
+  explicit no-forbidden-actions confirmation.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No identity evidence load.
+- No writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p-identity-evidence-execution-board.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1296,10 +1333,11 @@ Do not add another large planner feature immediately. The healthiest next sequen
 39. Stage 18J-P9 read-only external identity candidate artifact.
 40. Stage 18J-P10 external identity candidate artifact review.
 41. Stage 18J-P11 bounded external identity load-plan artifact, no DB writes.
-42. Stage 18J-P12 review bounded identity load plan.
-43. Stage 18J-P13 controlled identity evidence load, no station-type writes.
-44. Stage 18J-P14 identity coverage artifact after load.
-45. Stage 18J-P15 reconciliation integration with confirmed identity.
-46. Stage 18J-P16 retry strict station-type dry-run.
+42. Stage 18J-P-OPT identity evidence execution board.
+43. Chunk A: Stage 18J-P12/P13 review pack, no DB writes.
+44. Chunk B: Stage 18J-P14 controlled identity load tooling.
+45. Chunk C: Stage 18J-P15 post-load identity coverage.
+46. Chunk D: Stage 18J-P16 reconciliation integration with confirmed identity.
+47. Chunk E: Stage 18J-P17 retry strict station-type dry-run.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
