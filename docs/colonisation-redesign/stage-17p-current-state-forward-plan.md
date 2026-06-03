@@ -780,8 +780,9 @@ Scope:
   P7 schema production apply closeout, P8 evidence loader/reconciliation
   design, P9 read-only identity candidate artifact, P10 candidate artifact
   review, P11 bounded no-write load-plan artifact, P12 load-plan review, P13
-  controlled identity load with no station-type writes, P14 identity coverage
-  artifact, P15 reconciliation integration with confirmed identity, and P16
+  planned identity row manual review packet, P14 controlled identity load of
+  reviewed rows only, P15 post-load identity coverage artifact, P16
+  reconciliation integration with confirmed identity, and P17
   strict station-type dry-run retry.
 
 Non-goals:
@@ -1210,6 +1211,42 @@ Non-goals:
 Support doc:
 `stage-18j-p11-bounded-external-identity-load-plan-artifact.md`.
 
+### Stage 18J-P12 - Bounded External Identity Load-Plan Review
+
+Purpose: review the first Hetzner bounded no-write external identity load-plan
+artifact before any identity evidence is written.
+
+Scope:
+
+- Record artifact
+  `station_external_identity_load_plan_20260603T071913Z.json`, its path, size,
+  SHA-256, integrity SHA-256, source run/file filters, and schema version.
+- Record safety fields: `dry_run = true`, `read_only = true`,
+  `report_only = true`, `canonical_writes_planned = 0`,
+  `station_type_writes_planned = 0`, `identity_rows_planned = 20`, and
+  `identity_rows_written = 0`.
+- Record load-plan counts: `298177` total candidates, `261938` eligible
+  confirmed candidates, `20` planned rows, and `0` written rows.
+- Record skipped/rejected counts: `261918` eligible rows beyond max rows,
+  `35981` source-only rows, and `258` ambiguous canonical matches.
+- Set readiness verdict to `Ready only after extra review`.
+- Require a planned identity row manual review packet before any controlled
+  insert into `station_external_identity`.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access from Codex.
+- No identity evidence load.
+- No writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p12-bounded-external-identity-load-plan-review.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1297,9 +1334,10 @@ Do not add another large planner feature immediately. The healthiest next sequen
 40. Stage 18J-P10 external identity candidate artifact review.
 41. Stage 18J-P11 bounded external identity load-plan artifact, no DB writes.
 42. Stage 18J-P12 review bounded identity load plan.
-43. Stage 18J-P13 controlled identity evidence load, no station-type writes.
-44. Stage 18J-P14 identity coverage artifact after load.
-45. Stage 18J-P15 reconciliation integration with confirmed identity.
-46. Stage 18J-P16 retry strict station-type dry-run.
+43. Stage 18J-P13 planned identity row manual review packet.
+44. Stage 18J-P14 controlled identity evidence load of reviewed rows only.
+45. Stage 18J-P15 post-load identity coverage artifact.
+46. Stage 18J-P16 reconciliation integration with confirmed identity.
+47. Stage 18J-P17 retry strict station-type dry-run.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

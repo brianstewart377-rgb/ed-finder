@@ -183,6 +183,11 @@ Before any controlled identity evidence load:
 - confirm skipped conflicting/ambiguous candidates are not planned;
 - confirm the plan does not imply station-type writes.
 
+Stage 18J-P12 reviews the first Hetzner bounded load-plan artifact. It records
+`20` planned rows, `0` written rows, and the verdict `Ready only after extra
+review`; every planned row still needs manual review before any controlled
+insert into `station_external_identity`.
+
 ## What This Does Not Write
 
 P11 writes nothing to:
@@ -201,12 +206,11 @@ the summarizer, run station-type dry-run, run canonical apply, or start Stage
 ## Recommended Next Stages
 
 - Stage 18J-P12 - Review bounded identity load-plan artifact.
-- Stage 18J-P13 - Controlled identity evidence load into
-  `station_external_identity`, no station-type writes.
-- Stage 18J-P14 - Identity coverage artifact after load.
-- Stage 18J-P15 - Read-only reconciliation integration with confirmed
-  identity.
-- Stage 18J-P16 - Retry strict station-type dry-run.
+- Stage 18J-P13 - Planned identity row manual review packet.
+- Stage 18J-P14 - Controlled identity evidence load of reviewed rows only.
+- Stage 18J-P15 - Post-load identity coverage artifact.
+- Stage 18J-P16 - Reconciliation integration with confirmed identity.
+- Stage 18J-P17 - Retry strict station-type dry-run.
 
 ## Final Recommendation
 

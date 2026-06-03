@@ -651,6 +651,14 @@ plans only eligible `confirmed_candidate` rows, preserves provenance, rejects
 write/apply/load flags, and keeps `identity_rows_written = 0`. See
 [`stage-18j-p11-bounded-external-identity-load-plan-artifact.md`](./stage-18j-p11-bounded-external-identity-load-plan-artifact.md).
 
+Stage 18J-P12 reviews the first Hetzner bounded load-plan artifact. The
+artifact is `station_external_identity_load_plan/v1`, planned `20` rows, wrote
+`0` rows, and kept canonical and station-type writes at `0`. The verdict is
+`Ready only after extra review`: the plan is safe as a no-write artifact, but
+the planned rows must be manually reviewed before any controlled insert into
+`station_external_identity`. See
+[`stage-18j-p12-bounded-external-identity-load-plan-review.md`](./stage-18j-p12-bounded-external-identity-load-plan-review.md).
+
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
 stations, bodies, rings, station/body links, markets, services, economies,
@@ -750,11 +758,14 @@ treated as a separate proposal.
   no-write load-plan artifact. It proposes at most an explicit bounded set of
   identity rows for review and still writes nothing to
   `station_external_identity`.
-* **External identity follow-up sequence**: after P10 review, continue with
-  P11 bounded load-plan artifact with no DB writes, then P12 load-plan review,
-  P13 controlled identity load with no station-type writes, P14 identity
-  coverage artifact, P15 read-only reconciliation integration with confirmed
-  identity, and P16 strict station-type dry-run retry.
+* **External identity load-plan review**: Stage 18J-P12 reviews the first
+  bounded load-plan artifact and finds it ready only after extra planned-row
+  review.
+* **External identity follow-up sequence**: after P12 review, continue with
+  P13 planned identity row manual review packet, P14 controlled identity load
+  of reviewed rows only, P15 post-load identity coverage artifact, P16
+  reconciliation integration with confirmed identity, and P17 strict
+  station-type dry-run retry.
 * **Warehouse expansion and freshness design**: after the Stage 18J-Q6 station
   staging retry, read-only artifact path, compact reconciliation review, and
   Stage 19A/19A.1 guardrails are boring, Stage 19 should broaden warehouse

@@ -754,6 +754,17 @@ write/apply/load flags, and keeps `identity_rows_written = 0`. This is still a
 review artifact and must not be combined with identity evidence load,
 reconciliation, summarizer, station-type dry-run, or canonical apply.
 
+Stage 18J-P12 reviews the first bounded no-write load-plan artifact in
+`docs/colonisation-redesign/stage-18j-p12-bounded-external-identity-load-plan-review.md`.
+The artifact
+`station_external_identity_load_plan_20260603T071913Z.json` planned `20` rows,
+wrote `0` rows, and reported `261938` eligible confirmed candidates, `261918`
+eligible rows beyond the `max_rows` cap, `35981` source-only rows, and `258`
+ambiguous rows. The verdict is `Ready only after extra review`; every planned
+row still needs manual review before any controlled insert into
+`station_external_identity`. Do not load identity rows, run reconciliation,
+summarizer, station-type dry-run, or canonical apply from the P12 review.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
