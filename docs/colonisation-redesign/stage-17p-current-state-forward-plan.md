@@ -1173,6 +1173,43 @@ Non-goals:
 Support doc:
 `stage-18j-p10-external-identity-candidate-artifact-review.md`.
 
+### Stage 18J-P11 - Bounded External Identity Load-Plan Artifact
+
+Purpose: implement a bounded no-write artifact generator that proposes a
+small, reviewable set of `station_external_identity` insert rows.
+
+Scope:
+
+- Add `apps/importer/src/station_external_identity_load_plan.py`.
+- Reuse the Stage 18J-P9 read-only staged EDSM station matching path.
+- Require explicit `--source-run-key` and `--max-rows`.
+- Reject `--max-rows` values above `20` for the first bounded plan.
+- Support optional `--source-file-key`, `--sample-limit`,
+  `--input-candidate-artifact-sha256`, `--json`, and `--output`.
+- Reject `--apply`, `--write`, `--write-staging`, `--load`, and `--commit`.
+- Emit `station_external_identity_load_plan/v1` with `dry_run = true`,
+  `read_only = true`, `report_only = true`, `canonical_writes_planned = 0`,
+  `station_type_writes_planned = 0`, and `identity_rows_written = 0`.
+- Plan only eligible `confirmed_candidate` rows, preserving
+  `source_run_key`, `source_file_key`, and `source_record_hash`.
+- Add synthetic tests for planned rows, skipped rejected/conflicting/proposed
+  candidates, max-row guardrails, no-write SQL, deterministic JSON, and sample
+  caps.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No identity evidence load.
+- No writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p11-bounded-external-identity-load-plan-artifact.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner

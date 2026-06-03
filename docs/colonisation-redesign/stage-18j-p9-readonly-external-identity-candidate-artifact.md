@@ -181,6 +181,12 @@ rejected/source-only rows. The readiness verdict is `Ready only for bounded
 identity load dry-run`; `confirmed_candidate` remains an artifact status, not a
 production-confirmed identity status.
 
+Stage 18J-P11 adds the bounded no-write load-plan tool
+`apps/importer/src/station_external_identity_load_plan.py`. It converts a
+small bounded set of eligible `confirmed_candidate` rows into reviewable
+planned `station_external_identity` insert rows while keeping
+`identity_rows_written = 0`.
+
 ## Recommended Next Stages
 
 - Stage 18J-P10 - External identity candidate artifact review.

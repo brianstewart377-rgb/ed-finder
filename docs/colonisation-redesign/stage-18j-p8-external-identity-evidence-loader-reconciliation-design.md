@@ -246,6 +246,12 @@ verdict `Ready only for bounded identity load dry-run`. The next implementation
 step should be a bounded no-write load-plan artifact before any write-staging
 or load stage.
 
+Stage 18J-P11 implements that bounded no-write load-plan artifact as
+`apps/importer/src/station_external_identity_load_plan.py`. It emits
+`station_external_identity_load_plan/v1`, requires an explicit `--max-rows`
+bound no greater than `20`, rejects write/apply/load flags, and keeps
+`identity_rows_written = 0`.
+
 A later controlled write-staging/load stage should write only to
 `station_external_identity`.
 
