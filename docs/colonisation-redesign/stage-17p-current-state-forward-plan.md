@@ -778,10 +778,10 @@ Scope:
   hardening, operator-safe dry-run wrapper, P2 identity diagnostics, P3/P4
   external identity design, P5 migration draft, P6 production readiness review,
   P7 schema production apply closeout, P8 evidence loader/reconciliation
-  design, P9 evidence load dry-run, P10 evidence write-staging/load with no
-  station-type writes, P11 identity coverage artifact, P12 reconciliation
-  integration with confirmed identity, and P13 strict station-type dry-run
-  retry.
+  design, P9 read-only identity candidate artifact, P10 evidence
+  write-staging/load with no station-type writes, P11 identity coverage
+  artifact, P12 reconciliation integration with confirmed identity, and P13
+  strict station-type dry-run retry.
 
 Non-goals:
 
@@ -1102,6 +1102,39 @@ Non-goals:
 Support doc:
 `stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md`.
 
+### Stage 18J-P9 - Read-only External Identity Candidate Artifact
+
+Purpose: implement a read-only artifact generator that proposes external
+station identity candidates from staged EDSM station evidence.
+
+Scope:
+
+- Add `apps/importer/src/station_external_identity_candidates.py`.
+- Read staged EDSM station evidence through an explicit read-only DSN.
+- Require `--source-run-key` and support `--source-file-key`, `--limit`,
+  `--sample-limit`, `--json`, and `--output`.
+- Match candidates by source `system_id64` and normalized station name.
+- Emit candidate statuses `confirmed_candidate`, `proposed`, `conflicting`,
+  and `rejected`.
+- Preserve source run/file/hash provenance and source external IDs.
+- Emit compact deterministic JSON with capped samples and an integrity hash.
+- Add synthetic tests for status classification, provenance, no-write SQL,
+  deterministic JSON, sample caps, and write/apply flag rejection.
+
+Non-goals:
+
+- No production commands.
+- No production DB access.
+- No writes to `station_external_identity`.
+- No identity evidence load.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p9-readonly-external-identity-candidate-artifact.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1185,7 +1218,7 @@ Do not add another large planner feature immediately. The healthiest next sequen
 36. Stage 18J-P6 external identity migration production readiness review.
 37. Stage 18J-P7 external identity schema production apply closeout.
 38. Stage 18J-P8 external identity evidence loader/reconciliation design.
-39. Stage 18J-P9 external identity evidence load dry-run.
+39. Stage 18J-P9 read-only external identity candidate artifact.
 40. Stage 18J-P10 external identity evidence write-staging/load, no station-type writes.
 41. Stage 18J-P11 identity coverage artifact.
 42. Stage 18J-P12 reconciliation integration with confirmed identity.
