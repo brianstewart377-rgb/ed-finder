@@ -244,13 +244,13 @@ artifact, and integrated into read-only reconciliation.
 ## Recommended Next Stages
 
 - Stage 18J-P11 - Bounded external identity load-plan artifact, no DB writes.
-- Stage 18J-P12 - Review bounded identity load plan.
-- Stage 18J-P13 - Controlled identity evidence load into
-  `station_external_identity`, no station-type writes.
-- Stage 18J-P14 - Identity coverage artifact after load.
-- Stage 18J-P15 - Read-only reconciliation integration with confirmed
-  identity.
-- Stage 18J-P16 - Retry strict station-type dry-run.
+- Stage 18J-P-OPT - Identity evidence execution board.
+- Chunk A - P12/P13 review pack: review bounded load-plan artifact and
+  generate planned-row review packet, no DB writes.
+- Chunk B - P14 controlled identity load tooling.
+- Chunk C - P15 post-load identity coverage.
+- Chunk D - P16 read-only reconciliation integration with confirmed identity.
+- Chunk E - P17 strict station-type dry-run retry.
 
 ## Final Recommendation
 
@@ -261,3 +261,6 @@ Do not bulk load the `261938` `confirmed_candidate` rows yet. Do not treat
 `confirmed_candidate` as production-confirmed identity, and do not use it for
 station-type writes. Proceed next with Stage 18J-P11 as a bounded identity
 load-plan artifact with no database writes.
+
+After P11, use the Stage 18J-P execution board to bundle repo work safely while
+keeping each Hetzner production action tiny, explicit, and single-purpose.

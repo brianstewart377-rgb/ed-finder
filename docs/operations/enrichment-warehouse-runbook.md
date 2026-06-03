@@ -754,6 +754,17 @@ write/apply/load flags, and keeps `identity_rows_written = 0`. This is still a
 review artifact and must not be combined with identity evidence load,
 reconciliation, summarizer, station-type dry-run, or canonical apply.
 
+Stage 18J-P-OPT documents the identity evidence execution board in
+`docs/colonisation-redesign/stage-18j-p-identity-evidence-execution-board.md`.
+Use it as the remaining Stage 18J-P tracker. Repo work may be bundled into
+larger chunks when the bundle has one safety boundary and includes tool, tests,
+operator script, docs, and roadmap updates. Hetzner actions remain tiny:
+pre-check row counts, run a guarded script, output artifact path/checksum and
+compact summary, post-check row counts, and explicitly confirm no forbidden
+actions. Never combine identity load with station-type dry-run, never combine
+station-type dry-run with canonical apply, and never run apply without a
+separate approval packet.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

@@ -200,13 +200,13 @@ the summarizer, run station-type dry-run, run canonical apply, or start Stage
 
 ## Recommended Next Stages
 
-- Stage 18J-P12 - Review bounded identity load-plan artifact.
-- Stage 18J-P13 - Controlled identity evidence load into
-  `station_external_identity`, no station-type writes.
-- Stage 18J-P14 - Identity coverage artifact after load.
-- Stage 18J-P15 - Read-only reconciliation integration with confirmed
-  identity.
-- Stage 18J-P16 - Retry strict station-type dry-run.
+- Stage 18J-P-OPT - Identity evidence execution board.
+- Chunk A - P12/P13 review pack: review bounded load-plan artifact and
+  generate planned-row review packet, no DB writes.
+- Chunk B - P14 controlled identity load tooling.
+- Chunk C - P15 post-load identity coverage.
+- Chunk D - P16 read-only reconciliation integration with confirmed identity.
+- Chunk E - P17 strict station-type dry-run retry.
 
 ## Final Recommendation
 
@@ -216,3 +216,7 @@ Do not load identity evidence until the bounded plan has been generated,
 reviewed, and accepted with exact source filters, artifact checksum, and a
 small explicit max-row bound. Keep station-type dry-run and canonical apply
 blocked.
+
+Use `stage-18j-p-identity-evidence-execution-board.md` as the remaining
+Stage 18J-P tracker so repo work can be bundled safely while Hetzner actions
+stay tiny and single-purpose.
