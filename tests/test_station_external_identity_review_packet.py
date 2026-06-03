@@ -14,6 +14,37 @@ if str(IMPORTER_SRC) not in sys.path:
 import station_external_identity_review_packet as review_packet  # noqa: E402
 
 
+REQUIRED_PLANNED_ROW_FIELDS = {
+    'canonical_station_id',
+    'system_id64',
+    'station_name',
+    'source',
+    'market_id',
+    'edsm_station_id',
+    'source_run_key',
+    'source_file_key',
+    'source_record_hash',
+    'source_updated_at',
+    'confidence',
+    'freshness_class',
+    'identity_status',
+    'conflict_reason',
+}
+
+REQUIRED_CHECK_FIELDS = {
+    'canonical_station_id_present',
+    'system_id64_present',
+    'station_name_present',
+    'source_run_key_present',
+    'source_file_key_present',
+    'source_record_hash_present',
+    'external_id_present',
+    'identity_status_is_confirmed',
+    'conflict_reason_is_null',
+    'station_type_write_not_planned',
+}
+
+
 def planned_row(index: int) -> dict[str, object]:
     return {
         'plan_row_id': f'plan-row-{index}',
@@ -177,6 +208,7 @@ def test_planned_rows_are_capped(tmp_path):
     assert artifact['summary']['planned_rows_included'] == 2
     assert artifact['summary']['planned_rows_capped'] is True
     assert [row['plan_row_id'] for row in artifact['planned_rows']] == ['plan-row-1', 'plan-row-2']
+    assert len(artifact['manual_review_items']) == 2
 
 
 def test_review_items_default_to_needs_manual_review(tmp_path):
@@ -188,28 +220,74 @@ def test_review_items_default_to_needs_manual_review(tmp_path):
     assert artifact['summary']['manual_review_status_counts'] == {'needs_manual_review': 2}
     for item in artifact['manual_review_items']:
         assert item['review_status'] == 'needs_manual_review'
-        for check in item['review_checks']:
-            assert check['review_status'] == 'needs_manual_review'
+        assert item['reviewer_notes'] is None
 
 
-def test_review_checks_are_populated_correctly(tmp_path):
+def test_each_manual_review_item_embeds_planned_row_and_checks(tmp_path):
     path, expected_sha = write_load_plan(tmp_path, load_plan_artifact([planned_row(1)]))
 
     artifact = review_packet.build_review_packet_from_file(path, expected_load_plan_sha256=expected_sha)
     review_item = artifact['manual_review_items'][0]
 
     assert review_item['planned_row_index'] == 1
-    assert review_item['plan_row_id'] == 'plan-row-1'
-    assert review_item['candidate_id'] == 'candidate-1'
-    assert review_item['canonical_station_id'] == 2001
-    assert review_item['source_record_hash'] == 'source-hash-1'
-    assert [check['check_id'] for check in review_item['review_checks']] == [
-        'canonical_station_match',
-        'external_identifier_present',
-        'source_provenance_present',
-        'identity_status_confirmed_only',
-        'no_station_type_or_canonical_write',
-    ]
+    assert review_item['planned_row']
+    assert review_item['planned_row'] == artifact['planned_rows'][0]
+    assert review_item['checks']
+    assert set(review_item['checks']) == REQUIRED_CHECK_FIELDS
+    assert all(isinstance(value, bool) for value in review_item['checks'].values())
+
+
+def test_planned_row_embedded_in_review_item_contains_reviewable_identity_fields(tmp_path):
+    path, expected_sha = write_load_plan(tmp_path, load_plan_artifact([planned_row(1)]))
+
+    artifact = review_packet.build_review_packet_from_file(path, expected_load_plan_sha256=expected_sha)
+    row = artifact['manual_review_items'][0]['planned_row']
+
+    assert REQUIRED_PLANNED_ROW_FIELDS <= set(row)
+    assert row['canonical_station_id'] == 2001
+    assert row['system_id64'] == 420001
+    assert row['station_name'] == 'Test Port 1'
+    assert row['source'] == 'edsm_nightly_stations'
+    assert row['edsm_station_id'] == 1001
+    assert row['source_run_key'] == 'run-key'
+    assert row['source_file_key'] == 'file-key'
+    assert row['source_record_hash'] == 'source-hash-1'
+    assert row['confidence'] == 'source_station_snapshot'
+    assert row['freshness_class'] == 'source_updated_at'
+    assert row['identity_status'] == 'confirmed'
+    assert row['conflict_reason'] is None
+
+
+def test_review_checks_are_populated_correctly(tmp_path):
+    path, expected_sha = write_load_plan(tmp_path, load_plan_artifact([planned_row(1)]))
+
+    artifact = review_packet.build_review_packet_from_file(path, expected_load_plan_sha256=expected_sha)
+    checks = artifact['manual_review_items'][0]['checks']
+
+    assert checks == {
+        'canonical_station_id_present': True,
+        'system_id64_present': True,
+        'station_name_present': True,
+        'source_run_key_present': True,
+        'source_file_key_present': True,
+        'source_record_hash_present': True,
+        'external_id_present': True,
+        'identity_status_is_confirmed': True,
+        'conflict_reason_is_null': True,
+        'station_type_write_not_planned': True,
+    }
+
+
+def test_top_level_planned_rows_match_embedded_manual_review_rows(tmp_path):
+    rows = [planned_row(1), planned_row(2)]
+    path, expected_sha = write_load_plan(tmp_path, load_plan_artifact(rows))
+
+    artifact = review_packet.build_review_packet_from_file(path, expected_load_plan_sha256=expected_sha)
+    embedded_rows = [item['planned_row'] for item in artifact['manual_review_items']]
+
+    assert len(artifact['planned_rows']) == len(artifact['manual_review_items'])
+    assert artifact['summary']['planned_rows_count'] == 2
+    assert embedded_rows == artifact['planned_rows']
 
 
 def test_safety_fields_remain_zero_or_false(tmp_path):

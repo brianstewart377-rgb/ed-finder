@@ -81,21 +81,35 @@ with open(path, encoding='utf-8') as handle:
 summary = payload.get('summary') or {}
 source_artifact = payload.get('source_artifact') or {}
 source_scope = payload.get('source_scope') or {}
+planned_rows = payload.get('planned_rows') or []
+manual_review_items = payload.get('manual_review_items') or []
+embedded_planned_rows = [
+    item.get('planned_row') if isinstance(item, dict) else None
+    for item in manual_review_items
+]
+first_review_item = manual_review_items[0] if manual_review_items else {}
+first_planned_row = first_review_item.get('planned_row') if isinstance(first_review_item, dict) else None
+first_checks = first_review_item.get('checks') if isinstance(first_review_item, dict) else None
 
-checks = {
+validation_checks = {
     'schema_version': payload.get('schema_version') == 'station_external_identity_review_packet/v1',
     'dry_run': payload.get('dry_run') is True,
     'read_only': payload.get('read_only') is True,
     'report_only': payload.get('report_only') is True,
     'source_sha_matches': source_artifact.get('sha256') == expected_source_sha,
     'max_planned_rows_matches': str(payload.get('max_planned_rows')) == str(expected_max_rows),
+    'manual_review_items_count_matches': summary.get('manual_review_items_count') == len(manual_review_items),
+    'planned_rows_count_matches': summary.get('planned_rows_count') == len(planned_rows),
+    'review_items_match_planned_rows': embedded_planned_rows == planned_rows,
+    'first_review_item_has_planned_row': isinstance(first_planned_row, dict) and bool(first_planned_row),
+    'first_review_item_has_non_empty_checks': isinstance(first_checks, dict) and bool(first_checks),
     'canonical_writes_planned_zero': payload.get('canonical_writes_planned') == 0,
     'station_type_writes_planned_zero': payload.get('station_type_writes_planned') == 0,
     'identity_rows_written_zero': payload.get('identity_rows_written') == 0,
     'approval_record_created_false': payload.get('approval_record_created') is False,
 }
 
-for name, ok in checks.items():
+for name, ok in validation_checks.items():
     if not ok:
         raise SystemExit(f'STOP: review packet validation failed: {name}')
 
@@ -109,9 +123,12 @@ for key, value in (
     ('total_candidates_seen', source_scope.get('total_candidates_seen')),
     ('eligible_confirmed_candidates_seen', source_scope.get('eligible_confirmed_candidates_seen')),
     ('source_planned_rows_count', source_scope.get('source_planned_rows_count')),
+    ('planned_rows_count', summary.get('planned_rows_count')),
     ('planned_rows_included', summary.get('planned_rows_included')),
     ('manual_review_items_count', summary.get('manual_review_items_count')),
     ('manual_review_status_counts', json.dumps(summary.get('manual_review_status_counts') or {}, sort_keys=True)),
+    ('first_review_item_has_planned_row', isinstance(first_planned_row, dict) and bool(first_planned_row)),
+    ('first_review_item_has_non_empty_checks', isinstance(first_checks, dict) and bool(first_checks)),
     ('canonical_writes_planned', payload.get('canonical_writes_planned')),
     ('station_type_writes_planned', payload.get('station_type_writes_planned')),
     ('identity_rows_written', payload.get('identity_rows_written')),

@@ -780,6 +780,17 @@ reconciliation, summarizer, station-type dry-run, approval-record creation, or
 canonical apply. The verdict remains
 `Ready only after planned-row manual review`.
 
+Stage 18J-P13A hardens that review packet contract after the first offline
+Hetzner packet showed correct safety fields but non-self-contained
+`manual_review_items`. New packets must keep top-level `planned_rows` and must
+also embed the exact planned row plus non-empty boolean `checks` inside each
+manual review item. The wrapper summary now validates and prints the planned
+row count, manual review item count, and whether the first review item has
+`planned_row` and `checks`. After P13A merges, rerun only the offline guarded
+review-packet wrapper; do not load identity evidence or run reconciliation,
+summarizer, station-type dry-run, approval-record creation, or canonical
+apply.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

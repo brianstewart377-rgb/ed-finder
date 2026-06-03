@@ -112,7 +112,9 @@ The Python tool:
   `station_external_identity_review_packet/v1`;
 - includes planned rows capped by `--max-planned-rows`;
 - includes one manual review item per included planned row;
-- defaults each review item and each row check to `needs_manual_review`;
+- makes each manual review item self-contained with `planned_row`, `checks`,
+  and `reviewer_notes = null`;
+- defaults each review item to `needs_manual_review`;
 - keeps `canonical_writes_planned = 0`;
 - keeps `station_type_writes_planned = 0`;
 - keeps `identity_rows_written = 0`;
@@ -120,6 +122,71 @@ The Python tool:
 
 The generated packet is an offline manual review artifact. It is not a load
 artifact and it is not an approval record.
+
+## P13A Review Packet Contract Hardening
+
+The first Hetzner offline review-packet run completed safely:
+
+- review packet:
+  `/var/lib/ed-finder/operator-artifacts/stage-18j/station_external_identity_review_packet_20260603T103130Z.json`;
+- review packet SHA-256:
+  `6b2415ef4f12a0f81808f90a9eb592d18269e181660e7cbd9fe597e63cc18705`;
+- source load-plan artifact:
+  `station_external_identity_load_plan_20260603T071913Z.json`;
+- source load-plan SHA-256:
+  `3da39530223f92e89d7129d447944d39199b6510eee473ba1e84ceeb168c9db1`;
+- `planned_rows_included = 20`;
+- `manual_review_items_count = 20`;
+- `manual_review_status_counts = {"needs_manual_review": 20}`;
+- `canonical_writes_planned = 0`;
+- `station_type_writes_planned = 0`;
+- `identity_rows_written = 0`;
+- `approval_record_created = false`;
+- no database access;
+- no identity load;
+- no station-type dry-run;
+- no canonical apply.
+
+Manual inspection found that the safety fields were correct but
+`manual_review_items` were not self-contained enough for human review:
+
+- `manual_review_items` existed and had length `20`;
+- top-level `planned_rows` existed and had length `20`;
+- each `manual_review_items[n].planned_row` was missing or null in the
+  inspection contract;
+- each `manual_review_items[n].checks` was empty in the inspection contract.
+
+Stage 18J-P13A fixes the packet contract. Each item in
+`manual_review_items` must include:
+
+- `review_item_id`;
+- `review_status = "needs_manual_review"`;
+- `planned_row`;
+- `checks`;
+- `reviewer_notes = null`.
+
+The nested `planned_row` must include the planned identity row fields needed
+for review, including canonical station ID, source system/station, source,
+external IDs, source run/file/hash provenance, confidence, freshness class,
+identity status, and conflict reason. The top-level `planned_rows` list remains
+for convenience and must exactly match the rows embedded in
+`manual_review_items`.
+
+The nested `checks` object must include boolean fields for:
+
+- `canonical_station_id_present`;
+- `system_id64_present`;
+- `station_name_present`;
+- `source_run_key_present`;
+- `source_file_key_present`;
+- `source_record_hash_present`;
+- `external_id_present`;
+- `identity_status_is_confirmed`;
+- `conflict_reason_is_null`;
+- `station_type_write_not_planned`.
+
+The P13A fix does not approve a load. It only makes a future offline review
+packet rerun suitable for manual row inspection.
 
 ## Planned Row Review Requirements
 
@@ -165,7 +232,9 @@ The wrapper:
   `3da39530223f92e89d7129d447944d39199b6510eee473ba1e84ceeb168c9db1`;
 - writes the review packet under the same artifact directory;
 - applies mode `600` to the output packet;
-- prints the packet path, output checksum, and compact summary fields.
+- prints the packet path, output checksum, compact summary fields, planned row
+  count, manual review item count, and whether the first review item has
+  non-empty `planned_row` and `checks` objects.
 
 This wrapper does not source DB environment variables, does not connect to a
 database, and does not run imports, reconciliation, summarizer,
