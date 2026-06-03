@@ -241,8 +241,13 @@ Each candidate row should include:
 
 ## Proposed Write-Staging / Load Workflow
 
-Stage 18J-P10 should be a separate write-staging/load stage after the P9
-artifact is reviewed. It should write only to `station_external_identity`.
+Stage 18J-P10 reviews the first read-only candidate artifact and records the
+verdict `Ready only for bounded identity load dry-run`. The next implementation
+step should be a bounded no-write load-plan artifact before any write-staging
+or load stage.
+
+A later controlled write-staging/load stage should write only to
+`station_external_identity`.
 
 Recommended load behavior:
 
@@ -303,7 +308,7 @@ After a future identity evidence load, require:
 
 ## Reconciliation Integration
 
-Stage 18J-P12 should integrate confirmed external identity into read-only
+Stage 18J-P15 should integrate confirmed external identity into read-only
 station reconciliation output.
 
 Recommended read-only join shape:
@@ -335,7 +340,7 @@ The strict station-type filter should remain unchanged until:
 - identity evidence has been loaded in a separate reviewed stage;
 - an identity coverage artifact shows confirmed identity coverage;
 - read-only reconciliation exposes confirmed canonical external IDs;
-- strict station-type dry-run is retried in Stage 18J-P13.
+- strict station-type dry-run is retried in Stage 18J-P16.
 
 Station-type writes remain blocked. Non-zero dry-run candidates still require a
 separate review packet before canonical apply can be discussed.
@@ -359,7 +364,7 @@ P8 does not enable:
 
 ## Risks / Open Questions
 
-Open questions for P9/P10 design:
+Open questions for the load-plan and controlled-load design:
 
 - whether the first candidate artifact should emit only confirmable/conflicting
   rows or all staged external-ID rows;
@@ -376,11 +381,15 @@ Open questions for P9/P10 design:
 
 ## Recommended Next Stages
 
-- Stage 18J-P10 - External identity evidence write-staging/load, no
-  station-type writes.
-- Stage 18J-P11 - Identity coverage artifact.
-- Stage 18J-P12 - Reconciliation integration with confirmed identity.
-- Stage 18J-P13 - Retry strict station-type dry-run.
+- Stage 18J-P10 - External identity candidate artifact review.
+- Stage 18J-P11 - Bounded external identity load-plan artifact, no DB writes.
+- Stage 18J-P12 - Review bounded identity load plan.
+- Stage 18J-P13 - Controlled identity evidence load into
+  `station_external_identity`, no station-type writes.
+- Stage 18J-P14 - Identity coverage artifact after load.
+- Stage 18J-P15 - Read-only reconciliation integration with confirmed
+  identity.
+- Stage 18J-P16 - Retry strict station-type dry-run.
 
 ## Final Recommendation
 

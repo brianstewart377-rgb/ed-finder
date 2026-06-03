@@ -729,6 +729,19 @@ to `station_external_identity`, does not update `stations` or `station_type`,
 and must not be combined with imports, reconciliation, station-type dry-run, or
 canonical apply.
 
+Stage 18J-P10 reviews the first Hetzner read-only external identity candidate
+artifact in
+`docs/colonisation-redesign/stage-18j-p10-external-identity-candidate-artifact-review.md`.
+The artifact
+`station_external_identity_candidates_20260603T002504Z.json` inspected
+`298177` staged EDSM station rows and reported `261938`
+`confirmed_candidate` rows, `258` conflicting rows, and `35981`
+rejected/source-only rows. It kept `dry_run`, `read_only`, and `report_only`
+true, with `canonical_writes_planned = 0`, `station_type_writes_planned = 0`,
+and `identity_rows_written = 0`. The verdict is `Ready only for bounded
+identity load dry-run`; the next operator step must be a bounded no-write
+load-plan artifact, not a bulk insert into `station_external_identity`.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
