@@ -778,9 +778,10 @@ Scope:
   hardening, operator-safe dry-run wrapper, P2 identity diagnostics, P3/P4
   external identity design, P5 migration draft, P6 production readiness review,
   P7 schema production apply closeout, P8 evidence loader/reconciliation
-  design, P9 read-only identity candidate artifact, P10 evidence
-  write-staging/load with no station-type writes, P11 identity coverage
-  artifact, P12 reconciliation integration with confirmed identity, and P13
+  design, P9 read-only identity candidate artifact, P10 candidate artifact
+  review, P11 bounded no-write load-plan artifact, P12 load-plan review, P13
+  controlled identity load with no station-type writes, P14 identity coverage
+  artifact, P15 reconciliation integration with confirmed identity, and P16
   strict station-type dry-run retry.
 
 Non-goals:
@@ -1135,6 +1136,43 @@ Non-goals:
 Support doc:
 `stage-18j-p9-readonly-external-identity-candidate-artifact.md`.
 
+### Stage 18J-P10 - External Identity Candidate Artifact Review
+
+Purpose: review the first Hetzner read-only external station identity candidate
+artifact and decide whether the result is ready for a future identity evidence
+load path.
+
+Scope:
+
+- Record artifact
+  `station_external_identity_candidates_20260603T002504Z.json`, its path, size,
+  SHA-256, integrity SHA-256, source run/file filters, and schema version.
+- Record read-only safety fields: `dry_run = true`, `read_only = true`,
+  `report_only = true`, `canonical_writes_planned = 0`,
+  `station_type_writes_planned = 0`, and `identity_rows_written = 0`.
+- Record candidate counts: `261938` `confirmed_candidate`, `258`
+  conflicting, `35981` rejected/source-only, and `0` proposed.
+- Record source identity coverage and canonical match coverage.
+- Interpret `confirmed_candidate` as reviewable artifact evidence only, not as
+  production-confirmed external identity.
+- Set readiness verdict to `Ready only for bounded identity load dry-run`.
+- Require the next stage to produce a bounded no-write load-plan artifact before
+  any controlled insert into `station_external_identity`.
+
+Non-goals:
+
+- No production commands from Codex.
+- No production DB access from Codex.
+- No identity evidence load.
+- No writes to `station_external_identity`.
+- No imports, reconciliation, production summarizer run, station-type dry-run,
+  or canonical apply.
+- No approval record.
+- No Stage 18K work.
+
+Support doc:
+`stage-18j-p10-external-identity-candidate-artifact-review.md`.
+
 ### Stage 19A.1 - Operator Path Guardrails
 
 Purpose: prevent Codex/local prompts from accidentally running Hetzner
@@ -1219,9 +1257,12 @@ Do not add another large planner feature immediately. The healthiest next sequen
 37. Stage 18J-P7 external identity schema production apply closeout.
 38. Stage 18J-P8 external identity evidence loader/reconciliation design.
 39. Stage 18J-P9 read-only external identity candidate artifact.
-40. Stage 18J-P10 external identity evidence write-staging/load, no station-type writes.
-41. Stage 18J-P11 identity coverage artifact.
-42. Stage 18J-P12 reconciliation integration with confirmed identity.
-43. Stage 18J-P13 retry strict station-type dry-run.
+40. Stage 18J-P10 external identity candidate artifact review.
+41. Stage 18J-P11 bounded external identity load-plan artifact, no DB writes.
+42. Stage 18J-P12 review bounded identity load plan.
+43. Stage 18J-P13 controlled identity evidence load, no station-type writes.
+44. Stage 18J-P14 identity coverage artifact after load.
+45. Stage 18J-P15 reconciliation integration with confirmed identity.
+46. Stage 18J-P16 retry strict station-type dry-run.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.

@@ -162,7 +162,7 @@ Operator workflow requirements:
 
 ## Review Requirements
 
-Before any Stage 18J-P10 write-staging/load stage:
+Before any bounded load-plan or write-staging/load stage:
 
 - review candidate status counts;
 - review conflict reason counts;
@@ -175,13 +175,23 @@ Before any Stage 18J-P10 write-staging/load stage:
 - confirm rejected/source-only and conflicting/ambiguous candidates are not
   treated as confirmed identity.
 
+Stage 18J-P10 reviews the first Hetzner read-only artifact. It records
+`261938` `confirmed_candidate` rows, `258` conflicting rows, and `35981`
+rejected/source-only rows. The readiness verdict is `Ready only for bounded
+identity load dry-run`; `confirmed_candidate` remains an artifact status, not a
+production-confirmed identity status.
+
 ## Recommended Next Stages
 
-- Stage 18J-P10 - External identity evidence write-staging/load, no
-  station-type writes.
-- Stage 18J-P11 - Identity coverage artifact.
-- Stage 18J-P12 - Reconciliation integration with confirmed identity.
-- Stage 18J-P13 - Retry strict station-type dry-run.
+- Stage 18J-P10 - External identity candidate artifact review.
+- Stage 18J-P11 - Bounded external identity load-plan artifact, no DB writes.
+- Stage 18J-P12 - Review bounded identity load plan.
+- Stage 18J-P13 - Controlled identity evidence load into
+  `station_external_identity`, no station-type writes.
+- Stage 18J-P14 - Identity coverage artifact after load.
+- Stage 18J-P15 - Read-only reconciliation integration with confirmed
+  identity.
+- Stage 18J-P16 - Retry strict station-type dry-run.
 
 ## Final Recommendation
 
