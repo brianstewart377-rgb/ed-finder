@@ -188,6 +188,32 @@ The nested `checks` object must include boolean fields for:
 The P13A fix does not approve a load. It only makes a future offline review
 packet rerun suitable for manual row inspection.
 
+## P14 Controlled Loader Follow-up
+
+Stage 18J-P14 adds controlled external identity load tooling in
+`apps/importer/src/station_external_identity_loader.py` and a dry-run-only
+Hetzner wrapper in `scripts/operator/stage18j_run_identity_load_dry_run.sh`.
+
+The fixed review packet from the P13A rerun is reviewable:
+
+- review packet:
+  `/var/lib/ed-finder/operator-artifacts/stage-18j/station_external_identity_review_packet_20260603T110848Z.json`;
+- review packet SHA-256:
+  `8cf118d552e6bc35d23ab302d9e1020092385b372729dbb9b2bae5cd5f0758b6`;
+- artifact integrity SHA-256:
+  `8cbcf4f2c0d4e3180c3fa6fcbf44f41e71269254168fee0b121f4c6b07bcab84`;
+- `manual_review_items = 20`;
+- `planned_rows = 20`;
+- `manual_review_status_counts = {"needs_manual_review": 20}`;
+- all inspected row checks were true;
+- `identity_rows_written = 0`;
+- no database access or load occurred.
+
+The rows are reviewable but not automatically approved. P14 therefore requires
+a separate approval allowlist artifact for `--write-reviewed`. The allowlist is
+only approval to load exact external identity evidence rows into
+`station_external_identity`; it is not canonical apply approval.
+
 ## Planned Row Review Requirements
 
 Each planned row must be manually reviewed before any future controlled load

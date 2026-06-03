@@ -791,6 +791,19 @@ review-packet wrapper; do not load identity evidence or run reconciliation,
 summarizer, station-type dry-run, approval-record creation, or canonical
 apply.
 
+Stage 18J-P14 adds controlled external identity load tooling in
+`apps/importer/src/station_external_identity_loader.py` and a dry-run-only
+operator wrapper in `scripts/operator/stage18j_run_identity_load_dry_run.sh`.
+The wrapper validates the verified review packet
+`station_external_identity_review_packet_20260603T110848Z.json` with expected
+SHA-256 `8cf118d552e6bc35d23ab302d9e1020092385b372729dbb9b2bae5cd5f0758b6`,
+emits `station_external_identity_load_execution_plan/v1`, and prints explicit
+no-write/no-station-type/no-apply confirmation. It does not connect to the
+database in dry-run mode. Any future `--write-reviewed` run requires a separate
+`station_external_identity_load_approval_allowlist/v1` artifact tied to the
+exact review packet SHA-256 and must be a later, explicitly approved operator
+action. P14 does not add a production write operator script.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
