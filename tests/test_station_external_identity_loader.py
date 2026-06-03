@@ -336,9 +336,11 @@ def test_dry_run_output_keeps_write_counts_zero():
     assert artifact['canonical_writes_planned'] == 0
     assert artifact['station_type_writes_planned'] == 0
     assert artifact['identity_rows_written'] == 0
+    assert artifact['approval_record_created'] is False
     assert artifact['validation_summary']['canonical_writes_planned'] == 0
     assert artifact['validation_summary']['station_type_writes_planned'] == 0
     assert artifact['validation_summary']['identity_rows_written'] == 0
+    assert artifact['validation_summary']['approval_record_created'] is False
 
 
 def test_write_reviewed_requires_approval_allowlist():
@@ -364,6 +366,8 @@ def test_synthetic_local_write_inserts_only_selected_approved_rows():
     assert artifact['write_reviewed'] is True
     assert artifact['identity_rows_selected'] == 1
     assert artifact['identity_rows_written'] == 1
+    assert artifact['approval_record_created'] is False
+    assert artifact['validation_summary']['approval_record_created'] is False
     assert artifact['selected_review_item_ids'] == ['review-item-2']
     assert artifact['selected_plan_row_ids'] == ['plan-row-2']
     assert artifact['inserted_row_ids'] == [100]

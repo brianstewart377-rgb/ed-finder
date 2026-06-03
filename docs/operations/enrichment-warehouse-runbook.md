@@ -804,6 +804,19 @@ database in dry-run mode. Any future `--write-reviewed` run requires a separate
 exact review packet SHA-256 and must be a later, explicitly approved operator
 action. P14 does not add a production write operator script.
 
+Stage 18J-P14B records the first controlled load dry-run. The dry-run selected
+`20` review items and `20` plan rows from
+`station_external_identity_review_packet_20260603T110848Z.json`, verified
+review packet SHA-256
+`8cf118d552e6bc35d23ab302d9e1020092385b372729dbb9b2bae5cd5f0758b6`, kept
+`canonical_writes_planned = 0`, `station_type_writes_planned = 0`, and
+`identity_rows_written = 0`, and left `station_external_identity` at `0` rows.
+The verdict is `Ready only after approval allowlist artifact`. Before any
+write-reviewed identity load, create and review a separate
+`station_external_identity_load_approval_allowlist/v1` artifact for exact
+review item IDs or plan row IDs. Do not treat that allowlist as canonical apply
+approval.
+
 Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
 `docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
 Use domain-qualified artifact families for stations, bodies, rings,

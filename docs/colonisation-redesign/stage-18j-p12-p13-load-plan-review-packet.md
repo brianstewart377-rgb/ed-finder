@@ -214,6 +214,14 @@ a separate approval allowlist artifact for `--write-reviewed`. The allowlist is
 only approval to load exact external identity evidence rows into
 `station_external_identity`; it is not canonical apply approval.
 
+Stage 18J-P14B records the first controlled load dry-run. It selected all `20`
+review items and all `20` plan rows, verified review packet SHA-256
+`8cf118d552e6bc35d23ab302d9e1020092385b372729dbb9b2bae5cd5f0758b6`,
+kept `canonical_writes_planned = 0`, `station_type_writes_planned = 0`, and
+`identity_rows_written = 0`, and left `station_external_identity` at `0` rows.
+The verdict is `Ready only after approval allowlist artifact`. See
+[`stage-18j-p14b-identity-load-dry-run-review.md`](./stage-18j-p14b-identity-load-dry-run-review.md).
+
 ## Planned Row Review Requirements
 
 Each planned row must be manually reviewed before any future controlled load
