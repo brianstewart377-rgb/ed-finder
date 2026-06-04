@@ -7,6 +7,9 @@ case "$stage" in
   context)
     exec bash scripts/operator/actions/context.sh
     ;;
+  git-clean-check)
+    exec bash scripts/operator/actions/git-clean-check.sh
+    ;;
   latest-artifacts)
     exec bash scripts/operator/actions/latest-artifacts.sh
     ;;
