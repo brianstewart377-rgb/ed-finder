@@ -45,8 +45,7 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s
-' "$SSH_KEY" > ~/.ssh/hetzner_operator_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hetzner_operator_key
           chmod 600 ~/.ssh/hetzner_operator_key
 
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
