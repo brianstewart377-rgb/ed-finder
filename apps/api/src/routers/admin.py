@@ -225,3 +225,158 @@ async def warehouse_enrichment_operator_status():
     warehouse importer scripts, Docker, live APIs, or database queries.
     """
     return read_warehouse_status_snapshot(settings.enrichment_warehouse_status_json_path)
+
+@router.get(
+    '/api/admin/data-status',
+    dependencies=[Depends(require_admin)],
+    include_in_schema=False,
+)
+async def admin_data_status(pool: asyncpg.Pool = Depends(get_pool)):
+    """Return a read-only admin snapshot of core data status.
+
+    This endpoint is intentionally status-only. It runs inside a read-only
+    database transaction and does not perform imports, migrations, station-type
+    writes, canonical writes, or canonical apply.
+    """
+    async with pool.acquire() as conn:
+        async with conn.transaction(readonly=True):
+            transaction_read_only = await conn.fetchval('SHOW transaction_read_only')
+
+            station_counts = dict(await conn.fetchrow(
+                """
+                SELECT
+                  COUNT(*)::int AS total_station_rows,
+                  COUNT(*) FILTER (WHERE station_type::text = 'Unknown')::int AS unknown_station_rows,
+                  COUNT(*) FILTER (WHERE station_type::text = 'Coriolis')::int AS coriolis_station_rows,
+                  COUNT(*) FILTER (WHERE station_type::text = 'Dodec')::int AS dodec_station_rows,
+                  COUNT(*) FILTER (WHERE station_type_source IS NOT NULL)::int AS rows_with_station_type_source
+                FROM stations
+                """
+            ))
+
+            station_type_counts = [
+                dict(row)
+                for row in await conn.fetch(
+                    """
+                    SELECT
+                      station_type::text AS station_type,
+                      COUNT(*)::int AS rows
+                    FROM stations
+                    GROUP BY station_type
+                    ORDER BY station_type
+                    """
+                )
+            ]
+
+            station_type_source_counts = [
+                dict(row)
+                for row in await conn.fetch(
+                    """
+                    SELECT
+                      COALESCE(station_type_source, 'NULL') AS station_type_source,
+                      station_type::text AS station_type,
+                      COUNT(*)::int AS rows
+                    FROM stations
+                    GROUP BY station_type_source, station_type
+                    ORDER BY station_type_source, station_type
+                    """
+                )
+            ]
+
+            identity_counts = dict(await conn.fetchrow(
+                """
+                SELECT
+                  COUNT(*)::int AS total_identity_rows,
+                  COUNT(*) FILTER (WHERE identity_status = 'confirmed')::int AS confirmed_identity_rows,
+                  COUNT(*) FILTER (WHERE conflict_reason IS NOT NULL)::int AS rows_with_conflict_reason,
+                  COUNT(*) FILTER (WHERE edsm_station_id IS NOT NULL)::int AS rows_with_edsm_station_id,
+                  COUNT(*) FILTER (WHERE market_id IS NOT NULL)::int AS rows_with_market_id
+                FROM station_external_identity
+                """
+            ))
+
+            identity_source_status_counts = [
+                dict(row)
+                for row in await conn.fetch(
+                    """
+                    SELECT
+                      source,
+                      identity_status,
+                      COUNT(*)::int AS rows
+                    FROM station_external_identity
+                    GROUP BY source, identity_status
+                    ORDER BY source, identity_status
+                    """
+                )
+            ]
+
+            unknown_station_source_counts = [
+                dict(row)
+                for row in await conn.fetch(
+                    """
+                    SELECT
+                      stg.station_type::text AS source_station_type,
+                      COUNT(*)::int AS rows
+                    FROM station_external_identity sei
+                    JOIN stations s
+                      ON s.id = sei.canonical_station_id
+                    JOIN public.staging_edsm_stations stg
+                      ON stg.edsm_station_id = sei.edsm_station_id
+                    WHERE sei.identity_status = 'confirmed'
+                      AND s.station_type = 'Unknown'
+                    GROUP BY stg.station_type
+                    ORDER BY rows DESC, source_station_type NULLS FIRST
+                    """
+                )
+            ]
+
+            recent_station_type_updates = [
+                dict(row)
+                for row in await conn.fetch(
+                    """
+                    SELECT
+                      id AS canonical_station_id,
+                      name AS canonical_station_name,
+                      system_id64,
+                      station_type::text AS station_type,
+                      station_type_source,
+                      station_type_updated_at
+                    FROM stations
+                    WHERE station_type_source IS NOT NULL
+                    ORDER BY station_type_updated_at DESC NULLS LAST, id
+                    LIMIT 20
+                    """
+                )
+            ]
+
+    return {
+        'schema_version': 'admin_data_status/v1',
+        'read_only': True,
+        'transaction_read_only': transaction_read_only,
+        'station_counts': station_counts,
+        'station_type_counts': station_type_counts,
+        'station_type_source_counts': station_type_source_counts,
+        'identity_counts': identity_counts,
+        'identity_source_status_counts': identity_source_status_counts,
+        'unknown_station_source_counts': unknown_station_source_counts,
+        'recent_station_type_updates': recent_station_type_updates,
+        'policy_summary': {
+            'dodec_supported': station_counts.get('dodec_station_rows', 0) > 0,
+            'fleet_carriers_remain_unknown': any(
+                row.get('source_station_type') == 'Drake-Class Carrier'
+                for row in unknown_station_source_counts
+            ),
+            'construction_depots_remain_unknown': any(
+                row.get('source_station_type') == 'Space Construction Depot'
+                for row in unknown_station_source_counts
+            ),
+        },
+        'safety_summary': {
+            'db_read_only_confirmed': transaction_read_only == 'on',
+            'db_writes_performed': False,
+            'migrations_performed': False,
+            'station_type_writes_performed': False,
+            'canonical_apply_performed': False,
+        },
+    }
+
