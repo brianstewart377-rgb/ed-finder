@@ -16,6 +16,7 @@ import type {
   CacheStats,
   EnrichmentStationStatus,
   EnrichmentWarehouseStatus,
+  AdminDataStatus,
   FacilityTemplate,
   LayoutImportRequest,
   LayoutImportResponse,
@@ -350,6 +351,11 @@ export const api = {
   },
   enrichmentWarehouseStatus(token: string): Promise<EnrichmentWarehouseStatus> {
     return jsonFetch('/admin/enrichment/warehouse-status', {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  adminDataStatus(token: string): Promise<AdminDataStatus> {
+    return jsonFetch('/admin/data-status', {
       headers: { 'X-Admin-Token': token },
     });
   },
