@@ -205,6 +205,62 @@ export interface EnrichmentWarehouseStatus {
   errors: string[];
 }
 
+
+export interface AdminDataStatusCountRow {
+  rows: number;
+  [key: string]: string | number | boolean | null;
+}
+
+export interface AdminDataStatusRecentUpdate {
+  canonical_station_id: number;
+  canonical_station_name: string;
+  system_id64: number;
+  station_type: string;
+  station_type_source: string | null;
+  station_type_updated_at: string | null;
+}
+
+export interface AdminDataStatus {
+  schema_version: 'admin_data_status/v1';
+  read_only: boolean;
+  transaction_read_only: string;
+  station_counts: {
+    total_station_rows: number;
+    unknown_station_rows: number;
+    coriolis_station_rows: number;
+    dodec_station_rows: number;
+    rows_with_station_type_source: number;
+  };
+  station_type_counts: AdminDataStatusCountRow[];
+  station_type_source_counts: AdminDataStatusCountRow[];
+  identity_counts: {
+    total_identity_rows: number;
+    confirmed_identity_rows: number;
+    rows_with_conflict_reason: number;
+    rows_with_edsm_station_id: number;
+    rows_with_market_id: number;
+  };
+  identity_source_status_counts: AdminDataStatusCountRow[];
+  unknown_station_source_counts: Array<{
+    source_station_type: string | null;
+    rows: number;
+  }>;
+  recent_station_type_updates: AdminDataStatusRecentUpdate[];
+  policy_summary: {
+    dodec_supported: boolean;
+    fleet_carriers_remain_unknown: boolean;
+    construction_depots_remain_unknown: boolean;
+  };
+  safety_summary: {
+    db_read_only_confirmed: boolean;
+    db_writes_performed: boolean;
+    migrations_performed: boolean;
+    station_type_writes_performed: boolean;
+    canonical_apply_performed: boolean;
+  };
+}
+
+
 // ─── Stage 18H Warehouse-to-Planner Evidence Bridge (read-only) ───────────
 //
 // A typed, read-only model for surfacing carefully selected warehouse /

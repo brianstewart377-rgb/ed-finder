@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AppStatus, CacheStats, EnrichmentStationStatus, EnrichmentWarehouseStatus } from '@/types/api';
+import type { AppStatus, CacheStats, EnrichmentStationStatus, EnrichmentWarehouseStatus, AdminDataStatus } from '@/types/api';
 
 const TOKEN_KEY = 'ed_admin_token';
 
@@ -21,12 +21,15 @@ export interface UseAdmin {
   cache:       CacheStats | null;
   enrichmentStatus: EnrichmentStationStatus | null;
   warehouseStatus: EnrichmentWarehouseStatus | null;
+  dataStatus: AdminDataStatus | null;
   metaLoading: boolean;
   metaError:   string | null;
   enrichmentLoading: boolean;
   enrichmentError: string | null;
   warehouseLoading: boolean;
   warehouseError: string | null;
+  dataStatusLoading: boolean;
+  dataStatusError: string | null;
   refresh:     () => Promise<void>;
 
   // Action state machine: idle → busy → ok | err
@@ -47,12 +50,15 @@ export function useAdmin(): UseAdmin {
   const [cache,       setCache]       = useState<CacheStats | null>(null);
   const [enrichmentStatus, setEnrichmentStatus] = useState<EnrichmentStationStatus | null>(null);
   const [warehouseStatus, setWarehouseStatus] = useState<EnrichmentWarehouseStatus | null>(null);
+  const [dataStatus, setDataStatus] = useState<AdminDataStatus | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError,   setMetaError]   = useState<string | null>(null);
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
   const [warehouseLoading, setWarehouseLoading] = useState(false);
   const [warehouseError, setWarehouseError] = useState<string | null>(null);
+  const [dataStatusLoading, setDataStatusLoading] = useState(false);
+  const [dataStatusError, setDataStatusError] = useState<string | null>(null);
   const [actionState, setActionState] = useState<UseAdmin['actionState']>({ kind: 'idle' });
 
   const setToken = useCallback((t: string) => {
@@ -79,10 +85,13 @@ export function useAdmin(): UseAdmin {
     if (!token) {
       setEnrichmentStatus(null);
       setWarehouseStatus(null);
+      setDataStatus(null);
       setEnrichmentError(null);
       setWarehouseError(null);
+      setDataStatusError(null);
       setEnrichmentLoading(false);
       setWarehouseLoading(false);
+      setDataStatusLoading(false);
       return;
     }
     setEnrichmentLoading(true);
@@ -105,6 +114,17 @@ export function useAdmin(): UseAdmin {
       setWarehouseError(e instanceof Error ? e.message : String(e));
     } finally {
       setWarehouseLoading(false);
+    }
+
+    setDataStatusLoading(true);
+    setDataStatusError(null);
+    try {
+      setDataStatus(await api.adminDataStatus(token));
+    } catch (e: unknown) {
+      setDataStatus(null);
+      setDataStatusError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDataStatusLoading(false);
     }
   }, [token]);
 
@@ -138,8 +158,8 @@ export function useAdmin(): UseAdmin {
   return {
     token, setToken, forgetToken,
     hasToken: token.length > 0,
-    status, cache, enrichmentStatus, warehouseStatus,
-    metaLoading, metaError, enrichmentLoading, enrichmentError, warehouseLoading, warehouseError, refresh,
+    status, cache, enrichmentStatus, warehouseStatus, dataStatus,
+    metaLoading, metaError, enrichmentLoading, enrichmentError, warehouseLoading, warehouseError, dataStatusLoading, dataStatusError, refresh,
     actionState,
     clearCache:      () => runAction('clearCache',      () => api.cacheClear(token)),
     rebuildClusters: () => runAction('rebuildClusters', () => api.rebuildClusters(token)),

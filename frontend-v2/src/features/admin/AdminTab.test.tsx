@@ -40,6 +40,9 @@ function admin(overrides: Partial<UseAdmin> = {}): UseAdmin {
     rebuildRatings: vi.fn(),
     resetActionState: vi.fn(),
     ...overrides,
+    dataStatus: overrides.dataStatus ?? null,
+    dataStatusLoading: overrides.dataStatusLoading ?? false,
+    dataStatusError: overrides.dataStatusError ?? null,
   };
 }
 
