@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - context
+          - git-clean-check
           - latest-artifacts
 
 jobs:
@@ -22,7 +23,7 @@ jobs:
         shell: bash
         run: |
           case "${{ inputs.stage }}" in
-            context|latest-artifacts)
+            context|git-clean-check|latest-artifacts)
               echo "Stage allowed: ${{ inputs.stage }}"
               ;;
             *)
