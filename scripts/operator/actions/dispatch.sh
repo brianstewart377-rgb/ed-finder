@@ -17,6 +17,9 @@ case "$stage" in
   latest-artifact-summary)
     exec bash scripts/operator/actions/latest-artifact-summary.sh "$artifact_stage"
     ;;
+  db-readonly-health)
+    exec bash scripts/operator/actions/db-readonly-health.sh
+    ;;
   latest-stage18j-summary)
     exec bash scripts/operator/actions/latest-artifact-summary.sh "stage-18j"
     ;;

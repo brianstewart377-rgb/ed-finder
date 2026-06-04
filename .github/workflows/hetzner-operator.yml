@@ -12,6 +12,7 @@ on:
           - git-clean-check
           - latest-artifacts
           - latest-artifact-summary
+          - db-readonly-health
       artifact_stage:
         description: "Artifact stage directory name, e.g. stage-18j, stage-19, stage-20a"
         required: false
@@ -32,7 +33,7 @@ jobs:
           ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
         run: |
           case "$STAGE" in
-            context|git-clean-check|latest-artifacts|latest-artifact-summary)
+            context|git-clean-check|latest-artifacts|latest-artifact-summary|db-readonly-health)
               echo "Stage allowed: $STAGE"
               ;;
             *)
