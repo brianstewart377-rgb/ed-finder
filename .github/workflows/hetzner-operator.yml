@@ -11,7 +11,12 @@ on:
           - context
           - git-clean-check
           - latest-artifacts
-          - latest-stage18j-summary
+          - latest-artifact-summary
+      artifact_stage:
+        description: "Artifact stage directory name, e.g. stage-18j, stage-19, stage-20a"
+        required: false
+        default: "stage-18j"
+        type: string
 
 jobs:
   hetzner-operator:
@@ -20,18 +25,37 @@ jobs:
     environment: hetzner-operator
 
     steps:
-      - name: Validate stage
+      - name: Validate inputs
         shell: bash
+        env:
+          STAGE: ${{ inputs.stage }}
+          ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
         run: |
-          case "${{ inputs.stage }}" in
-            context|git-clean-check|latest-artifacts|latest-stage18j-summary)
-              echo "Stage allowed: ${{ inputs.stage }}"
+          case "$STAGE" in
+            context|git-clean-check|latest-artifacts|latest-artifact-summary)
+              echo "Stage allowed: $STAGE"
               ;;
             *)
-              echo "Unsupported stage: ${{ inputs.stage }}" >&2
+              echo "Unsupported stage: $STAGE" >&2
               exit 1
               ;;
           esac
+
+          case "$ARTIFACT_STAGE" in
+            stage-[A-Za-z0-9]*)
+              echo "Artifact stage accepted: $ARTIFACT_STAGE"
+              ;;
+            *)
+              echo "Unsupported artifact_stage: $ARTIFACT_STAGE" >&2
+              echo "Use names like stage-18j, stage-19, stage-20a." >&2
+              exit 1
+              ;;
+          esac
+
+          if printf '%s' "$ARTIFACT_STAGE" | grep -q '[^A-Za-z0-9_-]'; then
+            echo "artifact_stage contains invalid characters: $ARTIFACT_STAGE" >&2
+            exit 1
+          fi
 
       - name: Prepare SSH
         shell: bash
@@ -59,6 +83,7 @@ jobs:
           SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
           STAGE: ${{ inputs.stage }}
+          ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
         run: |
           test -n "$SSH_USER" || { echo "Missing HETZNER_OPERATOR_USER" >&2; exit 1; }
 
@@ -67,4 +92,4 @@ jobs:
               -o IdentitiesOnly=yes \
               -o StrictHostKeyChecking=yes \
               "$SSH_USER@$SSH_HOST" \
-              "cd /opt/ed-finder && git fetch origin main && git checkout main && git pull --ff-only origin main && bash scripts/operator/actions/dispatch.sh '$STAGE'"
+              "cd /opt/ed-finder && git fetch origin main && git checkout main && git pull --ff-only origin main && bash scripts/operator/actions/dispatch.sh '$STAGE' '$ARTIFACT_STAGE'"
