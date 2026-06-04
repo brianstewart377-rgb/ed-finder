@@ -601,7 +601,70 @@ Initial priority:
 
 High as manual structured reference, not automatic web import.
 
-### 18. Operator artifacts and review evidence
+
+### 18. Missions and mission-board intelligence
+
+Goal:
+
+Import, infer, and track mission-related evidence so ED-Finder can identify strong mission ecosystems, not just static infrastructure.
+
+Useful fields:
+
+- mission board source station;
+- mission destination station/system/body;
+- mission type;
+- passenger/cargo/combat/mining/source-return/classification;
+- faction offering mission;
+- target faction where available;
+- economy/state context;
+- reward type;
+- cargo/material requirements where visible;
+- destination distance;
+- pad-size compatibility;
+- repeat destination patterns;
+- station-to-station mission links;
+- source timestamp;
+- freshness/expiry;
+- confidence;
+- source provenance.
+
+Likely sources:
+
+- player journal/manual captures where available;
+- operator-entered mission observations;
+- future local scraper/capture tooling if safe and allowed;
+- inferred mission links from repeated observations;
+- faction/economy/system state data from Inara/EDSM/other evidence;
+- station/economy/service warehouse facts.
+
+Canonical impact:
+
+High for the ED-Finder experience, but mission data is volatile and must be treated as time-bound evidence.
+
+Initial priority:
+
+High as a derived/analytics domain, after the source-run ledger and first warehouse imports are stable.
+
+Notes:
+
+Mission data should not be treated as permanent canonical truth.
+
+The warehouse should support mission intelligence as a freshness-bound evidence layer. The goal is to produce useful scores and patterns such as:
+
+- mission density score;
+- passenger mission suitability;
+- cargo/source-return suitability;
+- faction mission cluster strength;
+- nearby destination network quality;
+- large-pad mission usefulness;
+- tourism/passenger hub potential;
+- mining/source-return opportunity;
+- “home system mission paradise” score.
+
+Mission intelligence should combine direct mission observations with source-derived context such as station economy, services, factions, nearby systems, station types, and pad sizes.
+
+
+### 19. Operator artifacts and review evidence
 
 Goal:
 
@@ -642,11 +705,12 @@ Recommended initial order:
 3. EDSM/Spansh body and ring data.
 4. Station services/economies.
 5. Facility/build template data.
-6. Construction/colonisation transient evidence.
-7. Inara enrichment where access/trust is confirmed.
-8. Markets/shipyard/outfitting after freshness model exists.
-9. Fleet carriers only as transient/mobile objects, if needed.
-10. Niche community data sources.
+6. Mission-board intelligence and mission density analytics.
+7. Construction/colonisation transient evidence.
+8. Inara enrichment where access/trust is confirmed.
+9. Markets/shipyard/outfitting after freshness model exists.
+10. Fleet carriers only as transient/mobile objects, if needed.
+11. Niche community data sources.
 
 ## Warehouse design implication
 
