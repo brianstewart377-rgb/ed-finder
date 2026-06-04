@@ -70,7 +70,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
     CREATE TYPE station_type AS ENUM (
-        'Coriolis', 'Orbis', 'Ocellus', 'Outpost',
+        'Coriolis', 'Orbis', 'Ocellus', 'Dodec', 'Outpost',
         'PlanetaryPort', 'PlanetaryOutpost', 'MegaShip',
         'AsteroidBase', 'FleetCarrier', 'Unknown'
     );
