@@ -28,7 +28,7 @@
 set -euo pipefail
 
 REPO_DIR=${REPO_DIR:-/opt/ed-finder}
-BRANCH=${BRANCH:-feat/v2-pinned-tab-and-shared-systemtable}
+BRANCH=${BRANCH:-main}
 WEBROOT=${WEBROOT:-/var/www/html-v2}
 SKIP_TESTS=0
 GEN_TYPES=0
