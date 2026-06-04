@@ -11,6 +11,7 @@ on:
           - context
           - git-clean-check
           - latest-artifacts
+          - latest-stage18j-summary
 
 jobs:
   hetzner-operator:
@@ -23,7 +24,7 @@ jobs:
         shell: bash
         run: |
           case "${{ inputs.stage }}" in
-            context|git-clean-check|latest-artifacts)
+            context|git-clean-check|latest-artifacts|latest-stage18j-summary)
               echo "Stage allowed: ${{ inputs.stage }}"
               ;;
             *)

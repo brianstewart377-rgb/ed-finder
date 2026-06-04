@@ -13,6 +13,9 @@ case "$stage" in
   latest-artifacts)
     exec bash scripts/operator/actions/latest-artifacts.sh
     ;;
+  latest-stage18j-summary)
+    exec bash scripts/operator/actions/latest-stage18j-summary.sh
+    ;;
   *)
     echo "STOP: unsupported operator stage: $stage" >&2
     exit 1
