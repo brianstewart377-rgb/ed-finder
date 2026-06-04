@@ -7,15 +7,27 @@ Data Warehouse Utopia needs to define both:
 1. where data comes from; and
 2. what categories of data ED-Finder wants to import, stage, warehouse, reconcile, and eventually expose.
 
-This document defines the initial import domain/entity matrix.
+This document defines the initial import source and domain/entity matrix.
+
+## Source matrix
+
+| Source | Category | Likely use | Trust / caveat | Auto-import priority |
+|---|---|---|---|---|
+| EDSM | Source of evidence | Systems, stations, station types, external IDs, services/economies where available | Proven useful in Stage 18J/P18; still source evidence, not direct canonical truth | First |
+| Spansh | Source of evidence | Broad system/body/station data, coordinates, bodies, rings | High coverage; needs schema mapping, chunking, and freshness checks | High |
+| Inara | Source of evidence | Stations, markets, economies, factions, services, commodity signals, mission context if accessible | Useful but needs access/rate-limit/trust review | Medium/high |
+| DaftMav sheets/templates | Source of truth/evidence for build templates | Facility templates, build economics, colonisation planning rules | Should be versioned and hashed; likely manual/file import first | High |
+| Mega Guide | Source of truth/reference | Rules, constraints, mechanics, interpretation | Human/reference source; not all content is machine-importable | High as reference |
+| ED-Finder operator artifacts | Manual/operator source | Review packets, dry-runs, approval allowlists, write results | Primary audit trail for controlled canonical changes | Critical |
+| Mission observations | Source of evidence / derived analytics | Mission board patterns, mission density, station-to-station links | Volatile; must be freshness-bound | High after warehouse basics |
+| RavenColonial | Source of inspiration | UI ideas, workflow ideas, feature comparison | Not a source of canonical Elite Dangerous data | Low/import not needed |
+| EDCD/community datasets | Source of evidence | Potential future reference/metadata feeds | Evaluate later; do not assume trust yet | Later |
+| Canonn/community science data | Source of evidence | Specialist location/body/phenomena context | Useful in niche cases; not core first pass | Later |
+| Frontier/game journal data | Source of evidence/manual import | Player-observed facts, mission observations, market/service snapshots | High value if available but user-specific/manual | Later |
 
 ## Import domains
 
-### 1. Systems
-
-Goal:
-
-Import and track system-level facts.
+### Systems
 
 Useful fields:
 
@@ -33,26 +45,9 @@ Useful fields:
 - updated timestamps;
 - source provenance.
 
-Likely sources:
+Priority: High.
 
-- EDSM;
-- Spansh;
-- Inara where useful;
-- local/operator sources.
-
-Canonical impact:
-
-High. System data powers search, filtering, route planning, colonisation planning, and body/station joins.
-
-Initial priority:
-
-High.
-
-### 2. Stars
-
-Goal:
-
-Import and track star-level facts.
+### Stars
 
 Useful fields:
 
@@ -65,25 +60,9 @@ Useful fields:
 - subclass;
 - source timestamps.
 
-Likely sources:
+Priority: Medium.
 
-- Spansh;
-- EDSM;
-- possible ED journal/manual sources.
-
-Canonical impact:
-
-Medium/high. Useful for search, route planning, system assessment, and exploration context.
-
-Initial priority:
-
-Medium.
-
-### 3. Bodies / planets / moons
-
-Goal:
-
-Import and track body-level facts.
+### Bodies / planets / moons
 
 Useful fields:
 
@@ -107,28 +86,11 @@ Useful fields:
 - inclination;
 - axial tilt;
 - rotation period;
-- coordinates/arrival distance where available;
 - source timestamps.
 
-Likely sources:
+Priority: High.
 
-- Spansh;
-- EDSM;
-- ED journal/manual sources.
-
-Canonical impact:
-
-Very high. Body data drives colonisation planning, ground slot decisions, resource interpretation, and search.
-
-Initial priority:
-
-High.
-
-### 4. Rings
-
-Goal:
-
-Import and track ring-level facts separately from bodies.
+### Rings
 
 Useful fields:
 
@@ -143,29 +105,11 @@ Useful fields:
 - material/mineral signals where available;
 - source timestamps.
 
-Likely sources:
-
-- Spansh;
-- EDSM where available;
-- future specialist sources if needed.
-
-Canonical impact:
-
-High for mining/resource planning and colonisation analysis.
-
-Initial priority:
-
-High.
-
-Notes:
+Priority: High.
 
 Rings should be first-class warehouse facts, not buried as loose body text.
 
-### 5. Belt clusters
-
-Goal:
-
-Import and track asteroid belt clusters and related orbital infrastructure possibilities.
+### Belt clusters
 
 Useful fields:
 
@@ -176,25 +120,9 @@ Useful fields:
 - orbital/station slots if known;
 - source timestamps.
 
-Likely sources:
+Priority: Medium.
 
-- Spansh;
-- EDSM where available;
-- manual/operator observations.
-
-Canonical impact:
-
-Medium/high for colonisation build planning.
-
-Initial priority:
-
-Medium.
-
-### 6. Stations and ports
-
-Goal:
-
-Import stable station facts.
+### Stations and ports
 
 Useful fields:
 
@@ -212,20 +140,7 @@ Useful fields:
 - update timestamps;
 - source provenance.
 
-Likely sources:
-
-- EDSM;
-- Inara;
-- Spansh;
-- ED journal/manual sources.
-
-Canonical impact:
-
-Very high.
-
-Initial priority:
-
-Very high.
+Priority: Very high.
 
 Policy carried forward from Stage 18:
 
@@ -237,11 +152,7 @@ Policy carried forward from Stage 18:
 | `Space Construction Depot` | Refuse/defer as transient construction object. |
 | `NULL` | Refuse. |
 
-### 7. Settlements / planetary ports / outposts
-
-Goal:
-
-Import stable surface infrastructure separately from orbitals where possible.
+### Settlements / planetary ports / outposts
 
 Useful fields:
 
@@ -257,26 +168,9 @@ Useful fields:
 - landing pad;
 - source timestamps.
 
-Likely sources:
+Priority: High.
 
-- Inara;
-- EDSM where available;
-- Spansh where available;
-- manual/operator data.
-
-Canonical impact:
-
-High for colonisation, ground slot planning, and search.
-
-Initial priority:
-
-High.
-
-### 8. Services
-
-Goal:
-
-Import station/service availability as source evidence.
+### Services
 
 Useful fields:
 
@@ -293,28 +187,11 @@ Useful fields:
 - technology broker;
 - interstellar factors;
 - rescue/search services;
-- black market;
-- carrier-specific services, if carriers are tracked separately as transient evidence.
+- black market.
 
-Likely sources:
+Priority: High.
 
-- Inara;
-- EDSM;
-- journal/manual data.
-
-Canonical impact:
-
-High, but should not overwrite canonical service flags without reconciliation.
-
-Initial priority:
-
-High.
-
-### 9. Markets and commodities
-
-Goal:
-
-Import market facts where useful and legally/practically available.
+### Markets and commodities
 
 Useful fields:
 
@@ -328,29 +205,11 @@ Useful fields:
 - station ID;
 - source timestamps.
 
-Likely sources:
+Priority: Medium.
 
-- Inara where accessible/appropriate;
-- ED journal/manual data;
-- possible community datasets.
+Market data must always carry freshness/age and should never be treated as timeless canonical truth.
 
-Canonical impact:
-
-Medium/high for planning and search, but highly freshness-sensitive.
-
-Initial priority:
-
-Medium.
-
-Notes:
-
-Market data should always carry freshness/age and should never be treated as timeless canonical truth.
-
-### 10. Shipyard and outfitting
-
-Goal:
-
-Import availability of ships/modules.
+### Shipyard and outfitting
 
 Useful fields:
 
@@ -361,24 +220,9 @@ Useful fields:
 - timestamp;
 - source.
 
-Likely sources:
+Priority: Later unless needed for user-facing search.
 
-- Inara;
-- ED journal/manual data.
-
-Canonical impact:
-
-Medium.
-
-Initial priority:
-
-Later, unless needed for user-facing search.
-
-### 11. Factions / BGS / controlling faction
-
-Goal:
-
-Import political/economic context.
+### Factions / BGS / controlling faction
 
 Useful fields:
 
@@ -391,29 +235,11 @@ Useful fields:
 - economy;
 - timestamps.
 
-Likely sources:
+Priority: Medium.
 
-- Inara;
-- EDSM;
-- journal/manual data.
+BGS/state data is volatile and freshness-bound.
 
-Canonical impact:
-
-Medium/high but volatile.
-
-Initial priority:
-
-Medium.
-
-Notes:
-
-BGS/state data should be treated as volatile and freshness-bound.
-
-### 12. Economies and security
-
-Goal:
-
-Import economy and security signals for systems/stations.
+### Economies and security
 
 Useful fields:
 
@@ -425,26 +251,9 @@ Useful fields:
 - population;
 - source timestamps.
 
-Likely sources:
+Priority: High.
 
-- EDSM;
-- Inara;
-- Spansh;
-- journal/manual data.
-
-Canonical impact:
-
-High for search and colonisation planning.
-
-Initial priority:
-
-High.
-
-### 13. Colonisation / construction sites
-
-Goal:
-
-Track colonisation construction states without polluting stable station catalogue.
+### Colonisation / construction sites
 
 Useful fields:
 
@@ -457,31 +266,15 @@ Useful fields:
 - weekly tick transition status;
 - source timestamps.
 
-Likely sources:
-
-- manual/operator input;
-- future community sources;
-- game/journal observations if available.
-
-Canonical impact:
-
-High for colonisation tools, but must be separated from final stable stations.
-
-Initial priority:
-
-Medium/high.
+Priority: Medium/high.
 
 Policy:
 
 `Space Construction Depot` is transient. It should be stored as construction evidence or transient infrastructure, not mapped to a final station type.
 
-### 14. Fleet carriers
+### Fleet carriers
 
-Goal:
-
-Track only if explicitly needed as transient/mobile objects.
-
-Useful fields:
+Useful fields if tracked:
 
 - carrier callsign/name;
 - system;
@@ -490,29 +283,13 @@ Useful fields:
 - last seen;
 - source timestamp.
 
-Likely sources:
-
-- Inara;
-- EDSM where available;
-- journal/manual data.
-
-Canonical impact:
-
-Low for stable station catalogue.
-
-Initial priority:
-
-Low.
+Priority: Low.
 
 Policy:
 
 Fleet carriers should not surface as stable canonical stations. `Drake-Class Carrier` remains refused/deferred for stable station-type writes.
 
-### 15. Materials / resources / hotspots
-
-Goal:
-
-Support mining/resource/colonisation planning.
+### Materials / resources / hotspots
 
 Useful fields:
 
@@ -522,26 +299,9 @@ Useful fields:
 - geological/biological signals;
 - source timestamps.
 
-Likely sources:
+Priority: Medium.
 
-- Spansh;
-- EDSM;
-- ED journal/manual data;
-- community sources.
-
-Canonical impact:
-
-Medium/high.
-
-Initial priority:
-
-Medium.
-
-### 16. Facilities / colonisation build templates
-
-Goal:
-
-Import build-plan templates and facility metadata.
+### Facilities / colonisation build templates
 
 Useful fields:
 
@@ -556,25 +316,9 @@ Useful fields:
 - build sequencing;
 - source/version.
 
-Likely sources:
+Priority: High.
 
-- DaftMav spreadsheet;
-- Mega Guide;
-- manual/operator structured files.
-
-Canonical impact:
-
-Very high for colonisation planner logic.
-
-Initial priority:
-
-High.
-
-### 17. Rules / mechanics reference
-
-Goal:
-
-Import or structure rules that constrain planner logic.
+### Rules / mechanics reference
 
 Useful fields:
 
@@ -587,22 +331,9 @@ Useful fields:
 - examples;
 - related mechanics.
 
-Likely sources:
+Priority: High as manual structured reference.
 
-- Mega Guide;
-- curated manual docs;
-- operator-confirmed decisions.
-
-Canonical impact:
-
-Very high for planner correctness, but should be manually curated.
-
-Initial priority:
-
-High as manual structured reference, not automatic web import.
-
-
-### 18. Missions and mission-board intelligence
+### Missions and mission-board intelligence
 
 Goal:
 
@@ -632,24 +363,20 @@ Likely sources:
 
 - player journal/manual captures where available;
 - operator-entered mission observations;
-- future local scraper/capture tooling if safe and allowed;
+- future local capture tooling if safe and allowed;
 - inferred mission links from repeated observations;
 - faction/economy/system state data from Inara/EDSM/other evidence;
 - station/economy/service warehouse facts.
 
 Canonical impact:
 
-High for the ED-Finder experience, but mission data is volatile and must be treated as time-bound evidence.
+High for ED-Finder experience, but mission data is volatile and must be treated as time-bound evidence.
 
-Initial priority:
+Priority:
 
 High as a derived/analytics domain, after the source-run ledger and first warehouse imports are stable.
 
-Notes:
-
-Mission data should not be treated as permanent canonical truth.
-
-The warehouse should support mission intelligence as a freshness-bound evidence layer. The goal is to produce useful scores and patterns such as:
+Mission intelligence should support:
 
 - mission density score;
 - passenger mission suitability;
@@ -659,16 +386,9 @@ The warehouse should support mission intelligence as a freshness-bound evidence 
 - large-pad mission usefulness;
 - tourism/passenger hub potential;
 - mining/source-return opportunity;
-- “home system mission paradise” score.
+- home-system mission paradise score.
 
-Mission intelligence should combine direct mission observations with source-derived context such as station economy, services, factions, nearby systems, station types, and pad sizes.
-
-
-### 19. Operator artifacts and review evidence
-
-Goal:
-
-Treat operator artifacts as first-class audit evidence.
+### Operator artifacts and review evidence
 
 Useful fields:
 
@@ -683,18 +403,7 @@ Useful fields:
 - write status;
 - reviewed row counts.
 
-Likely sources:
-
-- `/var/lib/ed-finder/operator-artifacts/`;
-- GitHub docs closeouts.
-
-Canonical impact:
-
-High for auditability.
-
-Initial priority:
-
-Very high.
+Priority: Very high.
 
 ## Import domain priority
 
@@ -714,28 +423,32 @@ Recommended initial order:
 
 ## Warehouse design implication
 
-The warehouse should not have one generic “import data” blob.
+The warehouse should not have one generic import blob.
 
 It should support distinct source/staging/warehouse domains:
 
 - source run ledger;
 - raw source files / source hashes;
 - staging systems;
+- staging stars;
 - staging bodies;
 - staging rings;
+- staging belt clusters;
 - staging stations;
+- staging settlements;
 - staging station services;
 - staging markets;
 - staging factions;
 - staging construction sites;
 - staging facility templates;
 - staging rules/reference facts;
+- staging mission observations;
 - warehouse system facts;
 - warehouse body facts;
 - warehouse ring facts;
 - warehouse station facts;
 - warehouse service facts;
-- warehouse market facts;
+- warehouse mission intelligence facts;
 - reconciliation candidates;
 - review/approval/write artifacts.
 
@@ -745,4 +458,4 @@ Stage 19A should inventory which of these domains already exist and which are mi
 
 Stage 19B should define the target schema boundaries.
 
-Stage 19C should complete the source/domain priority matrix before the first auto-import is enabled.
+Stage 19C/19D should complete source and domain priorities before the first auto-import is enabled.
