@@ -11,7 +11,7 @@ or touch canonical tables.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import artifact_utils
@@ -158,7 +158,7 @@ def get_enrichment_source_run_by_key(conn: Any, source_run_key: str) -> dict[str
             """,
             (_required_text(source_run_key, 'source_run_key'),),
         )
-        return _row_to_dict(cur.fetchone())
+        return _row_to_dict(cur.fetchone(), cur)
     finally:
         _close_cursor(cur)
 
@@ -227,7 +227,7 @@ def create_enrichment_source_run_for_source_run(
                 _jsonb(row['metadata']),
             ),
         )
-        created = _row_to_dict(cur.fetchone())
+        created = _row_to_dict(cur.fetchone(), cur)
         if created is None:
             raise SourceRunCompatibilityError('legacy enrichment source-run write did not return a row')
         return created
@@ -291,14 +291,49 @@ def _jsonb(value: Mapping[str, Any]) -> str:
     return artifact_utils.canonical_json(value)
 
 
-def _row_to_dict(row: Any) -> dict[str, Any] | None:
+def _row_to_dict(row: Any, cursor: Any | None = None) -> dict[str, Any] | None:
     if row is None:
         return None
     if isinstance(row, Mapping):
         return dict(row)
     if hasattr(row, 'keys'):
         return {key: row[key] for key in row.keys()}
+    if _is_positional_row(row):
+        column_names = _cursor_column_names(cursor)
+        if len(column_names) != len(row):
+            raise TypeError(
+                'compatibility helper cursor row length does not match cursor.description'
+            )
+        return dict(zip(column_names, row))
     raise TypeError('compatibility helper cursor rows must be mapping-like')
+
+
+def _is_positional_row(row: Any) -> bool:
+    return isinstance(row, Sequence) and not isinstance(row, (str, bytes, bytearray))
+
+
+def _cursor_column_names(cursor: Any | None) -> list[str]:
+    description = getattr(cursor, 'description', None)
+    if not description:
+        raise TypeError(
+            'compatibility helper cursor rows must be mapping-like or '
+            'cursor.description must define columns'
+        )
+    return [_description_column_name(column) for column in description]
+
+
+def _description_column_name(column: Any) -> str:
+    if isinstance(column, str):
+        return column
+    name = getattr(column, 'name', None)
+    if name is not None:
+        return str(name)
+    try:
+        return str(column[0])
+    except (TypeError, IndexError, KeyError):
+        raise TypeError(
+            'compatibility helper cursor.description entries must expose column names'
+        ) from None
 
 
 def _close_cursor(cur: Any) -> None:

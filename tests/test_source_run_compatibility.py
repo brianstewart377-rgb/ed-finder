@@ -18,6 +18,20 @@ import source_run_compatibility as compat  # noqa: E402
 
 STARTED = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 FINISHED = datetime(2026, 1, 2, 3, 5, 0, tzinfo=timezone.utc)
+LEGACY_COLUMNS = (
+    'id',
+    'source_run_key',
+    'source',
+    'adapter_name',
+    'adapter_version',
+    'source_kind',
+    'source_class',
+    'run_label',
+    'dry_run',
+    'source_started_at',
+    'source_completed_at',
+    'metadata',
+)
 
 
 class FakeCursor:
@@ -25,6 +39,7 @@ class FakeCursor:
         self.conn = conn
         self.closed = False
         self.last_result = None
+        self.description = None
 
     def execute(self, sql, params=None):
         params = tuple(params or ())
@@ -32,7 +47,7 @@ class FakeCursor:
         compact = ' '.join(sql.lower().split())
 
         if compact.startswith('select') and 'from enrichment_source_runs' in compact:
-            self.last_result = self.conn.existing_rows.get(params[0])
+            self._set_result(self.conn.existing_rows.get(params[0]))
             return
 
         if compact.startswith('insert into enrichment_source_runs'):
@@ -52,10 +67,24 @@ class FakeCursor:
                 'metadata': json.loads(params[10]),
             }
             self.conn.existing_rows[params[0]] = row
-            self.last_result = row
+            self._set_result(row)
             return
 
         raise AssertionError(f'unexpected SQL: {sql}')
+
+    def _set_result(self, row):
+        if row is None:
+            self.last_result = None
+            self.description = None
+            return
+        self.description = [(column,) for column in self.conn.description_columns]
+        if self.conn.row_style == 'tuple':
+            self.last_result = tuple(row[column] for column in self.conn.description_columns)
+            return
+        if self.conn.row_style == 'list':
+            self.last_result = [row[column] for column in self.conn.description_columns]
+            return
+        self.last_result = row
 
     def fetchone(self):
         return self.last_result
@@ -65,11 +94,13 @@ class FakeCursor:
 
 
 class FakeConn:
-    def __init__(self, *, existing_rows=None):
+    def __init__(self, *, existing_rows=None, row_style='mapping', description_columns=LEGACY_COLUMNS):
         self.statements = []
         self.cursors = []
         self.next_id = 700
         self.existing_rows = dict(existing_rows or {})
+        self.row_style = row_style
+        self.description_columns = tuple(description_columns)
 
     def cursor(self):
         cur = FakeCursor(self)
@@ -106,6 +137,25 @@ def source_run_row(**overrides):
             'stage': '19t',
             'source_adapter': 'edsm_nightly_stations',
         },
+    }
+    row.update(overrides)
+    return row
+
+
+def legacy_row(**overrides):
+    row = {
+        'id': 777,
+        'source_run_key': 'source_runs:stage-19t-run',
+        'source': 'edsm',
+        'adapter_name': 'stage_19t_edsm_station_import_mvp',
+        'adapter_version': 'v1',
+        'source_kind': 'offline_snapshot',
+        'source_class': 'semi-stable',
+        'run_label': 'stage-19t-run',
+        'dry_run': True,
+        'source_started_at': STARTED,
+        'source_completed_at': FINISHED,
+        'metadata': {'compatibility_bridge': True},
     }
     row.update(overrides)
     return row
@@ -207,21 +257,68 @@ def test_create_enrichment_source_run_for_source_run_upserts_legacy_row():
     assert_only_compat_sql(conn)
 
 
+def test_mapping_fake_cursor_rows_still_work_for_select_path():
+    existing = legacy_row()
+    conn = FakeConn(existing_rows={'source_runs:stage-19t-run': existing})
+
+    row = compat.get_enrichment_source_run_by_key(conn, 'source_runs:stage-19t-run')
+
+    assert row == existing
+    assert_only_compat_sql(conn)
+
+
+def test_tuple_cursor_with_description_works_for_select_path():
+    existing = legacy_row(id=778)
+    conn = FakeConn(
+        existing_rows={'source_runs:stage-19t-run': existing},
+        row_style='tuple',
+    )
+
+    row = compat.get_enrichment_source_run_by_key(conn, 'source_runs:stage-19t-run')
+
+    assert row == existing
+    assert isinstance(conn.cursors[0].last_result, tuple)
+    assert_only_compat_sql(conn)
+
+
+def test_tuple_cursor_with_description_works_for_insert_returning_path():
+    conn = FakeConn(row_style='tuple')
+
+    row = compat.create_enrichment_source_run_for_source_run(conn, source_run_row())
+
+    assert row['id'] == 701
+    assert row['source_run_key'] == 'source_runs:stage-19t-run'
+    assert row['metadata']['compatibility_bridge'] is True
+    assert isinstance(conn.cursors[0].last_result, tuple)
+    assert_only_compat_sql(conn)
+
+
+def test_get_or_create_legacy_staging_context_works_with_tuple_cursor_rows():
+    conn = FakeConn(row_style='tuple')
+
+    context = compat.get_or_create_legacy_staging_context(conn, source_run_row())
+
+    assert context['legacy_source_run_id'] == 701
+    assert context['enrichment_source_run']['source_run_key'] == 'source_runs:stage-19t-run'
+    assert isinstance(conn.cursors[1].last_result, tuple)
+    assert_only_compat_sql(conn)
+
+
+def test_tuple_row_without_usable_cursor_description_fails_clearly():
+    with pytest.raises(TypeError, match='cursor.description must define columns'):
+        compat._row_to_dict((1, 'source_runs:stage-19t-run'))
+
+
+def test_tuple_row_with_mismatched_cursor_description_length_fails_clearly():
+    class CursorWithShortDescription:
+        description = [('id',)]
+
+    with pytest.raises(TypeError, match='row length does not match cursor.description'):
+        compat._row_to_dict((1, 'source_runs:stage-19t-run'), CursorWithShortDescription())
+
+
 def test_get_or_create_returns_existing_row_without_insert_for_idempotency():
-    existing = {
-        'id': 777,
-        'source_run_key': 'source_runs:stage-19t-run',
-        'source': 'edsm',
-        'adapter_name': 'stage_19t_edsm_station_import_mvp',
-        'adapter_version': 'v1',
-        'source_kind': 'offline_snapshot',
-        'source_class': 'semi-stable',
-        'run_label': 'stage-19t-run',
-        'dry_run': True,
-        'source_started_at': STARTED,
-        'source_completed_at': FINISHED,
-        'metadata': {'compatibility_bridge': True},
-    }
+    existing = legacy_row()
     conn = FakeConn(existing_rows={'source_runs:stage-19t-run': existing})
 
     row = compat.get_or_create_enrichment_source_run_for_source_run(conn, source_run_row())
