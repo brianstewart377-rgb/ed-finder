@@ -209,7 +209,7 @@ def test_run_source_run_artifact_flow_creates_writes_and_completes_success(tmp_p
         update_params[12],
     )
     metadata = json.loads(update_params[12])
-    assert metadata['operation'] == 'fake_succesp'
+    assert metadata['operation'] == 'fake_success'
     assert metadata['artifact_record']['file_sha256'] == result['artifact_record']['file_sha256']
     assert update_params[13] == 'stage-19r-run'
     assert update_params[14] == ['planned', 'running']
@@ -268,7 +268,10 @@ def test_run_source_run_artifact_flow_rejects_unknown_completion_status(tmp_path
     def operation(_source_run):
         return artifacts.SourceRunArtifactOutcome(payload=payload_shell(), status='waiting')
 
-    with pytest.raises(Exception, match='unsupported artifact completion status'):
+    with pytest.raises(
+        artifacts.source_run_ledger.SourceRunLedgerError,
+        match='unsupported artifact completion status',
+    ):
         artifacts.run_source_run_artifact_flow(
             conn,
             source_run_kwargs=valid_source_run_kwargs(),

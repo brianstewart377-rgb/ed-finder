@@ -184,7 +184,7 @@ def run_source_run_artifact_flow(
     source_run = source_run_ledger.create_source_run(conn, **dict(source_run_kwargs))
     outcome = operation(source_run)
     if outcome.status not in FINAL_STATUSES:
-        raise source_run_ledger.SourceLedgerError(f'unsupported artifact completion status: {outcome.status}')
+        raise source_run_ledger.SourceRunLedgerError(f'unsupported artifact completion status: {outcome.status}')
 
     artifact_record = write_source_run_artifact(artifact_path, outcome.payload)
     completion = complete_source_run_with_artifact(
