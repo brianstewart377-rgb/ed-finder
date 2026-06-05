@@ -553,6 +553,27 @@ These Grok ideas reinforce the next Stage 19 priorities:
 6. planner/map E2E coverage;
 7. UI performance work once warehouse-backed views grow.
 
+## Stage 19AH bounded EDSM staging smoke closeout
+
+Stage 19AH closed the first committed bounded local-file EDSM staging smoke.
+
+Production-proven path:
+
+`local EDSM fixture -> source_runs -> enrichment_source_runs bridge -> staging_edsm_stations`
+
+Committed changes:
+
+- one `source_runs` row;
+- one `enrichment_source_runs` compatibility bridge row;
+- one `staging_edsm_stations` source-evidence row;
+- zero canonical writes;
+- zero canonical apply;
+- zero scheduler/timer enablement.
+
+The first post-check used an overly broad canonical count comparison and failed after the valid commit. A recovery artifact and corrected Stage 19AG verification confirmed the smoke row is valid and uses the legacy bridge correctly.
+
+Next safe step: Stage 19AI read-only staging-smoke impact scan before any wider import.
+
 ## Stage 19AE production closeout
 
 Stage 19AE closed the Data Warehouse productionisation questline for the provenance foundation.
