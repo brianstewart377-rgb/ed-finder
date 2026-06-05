@@ -553,6 +553,32 @@ These Grok ideas reinforce the next Stage 19 priorities:
 6. planner/map E2E coverage;
 7. UI performance work once warehouse-backed views grow.
 
+## Stage 19AE production closeout
+
+Stage 19AE closed the Data Warehouse productionisation questline for the provenance foundation.
+
+Production-proven:
+
+- `source_runs` schema;
+- source-run helper lifecycle;
+- artifact/canonical JSON helpers;
+- source-run artifact helper;
+- source-run to legacy `enrichment_source_runs` compatibility helper;
+- real DB rollback rehearsal for `source_runs -> enrichment_source_runs -> staging_edsm_stations`; 
+- committed production smoke with one `source_runs` row and one `enrichment_source_runs` bridge row;
+- artifact hash correction and read-only post-correction verification.
+
+Final safety state:
+
+- no production import run;
+- no scheduler/timer enabled;
+- no canonical writes;
+- no canonical apply;
+- no committed staging rows;
+- provenance foundation is production-ready.
+
+Next controlled step is a bounded local-file EDSM station staging smoke using an explicit compatible stager.
+
 ## Deep Grok product and architecture intake
 
 Stage 19X expands the earlier Grok intake beyond admin visibility into product, UI/UX, map, planner, package, and testing direction.
