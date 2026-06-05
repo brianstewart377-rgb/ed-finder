@@ -553,6 +553,63 @@ These Grok ideas reinforce the next Stage 19 priorities:
 6. planner/map E2E coverage;
 7. UI performance work once warehouse-backed views grow.
 
+## Deep Grok product and architecture intake
+
+Stage 19X expands the earlier Grok intake beyond admin visibility into product, UI/UX, map, planner, package, and testing direction.
+
+Accepted direction:
+
+`ED-Finder should become a provenance-backed colonisation planning cockpit.`
+
+Accepted lanes:
+
+1. Admin/operator cockpit for source-runs, artifacts, warehouse freshness, failed/running imports, review packets, approval allowlists, bounded writes, and canonical apply state.
+2. Map as the central planning surface.
+3. Planner cockpit for CP curve, build sequence, body slots, materials, unlocks, economy/security impact, and exports.
+4. Facility browser, recommender, and comparison tools.
+5. Ring/mining planning and overlays.
+6. Mission intelligence as freshness-bound evidence.
+7. Export/operator packs with Markdown, JSON, CSV, and shareable snapshots.
+8. Zod/runtime validation for API/UI boundaries.
+9. Current canvas map refactor before any PixiJS rewrite.
+10. dnd-kit later for planner drag/drop, not map rendering.
+
+Package direction:
+
+- keep current Canvas map now;
+- evaluate PixiJS later only after map refactor and profiling;
+- avoid MapLibre/Leaflet for ED galaxy coordinates;
+- use Recharts for CP curves and timelines;
+- add Zod soon for runtime validation;
+- add dnd-kit later for drag/drop build planning;
+- consider TanStack Table or state machines only when concrete admin/planner complexity justifies them.
+
+Planner drag/drop lane:
+
+- build sequence planner;
+- planetary slot assignment;
+- facility priority queue;
+- material/cargo delivery phases;
+- export pack ordering;
+- alternative build plan comparison.
+
+Rule: drag/drop must sit on top of a real planner data model. It should change CP, materials, unlocks, economy impact, or export state, not just move cards.
+
+Stage 20 candidate roadmap:
+
+| Stage | Theme | Boundary |
+|---|---|---|
+| Stage 20A | Source-run/artifact/warehouse status API design | Docs or repo-only |
+| Stage 20B | Admin/operator cockpit UI | Repo-only |
+| Stage 20C | Map architecture refactor into projection, viewport, layers, hit-test, overlays | Repo-only |
+| Stage 20D | Canvas LOD and batching | Repo-only |
+| Stage 20E | Planner data model | Repo-only |
+| Stage 20F | CP curve and build sequence UI | Repo-only |
+| Stage 20G | dnd-kit drag/drop build planner | Repo-only |
+| Stage 20H | Export/operator pack builder | Repo-only |
+
+Grok remains a brainstorming and adversarial review source only. Grok-generated scripts, broad patch bundles, deploy commands, and production DB commands must not be run directly.
+
 ## Non-goals for early Stage 19
 
 Do not start with:
