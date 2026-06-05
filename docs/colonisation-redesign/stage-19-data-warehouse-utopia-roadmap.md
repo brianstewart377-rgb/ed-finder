@@ -509,6 +509,50 @@ Hardening items:
 - approval allowlists;
 - controlled write lanes.
 
+
+## Grok intake backlog
+
+Grok is being used as a brainstorming, audit, bug-hunting, and UI/UX critique tool.
+
+Grok outputs must not be run directly against production. Ideas and prototype code from Grok should be brought back into the main review flow, converted into scoped roadmap items, and implemented through reviewed Codex/repo PRs where appropriate.
+
+### Grok ideas accepted into the Stage 19 roadmap
+
+| Idea | Why it matters | Implementation route | Priority |
+|---|---|---|---:|
+| Admin/operator visibility for artifacts, source-runs, import health, and warehouse freshness | Data Warehouse Utopia needs a visible control panel, not hidden scripts and mystery artifacts. | Build API/admin status endpoints and a UI panel after source-run wrapper stabilises. | High |
+| End-to-end coverage for map/planner flows, including CP curve, BGS, ring hotspots, export, and mission simulation | Protects the user-facing planner from regressions as warehouse facts and mission intelligence are added. | Codex test PRs, focused by flow; do not bundle into one mega-test branch. | High |
+| Stronger frontend type contracts and runtime validation for planner/economy data | Warehouse and planner data will grow more complex; runtime validation helps catch bad data at boundaries. | Add Zod or equivalent validation in targeted frontend/API contracts after schema stabilises. | Medium/high |
+| Economy calculator hardening: batch mode, caching, provenance, and edge-case tests | Economy and colonisation scoring need to be explainable, repeatable, and fast. | Codex implementation after source-run ledger and first import helper are in place. | Medium/high |
+| Artifact manifest and canonical JSON helpers | We repeatedly generate artifacts, hashes, and integrity records; shared helpers will reduce copy/paste mistakes. | Add shared Python helpers and tests; use in future operator/import artifacts. | High |
+| Mission intelligence as a first-class analytics domain | One of ED-Finder’s differentiators is identifying strong mission ecosystems, not just static infrastructure. | Treat as freshness-bound evidence and derived analytics, not timeless canonical truth. | High |
+| Map canvas LOD, batching, and performance improvements | Large warehouse-backed visualisations will need performance work as data density grows. | Frontend performance PRs after warehouse status/data endpoints settle. | Medium |
+
+### Intake rules
+
+Grok output is useful input, but not trusted implementation.
+
+Rules:
+
+- do not run Grok deployment scripts;
+- do not apply broad Grok patch bundles directly;
+- do not run Grok-generated DB or operator commands against production;
+- convert good ideas into scoped Codex tasks or reviewed operator stages;
+- keep production DB changes in the main controlled flow;
+- use Grok for adversarial review and idea discovery, not as an execution authority.
+
+### Near-term roadmap impact
+
+These Grok ideas reinforce the next Stage 19 priorities:
+
+1. source-run helper/wrapper smoke testing;
+2. artifact/canonical JSON helper extraction;
+3. warehouse/source-run admin visibility;
+4. EDSM auto-import MVP;
+5. mission-intelligence evidence model;
+6. planner/map E2E coverage;
+7. UI performance work once warehouse-backed views grow.
+
 ## Non-goals for early Stage 19
 
 Do not start with:
