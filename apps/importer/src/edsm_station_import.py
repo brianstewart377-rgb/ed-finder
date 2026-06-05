@@ -7,8 +7,11 @@ Useful source fields include ``id``, ``marketId``, ``name``, ``systemName``,
 ``systemId64``, ``type``, ``distanceToArrival``, ``services``, ``economy``,
 ``secondEconomy``, and ``updatedAt``.
 
-It stages normalised source evidence into the EDSM staging table through a
-caller-owned connection, writes a source-run artifact, and completes the new
+It plans normalised source evidence and can stage rows only through an explicit
+caller-supplied stager. The repository staging table currently keys
+``staging_edsm_stations.source_run_id`` to ``enrichment_source_runs(id)``, so
+this wrapper does not ship a default stager that would misuse the new
+``source_runs`` ID. It writes a source-run artifact and completes the new
 ``source_runs`` ledger row. It does not open database connections, call the
 network, or write canonical data.
 """
@@ -85,7 +88,6 @@ def run_edsm_station_import(
     source_uri = _source_uri(source_path)
     file_format = source_file_format_metadata(source_path)
     source_run_key = source_run_key or build_source_run_key(source_input_sha256)
-    stager = station_stager or stage_edsm_station_rows
 
     source_run_kwargs = build_source_run_kwargs(
         source_run_key=source_run_key,
@@ -118,7 +120,12 @@ def run_edsm_station_import(
                 error_summary = 'No valid EDSM station rows were available to stage.'
                 rows_staged = 0
             else:
-                rows_staged = stager(conn, source_run_id=_source_run_id(source_run), rows=plan['staged_rows'])
+                rows_staged = run_explicit_station_stager(
+                    conn,
+                    source_run=source_run,
+                    rows=plan['staged_rows'],
+                    station_stager=station_stager,
+                )
                 if rows_staged != plan['rows_staged']:
                     raise EdsmStationImportError(
                         'staging row count mismatch: '
@@ -394,118 +401,25 @@ def build_edsm_station_import_artifact(
     )
 
 
-def stage_edsm_station_rows(conn: Any, *, source_run_id: int, rows: Sequence[Mapping[str, Any]]) -> int:
-    """Insert normalised station evidence into ``staging_edsm_stations`` only."""
-    cur = conn.cursor()
-    try:
-        written = 0
-        for row in rows:
-            cur.execute(
-                f"""
-                INSERT INTO {STAGING_TABLE} (
-                    source_run_id,
-                    source_file_id,
-                    raw_record_id,
-                    source_record_key,
-                    source_record_hash,
-                    system_id64,
-                    system_name,
-                    market_id,
-                    edsm_station_id,
-                    station_name,
-                    station_type,
-                    distance_to_arrival,
-                    body_name,
-                    services,
-                    economies,
-                    controlling_faction,
-                    allegiance,
-                    government,
-                    source_class,
-                    confidence,
-                    freshness_class,
-                    source_updated_at,
-                    raw_payload,
-                    provenance
-                )
-                VALUES (
-                    %s, NULL, NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s,
-                    %s, %s::jsonb, %s::jsonb
-                )
-                ON CONFLICT (source_run_id, source_record_hash) DO UPDATE SET
-                    source_record_key = EXCLUDED.source_record_key,
-                    system_id64 = EXCLUDED.system_id64,
-                    system_name = EXCLUDED.system_name,
-                    market_id = EXCLUDED.market_id,
-                    edsm_station_id = EXCLUDED.edsm_station_id,
-                    station_name = EXCLUDED.station_name,
-                    station_type = EXCLUDED.station_type,
-                    distance_to_arrival = EXCLUDED.distance_to_arrival,
-                    body_name = EXCLUDED.body_name,
-                    services = EXCLUDED.services,
-                    economies = EXCLUDED.economies,
-                    controlling_faction = EXCLUDED.controlling_faction,
-                    allegiance = EXCLUDED.allegiance,
-                    government = EXCLUDED.government,
-                    source_class = EXCLUDED.source_class,
-                    confidence = EXCLUDED.confidence,
-                    freshness_class = EXCLUDED.freshness_class,
-                    source_updated_at = EXCLUDED.source_updated_at,
-                    raw_payload = EXCLUDED.raw_payload,
-                    provenance = EXCLUDED.provenance
-                RETURNING id
-                """,
-                (
-                    source_run_id,
-                    row.get('source_record_key'),
-                    row.get('source_record_hash'),
-                    row.get('system_id64'),
-                    row.get('system_name'),
-                    row.get('market_id'),
-                    row.get('edsm_station_id'),
-                    row.get('station_name'),
-                    row.get('station_type'),
-                    row.get('distance_to_arrival'),
-                    row.get('body_name'),
-                    _jsonb(row.get('services', [])),
-                    _jsonb(row.get('economies', [])),
-                    row.get('controlling_faction'),
-                    row.get('allegiance'),
-                    row.get('government'),
-                    row.get('source_class'),
-                    row.get('confidence'),
-                    row.get('freshness_class'),
-                    row.get('source_updated_at'),
-                    _jsonb(row.get('raw_payload', {})),
-                    _jsonb(row.get('provenance', {})),
-                ),
-            )
-            cur.fetchone()
-            written += 1
-        return written
-    finally:
-        close = getattr(cur, 'close', None)
-        if callable(close):
-            close()
-
-
-def _source_run_id(source_run: Mapping[str, Any]) -> int:
-    source_run_id = source_run.get('id')
-    if isinstance(source_run_id, bool) or source_run_id is None:
-        raise EdsmStationImportError('source run creation did not return an integer id')
-    try:
-        return int(source_run_id)
-    except (TypeError, ValueError) as exc:
-        raise EdsmStationImportError('source run creation did not return an integer id') from exc
+def run_explicit_station_stager(
+    conn: Any,
+    *,
+    source_run: Mapping[str, Any],
+    rows: Sequence[Mapping[str, Any]],
+    station_stager: Callable[..., int] | None,
+) -> int:
+    """Run a caller-supplied stager, failing closed when none is provided."""
+    if station_stager is None:
+        raise EdsmStationImportError(
+            'staging execution requires an explicit compatible station_stager; '
+            'staging_edsm_stations.source_run_id currently expects enrichment_source_runs.id, '
+            'not source_runs.id from this wrapper'
+        )
+    return station_stager(conn, source_run=source_run, rows=rows)
 
 
 def _source_uri(source_file: Path) -> str:
     return source_file.resolve().as_uri()
-
-
-def _jsonb(value: Any) -> str:
-    return artifact_utils.canonical_json(value)
 
 
 def _copy_rows(rows: Any) -> list[dict[str, Any]]:

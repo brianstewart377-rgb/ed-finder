@@ -127,7 +127,38 @@ def load_artifact(path):
     return loaded
 
 
-def test_edsm_station_import_stages_valid_rows_and_completes_source_run(tmp_path):
+def compatible_fake_station_stager(conn, *, source_run, rows):
+    assert source_run['source_run_key'].startswith('stage-19t')
+    cur = conn.cursor()
+    try:
+        for row in rows:
+            cur.execute(
+                """
+                INSERT INTO staging_edsm_stations (
+                    source_run_id,
+                    source_record_hash,
+                    station_name,
+                    station_type,
+                    provenance
+                )
+                VALUES (%s, %s, %s, %s, %s::jsonb)
+                RETURNING id
+                """,
+                (
+                    'compatible-enrichment-source-run-id',
+                    row['source_record_hash'],
+                    row['station_name'],
+                    row['station_type'],
+                    artifact_utils.canonical_json(row['provenance']),
+                ),
+            )
+            cur.fetchone()
+        return len(rows)
+    finally:
+        cur.close()
+
+
+def test_edsm_station_import_stages_valid_rows_with_injected_stager_and_completes_source_run(tmp_path):
     conn = FakeConn()
     source_file = write_source(tmp_path / 'edsm-stations.json', sample_rows())
     artifact_path = tmp_path / 'artifacts' / 'stage-19t.json'
@@ -141,19 +172,20 @@ def test_edsm_station_import_stages_valid_rows_and_completes_source_run(tmp_path
         trigger_context='unit_test',
         generated_at=NOW,
         finished_at=NOW,
+        station_stager=compatible_fake_station_stager,
     )
 
     source_input_sha256 = artifact_utils.sha256_file(source_file)
     assert result['source_run'] == {'id': 101, 'source_run_key': 'stage-19t-test', 'status': 'running'}
     assert result['completion']['status'] == 'succeeded'
     assert len(conn.staging_params) == 3
-    assert {params[8] for params in conn.staging_params} == {
+    assert {params[3] for params in conn.staging_params} == {
         'Coriolis Starport',
         'Drake-Class Carrier',
         'Space Construction Depot',
     }
-    assert {params[7] for params in conn.staging_params} == {'Galileo', 'BVT-19T', 'Rackham Depot Works'}
-    assert all(json.loads(params[21])['canonical_write_allowed'] is False for params in conn.staging_params)
+    assert {params[2] for params in conn.staging_params} == {'Galileo', 'BVT-19T', 'Rackham Depot Works'}
+    assert all(json.loads(params[4])['canonical_write_allowed'] is False for params in conn.staging_params)
 
     create_sql, create_params = conn.statements[0]
     assert 'INSERT INTO source_runs' in create_sql
@@ -206,13 +238,47 @@ def test_edsm_station_import_stages_valid_rows_and_completes_source_run(tmp_path
     assert_sql_only_touches_allowed_tables(conn)
 
 
+def test_edsm_station_import_without_explicit_stager_fails_closed_before_staging_write(tmp_path):
+    conn = FakeConn()
+    source_file = write_source(tmp_path / 'edsm-stations.json', sample_rows())
+    artifact_path = tmp_path / 'artifacts' / 'stage-19t-no-default-stager.json'
+
+    result = importer.run_edsm_station_import(
+        conn,
+        source_file=source_file,
+        artifact_path=artifact_path,
+        source_run_key='stage-19t-no-default-stager',
+        git_commit_sha='abc1234',
+        trigger_context='unit_test',
+        generated_at=NOW,
+        finished_at=NOW,
+    )
+
+    assert result['completion']['status'] == 'failed'
+    assert conn.staging_params == []
+    assert not any('INSERT INTO staging_edsm_stations' in sql for sql, _params in conn.statements)
+    update_params = conn.statements[-1][1]
+    assert update_params[0] == 'failed'
+    assert update_params[3:7] == (3, 0, 0, 0)
+    assert update_params[10] == 'edsm_station_import_failed'
+    assert 'EdsmStationImportError' in update_params[11]
+    assert 'staging_edsm_stations.source_run_id currently expects enrichment_source_runs.id' in update_params[11]
+    assert 'not source_runs.id from this wrapper' in update_params[11]
+    loaded = load_artifact(artifact_path)
+    assert loaded['summary']['status'] == 'failed'
+    assert loaded['summary']['rows_read'] == 3
+    assert loaded['summary']['rows_staged'] == 0
+    assert loaded['summary']['error_summary'] == update_params[11]
+    assert_sql_only_touches_allowed_tables(conn)
+
+
 def test_edsm_station_import_records_failed_completion_when_staging_raises(tmp_path):
     conn = FakeConn()
     source_file = write_source(tmp_path / 'edsm-stations.json', sample_rows()[:1])
     artifact_path = tmp_path / 'artifacts' / 'stage-19t-failed.json'
 
-    def failing_stager(_conn, *, source_run_id, rows):
-        assert source_run_id == 101
+    def failing_stager(_conn, *, source_run, rows):
+        assert source_run['id'] == 101
         assert len(rows) == 1
         raise RuntimeError('staging insert failed')
 
