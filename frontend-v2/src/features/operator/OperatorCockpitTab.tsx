@@ -87,6 +87,7 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
 
   const selectSourceRun = useCallback(async (sourceRunKey: string) => {
     if (!admin.token) return;
+    cockpitRequestSeq.current += 1;
     const requestSeq = detailRequestSeq.current + 1;
     detailRequestSeq.current = requestSeq;
     setSelectedKey(sourceRunKey);

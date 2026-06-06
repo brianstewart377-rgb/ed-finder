@@ -1,5 +1,6 @@
 import inspect
 import importlib.util
+import os
 import re
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ if str(API_SRC) not in sys.path:
     sys.path.insert(0, str(API_SRC))
 if str(API_ROUTERS) not in sys.path:
     sys.path.insert(0, str(API_ROUTERS))
+os.environ.setdefault('CORS_ORIGINS', 'http://localhost')
 
 import operator_visibility as visibility  # noqa: E402
 
@@ -24,6 +26,33 @@ _ROUTER_SPEC = importlib.util.spec_from_file_location(
 operator_router = importlib.util.module_from_spec(_ROUTER_SPEC)
 assert _ROUTER_SPEC.loader is not None
 _ROUTER_SPEC.loader.exec_module(operator_router)
+
+
+class FakeAsyncTransaction:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+
+class FakePoolAcquire:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def __aenter__(self):
+        return self.conn
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+
+class FakePool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        return FakePoolAcquire(self.conn)
 
 
 def source_run(**overrides):
@@ -122,6 +151,9 @@ class FakeAsyncConn:
         self.legacy_rows = list(legacy_rows or [])
         self.staging_rows = list(staging_rows or [])
         self.statements = []
+
+    def transaction(self, readonly=False):
+        return FakeAsyncTransaction()
 
     async def fetch(self, sql, *params):
         self.statements.append((sql, params))
@@ -469,6 +501,45 @@ async def test_file_paths_are_redacted_or_normalized_when_returned():
     encoded = visibility.to_operator_visibility_dict(detail)
     assert '/var/lib' not in repr(encoded)
     assert '/home/brian' not in repr(encoded)
+
+
+@pytest.mark.asyncio
+async def test_operator_query_endpoints_preserve_slash_and_space_source_run_keys():
+    source_run_key = 'source/run 1'
+    conn = FakeAsyncConn(
+        source_runs=[source_run(source_run_key=source_run_key)],
+        legacy_rows=[legacy_bridge(source_run_key=f'source_runs:{source_run_key}')],
+        staging_rows=[
+            staging_row(
+                source_run_id=701,
+                provenance={
+                    'canonical_write_allowed': False,
+                    'stage19anr_diagnostic_mark': {'source_run_key': source_run_key},
+                },
+            ),
+        ],
+    )
+    pool = FakePool(conn)
+
+    detail = await operator_router.operator_source_run_detail(source_run_key=source_run_key, pool=pool)
+    artifacts = await operator_router.operator_source_run_artifacts(source_run_key=source_run_key, pool=pool)
+    bridge = await operator_router.operator_source_run_bridge(source_run_key=source_run_key, pool=pool)
+    staging = await operator_router.operator_source_run_staging_impact(
+        source_run_key=source_run_key,
+        limit=5,
+        pool=pool,
+    )
+
+    assert detail['summary']['source_run_key'] == source_run_key
+    assert artifacts['source_run_key'] == source_run_key
+    assert bridge['source_run_key'] == source_run_key
+    assert staging['source_run_key'] == source_run_key
+    assert staging['staging_impact']['source_run_key'] == source_run_key
+    route_paths = {route.path for route in operator_router.router.routes}
+    assert '/api/operator/source-runs/{source_run_key}' not in route_paths
+    assert '/api/operator/source-runs/{source_run_key}/artifacts' not in route_paths
+    assert '/api/operator/source-runs/{source_run_key}/bridge' not in route_paths
+    assert '/api/operator/source-runs/{source_run_key}/staging-impact' not in route_paths
 
 
 def test_static_guardrails_for_operator_visibility_module_and_router():

@@ -28,10 +28,13 @@ import type {
   ObservedFactUpdateRequest,
   OptimiserCandidatesRequest,
   OptimiserCandidatesResponse,
+  OperatorArtifactSummary,
+  OperatorBridgeSummary,
   OperatorDiagnosticRowSummary,
   OperatorSafetyGateSummary,
   OperatorSourceRunDetail,
   OperatorSourceRunSummary,
+  OperatorStagingImpactSummary,
   PredictionObservationCompareRequest,
   PredictionObservationCompareResponse,
   RecommendedBuildsResponse,
@@ -375,7 +378,34 @@ export const api = {
     });
   },
   operatorSourceRunDetail(token: string, sourceRunKey: string): Promise<OperatorSourceRunDetail> {
-    return jsonFetch(`/api/operator/source-runs/${encodeURIComponent(sourceRunKey)}`, {
+    const params = new URLSearchParams({ source_run_key: sourceRunKey });
+    return jsonFetch(`/api/operator/source-run-detail?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRunArtifacts(token: string, sourceRunKey: string): Promise<OperatorArtifactSummary> {
+    const params = new URLSearchParams({ source_run_key: sourceRunKey });
+    return jsonFetch(`/api/operator/source-run-artifacts?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRunBridge(token: string, sourceRunKey: string): Promise<OperatorBridgeSummary> {
+    const params = new URLSearchParams({ source_run_key: sourceRunKey });
+    return jsonFetch(`/api/operator/source-run-bridge?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRunStagingImpact(
+    token: string,
+    sourceRunKey: string,
+    limit = 100,
+  ): Promise<{
+    source_run_key: string;
+    bridge_present: boolean;
+    staging_impact: OperatorStagingImpactSummary | null;
+  }> {
+    const params = new URLSearchParams({ source_run_key: sourceRunKey, limit: String(limit) });
+    return jsonFetch(`/api/operator/source-run-staging-impact?${params.toString()}`, {
       headers: { 'X-Admin-Token': token },
     });
   },

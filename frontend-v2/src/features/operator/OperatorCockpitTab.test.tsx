@@ -337,6 +337,76 @@ describe('OperatorCockpitTab', () => {
     expect(screen.queryByText('Scoped Station / Scoped System / Scoped Type')).toBeNull();
   });
 
+  it('keeps selected source-run diagnostics when an earlier full refresh resolves later', async () => {
+    const refreshGates = deferred<OperatorSafetyGateSummary>();
+    const refreshRuns = deferred<OperatorSourceRunSummary[]>();
+    const refreshDiagnostics = deferred<OperatorDiagnosticRowSummary[]>();
+    const selectedDetail = deferred<OperatorSourceRunDetail>();
+    const selectedDiagnostics = deferred<OperatorDiagnosticRowSummary[]>();
+    let unscopedDiagnosticCalls = 0;
+    apiMock.operatorSafetyGates
+      .mockResolvedValueOnce(safety())
+      .mockReturnValueOnce(refreshGates.promise);
+    apiMock.operatorSourceRuns
+      .mockResolvedValueOnce([sourceRun()])
+      .mockReturnValueOnce(refreshRuns.promise);
+    apiMock.operatorSourceRunDetail.mockReturnValue(selectedDetail.promise);
+    apiMock.operatorDiagnosticRows.mockImplementation((_token, options = {}) => {
+      if (options.sourceRunKey === 'run-001') return selectedDiagnostics.promise;
+      unscopedDiagnosticCalls += 1;
+      if (unscopedDiagnosticCalls === 1) {
+        return Promise.resolve([
+          diagnosticRow({
+            row_id: 501,
+            station_name: 'Initial Station',
+            system_name: 'Initial System',
+            station_type: 'Initial Type',
+          }),
+        ]);
+      }
+      return refreshDiagnostics.promise;
+    });
+    render(<OperatorCockpitTab admin={admin()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'run-001' }));
+    fireEvent.click(screen.getByTestId('operator-refresh'));
+    fireEvent.click(screen.getByRole('button', { name: 'run-001' }));
+
+    selectedDetail.resolve(detail({
+      operator_notes: ['Scoped detail remains selected.'],
+    }));
+    selectedDiagnostics.resolve([
+      diagnosticRow({
+        row_id: 601,
+        station_name: 'Scoped Station',
+        system_name: 'Scoped System',
+        station_type: 'Scoped Type',
+      }),
+    ]);
+
+    expect(await screen.findByText(/Diagnostic staging rows scoped to run-001\./)).toBeTruthy();
+    expect(screen.getByText('Scoped Station / Scoped System / Scoped Type')).toBeTruthy();
+    expect(screen.getByText('Scoped detail remains selected.')).toBeTruthy();
+
+    refreshGates.resolve(safety({ latest_source_run_key: 'refresh-run' }));
+    refreshRuns.resolve([sourceRun()]);
+    refreshDiagnostics.resolve([
+      diagnosticRow({
+        row_id: 701,
+        station_name: 'Unscoped Refresh Station',
+        system_name: 'Unscoped Refresh System',
+        station_type: 'Unscoped Refresh Type',
+      }),
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Diagnostic staging rows scoped to run-001\./)).toBeTruthy();
+      expect(screen.getByText('Scoped Station / Scoped System / Scoped Type')).toBeTruthy();
+      expect(screen.queryByText(/Latest diagnostic staging rows\./)).toBeNull();
+      expect(screen.queryByText('Unscoped Refresh Station / Unscoped Refresh System / Unscoped Refresh Type')).toBeNull();
+    });
+  });
+
   it('renders diagnostic rows without raw payload text', async () => {
     const { container } = arrange();
 

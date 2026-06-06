@@ -42,9 +42,9 @@ async def operator_source_runs(
     return to_operator_visibility_dict(rows)
 
 
-@router.get('/api/operator/source-runs/{source_run_key}', dependencies=[Depends(require_admin)])
+@router.get('/api/operator/source-run-detail', dependencies=[Depends(require_admin)])
 async def operator_source_run_detail(
-    source_run_key: str,
+    source_run_key: str = Query(..., min_length=1),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     async with pool.acquire() as conn:
@@ -55,9 +55,9 @@ async def operator_source_run_detail(
     return to_operator_visibility_dict(detail)
 
 
-@router.get('/api/operator/source-runs/{source_run_key}/artifacts', dependencies=[Depends(require_admin)])
+@router.get('/api/operator/source-run-artifacts', dependencies=[Depends(require_admin)])
 async def operator_source_run_artifacts(
-    source_run_key: str,
+    source_run_key: str = Query(..., min_length=1),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     async with pool.acquire() as conn:
@@ -66,9 +66,9 @@ async def operator_source_run_artifacts(
     return to_operator_visibility_dict(summary)
 
 
-@router.get('/api/operator/source-runs/{source_run_key}/bridge', dependencies=[Depends(require_admin)])
+@router.get('/api/operator/source-run-bridge', dependencies=[Depends(require_admin)])
 async def operator_source_run_bridge(
-    source_run_key: str,
+    source_run_key: str = Query(..., min_length=1),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     async with pool.acquire() as conn:
@@ -77,9 +77,9 @@ async def operator_source_run_bridge(
     return to_operator_visibility_dict(summary)
 
 
-@router.get('/api/operator/source-runs/{source_run_key}/staging-impact', dependencies=[Depends(require_admin)])
+@router.get('/api/operator/source-run-staging-impact', dependencies=[Depends(require_admin)])
 async def operator_source_run_staging_impact(
-    source_run_key: str,
+    source_run_key: str = Query(..., min_length=1),
     limit: int = Query(100, ge=1),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
