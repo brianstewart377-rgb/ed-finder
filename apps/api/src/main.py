@@ -10,6 +10,7 @@ in routers/ and helpers/.
 Endpoint surface (see individual router docstrings for detail):
 
   routers/meta.py       health, status, local/status, metrics
+  routers/operator.py   read-only source-run/operator visibility
   routers/watchlist.py  watchlist CRUD + changelog
   routers/notes.py      per-system user notes
   routers/events.py     EDDN SSE live feed + recent
@@ -59,6 +60,7 @@ from routers.systems   import router as systems_router
 from routers.watchlist import router as watchlist_router
 from routers.optimiser import router as optimiser_router
 from routers.observations import router as observations_router
+from routers.operator import router as operator_router
 from share_router      import router as share_router
 
 # ---------------------------------------------------------------------------
@@ -284,6 +286,7 @@ app.include_router(simulation_router)
 app.include_router(optimiser_router)
 app.include_router(observations_router)
 app.include_router(colony_planner_router)
+app.include_router(operator_router)
 
 
 # ---------------------------------------------------------------------------
