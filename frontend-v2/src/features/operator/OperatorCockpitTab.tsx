@@ -331,7 +331,8 @@ function SourceRunsTable({
                     <button
                       type="button"
                       onClick={() => onSelect(run.source_run_key)}
-                      className="text-left text-orange-lt underline decoration-orange/40 underline-offset-2 hover:text-orange"
+                      disabled={loading}
+                      className="text-left text-orange-lt underline decoration-orange/40 underline-offset-2 hover:text-orange disabled:text-silver-dk disabled:no-underline disabled:cursor-not-allowed"
                     >
                       {run.source_run_key}
                     </button>

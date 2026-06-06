@@ -337,12 +337,10 @@ describe('OperatorCockpitTab', () => {
     expect(screen.queryByText('Scoped Station / Scoped System / Scoped Type')).toBeNull();
   });
 
-  it('keeps selected source-run diagnostics when an earlier full refresh resolves later', async () => {
+  it('disables source-run selection during refresh and re-enables after refresh completes', async () => {
     const refreshGates = deferred<OperatorSafetyGateSummary>();
     const refreshRuns = deferred<OperatorSourceRunSummary[]>();
     const refreshDiagnostics = deferred<OperatorDiagnosticRowSummary[]>();
-    const selectedDetail = deferred<OperatorSourceRunDetail>();
-    const selectedDiagnostics = deferred<OperatorDiagnosticRowSummary[]>();
     let unscopedDiagnosticCalls = 0;
     apiMock.operatorSafetyGates
       .mockResolvedValueOnce(safety())
@@ -350,9 +348,18 @@ describe('OperatorCockpitTab', () => {
     apiMock.operatorSourceRuns
       .mockResolvedValueOnce([sourceRun()])
       .mockReturnValueOnce(refreshRuns.promise);
-    apiMock.operatorSourceRunDetail.mockReturnValue(selectedDetail.promise);
+    apiMock.operatorSourceRunDetail.mockResolvedValue(detail());
     apiMock.operatorDiagnosticRows.mockImplementation((_token, options = {}) => {
-      if (options.sourceRunKey === 'run-001') return selectedDiagnostics.promise;
+      if (options.sourceRunKey === 'run-001') {
+        return Promise.resolve([
+          diagnosticRow({
+            row_id: 601,
+            station_name: 'Scoped Station',
+            system_name: 'Scoped System',
+            station_type: 'Scoped Type',
+          }),
+        ]);
+      }
       unscopedDiagnosticCalls += 1;
       if (unscopedDiagnosticCalls === 1) {
         return Promise.resolve([
@@ -368,25 +375,13 @@ describe('OperatorCockpitTab', () => {
     });
     render(<OperatorCockpitTab admin={admin()} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'run-001' }));
+    const sourceRunButton = await screen.findByRole('button', { name: 'run-001' });
     fireEvent.click(screen.getByTestId('operator-refresh'));
-    fireEvent.click(screen.getByRole('button', { name: 'run-001' }));
 
-    selectedDetail.resolve(detail({
-      operator_notes: ['Scoped detail remains selected.'],
-    }));
-    selectedDiagnostics.resolve([
-      diagnosticRow({
-        row_id: 601,
-        station_name: 'Scoped Station',
-        system_name: 'Scoped System',
-        station_type: 'Scoped Type',
-      }),
-    ]);
-
-    expect(await screen.findByText(/Diagnostic staging rows scoped to run-001\./)).toBeTruthy();
-    expect(screen.getByText('Scoped Station / Scoped System / Scoped Type')).toBeTruthy();
-    expect(screen.getByText('Scoped detail remains selected.')).toBeTruthy();
+    expect((screen.getByTestId('operator-refresh') as HTMLButtonElement).disabled).toBe(true);
+    expect((sourceRunButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(sourceRunButton);
+    expect(apiMock.operatorSourceRunDetail).not.toHaveBeenCalled();
 
     refreshGates.resolve(safety({ latest_source_run_key: 'refresh-run' }));
     refreshRuns.resolve([sourceRun()]);
@@ -400,10 +395,10 @@ describe('OperatorCockpitTab', () => {
     ]);
 
     await waitFor(() => {
-      expect(screen.getByText(/Diagnostic staging rows scoped to run-001\./)).toBeTruthy();
-      expect(screen.getByText('Scoped Station / Scoped System / Scoped Type')).toBeTruthy();
-      expect(screen.queryByText(/Latest diagnostic staging rows\./)).toBeNull();
-      expect(screen.queryByText('Unscoped Refresh Station / Unscoped Refresh System / Unscoped Refresh Type')).toBeNull();
+      expect((screen.getByTestId('operator-refresh') as HTMLButtonElement).disabled).toBe(false);
+      expect((sourceRunButton as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.getByText(/Latest diagnostic staging rows\./)).toBeTruthy();
+      expect(screen.getByText('Unscoped Refresh Station / Unscoped Refresh System / Unscoped Refresh Type')).toBeTruthy();
     });
   });
 
