@@ -1,3 +1,4 @@
+import ast
 import inspect
 import json
 import re
@@ -526,3 +527,21 @@ def test_static_guardrails_no_scheduler_canonical_apply_canonical_writes_or_secr
     )
     for pattern in canonical_write_patterns:
         assert re.search(pattern, source, flags=re.IGNORECASE) is None
+
+
+def test_static_import_call_does_not_override_finished_at():
+    tree = ast.parse(inspect.getsource(rehearsal))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == 'run_edsm_station_import'
+    ]
+
+    assert calls
+    assert all(
+        keyword.arg != 'finished_at'
+        for call in calls
+        for keyword in call.keywords
+    )

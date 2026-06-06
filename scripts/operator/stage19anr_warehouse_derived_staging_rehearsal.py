@@ -166,7 +166,6 @@ def run_rehearsal(
             git_commit_sha=git_head,
             trigger_context=trigger_context,
             generated_at=generated,
-            finished_at=generated,
             station_stager=stager,
         )
         if import_result['completion']['status'] != 'succeeded':
