@@ -553,6 +553,23 @@ These Grok ideas reinforce the next Stage 19 priorities:
 6. planner/map E2E coverage;
 7. UI performance work once warehouse-backed views grow.
 
+## Stage 19AN-R warehouse-derived EDSM staging rehearsal closeout
+
+Stage 19AN-R used the reviewed operator script from PR #187 to run a bounded five-row warehouse-derived EDSM staging rehearsal.
+
+Committed and verified:
+
+- one `source_runs` row;
+- one `enrichment_source_runs` bridge row;
+- five `staging_edsm_stations` rows;
+- five diagnostic-only marks;
+- zero bulk imports;
+- zero scheduler/timer enablement;
+- zero canonical writes;
+- zero canonical apply.
+
+Next safe step: bounded 25-row staging pilot or operator/admin visibility before wider imports.
+
 ## Stage 19AL bounded EDSM staging smoke final closeout
 
 Stage 19AL closed the first bounded EDSM station staging-smoke chain.
