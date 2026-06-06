@@ -620,6 +620,231 @@ Safety boundary:
 
 Next recommended stage: Stage 19AR bounded 25-row staging pilot using the cockpit, only if safety gates remain green.
 
+## Stage 19 - Data Warehouse NOW versus later
+
+This section is a roadmap clarification only. It separates the active Data
+Warehouse pilot path from useful later work, without claiming that any pending
+gate, pilot, closeout, test fortress item, product idea, or build idea is
+already implemented, merged, production-proven, or successful.
+
+Status labels:
+
+- Proven: already recorded by existing Stage 19 docs or closeouts.
+- Pending: required before the next gated step, but not asserted complete here.
+- Next: the intended next decision or work item after the prior gate closes.
+- Deferred: valuable later work that should wait for the active warehouse path.
+- Not now: explicitly out of scope until the bounded pilot path is complete.
+
+### Data Warehouse NOW
+
+This is the active path and should remain the focus before wider
+product/planner/map/campaign work.
+
+Proven:
+
+- Existing closeouts record bounded local-file and warehouse-derived EDSM
+  staging rehearsals with source-run tracking, bridge rows, diagnostic staging
+  rows, no scheduler/timer enablement, no canonical writes, and no canonical
+  apply.
+
+Pending immediate gates before Stage 19AR:
+
+- Stage 19AQ operator cockpit UI merged.
+- CI green.
+- OpenAPI drift green.
+- No unresolved safety-review blockers.
+- Main synced on Hetzner.
+- Production worktree clean.
+- No running `source_runs`.
+- No failed unrecovered source runs blocking the pilot.
+- Operator safety gates green or explicitly understood.
+- No scheduler/timer enabled.
+- No canonical apply running.
+- No canonical writes planned.
+
+### Stage 19AR - bounded 25-row EDSM station staging pilot
+
+Next allowed scope, once the pending gates are satisfied:
+
+- one `source_runs` row;
+- one `enrichment_source_runs` bridge row;
+- exactly 25 `staging_edsm_stations` rows;
+- diagnostic-only marking if this remains the active safety policy;
+- operator artifact or artifacts;
+- read-only cockpit inspection.
+
+Not now during Stage 19AR:
+
+- no canonical table writes;
+- no scheduler/timer enablement;
+- no canonical apply;
+- no unbounded imports;
+- no service enablement;
+- no broad refactors.
+
+### Stage 19AS - post-pilot verification and closeout
+
+Pending required verification after the bounded 25-row pilot:
+
+- source run present and succeeded;
+- row counts match exactly 25;
+- bridge row present;
+- staging rows use legacy `enrichment_source_runs.id`;
+- staging rows do not use `source_runs.id`;
+- staging rows are diagnostic-only or otherwise isolated;
+- provenance blocks canonical writes;
+- artifact hash/integrity checks pass;
+- operator cockpit can identify the run and staging impact;
+- safety gates are understood after the run;
+- canonical tables remain untouched;
+- closeout doc records artifact path, SHA, source_run_key, bridge key, counts,
+  and git SHA.
+
+### Near-term after Stage 19AS
+
+Next decisions only after the 25-row pilot is verified:
+
+- decide whether to proceed to a bounded 100-row pilot;
+- decide whether to add stronger local CI parity first;
+- decide whether to add disposable Postgres constraint tests before wider
+  pilots;
+- decide whether to formalize operator script contracts.
+
+### Deferred Stage 19AS.1 - Test Fortress / CI parity
+
+Deferred: this is important safety work, but it should not block the immediate
+25-row pilot unless that pilot exposes a blocker.
+
+#### Local CI parity
+
+Deferred: create a blessed command such as
+`scripts/checks/local-ci-parity.sh`.
+
+It should eventually run:
+
+- backend syntax / py_compile;
+- backend unit tests;
+- source-run/operator tests;
+- frontend focused tests;
+- frontend typecheck;
+- frontend build;
+- OpenAPI generation and drift check;
+- git diff/check;
+- static safety scans.
+
+#### Disposable Postgres constraint tests
+
+Deferred: add real Postgres tests for:
+
+- `chk_source_runs_finished_window`;
+- source-run status transitions;
+- source_runs/enrichment_source_runs bridge compatibility;
+- staging rows using `enrichment_source_runs.id`, not `source_runs.id`;
+- JSONB provenance shape;
+- artifact hashes and integrity columns;
+- rollback rehearsal;
+- no canonical table writes.
+
+#### Data Warehouse safety tests
+
+Deferred: add tests such as:
+
+- `test_concurrent_source_run_safety.py`;
+- `test_bounded_write_guardrail.py`;
+- `test_postgres_constraints.py`;
+- `test_openapi_contract.py`.
+
+These should focus on Data Warehouse safety, not planner/product features.
+
+#### Frontend race-condition harness
+
+Deferred: add reusable race tests for:
+
+- click A then B, resolve B first, resolve A later;
+- refresh while detail is loading;
+- refresh while selected row exists;
+- token changes while request is in flight;
+- route changes while request is in flight;
+- stale response must not overwrite newer state;
+- selected-run wording must match displayed diagnostic rows.
+
+#### OpenAPI drift helper
+
+Deferred: add a local helper such as `scripts/checks/openapi-drift.sh`.
+
+Purpose:
+
+- regenerate frontend API types from FastAPI OpenAPI;
+- fail if generated types differ;
+- prevent CI-only OpenAPI drift failures.
+
+#### Static safety scans
+
+Deferred: eventually automate checks for:
+
+- no `systemctl`;
+- no `.timer` or `.service`;
+- no `canonical_apply`;
+- no `INSERT/UPDATE/DELETE` in read-only modules;
+- no writes to canonical tables;
+- no hardcoded DB URLs/secrets;
+- no `source_runs.id` passed into legacy staging `source_run_id`;
+- no operator UI buttons/actions for imports, scheduler enablement, canonical
+  writes, or canonical apply.
+
+#### Operator script contract
+
+Deferred: future operator scripts should follow this contract:
+
+- dry-run default;
+- explicit `--commit` required for writes;
+- bounded `--limit`;
+- artifact directory required;
+- preflight detects leftovers;
+- writes produce canonical operator artifact;
+- post-run verification summary;
+- rollback/recovery behavior;
+- no shell mega-scripts where a repo script is safer.
+
+### Deferred broader test/build/product work
+
+Deferred until after the Data Warehouse pilot path is stable:
+
+- economy engine v2 testing;
+- Ring Mining synergies;
+- ELW multipliers;
+- campaign workspace E2E;
+- ring mining builder E2E;
+- wider Playwright matrix;
+- visual regression;
+- performance benchmarking;
+- Vite optimization;
+- PurgeCSS;
+- bundle chunk splitting;
+- compression/visualizer;
+- SonarQube;
+- Codecov;
+- planner UI improvements;
+- map package alternatives;
+- dnd-kit / drag-drop work;
+- campaign/product roadmap work.
+
+### Explicit non-goals until Stage 19AS is complete
+
+Not now before the bounded 25-row pilot and closeout:
+
+- scheduler/timer enablement;
+- canonical apply;
+- canonical writes;
+- unbounded imports;
+- service enablement;
+- broad product work;
+- planner/campaign/map implementation;
+- build optimization work;
+- visual regression gate;
+- SonarQube quality gate;
+- large testing mega-stage that delays the Data Warehouse pilot.
+
 ## Stage 19AL bounded EDSM staging smoke final closeout
 
 Stage 19AL closed the first bounded EDSM station staging-smoke chain.
