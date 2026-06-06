@@ -570,6 +570,30 @@ Committed and verified:
 
 Next safe step: bounded 25-row staging pilot or operator/admin visibility before wider imports.
 
+## Stage 19AO operator visibility design
+
+Stage 19AO adds the docs-only design for a read-only operator/admin cockpit before any wider 25-row or real staging pilot.
+
+Design scope:
+
+- recent `source_runs` visibility;
+- artifact/hash visibility;
+- `source_runs` to `enrichment_source_runs` bridge visibility;
+- staging impact visibility by legacy bridge id;
+- diagnostic-only staging row visibility;
+- safety gates for 25-row, 100-row, scheduler, and canonical apply boundaries.
+
+Stage 19AO explicitly does not run imports, connect to production DB, write rows, enable scheduler/timers, implement API/UI code, write canonical tables, or run canonical apply.
+
+Recommended next stages:
+
+| Stage | Scope |
+|---|---|
+| Stage 19AP | Read-only operator visibility repository/API skeleton. |
+| Stage 19AQ | Minimal operator UI page. |
+| Stage 19AR | Bounded 25-row staging pilot using operator visibility. |
+| Stage 19AS | Post-pilot verification and closeout. |
+
 ## Stage 19AL bounded EDSM staging smoke final closeout
 
 Stage 19AL closed the first bounded EDSM station staging-smoke chain.
