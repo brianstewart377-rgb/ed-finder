@@ -553,6 +553,22 @@ These Grok ideas reinforce the next Stage 19 priorities:
 6. planner/map E2E coverage;
 7. UI performance work once warehouse-backed views grow.
 
+## Stage 19AM bounded multi-row EDSM staging rehearsal
+
+Stage 19AM proved a bundled three-row local-file EDSM staging rehearsal.
+
+Committed and verified:
+
+- one `source_runs` row;
+- one `enrichment_source_runs` bridge row;
+- three `staging_edsm_stations` rows;
+- three diagnostic-only marks;
+- zero canonical writes;
+- zero canonical apply;
+- zero scheduler/timer enablement.
+
+Next safe step: bounded local-file rehearsal using a small real-source sample.
+
 ## Stage 19AL bounded EDSM staging smoke final closeout
 
 Stage 19AL closed the first bounded EDSM station staging-smoke chain.
