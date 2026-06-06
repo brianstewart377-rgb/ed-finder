@@ -21,6 +21,7 @@ import { useFcPlanner } from '@/features/fc-planner/useFcPlanner';
 import { FcPlannerTab } from '@/features/fc-planner/FcPlannerTab';
 import { useAdmin } from '@/features/admin/useAdmin';
 import { AdminTab } from '@/features/admin/AdminTab';
+import { OperatorCockpitTab } from '@/features/operator/OperatorCockpitTab';
 import { MapTab } from '@/features/map/MapTab';
 import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
 import { ColonyPlannerWorkspace } from '@/features/colony-planner/ColonyPlannerWorkspace';
@@ -259,6 +260,10 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
 
       {route === 'admin' && (
         <AdminTab admin={admin} />
+      )}
+
+      {route === 'operator' && (
+        <OperatorCockpitTab />
       )}
 
       {route === 'map' && (

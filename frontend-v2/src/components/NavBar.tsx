@@ -41,6 +41,7 @@ export function NavBar({
     { route: 'colony' as const, label: '🏗️ Colony Tracker', testid: 'nav-colony', badge: colonyCount },
     { route: 'map' as const, label: '🗺️ Map', testid: 'nav-map' },
     { route: 'admin' as const, label: '⚙️ Admin', testid: 'nav-admin' },
+    { route: 'operator' as const, label: 'Operator', testid: 'nav-operator' },
   ]), [watchlistCount, pinnedCount, compareCount, fcCount, colonyCount]);
 
   useEffect(() => {

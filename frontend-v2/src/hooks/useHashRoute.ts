@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
  *   #optimizer                    → route='search-tuning', selectedSystemId=null (legacy alias)
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
  *   #colony-planner/system/123    → route='colony-planner', plannerSystemId=123
+ *   #operator                     → route='operator', selectedSystemId=null
  *   #colony-planner               → route='colony-planner', plannerSystemId=null
  *   #colony-planner-prototype     → route='colony-planner-prototype', static visual prototype
  *   <empty> or unknown            → route='finder',    selectedSystemId=null
@@ -26,8 +27,8 @@ import { useEffect, useState } from 'react';
  * The route set is still simple enough that this hand-rolled parser beats
  * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
  */
-export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'colony-planner' | 'colony-planner-prototype';
-const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'colony-planner', 'colony-planner-prototype'];
+export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'operator' | 'colony-planner' | 'colony-planner-prototype';
+const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'operator', 'colony-planner', 'colony-planner-prototype'];
 
 export interface ParsedHash {
   route:            Route;

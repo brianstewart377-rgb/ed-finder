@@ -28,6 +28,10 @@ import type {
   ObservedFactUpdateRequest,
   OptimiserCandidatesRequest,
   OptimiserCandidatesResponse,
+  OperatorDiagnosticRowSummary,
+  OperatorSafetyGateSummary,
+  OperatorSourceRunDetail,
+  OperatorSourceRunSummary,
   PredictionObservationCompareRequest,
   PredictionObservationCompareResponse,
   RecommendedBuildsResponse,
@@ -356,6 +360,32 @@ export const api = {
   },
   adminDataStatus(token: string): Promise<AdminDataStatus> {
     return jsonFetch('/admin/data-status', {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSafetyGates(token: string): Promise<OperatorSafetyGateSummary> {
+    return jsonFetch('/api/operator/safety-gates', {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRuns(token: string, limit = 25): Promise<OperatorSourceRunSummary[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return jsonFetch(`/api/operator/source-runs?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRunDetail(token: string, sourceRunKey: string): Promise<OperatorSourceRunDetail> {
+    return jsonFetch(`/api/operator/source-runs/${encodeURIComponent(sourceRunKey)}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorDiagnosticRows(
+    token: string,
+    options: { sourceRunKey?: string | null; limit?: number } = {},
+  ): Promise<OperatorDiagnosticRowSummary[]> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 25) });
+    if (options.sourceRunKey) params.set('source_run_key', options.sourceRunKey);
+    return jsonFetch(`/api/operator/diagnostic-staging-rows?${params.toString()}`, {
       headers: { 'X-Admin-Token': token },
     });
   },

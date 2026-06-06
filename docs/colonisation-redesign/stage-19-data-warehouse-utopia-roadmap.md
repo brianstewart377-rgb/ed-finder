@@ -594,6 +594,32 @@ Recommended next stages:
 | Stage 19AR | Bounded 25-row staging pilot using operator visibility. |
 | Stage 19AS | Post-pilot verification and closeout. |
 
+## Stage 19AQ minimal operator cockpit UI closeout
+
+Stage 19AQ adds the first minimal read-only operator cockpit UI for Stage 19 source-run visibility.
+
+Committed scope:
+
+- `#operator` frontend route;
+- safety gates panel using Stage 19AP `GET /api/operator/safety-gates`;
+- recent source-runs table using `GET /api/operator/source-runs`;
+- selected source-run detail panel using `GET /api/operator/source-runs/{source_run_key}`;
+- diagnostic staging rows panel using `GET /api/operator/diagnostic-staging-rows`;
+- focused frontend tests and read-only API helper guardrails.
+
+Safety boundary:
+
+- no production DB access;
+- no imports;
+- no migrations;
+- no scheduler/timer enablement;
+- no staging writes;
+- no canonical writes;
+- no canonical apply;
+- no write actions or buttons added to the operator cockpit.
+
+Next recommended stage: Stage 19AR bounded 25-row staging pilot using the cockpit, only if safety gates remain green.
+
 ## Stage 19AL bounded EDSM staging smoke final closeout
 
 Stage 19AL closed the first bounded EDSM station staging-smoke chain.

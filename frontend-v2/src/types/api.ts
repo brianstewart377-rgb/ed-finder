@@ -260,6 +260,116 @@ export interface AdminDataStatus {
   };
 }
 
+export interface OperatorSourceRunSummary {
+  source_run_key: string;
+  source_name: string | null;
+  source_category: string | null;
+  domain: string | null;
+  import_scope: string | null;
+  status: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  rows_read: number;
+  rows_staged: number;
+  rows_rejected: number;
+  rows_skipped: number;
+  artifact_present: boolean;
+  artifact_hash_present: boolean;
+  bridge_present: boolean;
+  staging_rows_known: boolean;
+  trigger_context: string | null;
+  git_commit_sha: string | null;
+  error_code: string | null;
+  error_summary: string | null;
+}
+
+export interface OperatorArtifactSummary {
+  source_run_key: string;
+  artifact_path_redacted: string | null;
+  artifact_sha256: string | null;
+  artifact_integrity_sha256: string | null;
+  artifact_record_present: boolean;
+  file_exists: boolean | null;
+  file_sha256_matches: boolean | null;
+  integrity_hash_matches: boolean | null;
+  schema_version: string | null;
+  rows_read: number;
+  rows_staged: number;
+  status: string | null;
+  validation_note: string;
+}
+
+export interface OperatorBridgeSummary {
+  bridge_key: string;
+  legacy_source_run_id: number | null;
+  source_run_key: string;
+  bridge_present: boolean;
+  dry_run: boolean | null;
+  adapter_name: string | null;
+  adapter_version: string | null;
+  target_staging_fk: string;
+  metadata_has_compatibility_bridge: boolean;
+  staging_policy_blocks_source_runs_id: boolean;
+}
+
+export interface OperatorDiagnosticRowSummary {
+  row_id: number;
+  legacy_source_run_id: number | null;
+  station_name: string | null;
+  station_type: string | null;
+  system_name: string | null;
+  source_class: string | null;
+  confidence: string | null;
+  marker_keys: string[];
+  canonical_write_allowed: boolean | null;
+}
+
+export interface OperatorStagingImpactSummary {
+  source_run_key: string | null;
+  bridge_key: string | null;
+  legacy_source_run_id: number;
+  staging_table: string;
+  rows_total: number;
+  rows_diagnostic_only: number;
+  rows_canonical_write_blocked: number;
+  rows_with_stage_markers: number;
+  rows_using_legacy_bridge_id: number;
+  rows_using_source_runs_id: number;
+  sample_rows: OperatorDiagnosticRowSummary[];
+  warnings: string[];
+}
+
+export interface OperatorSourceRunDetail {
+  summary: OperatorSourceRunSummary;
+  importer_name: string | null;
+  importer_version: string | null;
+  source_uri_redacted: string | null;
+  source_input_sha256: string | null;
+  source_manifest_sha256: string | null;
+  safety_boundary: Record<string, unknown>;
+  metadata_summary: Record<string, unknown>;
+  artifact_summary: OperatorArtifactSummary;
+  bridge_summary: OperatorBridgeSummary;
+  staging_impact_summary: OperatorStagingImpactSummary | null;
+  validation_warnings: string[];
+  operator_notes: string[];
+}
+
+export interface OperatorSafetyGateSummary {
+  no_running_source_runs: boolean;
+  latest_artifacts_present: boolean;
+  bridge_fk_path_verified: boolean;
+  diagnostic_rows_isolated: boolean;
+  no_failed_unrecovered_source_runs: boolean;
+  scheduler_assumed_disabled: boolean;
+  canonical_apply_assumed_disabled: boolean;
+  safe_to_proceed: boolean;
+  blockers: string[];
+  latest_source_run_key: string | null;
+  notes: string[];
+}
+
 
 // ─── Stage 18H Warehouse-to-Planner Evidence Bridge (read-only) ───────────
 //
