@@ -1162,7 +1162,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/operator/source-runs/{source_run_key}": {
+    "/api/operator/source-run-detail": {
         parameters: {
             query?: never;
             header?: never;
@@ -1170,7 +1170,7 @@ export interface paths {
             cookie?: never;
         };
         /** Operator Source Run Detail */
-        get: operations["operator_source_run_detail_api_operator_source_runs__source_run_key__get"];
+        get: operations["operator_source_run_detail_api_operator_source_run_detail_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1179,7 +1179,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/operator/source-runs/{source_run_key}/artifacts": {
+    "/api/operator/source-run-artifacts": {
         parameters: {
             query?: never;
             header?: never;
@@ -1187,7 +1187,7 @@ export interface paths {
             cookie?: never;
         };
         /** Operator Source Run Artifacts */
-        get: operations["operator_source_run_artifacts_api_operator_source_runs__source_run_key__artifacts_get"];
+        get: operations["operator_source_run_artifacts_api_operator_source_run_artifacts_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1196,7 +1196,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/operator/source-runs/{source_run_key}/bridge": {
+    "/api/operator/source-run-bridge": {
         parameters: {
             query?: never;
             header?: never;
@@ -1204,7 +1204,7 @@ export interface paths {
             cookie?: never;
         };
         /** Operator Source Run Bridge */
-        get: operations["operator_source_run_bridge_api_operator_source_runs__source_run_key__bridge_get"];
+        get: operations["operator_source_run_bridge_api_operator_source_run_bridge_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1213,7 +1213,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/operator/source-runs/{source_run_key}/staging-impact": {
+    "/api/operator/source-run-staging-impact": {
         parameters: {
             query?: never;
             header?: never;
@@ -1221,7 +1221,7 @@ export interface paths {
             cookie?: never;
         };
         /** Operator Source Run Staging Impact */
-        get: operations["operator_source_run_staging_impact_api_operator_source_runs__source_run_key__staging_impact_get"];
+        get: operations["operator_source_run_staging_impact_api_operator_source_run_staging_impact_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6031,13 +6031,13 @@ export interface operations {
             };
         };
     };
-    operator_source_run_detail_api_operator_source_runs__source_run_key__get: {
+    operator_source_run_detail_api_operator_source_run_detail_get: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query: {
                 source_run_key: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -6062,13 +6062,13 @@ export interface operations {
             };
         };
     };
-    operator_source_run_artifacts_api_operator_source_runs__source_run_key__artifacts_get: {
+    operator_source_run_artifacts_api_operator_source_run_artifacts_get: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query: {
                 source_run_key: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -6093,13 +6093,13 @@ export interface operations {
             };
         };
     };
-    operator_source_run_bridge_api_operator_source_runs__source_run_key__bridge_get: {
+    operator_source_run_bridge_api_operator_source_run_bridge_get: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query: {
                 source_run_key: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -6124,15 +6124,14 @@ export interface operations {
             };
         };
     };
-    operator_source_run_staging_impact_api_operator_source_runs__source_run_key__staging_impact_get: {
+    operator_source_run_staging_impact_api_operator_source_run_staging_impact_get: {
         parameters: {
-            query?: {
+            query: {
+                source_run_key: string;
                 limit?: number;
             };
             header?: never;
-            path: {
-                source_run_key: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

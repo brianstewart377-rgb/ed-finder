@@ -17,6 +17,7 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
     ['#fc', 'fc'],
     ['#colony', 'colony'],
     ['#admin', 'admin'],
+    ['#operator', 'operator'],
     ['#colony-planner', 'colony-planner'],
     ['#colony-planner-prototype', 'colony-planner-prototype'],
   ] as const)('parses %s as %s', (hash, route) => {

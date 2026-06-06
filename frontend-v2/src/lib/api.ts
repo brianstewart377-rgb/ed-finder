@@ -28,6 +28,13 @@ import type {
   ObservedFactUpdateRequest,
   OptimiserCandidatesRequest,
   OptimiserCandidatesResponse,
+  OperatorArtifactSummary,
+  OperatorBridgeSummary,
+  OperatorDiagnosticRowSummary,
+  OperatorSafetyGateSummary,
+  OperatorSourceRunDetail,
+  OperatorSourceRunSummary,
+  OperatorStagingImpactSummary,
   PredictionObservationCompareRequest,
   PredictionObservationCompareResponse,
   RecommendedBuildsResponse,
@@ -356,6 +363,59 @@ export const api = {
   },
   adminDataStatus(token: string): Promise<AdminDataStatus> {
     return jsonFetch('/admin/data-status', {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSafetyGates(token: string): Promise<OperatorSafetyGateSummary> {
+    return jsonFetch('/api/operator/safety-gates', {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRuns(token: string, limit = 25): Promise<OperatorSourceRunSummary[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return jsonFetch(`/api/operator/source-runs?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRunDetail(token: string, sourceRunKey: string): Promise<OperatorSourceRunDetail> {
+    const params = new URLSearchParams({ source_run_key: sourceRunKey });
+    return jsonFetch(`/api/operator/source-run-detail?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRunArtifacts(token: string, sourceRunKey: string): Promise<OperatorArtifactSummary> {
+    const params = new URLSearchParams({ source_run_key: sourceRunKey });
+    return jsonFetch(`/api/operator/source-run-artifacts?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRunBridge(token: string, sourceRunKey: string): Promise<OperatorBridgeSummary> {
+    const params = new URLSearchParams({ source_run_key: sourceRunKey });
+    return jsonFetch(`/api/operator/source-run-bridge?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorSourceRunStagingImpact(
+    token: string,
+    sourceRunKey: string,
+    limit = 100,
+  ): Promise<{
+    source_run_key: string;
+    bridge_present: boolean;
+    staging_impact: OperatorStagingImpactSummary | null;
+  }> {
+    const params = new URLSearchParams({ source_run_key: sourceRunKey, limit: String(limit) });
+    return jsonFetch(`/api/operator/source-run-staging-impact?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  operatorDiagnosticRows(
+    token: string,
+    options: { sourceRunKey?: string | null; limit?: number } = {},
+  ): Promise<OperatorDiagnosticRowSummary[]> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 25) });
+    if (options.sourceRunKey) params.set('source_run_key', options.sourceRunKey);
+    return jsonFetch(`/api/operator/diagnostic-staging-rows?${params.toString()}`, {
       headers: { 'X-Admin-Token': token },
     });
   },
