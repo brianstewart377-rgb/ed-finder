@@ -263,7 +263,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       )}
 
       {route === 'operator' && (
-        <OperatorCockpitTab />
+        <OperatorCockpitTab admin={admin} />
       )}
 
       {route === 'map' && (

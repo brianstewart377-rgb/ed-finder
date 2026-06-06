@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import type { UseAdmin } from '@/features/admin/useAdmin';
 import type {
   OperatorArtifactSummary,
   OperatorBridgeSummary,
@@ -10,14 +11,16 @@ import type {
   OperatorStagingImpactSummary,
 } from '@/types/api';
 
-const TOKEN_KEY = 'ed_admin_token';
 const RECENT_LIMIT = 25;
 
 type LoadState = 'idle' | 'loading' | 'ok' | 'err';
 
-export function OperatorCockpitTab() {
-  const [token, setToken] = useState(() => sessionStorage.getItem(TOKEN_KEY) ?? '');
-  const [tokenDraft, setTokenDraft] = useState(token);
+export interface OperatorCockpitTabProps {
+  admin: Pick<UseAdmin, 'token' | 'setToken' | 'forgetToken' | 'hasToken'>;
+}
+
+export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
+  const [tokenDraft, setTokenDraft] = useState(admin.token);
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [safetyGates, setSafetyGates] = useState<OperatorSafetyGateSummary | null>(null);
@@ -27,16 +30,23 @@ export function OperatorCockpitTab() {
   const [detail, setDetail] = useState<OperatorSourceRunDetail | null>(null);
   const [detailState, setDetailState] = useState<LoadState>('idle');
   const [detailError, setDetailError] = useState<string | null>(null);
+  const cockpitRequestSeq = useRef(0);
+  const detailRequestSeq = useRef(0);
 
-  const persistToken = (nextToken: string) => {
-    setToken(nextToken);
-    setTokenDraft(nextToken);
-    if (nextToken) sessionStorage.setItem(TOKEN_KEY, nextToken);
-    else sessionStorage.removeItem(TOKEN_KEY);
-  };
+  useEffect(() => {
+    setTokenDraft(admin.token);
+  }, [admin.token]);
 
   const loadCockpit = useCallback(async () => {
-    if (!token) {
+    const requestSeq = cockpitRequestSeq.current + 1;
+    cockpitRequestSeq.current = requestSeq;
+    detailRequestSeq.current += 1;
+    setSelectedKey(null);
+    setDetail(null);
+    setDetailState('idle');
+    setDetailError(null);
+
+    if (!admin.token) {
       setLoadState('idle');
       setSafetyGates(null);
       setSourceRuns([]);
@@ -52,46 +62,54 @@ export function OperatorCockpitTab() {
     setError(null);
     try {
       const [gates, runs, diagnostics] = await Promise.all([
-        api.operatorSafetyGates(token),
-        api.operatorSourceRuns(token, RECENT_LIMIT),
-        api.operatorDiagnosticRows(token, { limit: RECENT_LIMIT }),
+        api.operatorSafetyGates(admin.token),
+        api.operatorSourceRuns(admin.token, RECENT_LIMIT),
+        api.operatorDiagnosticRows(admin.token, { limit: RECENT_LIMIT }),
       ]);
+      if (requestSeq !== cockpitRequestSeq.current) return;
       setSafetyGates(gates);
       setSourceRuns(runs);
       setDiagnosticRows(diagnostics);
       setLoadState('ok');
     } catch (caught: unknown) {
+      if (requestSeq !== cockpitRequestSeq.current) return;
       setSafetyGates(null);
       setSourceRuns([]);
       setDiagnosticRows([]);
       setLoadState('err');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [token]);
+  }, [admin.token]);
 
   useEffect(() => {
     void loadCockpit();
   }, [loadCockpit]);
 
   const selectSourceRun = useCallback(async (sourceRunKey: string) => {
-    if (!token) return;
+    if (!admin.token) return;
+    const requestSeq = detailRequestSeq.current + 1;
+    detailRequestSeq.current = requestSeq;
     setSelectedKey(sourceRunKey);
+    setDetail(null);
+    setDiagnosticRows([]);
     setDetailState('loading');
     setDetailError(null);
     try {
       const [nextDetail, nextDiagnostics] = await Promise.all([
-        api.operatorSourceRunDetail(token, sourceRunKey),
-        api.operatorDiagnosticRows(token, { sourceRunKey, limit: RECENT_LIMIT }),
+        api.operatorSourceRunDetail(admin.token, sourceRunKey),
+        api.operatorDiagnosticRows(admin.token, { sourceRunKey, limit: RECENT_LIMIT }),
       ]);
+      if (requestSeq !== detailRequestSeq.current) return;
       setDetail(nextDetail);
       setDiagnosticRows(nextDiagnostics);
       setDetailState('ok');
     } catch (caught: unknown) {
+      if (requestSeq !== detailRequestSeq.current) return;
       setDetail(null);
       setDetailState('err');
       setDetailError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [token]);
+  }, [admin.token]);
 
   return (
     <section data-testid="operator-cockpit" className="space-y-5">
@@ -106,7 +124,7 @@ export function OperatorCockpitTab() {
         <button
           type="button"
           onClick={() => void loadCockpit()}
-          disabled={!token || loadState === 'loading'}
+          disabled={!admin.hasToken || loadState === 'loading'}
           data-testid="operator-refresh"
           className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
         >
@@ -134,24 +152,24 @@ export function OperatorCockpitTab() {
           />
           <button
             type="button"
-            onClick={() => persistToken(tokenDraft.trim())}
+            onClick={() => admin.setToken(tokenDraft.trim())}
             data-testid="operator-token-save"
             className="btn-primary text-[11px] py-1.5 px-3"
           >
             Save token
           </button>
-          {token && (
+          {admin.hasToken && (
             <button
               type="button"
-              onClick={() => persistToken('')}
+              onClick={() => admin.forgetToken()}
               data-testid="operator-token-forget"
               className="btn-metal text-[11px] py-1.5 px-3"
             >
               Forget token
             </button>
           )}
-          <span className={token ? 'font-mono text-[10px] text-green' : 'font-mono text-[10px] text-silver-dk'}>
-            {token ? 'Token set' : 'No token'}
+          <span className={admin.hasToken ? 'font-mono text-[10px] text-green' : 'font-mono text-[10px] text-silver-dk'}>
+            {admin.hasToken ? 'Token set' : 'No token'}
           </span>
         </div>
       </section>
@@ -169,13 +187,13 @@ export function OperatorCockpitTab() {
         </div>
       )}
 
-      {!token && (
+      {!admin.hasToken && (
         <div className="panel p-5 text-[11px] text-silver-dk font-mono">
           Set an admin token to load the read-only operator cockpit.
         </div>
       )}
 
-      {token && (
+      {admin.hasToken && (
         <>
           <SafetyGatesPanel safetyGates={safetyGates} loading={loadState === 'loading'} />
           <SourceRunsTable
