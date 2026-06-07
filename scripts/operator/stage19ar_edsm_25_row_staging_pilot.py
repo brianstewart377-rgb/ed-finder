@@ -155,6 +155,7 @@ def run_pilot(
                 preflight=preflight,
                 rows_inserted=0,
                 rows_marked=0,
+                inserted_row_ids=[],
                 validation_checks={
                     'dry_run_read_only': True,
                     'db_writes_attempted': False,
@@ -172,6 +173,8 @@ def run_pilot(
                 'sample_record': sample_record,
                 'operator_artifact_record': operator_artifact,
                 'validation_checks': operator_artifact['payload']['validation_checks'],
+                'inserted_row_ids': [],
+                'inserted_row_count': 0,
             }
 
         stager = CompatibleStage19ArStationStager(generated_at=generated)
@@ -221,6 +224,7 @@ def run_pilot(
             preflight=preflight,
             rows_inserted=len(stager.inserted_row_ids),
             rows_marked=len(marked_rows),
+            inserted_row_ids=stager.inserted_row_ids,
             validation_checks=validation,
         )
         commit_connection(conn)
@@ -233,6 +237,7 @@ def run_pilot(
             'operator_artifact_record': operator_artifact,
             'validation_checks': validation,
             'inserted_row_ids': list(stager.inserted_row_ids),
+            'inserted_row_count': len(stager.inserted_row_ids),
         }
     except Exception:
         rollback(conn)
@@ -653,6 +658,7 @@ def validate_pilot(
     import_artifact_record: Mapping[str, Any],
 ) -> dict[str, bool]:
     source_run = fetch_source_run(conn, source_run_key)
+    source_run_counts = source_run_row_counts(source_run)
     bridge = fetch_legacy_bridge(conn, bridge_key)
     staging = fetch_staging_validation_counts(
         conn,
@@ -665,6 +671,13 @@ def validate_pilot(
     checks = {
         'one_source_run_inserted': source_run is not None and source_run.get('source_run_key') == source_run_key,
         'source_run_succeeded': source_run is not None and source_run.get('status') == 'succeeded',
+        'source_run_rows_read_matches_limit': source_run_counts['rows_read'] == limit,
+        'source_run_rows_staged_matches_inserted_rows': (
+            source_run_counts['rows_staged'] == limit
+            and source_run_counts['rows_staged'] == len(inserted_row_ids)
+        ),
+        'source_run_rows_rejected_is_zero': source_run_counts['rows_rejected'] == 0,
+        'source_run_rows_skipped_is_zero': source_run_counts['rows_skipped'] == 0,
         'one_legacy_bridge_inserted': bridge is not None and bridge.get('source_run_key') == bridge_key,
         'exactly_25_staging_rows_inserted': staging['rows_inserted'] == DEFAULT_LIMIT and limit == DEFAULT_LIMIT,
         'exactly_25_staging_rows_marked_diagnostic': (
@@ -699,6 +712,10 @@ def fetch_source_run(conn: Any, source_run_key: str) -> dict[str, Any] | None:
               id,
               source_run_key,
               status,
+              rows_read,
+              rows_staged,
+              rows_rejected,
+              rows_skipped,
               artifact_path,
               artifact_sha256,
               artifact_integrity_sha256
@@ -710,6 +727,22 @@ def fetch_source_run(conn: Any, source_run_key: str) -> dict[str, Any] | None:
         return _fetchone_dict(cur)
     finally:
         close_cursor(cur)
+
+
+def source_run_row_counts(source_run: Mapping[str, Any] | None) -> dict[str, int | None]:
+    if source_run is None:
+        return {
+            'rows_read': None,
+            'rows_staged': None,
+            'rows_rejected': None,
+            'rows_skipped': None,
+        }
+    return {
+        'rows_read': _optional_int(source_run.get('rows_read')),
+        'rows_staged': _optional_int(source_run.get('rows_staged')),
+        'rows_rejected': _optional_int(source_run.get('rows_rejected')),
+        'rows_skipped': _optional_int(source_run.get('rows_skipped')),
+    }
 
 
 def fetch_legacy_bridge(conn: Any, bridge_key: str | None) -> dict[str, Any] | None:
@@ -799,8 +832,10 @@ def write_operator_artifact(
     preflight: Mapping[str, Any],
     rows_inserted: int,
     rows_marked: int,
+    inserted_row_ids: Sequence[int],
     validation_checks: Mapping[str, bool],
 ) -> dict[str, Any]:
+    inserted_ids = [int(row_id) for row_id in inserted_row_ids]
     payload = {
         'schema_version': SCHEMA_VERSION,
         'generated_at': _format_timestamp(generated_at),
@@ -814,6 +849,8 @@ def write_operator_artifact(
         'bridge_key': bridge_key,
         'rows_inserted': rows_inserted,
         'rows_marked_diagnostic': rows_marked,
+        'inserted_row_count': len(inserted_ids),
+        'inserted_row_ids': inserted_ids,
         'preflight': dict(preflight),
         'validation_checks': dict(validation_checks),
         'safety_summary': safety_summary(commit_requested=commit_requested),
@@ -907,6 +944,7 @@ def resolve_git_head(value: str) -> str:
 
 def _summary_for_stdout(result: Mapping[str, Any]) -> dict[str, Any]:
     operator_record = result['operator_artifact_record']['record']
+    operator_payload = result['operator_artifact_record']['payload']
     return {
         'commit_requested': result['commit_requested'],
         'source_run_key': result['source_run_key'],
@@ -914,6 +952,8 @@ def _summary_for_stdout(result: Mapping[str, Any]) -> dict[str, Any]:
         'sample_path': result['sample_record']['path'],
         'operator_artifact_path': operator_record['artifact_path'],
         'operator_artifact_sha256': operator_record['artifact_sha256'],
+        'inserted_row_count': int(operator_payload.get('inserted_row_count') or 0),
+        'inserted_row_ids': list(operator_payload.get('inserted_row_ids') or []),
         'validation_checks': dict(result.get('validation_checks') or {}),
     }
 
@@ -951,6 +991,12 @@ def _required_text(value: Any, field: str) -> str:
 def _copy_if_present(record: dict[str, Any], key: str, value: Any) -> None:
     if value is not None:
         record[key] = _json_scalar(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(value)
 
 
 def _json_scalar(value: Any) -> Any:
