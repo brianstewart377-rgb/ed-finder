@@ -63,6 +63,10 @@ class FakeCursor:
                 'id': self.conn.next_source_run_id,
                 'source_run_key': params[0],
                 'status': params[5],
+                'rows_read': 0,
+                'rows_staged': 0,
+                'rows_rejected': 0,
+                'rows_skipped': 0,
                 'artifact_path': None,
                 'artifact_sha256': None,
                 'artifact_integrity_sha256': None,
@@ -81,6 +85,10 @@ class FakeCursor:
             row = self.conn.source_runs[source_run_key]
             row.update({
                 'status': params[0],
+                'rows_read': params[3],
+                'rows_staged': params[4],
+                'rows_rejected': params[5],
+                'rows_skipped': params[6],
                 'artifact_path': params[7],
                 'artifact_sha256': params[8],
                 'artifact_integrity_sha256': params[9],
@@ -352,6 +360,17 @@ def test_cli_defaults_to_25_row_read_only_and_does_not_commit_without_flag(tmp_p
     assert result['validation_checks']['db_writes_attempted'] is False
     assert result['validation_checks']['selected_sample_count'] == 25
     assert result['validation_checks']['ready_for_commit'] is True
+    assert result['inserted_row_count'] == 0
+    assert result['inserted_row_ids'] == []
+    payload = result['operator_artifact_record']['payload']
+    assert payload['inserted_row_count'] == 0
+    assert payload['inserted_row_ids'] == []
+    written_payload = json.loads(Path(result['operator_artifact_record']['record']['artifact_path']).read_text())
+    assert written_payload['inserted_row_count'] == 0
+    assert written_payload['inserted_row_ids'] == []
+    summary = rehearsal._summary_for_stdout(result)
+    assert summary['inserted_row_count'] == 0
+    assert summary['inserted_row_ids'] == []
 
 
 def test_limit_hard_max_is_25(tmp_path):
@@ -515,6 +534,10 @@ def test_validation_passes_for_exactly_n_marked_rows(tmp_path):
         'id': 101,
         'source_run_key': 'stage19ar-test',
         'status': 'succeeded',
+        'rows_read': 25,
+        'rows_staged': 25,
+        'rows_rejected': 0,
+        'rows_skipped': 0,
         **import_artifact_record,
     }
     conn.legacy_rows['source_runs:stage19ar-test'] = {
@@ -548,6 +571,10 @@ def test_validation_passes_for_exactly_n_marked_rows(tmp_path):
     )
 
     assert checks['one_source_run_inserted'] is True
+    assert checks['source_run_rows_read_matches_limit'] is True
+    assert checks['source_run_rows_staged_matches_inserted_rows'] is True
+    assert checks['source_run_rows_rejected_is_zero'] is True
+    assert checks['source_run_rows_skipped_is_zero'] is True
     assert checks['one_legacy_bridge_inserted'] is True
     assert checks['exactly_25_staging_rows_inserted'] is True
     assert checks['exactly_25_staging_rows_marked_diagnostic'] is True
@@ -587,13 +614,28 @@ def test_committed_pilot_runs_import_marks_rows_validates_and_writes_artifact(tm
     assert Path(result['sample_record']['path']).is_file()
     assert Path(result['import_result']['artifact_record']['artifact_path']).is_file()
     assert Path(result['operator_artifact_record']['record']['artifact_path']).is_file()
+    assert result['inserted_row_count'] == 25
+    assert result['inserted_row_ids'] == list(range(901, 926))
     assert result['source_run_key'].startswith('stage19ar-edsm-25-row-staging-pilot-')
     assert not result['source_run_key'].startswith('stage19anr-')
     assert result['bridge_key'].startswith('source_runs:stage19ar-edsm-25-row-staging-pilot-')
+    assert result['validation_checks']['source_run_rows_read_matches_limit'] is True
+    assert result['validation_checks']['source_run_rows_staged_matches_inserted_rows'] is True
+    assert result['validation_checks']['source_run_rows_rejected_is_zero'] is True
+    assert result['validation_checks']['source_run_rows_skipped_is_zero'] is True
     assert result['validation_checks']['exactly_25_staging_rows_inserted'] is True
     assert result['validation_checks']['exactly_25_staging_rows_marked_diagnostic'] is True
     assert result['validation_checks']['canonical_table_writes_performed_by_script'] is False
     assert result['validation_checks']['no_scheduler_or_service_invoked'] is True
+    payload = result['operator_artifact_record']['payload']
+    assert payload['inserted_row_count'] == 25
+    assert payload['inserted_row_ids'] == list(range(901, 926))
+    written_payload = json.loads(Path(result['operator_artifact_record']['record']['artifact_path']).read_text())
+    assert written_payload['inserted_row_count'] == 25
+    assert written_payload['inserted_row_ids'] == list(range(901, 926))
+    summary = rehearsal._summary_for_stdout(result)
+    assert summary['inserted_row_count'] == 25
+    assert summary['inserted_row_ids'] == list(range(901, 926))
 
 
 def test_static_guardrails_no_scheduler_canonical_apply_canonical_writes_or_secrets():
