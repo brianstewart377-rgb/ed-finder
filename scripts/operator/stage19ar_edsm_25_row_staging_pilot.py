@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,9 @@ STAGER_VERSION = 'v1'
 SOURCE_RUN_KEY_PREFIX = 'stage19ar-edsm-25-row-staging-pilot-'
 SOURCE_RUN_PREFIXES = ('stage19ar-', 'stage-19ar-')
 PROVENANCE_MARKER_KEY = 'stage19ar_bounded_25_row_pilot'
+CANONICAL_SOURCE_RUN_KEY = 'stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd'
+CANONICAL_BRIDGE_KEY = f'{source_run_compatibility.LEGACY_SOURCE_RUN_KEY_PREFIX}{CANONICAL_SOURCE_RUN_KEY}'
+CANONICAL_ARTIFACT_SHA256 = '418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417'
 DEFAULT_TRIGGER_CONTEXT = PROVENANCE_MARKER_KEY
 DEFAULT_ARTIFACT_DIR = Path('/var/lib/ed-finder/operator-artifacts/stage-19ar')
 DEFAULT_LIMIT = 25
@@ -53,6 +57,60 @@ CANONICAL_TABLES = (
 )
 SAMPLE_EXCLUDED_SOURCE_RUN_PATTERNS = ('source_runs:stage19%', 'source_runs:stage-19%')
 SAMPLE_EXCLUDED_STATION_NAME_PATTERNS = ('Stage 19%',)
+
+
+@dataclass(frozen=True)
+class BoundedPilotProfile:
+    schema_version: str
+    stager_name: str
+    stager_version: str
+    source_run_key_prefix: str
+    source_run_prefixes: tuple[str, ...]
+    provenance_marker_key: str
+    trigger_context: str
+    artifact_dir: Path
+    default_limit: int
+    hard_max_limit: int
+    stage_label: str
+    operator_stage: str
+    row_count_label: str
+    sample_file_prefix: str
+    import_file_prefix: str
+    operator_artifact_prefix: str
+    write_probe_name: str
+    diagnostic_reason: str
+    existing_rows_key: str
+    marker_validation_check: str
+    expected_source_run_key: str | None = None
+    expected_artifact_sha256: str | None = None
+    bridge_metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+STAGE19AR_PROFILE = BoundedPilotProfile(
+    schema_version=SCHEMA_VERSION,
+    stager_name=STAGER_NAME,
+    stager_version=STAGER_VERSION,
+    source_run_key_prefix=SOURCE_RUN_KEY_PREFIX,
+    source_run_prefixes=SOURCE_RUN_PREFIXES,
+    provenance_marker_key=PROVENANCE_MARKER_KEY,
+    trigger_context=DEFAULT_TRIGGER_CONTEXT,
+    artifact_dir=DEFAULT_ARTIFACT_DIR,
+    default_limit=DEFAULT_LIMIT,
+    hard_max_limit=HARD_MAX_LIMIT,
+    stage_label='Stage 19AR',
+    operator_stage='19ar',
+    row_count_label='25',
+    sample_file_prefix='stage19ar_edsm_sample',
+    import_file_prefix='stage19ar_edsm_import',
+    operator_artifact_prefix='stage19ar_operator_pilot',
+    write_probe_name='.stage19ar-write-probe',
+    diagnostic_reason='Stage 19AR bounded 25-row EDSM staging pilot',
+    existing_rows_key='existing_stage19ar_rows',
+    marker_validation_check='staging_rows_have_stage19ar_marker',
+    expected_source_run_key=CANONICAL_SOURCE_RUN_KEY,
+    expected_artifact_sha256=CANONICAL_ARTIFACT_SHA256,
+    bridge_metadata={'bounded_25_row_pilot': True},
+)
 
 
 class Stage19ArPilotError(ValueError):
@@ -122,28 +180,30 @@ def run_pilot(
     trigger_context: str,
     commit: bool,
     generated_at: datetime | None = None,
+    profile: BoundedPilotProfile = STAGE19AR_PROFILE,
 ) -> dict[str, Any]:
     if limit < 1:
         raise Stage19ArPilotError('limit must be >= 1')
-    if limit > HARD_MAX_LIMIT:
-        raise Stage19ArPilotError(f'limit must be <= {HARD_MAX_LIMIT}')
-    if commit and limit != DEFAULT_LIMIT:
-        raise Stage19ArPilotError(f'commit mode requires exactly {DEFAULT_LIMIT} rows')
+    if limit > profile.hard_max_limit:
+        raise Stage19ArPilotError(f'limit must be <= {profile.hard_max_limit}')
+    if commit and limit != profile.default_limit:
+        raise Stage19ArPilotError(f'commit mode requires exactly {profile.default_limit} rows')
     generated = generated_at or _utc_now()
     run_label = _run_label(generated)
 
     try:
-        artifact_dir_check = verify_artifact_directory_writable(artifact_dir)
-        preflight = preflight_pilot(conn, artifact_dir_check=artifact_dir_check)
+        artifact_dir_check = verify_artifact_directory_writable(artifact_dir, profile=profile)
+        preflight = preflight_pilot(conn, artifact_dir_check=artifact_dir_check, profile=profile)
         sampled_rows = sample_existing_staging_rows(conn, limit=limit)
         fixture_rows = [staging_row_to_edsm_fixture_record(row) for row in sampled_rows]
-        sample_path = artifact_dir / f'stage19ar_edsm_sample_{run_label}.json'
+        sample_path = artifact_dir / f'{profile.sample_file_prefix}_{run_label}.json'
         sample_record = write_sample_fixture(sample_path, fixture_rows)
-        source_run_key = build_source_run_key(sample_record['file_sha256'])
+        source_run_key = build_source_run_key(sample_record['file_sha256'], profile=profile)
 
         if not commit:
             rollback(conn)
             operator_artifact = write_operator_artifact(
+                profile=profile,
                 artifact_dir=artifact_dir,
                 run_label=run_label,
                 generated_at=generated,
@@ -161,7 +221,10 @@ def run_pilot(
                     'db_writes_attempted': False,
                     'sampled_exact_limit': len(sampled_rows) == limit,
                     'selected_sample_count': len(sampled_rows),
-                    'ready_for_commit': len(sampled_rows) == DEFAULT_LIMIT and limit == DEFAULT_LIMIT,
+                    'ready_for_commit': (
+                        len(sampled_rows) == profile.default_limit
+                        and limit == profile.default_limit
+                    ),
                     'canonical_table_writes_performed_by_script': False,
                     'no_scheduler_or_service_invoked': True,
                 },
@@ -177,8 +240,8 @@ def run_pilot(
                 'inserted_row_count': 0,
             }
 
-        stager = CompatibleStage19ArStationStager(generated_at=generated)
-        import_artifact_path = artifact_dir / f'stage19ar_edsm_import_{run_label}.json'
+        stager = CompatibleStage19ArStationStager(generated_at=generated, profile=profile)
+        import_artifact_path = artifact_dir / f'{profile.import_file_prefix}_{run_label}.json'
         import_result = edsm_station_import.run_edsm_station_import(
             conn,
             source_file=sample_path,
@@ -200,6 +263,7 @@ def run_pilot(
             legacy_source_run_id=stager.legacy_source_run_id,
             source_run_key=source_run_key,
             generated_at=generated,
+            profile=profile,
         )
         validation = validate_pilot(
             conn,
@@ -210,9 +274,11 @@ def run_pilot(
             legacy_source_run_id=int(stager.legacy_source_run_id),
             inserted_row_ids=stager.inserted_row_ids,
             import_artifact_record=import_result['artifact_record'],
+            profile=profile,
         )
         assert_validation_passes(validation)
         operator_artifact = write_operator_artifact(
+            profile=profile,
             artifact_dir=artifact_dir,
             run_label=run_label,
             generated_at=generated,
@@ -244,22 +310,29 @@ def run_pilot(
         raise
 
 
-def preflight_pilot(conn: Any, *, artifact_dir_check: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def preflight_pilot(
+    conn: Any,
+    *,
+    artifact_dir_check: Mapping[str, Any] | None = None,
+    profile: BoundedPilotProfile = STAGE19AR_PROFILE,
+) -> dict[str, Any]:
     helper_checks = verify_required_helpers_available()
     schema = verify_target_tables_exist(conn)
     staging_fk = verify_staging_source_run_fk_targets_legacy_bridge(conn)
-    leftovers = count_existing_stage19ar_rows(conn)
+    leftovers = count_existing_stage19ar_rows(conn, profile=profile)
     if any(leftovers.values()):
         if leftovers.get('running_source_runs'):
-            raise Stage19ArPilotError(f'running Stage 19AR source run found: {leftovers}')
-        raise Stage19ArPilotError(f'existing Stage 19AR rows found: {leftovers}')
-    return {
+            raise Stage19ArPilotError(f'running {profile.stage_label} source run found: {leftovers}')
+        raise Stage19ArPilotError(f'existing {profile.stage_label} rows found: {leftovers}')
+    result = {
         'helper_imports': helper_checks,
         'target_tables': schema,
         'staging_source_run_fk': staging_fk,
-        'existing_stage19ar_rows': leftovers,
+        'existing_stage_rows': leftovers,
         'artifact_directory': dict(artifact_dir_check or {}),
     }
+    result[profile.existing_rows_key] = leftovers
+    return result
 
 
 def verify_required_helpers_available() -> dict[str, bool]:
@@ -348,8 +421,12 @@ def verify_staging_source_run_fk_targets_legacy_bridge(conn: Any) -> dict[str, A
     return result
 
 
-def count_existing_stage19ar_rows(conn: Any) -> dict[str, int]:
-    source_patterns = [f'{prefix}%' for prefix in SOURCE_RUN_PREFIXES]
+def count_existing_stage19ar_rows(
+    conn: Any,
+    *,
+    profile: BoundedPilotProfile = STAGE19AR_PROFILE,
+) -> dict[str, int]:
+    source_patterns = [f'{prefix}%' for prefix in profile.source_run_prefixes]
     bridge_patterns = [
         f'{source_run_compatibility.LEGACY_SOURCE_RUN_KEY_PREFIX}{pattern}'
         for pattern in source_patterns
@@ -383,7 +460,13 @@ def count_existing_stage19ar_rows(conn: Any) -> dict[str, int]:
                   AND s.provenance ? %s
               ) AS marked_staging_rows
             """,
-            (source_patterns, source_patterns, bridge_patterns, bridge_patterns, PROVENANCE_MARKER_KEY),
+            (
+                source_patterns,
+                source_patterns,
+                bridge_patterns,
+                bridge_patterns,
+                profile.provenance_marker_key,
+            ),
         )
         row = _fetchone_dict(cur) or {}
     finally:
@@ -396,11 +479,15 @@ def count_existing_stage19ar_rows(conn: Any) -> dict[str, int]:
     }
 
 
-def verify_artifact_directory_writable(artifact_dir: Path) -> dict[str, Any]:
+def verify_artifact_directory_writable(
+    artifact_dir: Path,
+    *,
+    profile: BoundedPilotProfile = STAGE19AR_PROFILE,
+) -> dict[str, Any]:
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    probe_path = artifact_dir / '.stage19ar-write-probe'
+    probe_path = artifact_dir / profile.write_probe_name
     try:
-        probe_path.write_text('stage19ar\n', encoding='utf-8')
+        probe_path.write_text(f'{profile.operator_stage}\n', encoding='utf-8')
         probe_path.unlink()
     except OSError as exc:
         raise Stage19ArPilotError(f'artifact directory is not writable: {artifact_dir}') from exc
@@ -495,27 +582,34 @@ def staging_row_to_edsm_fixture_record(row: Mapping[str, Any]) -> dict[str, Any]
 class CompatibleStage19ArStationStager:
     """Explicit stager that writes legacy bridge IDs into staging FK columns."""
 
-    def __init__(self, *, generated_at: datetime) -> None:
+    def __init__(
+        self,
+        *,
+        generated_at: datetime,
+        profile: BoundedPilotProfile = STAGE19AR_PROFILE,
+    ) -> None:
         self.generated_at = generated_at
+        self.profile = profile
         self.inserted_row_ids: list[int] = []
         self.legacy_source_run_id: int | None = None
         self.bridge_key: str | None = None
 
     def __call__(self, conn: Any, *, source_run: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> int:
+        metadata = {
+            'operator_stage': self.profile.operator_stage,
+            'staging_rows_written_by_explicit_stager': True,
+            'canonical_table_writes_planned': 0,
+        }
+        metadata.update(dict(self.profile.bridge_metadata))
         context = source_run_compatibility.get_or_create_legacy_staging_context(
             conn,
             source_run,
             source='edsm',
-            adapter_name=STAGER_NAME,
-            adapter_version=STAGER_VERSION,
+            adapter_name=self.profile.stager_name,
+            adapter_version=self.profile.stager_version,
             source_kind='offline_snapshot',
             dry_run=False,
-            metadata={
-                'operator_stage': '19ar',
-                'bounded_25_row_pilot': True,
-                'staging_rows_written_by_explicit_stager': True,
-                'canonical_table_writes_planned': 0,
-            },
+            metadata=metadata,
         )
         legacy_source_run_id = int(context['legacy_source_run_id'])
         self.legacy_source_run_id = legacy_source_run_id
@@ -602,16 +696,17 @@ def mark_inserted_rows_diagnostic(
     legacy_source_run_id: int | None,
     source_run_key: str,
     generated_at: datetime,
+    profile: BoundedPilotProfile = STAGE19AR_PROFILE,
 ) -> list[dict[str, Any]]:
     if not row_ids:
         raise Stage19ArPilotError('no inserted staging row ids available for diagnostic mark')
     if legacy_source_run_id is None:
         raise Stage19ArPilotError('legacy source-run id is required for diagnostic mark')
     marker = {
-        PROVENANCE_MARKER_KEY: {
+        profile.provenance_marker_key: {
             'source_run_key': source_run_key,
             'marked_at': _format_timestamp(generated_at),
-            'reason': 'Stage 19AR bounded 25-row EDSM staging pilot',
+            'reason': profile.diagnostic_reason,
         },
         'canonical_write_allowed': False,
     }
@@ -656,6 +751,7 @@ def validate_pilot(
     legacy_source_run_id: int,
     inserted_row_ids: Sequence[int],
     import_artifact_record: Mapping[str, Any],
+    profile: BoundedPilotProfile = STAGE19AR_PROFILE,
 ) -> dict[str, bool]:
     source_run = fetch_source_run(conn, source_run_key)
     source_run_counts = source_run_row_counts(source_run)
@@ -665,11 +761,16 @@ def validate_pilot(
         row_ids=inserted_row_ids,
         source_run_id=source_run_id,
         legacy_source_run_id=legacy_source_run_id,
+        marker_key=profile.provenance_marker_key,
     )
     artifact_path = Path(str(import_artifact_record['artifact_path']))
     artifact_sha256 = artifact_utils.sha256_file(artifact_path) if artifact_path.is_file() else None
     checks = {
         'one_source_run_inserted': source_run is not None and source_run.get('source_run_key') == source_run_key,
+        'canonical_source_run_key_matches': (
+            profile.expected_source_run_key is None
+            or source_run_key == profile.expected_source_run_key
+        ),
         'source_run_succeeded': source_run is not None and source_run.get('status') == 'succeeded',
         'source_run_rows_read_matches_limit': source_run_counts['rows_read'] == limit,
         'source_run_rows_staged_matches_inserted_rows': (
@@ -679,18 +780,36 @@ def validate_pilot(
         'source_run_rows_rejected_is_zero': source_run_counts['rows_rejected'] == 0,
         'source_run_rows_skipped_is_zero': source_run_counts['rows_skipped'] == 0,
         'one_legacy_bridge_inserted': bridge is not None and bridge.get('source_run_key') == bridge_key,
-        'exactly_25_staging_rows_inserted': staging['rows_inserted'] == DEFAULT_LIMIT and limit == DEFAULT_LIMIT,
-        'exactly_25_staging_rows_marked_diagnostic': (
-            staging['rows_marked_diagnostic'] == DEFAULT_LIMIT and limit == DEFAULT_LIMIT
+        'canonical_bridge_key_matches': (
+            profile.expected_source_run_key is None
+            or bridge_key == source_run_compatibility.build_enrichment_source_run_key(
+                profile.expected_source_run_key
+            )
+        ),
+        f'exactly_{profile.row_count_label}_staging_rows_inserted': (
+            staging['rows_inserted'] == profile.default_limit
+            and limit == profile.default_limit
+        ),
+        f'exactly_{profile.row_count_label}_staging_rows_marked_diagnostic': (
+            staging['rows_marked_diagnostic'] == profile.default_limit
+            and limit == profile.default_limit
         ),
         'staging_rows_use_legacy_bridge_id': staging['rows_using_legacy_bridge_id'] == limit,
         'staging_rows_do_not_use_source_runs_id': staging['rows_using_source_runs_id'] == 0,
-        'staging_rows_have_stage19ar_marker': staging['rows_with_stage19ar_marker'] == limit,
+        profile.marker_validation_check: staging['rows_with_stage_marker'] == limit,
         'staging_rows_preserve_canonical_write_block': staging['rows_with_canonical_write_blocked'] == limit,
         'source_run_artifact_hash_matches': (
             source_run is not None
             and source_run.get('artifact_sha256') == import_artifact_record['artifact_sha256']
             and source_run.get('artifact_sha256') == artifact_sha256
+        ),
+        'canonical_artifact_hash_matches': (
+            profile.expected_artifact_sha256 is None
+            or (
+                source_run is not None
+                and source_run.get('artifact_sha256') == profile.expected_artifact_sha256
+                and artifact_sha256 == profile.expected_artifact_sha256
+            )
         ),
         'source_run_artifact_integrity_matches': (
             source_run is not None
@@ -769,6 +888,7 @@ def fetch_staging_validation_counts(
     row_ids: Sequence[int],
     source_run_id: int,
     legacy_source_run_id: int,
+    marker_key: str = PROVENANCE_MARKER_KEY,
 ) -> dict[str, int]:
     cur = conn.cursor()
     try:
@@ -780,7 +900,7 @@ def fetch_staging_validation_counts(
                 AS rows_marked_diagnostic,
               COUNT(*) FILTER (WHERE source_run_id = %s)::int AS rows_using_legacy_bridge_id,
               COUNT(*) FILTER (WHERE source_run_id = %s)::int AS rows_using_source_runs_id,
-              COUNT(*) FILTER (WHERE provenance ? %s)::int AS rows_with_stage19ar_marker,
+              COUNT(*) FILTER (WHERE provenance ? %s)::int AS rows_with_stage_marker,
               COUNT(*) FILTER (WHERE provenance->>%s = 'false')::int
                 AS rows_with_canonical_write_blocked
             FROM staging_edsm_stations
@@ -791,7 +911,7 @@ def fetch_staging_validation_counts(
                 DIAGNOSTIC_ONLY,
                 int(legacy_source_run_id),
                 int(source_run_id),
-                PROVENANCE_MARKER_KEY,
+                marker_key,
                 'canonical_write_allowed',
                 list(row_ids),
             ),
@@ -804,7 +924,8 @@ def fetch_staging_validation_counts(
         'rows_marked_diagnostic': int(row.get('rows_marked_diagnostic') or 0),
         'rows_using_legacy_bridge_id': int(row.get('rows_using_legacy_bridge_id') or 0),
         'rows_using_source_runs_id': int(row.get('rows_using_source_runs_id') or 0),
-        'rows_with_stage19ar_marker': int(row.get('rows_with_stage19ar_marker') or 0),
+        'rows_with_stage_marker': int(row.get('rows_with_stage_marker') or 0),
+        'rows_with_stage19ar_marker': int(row.get('rows_with_stage_marker') or 0),
         'rows_with_canonical_write_blocked': int(row.get('rows_with_canonical_write_blocked') or 0),
     }
 
@@ -821,6 +942,7 @@ def assert_validation_passes(checks: Mapping[str, bool]) -> None:
 
 def write_operator_artifact(
     *,
+    profile: BoundedPilotProfile = STAGE19AR_PROFILE,
     artifact_dir: Path,
     run_label: str,
     generated_at: datetime,
@@ -837,7 +959,7 @@ def write_operator_artifact(
 ) -> dict[str, Any]:
     inserted_ids = [int(row_id) for row_id in inserted_row_ids]
     payload = {
-        'schema_version': SCHEMA_VERSION,
+        'schema_version': profile.schema_version,
         'generated_at': _format_timestamp(generated_at),
         'source_sample': {
             'path': sample_record['path'],
@@ -855,7 +977,7 @@ def write_operator_artifact(
         'validation_checks': dict(validation_checks),
         'safety_summary': safety_summary(commit_requested=commit_requested),
     }
-    path = artifact_dir / f'stage19ar_operator_pilot_{run_label}.json'
+    path = artifact_dir / f'{profile.operator_artifact_prefix}_{run_label}.json'
     raw_record = artifact_utils.write_json_artifact(path, payload)
     record = {
         **raw_record,
@@ -896,20 +1018,26 @@ def write_sample_fixture(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[
     }
 
 
-def build_source_run_key(sample_sha256: str) -> str:
-    return f'{SOURCE_RUN_KEY_PREFIX}{sample_sha256[:16]}'
+def build_source_run_key(
+    sample_sha256: str,
+    *,
+    profile: BoundedPilotProfile = STAGE19AR_PROFILE,
+) -> str:
+    if profile.expected_source_run_key is not None:
+        return profile.expected_source_run_key
+    return f'{profile.source_run_key_prefix}{sample_sha256[:16]}'
 
 
 def build_operator_dsn(args: argparse.Namespace, env: Mapping[str, str] | None = None) -> str:
     source_env = env if env is not None else os.environ
-    password = source_env.get('POSTGRES_PASSWORD')
+    password = source_env.get('PGPASSWORD') or source_env.get('POSTGRES_PASSWORD')
     if not password:
-        raise Stage19ArPilotError('POSTGRES_PASSWORD is required for operator DB connection')
+        raise Stage19ArPilotError('POSTGRES_PASSWORD or PGPASSWORD is required for operator DB connection')
     parts = {
-        'host': args.db_host,
-        'port': args.db_port,
-        'dbname': args.db_name,
-        'user': args.db_user,
+        'host': source_env.get('PGHOST') or args.db_host,
+        'port': source_env.get('PGPORT') or args.db_port,
+        'dbname': source_env.get('PGDATABASE') or args.db_name,
+        'user': source_env.get('PGUSER') or args.db_user,
         'password': password,
         'sslmode': 'disable',
     }

@@ -27,6 +27,7 @@ It supersedes the old assumption that the project should simply continue from St
 | [`../reference/colonisation/README.md`](../reference/colonisation/README.md) | Source authority entry point | Committed source hierarchy, inventory placeholders, and future Codex prompt snippet for mechanics-heavy work. |
 | [`engine-roadmap.md`](./engine-roadmap.md) | Living historical roadmap | Broad colonisation engine evolution and delivered stage summaries. |
 | [`enrichment-roadmap.md`](./enrichment-roadmap.md) | Active for enrichment | Guarded station enrichment, body/ring enrichment, offline warehouse, reconciliation, and operator-status roadmap. |
+| [`stage-19ar-canonical-baseline.md`](./stage-19ar-canonical-baseline.md) | Active guardrail | Canonical Stage 19AR baseline identity, fresh project DB recovery failure mode, rejected substitute, and Stage 19AS-AU gate. |
 | [`simulation-preview-ui-architecture.md`](./simulation-preview-ui-architecture.md) | Architecture reference | Simulation Preview / Colony Planner component ownership and delivered UI architecture notes. |
 
 ## Historical / Reference Docs
