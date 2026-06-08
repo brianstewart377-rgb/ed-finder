@@ -26,9 +26,9 @@ if str(OPERATOR_SCRIPTS) not in sys.path:
 import stage19ar_edsm_25_row_staging_pilot as pilot  # noqa: E402
 
 
-BASELINE_SOURCE_RUN_KEY = 'stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd'
+BASELINE_SOURCE_RUN_KEY = 'stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034'
 BASELINE_BRIDGE_KEY = f'{pilot.source_run_compatibility.LEGACY_SOURCE_RUN_KEY_PREFIX}{BASELINE_SOURCE_RUN_KEY}'
-BASELINE_ARTIFACT_SHA256 = '418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417'
+BASELINE_ARTIFACT_SHA256 = 'b617d0239b7458b5b881895b564d091c771394b555c88a5bae942fd9d2c10e5e'
 SAFE_ENV_KEY = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 STAGE19AS_AU_PROFILE = pilot.BoundedPilotProfile(

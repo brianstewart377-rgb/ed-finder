@@ -1,0 +1,26 @@
+{
+  "schema_version": "stage19ar_approved_rebaseline_manifest/v1",
+  "approved_replacement": {
+    "source_run_key": "stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034",
+    "bridge_key": "source_runs:stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034",
+    "source_fixture_sha256": "5f777958b81bd034c344b07a49fda1da527ab1a1dd1f05f436cbbbad342b18ce",
+    "artifact_sha256": "b617d0239b7458b5b881895b564d091c771394b555c88a5bae942fd9d2c10e5e",
+    "rows": 25,
+    "source_fixture_rows": 25,
+    "operator_stage": "19ar",
+    "diagnostic_only": true,
+    "canonical_write_allowed": false
+  },
+  "retired_baseline": {
+    "source_run_key": "stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd",
+    "bridge_key": "source_runs:stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd",
+    "artifact_sha256": "418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417",
+    "rows": 25,
+    "status": "retired_unrecoverable"
+  },
+  "notes": [
+    "This manifest pins the approved Stage 19AR replacement baseline without committing runtime artifacts.",
+    "The approved source fixture hash is the suffix used by the canonical source_run_key.",
+    "Stage 19AS-AU remains blocked unless the approved replacement source_run, bridge, artifact, and 25 diagnostic rows are present."
+  ]
+}
