@@ -111,18 +111,15 @@ Rule: source-correct DB preflight against `127.0.0.1:55432` must pass without re
 - Retired runs must not be silently promoted back to canonical baselines.
 - Stage 19AS-AU must not run unless the exact approved Stage 19AR `source_run_key` and artifact are present.
 
-## Fresh-Chat Handoff
-
-Use this block when resuming Stage 19 in a new chat:
+## Stage 19 Current Checkpoint After PR #196
 
 ```text
 STAGE 19 CURRENT CHECKPOINT
 
-Guardrails:
-Stage 19AR canonical identity guardrails require the approved replacement baseline.
-Stage 19AS-AU rejects missing or retired baselines.
+Authoritative state:
+PR #196 approved replacement canonical baseline.
 
-Approved canonical Stage 19AR baseline required:
+Current approved Stage 19AR canonical baseline:
 
 source_run_key:
 stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034
@@ -136,10 +133,21 @@ b617d0239b7458b5b881895b564d091c771394b555c88a5bae942fd9d2c10e5e
 rows:
 25
 
-Retired Stage 19AR baseline:
+Verification:
+source_correct_db_preflight: passed
+replacement_baseline_verified: true
+operator_visibility: true
+stage19as_au_readiness_preflight_passed: true
+ready_for_stage19as_au: true
+stage19as_au_expansion_attempted: false
+
+Old retired/unrecoverable Stage 19AR baseline:
 
 source_run_key:
 stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd
+
+bridge_key:
+source_runs:stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd
 
 artifact:
 418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417
@@ -147,13 +155,28 @@ artifact:
 status:
 retired_unrecoverable
 
-DB preflight rule:
-Source-correct DB preflight against 127.0.0.1:55432 must pass without relying on cached bytecode before any rebaseline verification or Stage 19AS-AU work.
+Stale state to ignore:
 
-Rule:
-Do not run Stage 19AS-AU until the exact approved Stage 19AR baseline exists.
+branch:
+fix/stage19-approved-rebaseline
 
-Important:
-A fresh project DB can authenticate and have schema while still missing the approved Stage 19AR baseline.
-A 25-row Stage 19AR-like run is not the approved baseline unless it has the exact approved source_run_key and artifact.
+commit:
+45e2d58
+
+reason:
+superseded partial attempt with password_missing, replacement_baseline_verified:false, ready_for_stage19as_au:false, and missing origin/main provenance.
+
+Next allowed action:
+Run Stage 19AS-AU 100-row controlled expansion only after PR #196 is merged and local work starts from updated origin/main.
+
+Still prohibited:
+- using 45e2d58 as current authority
+- re-approving another baseline
+- changing canonical identity again
+- bypassing source_runs/enrichment bridge/staging/artifact verification/operator visibility
+- running Stage 19AS-AU from stale local main
 ```
+
+## Fresh-Chat Handoff
+
+Use the `STAGE 19 CURRENT CHECKPOINT` block above when resuming Stage 19 in a new chat.
