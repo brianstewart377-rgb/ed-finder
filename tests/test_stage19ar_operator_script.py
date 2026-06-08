@@ -13,6 +13,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 OPERATOR_SCRIPTS = ROOT / 'scripts' / 'operator'
+APPROVED_REBASELINE_MANIFEST = ROOT / 'tests' / 'fixtures' / 'stage19ar_approved_rebaseline_manifest.json'
 if str(OPERATOR_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(OPERATOR_SCRIPTS))
 
@@ -21,8 +22,10 @@ import stage19as_au_edsm_100_row_controlled_expansion as expansion  # noqa: E402
 
 
 NOW = datetime(2026, 6, 6, 10, 30, 0, tzinfo=timezone.utc)
-SUBSTITUTE_SOURCE_RUN_KEY = 'stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034'
-SUBSTITUTE_ARTIFACT_SHA256 = 'b617d0239b7458b5b881895b564d091c771394b555c88a5bae942fd9d2c10e5e'
+APPROVED_REPLACEMENT_SOURCE_RUN_KEY = 'stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034'
+APPROVED_REPLACEMENT_ARTIFACT_SHA256 = 'b617d0239b7458b5b881895b564d091c771394b555c88a5bae942fd9d2c10e5e'
+RETIRED_SOURCE_RUN_KEY = 'stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd'
+RETIRED_ARTIFACT_SHA256 = '418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417'
 
 
 def noncanonical_stage19ar_profile():
@@ -680,16 +683,32 @@ def test_committed_pilot_runs_import_marks_rows_validates_and_writes_artifact(tm
     assert summary['inserted_row_ids'] == list(range(901, 926))
 
 
-def test_default_stage19ar_profile_uses_exact_canonical_source_run_key():
-    assert rehearsal.CANONICAL_SOURCE_RUN_KEY == 'stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd'
-    assert rehearsal.CANONICAL_BRIDGE_KEY == 'source_runs:stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd'
+def test_default_stage19ar_profile_uses_approved_replacement_canonical_source_run_key():
+    assert rehearsal.CANONICAL_SOURCE_RUN_KEY == APPROVED_REPLACEMENT_SOURCE_RUN_KEY
+    assert rehearsal.CANONICAL_BRIDGE_KEY == f'source_runs:{APPROVED_REPLACEMENT_SOURCE_RUN_KEY}'
     assert rehearsal.CANONICAL_ARTIFACT_SHA256 == (
-        '418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417'
+        APPROVED_REPLACEMENT_ARTIFACT_SHA256
     )
     assert rehearsal.build_source_run_key('5f777958b81bd034') == rehearsal.CANONICAL_SOURCE_RUN_KEY
 
 
-def test_substitute_stage19ar_run_fails_canonical_validation(tmp_path):
+def test_approved_rebaseline_manifest_tracks_replacement_and_retired_identity():
+    manifest = json.loads(APPROVED_REBASELINE_MANIFEST.read_text(encoding='utf-8'))
+    approved = manifest['approved_replacement']
+    retired = manifest['retired_baseline']
+
+    assert approved['source_run_key'] == APPROVED_REPLACEMENT_SOURCE_RUN_KEY
+    assert approved['bridge_key'] == f'source_runs:{APPROVED_REPLACEMENT_SOURCE_RUN_KEY}'
+    assert approved['artifact_sha256'] == APPROVED_REPLACEMENT_ARTIFACT_SHA256
+    assert approved['source_fixture_sha256'].startswith('5f777958b81bd034')
+    assert approved['rows'] == 25
+    assert approved['source_fixture_rows'] == 25
+    assert retired['source_run_key'] == RETIRED_SOURCE_RUN_KEY
+    assert retired['artifact_sha256'] == RETIRED_ARTIFACT_SHA256
+    assert retired['status'] == 'retired_unrecoverable'
+
+
+def test_retired_stage19ar_run_fails_canonical_validation(tmp_path):
     conn = FakeConn()
     import_record = rehearsal.artifact_utils.write_json_artifact(
         tmp_path / 'import.json',
@@ -700,19 +719,20 @@ def test_substitute_stage19ar_run_fails_canonical_validation(tmp_path):
         'artifact_sha256': import_record['file_sha256'],
         'artifact_integrity_sha256': import_record['artifact_integrity_sha256'],
     }
-    conn.source_runs[SUBSTITUTE_SOURCE_RUN_KEY] = {
+    conn.source_runs[RETIRED_SOURCE_RUN_KEY] = {
         'id': 101,
-        'source_run_key': SUBSTITUTE_SOURCE_RUN_KEY,
+        'source_run_key': RETIRED_SOURCE_RUN_KEY,
         'status': 'succeeded',
         'rows_read': 25,
         'rows_staged': 25,
         'rows_rejected': 0,
         'rows_skipped': 0,
         **import_artifact_record,
+        'artifact_sha256': RETIRED_ARTIFACT_SHA256,
     }
-    conn.legacy_rows[f'source_runs:{SUBSTITUTE_SOURCE_RUN_KEY}'] = {
+    conn.legacy_rows[f'source_runs:{RETIRED_SOURCE_RUN_KEY}'] = {
         'id': 701,
-        'source_run_key': f'source_runs:{SUBSTITUTE_SOURCE_RUN_KEY}',
+        'source_run_key': f'source_runs:{RETIRED_SOURCE_RUN_KEY}',
         'dry_run': False,
         'metadata': {},
     }
@@ -725,15 +745,15 @@ def test_substitute_stage19ar_run_fails_canonical_validation(tmp_path):
             'confidence': 'diagnostic-only',
             'provenance': {
                 'canonical_write_allowed': False,
-                'stage19ar_bounded_25_row_pilot': {'source_run_key': SUBSTITUTE_SOURCE_RUN_KEY},
+                'stage19ar_bounded_25_row_pilot': {'source_run_key': RETIRED_SOURCE_RUN_KEY},
             },
         }
 
     checks = rehearsal.validate_pilot(
         conn,
         limit=25,
-        source_run_key=SUBSTITUTE_SOURCE_RUN_KEY,
-        bridge_key=f'source_runs:{SUBSTITUTE_SOURCE_RUN_KEY}',
+        source_run_key=RETIRED_SOURCE_RUN_KEY,
+        bridge_key=f'source_runs:{RETIRED_SOURCE_RUN_KEY}',
         source_run_id=101,
         legacy_source_run_id=701,
         inserted_row_ids=list(range(901, 926)),
@@ -762,23 +782,23 @@ def test_stage19as_au_defaults_to_100_row_profile(tmp_path):
     assert expansion.STAGE19AS_AU_PROFILE.hard_max_limit == 100
 
 
-def test_stage19as_au_rejects_substitute_stage19ar_baseline():
+def test_stage19as_au_rejects_retired_stage19ar_baseline():
     conn = FakeConn()
-    conn.source_runs[SUBSTITUTE_SOURCE_RUN_KEY] = {
+    conn.source_runs[RETIRED_SOURCE_RUN_KEY] = {
         'id': 101,
-        'source_run_key': SUBSTITUTE_SOURCE_RUN_KEY,
+        'source_run_key': RETIRED_SOURCE_RUN_KEY,
         'status': 'succeeded',
         'rows_read': 25,
         'rows_staged': 25,
         'rows_rejected': 0,
         'rows_skipped': 0,
         'artifact_path': 'stage19ar_edsm_import.json',
-        'artifact_sha256': SUBSTITUTE_ARTIFACT_SHA256,
+        'artifact_sha256': RETIRED_ARTIFACT_SHA256,
         'artifact_integrity_sha256': 'integrity',
     }
-    conn.legacy_rows[f'source_runs:{SUBSTITUTE_SOURCE_RUN_KEY}'] = {
+    conn.legacy_rows[f'source_runs:{RETIRED_SOURCE_RUN_KEY}'] = {
         'id': 701,
-        'source_run_key': f'source_runs:{SUBSTITUTE_SOURCE_RUN_KEY}',
+        'source_run_key': f'source_runs:{RETIRED_SOURCE_RUN_KEY}',
         'dry_run': False,
         'metadata': {},
     }
@@ -791,7 +811,7 @@ def test_stage19as_au_rejects_substitute_stage19ar_baseline():
             'confidence': 'diagnostic-only',
             'provenance': {
                 'canonical_write_allowed': False,
-                'stage19ar_bounded_25_row_pilot': {'source_run_key': SUBSTITUTE_SOURCE_RUN_KEY},
+                'stage19ar_bounded_25_row_pilot': {'source_run_key': RETIRED_SOURCE_RUN_KEY},
             },
         }
 
@@ -802,6 +822,45 @@ def test_stage19as_au_rejects_substitute_stage19ar_baseline():
     assert baseline['checks']['canonical_artifact_present'] is False
     with pytest.raises(rehearsal.Stage19ArPilotError, match='canonical Stage 19AR baseline is required'):
         expansion.assert_canonical_stage19ar_baseline(baseline)
+
+
+def test_stage19as_au_accepts_approved_replacement_stage19ar_baseline():
+    conn = FakeConn()
+    conn.source_runs[APPROVED_REPLACEMENT_SOURCE_RUN_KEY] = {
+        'id': 101,
+        'source_run_key': APPROVED_REPLACEMENT_SOURCE_RUN_KEY,
+        'status': 'succeeded',
+        'rows_read': 25,
+        'rows_staged': 25,
+        'rows_rejected': 0,
+        'rows_skipped': 0,
+        'artifact_path': 'stage19ar_edsm_import.json',
+        'artifact_sha256': APPROVED_REPLACEMENT_ARTIFACT_SHA256,
+        'artifact_integrity_sha256': 'integrity',
+    }
+    conn.legacy_rows[f'source_runs:{APPROVED_REPLACEMENT_SOURCE_RUN_KEY}'] = {
+        'id': 701,
+        'source_run_key': f'source_runs:{APPROVED_REPLACEMENT_SOURCE_RUN_KEY}',
+        'dry_run': False,
+        'metadata': {},
+    }
+    for index in range(1, 26):
+        conn.staging_rows[900 + index] = {
+            **normalised_import_row(index),
+            'id': 900 + index,
+            'source_run_id': 701,
+            'source_class': 'diagnostic-only',
+            'confidence': 'diagnostic-only',
+            'provenance': {
+                'canonical_write_allowed': False,
+                'stage19ar_bounded_25_row_pilot': {'source_run_key': APPROVED_REPLACEMENT_SOURCE_RUN_KEY},
+            },
+        }
+
+    baseline = expansion.verify_canonical_stage19ar_baseline(conn)
+
+    assert all(baseline['checks'].values())
+    expansion.assert_canonical_stage19ar_baseline(baseline)
 
 
 def test_stage19as_au_db_preflight_redacts_config_and_performs_no_writes(monkeypatch):
