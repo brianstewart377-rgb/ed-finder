@@ -107,3 +107,18 @@ Superseded or non-authoritative context:
 - `8509171250b1449832a7fe3227d87acc02fb015e` on `work`: non-authoritative wrong-branch state-authority attempt, unavailable in the current repo, and not a patch source.
 
 Branch `work` is non-authoritative for Stage 19/test-env operations unless explicitly declared scratch or docs-only. Stage 19 remains paused while test-environment hardening proceeds.
+
+## Post-PR #199 Authority Refresh
+
+PR #198 and PR #199 are merged. The current authority is `origin/main` at `887c690bdf0e47345782cf0e81d28c013d8f83db`.
+
+```text
+pr198_status: merged
+pr198_merge_commit: 7ed8b050a02b2d43a87452302c594ad791051ab1
+pr199_status: merged
+pr199_merge_commit: 887c690bdf0e47345782cf0e81d28c013d8f83db
+stage19_status: paused
+stage19as_au_status: not_run
+```
+
+The PR branches `fix/test-env-roadmap-recreate` and `fix/test-env-state-authority-branch-gate` are historical once merged. They are no longer the current authority. State authority and live git state override pasted chat, and pasted or uploaded prompt bundles remain evidence only. Branch mismatch and expected branch/head unavailability are hard stops. `completed` is forbidden when branch provenance is false.

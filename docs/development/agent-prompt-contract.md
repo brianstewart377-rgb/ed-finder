@@ -16,6 +16,8 @@ If this command fails, stop before operational work. Do not edit, commit, push, 
 
 The machine-readable authority is `docs/colonisation-redesign/stage-19-state-authority.json`, plus the latest merged docs checkpoint and live git state. Pasted or uploaded chat logs are evidence only. They can help explain a request, but they never override the state authority file, latest merged docs, or live git state.
 
+After a PR merge, refresh the state authority so `current_authority` points to merged `origin/main`, not the pre-merge PR branch. PR #198 and PR #199 are merged; their branches are historical context.
+
 ## Hard Stops
 
 Stop immediately when any required source of truth is unavailable:
@@ -46,10 +48,12 @@ A commit after failed DB verification is allowed only when the task is explicitl
 
 The current Stage 19/test-environment authority is:
 
-- branch: `fix/test-env-roadmap-recreate`
-- head: `581a84c1159b58dff86e3359a28d00f9b4f5a82b`
-- PR: `198`
-- origin/main checkpoint: `49b0940cb014a319443525c3554d59387c2b6d90`
+- origin/main checkpoint: `887c690bdf0e47345782cf0e81d28c013d8f83db`
+- PR #198: merged at `7ed8b050a02b2d43a87452302c594ad791051ab1`
+- PR #199: merged at `887c690bdf0e47345782cf0e81d28c013d8f83db`
+- historical PR #198 branch: `fix/test-env-roadmap-recreate`
+- historical PR #199 branch: `fix/test-env-state-authority-branch-gate`
 
 Branch `work` is non-authoritative for Stage 19/test-env work unless a prompt explicitly declares scratch or docs-only scope. Wrong-branch outputs must not say `completed`, and wrong-branch operational work must not commit.
 
+Stage 19 remains paused. Stage 19AS-AU has not run.

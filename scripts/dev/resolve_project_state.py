@@ -125,7 +125,7 @@ def resolve_project_state(
             run_git(runner, ('merge-base', '--is-ancestor', expected_origin_main, 'origin/main')).returncode == 0
         )
 
-    expected_head = str(current_authority.get('test_env_head', ''))
+    expected_head = authority_commit(current_authority)
     authority_commit_available = False
     head_contains_authority = False
     if expected_head:
@@ -186,9 +186,14 @@ def resolve_project_state(
         'next_action': next_action,
         'authority_test_env_branch': current_authority.get('test_env_branch'),
         'authority_test_env_head': expected_head,
+        'authority_origin_main': expected_origin_main,
+        'authority_test_env_prs': current_authority.get('test_env_prs', []),
+        'authority_pr198_merge_commit': current_authority.get('test_env_pr198_merge_commit'),
+        'authority_pr199_merge_commit': current_authority.get('test_env_pr199_merge_commit'),
         'head_contains_authority': head_contains_authority,
         'authority_commit_available': authority_commit_available,
         'superseded_states': [public_state(state) for state in authority.get('superseded_states', [])],
+        'historical_states': [public_historical_state(state) for state in authority.get('historical_states', [])],
         'prompt_rules': authority.get('prompt_rules', {}),
     }
 
@@ -236,10 +241,17 @@ def build_failure(
         'failure_category': failure_category,
         'next_action': next_action,
         'authority_test_env_branch': (authority or {}).get('current_authority', {}).get('test_env_branch'),
-        'authority_test_env_head': (authority or {}).get('current_authority', {}).get('test_env_head'),
+        'authority_test_env_head': authority_commit((authority or {}).get('current_authority', {})),
+        'authority_origin_main': (authority or {}).get('current_authority', {}).get('origin_main'),
+        'authority_test_env_prs': (authority or {}).get('current_authority', {}).get('test_env_prs', []),
+        'authority_pr198_merge_commit': (authority or {}).get('current_authority', {}).get('test_env_pr198_merge_commit'),
+        'authority_pr199_merge_commit': (authority or {}).get('current_authority', {}).get('test_env_pr199_merge_commit'),
         'head_contains_authority': False,
         'authority_commit_available': False,
         'superseded_states': [public_state(state) for state in (authority or {}).get('superseded_states', [])],
+        'historical_states': [
+            public_historical_state(state) for state in (authority or {}).get('historical_states', [])
+        ],
         'prompt_rules': (authority or {}).get('prompt_rules', {}),
         'allow_docs_only': allow_docs_only,
     }
@@ -269,6 +281,14 @@ def git_output(runner: GitRunner, args: Sequence[str]) -> str | None:
         return None
     text = completed.stdout.strip()
     return text or None
+
+
+def authority_commit(current_authority: Mapping[str, Any]) -> str:
+    for key in ('test_env_pr199_merge_commit', 'test_env_head', 'origin_main'):
+        value = current_authority.get(key)
+        if value:
+            return str(value)
+    return ''
 
 
 def find_matching_superseded_state(
@@ -311,6 +331,13 @@ def public_state(state: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if not state:
         return None
     keys = ('id', 'branch', 'commit', 'commits', 'status', 'reason', 'replacement', 'evidence_only')
+    return {key: state[key] for key in keys if key in state}
+
+
+def public_historical_state(state: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not state:
+        return None
+    keys = ('id', 'branch', 'head', 'status', 'merge_commit', 'reason')
     return {key: state[key] for key in keys if key in state}
 
 

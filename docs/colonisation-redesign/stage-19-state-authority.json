@@ -1,12 +1,17 @@
 {
   "schema_version": "stage19_state_authority/v1",
   "current_authority": {
-    "origin_main": "49b0940cb014a319443525c3554d59387c2b6d90",
+    "origin_main": "887c690bdf0e47345782cf0e81d28c013d8f83db",
     "stage19_status": "paused",
     "stage19as_au_status": "not_run",
-    "test_env_pr": 198,
-    "test_env_branch": "fix/test-env-roadmap-recreate",
-    "test_env_head": "581a84c1159b58dff86e3359a28d00f9b4f5a82b"
+    "test_env_prs": [
+      198,
+      199
+    ],
+    "test_env_pr198_status": "merged",
+    "test_env_pr198_merge_commit": "7ed8b050a02b2d43a87452302c594ad791051ab1",
+    "test_env_pr199_status": "merged",
+    "test_env_pr199_merge_commit": "887c690bdf0e47345782cf0e81d28c013d8f83db"
   },
   "approved_stage19ar_baseline": {
     "source_run_key": "stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034",
@@ -26,7 +31,7 @@
         "45e2d58"
       ],
       "branch": "fix/stage19-approved-rebaseline",
-      "status": "superseded",
+      "status": "superseded_invalid_as_current_authority",
       "reason": "password_missing; replacement_baseline_verified:false; ready_for_stage19as_au:false; missing origin/main provenance"
     },
     {
@@ -35,7 +40,7 @@
         "f72812a"
       ],
       "branch": "run/stage19as-au-100-row-expansion",
-      "status": "superseded_docs_only_stopped_checkpoint",
+      "status": "superseded_not_successful_expansion",
       "reason": "password_missing; no writes; no successful 100-row expansion; docs-only stopped checkpoint"
     },
     {
@@ -49,7 +54,9 @@
       "reason": "reported in earlier local context but not recoverable from current refs/remotes/reflogs/checkouts",
       "replacement": {
         "branch": "fix/test-env-roadmap-recreate",
-        "commit": "581a84c1159b58dff86e3359a28d00f9b4f5a82b"
+        "commit": "581a84c1159b58dff86e3359a28d00f9b4f5a82b",
+        "merged_via_pr": 198,
+        "merge_commit": "7ed8b050a02b2d43a87452302c594ad791051ab1"
       }
     },
     {
@@ -59,7 +66,7 @@
         "8509171250b1449832a7fe3227d87acc02fb015e"
       ],
       "branch": "work",
-      "status": "non_authoritative_wrong_branch_attempt",
+      "status": "non_authoritative_wrong_branch_attempt_unavailable",
       "reason": "State-authority hardening was reportedly implemented on branch work, but the commit is unavailable in the current repo and was never authority. Do not require it, do not recover it, and do not treat it as a patch source.",
       "evidence_only": true
     },
@@ -68,6 +75,24 @@
       "status": "evidence_only",
       "reason": "Uploaded or pasted prompt bundles may be duplicated, truncated, stale, or mixed with old prompts and results. They must never override this state authority file, latest merged docs checkpoint, or live git state.",
       "evidence_only": true
+    }
+  ],
+  "historical_states": [
+    {
+      "id": "test_env_roadmap_recreate_pr198",
+      "branch": "fix/test-env-roadmap-recreate",
+      "head": "581a84c1159b58dff86e3359a28d00f9b4f5a82b",
+      "status": "merged_via_pr198",
+      "merge_commit": "7ed8b050a02b2d43a87452302c594ad791051ab1",
+      "reason": "Historical PR #198 branch. Current authority is merged origin/main at 887c690bdf0e47345782cf0e81d28c013d8f83db."
+    },
+    {
+      "id": "state_authority_branch_gate_pr199",
+      "branch": "fix/test-env-state-authority-branch-gate",
+      "head": "2216a7c2369c71a8c00d24fe92f2cf0dbdee04d0",
+      "status": "merged_via_pr199",
+      "merge_commit": "887c690bdf0e47345782cf0e81d28c013d8f83db",
+      "reason": "Historical PR #199 branch. Current authority is merged origin/main at 887c690bdf0e47345782cf0e81d28c013d8f83db."
     }
   ],
   "non_authoritative_branches": [

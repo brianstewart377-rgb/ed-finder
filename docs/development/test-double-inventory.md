@@ -73,3 +73,18 @@ Superseded or non-authoritative context:
 - `8509171250b1449832a7fe3227d87acc02fb015e` on `work`: non-authoritative and unavailable in the current repo.
 
 Stage 19 remains paused while test-environment hardening proceeds.
+
+## Post-PR #199 Authority Refresh
+
+PR #198 and PR #199 are merged. Current test-environment authority is merged `origin/main` at `887c690bdf0e47345782cf0e81d28c013d8f83db`, not the historical PR branches.
+
+- PR #198 merged at `7ed8b050a02b2d43a87452302c594ad791051ab1`.
+- PR #199 merged at `887c690bdf0e47345782cf0e81d28c013d8f83db`.
+- `fix/test-env-roadmap-recreate` is historical PR #198 context.
+- `fix/test-env-state-authority-branch-gate` is historical PR #199 context.
+- Pasted or uploaded prompt bundles are evidence only.
+- State authority and live git state override pasted chat.
+- Branch mismatch and expected branch/head unavailability are hard stops.
+- `completed` is forbidden when branch provenance is false.
+
+Stage 19 remains paused. Stage 19AS-AU has not run.

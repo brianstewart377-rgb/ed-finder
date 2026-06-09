@@ -11,8 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 RESOLVER_PATH = ROOT / 'scripts' / 'dev' / 'resolve_project_state.py'
 AUTHORITY_PATH = ROOT / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
 
-EXPECTED_HEAD = '581a84c1159b58dff86e3359a28d00f9b4f5a82b'
-EXPECTED_ORIGIN_MAIN = '49b0940cb014a319443525c3554d59387c2b6d90'
+AUTHORITY_COMMIT = '887c690bdf0e47345782cf0e81d28c013d8f83db'
+PR198_HEAD = '581a84c1159b58dff86e3359a28d00f9b4f5a82b'
+PR198_MERGE_COMMIT = '7ed8b050a02b2d43a87452302c594ad791051ab1'
 SECRET_SENTINEL = 'do-not-print-this-secret'
 
 spec = importlib.util.spec_from_file_location('resolve_project_state', RESOLVER_PATH)
@@ -31,9 +32,9 @@ def completed(args, returncode=0, stdout='', stderr=''):
 
 def git_runner(
     *,
-    branch='fix/test-env-roadmap-recreate',
-    head=EXPECTED_HEAD,
-    origin_main=EXPECTED_ORIGIN_MAIN,
+    branch='docs/state-authority-post-pr199-refresh',
+    head=AUTHORITY_COMMIT,
+    origin_main=AUTHORITY_COMMIT,
     origin_available=True,
     origin_contains=True,
     authority_available=True,
@@ -52,14 +53,14 @@ def git_runner(
             if not origin_available:
                 return completed(args, 128, '', SECRET_SENTINEL)
             return completed(args, 0, f'{origin_main}\n')
-        if args == ('rev-parse', '--verify', EXPECTED_HEAD):
-            return completed(args, 0 if authority_available else 128, f'{EXPECTED_HEAD}\n')
+        if args == ('rev-parse', '--verify', AUTHORITY_COMMIT):
+            return completed(args, 0 if authority_available else 128, f'{AUTHORITY_COMMIT}\n')
         if args[:2] == ('merge-base', '--is-ancestor'):
             ancestor = args[2]
             target = args[3]
-            if ancestor == EXPECTED_ORIGIN_MAIN and target == 'origin/main':
+            if ancestor == AUTHORITY_COMMIT and target == 'origin/main':
                 return completed(args, 0 if origin_contains else 1)
-            if ancestor == EXPECTED_HEAD and target == 'HEAD':
+            if ancestor == AUTHORITY_COMMIT and target == 'HEAD':
                 return completed(args, 0 if head_contains else 1)
         return completed(args, 1, '', SECRET_SENTINEL)
 
@@ -80,7 +81,22 @@ def test_authority_file_parses():
     assert error is None
     assert authority['current_authority']['stage19_status'] == 'paused'
     assert authority['current_authority']['stage19as_au_status'] == 'not_run'
+    assert authority['current_authority']['origin_main'] == AUTHORITY_COMMIT
+    assert authority['current_authority']['test_env_pr198_merge_commit'] == PR198_MERGE_COMMIT
+    assert authority['current_authority']['test_env_pr199_merge_commit'] == AUTHORITY_COMMIT
     assert authority['approved_stage19ar_baseline']['rows'] == 25
+
+
+def test_origin_main_887c690_is_accepted_as_current_authority():
+    result = resolve()
+
+    assert result['origin_main'] == AUTHORITY_COMMIT
+    assert result['authority_origin_main'] == AUTHORITY_COMMIT
+    assert result['authority_test_env_head'] == AUTHORITY_COMMIT
+    assert result['authority_test_env_prs'] == [198, 199]
+    assert result['failure_category'] == 'none'
+    assert result['safe_for_operational_work'] is True
+    assert result['current_state_is_superseded'] is False
 
 
 def test_json_output_works(capsys):
@@ -94,6 +110,39 @@ def test_json_output_works(capsys):
     assert exit_code == 0
     assert payload['failure_category'] == 'none'
     assert payload['safe_for_operational_work'] is True
+
+
+def test_pr198_branch_state_is_historical_after_merge():
+    result = resolve()
+    state = next(
+        item for item in result['historical_states']
+        if item['id'] == 'test_env_roadmap_recreate_pr198'
+    )
+
+    assert state['branch'] == 'fix/test-env-roadmap-recreate'
+    assert state['status'] == 'merged_via_pr198'
+    assert state['merge_commit'] == PR198_MERGE_COMMIT
+
+
+def test_pr199_branch_state_is_historical_after_merge():
+    result = resolve()
+    state = next(
+        item for item in result['historical_states']
+        if item['id'] == 'state_authority_branch_gate_pr199'
+    )
+
+    assert state['branch'] == 'fix/test-env-state-authority-branch-gate'
+    assert state['status'] == 'merged_via_pr199'
+    assert state['merge_commit'] == AUTHORITY_COMMIT
+
+
+def test_resolver_does_not_require_pr198_branch_after_merge():
+    result = resolve(branch='main', head=AUTHORITY_COMMIT)
+
+    assert result['current_branch'] == 'main'
+    assert result['authority_test_env_branch'] is None
+    assert result['failure_category'] == 'none'
+    assert result['safe_for_operational_work'] is True
 
 
 def test_resolver_rejects_work_branch_for_operational_work():
@@ -150,7 +199,7 @@ def test_resolver_lists_unrecoverable_historical_test_env_context():
 
     assert state['status'] == 'unrecoverable_historical_context'
     assert state['commits'] == ['0042471', 'd66a568', '09eee44']
-    assert state['replacement']['commit'] == EXPECTED_HEAD
+    assert state['replacement']['commit'] == PR198_HEAD
 
 
 def test_resolver_marks_uploaded_prompt_bundles_evidence_only():
