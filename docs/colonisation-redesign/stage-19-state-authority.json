@@ -1,12 +1,8 @@
 {
-  "schema_version": "stage19_state_authority/v1",
-  "current_authority": {
-    "origin_main": "49b0940cb014a319443525c3554d59387c2b6d90",
-    "stage19_status": "paused",
-    "stage19as_au_status": "not_run",
-    "test_env_pr": 198,
-    "test_env_branch": "fix/test-env-roadmap-recreate",
-    "test_env_head": "581a84c1159b58dff86e3359a28d00f9b4f5a82b"
+  "schema_version": 1,
+  "stage19": {
+    "status": "paused",
+    "stage19as_au_status": "not_run"
   },
   "approved_stage19ar_baseline": {
     "source_run_key": "stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034",
@@ -17,74 +13,37 @@
   "retired_stage19ar_baseline": {
     "source_run_key": "stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd",
     "artifact": "418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417",
-    "status": "retired_unrecoverable"
+    "status": "retired_unrecoverable",
+    "details": "See docs/archive/stage-19-incident-history.md"
   },
-  "superseded_states": [
+  "invalid_states": [
     {
-      "id": "superseded_partial_rebaseline_45e2d58",
-      "commits": [
-        "45e2d58"
-      ],
-      "branch": "fix/stage19-approved-rebaseline",
-      "status": "superseded",
-      "reason": "password_missing; replacement_baseline_verified:false; ready_for_stage19as_au:false; missing origin/main provenance"
+      "id": "45e2d58",
+      "status": "invalid_partial_rebaseline_never_authority"
     },
     {
-      "id": "superseded_stage19as_au_docs_only_checkpoint_f72812a",
-      "commits": [
-        "f72812a"
-      ],
-      "branch": "run/stage19as-au-100-row-expansion",
-      "status": "superseded_docs_only_stopped_checkpoint",
-      "reason": "password_missing; no writes; no successful 100-row expansion; docs-only stopped checkpoint"
+      "id": "f72812a",
+      "status": "docs_only_stopped_checkpoint_not_successful_expansion"
     },
     {
-      "id": "unrecoverable_historical_test_env_stack_0042471_d66a568_09eee44",
-      "commits": [
-        "0042471",
-        "d66a568",
-        "09eee44"
-      ],
-      "status": "unrecoverable_historical_context",
-      "reason": "reported in earlier local context but not recoverable from current refs/remotes/reflogs/checkouts",
-      "replacement": {
-        "branch": "fix/test-env-roadmap-recreate",
-        "commit": "581a84c1159b58dff86e3359a28d00f9b4f5a82b"
-      }
-    },
-    {
-      "id": "non_authoritative_state_authority_attempt_850917_on_work",
-      "commit": "8509171250b1449832a7fe3227d87acc02fb015e",
-      "commits": [
-        "8509171250b1449832a7fe3227d87acc02fb015e"
-      ],
-      "branch": "work",
-      "status": "non_authoritative_wrong_branch_attempt",
-      "reason": "State-authority hardening was reportedly implemented on branch work, but the commit is unavailable in the current repo and was never authority. Do not require it, do not recover it, and do not treat it as a patch source.",
-      "evidence_only": true
-    },
-    {
-      "id": "uploaded_or_pasted_prompt_bundles",
-      "status": "evidence_only",
-      "reason": "Uploaded or pasted prompt bundles may be duplicated, truncated, stale, or mixed with old prompts and results. They must never override this state authority file, latest merged docs checkpoint, or live git state.",
-      "evidence_only": true
+      "id": "8509171250b1449832a7fe3227d87acc02fb015e",
+      "status": "wrong_branch_unavailable_never_authority"
     }
   ],
-  "non_authoritative_branches": [
-    {
-      "branch": "work",
-      "reason": "work is not authoritative for Stage 19/test-env operational work unless a task is explicitly scratch or docs-only"
-    }
-  ],
-  "prompt_rules": {
-    "completed_reserved_for_all_required_checks_true": true,
-    "partial_requires_stopped_or_partial_label": true,
-    "source_of_truth_unavailable_is_hard_stop": true,
-    "expected_branch_unavailable_is_hard_stop": true,
+  "historical_context": {
+    "unrecoverable_test_env_stack": [
+      "0042471",
+      "d66a568",
+      "09eee44"
+    ],
+    "details": "See docs/archive/stage-19-incident-history.md"
+  },
+  "rules": {
+    "pasted_logs_are_evidence_only": true,
+    "completed_requires_all_checks_true": true,
     "branch_mismatch_is_hard_stop": true,
+    "source_of_truth_unavailable_is_hard_stop": true,
     "db_credentials_missing_is_hard_stop_for_db_work": true,
-    "do_not_commit_final_success_when_required_verification_false": true,
-    "docs_checkpoint_required_after_material_state_change": true,
-    "pasted_chat_logs_are_evidence_not_authority": true
+    "docs_checkpoint_required_after_material_state_change": true
   }
 }

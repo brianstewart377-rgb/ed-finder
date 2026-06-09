@@ -41,7 +41,7 @@ The previous Stage 19AR baseline is retired and unrecoverable. It must not be tr
 | `rows` | `25` |
 | `status` | `retired_unrecoverable` |
 
-The retired run was valid-looking because it exercised the source run, bridge, staging, diagnostic, provenance, artifact, and visibility path. It is no longer equivalent to the approved canonical Stage 19AR baseline because both the source run key and artifact differ from the approved replacement values.
+Historical detail about why this baseline was retired lives in `docs/archive/stage-19-incident-history.md`. The archive is evidence only and must not be used as operational authority.
 
 ## Fresh Project DB Failure Mode
 
@@ -111,79 +111,25 @@ Rule: source-correct DB preflight against `127.0.0.1:55432` must pass without re
 - Retired runs must not be silently promoted back to canonical baselines.
 - Stage 19AS-AU must not run unless the exact approved Stage 19AR `source_run_key` and artifact are present.
 
-## Stage 19 Current Checkpoint After PR #196
+## Current Stage 19 State
 
-```text
-STAGE 19 CURRENT CHECKPOINT
+Active authority:
+`docs/colonisation-redesign/stage-19-state-authority.json`
 
-Authoritative state:
-PR #196 approved replacement canonical baseline.
-
-Current approved Stage 19AR canonical baseline:
-
-source_run_key:
-stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034
-
-bridge_key:
-source_runs:stage19ar-edsm-25-row-staging-pilot-5f777958b81bd034
-
-artifact:
-b617d0239b7458b5b881895b564d091c771394b555c88a5bae942fd9d2c10e5e
-
-rows:
-25
-
-Verification:
-source_correct_db_preflight: passed
-replacement_baseline_verified: true
-operator_visibility: true
-stage19as_au_readiness_preflight_passed: true
-ready_for_stage19as_au: true
-stage19as_au_expansion_attempted: false
-
-Old retired/unrecoverable Stage 19AR baseline:
-
-source_run_key:
-stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd
-
-bridge_key:
-source_runs:stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd
-
-artifact:
-418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417
-
-status:
-retired_unrecoverable
-
-Stale state to ignore:
-
-branch:
-fix/stage19-approved-rebaseline
-
-commit:
-45e2d58
-
-reason:
-superseded partial attempt with password_missing, replacement_baseline_verified:false, ready_for_stage19as_au:false, and missing origin/main provenance.
-
-Next allowed action:
-Run Stage 19AS-AU 100-row controlled expansion only after PR #196 is merged and local work starts from updated origin/main.
-
-Still prohibited:
-- using 45e2d58 as current authority
-- re-approving another baseline
-- changing canonical identity again
-- bypassing source_runs/enrichment bridge/staging/artifact verification/operator visibility
-- running Stage 19AS-AU from stale local main
-```
-
-## Test Environment Roadmap Gate
+Historical evidence:
+`docs/archive/stage-19-incident-history.md`
 
 Stage 19AS-AU is paused while the test-environment roadmap is restored and validated. The pause is a test-environment gate, not a new baseline decision.
 
-Current test-environment restoration state:
+Current operational state:
 
 ```text
+stage19_status:
+paused
+
+stage19as_au_status:
+not_run
+
 stage19_resume_gate:
 fake-only readiness blocker cleared
 Stage 19 remains paused until the next agreed test-env gate or operator decision
@@ -203,32 +149,20 @@ false
 
 The restored real-service readiness path is `tests/test_stage19_real_postgres_readiness.py`. It passed against local Postgres on the recreated test-environment branch, so FakeConn/FakeCursor coverage is now paired with real-service readiness coverage. Stage 19 remains paused until the next agreed test-environment gate or operator decision.
 
-Stale states that remain non-authoritative:
-
-- `fix/stage19-approved-rebaseline` at `45e2d58`: superseded partial attempt with `password_missing`, `replacement_baseline_verified:false`, `ready_for_stage19as_au:false`, and missing `origin/main` provenance.
-- `run/stage19as-au-100-row-expansion` at `f72812a`: local docs-only stopped checkpoint with `password_missing`, no writes, not pushed, and not a successful Stage 19AS-AU run.
-
 ## Fresh-Chat Handoff
 
-Use the `STAGE 19 CURRENT CHECKPOINT` block above when resuming Stage 19 in a new chat.
-
-## State Authority and Superseded Context
-
-The current source of truth is `docs/colonisation-redesign/stage-19-state-authority.json`, this latest merged docs checkpoint, and live git state. Pasted or uploaded prompt bundles are evidence only. They must not override the state authority file, current branch/head, or latest merged checkpoint.
-
-Prompts must run state resolution before operational work:
+Operational prompts should run the resolver first:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
 ```
 
-If source-of-truth branch/commit, expected branch/head, or branch provenance is unavailable, stop. Branch mismatch is a hard stop. `completed` is forbidden when branch provenance is false.
+Do not paste archive history or large stale prompt bundles into fresh-chat handoffs. Include the active authority path, latest merged docs checkpoint, and live branch/head instead.
 
-Superseded or non-authoritative states:
+## Authority Boundaries
 
-- `45e2d58` on `fix/stage19-approved-rebaseline`: superseded partial rebaseline with `password_missing`, `replacement_baseline_verified:false`, `ready_for_stage19as_au:false`, and missing `origin/main` provenance.
-- `f72812a` on `run/stage19as-au-100-row-expansion`: docs-only stopped checkpoint with `password_missing`, no writes, and no successful 100-row expansion.
-- `0042471`, `d66a568`, and `09eee44`: unrecoverable historical test-env stack replaced by `fix/test-env-roadmap-recreate` at `581a84c1159b58dff86e3359a28d00f9b4f5a82b`.
-- `8509171250b1449832a7fe3227d87acc02fb015e` on `work`: non-authoritative wrong-branch state-authority attempt, unavailable in the current repo, and not a patch source.
+The active source of truth is `docs/colonisation-redesign/stage-19-state-authority.json`, this latest merged docs checkpoint, and live git state. Pasted or uploaded prompt bundles are evidence only. They must not override active authority, current branch/head, or latest merged checkpoint.
 
-Branch `work` is non-authoritative for Stage 19/test-env operations unless explicitly declared scratch or docs-only. Stage 19 remains paused while test-environment hardening proceeds.
+The active invalid-state denylist is intentionally tiny. Historical detail belongs in `docs/archive/stage-19-incident-history.md`; the archive must never be copied into operational prompts or used as operational authority.
+
+If source-of-truth branch/commit or branch provenance is unavailable, stop. Branch mismatch is a hard stop. `completed` is forbidden when branch provenance is false.
