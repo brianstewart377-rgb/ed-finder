@@ -3,7 +3,9 @@
 # Real builds happen via docker compose / yarn / pytest directly; this
 # Makefile just collects the most-used recipes so you don't have to
 # remember the env-var incantations.
-.PHONY: help lint typecheck test seed-check api-smoke clean
+.PHONY: help lint typecheck test seed-check api-smoke test-env-check test-unit test-operator test-db test-integration test-ci-local clean
+
+PYTHON ?= python
 
 help:  ## Show this help
 	@awk 'BEGIN{FS=":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -22,6 +24,26 @@ test:  ## Run backend unit + integration tests
 	LOG_LEVEL=$${LOG_LEVEL:-WARNING} \
 	EXPOSE_ERROR_DETAIL=true \
 	python -m pytest tests/integration/ -q
+
+test-env-check:  ## Run the local test-environment preflight without writes
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B scripts/dev/test_env_preflight.py
+
+test-unit:  ## Run tests that do not require external services
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest -m "unit or not (integration or db or operator or e2e or slow)"
+
+test-operator:  ## Run Stage 19 operator safety tests
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest tests/test_stage19ar_operator_script.py tests/test_stage19ap_operator_visibility.py -m operator
+
+test-db:  ## Run DB-marked tests, including explicit skips for absent real services
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest -m db -rs
+
+test-integration:  ## Run integration-marked tests
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest -m integration -rs
+
+test-ci-local: test-env-check  ## Run focused local CI checks for the test environment stack
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest tests/test_test_env_preflight.py tests/test_stage19ar_operator_script.py tests/test_stage19ap_operator_visibility.py tests/test_stage19_real_postgres_readiness.py -rs
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m py_compile scripts/dev/test_env_preflight.py scripts/operator/stage19ar_edsm_25_row_staging_pilot.py scripts/operator/stage19as_au_edsm_100_row_controlled_expansion.py
+	git diff --check
 
 api-smoke:  ## Curl the Phase-2 happy paths against a running API
 	@API=$${API:-http://localhost:8000}; \

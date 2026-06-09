@@ -19,6 +19,9 @@ os.environ.setdefault('CORS_ORIGINS', 'http://localhost')
 
 import operator_visibility as visibility  # noqa: E402
 
+
+pytestmark = pytest.mark.operator
+
 _ROUTER_SPEC = importlib.util.spec_from_file_location(
     'stage19ap_operator_router',
     API_ROUTERS / 'operator.py',
@@ -572,3 +575,14 @@ def test_static_guardrails_for_operator_visibility_module_and_router():
     assert re.search(r'(?<![a-z0-9_])\.service(?![a-z0-9_])', source, flags=re.IGNORECASE) is None
     assert 'raw_payload' not in source
     assert 'canonical_apply(' not in source
+
+
+def test_fake_operator_visibility_boundary_is_paired_with_real_stage19_readiness_test():
+    readiness_test = ROOT / 'tests' / 'test_stage19_real_postgres_readiness.py'
+    source = readiness_test.read_text(encoding='utf-8')
+
+    assert readiness_test.is_file()
+    assert 'Fake' + 'Conn' not in source
+    assert 'Fake' + 'Cursor' not in source
+    assert 'psycopg2.connect' in source
+    assert 'real Stage 19 DB readiness skipped explicitly' in source

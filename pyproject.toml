@@ -22,3 +22,15 @@ requires-python = ">=3.12"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+markers = [
+    "unit: unit-level tests that do not require external services",
+    "integration: integration tests that exercise cross-module or service boundaries",
+    "db: tests that require a database contract or a live database",
+    "operator: tests for operator scripts, operator APIs, and operator safety surfaces",
+    "slow: tests that are expected to take longer than the default unit path",
+    "e2e: browser or full-stack end-to-end tests",
+    "frontend: frontend tests",
+    "requires_docker: tests or preflights that require Docker",
+    "requires_postgres: tests or preflights that require local Postgres",
+    "requires_redis: tests or preflights that require Redis",
+]
