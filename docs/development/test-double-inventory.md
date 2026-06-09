@@ -35,13 +35,20 @@ The real-service pair is `tests/test_stage19_real_postgres_readiness.py`. It use
 
 ```text
 real_stage19_db_readiness_tests:
-pending_real_service_result
+passed
 
 real_db_tests_skip_status:
-explicit_skip_allowed_only_when_credentials_or_service_are_absent
+not_skipped
+
+fakeconn_fakecursor_status:
+unit-level fakes paired with real local Postgres readiness coverage
 
 critical_fakes_replaced_or_paired_with_real_service_tests:
 true
+
+stage19_resume_gate:
+fake-only readiness blocker cleared
+Stage 19 remains paused until the next agreed test-env gate or operator decision
 ```
 
-The fake-only readiness blocker is cleared when the real Stage 19 DB readiness test passes against local Postgres. Stage 19 remains paused until the next agreed test-environment gate.
+The fake-only readiness blocker is cleared by the real Stage 19 DB readiness test passing against local Postgres. Stage 19 remains paused until the next agreed test-environment gate or operator decision.

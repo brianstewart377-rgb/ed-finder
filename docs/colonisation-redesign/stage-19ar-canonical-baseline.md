@@ -185,13 +185,14 @@ Current test-environment restoration state:
 
 ```text
 stage19_resume_gate:
-paused_until_next_agreed_test_environment_gate
+fake-only readiness blocker cleared
+Stage 19 remains paused until the next agreed test-env gate or operator decision
 
 real_stage19_db_readiness_tests:
-pending_real_service_result
+passed
 
 real_db_tests_skip_status:
-explicit_skip_allowed_only_when_credentials_or_service_are_absent
+not_skipped
 
 fakeconn_fakecursor_status:
 unit-level fakes paired with real local Postgres readiness coverage
@@ -200,7 +201,7 @@ stage19as_au_expansion_attempted:
 false
 ```
 
-The restored real-service readiness path is `tests/test_stage19_real_postgres_readiness.py`. It must pass against local Postgres before FakeConn/FakeCursor coverage is treated as paired readiness coverage. Until that real-service result is recorded, FakeConn/FakeCursor remain unit-level confidence only.
+The restored real-service readiness path is `tests/test_stage19_real_postgres_readiness.py`. It passed against local Postgres on the recreated test-environment branch, so FakeConn/FakeCursor coverage is now paired with real-service readiness coverage. Stage 19 remains paused until the next agreed test-environment gate or operator decision.
 
 Stale states that remain non-authoritative:
 

@@ -66,6 +66,23 @@ The Makefile includes:
 
 ## Stage 19 Status
 
-Stage 19 remains paused for test-environment hardening. The fake-only readiness blocker is cleared only when the real Stage 19 local Postgres readiness test passes against the approved Stage 19AR baseline. Until then, FakeConn/FakeCursor coverage is unit confidence only.
+Stage 19 remains paused for test-environment hardening. The fake-only readiness blocker is cleared: the real Stage 19 local Postgres readiness test passed against the approved Stage 19AR baseline on the recreated test-environment branch.
+
+Current real-service validation result:
+
+```text
+real_stage19_db_readiness_tests:
+passed
+
+real_db_tests_skip_status:
+not_skipped
+
+fakeconn_fakecursor_status:
+unit-level fakes paired with real local Postgres readiness coverage
+
+stage19_resume_gate:
+fake-only readiness blocker cleared
+Stage 19 remains paused until the next agreed test-env gate or operator decision
+```
 
 Stage 19AS-AU must not run from this test-environment branch. Do not use `--commit`, do not rebaseline, and do not promote staged rows from this work.
