@@ -27,6 +27,8 @@ APPROVED_REPLACEMENT_ARTIFACT_SHA256 = 'b617d0239b7458b5b881895b564d091c771394b5
 RETIRED_SOURCE_RUN_KEY = 'stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd'
 RETIRED_ARTIFACT_SHA256 = '418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417'
 
+pytestmark = pytest.mark.operator
+
 
 def noncanonical_stage19ar_profile():
     return replace(

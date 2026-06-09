@@ -177,6 +177,36 @@ Still prohibited:
 - running Stage 19AS-AU from stale local main
 ```
 
+## Test Environment Roadmap Gate
+
+Stage 19AS-AU is paused while the test-environment roadmap is restored and validated. The pause is a test-environment gate, not a new baseline decision.
+
+Current test-environment restoration state:
+
+```text
+stage19_resume_gate:
+paused_until_next_agreed_test_environment_gate
+
+real_stage19_db_readiness_tests:
+pending_real_service_result
+
+real_db_tests_skip_status:
+explicit_skip_allowed_only_when_credentials_or_service_are_absent
+
+fakeconn_fakecursor_status:
+unit-level fakes paired with real local Postgres readiness coverage
+
+stage19as_au_expansion_attempted:
+false
+```
+
+The restored real-service readiness path is `tests/test_stage19_real_postgres_readiness.py`. It must pass against local Postgres before FakeConn/FakeCursor coverage is treated as paired readiness coverage. Until that real-service result is recorded, FakeConn/FakeCursor remain unit-level confidence only.
+
+Stale states that remain non-authoritative:
+
+- `fix/stage19-approved-rebaseline` at `45e2d58`: superseded partial attempt with `password_missing`, `replacement_baseline_verified:false`, `ready_for_stage19as_au:false`, and missing `origin/main` provenance.
+- `run/stage19as-au-100-row-expansion` at `f72812a`: local docs-only stopped checkpoint with `password_missing`, no writes, not pushed, and not a successful Stage 19AS-AU run.
+
 ## Fresh-Chat Handoff
 
 Use the `STAGE 19 CURRENT CHECKPOINT` block above when resuming Stage 19 in a new chat.
