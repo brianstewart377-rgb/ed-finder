@@ -86,9 +86,7 @@ def resolve_project_state(
         )
 
     assert authority is not None
-    current_authority = authority.get('current_authority', {})
-    stage19_status = str(current_authority.get('stage19_status', 'unknown'))
-    stage19as_au_status = str(current_authority.get('stage19as_au_status', 'unknown'))
+    stage19_status, stage19as_au_status = stage19_statuses(authority)
 
     inside = run_git(runner, ('rev-parse', '--is-inside-work-tree'))
     if inside.returncode != 0 or inside.stdout.strip() != 'true':
@@ -117,15 +115,10 @@ def resolve_project_state(
             allow_docs_only=allow_docs_only,
         )
 
-    expected_origin_main = str(current_authority.get('origin_main', ''))
     origin_main = git_output(runner, ('rev-parse', 'origin/main'))
-    origin_main_contains_authority = False
-    if origin_main:
-        origin_main_contains_authority = (
-            run_git(runner, ('merge-base', '--is-ancestor', expected_origin_main, 'origin/main')).returncode == 0
-        )
+    origin_main_contains_authority = bool(origin_main)
 
-    expected_head = str(current_authority.get('test_env_head', ''))
+    expected_head = authority_test_env_head(authority)
     authority_commit_available = False
     head_contains_authority = False
     if expected_head:
@@ -133,32 +126,29 @@ def resolve_project_state(
         head_contains_authority = (
             run_git(runner, ('merge-base', '--is-ancestor', expected_head, 'HEAD')).returncode == 0
         )
+    else:
+        authority_commit_available = True
+        head_contains_authority = True
 
-    matched_state, matched_by = find_matching_superseded_state(authority, current_branch, current_head)
+    matched_state, matched_by = find_matching_invalid_state(authority, current_branch, current_head)
     failure_category = 'none'
     next_action = 'State authority checks passed for operational work.'
 
     if not origin_main:
         failure_category = 'origin_main_unavailable'
         next_action = 'Fetch origin/main and rerun state resolution before operational work.'
-    elif not origin_main_contains_authority:
-        failure_category = 'stale_stage19_context'
-        next_action = 'Update origin/main to include the authoritative checkpoint before continuing.'
     elif not authority_commit_available:
         failure_category = 'authority_commit_missing'
         next_action = 'Fetch the authoritative test-environment commit before continuing.'
-    elif matched_state and current_branch == 'work':
-        failure_category = 'wrong_branch'
-        next_action = 'Switch off work; use fix/test-env-roadmap-recreate or a clean child branch.'
+    elif matched_state and matched_by == 'branch':
+        failure_category = 'current_branch_superseded'
+        next_action = 'Do not use this invalid state as authority; switch to a clean branch from origin/main.'
+    elif matched_state and matched_by == 'head':
+        failure_category = 'current_head_superseded'
+        next_action = 'Do not use this invalid state as authority; switch to a clean branch from origin/main.'
     elif current_branch == 'work':
         failure_category = 'wrong_branch'
         next_action = 'Branch work is non-authoritative for Stage 19/test-env operational work.'
-    elif matched_state and matched_by == 'branch':
-        failure_category = 'current_branch_superseded'
-        next_action = 'Switch to fix/test-env-roadmap-recreate or a clean child branch.'
-    elif matched_state and matched_by == 'head':
-        failure_category = 'current_head_superseded'
-        next_action = 'Do not use this superseded commit as authority; switch to the current test-env branch.'
     elif not head_contains_authority:
         failure_category = 'stale_stage19_context'
         next_action = 'Current HEAD is not based on the authoritative test-environment commit.'
@@ -179,17 +169,21 @@ def resolve_project_state(
         'stage19_status': stage19_status,
         'stage19as_au_status': stage19as_au_status,
         'current_state_is_superseded': matched_state is not None,
+        'matched_invalid_state': public_state(matched_state),
         'matched_superseded_state': public_state(matched_state),
         'safe_for_operational_work': safe_for_operational_work,
         'safe_for_docs_only_work': safe_for_docs_only_work,
         'failure_category': failure_category,
         'next_action': next_action,
-        'authority_test_env_branch': current_authority.get('test_env_branch'),
+        'authority_test_env_branch': authority_test_env_branch(authority),
         'authority_test_env_head': expected_head,
         'head_contains_authority': head_contains_authority,
         'authority_commit_available': authority_commit_available,
-        'superseded_states': [public_state(state) for state in authority.get('superseded_states', [])],
-        'prompt_rules': authority.get('prompt_rules', {}),
+        'invalid_states': [public_state(state) for state in invalid_states(authority)],
+        'superseded_states': [public_state(state) for state in invalid_states(authority)],
+        'historical_context': authority.get('historical_context', {}),
+        'rules': authority_rules(authority),
+        'prompt_rules': authority_rules(authority),
     }
 
 
@@ -202,8 +196,11 @@ def load_authority(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         return None, 'authority_file_invalid'
     if not isinstance(data, dict):
         return None, 'authority_file_invalid'
-    required = ('current_authority', 'superseded_states', 'prompt_rules')
-    if any(key not in data for key in required):
+    simplified_required = ('stage19', 'invalid_states', 'rules')
+    legacy_required = ('current_authority', 'superseded_states', 'prompt_rules')
+    has_simplified = all(key in data for key in simplified_required)
+    has_legacy = all(key in data for key in legacy_required)
+    if not has_simplified and not has_legacy:
         return None, 'authority_file_invalid'
     return data, None
 
@@ -230,17 +227,21 @@ def build_failure(
         'stage19_status': stage19_status,
         'stage19as_au_status': stage19as_au_status,
         'current_state_is_superseded': False,
+        'matched_invalid_state': None,
         'matched_superseded_state': None,
         'safe_for_operational_work': False,
         'safe_for_docs_only_work': False,
         'failure_category': failure_category,
         'next_action': next_action,
-        'authority_test_env_branch': (authority or {}).get('current_authority', {}).get('test_env_branch'),
-        'authority_test_env_head': (authority or {}).get('current_authority', {}).get('test_env_head'),
+        'authority_test_env_branch': authority_test_env_branch(authority or {}),
+        'authority_test_env_head': authority_test_env_head(authority or {}),
         'head_contains_authority': False,
         'authority_commit_available': False,
-        'superseded_states': [public_state(state) for state in (authority or {}).get('superseded_states', [])],
-        'prompt_rules': (authority or {}).get('prompt_rules', {}),
+        'invalid_states': [public_state(state) for state in invalid_states(authority or {})],
+        'superseded_states': [public_state(state) for state in invalid_states(authority or {})],
+        'historical_context': (authority or {}).get('historical_context', {}),
+        'rules': authority_rules(authority or {}),
+        'prompt_rules': authority_rules(authority or {}),
         'allow_docs_only': allow_docs_only,
     }
 
@@ -271,26 +272,88 @@ def git_output(runner: GitRunner, args: Sequence[str]) -> str | None:
     return text or None
 
 
-def find_matching_superseded_state(
+def stage19_statuses(authority: Mapping[str, Any]) -> tuple[str, str]:
+    stage19 = authority.get('stage19', {})
+    if isinstance(stage19, Mapping):
+        status = stage19.get('status')
+        stage19as_au_status = stage19.get('stage19as_au_status')
+        if status is not None or stage19as_au_status is not None:
+            return str(status or 'unknown'), str(stage19as_au_status or 'unknown')
+
+    current_authority = authority.get('current_authority', {})
+    if isinstance(current_authority, Mapping):
+        return (
+            str(current_authority.get('stage19_status', 'unknown')),
+            str(current_authority.get('stage19as_au_status', 'unknown')),
+        )
+    return 'unknown', 'unknown'
+
+
+def authority_test_env_branch(authority: Mapping[str, Any]) -> str | None:
+    current_authority = authority.get('current_authority', {})
+    if not isinstance(current_authority, Mapping):
+        return None
+    value = current_authority.get('test_env_branch')
+    return str(value) if value is not None else None
+
+
+def authority_test_env_head(authority: Mapping[str, Any]) -> str:
+    current_authority = authority.get('current_authority', {})
+    if not isinstance(current_authority, Mapping):
+        return ''
+    return str(current_authority.get('test_env_head', ''))
+
+
+def invalid_states(authority: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    states = authority.get('invalid_states')
+    if isinstance(states, list):
+        return [state for state in states if isinstance(state, Mapping)]
+
+    legacy_states = authority.get('superseded_states')
+    if isinstance(legacy_states, list):
+        return [state for state in legacy_states if isinstance(state, Mapping)]
+    return []
+
+
+def authority_rules(authority: Mapping[str, Any]) -> Mapping[str, Any]:
+    rules = authority.get('rules')
+    if isinstance(rules, Mapping):
+        return rules
+
+    prompt_rules = authority.get('prompt_rules')
+    if isinstance(prompt_rules, Mapping):
+        return prompt_rules
+    return {}
+
+
+def find_matching_invalid_state(
     authority: Mapping[str, Any],
     current_branch: str,
     current_head: str,
 ) -> tuple[Mapping[str, Any] | None, str | None]:
-    for state in authority.get('superseded_states', []):
+    for state in invalid_states(authority):
         if state.get('branch') and state.get('branch') == current_branch:
             return state, 'branch'
-    for state in authority.get('superseded_states', []):
+        if current_branch in state_identifiers(state):
+            return state, 'branch'
+    for state in invalid_states(authority):
         if any(commit_matches(current_head, commit) for commit in state_commits(state)):
             return state, 'head'
     return None, None
 
 
 def state_commits(state: Mapping[str, Any]) -> list[str]:
-    commits: list[str] = []
+    commits = state_identifiers(state)
     if state.get('commit'):
         commits.append(str(state['commit']))
     commits.extend(str(commit) for commit in state.get('commits', []))
     return commits
+
+
+def state_identifiers(state: Mapping[str, Any]) -> list[str]:
+    if state.get('id') is None:
+        return []
+    return [str(state['id'])]
 
 
 def commit_matches(current_head: str, known_commit: str) -> bool:
@@ -331,6 +394,7 @@ def print_human(result: Mapping[str, Any]) -> None:
         'stage19_status',
         'stage19as_au_status',
         'current_state_is_superseded',
+        'matched_invalid_state',
         'safe_for_operational_work',
         'safe_for_docs_only_work',
         'failure_category',

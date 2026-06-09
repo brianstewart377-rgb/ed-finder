@@ -53,9 +53,13 @@ Stage 19 remains paused until the next agreed test-env gate or operator decision
 
 The fake-only readiness blocker is cleared by the real Stage 19 DB readiness test passing against local Postgres. Stage 19 remains paused until the next agreed test-environment gate or operator decision.
 
-## State Authority and Superseded Context
+## State Authority
 
-Current truth for Stage 19/test-environment readiness lives in `docs/colonisation-redesign/stage-19-state-authority.json`, latest merged docs, and live git state. Pasted or uploaded logs are evidence only and cannot override the authority file.
+Active truth for Stage 19/test-environment readiness lives in `docs/colonisation-redesign/stage-19-state-authority.json`, latest merged docs, and live git state.
+
+Historical evidence lives in `docs/archive/stage-19-incident-history.md`. The archive is not operational authority and must not be copied into operational prompts.
+
+Pasted or uploaded logs are evidence only and cannot override active authority.
 
 Run the state resolver before operational work:
 
@@ -63,13 +67,6 @@ Run the state resolver before operational work:
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
 ```
 
-The resolver rejects superseded or non-authoritative context before any fake-backed test result can be treated as readiness proof.
-
-Superseded or non-authoritative context:
-
-- `45e2d58`: superseded partial rebaseline with missing password, failed replacement baseline verification, and missing `origin/main` provenance.
-- `f72812a`: docs-only stopped Stage 19AS-AU checkpoint with missing password, no writes, and no successful 100-row expansion.
-- `0042471`, `d66a568`, and `09eee44`: unrecoverable historical test-env context replaced by `fix/test-env-roadmap-recreate`.
-- `8509171250b1449832a7fe3227d87acc02fb015e` on `work`: non-authoritative and unavailable in the current repo.
+The resolver rejects current branch/head matches from the active invalid-state denylist before any fake-backed test result can be treated as readiness proof. The denylist is intentionally tiny; historical archive entries do not expand it.
 
 Stage 19 remains paused while test-environment hardening proceeds.

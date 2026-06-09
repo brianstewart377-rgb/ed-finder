@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RESOLVER_PATH = ROOT / 'scripts' / 'dev' / 'resolve_project_state.py'
 AUTHORITY_PATH = ROOT / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
 
-EXPECTED_HEAD = '581a84c1159b58dff86e3359a28d00f9b4f5a82b'
-EXPECTED_ORIGIN_MAIN = '49b0940cb014a319443525c3554d59387c2b6d90'
+DEFAULT_HEAD = '887c6900000000000000000000000000000000000'
+DEFAULT_ORIGIN_MAIN = '887c6900000000000000000000000000000000000'
 SECRET_SENTINEL = 'do-not-print-this-secret'
 
 spec = importlib.util.spec_from_file_location('resolve_project_state', RESOLVER_PATH)
@@ -31,13 +31,10 @@ def completed(args, returncode=0, stdout='', stderr=''):
 
 def git_runner(
     *,
-    branch='fix/test-env-roadmap-recreate',
-    head=EXPECTED_HEAD,
-    origin_main=EXPECTED_ORIGIN_MAIN,
+    branch='docs/trim-state-authority-history',
+    head=DEFAULT_HEAD,
+    origin_main=DEFAULT_ORIGIN_MAIN,
     origin_available=True,
-    origin_contains=True,
-    authority_available=True,
-    head_contains=True,
     inside_git=True,
 ):
     def run(args):
@@ -52,15 +49,6 @@ def git_runner(
             if not origin_available:
                 return completed(args, 128, '', SECRET_SENTINEL)
             return completed(args, 0, f'{origin_main}\n')
-        if args == ('rev-parse', '--verify', EXPECTED_HEAD):
-            return completed(args, 0 if authority_available else 128, f'{EXPECTED_HEAD}\n')
-        if args[:2] == ('merge-base', '--is-ancestor'):
-            ancestor = args[2]
-            target = args[3]
-            if ancestor == EXPECTED_ORIGIN_MAIN and target == 'origin/main':
-                return completed(args, 0 if origin_contains else 1)
-            if ancestor == EXPECTED_HEAD and target == 'HEAD':
-                return completed(args, 0 if head_contains else 1)
         return completed(args, 1, '', SECRET_SENTINEL)
 
     return run
@@ -78,9 +66,23 @@ def test_authority_file_parses():
     authority, error = resolver.load_authority(AUTHORITY_PATH)
 
     assert error is None
-    assert authority['current_authority']['stage19_status'] == 'paused'
-    assert authority['current_authority']['stage19as_au_status'] == 'not_run'
+    assert authority['schema_version'] == 1
+    assert authority['stage19']['status'] == 'paused'
+    assert authority['stage19']['stage19as_au_status'] == 'not_run'
     assert authority['approved_stage19ar_baseline']['rows'] == 25
+    assert [state['id'] for state in authority['invalid_states']] == [
+        '45e2d58',
+        'f72812a',
+        '8509171250b1449832a7fe3227d87acc02fb015e',
+    ]
+
+
+def test_active_authority_does_not_require_verbose_superseded_reasons():
+    authority, error = resolver.load_authority(AUTHORITY_PATH)
+
+    assert error is None
+    assert 'superseded_states' not in authority
+    assert all('reason' not in state for state in authority['invalid_states'])
 
 
 def test_json_output_works(capsys):
@@ -94,6 +96,9 @@ def test_json_output_works(capsys):
     assert exit_code == 0
     assert payload['failure_category'] == 'none'
     assert payload['safe_for_operational_work'] is True
+    assert payload['stage19_status'] == 'paused'
+    assert payload['stage19as_au_status'] == 'not_run'
+    assert 'matched_invalid_state' in payload
 
 
 def test_resolver_rejects_work_branch_for_operational_work():
@@ -108,24 +113,22 @@ def test_resolver_identifies_850917_on_work_as_non_authoritative():
     result = resolve(
         branch='work',
         head='8509171250b1449832a7fe3227d87acc02fb015e',
-        head_contains=False,
     )
 
-    assert result['failure_category'] == 'wrong_branch'
+    assert result['failure_category'] == 'current_head_superseded'
     assert result['current_state_is_superseded'] is True
-    assert result['matched_superseded_state']['id'] == 'non_authoritative_state_authority_attempt_850917_on_work'
-    assert result['matched_superseded_state']['evidence_only'] is True
+    assert result['matched_invalid_state']['id'] == '8509171250b1449832a7fe3227d87acc02fb015e'
+    assert result['safe_for_operational_work'] is False
 
 
 def test_resolver_rejects_45e2d58():
     result = resolve(
         branch='fix/stage19-approved-rebaseline',
         head='45e2d58abc000000000000000000000000000000',
-        head_contains=False,
     )
 
-    assert result['failure_category'] == 'current_branch_superseded'
-    assert result['matched_superseded_state']['id'] == 'superseded_partial_rebaseline_45e2d58'
+    assert result['failure_category'] == 'current_head_superseded'
+    assert result['matched_invalid_state']['id'] == '45e2d58'
     assert result['safe_for_operational_work'] is False
 
 
@@ -133,36 +136,30 @@ def test_resolver_rejects_f72812a():
     result = resolve(
         branch='run/stage19as-au-100-row-expansion',
         head='f72812abc0000000000000000000000000000000',
-        head_contains=False,
     )
 
-    assert result['failure_category'] == 'current_branch_superseded'
-    assert result['matched_superseded_state']['id'] == 'superseded_stage19as_au_docs_only_checkpoint_f72812a'
+    assert result['failure_category'] == 'current_head_superseded'
+    assert result['matched_invalid_state']['id'] == 'f72812a'
     assert result['safe_for_operational_work'] is False
 
 
-def test_resolver_lists_unrecoverable_historical_test_env_context():
+def test_archive_only_historical_stack_does_not_pollute_active_authority():
     result = resolve()
-    state = next(
-        item for item in result['superseded_states']
-        if item['id'] == 'unrecoverable_historical_test_env_stack_0042471_d66a568_09eee44'
-    )
+    invalid_ids = {state['id'] for state in result['invalid_states']}
 
-    assert state['status'] == 'unrecoverable_historical_context'
-    assert state['commits'] == ['0042471', 'd66a568', '09eee44']
-    assert state['replacement']['commit'] == EXPECTED_HEAD
+    assert {'0042471', 'd66a568', '09eee44'}.isdisjoint(invalid_ids)
+    assert result['historical_context']['unrecoverable_test_env_stack'] == [
+        '0042471',
+        'd66a568',
+        '09eee44',
+    ]
 
 
-def test_resolver_marks_uploaded_prompt_bundles_evidence_only():
+def test_uploaded_pasted_logs_are_evidence_only_rule_exists():
     result = resolve()
-    state = next(
-        item for item in result['superseded_states']
-        if item['id'] == 'uploaded_or_pasted_prompt_bundles'
-    )
 
-    assert state['status'] == 'evidence_only'
-    assert state['evidence_only'] is True
-    assert result['prompt_rules']['pasted_chat_logs_are_evidence_not_authority'] is True
+    assert result['rules']['pasted_logs_are_evidence_only'] is True
+    assert result['prompt_rules']['pasted_logs_are_evidence_only'] is True
 
 
 def test_missing_authority_file_fails_closed(tmp_path):
