@@ -86,3 +86,24 @@ Stage 19 remains paused until the next agreed test-env gate or operator decision
 ```
 
 Stage 19AS-AU must not run from this test-environment branch. Do not use `--commit`, do not rebaseline, and do not promote staged rows from this work.
+
+## State Authority and Superseded Context
+
+Current Stage 19/test-environment truth lives in `docs/colonisation-redesign/stage-19-state-authority.json`, the latest merged docs checkpoint, and live git state. Pasted or uploaded logs are evidence only; they may be stale, duplicated, truncated, or mixed with old prompt results.
+
+Prompts must run the resolver before operational work:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
+```
+
+The resolver is fail-closed for source-of-truth unavailability, expected branch/head unavailability, branch mismatch, and superseded state. `completed` is forbidden when branch provenance is false.
+
+Superseded or non-authoritative context:
+
+- `45e2d58` on `fix/stage19-approved-rebaseline`: superseded partial rebaseline with `password_missing`, `replacement_baseline_verified:false`, `ready_for_stage19as_au:false`, and missing `origin/main` provenance.
+- `f72812a` on `run/stage19as-au-100-row-expansion`: docs-only stopped checkpoint with `password_missing`, no writes, and no successful 100-row expansion.
+- `0042471`, `d66a568`, and `09eee44`: unrecoverable historical test-env stack, replaced by `fix/test-env-roadmap-recreate` at `581a84c1159b58dff86e3359a28d00f9b4f5a82b`.
+- `8509171250b1449832a7fe3227d87acc02fb015e` on `work`: non-authoritative wrong-branch state-authority attempt, unavailable in the current repo, and not a patch source.
+
+Branch `work` is non-authoritative for Stage 19/test-env operations unless explicitly declared scratch or docs-only. Stage 19 remains paused while test-environment hardening proceeds.

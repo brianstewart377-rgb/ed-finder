@@ -3,7 +3,7 @@
 # Real builds happen via docker compose / yarn / pytest directly; this
 # Makefile just collects the most-used recipes so you don't have to
 # remember the env-var incantations.
-.PHONY: help lint typecheck test seed-check api-smoke test-env-check test-unit test-operator test-db test-integration test-ci-local clean
+.PHONY: help lint typecheck test seed-check api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-integration test-ci-local clean
 
 PYTHON ?= python
 
@@ -27,6 +27,12 @@ test:  ## Run backend unit + integration tests
 
 test-env-check:  ## Run the local test-environment preflight without writes
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B scripts/dev/test_env_preflight.py
+
+state-check:  ## Resolve Stage 19/test-env state authority before operational work
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B scripts/dev/resolve_project_state.py --strict
+
+state-check-docs:  ## Resolve Stage 19/test-env state authority for docs-only work
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B scripts/dev/resolve_project_state.py --strict --allow-docs-only
 
 test-unit:  ## Run tests that do not require external services
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest -m "unit or not (integration or db or operator or e2e or slow)"
