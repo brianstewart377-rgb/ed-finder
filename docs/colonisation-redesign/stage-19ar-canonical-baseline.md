@@ -211,3 +211,24 @@ Stale states that remain non-authoritative:
 ## Fresh-Chat Handoff
 
 Use the `STAGE 19 CURRENT CHECKPOINT` block above when resuming Stage 19 in a new chat.
+
+## State Authority and Superseded Context
+
+The current source of truth is `docs/colonisation-redesign/stage-19-state-authority.json`, this latest merged docs checkpoint, and live git state. Pasted or uploaded prompt bundles are evidence only. They must not override the state authority file, current branch/head, or latest merged checkpoint.
+
+Prompts must run state resolution before operational work:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
+```
+
+If source-of-truth branch/commit, expected branch/head, or branch provenance is unavailable, stop. Branch mismatch is a hard stop. `completed` is forbidden when branch provenance is false.
+
+Superseded or non-authoritative states:
+
+- `45e2d58` on `fix/stage19-approved-rebaseline`: superseded partial rebaseline with `password_missing`, `replacement_baseline_verified:false`, `ready_for_stage19as_au:false`, and missing `origin/main` provenance.
+- `f72812a` on `run/stage19as-au-100-row-expansion`: docs-only stopped checkpoint with `password_missing`, no writes, and no successful 100-row expansion.
+- `0042471`, `d66a568`, and `09eee44`: unrecoverable historical test-env stack replaced by `fix/test-env-roadmap-recreate` at `581a84c1159b58dff86e3359a28d00f9b4f5a82b`.
+- `8509171250b1449832a7fe3227d87acc02fb015e` on `work`: non-authoritative wrong-branch state-authority attempt, unavailable in the current repo, and not a patch source.
+
+Branch `work` is non-authoritative for Stage 19/test-env operations unless explicitly declared scratch or docs-only. Stage 19 remains paused while test-environment hardening proceeds.
