@@ -553,6 +553,14 @@ These Grok ideas reinforce the next Stage 19 priorities:
 6. planner/map E2E coverage;
 7. UI performance work once warehouse-backed views grow.
 
+## Stage 19AM bounded multi-row EDSM staging rehearsal closeout
+
+Stage 19AM is historical closeout content recovered from old PR #186 and refreshed against current main. It records a bounded three-row local-file EDSM staging rehearsal with one `source_runs` row, one `enrichment_source_runs` bridge row, three diagnostic-only `staging_edsm_stations` rows, zero scheduler/timer enablement, zero canonical writes, and zero canonical apply.
+
+Current authority remains `docs/colonisation-redesign/stage-19-state-authority.json`: Stage 19 is paused, Stage 19AS-AU has not run, and this refresh did not execute Stage 19.
+
+Closeout: `docs/colonisation-redesign/stage-19am-multi-row-edsm-staging-rehearsal-closeout.md`.
+
 ## Stage 19AN-R warehouse-derived EDSM staging rehearsal closeout
 
 Stage 19AN-R used the reviewed operator script from PR #187 to run a bounded five-row warehouse-derived EDSM staging rehearsal.
