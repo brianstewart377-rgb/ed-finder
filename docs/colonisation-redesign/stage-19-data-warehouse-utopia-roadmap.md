@@ -591,6 +591,7 @@ Recommended next stages:
 |---|---|
 | Stage 19AP | Read-only operator visibility repository/API skeleton. |
 | Stage 19AQ | Minimal operator UI page. |
+| Stage 19AQ.1 | Test Fortress / CI parity hardening before the pilot. |
 | Stage 19AR | Bounded 25-row staging pilot using operator visibility. |
 | Stage 19AS | Post-pilot verification and closeout. |
 
@@ -618,7 +619,31 @@ Safety boundary:
 - no canonical apply;
 - no write actions or buttons added to the operator cockpit.
 
-Next recommended stage: Stage 19AR bounded 25-row staging pilot using the cockpit, only if safety gates remain green.
+Next recommended stage: Stage 19AQ.1 Test Fortress / CI parity hardening, then Stage 19AR bounded 25-row staging pilot using the cockpit, only if safety gates remain green.
+
+## Stage 19AQ.1 Test Fortress / CI parity hardening
+
+Stage 19AQ.1 adds repo-only local CI parity scaffolding before Stage 19AR.
+
+Committed scope:
+
+- local CI parity script under `scripts/checks/local-ci-parity.sh`;
+- local OpenAPI drift helper under `scripts/checks/openapi-drift.sh`;
+- targeted Stage 19 static safety guardrail scan under `scripts/checks/stage19-safety-guardrails.py`;
+- grouped frontend test scripts for operator, planner, map, store, and chunked CI-style runs;
+- pytest coverage for the static Stage 19 guardrails;
+- closeout/design note at `docs/colonisation-redesign/stage-19aq1-test-fortress-ci-parity.md`.
+
+Safety boundaries:
+
+- no production DB access;
+- no imports;
+- no migrations;
+- no scheduler/timer enablement;
+- no staging writes;
+- no canonical writes or canonical apply.
+
+Stage 19AR remains the next bounded 25-row staging pilot after Test Fortress validation.
 
 ## Stage 19 - Data Warehouse NOW versus later
 
