@@ -11,6 +11,7 @@ This inventory separates unit-level test doubles from real-service proof. A fake
 | `FakeConn` / `FakeCursor` | `tests/test_stage19ar_operator_script.py` | unit fake | Exercise Stage 19AR and Stage 19AS-AU operator SQL paths without DB writes | `tests/test_stage19_real_postgres_readiness.py` |
 | `FakeAsyncConn` / `FakePool` | `tests/test_stage19ap_operator_visibility.py` | unit fake | Exercise operator visibility query composition and router path handling | `tests/test_stage19_real_postgres_readiness.py` plus local preflight |
 | command runner doubles | `tests/test_test_env_preflight.py` | unit stub | Classify Docker/Postgres/preflight command outcomes without touching services | `scripts/dev/test_env_preflight.py` |
+| DB connection doubles | `tests/test_db_isolation_guardrails.py` | unit fake | Prove rollback and close behavior without opening a real database socket | Optional Postgres smoke tests using `tests/helpers/db_isolation.py` |
 
 ## FakeConn and FakeCursor Status
 
@@ -22,6 +23,12 @@ unit-level fakes paired with real local Postgres readiness coverage
 `FakeConn` and `FakeCursor` are still useful for commit/rollback, validation, and artifact-guard tests. They are not accepted as Stage 19 readiness proof by themselves.
 
 The real-service pair is `tests/test_stage19_real_postgres_readiness.py`. It uses live Postgres through `psycopg2`, runs in read-only transaction mode, checks `SELECT 1`, and verifies the approved Stage 19AR baseline identity when local credentials and service are available. It skips explicitly for absent credentials or absent service and does not fall back to fakes.
+
+All optional Postgres smoke tests now route their DSN checks through
+`tests/helpers/db_isolation.py`. The helper rejects production-like hosts or
+database names, redacts passwords from summaries, requires explicit
+confirmation for staging/canonical smoke writes, and keeps `localhost:5432`
+out of the local default path.
 
 ## Confidence Rules
 

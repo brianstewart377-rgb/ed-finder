@@ -103,6 +103,25 @@ Source repair already applied:
 
 Rule: source-correct DB preflight against `127.0.0.1:55432` must pass without relying on cached bytecode before any Stage 19AR rebaseline verification or Stage 19AS-AU work.
 
+## DB isolation guardrails
+
+The shared test helper `tests/helpers/db_isolation.py` is now the local DB
+safety gate for optional Postgres smoke tests and real Stage 19 readiness
+checks.
+
+Required properties:
+
+- local/disposable database targets only;
+- production-like DSNs fail closed;
+- passwords are redacted in summaries;
+- `localhost:5432` is not selected silently for local work;
+- destructive reset requires `EDFINDER_TEST_DB_ALLOW_DESTRUCTIVE_RESET=yes`
+  outside CI;
+- optional staging/canonical smoke tests keep their explicit `*_CONFIRM_*`
+  environment gates;
+- Stage 19AS-AU remains paused and no expansion has been attempted from this
+  branch.
+
 ## Required Guardrails
 
 - Canonical Stage 19AR mode requires the exact approved replacement `source_run_key`.
