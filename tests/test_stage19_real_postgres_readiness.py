@@ -1,8 +1,9 @@
 import os
 from collections.abc import Iterator, Mapping
-from urllib.parse import urlsplit
 
 import pytest
+
+from tests.helpers import db_isolation
 
 
 pytestmark = [
@@ -19,26 +20,25 @@ PROVENANCE_MARKER_KEY = 'stage19ar_bounded_25_row_pilot'
 
 
 def db_config(env: Mapping[str, str]) -> dict[str, object]:
-    parsed = parse_database_url(env.get('DATABASE_URL'))
+    target = db_isolation.target_from_env(env)
     return {
-        'database_url': env.get('DATABASE_URL'),
-        'host': first_text(env.get('PGHOST'), parsed.get('host'), '127.0.0.1'),
-        'port': first_text(env.get('PGPORT'), parsed.get('port'), '55432'),
-        'database': first_text(env.get('PGDATABASE'), parsed.get('database'), 'edfinder'),
-        'user': first_text(env.get('PGUSER'), parsed.get('user'), 'edfinder'),
-        'password_present': bool(
-            env.get('PGPASSWORD')
-            or env.get('POSTGRES_PASSWORD')
-            or parsed.get('password_present')
-        ),
+        'database_url': target.dsn,
+        'redacted_database_url': target.redacted_dsn,
+        'host': target.host,
+        'port': target.port,
+        'database': target.database,
+        'user': target.user,
+        'password_present': target.password_present,
+        'host_postgres_5432_targeted': target.host_postgres_5432_targeted,
     }
 
 
 @pytest.fixture(scope='module')
 def real_stage19_conn() -> Iterator[object]:
-    config = db_config(os.environ)
-    if not config['password_present']:
-        pytest.skip('real Stage 19 DB readiness skipped explicitly: credentials_missing')
+    try:
+        config = db_config(os.environ)
+    except db_isolation.DbIsolationError as exc:
+        pytest.skip(f'real Stage 19 DB readiness skipped explicitly: unsafe_target:{exc}')
 
     try:
         import psycopg2  # noqa: PLC0415
@@ -48,7 +48,7 @@ def real_stage19_conn() -> Iterator[object]:
 
     conn = None
     try:
-        conn = psycopg2.connect(build_dsn(config), cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg2.connect(str(config['database_url']), cursor_factory=psycopg2.extras.RealDictCursor)
         conn.set_session(readonly=True, autocommit=False)
     except Exception as exc:
         if conn is not None:
@@ -142,40 +142,6 @@ def test_approved_stage19ar_baseline_is_present_in_real_local_postgres(real_stag
         'rows_with_marker': 25,
         'rows_with_canonical_write_blocked': 25,
     }
-
-
-def build_dsn(config: Mapping[str, object]) -> str:
-    if config.get('database_url'):
-        return str(config['database_url'])
-    password = os.environ.get('PGPASSWORD') or os.environ.get('POSTGRES_PASSWORD')
-    return ' '.join((
-        f'host={config["host"]}',
-        f'port={config["port"]}',
-        f'dbname={config["database"]}',
-        f'user={config["user"]}',
-        f'password={password}',
-        'sslmode=disable',
-    ))
-
-
-def parse_database_url(value: str | None) -> dict[str, object]:
-    if not value:
-        return {}
-    parsed = urlsplit(value)
-    return {
-        'host': parsed.hostname,
-        'port': str(parsed.port) if parsed.port is not None else None,
-        'database': parsed.path.lstrip('/') or None,
-        'user': parsed.username,
-        'password_present': parsed.password is not None,
-    }
-
-
-def first_text(*values: object) -> str:
-    for value in values:
-        if value is not None and str(value):
-            return str(value)
-    return 'unknown'
 
 
 def connection_skip_reason(exc: Exception) -> str:

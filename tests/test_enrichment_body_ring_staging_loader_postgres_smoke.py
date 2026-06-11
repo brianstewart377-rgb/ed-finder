@@ -8,16 +8,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers import db_isolation
 
-DSN = os.environ.get('EDFINDER_STAGING_TEST_DSN')
-CONFIRMED = os.environ.get('EDFINDER_CONFIRM_STAGING_TEST_DB') == 'yes'
-
-if not DSN or not CONFIRMED:
-    pytest.skip(
-        'optional body/ring Postgres smoke tests require EDFINDER_STAGING_TEST_DSN and '
-        'EDFINDER_CONFIRM_STAGING_TEST_DB=yes',
-        allow_module_level=True,
-    )
+TARGET = db_isolation.confirmed_target_or_skip(
+    dsn_env='EDFINDER_STAGING_TEST_DSN',
+    confirm_env='EDFINDER_CONFIRM_STAGING_TEST_DB',
+    purpose='optional body/ring Postgres smoke tests',
+)
+DSN = TARGET.dsn
 
 
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')

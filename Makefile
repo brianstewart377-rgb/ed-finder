@@ -3,7 +3,7 @@
 # Real builds happen via docker compose / yarn / pytest directly; this
 # Makefile just collects the most-used recipes so you don't have to
 # remember the env-var incantations.
-.PHONY: help lint typecheck test seed-check api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-integration test-ci-local clean
+.PHONY: help lint typecheck test seed-check api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local clean
 
 PYTHON ?= python
 
@@ -17,7 +17,7 @@ seed-check:  ## Apply every sql/*.sql with ON_ERROR_STOP=1 + invariants
 # ── Backend ──────────────────────────────────────────────────────────────────
 test:  ## Run backend unit + integration tests
 	python -m unittest discover -s tests -p test_smoke.py
-	DATABASE_URL=$${DATABASE_URL:-postgresql://edfinder:edfinder@localhost:5432/edfinder} \
+	DATABASE_URL=$${DATABASE_URL:-postgresql://edfinder:edfinder@127.0.0.1:55432/edfinder} \
 	REDIS_URL=$${REDIS_URL:-redis://localhost:6379/15} \
 	CORS_ORIGINS=$${CORS_ORIGINS:-http://test} \
 	ADMIN_TOKEN=$${ADMIN_TOKEN:-test-admin-token} \
@@ -43,12 +43,16 @@ test-operator:  ## Run Stage 19 operator safety tests
 test-db:  ## Run DB-marked tests, including explicit skips for absent real services
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest -m db -rs
 
+test-db-isolation:  ## Run DB isolation guardrails and real Postgres readiness checks
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest tests/test_db_isolation_guardrails.py tests/test_stage19_real_postgres_readiness.py -p no:cacheprovider -rs
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m py_compile tests/helpers/db_isolation.py
+
 test-integration:  ## Run integration-marked tests
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest -m integration -rs
 
-test-ci-local: test-env-check  ## Run focused local CI checks for the test environment stack
-	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest tests/test_test_env_preflight.py tests/test_stage19ar_operator_script.py tests/test_stage19ap_operator_visibility.py tests/test_stage19_real_postgres_readiness.py -rs
-	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m py_compile scripts/dev/test_env_preflight.py scripts/operator/stage19ar_edsm_25_row_staging_pilot.py scripts/operator/stage19as_au_edsm_100_row_controlled_expansion.py
+test-ci-local: test-env-check test-db-isolation  ## Run focused local CI checks for the test environment stack
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m pytest tests/test_test_env_preflight.py tests/test_stage19ar_operator_script.py tests/test_stage19ap_operator_visibility.py -rs
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m py_compile scripts/dev/test_env_preflight.py scripts/operator/stage19ar_edsm_25_row_staging_pilot.py scripts/operator/stage19as_au_edsm_100_row_controlled_expansion.py tests/helpers/db_isolation.py
 	git diff --check
 
 api-smoke:  ## Curl the Phase-2 happy paths against a running API

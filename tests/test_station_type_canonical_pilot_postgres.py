@@ -2,9 +2,10 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from urllib.parse import quote, urlparse, urlunparse
 
 import pytest
+
+from tests.helpers import db_isolation
 
 
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
@@ -16,10 +17,6 @@ if str(IMPORTER_SRC) not in sys.path:
     sys.path.insert(0, str(IMPORTER_SRC))
 
 import station_type_canonical_pilot as pilot  # noqa: E402
-
-
-ALLOWED_TEST_HOSTS = {'localhost', '127.0.0.1', '::1', 'postgres'}
-PRODUCTION_MARKERS = {'prod', 'production', 'live', 'hetzner'}
 
 
 def test_postgres_rehearsal_applies_only_station_type_and_emits_artifacts(pg_env):
@@ -234,32 +231,11 @@ class _PgEnv:
 
 
 def _canonical_test_dsn_or_skip():
-    dsn = os.getenv('EDFINDER_CANONICAL_TEST_DSN')
-    confirm = os.getenv('EDFINDER_CONFIRM_CANONICAL_TEST_DB')
-    if not dsn:
-        pytest.skip('EDFINDER_CANONICAL_TEST_DSN is not set; skipping disposable canonical Postgres rehearsal')
-    if confirm != 'yes':
-        pytest.skip('EDFINDER_CONFIRM_CANONICAL_TEST_DB must be exactly yes for disposable canonical Postgres rehearsal')
-    _assert_safe_test_dsn(dsn)
-    return dsn
-
-
-def _assert_safe_test_dsn(dsn):
-    parsed = urlparse(dsn)
-    if parsed.scheme:
-        host = parsed.hostname
-        dbname = parsed.path.lstrip('/')
-    else:
-        parts = dict(part.split('=', 1) for part in dsn.split() if '=' in part)
-        host = parts.get('host')
-        dbname = parts.get('dbname')
-    if host not in ALLOWED_TEST_HOSTS:
-        pytest.fail(f'Unsafe canonical test DSN host {host!r}; expected local disposable host')
-    haystack = f'{dsn} {dbname or ""}'.lower()
-    if any(marker in haystack for marker in PRODUCTION_MARKERS):
-        pytest.fail('Unsafe canonical test DSN contains production-like marker')
-    if not dbname:
-        pytest.fail('Unsafe canonical test DSN has no database name')
+    return db_isolation.confirmed_target_or_skip(
+        dsn_env='EDFINDER_CANONICAL_TEST_DSN',
+        confirm_env='EDFINDER_CONFIRM_CANONICAL_TEST_DB',
+        purpose='disposable canonical Postgres rehearsal',
+    ).dsn
 
 
 def _create_schema(cur, sql, env):

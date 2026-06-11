@@ -12,7 +12,7 @@ Provides:
 These fixtures expect a running PostgreSQL with the project schema
 already loaded, plus a Redis instance, both pointed at by env vars:
 
-    DATABASE_URL  = postgresql://edfinder:edfinder@localhost:5432/edfinder
+    DATABASE_URL  = postgresql://edfinder:edfinder@127.0.0.1:55432/edfinder
     REDIS_URL     = redis://localhost:6379/15        # /15 = test DB
     CORS_ORIGINS  = http://test
     ADMIN_TOKEN   = test-admin-token
@@ -30,8 +30,18 @@ _ROOT = _HERE.parent.parent     # tests/integration/conftest.py → repo root
 sys.path.insert(0, str(_ROOT / 'apps' / 'api' / 'src'))
 sys.path.insert(0, str(_ROOT / 'apps' / 'importer' / 'src'))
 
+from tests.helpers import db_isolation
+
 # --- env defaults that must be set BEFORE importing the api ----------
-os.environ.setdefault('DATABASE_URL', 'postgresql://edfinder:edfinder@localhost:5432/edfinder')
+if 'DATABASE_URL' in os.environ:
+    _db_target = db_isolation.validate_test_db_target(
+        os.environ['DATABASE_URL'],
+        env=os.environ,
+        source='DATABASE_URL',
+    )
+else:
+    _db_target = db_isolation.default_target(os.environ)
+    os.environ['DATABASE_URL'] = _db_target.dsn
 os.environ.setdefault('REDIS_URL', 'redis://localhost:6379/15')
 os.environ.setdefault('CORS_ORIGINS', 'http://test')
 os.environ.setdefault('ADMIN_TOKEN', 'test-admin-token')
@@ -94,6 +104,7 @@ async def clean_db():
     it (and slow the suite). Uses a separate connection to keep the
     truncate transaction tiny.
     """
+    db_isolation.require_destructive_reset_opt_in(os.environ)
     pool = await asyncpg.create_pool(
         dsn=os.environ['DATABASE_URL'], min_size=1, max_size=2,
         statement_cache_size=0,

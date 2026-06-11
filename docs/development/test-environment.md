@@ -25,6 +25,35 @@ The preflight is fail-closed and reports structured JSON. It checks:
 
 The default project Postgres target is `127.0.0.1:55432`. That keeps this validation away from a host Postgres listener on `5432` unless the operator explicitly supplies a different target through `PGHOST`, `PGPORT`, or `DATABASE_URL`.
 
+## DB Isolation Guardrails
+
+Shared test DB target validation lives in `tests/helpers/db_isolation.py`.
+It is fail-closed and test-only. It validates local/disposable database
+targets, redacts DSNs for reporting, provides rollback-transaction support,
+generates safe schema names, and blocks destructive reset unless the caller is
+inside CI or explicitly sets:
+
+```text
+EDFINDER_TEST_DB_ALLOW_DESTRUCTIVE_RESET=yes
+```
+
+The helper refuses production-looking targets and does not silently default to
+host Postgres on `5432`. Local `localhost:5432` is allowed only when the target
+is known disposable and the operator explicitly sets:
+
+```text
+EDFINDER_ALLOW_HOST_5432_TEST_DB=yes
+```
+
+CI may use `localhost:5432` because the workflow service container is
+disposable for that run. Local work should prefer `127.0.0.1:55432`.
+
+Run the guardrails directly:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -B -m pytest tests/test_db_isolation_guardrails.py -p no:cacheprovider
+```
+
 Expected safety properties:
 
 ```text
@@ -59,6 +88,7 @@ The Makefile includes:
 - `test-unit`
 - `test-operator`
 - `test-db`
+- `test-db-isolation`
 - `test-integration`
 - `test-ci-local`
 
