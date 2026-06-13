@@ -68,8 +68,15 @@ def test_authority_file_parses():
     assert error is None
     assert authority['schema_version'] == 1
     assert authority['stage19']['status'] == 'paused'
-    assert authority['stage19']['stage19as_au_status'] == 'not_run'
+    assert authority['stage19']['stage19as_au_status'] == 'completed'
     assert authority['approved_stage19ar_baseline']['rows'] == 25
+    checkpoint = authority['stage19as_au_completed_checkpoint']
+    assert checkpoint['source_run_key'] == 'stage19as-au-edsm-100-row-controlled-expansion-1843ccf903dfa6c9'
+    assert checkpoint['bridge_key'] == 'source_runs:stage19as-au-edsm-100-row-controlled-expansion-1843ccf903dfa6c9'
+    assert checkpoint['artifact'] == '7f6f20a4d01b543d8ef12072891d8fda749bcc1b6633c26bc9ec178a40b8f84e'
+    assert checkpoint['rows_read'] == 100
+    assert checkpoint['rows_staged'] == 100
+    assert checkpoint['canonical_writes_performed'] is False
     assert [state['id'] for state in authority['invalid_states']] == [
         '45e2d58',
         'f72812a',
@@ -97,7 +104,7 @@ def test_json_output_works(capsys):
     assert payload['failure_category'] == 'none'
     assert payload['safe_for_operational_work'] is True
     assert payload['stage19_status'] == 'paused'
-    assert payload['stage19as_au_status'] == 'not_run'
+    assert payload['stage19as_au_status'] == 'completed'
     assert 'matched_invalid_state' in payload
 
 
