@@ -793,6 +793,13 @@ It does not authorize Stage 19 operator commands, DB mutation, a wider pilot,
 scheduler/service work, canonical apply, rebaseline, production-like DB targets,
 or direct host `5432` targets. DB verification is `not_run` for this repo PR
 because no explicit safe local/disposable read-only DB target was provided.
+The follow-up Stage 19AU read-only DB verification passed against the approved
+safe local target `127.0.0.1:55432`. It verified the Stage 19AR baseline, the
+Stage 19AS-AU checkpoint, the AS-AU artifact checksum, diagnostic-only staging
+isolation, absence of active or failed blocking Stage 19 source runs, and
+absence of canonical apply/write evidence. Stage 19 remains paused, with no
+rebaseline, scheduler/service work, wider pilot, canonical apply, or new write
+lane authorized.
 
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
