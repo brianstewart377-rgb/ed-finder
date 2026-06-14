@@ -7,10 +7,11 @@ read-only AS-AU safety-gate checkpoint. Its purpose is to keep the recorded
 Stage 19AR and Stage 19AS-AU state inspectable before any new Stage 19 write,
 wider pilot, scheduler work, or canonical path is considered.
 
-This checkpoint is documentation and static/unit test coverage in this PR. It
-does not run Stage 19 operator commands, connect to a database, create a source
-run, write staging rows, enable scheduler work, rebaseline, or run canonical
-apply.
+This checkpoint started as documentation and static/unit test coverage. The
+follow-up Stage 19AU read-only DB verification used the approved safe local
+target `127.0.0.1:55432` and did not run Stage 19 operator commands, create a
+source run, write staging rows, enable scheduler work, rebaseline, or run
+canonical apply.
 
 ## Current Authority
 
@@ -34,8 +35,8 @@ Active authority remains
 Stage 19AU is read-only verification only. It does not authorize a write-capable
 lane.
 
-This PR did not run DB verification because no explicit safe local or disposable
-read-only DB target was supplied. That is recorded as:
+The Stage 19AU implementation PR did not run DB verification because no explicit
+safe local or disposable read-only DB target was supplied. That was recorded as:
 
 ```text
 db_verification:
@@ -46,9 +47,40 @@ No explicit safe local/disposable DB target was provided for this checkpoint.
 The repo changes are docs/static-test only.
 ```
 
-A future non-skipped DB verification must remain read-only, must use existing
-local/disposable guardrails, must redact secrets, and must stop on production-
-like DSNs or direct host `5432` targets.
+The follow-up read-only DB verification passed against the approved safe local
+target `127.0.0.1:55432`. The connection resolved to database `edfinder` as
+user `edfinder`, with container port `5432` reached only through the safe host
+mapping `127.0.0.1:55432`.
+
+```text
+db_verification:
+passed
+
+db_verification_target:
+127.0.0.1:55432
+```
+
+The follow-up verification confirmed:
+
+- the approved Stage 19AR baseline source run, bridge key, b617 artifact, and
+  25 diagnostic rows;
+- the Stage 19AS-AU source run, bridge key, 7f6 artifact checksum, and row
+  counts of 100 read, 100 staged, 0 rejected, and 0 skipped;
+- every checked Stage 19AR and Stage 19AS-AU staging row remains diagnostic-only,
+  uses the legacy `enrichment_source_runs.id` bridge, avoids `source_runs.id`,
+  and preserves `canonical_write_allowed=false`;
+- no active or failed Stage 19 source run blocks the next lane;
+- source-run safety boundaries keep canonical apply disabled, canonical writes
+  planned at zero, scheduler/service work disabled, and production DB access
+  false;
+- the AS-AU artifact file checksum matches the recorded
+  `7f6f20a4d01b543d8ef12072891d8fda749bcc1b6633c26bc9ec178a40b8f84e` value;
+- the prerequisite staging evidence remains separate from the Stage 19AS-AU
+  completion source run.
+
+Any future DB verification must remain read-only, must use existing
+local/disposable guardrails, must redact secrets, and must stop on
+production-like DSNs or direct host `5432` targets.
 
 Allowed future read-only checks may verify only:
 

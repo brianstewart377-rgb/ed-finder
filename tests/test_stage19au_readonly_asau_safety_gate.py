@@ -67,7 +67,7 @@ def test_stage19au_records_as1_as2_at_and_readonly_gate():
         'Stage 19AT is complete and recorded.',
         'Stage 19 remains paused.',
         'Stage 19AU is read-only verification only.',
-        'documentation and static/unit test coverage in this PR',
+        'This checkpoint started as documentation and static/unit test coverage.',
         'Any future write-capable lane requires a separate explicit operator decision.',
     ):
         assert fragment in au_doc
@@ -80,17 +80,35 @@ def test_stage19au_records_as1_as2_at_and_readonly_gate():
 
 
 @pytest.mark.unit
-def test_stage19au_records_db_verification_not_run_without_safe_target():
+def test_stage19au_records_db_verification_history_and_passed_followup():
     au_doc = _squash(_read(AU_DOC_PATH))
+    roadmap = _squash(_read(ROADMAP_PATH))
 
     for fragment in (
-        'This PR did not run DB verification because no explicit safe local or disposable read-only DB target was supplied.',
+        'The Stage 19AU implementation PR did not run DB verification because no explicit safe local or disposable read-only DB target was supplied.',
         'db_verification: not_run',
         'No explicit safe local/disposable DB target was provided for this checkpoint.',
         'The repo changes are docs/static-test only.',
-        'must stop on production- like DSNs or direct host `5432` targets',
+        'The follow-up read-only DB verification passed against the approved safe local target `127.0.0.1:55432`.',
+        'db_verification: passed',
+        'db_verification_target: 127.0.0.1:55432',
+        'the approved Stage 19AR baseline source run, bridge key, b617 artifact, and 25 diagnostic rows',
+        'the Stage 19AS-AU source run, bridge key, 7f6 artifact checksum, and row counts of 100 read, 100 staged, 0 rejected, and 0 skipped',
+        'preserves `canonical_write_allowed=false`',
+        'no active or failed Stage 19 source run blocks the next lane',
+        'canonical apply disabled, canonical writes planned at zero, scheduler/service work disabled, and production DB access false',
+        'the AS-AU artifact file checksum matches the recorded `7f6f20a4d01b543d8ef12072891d8fda749bcc1b6633c26bc9ec178a40b8f84e` value',
+        'must stop on production-like DSNs or direct host `5432` targets',
     ):
         assert fragment in au_doc
+
+    for fragment in (
+        'The follow-up Stage 19AU read-only DB verification passed against the approved safe local target `127.0.0.1:55432`.',
+        'absence of active or failed blocking Stage 19 source runs',
+        'absence of canonical apply/write evidence',
+        'Stage 19 remains paused',
+    ):
+        assert fragment in roadmap
 
 
 @pytest.mark.unit
