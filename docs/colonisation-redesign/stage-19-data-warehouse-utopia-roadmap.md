@@ -785,6 +785,15 @@ operator command, DB mutation, scheduler/service work, canonical apply,
 rebaseline, production-like DB target, or direct host `5432` target. The next
 operational lane still requires explicit operator approval.
 
+Stage 19AU is the read-only AS-AU safety-gate checkpoint after Stage 19AT. It
+is recorded in
+`docs/colonisation-redesign/stage-19au-readonly-asau-safety-gate.md` as
+docs/static-test coverage for the recorded Stage 19AR and Stage 19AS-AU state.
+It does not authorize Stage 19 operator commands, DB mutation, a wider pilot,
+scheduler/service work, canonical apply, rebaseline, production-like DB targets,
+or direct host `5432` targets. DB verification is `not_run` for this repo PR
+because no explicit safe local/disposable read-only DB target was provided.
+
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
 Deferred: this is important safety work, but it should not block the immediate
