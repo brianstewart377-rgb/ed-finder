@@ -96,6 +96,7 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage19as2_operator_script_contract.py \
     tests/test_stage19at_paused_state_next_operator_decision.py \
     tests/test_stage19au_readonly_asau_safety_gate.py \
+    tests/test_stage19av_expanded_source_run_staging_pilot.py \
     tests/test_stage19aq1_test_fortress_guardrails.py \
     -q
 )

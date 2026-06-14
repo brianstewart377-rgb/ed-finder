@@ -17,6 +17,7 @@ OPERATOR_SCRIPTS = {
     'Stage 19AR': ROOT / 'scripts' / 'operator' / 'stage19ar_edsm_25_row_staging_pilot.py',
     'Stage 19AS-AU': ROOT / 'scripts' / 'operator' / 'stage19as_au_edsm_100_row_controlled_expansion.py',
     'Stage 19AN-R': ROOT / 'scripts' / 'operator' / 'stage19anr_warehouse_derived_staging_rehearsal.py',
+    'Stage 19AV': ROOT / 'scripts' / 'operator' / 'stage19av_expanded_source_run_staging_pilot.py',
 }
 
 
@@ -128,6 +129,7 @@ def test_committed_pilot_scripts_keep_hard_limits_and_validation_contracts():
     stage19ar = _read(OPERATOR_SCRIPTS['Stage 19AR'])
     stage19as_au = _read(OPERATOR_SCRIPTS['Stage 19AS-AU'])
     stage19anr = _read(OPERATOR_SCRIPTS['Stage 19AN-R'])
+    stage19av = _read(OPERATOR_SCRIPTS['Stage 19AV'])
     contract_doc = _read(CONTRACT_DOC_PATH)
 
     assert 'HARD_MAX_LIMIT = 25' in stage19ar
@@ -143,6 +145,16 @@ def test_committed_pilot_scripts_keep_hard_limits_and_validation_contracts():
     assert "parser.add_argument('--artifact-dir', required=True" in stage19anr
     assert 'Stage 19AN-R' in contract_doc
     assert 'only a lower-bound `--limit` check' in contract_doc
+
+    assert 'STAGE19AV_LIMIT = 250' in stage19av
+    assert 'hard_max_limit=STAGE19AV_LIMIT' in stage19av
+    assert 'if args.limit > STAGE19AV_PROFILE.hard_max_limit' in stage19av
+    assert "'--confirm-stage19av'" in stage19av
+    assert '--confirm-stage19av is required with --commit' in stage19av
+    assert 'DATABASE_URL must be unset for Stage 19AV operator commands' in stage19av
+    assert 'direct host 5432 target is blocked for Stage 19AV' in stage19av
+    assert 'verify_stage19av_prerequisites(conn)' in stage19av
+    assert 'stage19av_expanded_source_run_staging_pilot.py' in contract_doc
 
     for stage, source in (
         ('Stage 19AR', stage19ar),
