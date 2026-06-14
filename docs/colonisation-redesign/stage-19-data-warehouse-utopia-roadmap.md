@@ -776,6 +776,13 @@ Next decisions only after the 25-row pilot is verified:
 Deferred: this is important safety work, but it should not block the immediate
 25-row pilot unless that pilot exposes a blocker.
 
+After Stage 19AS-AU, Stage 19AS.1 is the active test-environment follow-up for
+disposable/local Postgres pilot-path constraint coverage. It is recorded in
+`docs/colonisation-redesign/stage-19as1-disposable-postgres-constraint-tests.md`
+and keeps Stage 19 paused while adding tests for source-run constraints, bridge
+rows, legacy staging FK usage, artifact fields, diagnostic-only rows, and
+canonical-write blocking.
+
 #### Local CI parity
 
 Deferred: create a blessed command such as
@@ -805,6 +812,10 @@ Deferred: add real Postgres tests for:
 - artifact hashes and integrity columns;
 - rollback rehearsal;
 - no canonical table writes.
+
+Stage 19AS.1 now adds the first focused repo test surface for this lane. Any
+future non-skipped disposable DB execution must use the existing
+`tests.helpers.db_isolation` guardrails and must remain local/disposable.
 
 #### Data Warehouse safety tests
 
