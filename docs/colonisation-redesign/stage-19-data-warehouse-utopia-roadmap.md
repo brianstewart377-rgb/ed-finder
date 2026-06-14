@@ -557,7 +557,7 @@ These Grok ideas reinforce the next Stage 19 priorities:
 
 Stage 19AM is historical closeout content recovered from old PR #186 and refreshed against current main. It records a bounded three-row local-file EDSM staging rehearsal with one `source_runs` row, one `enrichment_source_runs` bridge row, three diagnostic-only `staging_edsm_stations` rows, zero scheduler/timer enablement, zero canonical writes, and zero canonical apply.
 
-Current authority remains `docs/colonisation-redesign/stage-19-state-authority.json`: Stage 19 is paused, Stage 19AS-AU has not run, and this refresh did not execute Stage 19.
+Current authority remains `docs/colonisation-redesign/stage-19-state-authority.json`: Stage 19 is paused. Stage 19AS-AU later completed as a separate controlled 100-row checkpoint recorded in the state authority file; this Stage 19AM refresh itself did not execute Stage 19.
 
 Closeout: `docs/colonisation-redesign/stage-19am-multi-row-edsm-staging-rehearsal-closeout.md`.
 
@@ -732,6 +732,34 @@ Pending required verification after the bounded 25-row pilot:
 - canonical tables remain untouched;
 - closeout doc records artifact path, SHA, source_run_key, bridge key, counts,
   and git SHA.
+
+### Stage 19AS-AU - controlled 100-row expansion checkpoint
+
+Stage 19AS-AU completed a controlled 100-row EDSM staging expansion against the
+safe local DB target `127.0.0.1:55432`.
+
+- prerequisite staging source run:
+  `5628352176041df70512246851f92bbbcc34fcce617258b620eaf82085028b53`;
+- completed source run:
+  `stage19as-au-edsm-100-row-controlled-expansion-1843ccf903dfa6c9`;
+- bridge:
+  `source_runs:stage19as-au-edsm-100-row-controlled-expansion-1843ccf903dfa6c9`;
+- import artifact:
+  `/home/brian/.local/share/ed-finder/operator-artifacts/stage-19as-au/stage19as_au_edsm_import_20260613T145914Z.json`;
+- import artifact SHA-256:
+  `7f6f20a4d01b543d8ef12072891d8fda749bcc1b6633c26bc9ec178a40b8f84e`;
+- operator artifact SHA-256:
+  `4a37953d7b7809e3564240bb299222dabd226a953c5d2dfc3ca37baeaa855130`;
+- rows: `rows_read=100`, `rows_staged=100`, `rows_rejected=0`,
+  `rows_skipped=0`;
+- approved Stage 19AR baseline stayed pinned to the 5f777 source run,
+  b617 artifact, and 25 diagnostic rows;
+- no rebaseline, no canonical apply, no full source batch, and no direct host
+  `5432` target were used.
+
+Stage 19 remains paused after this checkpoint. The prerequisite staging source
+run is evidence for the sample gate only and is not treated as the Stage
+19AS-AU completion.
 
 ### Near-term after Stage 19AS
 

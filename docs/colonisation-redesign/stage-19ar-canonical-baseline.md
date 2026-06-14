@@ -138,7 +138,7 @@ Active authority:
 Historical evidence:
 `docs/archive/stage-19-incident-history.md`
 
-Stage 19AS-AU is paused while the test-environment roadmap is restored and validated. The pause is a test-environment gate, not a new baseline decision.
+Stage 19AS-AU has completed its controlled 100-row expansion checkpoint. Stage 19 itself remains paused while the next test-environment gate or operator decision is chosen. The pause is a test-environment gate, not a new baseline decision.
 
 Current operational state:
 
@@ -147,10 +147,10 @@ stage19_status:
 paused
 
 stage19as_au_status:
-not_run
+completed
 
 stage19_resume_gate:
-fake-only readiness blocker cleared
+controlled 100-row expansion verified
 Stage 19 remains paused until the next agreed test-env gate or operator decision
 
 real_stage19_db_readiness_tests:
@@ -163,10 +163,22 @@ fakeconn_fakecursor_status:
 unit-level fakes paired with real local Postgres readiness coverage
 
 stage19as_au_expansion_attempted:
-false
+true
+
+stage19as_au_source_run_key:
+stage19as-au-edsm-100-row-controlled-expansion-1843ccf903dfa6c9
+
+stage19as_au_bridge_key:
+source_runs:stage19as-au-edsm-100-row-controlled-expansion-1843ccf903dfa6c9
+
+stage19as_au_artifact_sha256:
+7f6f20a4d01b543d8ef12072891d8fda749bcc1b6633c26bc9ec178a40b8f84e
+
+stage19as_au_rows:
+100
 ```
 
-The restored real-service readiness path is `tests/test_stage19_real_postgres_readiness.py`. It passed against local Postgres on the recreated test-environment branch, so FakeConn/FakeCursor coverage is now paired with real-service readiness coverage. Stage 19 remains paused until the next agreed test-environment gate or operator decision.
+The restored real-service readiness path is `tests/test_stage19_real_postgres_readiness.py`. It passed against local Postgres on the recreated test-environment branch, so FakeConn/FakeCursor coverage is now paired with real-service readiness coverage. The Stage 19AS-AU checkpoint preserved the approved Stage 19AR baseline and performed no canonical apply. Stage 19 remains paused until the next agreed test-environment gate or operator decision.
 
 ## Fresh-Chat Handoff
 
