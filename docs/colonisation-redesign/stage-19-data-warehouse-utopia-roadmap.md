@@ -777,6 +777,14 @@ docs/static-test checkpoint in
 not run Stage 19 operator commands, connect to a database, write staging rows,
 write canonical tables, rebaseline, or run canonical apply.
 
+Stage 19AT is the current paused-state decision gate after Stage 19AS.2. It is
+recorded in
+`docs/colonisation-redesign/stage-19at-paused-state-next-operator-decision.md`
+as docs/static-test coverage only. It does not approve a wider pilot, Stage 19
+operator command, DB mutation, scheduler/service work, canonical apply,
+rebaseline, production-like DB target, or direct host `5432` target. The next
+operational lane still requires explicit operator approval.
+
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
 Deferred: this is important safety work, but it should not block the immediate
