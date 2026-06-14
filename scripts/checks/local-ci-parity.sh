@@ -93,6 +93,7 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage19ap_operator_visibility.py \
     tests/test_stage19anr_operator_script.py \
     tests/test_stage19as1_disposable_postgres_constraints.py \
+    tests/test_stage19as2_operator_script_contract.py \
     tests/test_stage19aq1_test_fortress_guardrails.py \
     -q
 )

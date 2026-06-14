@@ -771,6 +771,12 @@ Next decisions only after the 25-row pilot is verified:
   pilots;
 - decide whether to formalize operator script contracts.
 
+Stage 19AS.2 now formalizes the operator-script contract as a repo-only
+docs/static-test checkpoint in
+`docs/colonisation-redesign/stage-19as2-operator-script-contract.md`. It does
+not run Stage 19 operator commands, connect to a database, write staging rows,
+write canonical tables, rebaseline, or run canonical apply.
+
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
 Deferred: this is important safety work, but it should not block the immediate
@@ -866,7 +872,7 @@ Deferred: eventually automate checks for:
 
 #### Operator script contract
 
-Deferred: future operator scripts should follow this contract:
+Stage 19AS.2 records this contract for future operator scripts:
 
 - dry-run default;
 - explicit `--commit` required for writes;
