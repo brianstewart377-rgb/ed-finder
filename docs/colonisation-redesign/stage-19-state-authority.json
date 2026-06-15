@@ -57,6 +57,28 @@
     "post_run_live_verification_passed": true,
     "stage19_remains_paused": true
   },
+  "stage19aw_decision_checkpoint": {
+    "status": "recorded",
+    "checkpoint_type": "post_av_paused_state_decision",
+    "recorded_at": "2026-06-15",
+    "docs_static_only": true,
+    "stage19av_checkpoint_preserved": true,
+    "stage19_remains_paused": true,
+    "next_execution_lane_authorized": false,
+    "read_only_db_verification_authorized": false,
+    "bounded_write_preparation_authorized": false,
+    "bounded_write_execution_authorized": false,
+    "scheduler_service_authorized": false,
+    "canonical_apply_authorized": false,
+    "rebaseline_authorized": false,
+    "stage19_closeout_authorized": false,
+    "test_environment_closeout_authorized": false,
+    "db_work_recorded": false,
+    "source_acquisition_recorded": false,
+    "stage19_operator_commands_recorded": false,
+    "runtime_source_files_are_authority": false,
+    "operator_artifact_json_committed_as_authority": false
+  },
   "retired_stage19ar_baseline": {
     "source_run_key": "stage19ar-edsm-25-row-staging-pilot-381a609ed62b80fd",
     "artifact": "418bc0db66978623c460aa8cc46a8ab14811098f39cb99a16274d9d181f19417",

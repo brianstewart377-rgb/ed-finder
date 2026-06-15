@@ -817,6 +817,14 @@ counts of 250 read, 250 staged, 0 rejected, and 0 skipped. Stage 19 remains
 paused, with no canonical apply, no rebaseline, no scheduler/service work, no
 production-like DB target, and no direct host `5432` target authorized.
 
+Stage 19AW is the post-AV paused-state decision checkpoint. It is recorded in
+`docs/colonisation-redesign/stage-19aw-post-av-paused-state-decision.md` as
+docs/static coverage only. Stage 19AW keeps Stage 19 paused after the completed
+Stage 19AV pilot and does not authorize read-only DB verification, bounded
+write preparation, bounded write execution, scheduler/service work, canonical
+apply, rebaseline, Stage 19 closeout, or test environment closeout. The next
+lane must be selected by a separate explicit operator decision.
+
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
 Deferred: this is important safety work, but it should not block the immediate
