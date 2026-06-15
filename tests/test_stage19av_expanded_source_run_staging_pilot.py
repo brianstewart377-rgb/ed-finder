@@ -42,8 +42,9 @@ def _db_args(host: str = '127.0.0.1', port: str = '55432') -> argparse.Namespace
 
 
 @pytest.mark.unit
-def test_stage19av_keeps_authority_paused_until_pilot_succeeds():
+def test_stage19av_records_completed_pilot_while_stage19_remains_paused():
     authority = json.loads(_read(AUTHORITY_PATH))
+    checkpoint = authority['stage19av_completed_checkpoint']
     av_doc = _squash(_read(AV_DOC_PATH))
     roadmap = _squash(_read(ROADMAP_PATH))
 
@@ -51,14 +52,36 @@ def test_stage19av_keeps_authority_paused_until_pilot_succeeds():
         'status': 'paused',
         'stage19as_au_status': 'completed',
     }
-    assert 'stage19av_completed_checkpoint' not in authority
+    assert checkpoint['status'] == 'completed'
+    assert checkpoint['safe_db_target'] == '127.0.0.1:55432'
+    assert checkpoint['source_run_key'] == 'stage19av-expanded-source-run-staging-pilot-48688d9d46067867'
+    assert checkpoint['bridge_key'] == 'source_runs:stage19av-expanded-source-run-staging-pilot-48688d9d46067867'
+    assert checkpoint['artifact'] == '09652a1c6e6ad661415f535a713432b0d3a76aef5b8c931c0b1874e1c52604f4'
+    assert checkpoint['operator_artifact'] == 'b2d7f2649b68d9ededb965dd8442f37399bb90a1327c934ea8145258759068a1'
+    assert checkpoint['staging_prerequisite_source_run_key'] == (
+        '7fe4382fbde60752e026b576d92e0352c01d85799613884d2b2e7ee57cd3f5f3'
+    )
+    assert checkpoint['staging_prerequisite_rows'] == 125
+    assert checkpoint['rows_read'] == 250
+    assert checkpoint['rows_staged'] == 250
+    assert checkpoint['rows_rejected'] == 0
+    assert checkpoint['rows_skipped'] == 0
+    assert checkpoint['canonical_writes_performed'] is False
+    assert checkpoint['approved_stage19ar_baseline_preserved'] is True
+    assert checkpoint['stage19as_au_checkpoint_preserved'] is True
+    assert checkpoint['stage19au_verification_preserved'] is True
+    assert checkpoint['post_run_live_verification_passed'] is True
+    assert checkpoint['stage19_remains_paused'] is True
+
     assert 'Stage 19AV is the selected bounded write lane after Stage 19AU.' in av_doc
-    assert 'The Stage 19AV bounded write was not run in this checkpoint' in av_doc
+    assert 'This checkpoint records the successful Stage 19AV bounded write' in av_doc
+    assert 'Stage 19AV was run on `2026-06-15T06:21:02Z`' in av_doc
+    assert 'canonical writes performed: `false`' in av_doc
     assert 'Stage 19 remains paused.' in av_doc
     assert 'No canonical apply is complete.' in av_doc
     assert 'No rebaseline is complete.' in av_doc
-    assert 'Stage 19AV is the selected expanded controlled source-run staging pilot lane after Stage 19AU.' in roadmap
-    assert 'This preparation checkpoint does not run the AV bounded write.' in roadmap
+    assert 'Stage 19AV is the completed expanded controlled source-run staging pilot lane after Stage 19AU.' in roadmap
+    assert '250 read, 250 staged, 0 rejected, and 0 skipped' in roadmap
 
 
 @pytest.mark.unit
