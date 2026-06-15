@@ -40,7 +40,8 @@ stage-specific profile:
   `source_runs:stage19av-expanded-source-run-staging-pilot-`;
 - provenance marker:
   `stage19av_expanded_source_run_staging_pilot`;
-- default and hard maximum row count: `250`;
+- profile default and hard maximum row count: `250`;
+- CLI invocations must provide an explicit `--limit`;
 - exact committed row count requirement: `250`;
 - artifact namespace:
   `/var/lib/ed-finder/operator-artifacts/stage-19av`;
@@ -55,10 +56,14 @@ The wrapper keeps the existing contract:
 - `--preflight-db` authenticates and verifies prerequisites without writes or
   artifacts;
 - `DATABASE_URL` must be unset for Stage 19AV operator commands;
-- a direct local host `5432` target is rejected by the wrapper;
+- the only accepted future DB target is exactly `127.0.0.1:55432`;
+- local `5432` targets, including `127.0.0.1:5432`, `localhost:5432`,
+  `::1:5432`, and `0.0.0.0:5432`, are rejected by the wrapper;
+- non-local hosts, hostnames, private-network IPs, public IPs, and
+  production-like DB targets are rejected by the wrapper;
 - passwords and secrets are redacted from preflight output;
-- production-like DB targets and direct host `5432` targets remain blocked by
-  the operator procedure.
+- environment-driven DB target overrides are accepted only when they still
+  resolve to exactly `127.0.0.1:55432`.
 
 ## Required Future Gates
 
@@ -72,7 +77,7 @@ The future run must confirm:
 - Stage 19AS-AU checkpoint remains preserved;
 - Stage 19AU read-only verification remains preserved;
 - no active or failed Stage 19 source run blocks the lane;
-- safe target is `127.0.0.1:55432`;
+- safe target is exactly `127.0.0.1:55432`;
 - `DATABASE_URL` is unset;
 - `PGPASSWORD` is present but not printed;
 - artifact output goes to an operator artifact directory and is not committed.
@@ -101,6 +106,7 @@ Stage 19AV preparation does not authorize:
 - rebaseline;
 - scheduler, timer, or service-manager work;
 - production-like DB targets;
+- non-local DB hosts or any target other than `127.0.0.1:55432`;
 - host `5432` as a direct Stage 19 target;
 - secrets access or printing;
 - runtime source JSON or operator artifact JSON commits.

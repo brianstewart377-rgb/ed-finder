@@ -30,6 +30,9 @@ STAGE19AS_AU_SOURCE_RUN_KEY = 'stage19as-au-edsm-100-row-controlled-expansion-18
 STAGE19AS_AU_BRIDGE_KEY = f'{pilot.source_run_compatibility.LEGACY_SOURCE_RUN_KEY_PREFIX}{STAGE19AS_AU_SOURCE_RUN_KEY}'
 STAGE19AS_AU_ARTIFACT_SHA256 = '7f6f20a4d01b543d8ef12072891d8fda749bcc1b6633c26bc9ec178a40b8f84e'
 STAGE19AS_AU_MARKER = 'stage19as_au_controlled_100_row_expansion'
+STAGE19AV_APPROVED_DB_HOST = '127.0.0.1'
+STAGE19AV_APPROVED_DB_PORT = '55432'
+STAGE19AV_DIRECT_HOST_5432_HOSTS = frozenset({'127.0.0.1', 'localhost', '::1', '0.0.0.0'})
 
 STAGE19AV_PROFILE = pilot.BoundedPilotProfile(
     schema_version='stage19av_expanded_source_run_staging_pilot/v1',
@@ -66,7 +69,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description='Prepare or run the Stage 19AV expanded controlled source-run staging pilot.',
     )
-    parser.add_argument('--limit', type=int, default=STAGE19AV_LIMIT, help='Exact number of staging rows to pilot.')
+    parser.add_argument('--limit', type=int, required=True, help='Exact number of staging rows to pilot.')
     parser.add_argument(
         '--artifact-dir',
         default=str(STAGE19AV_PROFILE.artifact_dir),
@@ -84,8 +87,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action='store_true',
         help='Required with --commit so Stage 19AV cannot be run by a generic committed invocation.',
     )
-    parser.add_argument('--db-host', default='127.0.0.1', help='Local Postgres host.')
-    parser.add_argument('--db-port', default='5432', help='Local Postgres port.')
+    parser.add_argument('--db-host', default=STAGE19AV_APPROVED_DB_HOST, help='Approved local Postgres host.')
+    parser.add_argument('--db-port', default=STAGE19AV_APPROVED_DB_PORT, help='Approved local Postgres port.')
     parser.add_argument('--db-name', default='edfinder', help='Local Postgres database name.')
     parser.add_argument('--db-user', default='edfinder', help='Local Postgres user.')
     parser.add_argument(
@@ -160,10 +163,15 @@ def build_db_dsn(args: argparse.Namespace, env: Mapping[str, str] | None = None)
 
 def assert_safe_stage19av_target(args: argparse.Namespace, env: Mapping[str, str] | None = None) -> None:
     source_env = env if env is not None else os.environ
-    host = str(source_env.get('PGHOST') or args.db_host)
-    port = str(source_env.get('PGPORT') or args.db_port)
-    if host in {'127.0.0.1', 'localhost', '::1'} and port == '5432':
+    host = str(source_env.get('PGHOST') or args.db_host).strip()
+    port = str(source_env.get('PGPORT') or args.db_port).strip()
+    if host in STAGE19AV_DIRECT_HOST_5432_HOSTS and port == '5432':
         raise pilot.Stage19ArPilotError('direct host 5432 target is blocked for Stage 19AV')
+    if host != STAGE19AV_APPROVED_DB_HOST or port != STAGE19AV_APPROVED_DB_PORT:
+        raise pilot.Stage19ArPilotError(
+            'Stage 19AV DB target must be exactly 127.0.0.1:55432; '
+            'non-local and production-like targets are blocked'
+        )
 
 
 def run_db_preflight(args: argparse.Namespace, *, env: Mapping[str, str] | None = None) -> dict[str, Any]:
@@ -205,6 +213,8 @@ def run_db_preflight(args: argparse.Namespace, *, env: Mapping[str, str] | None 
             pilot.rollback(conn)
         if isinstance(exc, pilot.Stage19ArPilotError) and 'direct host 5432 target' in str(exc):
             failure_category = 'host_5432_direct_target_blocked'
+        elif isinstance(exc, pilot.Stage19ArPilotError) and 'exactly 127.0.0.1:55432' in str(exc):
+            failure_category = 'stage19av_safe_target_required'
         else:
             failure_category = as_au.db_failure_category(exc)
         return db_preflight_result(

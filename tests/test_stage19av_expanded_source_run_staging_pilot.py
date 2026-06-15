@@ -31,6 +31,16 @@ def _squash(text: str) -> str:
     return re.sub(r'\s+', ' ', text)
 
 
+def _db_args(host: str = '127.0.0.1', port: str = '55432') -> argparse.Namespace:
+    return argparse.Namespace(
+        db_host=host,
+        db_port=port,
+        db_name='edfinder',
+        db_user='edfinder',
+        secrets_file=None,
+    )
+
+
 @pytest.mark.unit
 def test_stage19av_keeps_authority_paused_until_pilot_succeeds():
     authority = json.loads(_read(AUTHORITY_PATH))
@@ -54,11 +64,13 @@ def test_stage19av_keeps_authority_paused_until_pilot_succeeds():
 @pytest.mark.unit
 def test_stage19av_wrapper_has_stage_specific_bounded_profile():
     profile = stage19av.STAGE19AV_PROFILE
-    args = stage19av.parse_args(['--git-head', 'abc1234'])
+    args = stage19av.parse_args(['--git-head', 'abc1234', '--limit', '250'])
 
     assert args.commit is False
     assert args.confirm_stage19av is False
     assert args.limit == 250
+    assert args.db_host == '127.0.0.1'
+    assert args.db_port == '55432'
     assert args.trigger_context == 'stage19av_expanded_source_run_staging_pilot'
     assert profile.default_limit == 250
     assert profile.hard_max_limit == 250
@@ -74,12 +86,15 @@ def test_stage19av_wrapper_has_stage_specific_bounded_profile():
 @pytest.mark.unit
 def test_stage19av_rejects_unbounded_or_unconfirmed_committed_invocations():
     with pytest.raises(SystemExit):
+        stage19av.parse_args([])
+
+    with pytest.raises(SystemExit):
         stage19av.parse_args(['--limit', '251'])
 
     with pytest.raises(SystemExit):
-        stage19av.parse_args(['--commit'])
+        stage19av.parse_args(['--limit', '250', '--commit'])
 
-    args = stage19av.parse_args(['--commit', '--confirm-stage19av'])
+    args = stage19av.parse_args(['--limit', '250', '--commit', '--confirm-stage19av'])
 
     assert args.commit is True
     assert args.confirm_stage19av is True
@@ -88,13 +103,7 @@ def test_stage19av_rejects_unbounded_or_unconfirmed_committed_invocations():
 
 @pytest.mark.unit
 def test_stage19av_refuses_database_url_and_keeps_preflight_redacted():
-    args = argparse.Namespace(
-        db_host='127.0.0.1',
-        db_port='55432',
-        db_name='edfinder',
-        db_user='edfinder',
-        secrets_file=None,
-    )
+    args = _db_args()
     env = {
         'DATABASE_URL': 'postgresql://edfinder:do-not-print-this@127.0.0.1:55432/edfinder',
         'POSTGRES_PASSWORD': 'do-not-print-this',
@@ -113,6 +122,42 @@ def test_stage19av_refuses_database_url_and_keeps_preflight_redacted():
     assert 'do-not-print-this' not in encoded
     assert 'postgresql://' not in encoded
 
+
+@pytest.mark.unit
+def test_stage19av_accepts_only_the_approved_safe_local_target():
+    args = _db_args()
+    env = {
+        'POSTGRES_PASSWORD': 'do-not-print-this',
+    }
+
+    stage19av.assert_safe_stage19av_target(args, env=env)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ('host', 'port', 'match'),
+    [
+        ('127.0.0.1', '5432', 'direct host 5432 target'),
+        ('localhost', '5432', 'direct host 5432 target'),
+        ('::1', '5432', 'direct host 5432 target'),
+        ('0.0.0.0', '5432', 'direct host 5432 target'),
+        ('localhost', '55432', 'exactly 127.0.0.1:55432'),
+        ('::1', '55432', 'exactly 127.0.0.1:55432'),
+        ('10.0.0.10', '55432', 'exactly 127.0.0.1:55432'),
+        ('192.168.1.10', '55432', 'exactly 127.0.0.1:55432'),
+        ('203.0.113.10', '55432', 'exactly 127.0.0.1:55432'),
+        ('prod-db.internal', '55432', 'exactly 127.0.0.1:55432'),
+        ('127.0.0.1', '5433', 'exactly 127.0.0.1:55432'),
+    ],
+)
+def test_stage19av_rejects_direct_5432_non_local_and_production_like_targets(host, port, match):
+    with pytest.raises(stage19av.pilot.Stage19ArPilotError, match=match):
+        stage19av.assert_safe_stage19av_target(_db_args(host=host, port=port), env={})
+
+
+@pytest.mark.unit
+def test_stage19av_rejects_environment_driven_unsafe_targets():
+    args = _db_args()
     unsafe_env = {
         'POSTGRES_PASSWORD': 'do-not-print-this',
         'PGHOST': '127.0.0.1',
@@ -128,6 +173,20 @@ def test_stage19av_refuses_database_url_and_keeps_preflight_redacted():
     assert unsafe_result['performed_no_writes'] is True
     assert unsafe_result['failure_category'] == 'host_5432_direct_target_blocked'
     assert 'do-not-print-this' not in unsafe_encoded
+
+    production_like_env = {
+        'POSTGRES_PASSWORD': 'do-not-print-this',
+        'PGHOST': 'prod-db.internal',
+        'PGPORT': '55432',
+    }
+    with pytest.raises(stage19av.pilot.Stage19ArPilotError, match='exactly 127.0.0.1:55432'):
+        stage19av.build_db_dsn(args, env=production_like_env)
+
+    production_like_result = stage19av.run_db_preflight(args, env=production_like_env)
+
+    assert production_like_result['auth_success'] is False
+    assert production_like_result['performed_no_writes'] is True
+    assert production_like_result['failure_category'] == 'stage19av_safe_target_required'
 
 
 @pytest.mark.unit
@@ -157,6 +216,8 @@ def test_stage19av_docs_and_script_keep_forbidden_work_blocked():
         'assert_stage19av_prerequisites(prereqs)',
         'DATABASE_URL must be unset for Stage 19AV operator commands',
         'direct host 5432 target is blocked for Stage 19AV',
+        'Stage 19AV DB target must be exactly 127.0.0.1:55432',
+        'stage19av_safe_target_required',
         'host_5432_direct_target_blocked',
         "'canonical_writes_zero'",
         "'scheduler_disabled'",

@@ -153,6 +153,7 @@ def test_committed_pilot_scripts_keep_hard_limits_and_validation_contracts():
     assert '--confirm-stage19av is required with --commit' in stage19av
     assert 'DATABASE_URL must be unset for Stage 19AV operator commands' in stage19av
     assert 'direct host 5432 target is blocked for Stage 19AV' in stage19av
+    assert 'Stage 19AV DB target must be exactly 127.0.0.1:55432' in stage19av
     assert 'verify_stage19av_prerequisites(conn)' in stage19av
     assert 'stage19av_expanded_source_run_staging_pilot.py' in contract_doc
 
