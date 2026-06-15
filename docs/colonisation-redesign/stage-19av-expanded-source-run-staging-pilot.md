@@ -6,10 +6,11 @@ Stage 19AV is the selected bounded write lane after Stage 19AU. It prepares an
 expanded controlled source-run staging pilot that extends the Stage 19AS-AU
 path without canonical writes.
 
-This checkpoint prepares the Stage 19AV operator wrapper, documentation, and
-static/unit coverage only. The Stage 19AV bounded write was not run in this
-checkpoint because a dedicated stage-specific wrapper and review gate were
-required before the first AV write.
+This checkpoint records the successful Stage 19AV bounded write after the
+stage-specific wrapper, documentation, and static/unit coverage were reviewed
+and merged. The run added a bounded staging-only prerequisite source input,
+verified the exact 250-row AV sample gate, and executed the reviewed AV wrapper
+against the approved local target only.
 
 ## Current Authority
 
@@ -21,6 +22,7 @@ Active authority remains
 - Stage 19AS.2 is complete and recorded.
 - Stage 19AT is complete and recorded.
 - Stage 19AU read-only DB verification is complete and recorded.
+- Stage 19AV expanded source-run staging pilot is complete and recorded.
 - Stage 19 remains paused.
 - No canonical apply is complete.
 - No rebaseline is complete.
@@ -65,39 +67,54 @@ The wrapper keeps the existing contract:
 - environment-driven DB target overrides are accepted only when they still
   resolve to exactly `127.0.0.1:55432`.
 
-## Required Future Gates
+## Completed Run Evidence
 
-Before the Stage 19AV pilot can run, the operator must complete a separate
-review/merge gate for this prepared wrapper and then rerun the Stage 19AV task
-from current main.
+Stage 19AV was run on `2026-06-15T06:21:02Z` after a staging-only prerequisite
+source input supplied the missing 125 eligible non-diagnostic staging rows.
 
-The future run must confirm:
+- safe DB target: `127.0.0.1:55432`;
+- staging prerequisite source run:
+  `7fe4382fbde60752e026b576d92e0352c01d85799613884d2b2e7ee57cd3f5f3`;
+- staging prerequisite rows: `125`;
+- AV source run:
+  `stage19av-expanded-source-run-staging-pilot-48688d9d46067867`;
+- AV bridge:
+  `source_runs:stage19av-expanded-source-run-staging-pilot-48688d9d46067867`;
+- import artifact:
+  `/home/brian/.local/share/ed-finder/operator-artifacts/stage-19av/stage19av_edsm_import_20260615T062102Z.json`;
+- import artifact checksum:
+  `09652a1c6e6ad661415f535a713432b0d3a76aef5b8c931c0b1874e1c52604f4`;
+- operator artifact:
+  `/home/brian/.local/share/ed-finder/operator-artifacts/stage-19av/stage19av_operator_expanded_staging_pilot_20260615T062102Z.json`;
+- operator artifact checksum:
+  `b2d7f2649b68d9ededb965dd8442f37399bb90a1327c934ea8145258759068a1`;
+- rows read: `250`;
+- rows staged: `250`;
+- rows rejected: `0`;
+- rows skipped: `0`;
+- canonical writes performed: `false`.
 
+Post-run verification confirmed:
+
+- the Stage 19AV source run exists and succeeded;
+- the Stage 19AV bridge exists;
+- the import artifact checksum matches the source run record;
+- exactly 250 AV staging rows were inserted;
+- all AV staging rows are diagnostic-only and preserve canonical-write blocking;
 - Stage 19AR baseline remains preserved;
 - Stage 19AS-AU checkpoint remains preserved;
 - Stage 19AU read-only verification remains preserved;
 - no active or failed Stage 19 source run blocks the lane;
-- safe target is exactly `127.0.0.1:55432`;
-- `DATABASE_URL` is unset;
-- `PGPASSWORD` is present but not printed;
-- artifact output goes to an operator artifact directory and is not committed.
+- no canonical apply or canonical write was performed;
+- Stage 19 remains paused.
 
-If the future pilot succeeds, a later checkpoint must record:
-
-- Stage 19AV source run key;
-- bridge key;
-- import artifact path and checksum;
-- operator artifact path and checksum;
-- rows read, staged, rejected, and skipped;
-- post-run verification summary;
-- canonical writes performed as `false`;
-- Stage 19 still paused unless a separate operator decision changes that.
+The runtime source JSON used for the staging prerequisite and the operator
+artifact JSON files are evidence only and are not committed authority.
 
 ## Blocked Work
 
-Stage 19AV preparation does not authorize:
+Stage 19AV completion does not authorize:
 
-- running the AV bounded write before this wrapper is reviewed and merged;
 - Stage 19AR with `--commit`;
 - Stage 19AS-AU with `--commit`;
 - unbounded source batches;

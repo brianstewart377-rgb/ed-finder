@@ -801,16 +801,21 @@ absence of canonical apply/write evidence. Stage 19 remains paused, with no
 rebaseline, scheduler/service work, wider pilot, canonical apply, or new write
 lane authorized.
 
-Stage 19AV is the selected expanded controlled source-run staging pilot lane
-after Stage 19AU. It is prepared in
+Stage 19AV is the completed expanded controlled source-run staging pilot lane
+after Stage 19AU. It is recorded in
 `docs/colonisation-redesign/stage-19av-expanded-source-run-staging-pilot.md`
-and `scripts/operator/stage19av_expanded_source_run_staging_pilot.py`. This
-preparation checkpoint does not run the AV bounded write. The prepared wrapper
-uses a new Stage 19AV source-run prefix, diagnostic marker, artifact namespace,
-`--preflight-db`, explicit `--commit`, explicit `--confirm-stage19av`, and an
-exact 250-row default/hard cap. Stage 19 remains paused, with no canonical
-apply, no rebaseline, no scheduler/service work, no production-like DB target,
-and no direct host `5432` target authorized.
+and `docs/colonisation-redesign/stage-19-state-authority.json`. The completed
+run used the reviewed wrapper
+`scripts/operator/stage19av_expanded_source_run_staging_pilot.py`, the approved
+safe target `127.0.0.1:55432`, an added staging-only prerequisite source input
+of 125 rows, and the exact 250-row AV sample gate. It recorded source run
+`stage19av-expanded-source-run-staging-pilot-48688d9d46067867`, bridge
+`source_runs:stage19av-expanded-source-run-staging-pilot-48688d9d46067867`,
+import artifact checksum
+`09652a1c6e6ad661415f535a713432b0d3a76aef5b8c931c0b1874e1c52604f4`, and row
+counts of 250 read, 250 staged, 0 rejected, and 0 skipped. Stage 19 remains
+paused, with no canonical apply, no rebaseline, no scheduler/service work, no
+production-like DB target, and no direct host `5432` target authorized.
 
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
