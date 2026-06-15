@@ -69,6 +69,14 @@ read-only `--preflight-db` helper for operator target verification. Stage
 disposable target and must not target host `5432` directly for committed Stage
 19 work.
 
+Stage 19AV
+(`scripts/operator/stage19av_expanded_source_run_staging_pilot.py`) extends the
+same contract for the next prepared expansion lane. It has its own source-run
+prefix, diagnostic marker, artifact namespace, exact 250-row default/hard cap,
+`--preflight-db`, explicit `--commit`, and an additional
+`--confirm-stage19av` guard. The wrapper refuses `DATABASE_URL` so the operator
+must pass the safe local target explicitly.
+
 ## Added Coverage
 
 `tests/test_stage19as2_operator_script_contract.py` covers:
@@ -78,6 +86,8 @@ disposable target and must not target host `5432` directly for committed Stage
 - operator CLIs keep `--commit` opt-in and `--limit` controls;
 - artifact directory behavior is explicit;
 - committed-pilot scripts keep hard maximum limits;
+- the prepared Stage 19AV wrapper keeps its stage-specific hard cap,
+  preflight, confirmation, and prerequisite checks;
 - operator scripts keep rollback, validation, artifact summary, and
   no-canonical-write reporting;
 - scheduler, service-manager, canonical apply, production import dispatch, and
