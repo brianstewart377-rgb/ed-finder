@@ -99,6 +99,7 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage19av_expanded_source_run_staging_pilot.py \
     tests/test_stage19aw_post_av_paused_state_decision.py \
     tests/test_stage19ax_readonly_av_safety_gate.py \
+    tests/test_stage19ay_test_environment_closeout.py \
     tests/test_stage19aq1_test_fortress_guardrails.py \
     -q
 )
