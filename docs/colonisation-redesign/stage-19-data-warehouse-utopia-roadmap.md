@@ -825,6 +825,18 @@ write preparation, bounded write execution, scheduler/service work, canonical
 apply, rebaseline, Stage 19 closeout, or test environment closeout. The next
 lane must be selected by a separate explicit operator decision.
 
+Stage 19AX is the completed read-only AV safety-gate verification selected
+after Stage 19AW. It is recorded in
+`docs/colonisation-redesign/stage-19ax-readonly-av-safety-gate.md` and
+`docs/colonisation-redesign/stage-19-state-authority.json`. The verification
+used only SELECT/read-only checks against the approved safe local target
+`127.0.0.1:55432` and confirmed the Stage 19AV source run, bridge, artifact
+checksum/path, 250 read, 250 staged, 0 rejected, 0 skipped row counts, the
+staging prerequisite source run, preserved Stage 19AR/AS-AU/AU/AW evidence, no
+blocking active or failed Stage 19 run, no canonical apply, no rebaseline, and
+no scheduler/service enablement. Stage 19 remains paused, and Stage 19AX does
+not authorize any next write lane.
+
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
 Deferred: this is important safety work, but it should not block the immediate
