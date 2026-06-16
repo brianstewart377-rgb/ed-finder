@@ -837,6 +837,18 @@ blocking active or failed Stage 19 run, no canonical apply, no rebaseline, and
 no scheduler/service enablement. Stage 19 remains paused, and Stage 19AX does
 not authorize any next write lane.
 
+Stage 19AY is the completed docs/static test-environment and safety-programme
+closeout-preparation checkpoint. It is recorded in
+`docs/colonisation-redesign/stage-19ay-test-environment-closeout.md` and
+`docs/colonisation-redesign/stage-19-state-authority.json`. Stage 19AY records
+`stage20_planning_ready`: the Stage 19 test-environment/safety programme is
+complete enough for Stage 20 planning, while Stage 19 production activation,
+canonical apply, rebaseline, scheduler/service activation, production-like DB
+execution, and any next write lane remain deferred and separately gated. Stage
+19 remains paused. No DB commands, read-only DB queries, artifact checksum
+commands, source acquisition, staging loader, or Stage 19 operator command ran
+during AY.
+
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
 Deferred: this is important safety work, but it should not block the immediate
