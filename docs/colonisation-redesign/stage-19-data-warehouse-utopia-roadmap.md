@@ -849,6 +849,21 @@ execution, and any next write lane remain deferred and separately gated. Stage
 commands, source acquisition, staging loader, or Stage 19 operator command ran
 during AY.
 
+### Stage 20 planning kickoff
+
+Stage 20 planning is now recorded in
+`docs/colonisation-redesign/stage-20-roadmap.md` and
+`docs/colonisation-redesign/stage-19-state-authority.json`. The Stage 20
+primary objective is a provenance-backed colonisation planning cockpit that
+makes source evidence, warehouse freshness, map context, and build-sequence
+tradeoffs visible through typed, reviewable, read-only contracts.
+
+Stage 20 planning does not unpause Stage 19, authorize a next Stage 19 write
+lane, complete production activation, complete canonical apply, complete
+rebaseline, enable scheduler/service work, or start Stage 20 implementation.
+The first executable checkpoint is Stage 20A, the provenance cockpit
+implementation contract.
+
 ### Deferred Stage 19AS.1 - Test Fortress / CI parity
 
 Deferred: this is important safety work, but it should not block the immediate
