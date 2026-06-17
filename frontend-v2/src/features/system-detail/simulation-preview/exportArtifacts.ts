@@ -39,6 +39,12 @@ export interface ExportArtifacts {
       provenance_warnings: string[];
     };
   };
+  governance: {
+    authority_scope: string;
+    exclusions: string[];
+    documentation_references: string[];
+    historical_status: string;
+  };
 }
 
 export function buildExportArtifacts({
@@ -124,6 +130,23 @@ export function buildExportArtifacts({
       provenance_warnings: provenance?.warnings ?? [],
     },
   };
+  const governance = {
+    authority_scope:
+      'Review/export artifact only. This pack is not planner authority and does not authorize Stage 19 work.',
+    exclusions: [
+      'Private filesystem paths are excluded.',
+      'Secrets, admin tokens, and DSNs are excluded.',
+      'Runtime source files are excluded.',
+      'Operator artifact JSON is excluded as committed authority.',
+    ],
+    documentation_references: [
+      'stage-20e-export-operator-pack-closeout-readiness.md',
+      'stage-22c-operator-artifact-review-and-audit-surfaces.md',
+      'stage-22d-export-and-documentation-governance-consolidation.md',
+    ],
+    historical_status:
+      'Historical closeouts remain review context only; current authority stays in the Stage 22 roadmap and state authority file.',
+  };
 
   const payload = {
     system: {
@@ -162,6 +185,7 @@ export function buildExportArtifacts({
       reasons,
     },
     operator_review: operatorReview,
+    governance,
   };
 
   const markdown = [
@@ -209,6 +233,12 @@ export function buildExportArtifacts({
     ...operatorReview.focus_items.map((reason) => `- Focus: ${reason}`),
     ...operatorReview.safeguards.map((item) => `- Safeguard: ${item}`),
     ``,
+    `## Governance`,
+    `- Authority scope: ${governance.authority_scope}`,
+    `- Historical status: ${governance.historical_status}`,
+    ...governance.exclusions.map((item) => `- Exclusion: ${item}`),
+    ...governance.documentation_references.map((item) => `- Reference: ${item}`),
+    ``,
     `No private paths, secrets, runtime source files, or operator artifacts are included in this export pack.`,
   ].join('\n');
 
@@ -228,6 +258,7 @@ export function buildExportArtifacts({
       reasons,
     },
     operatorReview,
+    governance,
   };
 }
 

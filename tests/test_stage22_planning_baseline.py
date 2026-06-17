@@ -46,14 +46,14 @@ def test_stage22_authority_prepares_the_post182021_control_baseline():
     assert stage21['status'] == 'completed'
     assert stage21['next_checkpoint'] == FIRST_CHECKPOINT
 
-    assert stage22['status'] == 'operator_artifact_review_surfaces_completed'
+    assert stage22['status'] == 'export_documentation_governance_completed'
     assert stage22['planning_authorized'] is True
     assert stage22['implementation_started'] is True
     assert stage22['implementation_authorized'] is True
     assert stage22['primary_objective'] == PRIMARY_OBJECTIVE
     assert stage22['first_executable_checkpoint'] == FIRST_CHECKPOINT
-    assert stage22['current_checkpoint'] == 'Stage 22C - Operator artifact review and audit surfaces'
-    assert stage22['next_checkpoint'] == 'Stage 22D - Export and documentation governance consolidation'
+    assert stage22['current_checkpoint'] == 'Stage 22D - Export and documentation governance consolidation'
+    assert stage22['next_checkpoint'] == 'Stage 22E - Deferred Stage 19 decision gate and closeout'
     assert stage22['roadmap'] == 'docs/colonisation-redesign/stage-22-roadmap.md'
     assert stage22['stage18_complete_for_reviewed_scope'] is True
     assert stage22['stage20_complete'] is True
@@ -61,6 +61,7 @@ def test_stage22_authority_prepares_the_post182021_control_baseline():
     assert stage22['stage22a_control_reset_completed'] is True
     assert stage22['stage22b_planner_evidence_simplification_completed'] is True
     assert stage22['stage22c_operator_review_surfaces_completed'] is True
+    assert stage22['stage22d_export_governance_consolidation_completed'] is True
     assert stage22['closeout_ready'] is False
 
     assert baseline['status'] == 'prepared'
@@ -139,11 +140,13 @@ def test_stage22_roadmap_readme_and_stage17p_make_the_new_control_order_explicit
     assert 'Stage 22A is complete' in roadmap
     assert 'Stage 22B is complete' in roadmap
     assert 'Stage 22C is complete' in roadmap
+    assert 'Stage 22D is complete' in roadmap
     assert 'This order keeps user clarity and operator review quality ahead of any future production-lane decision.' in roadmap
 
     assert 'stage-22-roadmap.md' in readme
     assert 'stage-22b-current-state-planner-evidence-hardening.md' in readme
     assert 'stage-22c-operator-artifact-review-and-audit-surfaces.md' in readme
+    assert 'stage-22d-export-and-documentation-governance-consolidation.md' in readme
     assert 'active post-18/20/21 roadmap and current control baseline' in readme
     assert 'completed post-20 roadmap and trust/operationalisation plan' in readme
     assert 'remains the active Colony Planner product-boundary baseline, but it is no longer the active post-21 roadmap' in readme

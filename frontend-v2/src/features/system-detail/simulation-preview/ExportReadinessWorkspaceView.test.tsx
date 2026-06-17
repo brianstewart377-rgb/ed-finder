@@ -82,10 +82,16 @@ describe('ExportReadinessWorkspaceView', () => {
     expect(screen.getByTestId('operator-review-references').textContent).toMatch(/run-20260617/);
     expect(screen.getByTestId('operator-review-references').textContent).toMatch(/stage20e_operator_pack\.json/);
     expect(screen.getByTestId('operator-review-sections').textContent).toMatch(/planned/i);
+    expect(screen.getByText('Documentation governance')).toBeTruthy();
+    expect(screen.getByTestId('export-governance-scope').textContent).toMatch(/not planner authority/i);
+    expect(screen.getByTestId('export-governance-exclusions').textContent).toMatch(/private filesystem paths are excluded/i);
+    expect(screen.getByTestId('export-governance-references').textContent).toMatch(/stage-22d-export-and-documentation-governance-consolidation\.md/);
     expect(screen.getByDisplayValue(/## Planned/)).toBeTruthy();
     expect(screen.getByDisplayValue(/## Operator review/)).toBeTruthy();
+    expect(screen.getByDisplayValue(/## Governance/)).toBeTruthy();
     expect(screen.getByDisplayValue(/"closeout_readiness"/)).toBeTruthy();
     expect(screen.getByDisplayValue(/"operator_review"/)).toBeTruthy();
+    expect(screen.getByDisplayValue(/"governance"/)).toBeTruthy();
     expect(screen.getByDisplayValue(/step,facility_template_id,facility_name,body_name,is_primary_port/)).toBeTruthy();
   });
 });
