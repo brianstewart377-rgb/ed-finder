@@ -53,6 +53,7 @@ import type {
   SystemResult,
   ValidationReviewRequest,
   ValidationReviewResponse,
+  WarehousePlannerEvidenceContract,
 } from '@/types/api';
 
 type LocalSearchBody = {
@@ -263,6 +264,10 @@ export const api = {
 
   provenanceCockpit(id64: number): Promise<ProvenanceCockpitResponse> {
     return jsonFetch(`/colony-planner/system/${id64}/provenance-cockpit`);
+  },
+
+  warehousePlannerEvidence(id64: number): Promise<WarehousePlannerEvidenceContract> {
+    return jsonFetch(`/colony-planner/system/${id64}/warehouse-planner-evidence`);
   },
 
   regionalAnalysis(id64: number): Promise<RegionalAnalysisResponse> {
@@ -544,6 +549,10 @@ export function getRecommendedBuilds(id64: number, archetype?: string): Promise<
 
 export function getProvenanceCockpit(id64: number): Promise<ProvenanceCockpitResponse> {
   return api.provenanceCockpit(id64);
+}
+
+export function getWarehousePlannerEvidence(id64: number): Promise<WarehousePlannerEvidenceContract> {
+  return api.warehousePlannerEvidence(id64);
 }
 
 export function fetchOptimiserCandidates(request: OptimiserCandidatesRequest): Promise<OptimiserCandidatesResponse> {

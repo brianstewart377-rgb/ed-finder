@@ -28,12 +28,12 @@ def test_stage18h1_contract_review_is_recorded_without_authorizing_live_planner_
     authority = _json(AUTHORITY_PATH)
     stage18h1 = authority['stage18h1']
 
-    assert stage18h1['status'] == 'planned'
+    assert stage18h1['status'] == 'completed'
     assert stage18h1['checkpoint_type'] == 'contract_review'
     assert stage18h1['document'] == 'docs/colonisation-redesign/stage-18h1-per-system-warehouse-evidence-contract.md'
     assert stage18h1['planning_authorized'] is True
-    assert stage18h1['implementation_started'] is False
-    assert stage18h1['implementation_authorized'] is False
+    assert stage18h1['implementation_started'] is True
+    assert stage18h1['implementation_authorized'] is True
     assert stage18h1['contract_id'] == 'warehouse_planner_evidence/v1'
     assert stage18h1['frontend_scaffolding_added'] is True
     assert stage18h1['backend_scaffolding_added'] is True
@@ -51,7 +51,7 @@ def test_stage18h1_docs_define_contract_and_link_from_stage18h_and_readme():
     readme = _squash(_read(README_PATH))
 
     assert STAGE18H1_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] == 'Stage 18H.1 - Per-system warehouse evidence contract review'
+    assert authority['stage21']['next_checkpoint'] == 'Stage 18H.3 - Planner integration with fallback warehouse evidence fetch'
     assert 'warehouse_planner_evidence/v1' in stage18h1
     assert 'This slice is intentionally contract-first.' in stage18h1
     assert 'live endpoint' in stage18h1
