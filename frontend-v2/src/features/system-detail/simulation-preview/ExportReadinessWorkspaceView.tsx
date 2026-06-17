@@ -90,6 +90,59 @@ export function ExportReadinessWorkspaceView({
         )}
       </section>
 
+      <section className="rounded-chunk-lg border border-border/70 bg-bg2/50 p-3" aria-label="Operator review and audit">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="font-display tracking-[0.14em] text-cyan text-xs">Operator review and audit</span>
+          <span className={`rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${artifacts.operatorReview.ready ? 'border-green/40 bg-green/10 text-green' : 'border-gold/40 bg-gold/10 text-gold'}`}>
+            {artifacts.operatorReview.ready ? 'Review ready' : 'Needs operator review'}
+          </span>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="space-y-3">
+            <div>
+              <div className="mb-1 font-display tracking-[0.12em] text-[11px] text-cyan">Review focus</div>
+              <ul className="space-y-1 text-[11px] text-silver-dk" data-testid="operator-review-focus">
+                {artifacts.operatorReview.focus_items.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+
+            <div>
+              <div className="mb-1 font-display tracking-[0.12em] text-[11px] text-cyan">Safeguards</div>
+              <ul className="space-y-1 text-[11px] text-silver-dk" data-testid="operator-review-safeguards">
+                {artifacts.operatorReview.safeguards.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded border border-border/70 bg-bg1/50 p-2">
+              <div className="mb-2 font-display tracking-[0.12em] text-[11px] text-cyan">Sanitized references</div>
+              <dl className="grid gap-1 text-[11px] text-silver-dk" data-testid="operator-review-references">
+                <ReferenceRow label="System" value={artifacts.operatorReview.references.system_name ?? `ID64 ${artifacts.operatorReview.references.system_id64}`} />
+                <ReferenceRow label="Source run" value={artifacts.operatorReview.references.source_run_key ?? 'Unknown'} />
+                <ReferenceRow label="Artifact" value={artifacts.operatorReview.references.artifact_name ?? 'Unknown'} />
+                <ReferenceRow label="Warehouse state" value={artifacts.operatorReview.references.warehouse_state} />
+              </dl>
+            </div>
+
+            <div className="rounded border border-border/70 bg-bg1/50 p-2">
+              <div className="mb-2 font-display tracking-[0.12em] text-[11px] text-cyan">Section coverage</div>
+              <div className="flex flex-wrap gap-2" data-testid="operator-review-sections">
+                {Object.entries(artifacts.operatorReview.sections).map(([key, present]) => (
+                  <span
+                    key={key}
+                    className={`rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${present ? 'border-green/40 bg-green/10 text-green' : 'border-gold/40 bg-gold/10 text-gold'}`}
+                  >
+                    {key}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <ArtifactBlock
         title="Markdown operator pack"
         testId="export-markdown"
@@ -108,6 +161,15 @@ export function ExportReadinessWorkspaceView({
         description="Compact CSV export of the explicit planned build sequence only."
         value={artifacts.csv}
       />
+    </div>
+  );
+}
+
+function ReferenceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[88px_1fr] gap-2">
+      <dt className="text-text-dim">{label}</dt>
+      <dd className="font-mono text-silver">{value}</dd>
     </div>
   );
 }
