@@ -51,7 +51,7 @@ def test_stage18h1_docs_define_contract_and_link_from_stage18h_and_readme():
     readme = _squash(_read(README_PATH))
 
     assert STAGE18H1_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] is None
+    assert authority['stage21']['next_checkpoint'] == 'Stage 22A - Post-18/20/21 control reset and authority lock'
     assert 'warehouse_planner_evidence/v1' in stage18h1
     assert 'This slice is intentionally contract-first.' in stage18h1
     assert 'live endpoint' in stage18h1

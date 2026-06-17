@@ -35,7 +35,7 @@ def _json(path: Path):
 def test_stage18jp_authority_records_strict_filter_and_bounded_batch_closeout():
     authority = _json(AUTHORITY_PATH)
 
-    assert authority['stage21']['next_checkpoint'] is None
+    assert authority['stage21']['next_checkpoint'] == 'Stage 22A - Post-18/20/21 control reset and authority lock'
 
     stage18jpfilter = authority['stage18jpfilter']
     assert stage18jpfilter['status'] == 'completed'

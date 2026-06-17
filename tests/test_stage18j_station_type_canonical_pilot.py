@@ -31,7 +31,7 @@ def test_stage18j_authority_records_bounded_station_type_pilot_and_stage18t_hand
     assert PILOT_MODULE_PATH.exists()
     assert PILOT_TEST_PATH.exists()
     assert PILOT_POSTGRES_TEST_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] is None
+    assert authority['stage21']['next_checkpoint'] == 'Stage 22A - Post-18/20/21 control reset and authority lock'
     assert stage18j['status'] == 'completed'
     assert stage18j['checkpoint_type'] == 'narrow_canonical_pilot'
     assert stage18j['document'] == 'docs/colonisation-redesign/stage-18j-station-type-canonical-pilot-closeout.md'

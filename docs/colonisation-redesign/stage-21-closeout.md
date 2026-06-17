@@ -91,3 +91,7 @@ Stage 21 does not authorize:
 No further Stage 18 production dry-run retries, station-type writes, canonical
 writes, or canonical apply are approved by this closeout. Stage 19 production
 activation remains deferred.
+
+The next meaningful work should begin from Stage 22A — Post-18/20/21 control
+reset and authority lock, not by reopening completed Stage 18 history or
+silently reactivating deferred Stage 19 production lanes.

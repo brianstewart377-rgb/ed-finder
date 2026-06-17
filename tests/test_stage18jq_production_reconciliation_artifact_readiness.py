@@ -25,7 +25,7 @@ def test_stage18jq_authority_records_readiness_review_and_stage18jq2_handoff():
     stage18jq = authority['stage18jq']
 
     assert STAGE18JQ_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] is None
+    assert authority['stage21']['next_checkpoint'] == 'Stage 22A - Post-18/20/21 control reset and authority lock'
     assert stage18jq['status'] == 'completed'
     assert stage18jq['checkpoint_type'] == 'artifact_readiness_review'
     assert stage18jq['document'] == 'docs/colonisation-redesign/stage-18j-q-production-reconciliation-artifact-readiness.md'
