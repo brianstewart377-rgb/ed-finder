@@ -143,6 +143,45 @@ export function ExportReadinessWorkspaceView({
         </div>
       </section>
 
+      <section className="rounded-chunk-lg border border-border/70 bg-bg2/50 p-3" aria-label="Documentation governance">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="font-display tracking-[0.14em] text-cyan text-xs">Documentation governance</span>
+          <span className="rounded border border-cyan/40 bg-cyan/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan">
+            Read-only policy
+          </span>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-3">
+            <div className="rounded border border-border/70 bg-bg1/50 p-2" data-testid="export-governance-scope">
+              <div className="mb-1 font-display tracking-[0.12em] text-[11px] text-cyan">Authority scope</div>
+              <p className="text-[11px] text-silver-dk">{artifacts.governance.authority_scope}</p>
+            </div>
+
+            <div>
+              <div className="mb-1 font-display tracking-[0.12em] text-[11px] text-cyan">Exclusions</div>
+              <ul className="space-y-1 text-[11px] text-silver-dk" data-testid="export-governance-exclusions">
+                {artifacts.governance.exclusions.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded border border-border/70 bg-bg1/50 p-2" data-testid="export-governance-history">
+              <div className="mb-1 font-display tracking-[0.12em] text-[11px] text-cyan">Historical status</div>
+              <p className="text-[11px] text-silver-dk">{artifacts.governance.historical_status}</p>
+            </div>
+
+            <div>
+              <div className="mb-1 font-display tracking-[0.12em] text-[11px] text-cyan">Reference docs</div>
+              <ul className="space-y-1 text-[11px] text-silver-dk" data-testid="export-governance-references">
+                {artifacts.governance.documentation_references.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <ArtifactBlock
         title="Markdown operator pack"
         testId="export-markdown"

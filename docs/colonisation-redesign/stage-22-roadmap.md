@@ -30,8 +30,11 @@ activation, or broad write-capable operator work.
 - Stage 22C is complete: the export workspace now includes explicit operator
   review and audit surfaces with sanitized references, review focus items,
   safeguards, and section-coverage checks.
-- The next recommended checkpoint is `Stage 22D - Export and documentation
-  governance consolidation`.
+- Stage 22D is complete: the export workspace and exported pack now include
+  explicit documentation-governance language, exclusions, authority-scope
+  reminders, and committed reference-doc pointers.
+- The next recommended checkpoint is `Stage 22E - Deferred Stage 19 decision
+  gate and closeout`.
 
 ## Why Stage 22 Exists
 
