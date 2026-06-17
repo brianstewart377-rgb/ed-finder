@@ -426,6 +426,36 @@ export interface PlannerWarehouseEvidence {
   items:        PlannerWarehouseEvidenceItem[];
 }
 
+export type WarehousePlannerEvidenceFreshnessStatus =
+  | 'fresh'
+  | 'stale'
+  | 'unknown';
+
+export interface WarehousePlannerEvidenceFreshness {
+  status: WarehousePlannerEvidenceFreshnessStatus;
+  evaluated_at?: string | null;
+}
+
+export interface WarehousePlannerEvidenceSourceRun {
+  source_name?: string | null;
+  run_key?: string | null;
+}
+
+export interface WarehousePlannerEvidenceContract {
+  schema_version: 'warehouse_planner_evidence/v1';
+  system_id64: number;
+  generated_at: string;
+  freshness: WarehousePlannerEvidenceFreshness;
+  source_run: WarehousePlannerEvidenceSourceRun;
+  evidence_summary: {
+    availability: WarehouseEvidenceAvailability;
+    report_only: true;
+    manual_review_required: boolean;
+    items: PlannerWarehouseEvidenceItem[];
+  };
+  warnings: string[];
+}
+
 export type ProvenanceCockpitState = 'available' | 'stale' | 'unknown';
 
 export interface ProvenanceCockpitSystem {

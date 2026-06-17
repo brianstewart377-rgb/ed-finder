@@ -102,6 +102,7 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage19ay_test_environment_closeout.py \
     tests/test_stage20_planning_baseline.py \
     tests/test_stage21_planning_baseline.py \
+    tests/test_stage18h1_planner_evidence_contract.py \
     tests/test_stage20a_implementation_contract.py \
     tests/test_stage20b_readonly_status_surfaces.py \
     tests/test_stage20c_map_foundation.py \

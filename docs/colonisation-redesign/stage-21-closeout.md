@@ -61,6 +61,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from the later Stage 18 follow-on path
-and any future Stage 19 decision review, not by reopening already-burned-down
-Stage 17 backlog items.
+The next meaningful work should continue from Stage 18H.1
+(`stage-18h1-per-system-warehouse-evidence-contract.md`) and the later Stage
+18 follow-on path, not by reopening already-burned-down Stage 17 backlog items.
