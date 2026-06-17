@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SystemDetail } from '@/types/api';
@@ -9,6 +10,16 @@ vi.stubGlobal('ResizeObserver', class {
   observe() {}
   unobserve() {}
   disconnect() {}
+});
+
+vi.mock('recharts', async () => {
+  const actual = await vi.importActual<typeof import('recharts')>('recharts');
+  return {
+    ...actual,
+    ResponsiveContainer: ({ children }: { children: ReactNode }) => (
+      <div style={{ width: 420, height: 420 }}>{children}</div>
+    ),
+  };
 });
 
 const baseSys = {

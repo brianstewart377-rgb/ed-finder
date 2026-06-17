@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MapTab } from './MapTab';
 import { useMapLayers } from './useMapLayers';
 import type { SystemResult } from '@/types/api';
@@ -7,6 +7,26 @@ import type { SystemResult } from '@/types/api';
 vi.mock('./useMapLayers');
 
 const reference = { name: 'Sol', x: 0, z: 0 };
+let getContextSpy: { mockRestore: () => void };
+
+function makeCanvasContext(): RenderingContext {
+  const gradient = { addColorStop: vi.fn() };
+  const target: Record<string, unknown> = {
+    createRadialGradient: vi.fn(() => gradient),
+    createLinearGradient: vi.fn(() => gradient),
+    measureText: vi.fn(() => ({ width: 0 })),
+  };
+  return new Proxy(target, {
+    get(current, prop: string) {
+      if (!(prop in current)) current[prop] = vi.fn();
+      return current[prop];
+    },
+    set(current, prop: string, value) {
+      current[prop] = value;
+      return true;
+    },
+  }) as unknown as RenderingContext;
+}
 
 function makeSystem(overrides: Partial<SystemResult> = {}): SystemResult {
   return {
@@ -34,6 +54,11 @@ const defaultLayers = {
 
 beforeEach(() => {
   vi.mocked(useMapLayers).mockReturnValue(defaultLayers);
+  getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(makeCanvasContext());
+});
+
+afterEach(() => {
+  getContextSpy.mockRestore();
 });
 
 describe('MapTab', () => {
