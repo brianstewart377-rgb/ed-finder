@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   api,
   comparePredictionToObservations,
@@ -8,6 +8,7 @@ import {
   deleteObservedFact,
   fetchOptimiserCandidates,
   getFacilityTemplates,
+  getProvenanceCockpit,
   getSimulationSummary,
   getSlotPredictions,
   importSystemLayout,
@@ -24,6 +25,7 @@ vi.mock('@/lib/api', () => ({
   },
   fetchOptimiserCandidates: vi.fn(),
   getFacilityTemplates: vi.fn(),
+  getProvenanceCockpit: vi.fn(),
   getSimulationSummary: vi.fn(),
   getSlotPredictions: vi.fn(),
   importSystemLayout: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock('@/lib/api', () => ({
 
 const mockedApiSystem = vi.mocked(api.system);
 const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
+const mockedGetProvenanceCockpit = vi.mocked(getProvenanceCockpit);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
 const mockedGetSlotPredictions = vi.mocked(getSlotPredictions);
 const mockedImportSystemLayout = vi.mocked(importSystemLayout);
@@ -130,10 +133,65 @@ function renderWorkspace() {
   );
 }
 
+function provenanceResponse() {
+  return {
+    schema_version: 'stage20a_provenance_cockpit/v1',
+    system: { id64: 123, name: 'Passive Workspace', primary_archetype: 'refinery_industrial' },
+    provenance_summary: {
+      state: 'available',
+      latest_source_run_key: 'warehouse/run-123',
+      warehouse_state: 'available',
+      planner_evidence_state: 'available',
+    },
+    evidence_panels: {
+      source_run: {
+        state: 'available',
+        source_name: 'eddn',
+        rows_read: 12,
+        rows_staged: 12,
+        artifact_name: 'run-123.json',
+      },
+      warehouse: {
+        state: 'available',
+        report_only: true,
+        canonical_writes_planned: 0,
+        stale_records: 0,
+      },
+      planner: {
+        state: 'available',
+        observed_facts_count: 0,
+        projected_build_count: 0,
+        manual_review_required: false,
+      },
+    },
+    guardrails: {
+      stage19_paused: true,
+      stage19_production_activation_complete: false,
+      next_stage19_write_lane_authorized: false,
+      canonical_apply_complete: false,
+      rebaseline_complete: false,
+      scheduler_enabled: false,
+      db_writes_authorized: false,
+      stage19_operator_commands_authorized: false,
+    },
+    warnings: [],
+    ui_hints: {
+      severity: 'info',
+      empty_state_key: null,
+    },
+  } as const;
+}
+
 describe('ColonyPlannerWorkspace real planner passivity', () => {
+  beforeEach(() => {
+    mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
+  });
+
   afterEach(() => {
     mockedApiSystem.mockReset();
     mockedGetFacilityTemplates.mockReset();
+    mockedGetProvenanceCockpit.mockReset();
+    mockedGetProvenanceCockpit.mockReset();
     mockedGetSimulationSummary.mockReset();
     mockedGetSlotPredictions.mockReset();
     mockedImportSystemLayout.mockReset();
@@ -149,6 +207,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
   it('loads system context and passive planner data without running Preview or Suggested Builds', async () => {
     mockedApiSystem.mockResolvedValue(system);
     mockedGetFacilityTemplates.mockResolvedValue(templates);
+    mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
     mockedGetSimulationSummary.mockResolvedValue({
       classification: { primary_archetype: 'refinery_industrial' },
       buildability: { recommended_build_order: [] },
@@ -197,6 +256,8 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     renderWorkspace();
 
     expect((await screen.findAllByText('Passive Workspace')).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('planner-warehouse-evidence')).toBeTruthy();
+    expect(screen.getByText(/Canonical writes planned:\s*0\./)).toBeTruthy();
     expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
     expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();

@@ -4,6 +4,10 @@ import {
   bodyTags,
   getPlacementWarnings,
 } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
+import {
+  existingStructureDisplayType,
+  type ExistingStructure,
+} from './existingInfrastructure';
 import { BodySlotLane } from './BodySlotLane';
 import { BodyStructureSlot, type BodyStructureSlotItem } from './BodyStructureSlot';
 import { ProjectedStructureSlot } from './ProjectedStructureSlot';
@@ -36,6 +40,8 @@ export function BodySlotPlanner({
   projectedPlacements,
   placementLaneHints = {},
   projectedPlacementLaneHints = {},
+  existingOrbital = [],
+  existingSurface = [],
   selectedPlacementIndex,
   selectedProjectedPlacementIndex,
   hasTemplates,
@@ -50,6 +56,8 @@ export function BodySlotPlanner({
   projectedPlacements: BodyPlannerProjectedPlacementItem[];
   placementLaneHints?: Record<number, BodyPlannerLane>;
   projectedPlacementLaneHints?: Record<number, BodyPlannerLane>;
+  existingOrbital?: ExistingStructure[];
+  existingSurface?: ExistingStructure[];
   selectedPlacementIndex: number | null;
   selectedProjectedPlacementIndex: number | null;
   hasTemplates: boolean;
@@ -84,8 +92,8 @@ export function BodySlotPlanner({
     ? 'Facility catalogue loading.'
     : surfaceBlockedReason ?? (surfaceSlots === 0 ? 'No surface slots.' : undefined);
   const occupiedSlots = {
-    orbital: orbitalPlanned.length + orbitalProjected.length,
-    surface: surfacePlanned.length + surfaceProjected.length,
+    orbital: existingOrbital.length + orbitalPlanned.length + orbitalProjected.length,
+    surface: existingSurface.length + surfacePlanned.length + surfaceProjected.length,
   };
   const economyLedger = buildPlanningEconomyLedger({
     placements: placements.map((item) => item.placement),
@@ -121,10 +129,16 @@ export function BodySlotPlanner({
                 {ESTIMATED_SLOT_LAYOUT_DISCLAIMER}
               </p>
             )}
+            <p data-testid="body-slot-trust-summary" className="mt-1 max-w-3xl font-mono text-[10px] leading-snug text-silver-dk">
+              Existing infrastructure already consumes predicted lane capacity on this body. `Verify` means ED-Finder inferred the
+              current body match from available evidence; `Projected` remains preview-only until you run or refresh preview.
+            </p>
             <div className="mt-1 flex flex-wrap gap-1.5">
               <FactChip label={body.subtype ?? body.body_type ?? 'Body'} />
               {tags.map((tag) => <FactChip key={tag} label={tag} />)}
               {flags.map((flag) => <FactChip key={flag.label} label={flag.label} tone={flag.tone} />)}
+              {existingOrbital.length > 0 && <FactChip label={`${existingOrbital.length} existing orbit`} tone="green" />}
+              {existingSurface.length > 0 && <FactChip label={`${existingSurface.length} existing surface`} tone="green" />}
               <FactChip label={`${placements.length} planned`} tone={placements.length > 0 ? 'orange' : 'silver'} />
               {projectedPlacements.length > 0 && <FactChip label={`${projectedPlacements.length} projected`} tone="cyan" />}
             </div>
@@ -135,6 +149,8 @@ export function BodySlotPlanner({
       <BodyRingMap
         orbitalCapacity={orbitalSlots}
         surfaceCapacity={surfaceSlots}
+        orbitalExisting={existingOrbital}
+        surfaceExisting={existingSurface}
         orbitalPlanned={orbitalPlanned}
         surfacePlanned={surfacePlanned}
         orbitalProjected={orbitalProjected}
@@ -157,7 +173,7 @@ export function BodySlotPlanner({
           laneKey="orbital"
           label="Orbit"
           helper="Stations and orbital facilities."
-          slotStatus={laneSlotStatusLabel(orbitalSlots, orbitalPlanned.length, orbitalProjected.length)}
+          slotStatus={laneSlotStatusLabel(orbitalSlots, existingOrbital.length, orbitalPlanned.length, orbitalProjected.length)}
           onAdd={() => onAddLaneStructure('orbital')}
           disabled={Boolean(orbitalAddDisabledReason)}
           disabledReason={orbitalAddDisabledReason}
@@ -165,6 +181,7 @@ export function BodySlotPlanner({
           <LaneCapacityMap
             laneKey="orbital"
             capacity={orbitalSlots}
+            existing={existingOrbital}
             planned={orbitalPlanned}
             projected={orbitalProjected}
             selectedPlacementIndex={selectedPlacementIndex}
@@ -173,6 +190,7 @@ export function BodySlotPlanner({
             onSelectProjectedPlacement={onSelectProjectedPlacement}
             onAddEmptySlot={!orbitalAddDisabledReason ? () => onAddLaneStructure('orbital') : undefined}
           />
+          <ExistingLaneStructures laneKey="orbital" structures={existingOrbital} />
           <LaneSlots
             body={body}
             laneKey="orbital"
@@ -192,7 +210,7 @@ export function BodySlotPlanner({
           laneKey="surface"
           label="Surface"
           helper="Ground ports and surface facilities."
-          slotStatus={laneSlotStatusLabel(surfaceSlots, surfacePlanned.length, surfaceProjected.length)}
+          slotStatus={laneSlotStatusLabel(surfaceSlots, existingSurface.length, surfacePlanned.length, surfaceProjected.length)}
           onAdd={() => onAddLaneStructure('surface')}
           disabled={Boolean(surfaceAddDisabledReason)}
           disabledReason={surfaceAddDisabledReason}
@@ -200,6 +218,7 @@ export function BodySlotPlanner({
           <LaneCapacityMap
             laneKey="surface"
             capacity={surfaceSlots}
+            existing={existingSurface}
             planned={surfacePlanned}
             projected={surfaceProjected}
             selectedPlacementIndex={selectedPlacementIndex}
@@ -208,6 +227,7 @@ export function BodySlotPlanner({
             onSelectProjectedPlacement={onSelectProjectedPlacement}
             onAddEmptySlot={!surfaceAddDisabledReason ? () => onAddLaneStructure('surface') : undefined}
           />
+          <ExistingLaneStructures laneKey="surface" structures={existingSurface} />
           <LaneSlots
             body={body}
             laneKey="surface"
@@ -259,6 +279,8 @@ export function BodySlotPlanner({
 function BodyRingMap({
   orbitalCapacity,
   surfaceCapacity,
+  orbitalExisting,
+  surfaceExisting,
   orbitalPlanned,
   surfacePlanned,
   orbitalProjected,
@@ -273,6 +295,8 @@ function BodyRingMap({
 }: {
   orbitalCapacity: number | null;
   surfaceCapacity: number | null;
+  orbitalExisting: ExistingStructure[];
+  surfaceExisting: ExistingStructure[];
   orbitalPlanned: BodyPlannerPlacementItem[];
   surfacePlanned: BodyPlannerPlacementItem[];
   orbitalProjected: BodyPlannerProjectedPlacementItem[];
@@ -292,6 +316,7 @@ function BodyRingMap({
   const orbitalNodes = buildRingNodes({
     lane: 'orbital',
     slotCount: orbitalSlotCount,
+    existing: orbitalExisting,
     planned: orbitalPlanned,
     projected: orbitalProjected,
     selectedPlacementIndex,
@@ -304,6 +329,7 @@ function BodyRingMap({
   const surfaceNodes = buildRingNodes({
     lane: 'surface',
     slotCount: surfaceSlotCount,
+    existing: surfaceExisting,
     planned: surfacePlanned,
     projected: surfaceProjected,
     selectedPlacementIndex,
@@ -376,7 +402,7 @@ const RING_RENDER_SIZE_PX = 256;
 const ORBIT_BAND_RADIUS = 130;
 const SURFACE_BAND_RADIUS = 92;
 
-type RingNodeKind = 'planned' | 'projected' | 'empty';
+type RingNodeKind = 'planned' | 'projected' | 'empty' | 'existing';
 
 interface RingNode {
   id: string;
@@ -390,6 +416,7 @@ interface RingNode {
 function buildRingNodes({
   lane,
   slotCount,
+  existing,
   planned,
   projected,
   selectedPlacementIndex,
@@ -401,6 +428,7 @@ function buildRingNodes({
 }: {
   lane: BodyPlannerLane;
   slotCount: number;
+  existing: ExistingStructure[];
   planned: BodyPlannerPlacementItem[];
   projected: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
@@ -411,6 +439,7 @@ function buildRingNodes({
   onSelectProjectedPlacement: (index: number) => void;
 }): RingNode[] {
   const structures = [
+    ...existing.map((structure, index) => existingRingNode(lane, structure, index)),
     ...planned.map((item) => structureRingNode(lane, item, selectedPlacementIndex === item.index, () => onSelectPlacement(item.index))),
     ...projected.map((item) => structureRingNode(lane, item, selectedProjectedPlacementIndex === item.index, () => onSelectProjectedPlacement(item.index), true)),
   ];
@@ -446,6 +475,16 @@ function structureRingNode(
     title: item.template?.name ?? item.placement.facility_template_id,
     selected,
     onClick,
+  };
+}
+
+function existingRingNode(lane: BodyPlannerLane, structure: ExistingStructure, index: number): RingNode {
+  return {
+    id: `${lane}-existing-${structure.id}-${index}`,
+    kind: 'existing',
+    label: existingSlotLabel(structure),
+    title: `Existing: ${structure.name}`,
+    selected: false,
   };
 }
 
@@ -486,6 +525,14 @@ function formatCoordinate(value: number) {
 
 function slotLabel(item: BodyPlannerPlacementItem | BodyPlannerProjectedPlacementItem) {
   const raw = item.template?.name ?? item.placement.facility_template_id;
+  return compactLabel(raw);
+}
+
+function existingSlotLabel(structure: ExistingStructure) {
+  return compactLabel(existingStructureDisplayType(structure));
+}
+
+function compactLabel(raw: string) {
   const clean = raw.replace(/[^A-Za-z0-9 ]/g, ' ').trim();
   if (!clean) return '??';
   const words = clean.split(/\s+/).slice(0, 2);
@@ -516,6 +563,8 @@ function RingPlacementToken({
 }) {
   const toneClass = kind === 'projected'
     ? 'border-cyan/45 bg-cyan/14 text-cyan'
+    : kind === 'existing'
+      ? 'border-green/45 bg-green/12 text-green'
     : kind === 'empty'
       ? lane === 'orbital'
         ? 'border-cyan/70 bg-cyan/18 text-cyan'
@@ -566,6 +615,7 @@ function RingPlacementToken({
 function LaneCapacityMap({
   laneKey,
   capacity,
+  existing,
   planned,
   projected,
   selectedPlacementIndex,
@@ -576,6 +626,7 @@ function LaneCapacityMap({
 }: {
   laneKey: BodyPlannerLane;
   capacity: number | null;
+  existing: ExistingStructure[];
   planned: BodyPlannerPlacementItem[];
   projected: BodyPlannerProjectedPlacementItem[];
   selectedPlacementIndex: number | null;
@@ -584,7 +635,7 @@ function LaneCapacityMap({
   onSelectProjectedPlacement: (index: number) => void;
   onAddEmptySlot?: () => void;
 }) {
-  const used = planned.length + projected.length;
+  const used = existing.length + planned.length + projected.length;
   if (capacity == null) {
     return (
       <div className="mb-2 rounded border border-gold/30 bg-gold/5 px-2 py-2">
@@ -592,24 +643,33 @@ function LaneCapacityMap({
           <span className="uppercase tracking-[0.14em]">Predicted capacity</span>
           <span data-testid={`center-slot-unknown-${laneKey}`} className="rounded border border-gold/40 bg-gold/10 px-1">[?]</span>
         </div>
+        {existing.length > 0 && (
+          <div className="mt-2 font-mono text-[10px] text-green">
+            {existing.length} existing structure{existing.length === 1 ? '' : 's'} already consume {laneKey} capacity here.
+          </div>
+        )}
         {used > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
-            {[...planned, ...projected].map((item, index) => {
-              const projectedItem = index >= planned.length;
+            {[...existing, ...planned, ...projected].map((item, index) => {
+              const existingItem = 'association_status' in item;
+              const projectedItem = !existingItem && index >= existing.length + planned.length;
               const plannedItem = item as BodyPlannerPlacementItem;
               const projectedPlacement = item as BodyPlannerProjectedPlacementItem;
+              const existingStructure = item as ExistingStructure;
               const key = projectedItem
                 ? `unknown-projected-${laneKey}-${projectedPlacement.index}-${projectedPlacement.placement.facility_template_id}`
-                : `unknown-planned-${laneKey}-${plannedItem.index}-${plannedItem.placement.facility_template_id}`;
+                : existingItem
+                  ? `unknown-existing-${laneKey}-${existingStructure.id}`
+                  : `unknown-planned-${laneKey}-${plannedItem.index}-${plannedItem.placement.facility_template_id}`;
               return (
                 <CapacityCell
                   key={key}
                   testId={`center-${laneKey}-unknown-item-${index}`}
-                  label={slotLabel(item)}
-                  fullLabel={item.template?.name ?? item.placement.facility_template_id}
-                  projected={projectedItem}
-                  selected={projectedItem ? selectedProjectedPlacementIndex === projectedPlacement.index : selectedPlacementIndex === plannedItem.index}
-                  onClick={projectedItem ? () => onSelectProjectedPlacement(projectedPlacement.index) : () => onSelectPlacement(plannedItem.index)}
+                  label={existingItem ? existingSlotLabel(existingStructure) : slotLabel(item as BodyPlannerPlacementItem | BodyPlannerProjectedPlacementItem)}
+                  fullLabel={existingItem ? `Existing: ${existingStructure.name}` : item.template?.name ?? item.placement.facility_template_id}
+                  kind={existingItem ? 'existing' : projectedItem ? 'projected' : 'planned'}
+                  selected={existingItem ? false : projectedItem ? selectedProjectedPlacementIndex === projectedPlacement.index : selectedPlacementIndex === plannedItem.index}
+                  onClick={existingItem ? undefined : projectedItem ? () => onSelectProjectedPlacement(projectedPlacement.index) : () => onSelectPlacement(plannedItem.index)}
                 />
               );
             })}
@@ -620,25 +680,36 @@ function LaneCapacityMap({
   }
 
   const cells = Array.from({ length: capacity }, (_unused, index) => {
-    if (index < planned.length) {
-      const item = planned[index];
+    if (index < existing.length) {
+      const item = existing[index];
+      return {
+        key: `existing-${laneKey}-${item.id}`,
+        label: existingSlotLabel(item),
+        fullLabel: `Existing: ${item.name}`,
+        kind: 'existing' as const,
+        selected: false,
+      };
+    }
+    const plannedIndex = index - existing.length;
+    if (plannedIndex >= 0 && plannedIndex < planned.length) {
+      const item = planned[plannedIndex];
       return {
         key: `planned-${laneKey}-${item.index}`,
         label: slotLabel(item),
         fullLabel: item.template?.name ?? item.placement.facility_template_id,
-        projected: false,
+        kind: 'planned' as const,
         selected: selectedPlacementIndex === item.index,
         onClick: () => onSelectPlacement(item.index),
       };
     }
-    const projectedIndex = index - planned.length;
+    const projectedIndex = index - existing.length - planned.length;
     if (projectedIndex >= 0 && projectedIndex < projected.length) {
       const item = projected[projectedIndex];
       return {
         key: `projected-${laneKey}-${item.index}`,
         label: slotLabel(item),
         fullLabel: item.template?.name ?? item.placement.facility_template_id,
-        projected: true,
+        kind: 'projected' as const,
         selected: selectedProjectedPlacementIndex === item.index,
         onClick: () => onSelectProjectedPlacement(item.index),
       };
@@ -649,7 +720,7 @@ function LaneCapacityMap({
       fullLabel: onAddEmptySlot
         ? `Add ${laneKey === 'orbital' ? 'orbit' : 'surface'} structure to empty slot`
         : 'Empty slot',
-      projected: false,
+      kind: 'empty' as const,
       selected: false,
       onClick: onAddEmptySlot,
     };
@@ -660,7 +731,13 @@ function LaneCapacityMap({
     <div className="mb-2 rounded border border-border/55 bg-bg3/30 px-2 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px]">
         <span className="uppercase tracking-[0.14em] text-silver">Predicted capacity</span>
-        <span className="text-silver">{used}/{capacity} slots including projection</span>
+        <span className="text-silver">{used}/{capacity} slots including existing and projection</span>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-2 font-mono text-[10px] text-silver-dk">
+        {existing.length > 0 && <span className="text-green">{existing.length} existing</span>}
+        {planned.length > 0 && <span className="text-orange">{planned.length} planned</span>}
+        {projected.length > 0 && <span className="text-cyan">{projected.length} projected</span>}
+        {existing.length === 0 && planned.length === 0 && projected.length === 0 && <span>No current occupants.</span>}
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {cells.map((cell, index) => (
@@ -669,7 +746,7 @@ function LaneCapacityMap({
             testId={`center-${laneKey}-slot-${index}`}
             label={cell.label || (cell.onClick ? '+' : '')}
             fullLabel={cell.fullLabel}
-            projected={cell.projected}
+            kind={cell.kind}
             selected={cell.selected}
             onClick={cell.onClick}
           />
@@ -688,22 +765,24 @@ function CapacityCell({
   testId,
   label,
   fullLabel,
-  projected,
+  kind,
   selected,
   onClick,
 }: {
   testId: string;
   label: string;
   fullLabel: string;
-  projected: boolean;
+  kind: RingNodeKind;
   selected: boolean;
   onClick?: () => void;
 }) {
   const className = [
     'inline-flex h-9 min-w-9 max-w-[5.5rem] items-center justify-center rounded border px-2 font-mono text-[10px] font-bold uppercase leading-none',
     label
-      ? projected
+      ? kind === 'projected'
         ? 'border-cyan/45 bg-cyan/10 text-cyan'
+        : kind === 'existing'
+          ? 'border-green/45 bg-green/10 text-green'
         : 'border-orange/55 bg-orange/16 text-orange'
       : 'border-border/60 bg-bg2/45 text-silver',
     selected ? 'ring-2 ring-orange/70' : '',
@@ -729,6 +808,45 @@ function CapacityCell({
     <span data-testid={testId} title={fullLabel} className={className}>
       {label || ' '}
     </span>
+  );
+}
+
+function ExistingLaneStructures({
+  laneKey,
+  structures,
+}: {
+  laneKey: BodyPlannerLane;
+  structures: ExistingStructure[];
+}) {
+  if (structures.length === 0) return null;
+
+  return (
+    <section
+      data-testid={`existing-lane-${laneKey}`}
+      className="mb-2 rounded border border-green/30 bg-green/6 px-3 py-2"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-green">Existing infrastructure</div>
+        <span className="font-mono text-[10px] text-green">{structures.length} slot occupant{structures.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {structures.map((structure) => (
+          <span
+            key={structure.id}
+            data-testid={`existing-lane-structure-${laneKey}`}
+            title={[
+              structure.name,
+              existingStructureDisplayType(structure),
+              structure.association_status === 'inferred' ? 'Verify body match' : 'Confirmed body match',
+              structure.association_source,
+            ].filter(Boolean).join(' | ')}
+            className="rounded border border-green/35 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver"
+          >
+            {structure.name} / {existingStructureDisplayType(structure)} / {structure.association_status === 'inferred' ? 'Verify' : 'Confirmed'}
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -817,14 +935,24 @@ function laneForItem(
   return placementLaneForTemplate(item.template, body, laneHints[item.index]);
 }
 
-function laneSlotStatusLabel(slotCount: number | null, plannedCount: number, projectedCount: number) {
+function laneSlotStatusLabel(
+  slotCount: number | null,
+  existingCount: number,
+  plannedCount: number,
+  projectedCount: number,
+) {
   if (slotCount == null) {
-    return projectedCount > 0
-      ? `${plannedCount} planned + ${projectedCount} projected / slots unknown`
+    const assigned = existingCount + plannedCount + projectedCount;
+    return assigned > 0
+      ? `${assigned} assigned / slots unknown`
       : 'slots unknown';
   }
+  const occupied = existingCount + plannedCount + projectedCount;
   if (projectedCount > 0) {
-    return `${plannedCount}/${slotCount} planned (+${projectedCount} projected)`;
+    return `${occupied}/${slotCount} occupied (${existingCount} existing, ${plannedCount} planned, ${projectedCount} projected)`;
+  }
+  if (existingCount > 0) {
+    return `${occupied}/${slotCount} occupied (${existingCount} existing, ${plannedCount} planned)`;
   }
   return `${plannedCount}/${slotCount} planned`;
 }

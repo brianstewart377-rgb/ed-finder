@@ -1,7 +1,7 @@
 import type { OptimiserCandidate, RankedOptimiserCandidate } from '@/types/api';
 import { formatPercent, formatScore, rankTone, strategyLabel } from './optimiserUtils';
 import { suggestedBuildPresentation } from './optimiserQualityUtils';
-import type { SuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
+import { buildSuggestedBuildAdvisorHighlights, type SuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
 
 export function OptimiserCandidateCard({
   candidate,
@@ -19,6 +19,7 @@ export function OptimiserCandidateCard({
   const summary = candidate.preview_summary;
   const warningCount = candidate.warnings.length + (summary?.warnings_count ?? 0);
   const presentation = suggestedBuildPresentation(candidate);
+  const advisorHighlights = advisor ? buildSuggestedBuildAdvisorHighlights(advisor) : [];
   return (
     <button
       type="button"
@@ -56,9 +57,23 @@ export function OptimiserCandidateCard({
           </div>
           <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-silver-dk">{presentation.purpose}</p>
           {advisor && (
-            <p className="mt-1 line-clamp-2 font-mono text-[10px] leading-snug text-silver-dk">
-              Advisor: {advisor.cardLine}
-            </p>
+            <>
+              <p className="mt-1 line-clamp-2 font-mono text-[10px] leading-snug text-silver-dk">
+                Advisor: {advisor.cardLine}
+              </p>
+              {advisorHighlights.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {advisorHighlights.map((highlight) => (
+                    <span
+                      key={highlight}
+                      className="rounded border border-cyan/30 bg-cyan/8 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan"
+                    >
+                      {highlight}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           <div className="mt-2 truncate text-sm font-semibold text-silver">{candidate.label}</div>
           <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">

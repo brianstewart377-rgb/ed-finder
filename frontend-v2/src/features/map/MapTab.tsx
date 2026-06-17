@@ -31,17 +31,21 @@ export function MapTab({ systems, reference }: MapTabProps) {
   const [showRegions, setShowRegions] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showClusters, setShowClusters] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [timelineBucket, setTimelineBucket] = useState<'month' | 'quarter' | 'year'>('month');
 
   const layers = useMapLayers({
     regions:  { enabled: showRegions },
     heatmap:  { enabled: showHeatmap },
     clusters: { enabled: showClusters },
+    timeline: { enabled: showTimeline, bucket: timelineBucket },
   });
 
   const activeLayers = [
     showRegions && layers.regions.data ? 'Regions' : null,
     showHeatmap && layers.heatmap.data ? 'Heatmap' : null,
     showClusters && layers.clusters.data ? 'Clusters' : null,
+    showTimeline && layers.timeline.data ? 'Timeline' : null,
   ].filter(Boolean);
   const sourceLabel = activeLayers.length === 0
     ? 'Showing Finder results'
@@ -52,6 +56,7 @@ export function MapTab({ systems, reference }: MapTabProps) {
     showRegions ? 'Regions' : null,
     showHeatmap ? 'Heatmap' : null,
     showClusters ? 'Clusters' : null,
+    showTimeline ? `Timeline (${timelineBucket})` : null,
   ].filter(Boolean).join(' + ');
   const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewMode) ?? VIEW_MODES[0];
 
@@ -128,6 +133,31 @@ export function MapTab({ systems, reference }: MapTabProps) {
           />
           Clusters
         </label>
+        <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="map-timeline-toggle"
+            checked={showTimeline}
+            onChange={(e) => setShowTimeline(e.target.checked)}
+            className="accent-orange"
+          />
+          Timeline
+        </label>
+        {showTimeline && (
+          <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk">
+            Bucket
+            <select
+              data-testid="map-timeline-bucket"
+              value={timelineBucket}
+              onChange={(e) => setTimelineBucket(e.target.value as 'month' | 'quarter' | 'year')}
+              className="rounded border border-border bg-bg3 px-2 py-1 text-[10px] text-silver"
+            >
+              <option value="month">Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="year">Year</option>
+            </select>
+          </label>
+        )}
         <span className="font-mono text-[10px] text-silver-dk">
           Drag to pan · scroll to zoom · click a star to inspect
         </span>
@@ -194,7 +224,25 @@ export function MapTab({ systems, reference }: MapTabProps) {
                 Clusters failed
               </span>
             )}
+            {showTimeline && layers.timeline.isLoading && (
+              <span className="font-mono text-[10px] text-silver-dk animate-pulse">
+                Loading timeline…
+              </span>
+            )}
+            {showTimeline && layers.timeline.isError && (
+              <span className="font-mono text-[10px] text-red">
+                Timeline failed
+              </span>
+            )}
           </div>
+          {showTimeline && layers.timeline.data && (
+            <TimelineSummary
+              bucket={timelineBucket}
+              total={layers.timeline.data.total}
+              pointCount={layers.timeline.data.points.length}
+              latestDate={layers.timeline.data.points.at(-1)?.date ?? null}
+            />
+          )}
           <div className="grid lg:grid-cols-[1fr_280px] gap-4">
             <GalacticMap
               systems={systems}
@@ -240,8 +288,34 @@ function MapLegend({
         <LegendItem label="Regions" value="Canonical galaxy region labels." />
         <LegendItem label="Heatmap" value="Voxel cells summarising local rating density." />
         <LegendItem label="Clusters" value="Approximate hulls around high-scoring grouped systems." />
+        <LegendItem label="Timeline" value="Discovery-count buckets for the map scrubber foundation." />
       </div>
     </details>
+  );
+}
+
+function TimelineSummary({
+  bucket,
+  total,
+  pointCount,
+  latestDate,
+}: {
+  bucket: 'month' | 'quarter' | 'year';
+  total: number;
+  pointCount: number;
+  latestDate: string | null;
+}) {
+  return (
+    <section
+      data-testid="map-timeline-summary"
+      className="panel-thin flex flex-wrap items-center gap-3 px-3 py-2 font-mono text-[11px] text-silver-dk"
+    >
+      <span className="text-orange-lt uppercase tracking-[0.14em]">Timeline foundation</span>
+      <span>{pointCount} buckets</span>
+      <span>{total} discoveries tracked</span>
+      <span>Bucket: {bucket}</span>
+      <span>Latest: {latestDate ?? 'Unknown'}</span>
+    </section>
   );
 }
 

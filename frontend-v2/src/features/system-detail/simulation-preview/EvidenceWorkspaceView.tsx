@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { RoleReviewCard } from '@/features/colony-planner/RoleReviewCard';
 import type { RoleReviewResult } from '@/features/colony-planner/colonyRoleReview';
 import { ObservedEvidencePanel } from './observations';
+import { ProvenanceCockpitPanel } from './provenance/ProvenanceCockpitPanel';
 
 export function EvidenceWorkspaceView({
   systemId64,
@@ -27,6 +28,7 @@ export function EvidenceWorkspaceView({
           result={roleReview}
         />
       )}
+      <ProvenanceCockpitPanel systemId64={systemId64} targetArchetype={targetArchetype} />
       <div className="rounded-chunk-lg border border-cyan/30 bg-bg1/50 p-3">
         <ObservedEvidencePanel systemId64={systemId64} suggestedArchetype={targetArchetype} />
       </div>

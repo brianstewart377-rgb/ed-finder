@@ -52,6 +52,7 @@ from routers.notes     import router as notes_router
 from routers.profile   import router as profile_router
 from routers.archetypes  import router as archetypes_router
 from routers.colony_planner import router as colony_planner_router
+from routers.provenance_cockpit import router as provenance_cockpit_router
 from routers.ratings     import router as ratings_router
 from routers.simulate    import router as simulate_router
 from routers.simulation  import router as simulation_router
@@ -286,6 +287,7 @@ app.include_router(simulation_router)
 app.include_router(optimiser_router)
 app.include_router(observations_router)
 app.include_router(colony_planner_router)
+app.include_router(provenance_cockpit_router)
 app.include_router(operator_router)
 
 

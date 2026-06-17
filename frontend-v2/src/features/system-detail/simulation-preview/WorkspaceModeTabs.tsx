@@ -1,7 +1,7 @@
-import { FileSearch, Hammer, ListTree, Play, ShieldCheck } from 'lucide-react';
+import { Compass, FileSearch, FileUp, GitBranch, Hammer, ListTree, Play, ShieldCheck } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-export type SimulationWorkspaceMode = 'build-plan' | 'suggested-builds' | 'preview' | 'evidence' | 'validation';
+export type SimulationWorkspaceMode = 'build-plan' | 'suggested-builds' | 'preview' | 'sequence' | 'map' | 'evidence' | 'validation' | 'export';
 
 const MODES: Array<{
   id: SimulationWorkspaceMode;
@@ -12,8 +12,11 @@ const MODES: Array<{
   { id: 'build-plan', label: 'Build Plan', helper: 'Edit placements', icon: <Hammer size={14} /> },
   { id: 'suggested-builds', label: 'Suggested Builds', helper: 'Compare options', icon: <ListTree size={14} /> },
   { id: 'preview', label: 'Preview', helper: 'Review result', icon: <Play size={14} /> },
+  { id: 'sequence', label: 'Sequence', helper: 'CP tradeoffs', icon: <GitBranch size={14} /> },
+  { id: 'map', label: 'Map', helper: 'Spatial context', icon: <Compass size={14} /> },
   { id: 'evidence', label: 'Evidence', helper: 'Manual facts', icon: <FileSearch size={14} /> },
   { id: 'validation', label: 'Validation', helper: 'Compare signals', icon: <ShieldCheck size={14} /> },
+  { id: 'export', label: 'Export', helper: 'Review packs', icon: <FileUp size={14} /> },
 ];
 
 export function WorkspaceModeTabs({
@@ -29,7 +32,7 @@ export function WorkspaceModeTabs({
       data-testid="workspace-mode-tabs"
       className="border-b border-border/60 bg-bg2/35 px-3 py-2"
     >
-      <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-8">
         {MODES.map((mode) => (
           <button
             key={mode.id}
