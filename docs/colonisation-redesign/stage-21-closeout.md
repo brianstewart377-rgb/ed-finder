@@ -43,6 +43,10 @@ The Stage 17 and Stage 18 backlog is now reconciled for the current baseline:
   Stage 18J-class write path, including dedicated CI coverage, explicit test
   dependencies, a local runner, and disposable Postgres permission-boundary
   rehearsal.
+- Stage 18J-Q is complete as an artifact-readiness review: no suitable
+  production reconciliation artifact was found locally, no production-connected
+  command was run, and the next follow-on is the read-only/report-only command
+  plan in Stage 18J-Q2.
 
 ## Validation
 
@@ -70,6 +74,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from Stage 18J-Q — Production
-Reconciliation Artifact Readiness and the later Stage 18 follow-on path, not
-by reopening already-burned-down Stage 17 backlog items.
+The next meaningful work should continue from Stage 18J-Q2 — Read-Only
+Production Reconciliation Plan and the later Stage 18 follow-on path, not by
+reopening already-burned-down Stage 17 backlog items.
