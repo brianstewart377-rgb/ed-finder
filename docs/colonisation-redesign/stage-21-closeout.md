@@ -45,6 +45,9 @@ Closeout validation passed with the current local toolchain:
 - frontend `yarn typecheck`
 - `git diff --check`
 
+After merge, a clean-`main` validation rerun was also completed to confirm the
+published merge state still matched the recorded closeout and authority claims.
+
 ## Boundaries Still Preserved
 
 Stage 21 does not authorize:
