@@ -437,8 +437,10 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(await screen.findByText('Evidence Role Review')).toBeTruthy();
     expect(screen.getAllByText('Strategy diverging').length).toBeGreaterThan(0);
     expect(screen.getByText('Declared Industrial Core but observed Observed Tourism Focus.')).toBeTruthy();
-    expect(screen.getByText('Declared: Industrial')).toBeTruthy();
-    expect(screen.getByText('Observed Tourism Focus')).toBeTruthy();
+    const evidenceRoleReview = await screen.findByTestId('strategic-role-review-card');
+    expect(evidenceRoleReview.textContent).toMatch(/Declared strategy/i);
+    expect(evidenceRoleReview.textContent).toMatch(/Industrial/i);
+    expect(evidenceRoleReview.textContent).toMatch(/Tourism Focus/i);
     expect(screen.getByText(/Review-only: role review never changes declared strategy/)).toBeTruthy();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
@@ -461,7 +463,9 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(await screen.findByText('Validation Role Review')).toBeTruthy();
     expect(screen.getAllByText('Insufficient observed evidence').length).toBeGreaterThan(0);
     expect(screen.getByText('No observed evidence recorded yet.')).toBeTruthy();
-    expect(screen.getByText('Declared: Main Station')).toBeTruthy();
+    const validationRoleReview = await screen.findByTestId('strategic-role-review-card');
+    expect(validationRoleReview.textContent).toMatch(/Declared strategy/i);
+    expect(validationRoleReview.textContent).toMatch(/Main Station/i);
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
   });
