@@ -50,6 +50,12 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   const [structurePicker, setStructurePicker] = useState<{ bodyId: string; lane: BodyPlannerLane } | null>(null);
   const [structureAddFeedback, setStructureAddFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const appliedProjectFingerprint = useRef<string | null>(null);
+  const hasMountedSystemReset = useRef(false);
+  const placementsRef = useRef<SimulateBuildPlacement[]>(placements);
+
+  useEffect(() => {
+    placementsRef.current = placements;
+  }, [placements]);
 
   const templatesQuery = useQuery<FacilityTemplate[], Error>({
     queryKey: ['facility-templates'],
@@ -76,6 +82,10 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     ?? 'refinery_industrial';
 
   useEffect(() => {
+    if (!hasMountedSystemReset.current) {
+      hasMountedSystemReset.current = true;
+      return;
+    }
     setSelection({ type: 'system' });
     setPlacements([]);
     setPlacementLaneHints({});
@@ -87,9 +97,9 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   }, [system.economy_suggestion, system.id64, system.primary_economy]);
 
   useEffect(() => {
-    if (placements.length > 0) return;
-    setTargetArchetype((current) => current || suggestedArchetype);
-  }, [placements.length, suggestedArchetype]);
+    if (placements.length > 0 || targetArchetype) return;
+    setTargetArchetype(suggestedArchetype);
+  }, [placements.length, suggestedArchetype, targetArchetype]);
 
   useEffect(() => {
     if (!structureAddFeedback || structureAddFeedback.tone !== 'success') return undefined;
@@ -123,16 +133,32 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     }) : null,
     [projectState.projectRequest],
   );
+  const currentPlanFingerprint = useMemo(
+    () => JSON.stringify({
+      target_archetype: targetArchetype,
+      placements: resequence(placements).map((placement) => ({
+        facility_template_id: placement.facility_template_id,
+        local_body_id: placement.local_body_id ?? null,
+        is_primary_port: Boolean(placement.is_primary_port),
+        build_order: placement.build_order,
+      })),
+    }),
+    [placements, targetArchetype],
+  );
 
   useEffect(() => {
     if (!projectState.projectRequest || !projectRequestFingerprint) return;
     if (appliedProjectFingerprint.current === projectRequestFingerprint) return;
+    if (projectRequestFingerprint === currentPlanFingerprint) {
+      appliedProjectFingerprint.current = projectRequestFingerprint;
+      return;
+    }
     appliedProjectFingerprint.current = projectRequestFingerprint;
     setTargetArchetype(projectState.projectRequest.target_archetype);
     setPlacements(resequence(projectState.projectRequest.placements));
     setPlacementLaneHints({});
     setProjection(null);
-  }, [projectRequestFingerprint, projectState.projectRequest]);
+  }, [currentPlanFingerprint, projectRequestFingerprint, projectState.projectRequest]);
 
   const selectedContext = useMemo(
     () => describeTopologySelection(selection, system, planSnapshot),
@@ -183,20 +209,18 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     if (!templateMatchesLane(template, lane) || !templateCanFitBody(template, body, lane)) {
       return { ok: false as const, message: `${templateDisplayName(template)} is not compatible with this ${lane === 'orbital' ? 'orbit' : 'surface'} lane.` };
     }
+    const nextPlacements = resequence([
+      ...placementsRef.current,
+      {
+        facility_template_id: template.id,
+        local_body_id: bodyId,
+        is_primary_port: template.is_port && !placementsRef.current.some((placement) => placement.is_primary_port),
+        build_order: placementsRef.current.length + 1,
+      },
+    ]);
     setSelection({ type: 'body', bodyId });
-    setPlacements((current) => {
-      const next = resequence([
-        ...current,
-        {
-          facility_template_id: template.id,
-          local_body_id: bodyId,
-          is_primary_port: template.is_port && !current.some((placement) => placement.is_primary_port),
-          build_order: current.length + 1,
-        },
-      ]);
-      setPlacementLaneHints((currentHints) => ({ ...currentHints, [next.length - 1]: lane }));
-      return next;
-    });
+    setPlacements(nextPlacements);
+    setPlacementLaneHints((currentHints) => ({ ...currentHints, [nextPlacements.length - 1]: lane }));
     return {
       ok: true as const,
       message: `Added ${templateDisplayName(template)} to ${describePlacementTarget(body, lane)}.`,
@@ -218,11 +242,10 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
   }, []);
 
   const handleAdvancedPlanSnapshotChange = useCallback((snapshot: TopologyPlanSnapshot) => {
-    setPlacements((current) => {
-      if (placementsEqual(current, snapshot.placements)) return current;
+    if (!placementsEqual(placementsRef.current, snapshot.placements)) {
+      setPlacements(resequence(snapshot.placements));
       setPlacementLaneHints({});
-      return resequence(snapshot.placements);
-    });
+    }
     setTargetArchetype((current) => current === snapshot.targetArchetype ? current : snapshot.targetArchetype);
     setProjection((current) => projectionEqual(current, snapshot.projection) ? current : snapshot.projection ?? null);
   }, []);

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   api,
@@ -18,6 +18,7 @@ import {
 } from '@/lib/api';
 import type { FacilityTemplate, SimulationSummary, SystemDetail } from '@/types/api';
 import { ColonyPlannerWorkspace } from './ColonyPlannerWorkspace';
+import { useColonyProjectStore } from './colonyProjectStore';
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -120,9 +121,12 @@ const slotMapSystem = {
   bodies: [{ id: 1, name: 'Body 1', body_type: 'Planet', is_landable: true }],
 } as unknown as SystemDetail;
 
-function renderWorkspace() {
+async function renderWorkspace() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  await act(async () => {
+    await useColonyProjectStore.persist.rehydrate();
+  });
+  const view = render(
     <QueryClientProvider client={client}>
       <ColonyPlannerWorkspace
         id64={123}
@@ -131,6 +135,17 @@ function renderWorkspace() {
       />
     </QueryClientProvider>,
   );
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  return view;
+}
+
+async function click(element: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(element);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
 }
 
 function provenanceResponse() {
@@ -253,7 +268,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       errors: [],
     });
 
-    renderWorkspace();
+    await renderWorkspace();
 
     expect((await screen.findAllByText('Passive Workspace')).length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-warehouse-evidence')).toBeTruthy();
@@ -276,7 +291,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
 
     await waitFor(() => expect(mockedGetSimulationSummary).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId('topology-body-button-body1'));
+    await click(screen.getByTestId('topology-body-button-body1'));
     expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-selected')).toBe('true');
     expect(screen.queryByTestId('raven-inline-body-expansion-body1')).toBeNull();
     expect(screen.queryByText('Body slot planner')).toBeNull();
@@ -346,10 +361,10 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       errors: [],
     });
 
-    renderWorkspace();
+    await renderWorkspace();
 
     await screen.findByTestId('raven-real-body-row-1');
-    fireEvent.click(screen.getByTestId('topology-body-button-1'));
+    await click(screen.getByTestId('topology-body-button-1'));
     await waitFor(() => {
       expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
       expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
@@ -363,15 +378,15 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect(screen.getByTestId('1-ground-add')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('1-orbital-add'));
-    fireEvent.click(await screen.findByTestId('body-structure-template-orbital_port'));
+    await click(screen.getByTestId('1-orbital-add'));
+    await click(await screen.findByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
       expect(screen.getByTestId('1-orbital-slot-0').textContent).toMatch(/Orbital|Port/i);
     });
 
-    fireEvent.click(screen.getByTestId('1-ground-add'));
-    fireEvent.click(await screen.findByTestId('body-structure-template-surface_hub'));
+    await click(screen.getByTestId('1-ground-add'));
+    await click(await screen.findByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('workspace-economy-ledger')).getByText(/Agri/i)).toBeTruthy();
@@ -411,16 +426,16 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       ],
     } as any);
 
-    renderWorkspace();
+    await renderWorkspace();
 
     await screen.findByTestId('raven-real-body-row-1');
-    fireEvent.click(screen.getByTestId('topology-body-button-1'));
+    await click(screen.getByTestId('topology-body-button-1'));
     await waitFor(() => {
       expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
       expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('1-orbital-add'));
+    await click(screen.getByTestId('1-orbital-add'));
     const orbitalPicker = await screen.findByTestId('body-structure-picker');
     expect(orbitalPicker).toBeTruthy();
     expect(within(orbitalPicker).getByRole('heading', { name: 'Add to Body 1' })).toBeTruthy();
@@ -428,18 +443,18 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(within(orbitalPicker).getByTestId('canvas-picker-compatible-count').textContent).toContain('1 compatible option');
     expect(screen.getByTestId('body-structure-template-orbital_port')).toBeTruthy();
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Close structure picker/i }));
+    await click(screen.getByRole('button', { name: /Close structure picker/i }));
 
-    fireEvent.click(screen.getByTestId('1-ground-add'));
+    await click(screen.getByTestId('1-ground-add'));
     const surfaceAddPicker = await screen.findByTestId('body-structure-picker');
     expect(surfaceAddPicker).toBeTruthy();
     expect(within(surfaceAddPicker).getAllByText(/Surface lane/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId('body-structure-template-surface_hub')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Close structure picker/i }));
+    await click(screen.getByRole('button', { name: /Close structure picker/i }));
 
-    fireEvent.click(screen.getByTestId('1-orbital-add'));
+    await click(screen.getByTestId('1-orbital-add'));
     expect(within(await screen.findByTestId('body-structure-picker')).getAllByText(/Orbit lane/i).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
+    await click(screen.getByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Added Orbital Port to Body 1 / Orbit.');
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '')).toMatch(/Orbital|Port/i);
@@ -448,9 +463,9 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect(within(screen.getByTestId('planner-status-strip')).getByText('Unsaved changes')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByTestId('1-ground-add'));
+    await click(screen.getByTestId('1-ground-add'));
     expect(within(await screen.findByTestId('body-structure-picker')).getAllByText(/Surface lane/i).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByTestId('body-structure-template-surface_hub'));
+    await click(screen.getByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '')).toMatch(/Surface|Hub/i);
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Body 1 / Surface');
@@ -462,7 +477,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: /Copy to Build Plan/i })).toBeNull();
 
-    fireEvent.click(screen.getByTestId('advanced-workspace-toggle'));
+    await click(screen.getByTestId('advanced-workspace-toggle'));
     const advanced = await screen.findByTestId('advanced-planner-content');
     expect(within(advanced).getByText('2 placements in Build Plan')).toBeTruthy();
     expect(within(advanced).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);

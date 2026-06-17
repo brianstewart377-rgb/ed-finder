@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SystemDetail } from '@/types/api';
 import { sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
 import type { TopologyPlanSnapshot } from './ColonyTopologyRail';
@@ -25,27 +25,39 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
 
   const projects = useMemo(() => Object.values(projectRecord), [projectRecord]);
   const systemProjects = useMemo(() => activeProjectsForSystem(projects, system.id64), [projects, system.id64]);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => systemProjects[0]?.id ?? null);
-  const [pendingProjectId, setPendingProjectId] = useState<string>('');
-  const [projectName, setProjectName] = useState(`${system.name || 'Colony'} project`);
-  const [projectNotes, setProjectNotes] = useState('');
-  const [declaredRoles, setDeclaredRoles] = useState<DeclaredColonyRole[]>([]);
+  const initialProject = systemProjects[0] ?? null;
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => initialProject?.id ?? null);
+  const [pendingProjectId, setPendingProjectId] = useState<string>(() => initialProject?.id ?? '');
+  const [projectName, setProjectName] = useState(() => initialProject?.project_name ?? `${system.name || 'Colony'} project`);
+  const [projectNotes, setProjectNotes] = useState(() => initialProject?.notes ?? '');
+  const [declaredRoles, setDeclaredRoles] = useState<DeclaredColonyRole[]>(() => normaliseDeclaredRoles(initialProject?.declared_roles));
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const hasMountedProjectSync = useRef(false);
 
   const activeProject = systemProjects.find((project) => project.id === activeProjectId) ?? null;
 
   useEffect(() => {
     if (activeProjectId && systemProjects.some((project) => project.id === activeProjectId)) return;
     const next = systemProjects[0] ?? null;
+    if ((next?.id ?? null) === activeProjectId) return;
     setActiveProjectId(next?.id ?? null);
   }, [activeProjectId, systemProjects]);
 
   useEffect(() => {
-    setPendingProjectId(activeProjectId ?? '');
-    setProjectName(activeProject?.project_name ?? `${system.name || 'Colony'} project`);
-    setProjectNotes(activeProject?.notes ?? '');
-    setDeclaredRoles(normaliseDeclaredRoles(activeProject?.declared_roles));
-    setConfirmArchive(false);
+    if (!hasMountedProjectSync.current) {
+      hasMountedProjectSync.current = true;
+      return;
+    }
+    const nextPendingProjectId = activeProjectId ?? '';
+    const nextProjectName = activeProject?.project_name ?? `${system.name || 'Colony'} project`;
+    const nextProjectNotes = activeProject?.notes ?? '';
+    const nextDeclaredRoles = normaliseDeclaredRoles(activeProject?.declared_roles);
+
+    if (pendingProjectId !== nextPendingProjectId) setPendingProjectId(nextPendingProjectId);
+    if (projectName !== nextProjectName) setProjectName(nextProjectName);
+    if (projectNotes !== nextProjectNotes) setProjectNotes(nextProjectNotes);
+    if (JSON.stringify(declaredRoles) !== JSON.stringify(nextDeclaredRoles)) setDeclaredRoles(nextDeclaredRoles);
+    if (confirmArchive) setConfirmArchive(false);
   }, [activeProject, activeProjectId, system.name]);
 
   const unsavedChanges = !projectMatchesSnapshot(
