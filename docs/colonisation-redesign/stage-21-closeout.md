@@ -36,6 +36,9 @@ The Stage 17 and Stage 18 backlog is now reconciled for the current baseline:
 - Stage 18I is complete as a documentation-only canonical write design review.
 - Stage 18I.5 is complete as a documentation-only warehouse database boundary
   review, with Option B preferred if the boundary is later implemented.
+- Stage 18J is complete as a bounded station-type-only canonical pilot with
+  dry-run artifacts, guarded apply helpers, rollback pre-image support, and
+  post-apply verification, while broad production apply remains unauthorized.
 
 ## Validation
 
@@ -63,6 +66,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from Stage 18J — Station Type
-Canonical Write Pilot and the later Stage 18 follow-on path, not by reopening
+The next meaningful work should continue from Stage 18T — Canonical Safety
+Test Environment and the later Stage 18 follow-on path, not by reopening
 already-burned-down Stage 17 backlog items.

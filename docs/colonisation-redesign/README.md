@@ -23,9 +23,10 @@ Start here for any new colonisation work:
 15. [`stage-18i-canonical-write-design-review.md`](./stage-18i-canonical-write-design-review.md) - Stage 18I design-only review for any future warehouse-to-canonical promotion path.
 16. [`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md) - Stage 18I.5 boundary review covering the preferred warehouse database separation.
 17. [`stage-18j-station-type-canonical-pilot-plan.md`](./stage-18j-station-type-canonical-pilot-plan.md) - Stage 18J pilot plan for a strict station-type-only canonical write path.
-18. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
-19. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
-20. Specific historical stage docs only when the task directly touches that feature.
+18. [`stage-18j-station-type-canonical-pilot-closeout.md`](./stage-18j-station-type-canonical-pilot-closeout.md) - Stage 18J closeout for the bounded station-type-only pilot now present in the repo.
+19. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
+20. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
+21. Specific historical stage docs only when the task directly touches that feature.
 
 If an older document's "recommended next stage" conflicts with Stage 17P, follow Stage 17P unless intentionally researching historical context.
 
@@ -50,6 +51,8 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 [`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md) records the Stage 18I.5 boundary decision and preferred Option B direction: a separate `edfinder_enrichment` database on the same Postgres stack if feasible, while staying documentation-only.
 
 [`stage-18j-station-type-canonical-pilot-plan.md`](./stage-18j-station-type-canonical-pilot-plan.md) records the next follow-on pilot plan: a strict station-type-only canonical path that begins with dry-run artifacts and approval/audit/rollback contracts rather than immediate apply.
+
+[`stage-18j-station-type-canonical-pilot-closeout.md`](./stage-18j-station-type-canonical-pilot-closeout.md) records the current repo state for Stage 18J: the bounded station-type-only canonical pilot is implemented, remains tightly scoped, and does not imply general production apply authorization.
 
 [`stage-20-roadmap.md`](./stage-20-roadmap.md) is the completed Stage 20 planning baseline. It records the provenance-backed planning cockpit objective, five Stage 20 checkpoints, and the boundaries preserved while that work landed.
 
@@ -81,6 +84,7 @@ It supersedes the old assumption that the project should simply continue from St
 | [`stage-18i-canonical-write-design-review.md`](./stage-18i-canonical-write-design-review.md) | Active Stage 18I design review | Defines the future canonical write boundary, recommended first pilot, banned writes, approval/audit/rollback rules, and the requirement that Stage 18I.5 complete first. |
 | [`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md) | Active Stage 18I.5 boundary review | Defines the preferred separate-warehouse-database boundary and keeps the decision documentation-only. |
 | [`stage-18j-station-type-canonical-pilot-plan.md`](./stage-18j-station-type-canonical-pilot-plan.md) | Active Stage 18J pilot plan | Defines the strict station-type-only canonical pilot scope and makes dry-run-only first steps explicit. |
+| [`stage-18j-station-type-canonical-pilot-closeout.md`](./stage-18j-station-type-canonical-pilot-closeout.md) | Active Stage 18J closeout | Records the implemented bounded station-type pilot and its still-conservative production boundary. |
 | [`stage-20-roadmap.md`](./stage-20-roadmap.md) | Completed Stage 20 control | Planning baseline, primary objective, workstreams, checkpoints, and Stage 19 deferred-production boundaries for the completed cockpit. |
 | [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) | Completed Stage 20A contract | First provenance cockpit contract set, fixture plan, route/component ownership, and Stage 20B handoff. |
 | [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) | Completed Stage 20B implementation record | First read-only provenance cockpit route and Evidence Workspace surface, still bounded away from DB writes and operator execution. |
