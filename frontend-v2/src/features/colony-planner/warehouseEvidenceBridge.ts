@@ -40,6 +40,13 @@ export function toWarehouseEvidenceFromProvenance(
     availability: warehouse.state === 'unknown' ? 'unavailable' : 'report_only',
     reportOnly: true,
     items,
+    freshnessStatus: warehouse.state === 'stale' ? 'stale' : warehouse.state === 'unknown' ? 'unknown' : 'fresh',
+    evaluatedAt: null,
+    manualReviewRequired: response.evidence_panels.planner.manual_review_required,
+    sourceName: response.evidence_panels.source_run.source_name ?? null,
+    runKey: response.provenance_summary.latest_source_run_key ?? null,
+    sourcePosture: 'provenance_bridge',
+    warnings: response.warnings,
   };
 }
 
@@ -58,5 +65,12 @@ export function toWarehouseEvidenceFromContract(
     availability: response.evidence_summary.availability,
     reportOnly: response.evidence_summary.report_only,
     items,
+    freshnessStatus: response.freshness.status,
+    evaluatedAt: response.freshness.evaluated_at ?? null,
+    manualReviewRequired: response.evidence_summary.manual_review_required,
+    sourceName: response.source_run.source_name ?? null,
+    runKey: response.source_run.run_key ?? null,
+    sourcePosture: 'dedicated_contract',
+    warnings: response.warnings,
   };
 }

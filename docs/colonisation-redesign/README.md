@@ -19,9 +19,10 @@ Start here for any new colonisation work:
 11. [`stage-18h1-per-system-warehouse-evidence-contract.md`](./stage-18h1-per-system-warehouse-evidence-contract.md) - Stage 18H.1 contract review for a future per-system read-only warehouse evidence shape.
 12. [`stage-18h2-readonly-backend-warehouse-evidence-endpoint.md`](./stage-18h2-readonly-backend-warehouse-evidence-endpoint.md) - Stage 18H.2 read-only backend endpoint scaffold for `warehouse_planner_evidence/v1`.
 13. [`stage-18h3-planner-warehouse-fetch-fallback.md`](./stage-18h3-planner-warehouse-fetch-fallback.md) - Stage 18H.3 planner integration that prefers the dedicated warehouse endpoint and falls back to provenance.
-14. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
-15. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
-16. Specific historical stage docs only when the task directly touches that feature.
+14. [`stage-18h4-warehouse-evidence-ux-clarification.md`](./stage-18h4-warehouse-evidence-ux-clarification.md) - Stage 18H.4 UX clarification for warehouse evidence freshness, review status, and source posture.
+15. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
+16. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
+17. Specific historical stage docs only when the task directly touches that feature.
 
 If an older document's "recommended next stage" conflicts with Stage 17P, follow Stage 17P unless intentionally researching historical context.
 
@@ -38,6 +39,8 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 [`stage-18h2-readonly-backend-warehouse-evidence-endpoint.md`](./stage-18h2-readonly-backend-warehouse-evidence-endpoint.md) records the read-only backend endpoint scaffold that serves `warehouse_planner_evidence/v1` while still returning conservative unavailable/fallback states whenever no safe per-system evidence is published.
 
 [`stage-18h3-planner-warehouse-fetch-fallback.md`](./stage-18h3-planner-warehouse-fetch-fallback.md) records the planner integration step that prefers the dedicated warehouse evidence contract while preserving the Stage 18H provenance bridge as a read-only fallback.
+
+[`stage-18h4-warehouse-evidence-ux-clarification.md`](./stage-18h4-warehouse-evidence-ux-clarification.md) records the final Stage 18H UX clarification step that makes warehouse evidence freshness, review status, warnings, and source posture explicit in the planner card without changing planner truth.
 
 [`stage-20-roadmap.md`](./stage-20-roadmap.md) is the completed Stage 20 planning baseline. It records the provenance-backed planning cockpit objective, five Stage 20 checkpoints, and the boundaries preserved while that work landed.
 
@@ -65,6 +68,7 @@ It supersedes the old assumption that the project should simply continue from St
 | [`stage-18h1-per-system-warehouse-evidence-contract.md`](./stage-18h1-per-system-warehouse-evidence-contract.md) | Active Stage 18H.1 contract review | Defines the future per-system `warehouse_planner_evidence/v1` contract without yet adding a live endpoint or planner fetch. |
 | [`stage-18h2-readonly-backend-warehouse-evidence-endpoint.md`](./stage-18h2-readonly-backend-warehouse-evidence-endpoint.md) | Active Stage 18H.2 endpoint scaffold | Defines the read-only backend route that serves `warehouse_planner_evidence/v1` while preserving planner fallback semantics. |
 | [`stage-18h3-planner-warehouse-fetch-fallback.md`](./stage-18h3-planner-warehouse-fetch-fallback.md) | Active Stage 18H.3 planner integration | Defines the planner-side fetch path that prefers the dedicated warehouse endpoint and falls back to provenance when needed. |
+| [`stage-18h4-warehouse-evidence-ux-clarification.md`](./stage-18h4-warehouse-evidence-ux-clarification.md) | Active Stage 18H.4 UX clarification | Defines the planner-card freshness, review-status, warning, and source-posture clarification while staying read-only. |
 | [`stage-20-roadmap.md`](./stage-20-roadmap.md) | Completed Stage 20 control | Planning baseline, primary objective, workstreams, checkpoints, and Stage 19 deferred-production boundaries for the completed cockpit. |
 | [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) | Completed Stage 20A contract | First provenance cockpit contract set, fixture plan, route/component ownership, and Stage 20B handoff. |
 | [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) | Completed Stage 20B implementation record | First read-only provenance cockpit route and Evidence Workspace surface, still bounded away from DB writes and operator execution. |

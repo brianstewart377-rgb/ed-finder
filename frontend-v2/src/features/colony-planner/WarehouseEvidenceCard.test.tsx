@@ -19,6 +19,9 @@ describe('WarehouseEvidenceCard', () => {
     expect(card).toBeTruthy();
     const unavailable = within(card).getByTestId('warehouse-evidence-unavailable');
     expect(unavailable.textContent).toContain('No warehouse evidence artifact is available.');
+    expect(screen.getByTestId('warehouse-evidence-freshness-unknown').textContent).toMatch(/unknown freshness/i);
+    expect(screen.getByTestId('warehouse-evidence-source-posture-unknown').textContent).toMatch(/unknown source path/i);
+    expect(screen.getByTestId('warehouse-evidence-review-status').textContent).toContain('Passive review only');
     // Unknown source label, not a "no evidence" / false claim.
     expect(within(unavailable).getByTestId('warehouse-evidence-source-unknown')).toBeTruthy();
     expect(within(card).queryByTestId('warehouse-evidence-items')).toBeNull();
@@ -49,6 +52,12 @@ describe('WarehouseEvidenceCard', () => {
     const evidence: PlannerWarehouseEvidence = {
       availability: 'report_only',
       reportOnly: true,
+      freshnessStatus: 'fresh',
+      evaluatedAt: '2026-06-17T14:00:00Z',
+      manualReviewRequired: false,
+      sourceName: 'warehouse_reconciliation',
+      runKey: 'warehouse/run-20260617.json',
+      sourcePosture: 'dedicated_contract',
       items: [
         {
           label: 'report_only',
@@ -69,6 +78,9 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByText('Warehouse has newer report-only evidence for this system.')).toBeTruthy();
     expect(screen.getAllByTestId('warehouse-evidence-source-warehouse_report_only').length).toBe(2);
     expect(screen.getByTestId('warehouse-evidence-label-verify')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-freshness-fresh').textContent).toMatch(/fresh/i);
+    expect(screen.getByTestId('warehouse-evidence-source-posture-dedicated_contract').textContent).toMatch(/dedicated contract/i);
+    expect(screen.getByTestId('warehouse-evidence-source-run').textContent).toContain('warehouse_reconciliation');
     expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
   });
 
@@ -76,6 +88,10 @@ describe('WarehouseEvidenceCard', () => {
     const evidence: PlannerWarehouseEvidence = {
       availability: 'report_only',
       reportOnly: true,
+      freshnessStatus: 'stale',
+      manualReviewRequired: true,
+      sourcePosture: 'provenance_bridge',
+      warnings: ['Warehouse freshness is stale; treat this per-system evidence as review-only context.'],
       items: [
         { label: 'stale', source: 'warehouse_report_only', summary: 'Warehouse coverage says this system has stale/undated source evidence.' },
         { label: 'needs_review', source: 'warehouse_report_only', summary: 'Warehouse report has risky conflicts.' },
@@ -89,6 +105,9 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-label-needs_review').textContent).toMatch(/needs review/i);
     expect(screen.getByTestId('warehouse-evidence-label-unresolved').textContent).toMatch(/unresolved/i);
     expect(screen.getByTestId('warehouse-evidence-label-blocked').textContent).toMatch(/blocked/i);
+    expect(screen.getByTestId('warehouse-evidence-review-status').textContent).toContain('Manual review required');
+    expect(screen.getByTestId('warehouse-evidence-source-posture-provenance_bridge').textContent).toMatch(/provenance fallback/i);
+    expect(screen.getByTestId('warehouse-evidence-warnings').textContent).toContain('Warehouse freshness is stale');
     // No promotion / canonical / apply wording anywhere in the card.
     expect(screen.getByTestId('planner-warehouse-evidence').textContent).not.toMatch(
       /promote|apply|canonical write|make canonical|overwrite/i,
