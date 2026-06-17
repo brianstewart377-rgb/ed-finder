@@ -131,6 +131,8 @@ Acceptance:
 
 ### Stage 17R — Planner Trust Audit
 
+Status: advanced in Stage 21 and satisfied for the current planner baseline.
+
 Purpose: verify the current Raven-style planner and trust-recovery work behaves honestly on real awkward systems before adding more intelligence.
 
 Scope:
@@ -157,6 +159,8 @@ Acceptance:
 
 ### Stage 17S — Existing Infrastructure UX Hardening
 
+Status: advanced in Stage 21 and satisfied for the current planner baseline.
+
 Purpose: make existing infrastructure and occupied-slot reasoning understandable to the user.
 
 Scope:
@@ -178,6 +182,8 @@ Acceptance:
 - A user can tell whether ED-Finder knows, infers, or cannot resolve an existing station's body/lane.
 
 ### Stage 17T — Suggested Builds Strategy Advisor V1
+
+Status: advanced in Stage 21 and satisfied for the current planner baseline.
 
 Purpose: make Suggested Builds more strategically useful using the planner context already available.
 
@@ -202,6 +208,8 @@ Acceptance:
 
 ### Stage 17U — Role + Strategy Integration
 
+Status: advanced in Stage 21 and satisfied for the current planner baseline.
+
 Purpose: connect declared/inferred/observed role work to Suggested Builds and planner guidance without making roles mechanics truth.
 
 Scope:
@@ -223,6 +231,8 @@ Acceptance:
 
 ### Stage 18A — Enrichment Operator Dashboard / Status Integration
 
+Status: delivered.
+
 Purpose: make enrichment status observable without SSH/log spelunking.
 
 Scope:
@@ -242,6 +252,8 @@ Acceptance:
 - Status is read-only and safe.
 
 ### Stage 18B — Warehouse Reconciliation Hardening
+
+Status: delivered as report-only warehouse groundwork.
 
 Purpose: mature the offline enrichment warehouse path before any canonical writes are considered.
 
@@ -265,6 +277,8 @@ Acceptance:
 
 ### Stage 18C — Warehouse Runbook + Operator Workflow
 
+Status: delivered.
+
 Purpose: make the warehouse safe and repeatable to run.
 
 Runbook: `docs/operations/enrichment-warehouse-runbook.md`.
@@ -287,6 +301,8 @@ Acceptance:
 
 ### Stage 18D — Snapshot Source Normalisation
 
+Status: delivered.
+
 Purpose: make snapshot inputs predictable and explainable.
 
 Scope:
@@ -304,6 +320,8 @@ Acceptance:
 - Bad or incomplete source files produce clear skipped-row/error summaries instead of partial mystery loads.
 
 ### Stage 18E — Warehouse Coverage Reports
+
+Status: delivered.
 
 Purpose: show how complete the warehouse evidence is.
 
@@ -325,6 +343,8 @@ Acceptance:
 
 ### Stage 18F — Reconciliation Confidence Model
 
+Status: delivered.
+
 Purpose: make reconciliation explain itself.
 
 Scope:
@@ -342,6 +362,8 @@ Acceptance:
 - Each important reconciliation decision can explain why it is safe, risky, stale, volatile, or blocked.
 
 ### Stage 18G — Warehouse Operator Dashboard
+
+Status: delivered.
 
 Purpose: expose warehouse-specific run and evidence status in a read-only operator surface.
 
@@ -1494,37 +1516,25 @@ Older docs should not be deleted by default. They contain useful context, ration
 
 ## Final Recommendation
 
-Do not add another large planner feature immediately. The healthiest next sequence is:
+This file remains valuable as the Stage 17P planning baseline, but its old
+"next sequence" list is now historical rather than the active control queue.
 
-1. Stage 17Q source pack commit.
-2. Stage 17R planner trust audit.
-3. Stage 17S existing infrastructure UX hardening.
-4. Stage 17T Suggested Builds Strategy Advisor V1.
-5. Stage 17U role/strategy integration.
-6. Stage 18A enrichment operator dashboard.
-7. Stage 18B warehouse reconciliation hardening.
-8. Stage 18C warehouse runbook + operator workflow.
-9. Stage 18D snapshot source normalisation.
-10. Stage 18E warehouse coverage reports.
-11. Stage 18F reconciliation confidence model.
-12. Stage 18G warehouse operator dashboard.
-13. Stage 18H warehouse-to-planner evidence bridge, read-only.
-14. Stage 18I canonical write design review.
-15. Stage 18I.5 warehouse database boundary review.
-16. Stage 18J first narrow canonical write pilot.
-17. Stage 18T canonical safety test environment.
-18. Stage 18J-Q production reconciliation artifact readiness.
-19. Stage 18J-Q2 read-only production reconciliation plan.
-20. Stage 18J-Q3 read-only production reconciliation artifact gate.
-21. Stage 18J-Q4 operator access packet.
-22. Stage 18J-Q4b/Q4c read-only warehouse DSN operator prep.
-23. Stage 18J-Q5 nested EDSM station snapshot support.
-24. Stage 18J-Q6 memory-safe warehouse station load.
-25. Stage 18J-Q7 reconciliation JSON serialization fix.
-26. Stage 18J-Q8 compact reconciliation summary.
-27. Stage 19A warehouse artifact taxonomy and chunked roadmap.
-28. Stage 19A.1 operator path guardrails.
-29. Stage 18J-Q9 compact summary review / station-type dry-run readiness.
+Current status after Stage 20 and the first Stage 21 execution pass:
+
+1. Stage 17Q is complete.
+2. Stage 17R/17S/17T/17U have been advanced substantially in code and tests and
+   are now satisfied for the current planner baseline.
+3. Stage 18A is complete.
+4. Stage 18B/18C/18D/18E/18F/18G are already represented by the existing
+   warehouse/report-only/admin groundwork and should not be described as
+   untouched backlog.
+5. Stage 18H and later remain historical follow-on work for the
+   warehouse-to-planner and canonical-write planning track.
+6. Stage 19 production activation remains separate deferred work.
+
+Use `stage-21-roadmap.md` as the active post-20 control document and
+`stage-21b-to-21f-stage17-stage18-burn-down.md` as the record of how the Stage
+17 and Stage 18 backlog was burned down or reclassified.
 30. Stage 18J-P-filter strict station-type dry-run filter hardening.
 31. Stage 18J-P-dryrun-ops operator-safe station-type dry-run wrapper.
 32. Stage 18J-P2 station-type identity coverage diagnostics.

@@ -1,0 +1,52 @@
+{
+  "schema_version": "stage20a_provenance_cockpit/v1",
+  "system": {
+    "id64": 2293822313194,
+    "name": "Col 285 Sector IX-T d3-43",
+    "primary_archetype": "unknown"
+  },
+  "provenance_summary": {
+    "state": "unknown",
+    "latest_source_run_key": null,
+    "warehouse_state": "unknown",
+    "planner_evidence_state": "unknown"
+  },
+  "evidence_panels": {
+    "source_run": {
+      "state": "unknown",
+      "source_name": null,
+      "rows_read": null,
+      "rows_staged": null,
+      "artifact_name": null
+    },
+    "warehouse": {
+      "state": "unknown",
+      "report_only": true,
+      "canonical_writes_planned": 0,
+      "stale_records": null
+    },
+    "planner": {
+      "state": "unknown",
+      "observed_facts_count": 0,
+      "projected_build_count": 0,
+      "manual_review_required": true
+    }
+  },
+  "guardrails": {
+    "stage19_paused": true,
+    "stage19_production_activation_complete": false,
+    "next_stage19_write_lane_authorized": false,
+    "canonical_apply_complete": false,
+    "rebaseline_complete": false,
+    "scheduler_enabled": false,
+    "db_writes_authorized": false,
+    "stage19_operator_commands_authorized": false
+  },
+  "warnings": [
+    "No provenance artifact is configured for this system yet; unknown values remain unknown."
+  ],
+  "ui_hints": {
+    "severity": "neutral",
+    "empty_state_key": "provenance.unknown"
+  }
+}

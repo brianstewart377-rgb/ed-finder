@@ -1,0 +1,52 @@
+{
+  "schema_version": "stage20a_provenance_cockpit/v1",
+  "system": {
+    "id64": 9466842275401,
+    "name": "Lave",
+    "primary_archetype": "tourism_agriculture"
+  },
+  "provenance_summary": {
+    "state": "stale",
+    "latest_source_run_key": "stage19av-expanded-source-run-staging-pilot-48688d9d46067867",
+    "warehouse_state": "stale",
+    "planner_evidence_state": "available"
+  },
+  "evidence_panels": {
+    "source_run": {
+      "state": "available",
+      "source_name": "edsm",
+      "rows_read": 250,
+      "rows_staged": 250,
+      "artifact_name": "stage19av_edsm_import_20260615T062102Z.json"
+    },
+    "warehouse": {
+      "state": "stale",
+      "report_only": true,
+      "canonical_writes_planned": 0,
+      "stale_records": 14
+    },
+    "planner": {
+      "state": "available",
+      "observed_facts_count": 1,
+      "projected_build_count": 0,
+      "manual_review_required": true
+    }
+  },
+  "guardrails": {
+    "stage19_paused": true,
+    "stage19_production_activation_complete": false,
+    "next_stage19_write_lane_authorized": false,
+    "canonical_apply_complete": false,
+    "rebaseline_complete": false,
+    "scheduler_enabled": false,
+    "db_writes_authorized": false,
+    "stage19_operator_commands_authorized": false
+  },
+  "warnings": [
+    "Warehouse freshness is stale; treat the reconciliation summary as review-only evidence."
+  ],
+  "ui_hints": {
+    "severity": "warning",
+    "empty_state_key": null
+  }
+}
