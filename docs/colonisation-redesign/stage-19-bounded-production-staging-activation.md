@@ -50,6 +50,17 @@ The Stage 19 safety programme is complete. Full production automation is not.
 No source acquisition is authorized by this checkpoint. The source file or URI
 must already exist and be supplied by a later approved operator action.
 
+For the baseline wrapper:
+
+- URI userinfo is forbidden;
+- URI credentials are forbidden;
+- query strings are never logged;
+- fragments are never logged;
+- query strings/fragments are never logged;
+- source URIs are sanitized for display;
+- only a sanitized source reference may be printed;
+- the SHA-256 remains the immutable approved source identity.
+
 ## Exact Write Boundary
 
 The initial bounded activation is staging-only and may write only these tables:
@@ -100,10 +111,24 @@ activation should reopen below that proof size, not above it.
 - resumability is limited to staging/source-run ledger recovery and does not
   authorize automatic retries.
 
+For this baseline wrapper specifically:
+
+- dry-run is filesystem-non-mutating;
+- the wrapper must not create the artifact directory during dry-run;
+- unauthorized `--commit --confirm-stage19ba` refusal must occur before any
+  filesystem mutation;
+- actual artifact-directory creation belongs only to a later separately
+  authorized execution path.
+
 ## Target And Secret Handling
 
 - the production staging target must be supplied later through an approved
   operator-managed secret/environment mechanism;
+- target shape validation alone is insufficient for execution authorization;
+- a later execution gate must approve the exact reviewed target identity or an
+  approved target fingerprint;
+- exact production target approval remains a later gate;
+- no production target is approved by this checkpoint;
 - no production DSN may be committed in docs, authority, tests, or code;
 - full DSNs and secrets must never be printed;
 - secret output is forbidden;
@@ -125,6 +150,10 @@ Any future approved execution must create:
 
 Runtime source files and operator artifact JSON remain evidence only and are not
 committed authority.
+
+This baseline wrapper may validate and normalize a proposed artifact directory
+reference, but it must not create that directory and must not write any audit
+artifact.
 
 ## Overlap, Schema Drift, And Failure Stops
 

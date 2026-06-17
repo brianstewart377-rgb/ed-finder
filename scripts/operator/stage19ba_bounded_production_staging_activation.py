@@ -7,6 +7,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 from typing import Any, Sequence
 
 
@@ -17,6 +18,7 @@ STAGE19BA_MAX_TIMEOUT_SECONDS = 900
 STAGE19BA_ALLOWED_TARGET_LABEL = 'production_staging_only'
 STAGE19BA_FORBIDDEN_HOSTS = {'127.0.0.1', '0.0.0.0', '::1', 'localhost'}
 STAGE19BA_FORBIDDEN_PORTS = {'5432', '55432'}
+STAGE19BA_ALLOWED_URI_SCHEMES = {'http', 'https', 'file'}
 SHA256_RE = re.compile(r'^[0-9a-f]{64}$')
 
 
@@ -62,6 +64,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def ensure_execution_still_unauthorized(args: argparse.Namespace) -> None:
+    if args.commit:
+        raise Stage19BaActivationError(
+            'Stage 19BA execution remains unauthorized by this baseline; only the bounded operator contract is being prepared.'
+        )
+
+
 def assert_safe_stage19ba_target(args: argparse.Namespace) -> None:
     host = str(args.db_host).strip().lower()
     port = str(args.db_port).strip()
@@ -87,20 +96,72 @@ def assert_safe_stage19ba_target(args: argparse.Namespace) -> None:
         )
 
 
-def build_activation_plan(args: argparse.Namespace) -> dict[str, Any]:
-    assert_safe_stage19ba_target(args)
+def validate_source_uri(source_uri: str) -> None:
+    parsed = urlsplit(source_uri)
+    scheme = parsed.scheme.lower()
 
-    artifact_dir = Path(args.artifact_dir).resolve()
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+    if scheme not in STAGE19BA_ALLOWED_URI_SCHEMES:
+        raise Stage19BaActivationError(
+            f'--source-uri must use one of: {", ".join(sorted(STAGE19BA_ALLOWED_URI_SCHEMES))}.'
+        )
+    if parsed.username or parsed.password or '@' in parsed.netloc:
+        raise Stage19BaActivationError(
+            '--source-uri must not contain userinfo or embedded credentials.'
+        )
+    if scheme in {'http', 'https'}:
+        if not parsed.hostname or not parsed.path:
+            raise Stage19BaActivationError(
+                '--source-uri must include an HTTP(S) host and path.'
+            )
+        return
+    if scheme == 'file':
+        if not parsed.path or parsed.path in {'/', '.'}:
+            raise Stage19BaActivationError(
+                '--source-uri file references must include a concrete path.'
+            )
+        return
+    raise Stage19BaActivationError('--source-uri is not supported by Stage 19BA.')
 
+
+def sanitize_source_uri_for_display(source_uri: str) -> str:
+    parsed = urlsplit(source_uri)
+    scheme = parsed.scheme.lower()
+
+    if scheme in {'http', 'https'}:
+        hostname = parsed.hostname or ''
+        netloc = hostname
+        if parsed.port is not None:
+            netloc = f'{hostname}:{parsed.port}'
+        return urlunsplit((scheme, netloc, parsed.path, '', ''))
+
+    artifact_name = Path(parsed.path).name or '<redacted>'
+    return f'file://<redacted>/{artifact_name}'
+
+
+def validate_artifact_directory_reference(artifact_dir: str) -> str:
+    path = Path(artifact_dir).expanduser()
+    normalized = path.resolve(strict=False)
+    if not normalized.name:
+        raise Stage19BaActivationError(
+            '--artifact-dir must point to a concrete directory reference.'
+        )
+    return str(normalized)
+
+
+def build_activation_plan(
+    args: argparse.Namespace,
+    *,
+    sanitized_source_uri: str,
+    artifact_dir_reference: str,
+) -> dict[str, Any]:
     return {
         'stage': 'stage19ba',
-        'mode': 'dry_run' if not args.commit else 'commit_requested_but_execution_unauthorized',
+        'mode': 'dry_run',
         'execution_authorized': False,
         'source': {
             'name': args.source_name,
             'batch_label': args.source_batch_label,
-            'uri': args.source_uri,
+            'uri': sanitized_source_uri,
             'sha256': args.source_sha256,
         },
         'target': {
@@ -147,22 +208,22 @@ def build_activation_plan(args: argparse.Namespace) -> dict[str, Any]:
             'rebaseline_disabled',
             'scheduler_disabled',
         ],
-        'artifact_dir': str(artifact_dir),
+        'artifact_dir': artifact_dir_reference,
     }
-
-
-def ensure_execution_still_unauthorized(args: argparse.Namespace) -> None:
-    if args.commit:
-        raise Stage19BaActivationError(
-            'Stage 19BA execution remains unauthorized by this baseline; only the bounded operator contract is being prepared.'
-        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parse_args(argv)
-        plan = build_activation_plan(args)
         ensure_execution_still_unauthorized(args)
+        assert_safe_stage19ba_target(args)
+        validate_source_uri(args.source_uri)
+        artifact_dir_reference = validate_artifact_directory_reference(args.artifact_dir)
+        plan = build_activation_plan(
+            args,
+            sanitized_source_uri=sanitize_source_uri_for_display(args.source_uri),
+            artifact_dir_reference=artifact_dir_reference,
+        )
     except Stage19BaActivationError as exc:
         print(f'ERROR: {exc}', file=sys.stderr)
         return 2
