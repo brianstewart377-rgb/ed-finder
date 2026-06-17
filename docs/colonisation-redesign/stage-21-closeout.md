@@ -39,6 +39,10 @@ The Stage 17 and Stage 18 backlog is now reconciled for the current baseline:
 - Stage 18J is complete as a bounded station-type-only canonical pilot with
   dry-run artifacts, guarded apply helpers, rollback pre-image support, and
   post-apply verification, while broad production apply remains unauthorized.
+- Stage 18T is complete as the canonical safety test environment around the
+  Stage 18J-class write path, including dedicated CI coverage, explicit test
+  dependencies, a local runner, and disposable Postgres permission-boundary
+  rehearsal.
 
 ## Validation
 
@@ -66,6 +70,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from Stage 18T — Canonical Safety
-Test Environment and the later Stage 18 follow-on path, not by reopening
-already-burned-down Stage 17 backlog items.
+The next meaningful work should continue from Stage 18J-Q — Production
+Reconciliation Artifact Readiness and the later Stage 18 follow-on path, not
+by reopening already-burned-down Stage 17 backlog items.
