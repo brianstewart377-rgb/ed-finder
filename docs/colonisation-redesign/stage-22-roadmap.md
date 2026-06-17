@@ -33,8 +33,9 @@ activation, or broad write-capable operator work.
 - Stage 22D is complete: the export workspace and exported pack now include
   explicit documentation-governance language, exclusions, authority-scope
   reminders, and committed reference-doc pointers.
-- The next recommended checkpoint is `Stage 22E - Deferred Stage 19 decision
-  gate and closeout`.
+- Stage 22E is complete: Stage 22 is now closed, and any future Stage 19
+  production reactivation remains a separate, explicitly gated lane.
+- There is no further Stage 22 checkpoint.
 
 ## Why Stage 22 Exists
 
