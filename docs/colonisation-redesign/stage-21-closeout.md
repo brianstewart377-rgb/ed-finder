@@ -47,6 +47,12 @@ The Stage 17 and Stage 18 backlog is now reconciled for the current baseline:
   production reconciliation artifact was found locally, no production-connected
   command was run, and the next follow-on is the read-only/report-only command
   plan in Stage 18J-Q2.
+- Stage 18J-Q2 through Stage 18J-Q9 are complete: the guarded report-only
+  command plan, pre-run-gated Q3 stop, operator access and DSN prep docs,
+  nested station loader support, memory-safe staging writes, reconciliation
+  JSON hardening, compact summary tooling, and the `Ready only with strict
+  filter` verdict are all in place, while production dry-run and apply remain
+  blocked.
 
 ## Validation
 
@@ -74,6 +80,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from Stage 18J-Q2 — Read-Only
-Production Reconciliation Plan and the later Stage 18 follow-on path, not by
+The next meaningful work should continue from Stage 18J-P-filter — Strict
+Station-Type Dry-Run Filter and the later Stage 18 follow-on path, not by
 reopening already-burned-down Stage 17 backlog items.
