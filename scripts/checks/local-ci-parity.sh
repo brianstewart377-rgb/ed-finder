@@ -109,6 +109,7 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage18i_canonical_write_design_review.py \
     tests/test_stage18i5_warehouse_database_boundary_review.py \
     tests/test_stage18j_station_type_canonical_pilot.py \
+    tests/test_stage18t_canonical_safety_environment.py \
     tests/test_station_type_canonical_pilot.py \
     tests/test_stage20a_implementation_contract.py \
     tests/test_stage20b_readonly_status_surfaces.py \
