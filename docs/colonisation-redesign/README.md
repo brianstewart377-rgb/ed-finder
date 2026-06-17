@@ -6,53 +6,28 @@ This folder contains the planning, architecture, forensic-review, and implementa
 
 Start here for any new colonisation work:
 
-1. [`stage-21-roadmap.md`](./stage-21-roadmap.md) - active post-20 roadmap and current control baseline.
-2. [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) - Stage 21 progress record showing how Stage 17 and Stage 18 backlog items were burned down or reclassified.
-3. [`stage-21-closeout.md`](./stage-21-closeout.md) - Stage 21 completion record and validation summary.
-4. [`stage-20-roadmap.md`](./stage-20-roadmap.md) - completed Stage 20 roadmap and checkpoint plan.
-5. [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) - Stage 20A implementation-contract checkpoint for the first provenance cockpit slice.
-6. [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) - Stage 20B read-only provenance cockpit implementation slice in the Evidence Workspace.
-7. [`stage-20c-map-planning-surface-foundation.md`](./stage-20c-map-planning-surface-foundation.md) - Stage 20C planner map foundation and timeline-layer ownership.
-8. [`stage-20d-planner-sequence-cp-curve-cockpit.md`](./stage-20d-planner-sequence-cp-curve-cockpit.md) - Stage 20D planner sequence and CP tradeoff cockpit.
-9. [`stage-20e-export-operator-pack-closeout-readiness.md`](./stage-20e-export-operator-pack-closeout-readiness.md) - Stage 20 export pack, closeout readiness, and completion record.
-10. [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) - current Colony Planner baseline and continuing product boundaries.
-11. [`stage-18h1-per-system-warehouse-evidence-contract.md`](./stage-18h1-per-system-warehouse-evidence-contract.md) - Stage 18H.1 contract review for a future per-system read-only warehouse evidence shape.
-12. [`stage-18h2-readonly-backend-warehouse-evidence-endpoint.md`](./stage-18h2-readonly-backend-warehouse-evidence-endpoint.md) - Stage 18H.2 read-only backend endpoint scaffold for `warehouse_planner_evidence/v1`.
-13. [`stage-18h3-planner-warehouse-fetch-fallback.md`](./stage-18h3-planner-warehouse-fetch-fallback.md) - Stage 18H.3 planner integration that prefers the dedicated warehouse endpoint and falls back to provenance.
-14. [`stage-18h4-warehouse-evidence-ux-clarification.md`](./stage-18h4-warehouse-evidence-ux-clarification.md) - Stage 18H.4 UX clarification for warehouse evidence freshness, review status, and source posture.
-15. [`stage-18i-canonical-write-design-review.md`](./stage-18i-canonical-write-design-review.md) - Stage 18I design-only review for any future warehouse-to-canonical promotion path.
-16. [`stage-18i5-warehouse-database-boundary-review.md`](./stage-18i5-warehouse-database-boundary-review.md) - Stage 18I.5 boundary review covering the preferred warehouse database separation.
-17. [`stage-18j-station-type-canonical-pilot-plan.md`](./stage-18j-station-type-canonical-pilot-plan.md) - Stage 18J pilot plan for a strict station-type-only canonical write path.
-18. [`stage-18j-station-type-canonical-pilot-closeout.md`](./stage-18j-station-type-canonical-pilot-closeout.md) - Stage 18J closeout for the bounded station-type-only pilot now present in the repo.
-19. [`stage-18t-canonical-safety-test-environment.md`](./stage-18t-canonical-safety-test-environment.md) - Stage 18T safety-environment implementation for canonical-write-capable code.
-20. [`stage-18j-q-production-reconciliation-artifact-readiness.md`](./stage-18j-q-production-reconciliation-artifact-readiness.md) - Stage 18J-Q readiness review for the missing production reconciliation artifact prerequisite.
-21. [`stage-18j-q2-readonly-production-reconciliation-plan.md`](./stage-18j-q2-readonly-production-reconciliation-plan.md) - Stage 18J-Q2 plan for the exact later read-only/report-only reconciliation command path.
-22. [`stage-18j-q3-readonly-production-reconciliation-artifact.md`](./stage-18j-q3-readonly-production-reconciliation-artifact.md) - Stage 18J-Q3 pre-run-gated artifact attempt that correctly stopped before any production connection.
-23. [`../operations/stage-18j-q4-operator-access-packet.md`](../operations/stage-18j-q4-operator-access-packet.md) - Stage 18J-Q4 operator packet for the later read-only/report-only retry.
-24. [`../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md`](../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md) - Stage 18J-Q4b note on the missing read-only warehouse DSN and safe operator injection.
-25. [`../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`](../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md) - Stage 18J-Q4c provisioning plan for a dedicated read/report warehouse role.
-26. [`stage-18j-q5-nested-edsm-station-snapshot-support.md`](./stage-18j-q5-nested-edsm-station-snapshot-support.md) - Stage 18J-Q5 nested station snapshot loader support.
-27. [`stage-18j-q6-memory-safe-warehouse-station-load.md`](./stage-18j-q6-memory-safe-warehouse-station-load.md) - Stage 18J-Q6 streaming and memory-safe warehouse station staging writes.
-28. [`stage-18j-q7-reconciliation-json-serialization-fix.md`](./stage-18j-q7-reconciliation-json-serialization-fix.md) - Stage 18J-Q7 JSON-safe reconciliation artifact serialization fix.
-29. [`stage-18j-q8-compact-reconciliation-summary.md`](./stage-18j-q8-compact-reconciliation-summary.md) - Stage 18J-Q8 compact summary tooling for large reconciliation artifacts.
-30. [`stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md`](./stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md) - Stage 18J-Q9 strict-filter readiness review for any later station-type dry-run retry.
-31. [`stage-18j-p-filter-strict-station-type-dry-run-filter.md`](./stage-18j-p-filter-strict-station-type-dry-run-filter.md) - Stage 18J-P-filter implementation hardening for the strict dry-run eligibility filter.
-32. [`stage-18j-p-dryrun-operator-safe-wrapper.md`](./stage-18j-p-dryrun-operator-safe-wrapper.md) - Stage 18J-P-dryrun-ops operator-safe wrapper and checksum gates for the strict dry-run.
-33. [`stage-18j-p2-station-type-identity-coverage-diagnostics.md`](./stage-18j-p2-station-type-identity-coverage-diagnostics.md) - Stage 18J-P2 identity coverage diagnostics for strict filter failures.
-34. [`stage-18j-p7-external-identity-schema-production-apply-closeout.md`](./stage-18j-p7-external-identity-schema-production-apply-closeout.md) - Stage 18J-P7 schema-only production apply closeout for `station_external_identity`.
-35. [`stage-18j-p15-identity-load-production-closeout.md`](./stage-18j-p15-identity-load-production-closeout.md) - Stage 18J-P15 bounded production identity load closeout (20 confirmed rows).
-36. [`stage-18j-p16a-readonly-reconciliation-integration.md`](./stage-18j-p16a-readonly-reconciliation-integration.md) - Stage 18J-P16A read-only reconciliation integration closeout for confirmed identity proof.
-37. [`stage-18j-p18m-dodec-and-bounded-station-type-write-closeout.md`](./stage-18j-p18m-dodec-and-bounded-station-type-write-closeout.md) - Stage 18J-P18M closeout for Dodec enum support and bounded 4-row station-type write.
-38. [`stage-18j-p18n-final-state-snapshot.md`](./stage-18j-p18n-final-state-snapshot.md) - Stage 18J-P18N final state snapshot closeout after the bounded write chain.
-39. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
-40. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
-41. Specific historical stage docs only when the task directly touches that feature.
+1. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - active post-18/20/21 roadmap and current control baseline.
+2. [`stage-21-closeout.md`](./stage-21-closeout.md) - Stage 21 completion record and validation summary.
+3. [`stage-21-roadmap.md`](./stage-21-roadmap.md) - completed post-20 roadmap and trust/operationalisation plan.
+4. [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) - Stage 21 progress record showing how Stage 17 and Stage 18 backlog items were burned down or reclassified.
+5. [`stage-20-roadmap.md`](./stage-20-roadmap.md) - completed Stage 20 roadmap and checkpoint plan.
+6. [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) - Stage 20A implementation-contract checkpoint for the first provenance cockpit slice.
+7. [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) - Stage 20B read-only provenance cockpit implementation slice in the Evidence Workspace.
+8. [`stage-20c-map-planning-surface-foundation.md`](./stage-20c-map-planning-surface-foundation.md) - Stage 20C planner map foundation and timeline-layer ownership.
+9. [`stage-20d-planner-sequence-cp-curve-cockpit.md`](./stage-20d-planner-sequence-cp-curve-cockpit.md) - Stage 20D planner sequence and CP tradeoff cockpit.
+10. [`stage-20e-export-operator-pack-closeout-readiness.md`](./stage-20e-export-operator-pack-closeout-readiness.md) - Stage 20 export pack, closeout readiness, and completion record.
+11. [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) - Colony Planner product-boundary baseline and continuing mechanics constraints.
+12. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
+13. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
+14. Specific historical stage docs only when the task directly touches that feature.
 
 If an older document's "recommended next stage" conflicts with Stage 17P, follow Stage 17P unless intentionally researching historical context.
 
 ## Current Control Documents
 
-[`stage-21-roadmap.md`](./stage-21-roadmap.md) is the active post-20 control document. It reconciles what remains open after Stage 20, carries forward the unfinished planner trust work, and keeps Stage 19 production activation, canonical apply, rebaseline, and scheduler/service work deferred.
+[`stage-22-roadmap.md`](./stage-22-roadmap.md) is the active post-18/20/21 control document. It resets the active roadmap after the completed Stage 18/20/21 sequence, ranks the next read-only planner/operator-review work, and keeps any future Stage 19 production reactivation as a separate gated decision.
+
+[`stage-21-roadmap.md`](./stage-21-roadmap.md) is the completed post-20 control document. It reconciled what remained open after Stage 20, carried forward the unfinished planner trust work, and kept Stage 19 production activation, canonical apply, rebaseline, and scheduler/service work deferred.
 
 [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) records how the first Stage 21 implementation pass burned down the remaining Stage 17 planner backlog and reconciled which Stage 18 items were already delivered as warehouse/operator groundwork.
 
@@ -96,7 +71,7 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 
 [`stage-20e-export-operator-pack-closeout-readiness.md`](./stage-20e-export-operator-pack-closeout-readiness.md) records the dedicated `Export` workspace mode, reviewable Markdown/JSON/CSV pack builders, and the final Stage 20 closeout state.
 
-[`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) remains the active Colony Planner product-boundary baseline.
+[`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) remains the active Colony Planner product-boundary baseline, but it is no longer the active post-21 roadmap.
 
 It supersedes the old assumption that the project should simply continue from Stage 17A's original sequence. Later work has already delivered or changed large parts of that path, including validated slot prediction, Raven-style canvas planning, projection comparison, trust recovery, existing infrastructure awareness, and enrichment warehouse foundations.
 
@@ -104,7 +79,8 @@ It supersedes the old assumption that the project should simply continue from St
 
 | Document | Status | Purpose |
 |---|---|---|
-| [`stage-21-roadmap.md`](./stage-21-roadmap.md) | Active Stage 21 control | Post-20 roadmap reconciliation, active work queue, checkpoints, and preserved deferred-production boundaries. |
+| [`stage-22-roadmap.md`](./stage-22-roadmap.md) | Active Stage 22 control | Post-18/20/21 control reset, next-lane prioritisation, and preserved deferred-production boundaries. |
+| [`stage-21-roadmap.md`](./stage-21-roadmap.md) | Completed Stage 21 control | Post-20 roadmap reconciliation, trust/operationalisation queue, and preserved deferred-production boundaries. |
 | [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) | Active Stage 21 progress record | Records how Stage 17 planner backlog and Stage 18 warehouse/operator backlog were reduced, reclassified, or marked delivered groundwork. |
 | [`stage-21-closeout.md`](./stage-21-closeout.md) | Completed Stage 21 closeout record | Records Stage 21 completion, validation state, and the live read-only Stage 18H warehouse bridge outcome. |
 | [`stage-18h1-per-system-warehouse-evidence-contract.md`](./stage-18h1-per-system-warehouse-evidence-contract.md) | Active Stage 18H.1 contract review | Defines the future per-system `warehouse_planner_evidence/v1` contract without yet adding a live endpoint or planner fetch. |

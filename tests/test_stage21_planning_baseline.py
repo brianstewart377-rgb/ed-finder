@@ -23,6 +23,7 @@ PRIMARY_OBJECTIVE = (
     'explicit post-20 control document without reopening deferred Stage 19 production lanes.'
 )
 FIRST_CHECKPOINT = 'Stage 21A - Post-20 roadmap reconciliation and authority lock'
+NEXT_CHECKPOINT = 'Stage 22A - Post-18/20/21 control reset and authority lock'
 
 
 def _read(path: Path) -> str:
@@ -54,7 +55,7 @@ def test_stage21_authority_prepares_a_post20_control_baseline_without_reopening_
     assert stage21['primary_objective'] == PRIMARY_OBJECTIVE
     assert stage21['first_executable_checkpoint'] == FIRST_CHECKPOINT
     assert stage21['current_checkpoint'] == 'Stage 21 closeout'
-    assert stage21['next_checkpoint'] is None
+    assert stage21['next_checkpoint'] == NEXT_CHECKPOINT
     assert stage21['roadmap'] == 'docs/colonisation-redesign/stage-21-roadmap.md'
     assert stage21['stage20_complete'] is True
     assert stage21['stage21a_roadmap_reconciliation_completed'] is True
@@ -183,13 +184,15 @@ def test_stage21_roadmap_reconciles_stage20_stage17p_and_the_post20_queue():
     assert 'Stage 18J-Q is complete as an artifact-readiness review' in closeout
     assert 'Stage 18J-Q2 through Stage 18J-Q9 are complete' in closeout
     assert 'Stage 18J-P18 is complete for the bounded reviewed batch' in closeout
+    assert 'The next meaningful work should begin from Stage 22A' in closeout
 
+    assert 'stage-22-roadmap.md' in readme
     assert 'stage-21-roadmap.md' in readme
     assert 'stage-21b-to-21f-stage17-stage18-burn-down.md' in readme
     assert 'stage-21-closeout.md' in readme
-    assert 'active post-20 roadmap and current control baseline' in readme
+    assert 'active post-18/20/21 roadmap and current control baseline' in readme
     assert 'completed Stage 20 roadmap' in readme
-    assert 'its old "next sequence" list is now historical' in stage17p
+    assert 'Stage 22 is now the active post-21 control document' in stage17p
     assert 'Stage 17R/17S/17T/17U have been advanced substantially' in stage17p
 
 

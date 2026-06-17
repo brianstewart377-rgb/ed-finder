@@ -39,7 +39,7 @@ def test_stage18h2_authority_records_readonly_endpoint_scaffold():
     stage18h2 = authority['stage18h2']
 
     assert STAGE18H2_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] is None
+    assert authority['stage21']['next_checkpoint'] == 'Stage 22A - Post-18/20/21 control reset and authority lock'
 
     assert stage18h1['status'] == 'completed'
     assert stage18h1['implementation_started'] is True

@@ -24,7 +24,7 @@ def _json(path: Path):
 def test_stage18jq_follow_on_authority_records_q2_through_q9_and_pfilter_handoff():
     authority = _json(AUTHORITY_PATH)
 
-    assert authority['stage21']['next_checkpoint'] is None
+    assert authority['stage21']['next_checkpoint'] == 'Stage 22A - Post-18/20/21 control reset and authority lock'
 
     assert authority['stage18jq2']['read_only_command_defined'] is True
     assert authority['stage18jq2']['production_connected_command_run'] is False

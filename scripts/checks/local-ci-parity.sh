@@ -113,6 +113,7 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage18jq_production_reconciliation_artifact_readiness.py \
     tests/test_stage18jq_chain_followons.py \
     tests/test_stage18jp_station_type_production_chain_closeout.py \
+    tests/test_stage22_planning_baseline.py \
     tests/test_station_type_canonical_pilot.py \
     tests/test_enrichment_staging_db_loader.py \
     tests/test_enrichment_staging_reconciliation.py \
