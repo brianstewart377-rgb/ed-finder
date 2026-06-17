@@ -26,5 +26,11 @@ Current scripts:
   after verifying its SHA-256. It requires bounded `MAX_ROWS`, caps blocked
   candidate samples, writes under the operator artifact directory, and never
   touches the database, creates approval records, or runs canonical apply.
+- `stage19ba_bounded_production_staging_activation.py`: prepares the Stage 19BA
+  bounded production-staging activation contract for a future manual EDSM
+  staging-only run. It defaults to dry-run planning, enforces source identity,
+  source hash, sanitized source-reference display, target-shape, row-cap, and
+  runtime-cap checks, creates no artifact directory during dry-run, and does
+  not authorize execution by itself.
 
 Production artifacts are private operator files and should not be committed.

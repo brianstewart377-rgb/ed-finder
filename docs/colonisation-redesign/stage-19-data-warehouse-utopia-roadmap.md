@@ -1168,3 +1168,25 @@ Stage 19 can be considered successful when:
 ## Immediate next step
 
 Run Stage 19A readiness audit and use the artifact to decide the exact 19B architecture and 19C/19D first-source/domain implementation plan.
+
+## Stage 19BA dependency
+
+After the merged Stage 23A evidence work, the next separate Stage 19
+operational dependency is the bounded production-staging activation control
+baseline recorded in
+`docs/colonisation-redesign/stage-19-bounded-production-staging-activation.md`.
+
+Stage 19BA does not authorize execution. It prepares a stricter-than-AV
+contract for a future manual EDSM staging-only run:
+
+- permitted writes only to `source_runs`, `enrichment_source_runs`, and
+  `staging_edsm_stations`;
+- explicit source identity and SHA-256 requirements;
+- conservative initial cap of `100` rows and `900` seconds runtime;
+- overlap protection and schema drift fail-closed requirements;
+- audit artifact creation;
+- canonical apply, rebaseline, scheduler/service, and canonical writes still
+  unauthorized.
+
+This keeps Stage 23 as the active product/evidence roadmap while making the
+warehouse dependency explicit instead of implicit.
