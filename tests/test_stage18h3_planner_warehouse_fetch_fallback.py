@@ -25,7 +25,7 @@ def test_stage18h3_authority_records_fetch_then_fallback_planner_integration():
     stage18h3 = authority['stage18h3']
 
     assert STAGE18H3_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] == 'Stage 18I.5 - Warehouse database boundary review'
+    assert authority['stage21']['next_checkpoint'] == 'Stage 18J - Station type canonical write pilot'
     assert stage18h3['status'] == 'completed'
     assert stage18h3['checkpoint_type'] == 'planner_fetch_integration'
     assert stage18h3['document'] == 'docs/colonisation-redesign/stage-18h3-planner-warehouse-fetch-fallback.md'

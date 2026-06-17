@@ -34,6 +34,8 @@ The Stage 17 and Stage 18 backlog is now reconciled for the current baseline:
   planner-side fetch with provenance fallback, and clearer warehouse evidence
   freshness/review/source posture in the UI.
 - Stage 18I is complete as a documentation-only canonical write design review.
+- Stage 18I.5 is complete as a documentation-only warehouse database boundary
+  review, with Option B preferred if the boundary is later implemented.
 
 ## Validation
 
@@ -61,6 +63,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from Stage 18I.5 — Warehouse Database
-Boundary Review and the later Stage 18 follow-on path, not by reopening
+The next meaningful work should continue from Stage 18J — Station Type
+Canonical Write Pilot and the later Stage 18 follow-on path, not by reopening
 already-burned-down Stage 17 backlog items.

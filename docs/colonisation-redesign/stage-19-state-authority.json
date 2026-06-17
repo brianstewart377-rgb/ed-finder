@@ -231,7 +231,7 @@
     "primary_objective": "Turn the completed Stage 20 cockpit into a trustworthy, operational, provenance-aware planning surface by closing the highest-value planner trust gaps, replacing fixture-only read paths where safe, and reconciling the roadmap into one explicit post-20 control document without reopening deferred Stage 19 production lanes.",
     "first_executable_checkpoint": "Stage 21A - Post-20 roadmap reconciliation and authority lock",
     "current_checkpoint": "Stage 21 closeout",
-    "next_checkpoint": "Stage 18I.5 - Warehouse database boundary review",
+    "next_checkpoint": "Stage 18J - Station type canonical write pilot",
     "roadmap": "docs/colonisation-redesign/stage-21-roadmap.md",
     "stage20_complete": true,
     "stage21a_roadmap_reconciliation_completed": true,
@@ -441,6 +441,18 @@
     "stage18i5_required_before_stage18j": true,
     "write_path_implemented": false,
     "canonical_writes_authorized": false,
+    "db_writes_authorized": false,
+    "production_like_db_execution_authorized": false
+  },
+  "stage18i5": {
+    "status": "completed",
+    "checkpoint_type": "boundary_review",
+    "document": "docs/colonisation-redesign/stage-18i5-warehouse-database-boundary-review.md",
+    "design_only": true,
+    "preferred_boundary_option": "option_b_same_stack_separate_database",
+    "recommended_database_name": "edfinder_enrichment",
+    "stage18j_apply_authorized": false,
+    "warehouse_boundary_implemented": false,
     "db_writes_authorized": false,
     "production_like_db_execution_authorized": false
   },
