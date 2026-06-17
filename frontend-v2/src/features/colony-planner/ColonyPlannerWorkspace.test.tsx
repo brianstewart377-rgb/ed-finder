@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FacilityTemplate, SimulationSummary, SlotPredictionResponse, SystemDetail } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
@@ -252,9 +252,15 @@ const slotPredictions: SlotPredictionResponse = {
   ],
 };
 
-function renderPlanner(props?: Partial<Parameters<typeof ColonyPlannerWorkspace>[0]>) {
+async function renderPlanner(
+  props?: Partial<Parameters<typeof ColonyPlannerWorkspace>[0]>,
+  options?: { settle?: boolean },
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  await act(async () => {
+    await useColonyProjectStore.persist.rehydrate();
+  });
+  const view = render(
     <QueryClientProvider client={client}>
       <ColonyPlannerWorkspace
         id64={123}
@@ -264,6 +270,29 @@ function renderPlanner(props?: Partial<Parameters<typeof ColonyPlannerWorkspace>
       />
     </QueryClientProvider>,
   );
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  if (options?.settle !== false) {
+    await screen.findByTestId('planner-summary-panel');
+    await screen.findByTestId('workspace-economy-ledger');
+    await screen.findByTestId('planner-warehouse-evidence');
+  }
+  return view;
+}
+
+async function click(element: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(element);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
+async function change(element: HTMLElement, value: Parameters<typeof fireEvent.change>[1]) {
+  await act(async () => {
+    fireEvent.change(element, value);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
 }
 
 function storedProjectByName(projectName: string) {
@@ -299,24 +328,22 @@ describe('ColonyPlannerWorkspace', () => {
     mockedGetProvenanceCockpit.mockReset();
     mockedGetSimulationSummary.mockReset();
     mockedGetSlotPredictions.mockReset();
-    localStorage.clear();
-    useColonyProjectStore.setState({ projects: {} });
   });
 
-  it('renders a no-system state for direct #colony-planner visits', () => {
+  it('renders a no-system state for direct #colony-planner visits', async () => {
     const onBackToFinder = vi.fn();
 
-    renderPlanner({ id64: null, onBackToFinder });
+    await renderPlanner({ id64: null, onBackToFinder }, { settle: false });
 
     expect(screen.getByTestId('colony-planner-workspace')).toBeTruthy();
     expect(screen.getByText('No system selected for Colony Planner.')).toBeTruthy();
     expect(screen.getByText(/Choose Evaluate in Colony Planner from Finder or Advanced Search Tuning/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Back to Finder/i }));
+    await click(screen.getByRole('button', { name: /Back to Finder/i }));
     expect(onBackToFinder).toHaveBeenCalledTimes(1);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 
-  it('renders the loading state without mounting the planner', () => {
+  it('renders the loading state without mounting the planner', async () => {
     mockedUseSystemDetail.mockReturnValue({
       data: null,
       loading: true,
@@ -324,14 +351,14 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner();
+    await renderPlanner(undefined, { settle: false });
 
     expect(screen.getByText('Loading Colony Planner...')).toBeTruthy();
     expect(mockedUseSystemDetail).toHaveBeenCalledWith(123);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 
-  it('renders the error state with retry and Back to Finder', () => {
+  it('renders the error state with retry and Back to Finder', async () => {
     const onBackToFinder = vi.fn();
     const refetch = vi.fn();
     mockedUseSystemDetail.mockReturnValue({
@@ -341,12 +368,12 @@ describe('ColonyPlannerWorkspace', () => {
       refetch,
     });
 
-    renderPlanner({ onBackToFinder });
+    await renderPlanner({ onBackToFinder }, { settle: false });
 
     expect(screen.getByText('Failed to load Colony Planner.')).toBeTruthy();
     expect(screen.getByText('network failed')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Retry/i }));
-    fireEvent.click(screen.getAllByRole('button', { name: /Back to Finder/i })[1]);
+    await click(screen.getByRole('button', { name: /Retry/i }));
+    await click(screen.getAllByRole('button', { name: /Back to Finder/i })[1]);
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(onBackToFinder).toHaveBeenCalledTimes(1);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
@@ -361,7 +388,7 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner({ onOpenSystemDetail });
+    await renderPlanner({ onOpenSystemDetail });
 
     expect(screen.getAllByText('Workspace System').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Refinery').length).toBeGreaterThan(0);
@@ -375,10 +402,10 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('closed');
     expect(screen.getByTestId('planner-telemetry-dock-toggle')).toBeTruthy();
     expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('false');
-    fireEvent.click(screen.getByTestId('planner-telemetry-dock-toggle'));
-    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('open');
-    expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('true');
-    expect(screen.getByTestId('raven-real-telemetry-panel')).toBeTruthy();
+    await click(screen.getByTestId('planner-telemetry-dock-toggle'));
+    await waitFor(() => expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('open'));
+    await waitFor(() => expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('true'));
+    expect(await screen.findByTestId('raven-real-telemetry-panel')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
     expect(await screen.findByText(/Canonical writes planned:\s*0\./)).toBeTruthy();
@@ -400,11 +427,11 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByText('Reused Colony Planner panel')).toBeNull();
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
     expect(screen.getByText('Planner summary')).toBeTruthy();
-    fireEvent.click(screen.getByTestId('summary-rail-collapse-toggle'));
-    expect(screen.getByTestId('project-card')).toBeTruthy();
-    expect(screen.getByTestId('plan-health-card')).toBeTruthy();
-    expect(screen.getByTestId('selection-card')).toBeTruthy();
-    expect(screen.getByTestId('preview-suggested-card')).toBeTruthy();
+    await click(screen.getByTestId('summary-rail-collapse-toggle'));
+    expect(await screen.findByTestId('project-card')).toBeTruthy();
+    expect(await screen.findByTestId('plan-health-card')).toBeTruthy();
+    expect(await screen.findByTestId('selection-card')).toBeTruthy();
+    expect(await screen.findByTestId('preview-suggested-card')).toBeTruthy();
     expect(screen.getByTestId('topology-body-button-body1').getAttribute('title')).toBe('Workspace System A 1');
     expect(screen.getByText(/Saved locally in this browser/i)).toBeTruthy();
     const summaryPanel = screen.getByTestId('planner-summary-panel');
@@ -416,9 +443,9 @@ describe('ColonyPlannerWorkspace', () => {
     expect(document.body.textContent).not.toMatch(/Stage 15|15H|15I|deferred to next stages/i);
     expect(screen.queryByText('Attached Structures')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('topology-body-button-body1'));
-    expect(screen.getByText(/Planning focus: Workspace System A 1/i)).toBeTruthy();
-    expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-selected')).toBe('true');
+    await click(screen.getByTestId('topology-body-button-body1'));
+    expect(await screen.findByText(/Planning focus: Workspace System A 1/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-selected')).toBe('true'));
     expect(await screen.findByTestId('body1-orbital-slot-3')).toBeTruthy();
     expect(within(screen.getByTestId('raven-real-planner-canvas')).queryByTestId('raven-inline-body-expansion-body1')).toBeNull();
     expect(screen.queryByTestId('selected-role-summary-card')).toBeNull();
@@ -433,7 +460,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
 
-    fireEvent.click(screen.getByTestId('advanced-workspace-toggle'));
+    await click(screen.getByTestId('advanced-workspace-toggle'));
     expect(await screen.findByTestId('advanced-planner-content')).toBeTruthy();
     expect(screen.getByText('Reused Colony Planner panel')).toBeTruthy();
     expect((await screen.findAllByTestId('raven-projected-ghost-structure')).length).toBeGreaterThan(0);
@@ -455,7 +482,7 @@ describe('ColonyPlannerWorkspace', () => {
       undefined,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Back to system detail/i }));
+    await click(screen.getByRole('button', { name: /Back to system detail/i }));
     expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);
     expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
   });
@@ -468,10 +495,10 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner();
+    await renderPlanner();
 
-    fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
-    fireEvent.click(screen.getByTestId('body1-orbital-add'));
+    await click(await screen.findByTestId('topology-body-button-body1'));
+    await click(screen.getByTestId('body1-orbital-add'));
 
     const picker = screen.getByTestId('body-structure-picker');
     expect(picker).toBeTruthy();
@@ -480,7 +507,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
     expect(screen.getByTestId('body-structure-template-flex_lab')).toBeTruthy();
     expect(within(picker).getByTestId('canvas-picker-compatibility-summary').textContent).toContain('1 incompatible hidden');
-    fireEvent.click(screen.getByTestId('body-structure-template-orbital_port'));
+    await click(screen.getByTestId('body-structure-template-orbital_port'));
 
     expect((screen.getByTestId('body1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
     expect(screen.getByTestId('body1-orbital-slot-0').textContent).toMatch(/Orbital|Port/i);
@@ -496,9 +523,9 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner();
+    await renderPlanner();
 
-    fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
+    await click(await screen.findByTestId('topology-body-button-body1'));
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
     expect(screen.queryByText('Body slot planner')).toBeNull();
     expect(screen.getByTestId('raven-real-body-row-body1').getAttribute('data-selected')).toBe('true');
@@ -518,9 +545,9 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner();
+    await renderPlanner();
 
-    fireEvent.click(await screen.findByTestId('topology-body-button-body1'));
+    await click(await screen.findByTestId('topology-body-button-body1'));
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByText('Role conflict: Tourism + Heavy Industrial')).toBeNull();
     expect(screen.queryByText('Observed: not recorded')).toBeNull();
@@ -534,12 +561,12 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner();
+    await renderPlanner();
 
     const summary = await screen.findByTestId('planner-summary-panel');
     expect(within(summary).getByTestId('summary-rail-compact-view')).toBeTruthy();
     expect(within(summary).getByTestId('summary-rail-collapse-toggle')).toBeTruthy();
-    fireEvent.click(within(summary).getByTestId('summary-rail-collapse-toggle'));
+    await click(within(summary).getByTestId('summary-rail-collapse-toggle'));
     expect(within(summary).getByTestId('preview-suggested-card')).toBeTruthy();
     expect(within(summary).queryByRole('button', { name: 'Evidence' })).toBeNull();
     expect(within(summary).queryByRole('button', { name: 'Validation' })).toBeNull();
@@ -553,36 +580,39 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner();
+    await renderPlanner();
 
-    fireEvent.click((await screen.findByTestId('summary-rail-collapse-toggle')));
+    await click((await screen.findByTestId('summary-rail-collapse-toggle')));
     expect(await screen.findByTestId('project-card')).toBeTruthy();
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');
 
-    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Local starter' } });
-    fireEvent.click(screen.getByTestId('project-details-toggle'));
-    fireEvent.change(screen.getByLabelText('Project notes'), { target: { value: 'Check Architect mode before final placement.' } });
-    fireEvent.click(screen.getByTestId('topology-body-button-body1'));
-    fireEvent.click(screen.getByTestId('body1-orbital-add'));
-    fireEvent.click(await screen.findByTestId('body-structure-template-orbital_port'));
-    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+    await change(screen.getByLabelText('Project name'), { target: { value: 'Local starter' } });
+    await waitFor(() => expect((screen.getByLabelText('Project name') as HTMLInputElement).value).toBe('Local starter'));
+    await click(screen.getByTestId('project-details-toggle'));
+    await change(screen.getByLabelText('Project notes'), { target: { value: 'Check Architect mode before final placement.' } });
+    await click(screen.getByTestId('topology-body-button-body1'));
+    await click(screen.getByTestId('body1-orbital-add'));
+    await click(await screen.findByTestId('body-structure-template-orbital_port'));
+    await waitFor(() => expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Unsaved'));
+    await click(screen.getByRole('button', { name: 'Save project' }));
 
     expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');
+    await waitFor(() => expect(storedProjectByName('Local starter')).toBeTruthy());
     expect(storedProjectByName('Local starter')?.build_plan_placements).toHaveLength(1);
     expect(storedProjectByName('Local starter')?.declared_roles).toEqual([]);
 
-    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Renamed local starter' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Rename project' }));
-    expect(storedProjectByName('Renamed local starter')).toBeTruthy();
+    await change(screen.getByLabelText('Project name'), { target: { value: 'Renamed local starter' } });
+    await click(screen.getByRole('button', { name: 'Rename project' }));
+    await waitFor(() => expect(storedProjectByName('Renamed local starter')).toBeTruthy());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Duplicate project' }));
-    expect(storedProjectByName('Renamed local starter copy')).toBeTruthy();
+    await click(screen.getByRole('button', { name: 'Duplicate project' }));
+    await waitFor(() => expect(storedProjectByName('Renamed local starter copy')).toBeTruthy());
     expect(storedProjectByName('Renamed local starter copy')?.declared_roles).toEqual([]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete / archive project' }));
+    await click(screen.getByRole('button', { name: 'Delete / archive project' }));
     expect(screen.getByText(/Archive this local project/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Archive project' }));
-    expect(storedProjectByName('Renamed local starter copy')?.archived_at).toBeTruthy();
+    await click(screen.getByRole('button', { name: 'Archive project' }));
+    await waitFor(() => expect(storedProjectByName('Renamed local starter copy')?.archived_at).toBeTruthy());
   });
 
   it('loads old local projects without declared roles safely', async () => {
@@ -611,9 +641,9 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner();
+    await renderPlanner();
 
-    fireEvent.click((await screen.findByTestId('summary-rail-collapse-toggle')));
+    await click((await screen.findByTestId('summary-rail-collapse-toggle')));
     expect((await screen.findAllByText('Old project')).length).toBeGreaterThan(0);
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
   });
@@ -636,11 +666,11 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
 
-    renderPlanner();
+    await renderPlanner();
 
-    fireEvent.click((await screen.findByTestId('summary-rail-collapse-toggle')));
+    await click((await screen.findByTestId('summary-rail-collapse-toggle')));
     expect((await screen.findAllByText('Reloaded project')).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByTestId('topology-body-button-body1'));
+    await click(screen.getByTestId('topology-body-button-body1'));
     expect((await screen.findByTestId('body1-ground-slot-0')).textContent).toMatch(/Surface Hub/i);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
