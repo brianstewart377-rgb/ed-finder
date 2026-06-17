@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GalacticMap } from './GalacticMap';
 import type { SystemResult } from '@/types/api';
 
 const reference = { name: 'Sol', x: 0, z: 0 };
+let getContextSpy: { mockReturnValue: (value: RenderingContext) => unknown; mockRestore: () => void };
 
 function makeSystem(overrides: Partial<SystemResult> = {}): SystemResult {
   return {
@@ -21,6 +22,16 @@ function makeSystem(overrides: Partial<SystemResult> = {}): SystemResult {
 }
 
 describe('GalacticMap', () => {
+  beforeEach(() => {
+    getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(makeRecordingContext([]) as unknown as RenderingContext);
+  });
+
+  afterEach(() => {
+    getContextSpy.mockRestore();
+  });
+
   it('renders canvas with accessible label', () => {
     const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
     render(
@@ -144,9 +155,7 @@ describe('GalacticMap', () => {
       createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
       createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     } as unknown as CanvasRenderingContext2D;
-    const getContext = vi
-      .spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue(ctx as unknown as RenderingContext);
+    getContextSpy.mockReturnValue(ctx as unknown as RenderingContext);
 
     const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 0, y: 0, z: 0 } })];
     const heatmap = {
@@ -170,7 +179,6 @@ describe('GalacticMap', () => {
     expect(screen.getByTestId('galactic-map-canvas')).toBeTruthy();
     // A visible heatmap cue is drawn via fillRect for at least one cell.
     expect(ctx.fillRect).toHaveBeenCalled();
-    getContext.mockRestore();
   });
 
   it('renders cluster hulls without crashing', () => {
@@ -193,9 +201,7 @@ describe('GalacticMap', () => {
       createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
       createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     } as unknown as CanvasRenderingContext2D;
-    const getContext = vi
-      .spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue(ctx as unknown as RenderingContext);
+    getContextSpy.mockReturnValue(ctx as unknown as RenderingContext);
 
     const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 0, y: 0, z: 0 } })];
     const clusters = [
@@ -216,15 +222,12 @@ describe('GalacticMap', () => {
     // A visible hull cue is drawn via arc + stroke.
     expect(ctx.arc).toHaveBeenCalled();
     expect(ctx.stroke).toHaveBeenCalled();
-    getContext.mockRestore();
   });
 
   it('renders the galactic frame when enabled (default)', () => {
     const order: string[] = [];
     const ctx = makeRecordingContext(order);
-    const getContext = vi
-      .spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue(ctx as unknown as RenderingContext);
+    getContextSpy.mockReturnValue(ctx as unknown as RenderingContext);
 
     const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 0, y: 0, z: 0 } })];
     render(<GalacticMap systems={systems} reference={reference} />);
@@ -241,15 +244,12 @@ describe('GalacticMap', () => {
     const discFillIdx = order.indexOf('fill', discGradientIdx);
     expect(discGradientIdx).toBeGreaterThan(0);
     expect(discFillIdx).toBeGreaterThan(discGradientIdx);
-    getContext.mockRestore();
   });
 
   it('does not render the galactic frame when disabled', () => {
     const order: string[] = [];
     const ctx = makeRecordingContext(order);
-    const getContext = vi
-      .spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue(ctx as unknown as RenderingContext);
+    getContextSpy.mockReturnValue(ctx as unknown as RenderingContext);
 
     // Empty systems + frame off → only the backdrop radial gradient is created
     // (no frame disc glow, no star halos).
@@ -258,7 +258,6 @@ describe('GalacticMap', () => {
     expect(screen.getByTestId('galactic-map-canvas')).toBeTruthy();
     const gradients = order.filter((o) => o === 'radialGradient');
     expect(gradients.length).toBe(1);
-    getContext.mockRestore();
   });
 
   it('recentres the camera on the galactic centre in galaxy view mode', () => {
@@ -269,9 +268,7 @@ describe('GalacticMap', () => {
     const refRingX = (mode: 'results' | 'galaxy') => {
       const order: string[] = [];
       const ctx = makeRecordingContext(order);
-      const getContext = vi
-        .spyOn(HTMLCanvasElement.prototype, 'getContext')
-        .mockReturnValue(ctx as unknown as RenderingContext);
+      getContextSpy.mockReturnValue(ctx as unknown as RenderingContext);
       const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 0, y: 0, z: 0 } })];
       const { unmount } = render(
         <GalacticMap systems={systems} reference={reference} viewMode={mode} />,
@@ -282,7 +279,6 @@ describe('GalacticMap', () => {
       const rings = arcMock.mock.calls.filter((c) => c[2] === 22);
       const ring = rings[rings.length - 1];
       unmount();
-      getContext.mockRestore();
       return ring ? (ring[0] as number) : NaN;
     };
 
