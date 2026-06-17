@@ -25,7 +25,7 @@ def test_stage18h4_authority_records_readonly_ux_clarification():
     stage18h4 = authority['stage18h4']
 
     assert STAGE18H4_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] == 'Stage 18J-P-filter - Strict station-type dry-run filter'
+    assert authority['stage21']['next_checkpoint'] is None
     assert stage18h4['status'] == 'completed'
     assert stage18h4['checkpoint_type'] == 'ux_clarification'
     assert stage18h4['document'] == 'docs/colonisation-redesign/stage-18h4-warehouse-evidence-ux-clarification.md'

@@ -112,10 +112,17 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage18t_canonical_safety_environment.py \
     tests/test_stage18jq_production_reconciliation_artifact_readiness.py \
     tests/test_stage18jq_chain_followons.py \
+    tests/test_stage18jp_station_type_production_chain_closeout.py \
     tests/test_station_type_canonical_pilot.py \
     tests/test_enrichment_staging_db_loader.py \
     tests/test_enrichment_staging_reconciliation.py \
     tests/test_reconciliation_artifact_summary.py \
+    tests/test_station_external_identity_migration.py \
+    tests/test_station_external_identity_candidates.py \
+    tests/test_station_external_identity_load_plan.py \
+    tests/test_station_external_identity_review_packet.py \
+    tests/test_station_external_identity_approval_allowlist.py \
+    tests/test_station_external_identity_loader.py \
     tests/test_stage20a_implementation_contract.py \
     tests/test_stage20b_readonly_status_surfaces.py \
     tests/test_stage20c_map_foundation.py \
