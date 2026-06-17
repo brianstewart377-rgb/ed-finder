@@ -424,6 +424,13 @@ export interface PlannerWarehouseEvidence {
    */
   reportOnly:   true;
   items:        PlannerWarehouseEvidenceItem[];
+  freshnessStatus?: WarehousePlannerEvidenceFreshnessStatus;
+  evaluatedAt?: string | null;
+  manualReviewRequired?: boolean;
+  sourceName?: string | null;
+  runKey?: string | null;
+  sourcePosture?: 'dedicated_contract' | 'provenance_bridge' | 'unknown';
+  warnings?: string[];
 }
 
 export type WarehousePlannerEvidenceFreshnessStatus =

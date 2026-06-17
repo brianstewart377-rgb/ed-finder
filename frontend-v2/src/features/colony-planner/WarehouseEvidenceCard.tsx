@@ -1,6 +1,7 @@
 import type {
   PlannerWarehouseEvidence,
   WarehouseEvidenceLabel,
+  WarehousePlannerEvidenceFreshnessStatus,
   WarehouseEvidenceSource,
 } from '@/types/api';
 
@@ -48,11 +49,27 @@ const FINDING_LABEL: Record<WarehouseEvidenceLabel, string> = {
   unknown:      'Unknown',
 };
 
+const FRESHNESS_LABEL: Record<WarehousePlannerEvidenceFreshnessStatus, string> = {
+  fresh: 'Fresh',
+  stale: 'Stale',
+  unknown: 'Unknown freshness',
+};
+
+const SOURCE_POSTURE_LABEL: Record<NonNullable<PlannerWarehouseEvidence['sourcePosture']>, string> = {
+  dedicated_contract: 'Dedicated contract',
+  provenance_bridge: 'Provenance fallback',
+  unknown: 'Unknown source path',
+};
+
 export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) {
   const isUnavailable =
     !evidence ||
     evidence.availability === 'unavailable' ||
     evidence.items.length === 0;
+  const freshness = evidence?.freshnessStatus ?? 'unknown';
+  const reviewStatus = evidence?.manualReviewRequired ? 'Manual review required' : 'Passive review only';
+  const sourcePosture = evidence?.sourcePosture ?? 'unknown';
+  const warnings = evidence?.warnings ?? [];
 
   return (
     <aside
@@ -79,16 +96,39 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
         Planner is using canonical data; warehouse evidence is report-only.
       </p>
 
+      <div data-testid="warehouse-evidence-metadata" className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-[10px] text-text-dim">
+        <span
+          data-testid={`warehouse-evidence-freshness-${freshness}`}
+          className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
+        >
+          {FRESHNESS_LABEL[freshness]}
+        </span>
+        <span
+          data-testid={`warehouse-evidence-source-posture-${sourcePosture}`}
+          className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
+        >
+          {SOURCE_POSTURE_LABEL[sourcePosture]}
+        </span>
+        <span data-testid="warehouse-evidence-review-status" className="leading-snug">
+          {reviewStatus}
+        </span>
+        {(evidence?.sourceName || evidence?.runKey) ? (
+          <span data-testid="warehouse-evidence-source-run" className="leading-snug">
+            Source run: {[evidence?.sourceName, evidence?.runKey].filter(Boolean).join(' · ')}
+          </span>
+        ) : null}
+      </div>
+
       {isUnavailable ? (
         <div
           data-testid="warehouse-evidence-unavailable"
-          className="flex items-center gap-2 border-t border-border pt-2"
+          className="flex items-center gap-2"
         >
           <SourceBadge source="unknown" />
           <span>No warehouse evidence artifact is available.</span>
         </div>
       ) : (
-        <ul data-testid="warehouse-evidence-items" className="space-y-1.5 border-t border-border pt-2">
+        <ul data-testid="warehouse-evidence-items" className="space-y-1.5">
           {evidence!.items.map((item, i) => (
             <li
               key={`${item.label}-${item.source}-${i}`}
@@ -102,6 +142,16 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
           ))}
         </ul>
       )}
+
+      {warnings.length > 0 ? (
+        <ul data-testid="warehouse-evidence-warnings" className="space-y-1 border-t border-border pt-2 text-[10px] text-text-dim">
+          {warnings.slice(0, 2).map((warning, index) => (
+            <li key={`${warning}-${index}`} data-testid="warehouse-evidence-warning">
+              {warning}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </aside>
   );
 }

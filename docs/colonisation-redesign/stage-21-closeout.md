@@ -61,6 +61,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from Stage 18H.4 and the later Stage
-18 follow-on path, not by reopening already-burned-down Stage 17 backlog
-items.
+The next meaningful work should continue from Stage 18I — Canonical Write
+Design Review and the later Stage 18 follow-on path, not by reopening
+already-burned-down Stage 17 backlog items.
