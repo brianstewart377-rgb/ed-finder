@@ -54,7 +54,7 @@ def test_stage21_authority_prepares_a_post20_control_baseline_without_reopening_
     assert stage21['primary_objective'] == PRIMARY_OBJECTIVE
     assert stage21['first_executable_checkpoint'] == FIRST_CHECKPOINT
     assert stage21['current_checkpoint'] == 'Stage 21 closeout'
-    assert stage21['next_checkpoint'] == 'Stage 18J-Q2 - Read-only production reconciliation plan'
+    assert stage21['next_checkpoint'] == 'Stage 18J-P-filter - Strict station-type dry-run filter'
     assert stage21['roadmap'] == 'docs/colonisation-redesign/stage-21-roadmap.md'
     assert stage21['stage20_complete'] is True
     assert stage21['stage21a_roadmap_reconciliation_completed'] is True
@@ -181,6 +181,7 @@ def test_stage21_roadmap_reconciles_stage20_stage17p_and_the_post20_queue():
     assert 'Stage 18J is complete as a bounded station-type-only canonical pilot' in closeout
     assert 'Stage 18T is complete as the canonical safety test environment' in closeout
     assert 'Stage 18J-Q is complete as an artifact-readiness review' in closeout
+    assert 'Stage 18J-Q2 through Stage 18J-Q9 are complete' in closeout
 
     assert 'stage-21-roadmap.md' in readme
     assert 'stage-21b-to-21f-stage17-stage18-burn-down.md' in readme

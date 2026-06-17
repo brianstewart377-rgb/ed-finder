@@ -33,7 +33,7 @@ def test_stage18t_authority_records_canonical_safety_environment_and_stage18jq_h
     assert CI_REQUIREMENTS_PATH.exists()
     assert WORKFLOW_PATH.exists()
     assert POSTGRES_REHEARSAL_TEST_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] == 'Stage 18J-Q2 - Read-only production reconciliation plan'
+    assert authority['stage21']['next_checkpoint'] == 'Stage 18J-P-filter - Strict station-type dry-run filter'
     assert stage18t['status'] == 'completed'
     assert stage18t['checkpoint_type'] == 'canonical_safety_environment'
     assert stage18t['document'] == 'docs/colonisation-redesign/stage-18t-canonical-safety-test-environment.md'
