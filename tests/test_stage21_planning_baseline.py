@@ -54,7 +54,7 @@ def test_stage21_authority_prepares_a_post20_control_baseline_without_reopening_
     assert stage21['primary_objective'] == PRIMARY_OBJECTIVE
     assert stage21['first_executable_checkpoint'] == FIRST_CHECKPOINT
     assert stage21['current_checkpoint'] == 'Stage 21 closeout'
-    assert stage21['next_checkpoint'] == 'Stage 18I - Canonical write design review'
+    assert stage21['next_checkpoint'] == 'Stage 18I.5 - Warehouse database boundary review'
     assert stage21['roadmap'] == 'docs/colonisation-redesign/stage-21-roadmap.md'
     assert stage21['stage20_complete'] is True
     assert stage21['stage21a_roadmap_reconciliation_completed'] is True
@@ -174,7 +174,9 @@ def test_stage21_roadmap_reconciles_stage20_stage17p_and_the_post20_queue():
     assert 'Stage 18B-18G should be treated as delivered warehouse/operator groundwork' in burndown
     assert 'Stage 21 is complete.' in closeout
     assert 'stage18h_live_readonly_bridge_completed' not in closeout
-    assert 'live, read-only warehouse bridge through the sanitized provenance cockpit route' in closeout
+    assert 'Stage 18H.1 through 18H.4 are complete' in closeout
+    assert 'typed read-only warehouse evidence contract' in closeout
+    assert 'Stage 18I is complete as a documentation-only canonical write design review' in closeout
 
     assert 'stage-21-roadmap.md' in readme
     assert 'stage-21b-to-21f-stage17-stage18-burn-down.md' in readme

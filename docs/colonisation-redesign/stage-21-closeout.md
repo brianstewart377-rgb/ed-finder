@@ -29,11 +29,11 @@ The Stage 17 and Stage 18 backlog is now reconciled for the current baseline:
 - Stage 17R, 17S, 17T, and 17U are satisfied for the current planner baseline.
 - Stage 18A is complete.
 - Stage 18B through 18G are treated as delivered warehouse/operator groundwork.
-- Stage 18H now has a live, read-only warehouse bridge through the sanitized
-  provenance cockpit route.
-- Stage 18H still does not claim a dedicated per-system warehouse artifact
-  contract; that remains later follow-on work if a safer artifact boundary is
-  introduced.
+- Stage 18H.1 through 18H.4 are complete: the planner now has a typed
+  read-only warehouse evidence contract, a dedicated read-only endpoint,
+  planner-side fetch with provenance fallback, and clearer warehouse evidence
+  freshness/review/source posture in the UI.
+- Stage 18I is complete as a documentation-only canonical write design review.
 
 ## Validation
 
@@ -61,6 +61,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from Stage 18I — Canonical Write
-Design Review and the later Stage 18 follow-on path, not by reopening
+The next meaningful work should continue from Stage 18I.5 — Warehouse Database
+Boundary Review and the later Stage 18 follow-on path, not by reopening
 already-burned-down Stage 17 backlog items.
