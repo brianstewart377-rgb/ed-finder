@@ -19,6 +19,17 @@ read-only product and operator-review slices later, but this baseline does not
 reopen Stage 19 production activation, canonical apply, rebaseline, scheduler
 activation, or broad write-capable operator work.
 
+## Current Status
+
+- Stage 22A is complete: the repo now has a single post-18/20/21 control
+  document and explicit authority lock.
+- Stage 22B is complete: current-state planner/provenance/warehouse evidence
+  handling is hardened so runtime fixtures are isolated, selected-system
+  evidence stays separate from global authority state, and freshness remains
+  conservative.
+- The next recommended checkpoint is `Stage 22C - Operator artifact review and
+  audit surfaces`.
+
 ## Why Stage 22 Exists
 
 The repo now has a large amount of completed history:

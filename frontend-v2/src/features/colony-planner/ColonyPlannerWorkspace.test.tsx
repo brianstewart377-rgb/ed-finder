@@ -595,7 +595,27 @@ describe('ColonyPlannerWorkspace', () => {
     await renderPlanner();
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
-    expect(await screen.findByText(/Canonical writes planned:\s*0\./)).toBeTruthy();
+    expect(await screen.findByText(/Selected-system warehouse evidence is only available as provenance fallback review context\./)).toBeTruthy();
+    expect(screen.queryByText(/DB writes remain unauthorized/i)).toBeNull();
+    expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
+    expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(123);
+  });
+
+  it('falls back to provenance warehouse evidence when the dedicated endpoint errors', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    mockedGetWarehousePlannerEvidence.mockRejectedValue(new Error('warehouse endpoint unavailable'));
+    mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
+
+    await renderPlanner();
+
+    expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
+    await waitFor(() => expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(123));
+    expect(await screen.findByText(/Selected-system warehouse evidence is only available as provenance fallback review context\./)).toBeTruthy();
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
     expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(123);
   });

@@ -14,6 +14,14 @@ export function toWarehouseEvidenceFromProvenance(
   const items: PlannerWarehouseEvidenceItem[] = [];
   const { warehouse } = response.evidence_panels;
 
+  if (warehouse.state === 'available') {
+    items.push({
+      label: 'report_only',
+      source: 'warehouse_report_only',
+      summary: 'Selected-system warehouse evidence is only available as provenance fallback review context.',
+    });
+  }
+
   if (warehouse.state === 'stale') {
     items.push({
       label: 'stale',
@@ -22,25 +30,16 @@ export function toWarehouseEvidenceFromProvenance(
     });
   }
 
-  items.push({
-    label: 'report_only',
-    source: 'warehouse_report_only',
-    summary: `Canonical writes planned: ${warehouse.canonical_writes_planned}.`,
-  });
-
-  if (response.guardrails.db_writes_authorized === false) {
-    items.push({
-      label: 'blocked',
-      source: 'warehouse_report_only',
-      summary: 'DB writes remain unauthorized in this checkpoint.',
-    });
-  }
-
   return {
     availability: warehouse.state === 'unknown' ? 'unavailable' : 'report_only',
     reportOnly: true,
     items,
-    freshnessStatus: warehouse.state === 'stale' ? 'stale' : warehouse.state === 'unknown' ? 'unknown' : 'fresh',
+    freshnessStatus:
+      warehouse.state === 'stale'
+        ? 'stale'
+        : warehouse.state === 'available'
+          ? 'not_evaluated'
+          : 'unknown',
     evaluatedAt: null,
     manualReviewRequired: response.evidence_panels.planner.manual_review_required,
     sourceName: response.evidence_panels.source_run.source_name ?? null,

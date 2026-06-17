@@ -84,6 +84,28 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
   });
 
+  it('renders not-evaluated freshness without implying fresh evidence', () => {
+    const evidence: PlannerWarehouseEvidence = {
+      availability: 'report_only',
+      reportOnly: true,
+      freshnessStatus: 'not_evaluated',
+      evaluatedAt: null,
+      manualReviewRequired: true,
+      sourcePosture: 'provenance_bridge',
+      items: [
+        {
+          label: 'report_only',
+          source: 'warehouse_report_only',
+          summary: 'Selected-system warehouse evidence is only available as provenance fallback review context.',
+        },
+      ],
+    };
+    render(<WarehouseEvidenceCard evidence={evidence} />);
+
+    expect(screen.getByTestId('warehouse-evidence-freshness-not_evaluated').textContent).toMatch(/not evaluated/i);
+    expect(screen.getByTestId('warehouse-evidence-freshness-not_evaluated').textContent).not.toMatch(/fresh/i);
+  });
+
   it('renders stale, risky/needs-review, unresolved, and blocked findings conservatively', () => {
     const evidence: PlannerWarehouseEvidence = {
       availability: 'report_only',

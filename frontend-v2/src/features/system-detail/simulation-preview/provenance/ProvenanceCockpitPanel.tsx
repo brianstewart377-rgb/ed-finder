@@ -163,10 +163,10 @@ function GuardrailsSummaryCard({ response }: { response: ProvenanceCockpitRespon
   return (
     <article className="rounded border border-border bg-bg2/70 p-3 space-y-2">
       <header className="flex items-center gap-2">
-        <span className="font-display tracking-[0.14em] text-[10px] text-cyan">Guardrails</span>
+        <span className="font-display tracking-[0.14em] text-[10px] text-cyan">Authority / safety status</span>
         <span className="text-text-dim">Deferred production lanes remain explicit.</span>
       </header>
-      <ul className="grid gap-1 md:grid-cols-2" aria-label="Provenance guardrails">
+      <ul className="grid gap-1 md:grid-cols-2" aria-label="Authority safety status">
         {guardrails.map(([label, enabled]) => (
           <li
             key={label}

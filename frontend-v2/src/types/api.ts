@@ -436,7 +436,8 @@ export interface PlannerWarehouseEvidence {
 export type WarehousePlannerEvidenceFreshnessStatus =
   | 'fresh'
   | 'stale'
-  | 'unknown';
+  | 'unknown'
+  | 'not_evaluated';
 
 export interface WarehousePlannerEvidenceFreshness {
   status: WarehousePlannerEvidenceFreshnessStatus;
