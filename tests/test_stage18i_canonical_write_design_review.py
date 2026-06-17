@@ -25,7 +25,7 @@ def test_stage18i_authority_records_design_only_checkpoint_and_stage18i5_depende
     stage18i = authority['stage18i']
 
     assert STAGE18I_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] == 'Stage 18I.5 - Warehouse database boundary review'
+    assert authority['stage21']['next_checkpoint'] == 'Stage 18J - Station type canonical write pilot'
     assert stage18i['status'] == 'completed'
     assert stage18i['checkpoint_type'] == 'design_review'
     assert stage18i['document'] == 'docs/colonisation-redesign/stage-18i-canonical-write-design-review.md'
