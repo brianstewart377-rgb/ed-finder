@@ -8,24 +8,25 @@ Start here for any new colonisation work:
 
 1. [`stage-23-roadmap.md`](./stage-23-roadmap.md) - active post-22 roadmap and current control baseline.
 2. [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) - completed Stage 23A first live per-system evidence provider slice.
-3. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - completed post-18/20/21 roadmap and prior control baseline.
-4. [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) - completed Stage 22B planner/provenance/warehouse evidence hardening slice.
-5. [`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) - completed Stage 22C operator artifact review and export audit surface slice.
-6. [`stage-22d-export-and-documentation-governance-consolidation.md`](./stage-22d-export-and-documentation-governance-consolidation.md) - completed Stage 22D export-pack governance and documentation-consolidation slice.
-7. [`stage-22e-deferred-stage19-decision-gate-and-closeout.md`](./stage-22e-deferred-stage19-decision-gate-and-closeout.md) - completed Stage 22E closeout and explicit deferred-Stage-19 decision gate.
-8. [`stage-21-closeout.md`](./stage-21-closeout.md) - Stage 21 completion record and validation summary.
-9. [`stage-21-roadmap.md`](./stage-21-roadmap.md) - completed post-20 roadmap and trust/operationalisation plan.
-10. [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) - Stage 21 progress record showing how Stage 17 and Stage 18 backlog items were burned down or reclassified.
-11. [`stage-20-roadmap.md`](./stage-20-roadmap.md) - completed Stage 20 roadmap and checkpoint plan.
-12. [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) - Stage 20A implementation-contract checkpoint for the first provenance cockpit slice.
-13. [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) - Stage 20B read-only provenance cockpit implementation slice in the Evidence Workspace.
-14. [`stage-20c-map-planning-surface-foundation.md`](./stage-20c-map-planning-surface-foundation.md) - Stage 20C planner map foundation and timeline-layer ownership.
-15. [`stage-20d-planner-sequence-cp-curve-cockpit.md`](./stage-20d-planner-sequence-cp-curve-cockpit.md) - Stage 20D planner sequence and CP tradeoff cockpit.
-16. [`stage-20e-export-operator-pack-closeout-readiness.md`](./stage-20e-export-operator-pack-closeout-readiness.md) - Stage 20 export pack, closeout readiness, and completion record.
-17. [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) - Colony Planner product-boundary baseline and continuing mechanics constraints.
-18. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
-19. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
-20. Specific historical stage docs only when the task directly touches that feature.
+3. [`stage-19-bounded-production-staging-activation.md`](./stage-19-bounded-production-staging-activation.md) - separate Stage 19 operational dependency baseline for a future bounded production-staging activation.
+4. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - completed post-18/20/21 roadmap and prior control baseline.
+5. [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) - completed Stage 22B planner/provenance/warehouse evidence hardening slice.
+6. [`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) - completed Stage 22C operator artifact review and export audit surface slice.
+7. [`stage-22d-export-and-documentation-governance-consolidation.md`](./stage-22d-export-and-documentation-governance-consolidation.md) - completed Stage 22D export-pack governance and documentation-consolidation slice.
+8. [`stage-22e-deferred-stage19-decision-gate-and-closeout.md`](./stage-22e-deferred-stage19-decision-gate-and-closeout.md) - completed Stage 22E closeout and explicit deferred-Stage-19 decision gate.
+9. [`stage-21-closeout.md`](./stage-21-closeout.md) - Stage 21 completion record and validation summary.
+10. [`stage-21-roadmap.md`](./stage-21-roadmap.md) - completed post-20 roadmap and trust/operationalisation plan.
+11. [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) - Stage 21 progress record showing how Stage 17 and Stage 18 backlog items were burned down or reclassified.
+12. [`stage-20-roadmap.md`](./stage-20-roadmap.md) - completed Stage 20 roadmap and checkpoint plan.
+13. [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) - Stage 20A implementation-contract checkpoint for the first provenance cockpit slice.
+14. [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) - Stage 20B read-only provenance cockpit implementation slice in the Evidence Workspace.
+15. [`stage-20c-map-planning-surface-foundation.md`](./stage-20c-map-planning-surface-foundation.md) - Stage 20C planner map foundation and timeline-layer ownership.
+16. [`stage-20d-planner-sequence-cp-curve-cockpit.md`](./stage-20d-planner-sequence-cp-curve-cockpit.md) - Stage 20D planner sequence and CP tradeoff cockpit.
+17. [`stage-20e-export-operator-pack-closeout-readiness.md`](./stage-20e-export-operator-pack-closeout-readiness.md) - Stage 20 export pack, closeout readiness, and completion record.
+18. [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) - Colony Planner product-boundary baseline and continuing mechanics constraints.
+19. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
+20. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
+21. Specific historical stage docs only when the task directly touches that feature.
 
 If an older document's "recommended next stage" conflicts with Stage 17P, follow Stage 17P unless intentionally researching historical context.
 
@@ -34,6 +35,8 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 [`stage-23-roadmap.md`](./stage-23-roadmap.md) is the active post-22 control document. It starts the next read-only sequence after Stage 22 closeout and introduces the first bounded live per-system planner-evidence provider while keeping Stage 19 separately gated.
 
 [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) records the completed Stage 23A slice: the dedicated evidence endpoint now has a first live selected-system provider using existing canonical and observed data while keeping unsupported systems unknown.
+
+[`stage-19-bounded-production-staging-activation.md`](./stage-19-bounded-production-staging-activation.md) records the next separate Stage 19 operational dependency: a bounded manual EDSM production-staging activation contract that stays staging-only, keeps Stage 23 active, and still does not authorize execution in this checkpoint.
 
 [`stage-22-roadmap.md`](./stage-22-roadmap.md) is the completed post-18/20/21 control document. It reset the active roadmap after the completed Stage 18/20/21 sequence, ranked the next read-only planner/operator-review work, and kept any future Stage 19 production reactivation as a separate gated decision.
 
@@ -99,6 +102,7 @@ It supersedes the old assumption that the project should simply continue from St
 |---|---|---|
 | [`stage-23-roadmap.md`](./stage-23-roadmap.md) | Active Stage 23 control | Starts the next read-only control sequence after Stage 22 closeout and ranks the bounded live per-system evidence work without reopening Stage 19. |
 | [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) | Completed Stage 23A implementation record | Records the first live selected-system evidence provider built from existing canonical and observed sources under the dedicated endpoint. |
+| [`stage-19-bounded-production-staging-activation.md`](./stage-19-bounded-production-staging-activation.md) | Separate Stage 19 operational dependency baseline | Records the bounded future production-staging activation contract while keeping Stage 23 as the active product/evidence roadmap and keeping execution unauthorized. |
 | [`stage-22-roadmap.md`](./stage-22-roadmap.md) | Completed Stage 22 control | Records the finished Stage 22 control sequence and the preserved deferred-production boundaries that Stage 23 inherits. |
 | [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) | Completed Stage 22B implementation record | Records runtime fixture isolation, conservative freshness semantics, and the separation between selected-system evidence and global authority state. |
 | [`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) | Completed Stage 22C implementation record | Records export-workspace operator review focus items, sanitized references, safeguards, and section-coverage checks for artifact inspection. |

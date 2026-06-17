@@ -100,6 +100,7 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage19aw_post_av_paused_state_decision.py \
     tests/test_stage19ax_readonly_av_safety_gate.py \
     tests/test_stage19ay_test_environment_closeout.py \
+    tests/test_stage19ba_bounded_production_staging_activation.py \
     tests/test_stage20_planning_baseline.py \
     tests/test_stage21_planning_baseline.py \
     tests/test_stage18h1_planner_evidence_contract.py \

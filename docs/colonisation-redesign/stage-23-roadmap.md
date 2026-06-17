@@ -51,6 +51,8 @@ only existing read-only data already present in the app.
 
 Only if a safe and explicit selected-system warehouse join is already available,
 expand the provider to include per-system warehouse evidence without guessing.
+This remains operationally dependent on the separate bounded Stage 19
+production-staging activation contract rather than inferred warehouse truth.
 
 ### Stage 23C
 
