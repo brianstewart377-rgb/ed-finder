@@ -11,6 +11,7 @@ import {
   getProvenanceCockpit,
   getSimulationSummary,
   getSlotPredictions,
+  getWarehousePlannerEvidence,
   importSystemLayout,
   reviewPredictionValidation,
   simulateBuild,
@@ -29,6 +30,7 @@ vi.mock('@/lib/api', () => ({
   getProvenanceCockpit: vi.fn(),
   getSimulationSummary: vi.fn(),
   getSlotPredictions: vi.fn(),
+  getWarehousePlannerEvidence: vi.fn(),
   importSystemLayout: vi.fn(),
   simulateBuild: vi.fn(),
   listObservedFacts: vi.fn().mockResolvedValue({
@@ -56,6 +58,7 @@ const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
 const mockedGetProvenanceCockpit = vi.mocked(getProvenanceCockpit);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
 const mockedGetSlotPredictions = vi.mocked(getSlotPredictions);
+const mockedGetWarehousePlannerEvidence = vi.mocked(getWarehousePlannerEvidence);
 const mockedImportSystemLayout = vi.mocked(importSystemLayout);
 const mockedFetchOptimiserCandidates = vi.mocked(fetchOptimiserCandidates);
 const mockedSimulateBuild = vi.mocked(simulateBuild);
@@ -197,15 +200,45 @@ function provenanceResponse() {
   } as const;
 }
 
+function warehousePlannerEvidenceResponse() {
+  return {
+    schema_version: 'warehouse_planner_evidence/v1',
+    system_id64: 123,
+    generated_at: '2026-06-17T14:00:00Z',
+    freshness: {
+      status: 'fresh',
+      evaluated_at: '2026-06-17T14:00:00Z',
+    },
+    source_run: {
+      source_name: 'warehouse_reconciliation',
+      run_key: 'warehouse/run-20260617.json',
+    },
+    evidence_summary: {
+      availability: 'report_only',
+      report_only: true,
+      manual_review_required: false,
+      items: [
+        {
+          label: 'report_only',
+          source: 'warehouse_report_only',
+          summary: 'Warehouse reconciliation evidence is available for this system as report-only context.',
+        },
+      ],
+    },
+    warnings: [],
+  } as const;
+}
+
 describe('ColonyPlannerWorkspace real planner passivity', () => {
   beforeEach(() => {
+    mockedGetWarehousePlannerEvidence.mockResolvedValue(warehousePlannerEvidenceResponse() as never);
     mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
   });
 
   afterEach(() => {
     mockedApiSystem.mockReset();
     mockedGetFacilityTemplates.mockReset();
-    mockedGetProvenanceCockpit.mockReset();
+    mockedGetWarehousePlannerEvidence.mockReset();
     mockedGetProvenanceCockpit.mockReset();
     mockedGetSimulationSummary.mockReset();
     mockedGetSlotPredictions.mockReset();
@@ -222,6 +255,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
   it('loads system context and passive planner data without running Preview or Suggested Builds', async () => {
     mockedApiSystem.mockResolvedValue(system);
     mockedGetFacilityTemplates.mockResolvedValue(templates);
+    mockedGetWarehousePlannerEvidence.mockResolvedValue(warehousePlannerEvidenceResponse() as never);
     mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
     mockedGetSimulationSummary.mockResolvedValue({
       classification: { primary_archetype: 'refinery_industrial' },
@@ -272,7 +306,9 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
 
     expect((await screen.findAllByText('Passive Workspace')).length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-warehouse-evidence')).toBeTruthy();
-    expect(screen.getByText(/Canonical writes planned:\s*0\./)).toBeTruthy();
+    expect(screen.getByText(/Warehouse reconciliation evidence is available/i)).toBeTruthy();
+    expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
+    expect(mockedGetProvenanceCockpit).not.toHaveBeenCalled();
     expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
     expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();

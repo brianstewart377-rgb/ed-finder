@@ -2,6 +2,7 @@ import type {
   PlannerWarehouseEvidence,
   PlannerWarehouseEvidenceItem,
   ProvenanceCockpitResponse,
+  WarehousePlannerEvidenceContract,
 } from '@/types/api';
 
 
@@ -38,6 +39,24 @@ export function toWarehouseEvidenceFromProvenance(
   return {
     availability: warehouse.state === 'unknown' ? 'unavailable' : 'report_only',
     reportOnly: true,
+    items,
+  };
+}
+
+export function toWarehouseEvidenceFromContract(
+  response: WarehousePlannerEvidenceContract | undefined,
+): PlannerWarehouseEvidence | null {
+  if (!response) return null;
+
+  const items: PlannerWarehouseEvidenceItem[] = response.evidence_summary.items.map((item) => ({
+    label: item.label,
+    source: item.source,
+    summary: item.summary,
+  }));
+
+  return {
+    availability: response.evidence_summary.availability,
+    reportOnly: response.evidence_summary.report_only,
     items,
   };
 }
