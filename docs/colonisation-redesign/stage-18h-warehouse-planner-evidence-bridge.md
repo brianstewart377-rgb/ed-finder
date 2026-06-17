@@ -27,6 +27,9 @@ contract. The bridge remains conservative: it surfaces sanitized warehouse
 status already approved for the provenance cockpit rather than inventing a new
 artifact join.
 
+That follow-on contract review is now captured explicitly in
+`stage-18h1-per-system-warehouse-evidence-contract.md`.
+
 ## Decision Gate Outcome
 
 Stage 18H reached the architectural decision gate defined in the stage brief and
@@ -155,8 +158,10 @@ unavailable/unknown.
 ## Future Integration Path
 
 To safely surface *per-system* warehouse evidence in the user planner later, a
-future stage (after the Stage 18I canonical-write design review and the Stage
-18I.5 database-boundary review) would need:
+future follow-on beginning with
+`stage-18h1-per-system-warehouse-evidence-contract.md` (and still preserving
+the later Stage 18I canonical-write design review and Stage 18I.5
+database-boundary review) would need:
 
 1. **A per-system, report-only artifact contract.** Operators would publish a
    sanitized JSON artifact keyed by `system_id64`, e.g.

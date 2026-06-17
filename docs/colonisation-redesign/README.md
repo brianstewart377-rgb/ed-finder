@@ -16,9 +16,10 @@ Start here for any new colonisation work:
 8. [`stage-20d-planner-sequence-cp-curve-cockpit.md`](./stage-20d-planner-sequence-cp-curve-cockpit.md) - Stage 20D planner sequence and CP tradeoff cockpit.
 9. [`stage-20e-export-operator-pack-closeout-readiness.md`](./stage-20e-export-operator-pack-closeout-readiness.md) - Stage 20 export pack, closeout readiness, and completion record.
 10. [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) - current Colony Planner baseline and continuing product boundaries.
-11. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
-12. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
-13. Specific historical stage docs only when the task directly touches that feature.
+11. [`stage-18h1-per-system-warehouse-evidence-contract.md`](./stage-18h1-per-system-warehouse-evidence-contract.md) - Stage 18H.1 contract review for a future per-system read-only warehouse evidence shape.
+12. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
+13. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
+14. Specific historical stage docs only when the task directly touches that feature.
 
 If an older document's "recommended next stage" conflicts with Stage 17P, follow Stage 17P unless intentionally researching historical context.
 
@@ -29,6 +30,8 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) records how the first Stage 21 implementation pass burned down the remaining Stage 17 planner backlog and reconciled which Stage 18 items were already delivered as warehouse/operator groundwork.
 
 [`stage-21-closeout.md`](./stage-21-closeout.md) records that Stage 21 is complete and captures the final validation state plus the new live Stage 18H planner bridge.
+
+[`stage-18h1-per-system-warehouse-evidence-contract.md`](./stage-18h1-per-system-warehouse-evidence-contract.md) captures the next follow-on contract review for a dedicated per-system warehouse evidence shape that remains read-only, report-only, and separate from planner truth.
 
 [`stage-20-roadmap.md`](./stage-20-roadmap.md) is the completed Stage 20 planning baseline. It records the provenance-backed planning cockpit objective, five Stage 20 checkpoints, and the boundaries preserved while that work landed.
 
@@ -53,6 +56,7 @@ It supersedes the old assumption that the project should simply continue from St
 | [`stage-21-roadmap.md`](./stage-21-roadmap.md) | Active Stage 21 control | Post-20 roadmap reconciliation, active work queue, checkpoints, and preserved deferred-production boundaries. |
 | [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) | Active Stage 21 progress record | Records how Stage 17 planner backlog and Stage 18 warehouse/operator backlog were reduced, reclassified, or marked delivered groundwork. |
 | [`stage-21-closeout.md`](./stage-21-closeout.md) | Completed Stage 21 closeout record | Records Stage 21 completion, validation state, and the live read-only Stage 18H warehouse bridge outcome. |
+| [`stage-18h1-per-system-warehouse-evidence-contract.md`](./stage-18h1-per-system-warehouse-evidence-contract.md) | Active Stage 18H.1 contract review | Defines the future per-system `warehouse_planner_evidence/v1` contract without yet adding a live endpoint or planner fetch. |
 | [`stage-20-roadmap.md`](./stage-20-roadmap.md) | Completed Stage 20 control | Planning baseline, primary objective, workstreams, checkpoints, and Stage 19 deferred-production boundaries for the completed cockpit. |
 | [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) | Completed Stage 20A contract | First provenance cockpit contract set, fixture plan, route/component ownership, and Stage 20B handoff. |
 | [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) | Completed Stage 20B implementation record | First read-only provenance cockpit route and Evidence Workspace surface, still bounded away from DB writes and operator execution. |
