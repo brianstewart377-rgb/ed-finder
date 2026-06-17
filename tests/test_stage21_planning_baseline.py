@@ -73,6 +73,7 @@ def test_stage21_authority_prepares_a_post20_control_baseline_without_reopening_
 
     assert baseline['status'] == 'completed'
     assert baseline['checkpoint_type'] == 'planning_baseline'
+    assert baseline['historical_snapshot'] is True
     assert baseline['roadmap'] == 'docs/colonisation-redesign/stage-21-roadmap.md'
     assert baseline['primary_objective'] == PRIMARY_OBJECTIVE
     assert baseline['stage17q_effectively_complete'] is True
@@ -105,6 +106,7 @@ def test_stage21_authority_prepares_a_post20_control_baseline_without_reopening_
     assert closeout['focused_frontend_tests_passed'] is True
     assert closeout['frontend_typecheck_passed'] is True
     assert closeout['git_diff_check_passed'] is True
+    assert closeout['post_merge_validation_rerun_completed'] is True
     assert closeout['stage18h_live_readonly_bridge_completed'] is True
 
 
@@ -128,6 +130,7 @@ def test_stage21_boundaries_keep_deferred_stage19_production_paths_false():
     assert stage21['db_writes_authorized'] is False
     assert stage21['stage19_operator_commands_authorized'] is False
     assert stage21['production_like_db_execution_authorized'] is False
+    assert baseline['stage21_implementation_started_at_baseline'] is False
     assert baseline['stage21_db_writes_authorized'] is False
     assert baseline['db_commands_run'] is False
     assert baseline['stage19_operator_commands_run'] is False
