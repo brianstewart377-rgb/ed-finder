@@ -1,0 +1,90 @@
+# Stage 23 Roadmap
+
+## Purpose
+
+Stage 23 is the next post-Stage-22 control sequence. Its goal is to move the
+planner evidence path from fixture-backed or aggregate-only summaries toward a
+first bounded live per-system evidence provider while preserving all Stage 22
+read-only and safety boundaries.
+
+Stage 23 is not a Stage 19 reactivation programme. It does not authorize
+planner mutation, canonical apply, rebaseline, scheduler/service enablement, DB
+writes, operator commands, or production-like DB execution.
+
+## Current Status
+
+- Stage 23A is complete: the dedicated planner-evidence endpoint now has a
+  first bounded live per-system provider built from existing canonical
+  system/station data and existing observed-facts summaries.
+- The dedicated `warehouse_planner_evidence/v1` endpoint remains the preferred
+  planner evidence path.
+- Provenance fallback remains preserved.
+- Unsupported or insufficiently evidenced systems still remain
+  `unavailable`/`unknown`.
+- The next recommended checkpoint is `Stage 23B - Safe per-system warehouse join
+  expansion`.
+
+## Source Order
+
+Stage 23 keeps the evidence source order explicit:
+
+1. Canonical system/station data already used by the app.
+2. Observed facts already stored in the app.
+3. Warehouse/reconciliation data only when a safe per-system join exists.
+4. Sanitized source-run metadata only as supporting review context.
+
+Missing evidence stays unknown. Historical authority snapshots do not become
+selected-system evidence.
+
+## Checkpoint Plan
+
+### Stage 23A
+
+`Stage 23A - First bounded live per-system evidence provider`
+
+Deliver the first live provider behind the existing dedicated endpoint using
+only existing read-only data already present in the app.
+
+### Stage 23B
+
+`Stage 23B - Safe per-system warehouse join expansion`
+
+Only if a safe and explicit selected-system warehouse join is already available,
+expand the provider to include per-system warehouse evidence without guessing.
+
+### Stage 23C
+
+`Stage 23C - Evidence envelope governance and source semantics`
+
+Clarify long-term contract boundaries if the dedicated endpoint continues to
+serve canonical, observed, and warehouse evidence under one report-only
+envelope.
+
+### Stage 23D
+
+`Stage 23D - Read-only planner evidence UX follow-through`
+
+Refine user-visible wording and review posture after live provider semantics are
+proven stable.
+
+### Stage 23E
+
+`Stage 23E - Closeout or next-control handoff`
+
+Close Stage 23 or hand off to the next explicit control document while keeping
+Stage 19 separately gated unless re-authorized by a new control document.
+
+## Preserved Boundaries
+
+- Read-only only.
+- No new ingestion lane.
+- No crawling external live APIs.
+- No planner mutation or scoring changes.
+- No CP logic changes.
+- No DB writes.
+- No Stage 19 operator execution.
+- No canonical apply or rebaseline.
+- No scheduler/service activation.
+
+This order keeps live evidence usefulness ahead of any broader execution or
+production-lane discussion.

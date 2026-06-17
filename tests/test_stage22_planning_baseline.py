@@ -151,11 +151,12 @@ def test_stage22_roadmap_readme_and_stage17p_make_the_new_control_order_explicit
     assert 'stage-22c-operator-artifact-review-and-audit-surfaces.md' in readme
     assert 'stage-22d-export-and-documentation-governance-consolidation.md' in readme
     assert 'stage-22e-deferred-stage19-decision-gate-and-closeout.md' in readme
-    assert 'active post-18/20/21 roadmap and current control baseline' in readme
+    assert 'completed post-18/20/21 roadmap and prior control baseline' in readme
     assert 'completed post-20 roadmap and trust/operationalisation plan' in readme
-    assert 'remains the active Colony Planner product-boundary baseline, but it is no longer the active post-21 roadmap' in readme
+    assert 'active post-22 roadmap and current control baseline' in readme
+    assert 'stage-23-roadmap.md' in readme
 
-    assert 'Stage 22 is now the active post-21 control document' in stage17p
+    assert 'docs/colonisation-redesign/stage-23-roadmap.md' in stage17p
     assert 'docs/colonisation-redesign/stage-22-roadmap.md' in stage17p
     assert 'The next meaningful work should begin from Stage 22A' in stage21_closeout
 

@@ -175,12 +175,17 @@ function warehousePlannerEvidenceResponse(
     evidence_summary: {
       availability: 'report_only',
       report_only: true,
-      manual_review_required: false,
+      manual_review_required: true,
       items: [
         {
           label: 'report_only',
-          source: 'warehouse_report_only',
-          summary: 'Warehouse reconciliation evidence is available for this system as report-only context.',
+          source: 'canonical',
+          summary: 'Canonical app data for Workspace System includes 2 bodies and 1 stations.',
+        },
+        {
+          label: 'needs_review',
+          source: 'observed',
+          summary: 'Observed evidence includes 3 persisted facts; latest observed at 2026-06-18T09:30:00Z.',
         },
       ],
     },
@@ -444,7 +449,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(await screen.findByTestId('raven-real-telemetry-panel')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
-    expect(await screen.findByText(/Warehouse reconciliation evidence is available/i)).toBeTruthy();
+    expect(await screen.findByText(/Canonical app data for Workspace System includes 2 bodies and 1 stations\./i)).toBeTruthy();
+    expect(await screen.findByText(/Observed evidence includes 3 persisted facts/i)).toBeTruthy();
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
     expect(mockedGetProvenanceCockpit).not.toHaveBeenCalled();
     expect(screen.getByTestId('workspace-economy-ledger')).toBeTruthy();

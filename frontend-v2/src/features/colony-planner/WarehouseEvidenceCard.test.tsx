@@ -18,7 +18,7 @@ describe('WarehouseEvidenceCard', () => {
     const card = screen.getByTestId('planner-warehouse-evidence');
     expect(card).toBeTruthy();
     const unavailable = within(card).getByTestId('warehouse-evidence-unavailable');
-    expect(unavailable.textContent).toContain('No warehouse evidence artifact is available.');
+    expect(unavailable.textContent).toContain('No per-system planner evidence is available.');
     expect(screen.getByTestId('warehouse-evidence-freshness-unknown').textContent).toMatch(/unknown freshness/i);
     expect(screen.getByTestId('warehouse-evidence-source-posture-unknown').textContent).toMatch(/unknown source path/i);
     expect(screen.getByTestId('warehouse-evidence-review-status').textContent).toContain('Passive review only');
@@ -39,11 +39,11 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.queryByTestId('warehouse-evidence-item')).toBeNull();
   });
 
-  it('always states that the planner uses canonical data and warehouse evidence is report-only', () => {
+  it('always states that the planner uses canonical data and the evidence panel is report-only', () => {
     render(<WarehouseEvidenceCard />);
 
     expect(screen.getByTestId('warehouse-evidence-source-boundary').textContent).toBe(
-      'Planner is using canonical data; warehouse evidence is report-only.',
+      'Planner is using canonical data; this evidence panel is report-only.',
     );
     expect(screen.getByTestId('warehouse-evidence-report-only-tag').textContent).toMatch(/report-only/i);
   });
@@ -82,6 +82,37 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-source-posture-dedicated_contract').textContent).toMatch(/dedicated contract/i);
     expect(screen.getByTestId('warehouse-evidence-source-run').textContent).toContain('warehouse_reconciliation');
     expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
+  });
+
+  it('renders live canonical and observed findings without claiming warehouse-only scope', () => {
+    const evidence: PlannerWarehouseEvidence = {
+      availability: 'report_only',
+      reportOnly: true,
+      freshnessStatus: 'not_evaluated',
+      evaluatedAt: '2026-06-18T09:30:00Z',
+      manualReviewRequired: true,
+      sourceName: 'warehouse_reconciliation',
+      runKey: 'warehouse/run-20260618.json',
+      sourcePosture: 'dedicated_contract',
+      items: [
+        {
+          label: 'report_only',
+          source: 'canonical',
+          summary: 'Canonical app data for Lave includes 4 bodies and 2 stations; 1 local station-body links are matched.',
+        },
+        {
+          label: 'needs_review',
+          source: 'observed',
+          summary: 'Observed evidence includes 3 persisted facts across service_presence:2, economy:1; latest observed at 2026-06-18T09:30:00Z.',
+        },
+      ],
+    };
+    render(<WarehouseEvidenceCard evidence={evidence} />);
+
+    expect(screen.getByText('Planner evidence')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-source-canonical')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-source-observed')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-source-boundary').textContent).not.toMatch(/warehouse evidence is report-only/i);
   });
 
   it('renders not-evaluated freshness without implying fresh evidence', () => {

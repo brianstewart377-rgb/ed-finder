@@ -42,10 +42,10 @@ def test_stage22b_authority_records_planner_evidence_hardening_completion():
     stage22b = authority['stage22b']
 
     assert STAGE22B_PATH.exists()
-    assert stage22['current_checkpoint'] == 'Stage 22B - Current-state planner/evidence simplification'
-    assert stage22['next_checkpoint'] == 'Stage 22C - Operator artifact review and audit surfaces'
     assert stage22['stage22a_control_reset_completed'] is True
     assert stage22['stage22b_planner_evidence_simplification_completed'] is True
+    assert stage22['current_checkpoint'] == 'Stage 22E - Deferred Stage 19 decision gate and closeout'
+    assert stage22['stage22_closed'] is True
 
     assert stage22b['status'] == 'completed'
     assert stage22b['checkpoint_type'] == 'planner_evidence_hardening'

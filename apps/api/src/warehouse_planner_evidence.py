@@ -13,6 +13,7 @@ from warehouse_planner_evidence_models import (
     WarehousePlannerEvidenceSourceRun,
     WarehousePlannerEvidenceSummary,
 )
+from warehouse_planner_evidence_provider import LivePlannerEvidenceResult
 
 
 SCHEMA_VERSION = 'warehouse_planner_evidence/v1'
@@ -57,7 +58,11 @@ DEVELOPMENT_FIXTURE_SYSTEMS: dict[int, dict[str, Any]] = {
 }
 
 
-def build_warehouse_planner_evidence(id64: int) -> WarehousePlannerEvidenceContract:
+def build_warehouse_planner_evidence(
+    id64: int,
+    *,
+    live_result: LivePlannerEvidenceResult | None = None,
+) -> WarehousePlannerEvidenceContract:
     warehouse_status = read_warehouse_status_snapshot(settings.enrichment_warehouse_status_json_path)
     fixture = resolve_runtime_warehouse_fixture(id64)
 
@@ -68,15 +73,42 @@ def build_warehouse_planner_evidence(id64: int) -> WarehousePlannerEvidenceContr
     )
 
     freshness = WarehousePlannerEvidenceFreshness(
-        status=_freshness_status(warehouse_status, fixture),
-        evaluated_at=_evaluated_at(generated_at, fixture),
+        status=_freshness_status(warehouse_status, fixture, live_result),
+        evaluated_at=_evaluated_at(generated_at, fixture, live_result),
     )
     source_run = WarehousePlannerEvidenceSourceRun(
         source_name='warehouse_reconciliation' if _source_run_key(warehouse_status) else None,
         run_key=_source_run_key(warehouse_status),
     )
 
-    if fixture is None:
+    if fixture is not None:
+        return WarehousePlannerEvidenceContract(
+            schema_version=SCHEMA_VERSION,
+            system_id64=id64,
+            generated_at=_text_or_none(fixture.get('generated_at')) or generated_at,
+            freshness=freshness,
+            source_run=source_run,
+            evidence_summary=WarehousePlannerEvidenceSummary(
+                availability='report_only',
+                report_only=True,
+                manual_review_required=bool(fixture.get('manual_review_required')),
+                items=[
+                    WarehousePlannerEvidenceItem(
+                        label=item['label'],
+                        source=item['source'],
+                        summary=item['summary'],
+                    )
+                    for item in fixture.get('items', [])
+                ],
+            ),
+            warnings=[
+                'Development fixture evidence is enabled for this system; treat it as non-live example data.',
+                *(_safe_rows(fixture.get('warnings'))),
+                *(_fallback_warnings(warehouse_status) if warehouse_status.get('available') is False else []),
+            ][:8],
+        )
+
+    if live_result is not None:
         return WarehousePlannerEvidenceContract(
             schema_version=SCHEMA_VERSION,
             system_id64=id64,
@@ -84,38 +116,27 @@ def build_warehouse_planner_evidence(id64: int) -> WarehousePlannerEvidenceContr
             freshness=freshness,
             source_run=source_run,
             evidence_summary=WarehousePlannerEvidenceSummary(
-                availability='unavailable',
+                availability=live_result.availability,
                 report_only=True,
-                manual_review_required=warehouse_status.get('available') is True,
-                items=[],
+                manual_review_required=live_result.manual_review_required,
+                items=live_result.items,
             ),
-            warnings=_fallback_warnings(warehouse_status),
+            warnings=live_result.warnings[:8] or _fallback_warnings(warehouse_status),
         )
 
     return WarehousePlannerEvidenceContract(
         schema_version=SCHEMA_VERSION,
         system_id64=id64,
-        generated_at=_text_or_none(fixture.get('generated_at')) or generated_at,
+        generated_at=generated_at,
         freshness=freshness,
         source_run=source_run,
         evidence_summary=WarehousePlannerEvidenceSummary(
-            availability='report_only',
+            availability='unavailable',
             report_only=True,
-            manual_review_required=bool(fixture.get('manual_review_required')),
-            items=[
-                WarehousePlannerEvidenceItem(
-                    label=item['label'],
-                    source=item['source'],
-                    summary=item['summary'],
-                )
-                for item in fixture.get('items', [])
-            ],
+            manual_review_required=warehouse_status.get('available') is True,
+            items=[],
         ),
-        warnings=[
-            'Development fixture evidence is enabled for this system; treat it as non-live example data.',
-            *(_safe_rows(fixture.get('warnings'))),
-            *(_fallback_warnings(warehouse_status) if warehouse_status.get('available') is False else []),
-        ][:8],
+        warnings=_fallback_warnings(warehouse_status),
     )
 
 
@@ -143,9 +164,15 @@ def _fallback_warnings(warehouse_status: Mapping[str, Any]) -> list[str]:
     return warnings[:8]
 
 
-def _freshness_status(warehouse_status: Mapping[str, Any], fixture: Mapping[str, Any] | None) -> str:
+def _freshness_status(
+    warehouse_status: Mapping[str, Any],
+    fixture: Mapping[str, Any] | None,
+    live_result: LivePlannerEvidenceResult | None,
+) -> str:
     evidence_health = _mapping(warehouse_status.get('evidence_health'))
     stale_records = _int_or_none(evidence_health.get('stale_records')) or 0
+    if live_result is not None:
+        return live_result.freshness_status
     if stale_records > 0:
         return 'stale'
     if fixture is not None:
@@ -158,7 +185,13 @@ def _freshness_status(warehouse_status: Mapping[str, Any], fixture: Mapping[str,
     return 'unknown'
 
 
-def _evaluated_at(generated_at: str, fixture: Mapping[str, Any] | None) -> str | None:
+def _evaluated_at(
+    generated_at: str,
+    fixture: Mapping[str, Any] | None,
+    live_result: LivePlannerEvidenceResult | None,
+) -> str | None:
+    if live_result is not None:
+        return live_result.evaluated_at
     if fixture is None:
         return None
     return _text_or_none(fixture.get('generated_at')) or generated_at
