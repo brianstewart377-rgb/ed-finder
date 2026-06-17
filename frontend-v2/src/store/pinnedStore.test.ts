@@ -86,11 +86,14 @@ describe('pinnedStore', () => {
     // jsdom does not implement URL.createObjectURL — stub it for this test.
     const origCreate = URL.createObjectURL;
     const origRevoke = URL.revokeObjectURL;
+    const origClick = HTMLAnchorElement.prototype.click;
     Object.defineProperty(URL, 'createObjectURL', { value: () => 'blob:mock', configurable: true });
     Object.defineProperty(URL, 'revokeObjectURL', { value: () => {},          configurable: true });
+    Object.defineProperty(HTMLAnchorElement.prototype, 'click', { value: () => {}, configurable: true });
     try {
       expect(() => exportPinnedJson([baseEntry])).not.toThrow();
     } finally {
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', { value: origClick, configurable: true });
       Object.defineProperty(URL, 'createObjectURL', { value: origCreate, configurable: true });
       Object.defineProperty(URL, 'revokeObjectURL', { value: origRevoke, configurable: true });
     }
