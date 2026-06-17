@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FacilityTemplate, SimulationSummary, SlotPredictionResponse, SystemDetail } from '@/types/api';
+import type { FacilityTemplate, SimulationSummary, SlotPredictionResponse, SystemDetail, WarehousePlannerEvidenceContract } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
-import { getFacilityTemplates, getProvenanceCockpit, getSimulationSummary, getSlotPredictions } from '@/lib/api';
+import { getFacilityTemplates, getProvenanceCockpit, getSimulationSummary, getSlotPredictions, getWarehousePlannerEvidence } from '@/lib/api';
 import { ColonyPlannerWorkspace } from './ColonyPlannerWorkspace';
 import { useColonyProjectStore } from './colonyProjectStore';
 
@@ -17,6 +17,7 @@ vi.mock('@/lib/api', () => ({
   getProvenanceCockpit: vi.fn(),
   getSimulationSummary: vi.fn(),
   getSlotPredictions: vi.fn(),
+  getWarehousePlannerEvidence: vi.fn(),
 }));
 
 vi.mock('@/features/system-detail/SimulationPreviewPanel', async () => {
@@ -105,6 +106,7 @@ const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
 const mockedGetProvenanceCockpit = vi.mocked(getProvenanceCockpit);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
 const mockedGetSlotPredictions = vi.mocked(getSlotPredictions);
+const mockedGetWarehousePlannerEvidence = vi.mocked(getWarehousePlannerEvidence);
 
 function provenanceResponse() {
   return {
@@ -153,6 +155,38 @@ function provenanceResponse() {
       empty_state_key: null,
     },
   } as const;
+}
+
+function warehousePlannerEvidenceResponse(
+  overrides?: Partial<WarehousePlannerEvidenceContract>,
+): WarehousePlannerEvidenceContract {
+  return {
+    schema_version: 'warehouse_planner_evidence/v1',
+    system_id64: 123,
+    generated_at: '2026-06-17T14:00:00Z',
+    freshness: {
+      status: 'fresh',
+      evaluated_at: '2026-06-17T14:00:00Z',
+    },
+    source_run: {
+      source_name: 'warehouse_reconciliation',
+      run_key: 'warehouse/run-20260617.json',
+    },
+    evidence_summary: {
+      availability: 'report_only',
+      report_only: true,
+      manual_review_required: false,
+      items: [
+        {
+          label: 'report_only',
+          source: 'warehouse_report_only',
+          summary: 'Warehouse reconciliation evidence is available for this system as report-only context.',
+        },
+      ],
+    },
+    warnings: [],
+    ...overrides,
+  };
 }
 
 const system = {
@@ -312,6 +346,7 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
     mockedGetFacilityTemplates.mockResolvedValue(facilityTemplates);
+    mockedGetWarehousePlannerEvidence.mockResolvedValue(warehousePlannerEvidenceResponse() as never);
     mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
     mockedGetSimulationSummary.mockResolvedValue({
       classification: { primary_archetype: 'refinery_industrial' },
@@ -325,6 +360,7 @@ describe('ColonyPlannerWorkspace', () => {
     mockedUseSystemDetail.mockReset();
     mockedSimulationPreviewPanel.mockClear();
     mockedGetFacilityTemplates.mockReset();
+    mockedGetWarehousePlannerEvidence.mockReset();
     mockedGetProvenanceCockpit.mockReset();
     mockedGetSimulationSummary.mockReset();
     mockedGetSlotPredictions.mockReset();
@@ -408,7 +444,9 @@ describe('ColonyPlannerWorkspace', () => {
     expect(await screen.findByTestId('raven-real-telemetry-panel')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
-    expect(await screen.findByText(/Canonical writes planned:\s*0\./)).toBeTruthy();
+    expect(await screen.findByText(/Warehouse reconciliation evidence is available/i)).toBeTruthy();
+    expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
+    expect(mockedGetProvenanceCockpit).not.toHaveBeenCalled();
     expect(screen.getByTestId('workspace-economy-ledger')).toBeTruthy();
     expect(screen.getByTestId('summary-economy-ledger')).toBeTruthy();
     expect(screen.getByRole('region', { name: /Raven-style real planner canvas/i })).toBeTruthy();
@@ -535,6 +573,31 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByText('Observed: Primary Port')).toBeNull();
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
 
+  });
+
+  it('falls back to provenance warehouse evidence when the dedicated endpoint is unavailable', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    mockedGetWarehousePlannerEvidence.mockResolvedValue(warehousePlannerEvidenceResponse({
+      evidence_summary: {
+        availability: 'unavailable',
+        report_only: true,
+        manual_review_required: false,
+        items: [],
+      },
+      warnings: ['No safe per-system warehouse evidence is published for this system yet; planner fallback must remain in place.'],
+    }) as never);
+
+    await renderPlanner();
+
+    expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
+    expect(await screen.findByText(/Canonical writes planned:\s*0\./)).toBeTruthy();
+    expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
+    expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(123);
   });
 
   it('does not render role conflict controls in the default rescue surface', async () => {

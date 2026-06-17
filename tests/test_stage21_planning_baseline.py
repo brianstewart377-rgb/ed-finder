@@ -54,7 +54,7 @@ def test_stage21_authority_prepares_a_post20_control_baseline_without_reopening_
     assert stage21['primary_objective'] == PRIMARY_OBJECTIVE
     assert stage21['first_executable_checkpoint'] == FIRST_CHECKPOINT
     assert stage21['current_checkpoint'] == 'Stage 21 closeout'
-    assert stage21['next_checkpoint'] == 'Stage 18H.3 - Planner integration with fallback warehouse evidence fetch'
+    assert stage21['next_checkpoint'] == 'Stage 18H.4 - Warehouse evidence freshness and review-status UX clarification'
     assert stage21['roadmap'] == 'docs/colonisation-redesign/stage-21-roadmap.md'
     assert stage21['stage20_complete'] is True
     assert stage21['stage21a_roadmap_reconciliation_completed'] is True
