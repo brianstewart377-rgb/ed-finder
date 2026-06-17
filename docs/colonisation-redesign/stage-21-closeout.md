@@ -53,6 +53,14 @@ The Stage 17 and Stage 18 backlog is now reconciled for the current baseline:
   JSON hardening, compact summary tooling, and the `Ready only with strict
   filter` verdict are all in place, while production dry-run and apply remain
   blocked.
+- Stage 18J-P-filter is complete: the strict station-type dry-run eligibility
+  filter, rejection reason distributions, blocked-sample caps, and identity
+  coverage diagnostics are implemented and fail-closed.
+- Stage 18J-P18 is complete for the bounded reviewed batch: `station_external_identity`
+  exists and was loaded in a controlled 20-row reviewed write, the canonical
+  station-type enum gained `Dodec`, and exactly four approved station rows were
+  updated from `Unknown` to their reviewed station types, with no canonical
+  apply performed.
 
 ## Validation
 
@@ -80,6 +88,6 @@ Stage 21 does not authorize:
 
 ## Next Roadmap Position
 
-The next meaningful work should continue from Stage 18J-P-filter — Strict
-Station-Type Dry-Run Filter and the later Stage 18 follow-on path, not by
-reopening already-burned-down Stage 17 backlog items.
+No further Stage 18 production dry-run retries, station-type writes, canonical
+writes, or canonical apply are approved by this closeout. Stage 19 production
+activation remains deferred.

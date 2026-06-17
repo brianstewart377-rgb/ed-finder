@@ -24,7 +24,7 @@ def _json(path: Path):
 def test_stage18jq_follow_on_authority_records_q2_through_q9_and_pfilter_handoff():
     authority = _json(AUTHORITY_PATH)
 
-    assert authority['stage21']['next_checkpoint'] == 'Stage 18J-P-filter - Strict station-type dry-run filter'
+    assert authority['stage21']['next_checkpoint'] is None
 
     assert authority['stage18jq2']['read_only_command_defined'] is True
     assert authority['stage18jq2']['production_connected_command_run'] is False
@@ -77,7 +77,7 @@ def test_stage18jq_follow_on_docs_readme_parity_and_implementation_surfaces_exis
         assert fragment in readme
 
     assert 'Stage 18J-Q2 through Stage 18J-Q9 are complete' in closeout
-    assert 'Stage 18J-P-filter — Strict' in closeout
+    assert 'Stage 18J-P-filter is complete' in closeout
 
     for fragment in (
         'tests/test_stage18jq_production_reconciliation_artifact_readiness.py',

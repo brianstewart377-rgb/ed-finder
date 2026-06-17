@@ -25,7 +25,7 @@ def test_stage18i5_authority_records_boundary_review_and_stage18j_handoff():
     stage18i5 = authority['stage18i5']
 
     assert STAGE18I5_PATH.exists()
-    assert authority['stage21']['next_checkpoint'] == 'Stage 18J-P-filter - Strict station-type dry-run filter'
+    assert authority['stage21']['next_checkpoint'] is None
     assert stage18i5['status'] == 'completed'
     assert stage18i5['checkpoint_type'] == 'boundary_review'
     assert stage18i5['document'] == 'docs/colonisation-redesign/stage-18i5-warehouse-database-boundary-review.md'
