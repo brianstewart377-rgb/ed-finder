@@ -18,6 +18,27 @@ export interface ExportArtifacts {
     closeout_ready: boolean;
     reasons: string[];
   };
+  operatorReview: {
+    ready: boolean;
+    focus_items: string[];
+    safeguards: string[];
+    sections: {
+      planned: boolean;
+      projected: boolean;
+      observed: boolean;
+      inferred: boolean;
+      warehouse: boolean;
+      guardrails: boolean;
+    };
+    references: {
+      system_name: string | null;
+      system_id64: number;
+      source_run_key: string | null;
+      artifact_name: string | null;
+      warehouse_state: string;
+      provenance_warnings: string[];
+    };
+  };
 }
 
 export function buildExportArtifacts({
@@ -66,6 +87,44 @@ export function buildExportArtifacts({
   if (!provenance) reasons.push('Provenance cockpit is unavailable.');
 
   const closeoutReady = reasons.length === 0;
+  const operatorReviewSections = {
+    planned: plannedRows.length > 0,
+    projected: Boolean(previewResult),
+    observed: observedFacts.length > 0,
+    inferred: Boolean(roleReview),
+    warehouse: Boolean(provenance?.evidence_panels.warehouse),
+    guardrails: Boolean(provenance?.guardrails),
+  };
+  const operatorReviewFocusItems = [
+    ...(reasons.length > 0 ? reasons : ['Current planner/export state has no closeout blockers.']),
+    provenance?.evidence_panels.warehouse.state === 'stale'
+      ? 'Warehouse evidence is stale and should be reviewed before operator handoff.'
+      : null,
+    provenance?.warnings?.length
+      ? `Provenance warnings require review (${provenance.warnings.length}).`
+      : null,
+  ].filter((item): item is string => Boolean(item));
+  const operatorReviewSafeguards = [
+    'Read-only export only; no operator commands, DB writes, or scheduler hooks are triggered.',
+    'Planned, projected, observed, inferred, warehouse, and guardrail sections remain separated.',
+    'Private paths, secrets, runtime source files, and operator artifact JSON are excluded from the exported pack.',
+    'Source run references are informational review aids only and do not become planner authority.',
+  ];
+  const operatorReview = {
+    ready: closeoutReady && provenance?.evidence_panels.warehouse.state !== 'stale',
+    focus_items: operatorReviewFocusItems,
+    safeguards: operatorReviewSafeguards,
+    sections: operatorReviewSections,
+    references: {
+      system_name: system.name ?? null,
+      system_id64: system.id64,
+      source_run_key: provenance?.provenance_summary?.latest_source_run_key ?? null,
+      artifact_name: provenance?.evidence_panels?.source_run?.artifact_name ?? null,
+      warehouse_state: provenance?.evidence_panels.warehouse.state ?? 'unknown',
+      provenance_warnings: provenance?.warnings ?? [],
+    },
+  };
+
   const payload = {
     system: {
       id64: system.id64,
@@ -102,6 +161,7 @@ export function buildExportArtifacts({
       closeout_ready: closeoutReady,
       reasons,
     },
+    operator_review: operatorReview,
   };
 
   const markdown = [
@@ -141,6 +201,14 @@ export function buildExportArtifacts({
     `- Ready: ${closeoutReady ? 'yes' : 'no'}`,
     ...(reasons.length > 0 ? reasons.map((reason) => `- ${reason}`) : ['- No blockers']),
     ``,
+    `## Operator review`,
+    `- Review ready: ${operatorReview.ready ? 'yes' : 'no'}`,
+    `- Source run key: ${operatorReview.references.source_run_key ?? 'unknown'}`,
+    `- Artifact reference: ${operatorReview.references.artifact_name ?? 'unknown'}`,
+    `- Warehouse state: ${operatorReview.references.warehouse_state}`,
+    ...operatorReview.focus_items.map((reason) => `- Focus: ${reason}`),
+    ...operatorReview.safeguards.map((item) => `- Safeguard: ${item}`),
+    ``,
     `No private paths, secrets, runtime source files, or operator artifacts are included in this export pack.`,
   ].join('\n');
 
@@ -159,6 +227,7 @@ export function buildExportArtifacts({
       closeout_ready: closeoutReady,
       reasons,
     },
+    operatorReview,
   };
 }
 

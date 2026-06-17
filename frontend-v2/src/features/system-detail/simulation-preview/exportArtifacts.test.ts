@@ -45,14 +45,18 @@ describe('buildExportArtifacts', () => {
     expect(artifacts.markdown).toContain('## Inferred');
     expect(artifacts.markdown).toContain('## Warehouse');
     expect(artifacts.markdown).toContain('## Guardrails');
+    expect(artifacts.markdown).toContain('## Operator review');
     expect(artifacts.json).toContain('"planned"');
     expect(artifacts.json).toContain('"projected"');
     expect(artifacts.json).toContain('"observed"');
     expect(artifacts.json).toContain('"inferred"');
     expect(artifacts.json).toContain('"warehouse"');
+    expect(artifacts.json).toContain('"operator_review"');
     expect(artifacts.csv).toContain('step,facility_template_id,facility_name,body_name,is_primary_port');
     expect(artifacts.csv).toContain('1,orbital_port_small,Orbital Port,Body A,true');
     expect(artifacts.readiness.closeout_ready).toBe(true);
+    expect(artifacts.operatorReview.ready).toBe(true);
+    expect(artifacts.operatorReview.references.warehouse_state).toBe('available');
   });
 
   it('marks closeout as not ready when plan or preview is missing', () => {
@@ -73,5 +77,7 @@ describe('buildExportArtifacts', () => {
     expect(artifacts.readiness.reasons).toContain('Build plan is empty.');
     expect(artifacts.readiness.reasons).toContain('Preview has not been run.');
     expect(artifacts.readiness.reasons).toContain('Provenance cockpit is unavailable.');
+    expect(artifacts.operatorReview.ready).toBe(false);
+    expect(artifacts.operatorReview.focus_items).toContain('Build plan is empty.');
   });
 });

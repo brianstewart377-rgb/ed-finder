@@ -27,8 +27,11 @@ activation, or broad write-capable operator work.
   handling is hardened so runtime fixtures are isolated, selected-system
   evidence stays separate from global authority state, and freshness remains
   conservative.
-- The next recommended checkpoint is `Stage 22C - Operator artifact review and
-  audit surfaces`.
+- Stage 22C is complete: the export workspace now includes explicit operator
+  review and audit surfaces with sanitized references, review focus items,
+  safeguards, and section-coverage checks.
+- The next recommended checkpoint is `Stage 22D - Export and documentation
+  governance consolidation`.
 
 ## Why Stage 22 Exists
 

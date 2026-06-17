@@ -8,19 +8,20 @@ Start here for any new colonisation work:
 
 1. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - active post-18/20/21 roadmap and current control baseline.
 2. [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) - completed Stage 22B planner/provenance/warehouse evidence hardening slice.
-3. [`stage-21-closeout.md`](./stage-21-closeout.md) - Stage 21 completion record and validation summary.
-4. [`stage-21-roadmap.md`](./stage-21-roadmap.md) - completed post-20 roadmap and trust/operationalisation plan.
-5. [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) - Stage 21 progress record showing how Stage 17 and Stage 18 backlog items were burned down or reclassified.
-6. [`stage-20-roadmap.md`](./stage-20-roadmap.md) - completed Stage 20 roadmap and checkpoint plan.
-7. [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) - Stage 20A implementation-contract checkpoint for the first provenance cockpit slice.
-8. [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) - Stage 20B read-only provenance cockpit implementation slice in the Evidence Workspace.
-9. [`stage-20c-map-planning-surface-foundation.md`](./stage-20c-map-planning-surface-foundation.md) - Stage 20C planner map foundation and timeline-layer ownership.
-10. [`stage-20d-planner-sequence-cp-curve-cockpit.md`](./stage-20d-planner-sequence-cp-curve-cockpit.md) - Stage 20D planner sequence and CP tradeoff cockpit.
-11. [`stage-20e-export-operator-pack-closeout-readiness.md`](./stage-20e-export-operator-pack-closeout-readiness.md) - Stage 20 export pack, closeout readiness, and completion record.
-12. [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) - Colony Planner product-boundary baseline and continuing mechanics constraints.
-13. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
-14. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
-15. Specific historical stage docs only when the task directly touches that feature.
+3. [`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) - completed Stage 22C operator artifact review and export audit surface slice.
+4. [`stage-21-closeout.md`](./stage-21-closeout.md) - Stage 21 completion record and validation summary.
+5. [`stage-21-roadmap.md`](./stage-21-roadmap.md) - completed post-20 roadmap and trust/operationalisation plan.
+6. [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) - Stage 21 progress record showing how Stage 17 and Stage 18 backlog items were burned down or reclassified.
+7. [`stage-20-roadmap.md`](./stage-20-roadmap.md) - completed Stage 20 roadmap and checkpoint plan.
+8. [`stage-20a-provenance-cockpit-implementation-contract.md`](./stage-20a-provenance-cockpit-implementation-contract.md) - Stage 20A implementation-contract checkpoint for the first provenance cockpit slice.
+9. [`stage-20b-readonly-evidence-status-surfaces.md`](./stage-20b-readonly-evidence-status-surfaces.md) - Stage 20B read-only provenance cockpit implementation slice in the Evidence Workspace.
+10. [`stage-20c-map-planning-surface-foundation.md`](./stage-20c-map-planning-surface-foundation.md) - Stage 20C planner map foundation and timeline-layer ownership.
+11. [`stage-20d-planner-sequence-cp-curve-cockpit.md`](./stage-20d-planner-sequence-cp-curve-cockpit.md) - Stage 20D planner sequence and CP tradeoff cockpit.
+12. [`stage-20e-export-operator-pack-closeout-readiness.md`](./stage-20e-export-operator-pack-closeout-readiness.md) - Stage 20 export pack, closeout readiness, and completion record.
+13. [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) - Colony Planner product-boundary baseline and continuing mechanics constraints.
+14. [`engine-roadmap.md`](./engine-roadmap.md) - broad engine history and delivered stage summaries.
+15. [`enrichment-roadmap.md`](./enrichment-roadmap.md) - station/body/ring enrichment, warehouse, and operator-roadmap work.
+16. Specific historical stage docs only when the task directly touches that feature.
 
 If an older document's "recommended next stage" conflicts with Stage 17P, follow Stage 17P unless intentionally researching historical context.
 
@@ -29,6 +30,8 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 [`stage-22-roadmap.md`](./stage-22-roadmap.md) is the active post-18/20/21 control document. It resets the active roadmap after the completed Stage 18/20/21 sequence, ranks the next read-only planner/operator-review work, and keeps any future Stage 19 production reactivation as a separate gated decision.
 
 [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) records the completed Stage 22B slice: runtime fixtures are isolated behind explicit dev/test providers, selected-system evidence stays separate from authority/safety state, and freshness is conservative instead of inferred.
+
+[`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) records the completed Stage 22C slice: the export workspace now includes explicit operator-review and audit surfaces with sanitized references, review focus items, safeguards, and section-coverage checks.
 
 [`stage-21-roadmap.md`](./stage-21-roadmap.md) is the completed post-20 control document. It reconciled what remained open after Stage 20, carried forward the unfinished planner trust work, and kept Stage 19 production activation, canonical apply, rebaseline, and scheduler/service work deferred.
 
@@ -84,6 +87,7 @@ It supersedes the old assumption that the project should simply continue from St
 |---|---|---|
 | [`stage-22-roadmap.md`](./stage-22-roadmap.md) | Active Stage 22 control | Post-18/20/21 control reset, current next-lane prioritisation, and preserved deferred-production boundaries. |
 | [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) | Completed Stage 22B implementation record | Records runtime fixture isolation, conservative freshness semantics, and the separation between selected-system evidence and global authority state. |
+| [`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) | Completed Stage 22C implementation record | Records export-workspace operator review focus items, sanitized references, safeguards, and section-coverage checks for artifact inspection. |
 | [`stage-21-roadmap.md`](./stage-21-roadmap.md) | Completed Stage 21 control | Post-20 roadmap reconciliation, trust/operationalisation queue, and preserved deferred-production boundaries. |
 | [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) | Active Stage 21 progress record | Records how Stage 17 planner backlog and Stage 18 warehouse/operator backlog were reduced, reclassified, or marked delivered groundwork. |
 | [`stage-21-closeout.md`](./stage-21-closeout.md) | Completed Stage 21 closeout record | Records Stage 21 completion, validation state, and the live read-only Stage 18H warehouse bridge outcome. |
