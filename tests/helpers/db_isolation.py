@@ -77,7 +77,8 @@ def default_database_url() -> str:
 
 
 def default_target(env: Mapping[str, str] | None = None) -> DbTarget:
-    return validate_test_db_target(default_database_url(), env=env or {}, source='default_test_db')
+    source_env = {} if env is None else env
+    return validate_test_db_target(default_database_url(), env=source_env, source='default_test_db')
 
 
 def target_from_env(
@@ -86,14 +87,14 @@ def target_from_env(
     dsn_env: str = 'DATABASE_URL',
     source: str | None = None,
 ) -> DbTarget:
-    source_env = env or os.environ
+    source_env = os.environ if env is None else env
     if source_env.get(dsn_env):
         return validate_test_db_target(source_env[dsn_env], env=source_env, source=source or dsn_env)
     return target_from_pg_env(source_env, source=source or 'pg_env')
 
 
 def target_from_pg_env(env: Mapping[str, str] | None = None, *, source: str = 'pg_env') -> DbTarget:
-    source_env = env or os.environ
+    source_env = os.environ if env is None else env
     host = _first_text(source_env.get('PGHOST'), DEFAULT_TEST_DB_HOST)
     port = _first_text(source_env.get('PGPORT'), DEFAULT_TEST_DB_PORT)
     database = _first_text(source_env.get('PGDATABASE'), DEFAULT_TEST_DB_NAME)
@@ -116,7 +117,7 @@ def confirmed_target_or_skip(
 ) -> DbTarget:
     import pytest
 
-    source_env = env or os.environ
+    source_env = os.environ if env is None else env
     dsn = source_env.get(dsn_env)
     confirmed = source_env.get(confirm_env) == 'yes'
     if not dsn or not confirmed:
@@ -133,7 +134,7 @@ def validate_test_db_target(
     env: Mapping[str, str] | None = None,
     source: str = 'dsn',
 ) -> DbTarget:
-    source_env = env or os.environ
+    source_env = os.environ if env is None else env
     parsed = parse_dsn(dsn)
     host = _first_text(parsed.get('host'), '')
     port = _first_text(parsed.get('port'), DEFAULT_TEST_DB_PORT)
@@ -217,7 +218,7 @@ def redact_dsn(dsn: str) -> str:
 
 
 def require_destructive_reset_opt_in(env: Mapping[str, str] | None = None) -> None:
-    source_env = env or os.environ
+    source_env = os.environ if env is None else env
     if source_env.get(DESTRUCTIVE_RESET_OPT_IN_ENV) == 'yes':
         return
     if source_env.get('CI') == 'true':
@@ -268,7 +269,7 @@ def rollback_transaction(
 
 
 def host_5432_is_allowed(env: Mapping[str, str] | None = None) -> bool:
-    source_env = env or os.environ
+    source_env = os.environ if env is None else env
     return source_env.get(HOST_5432_OPT_IN_ENV) == 'yes' or source_env.get('CI') == 'true'
 
 

@@ -78,6 +78,103 @@ def test_destructive_reset_requires_explicit_opt_in():
     })
 
 
+def test_explicit_empty_env_does_not_inherit_ambient_ci(monkeypatch):
+    monkeypatch.setenv('CI', 'true')
+
+    with pytest.raises(db_isolation.DbIsolationError, match='localhost:5432'):
+        db_isolation.validate_test_db_target(
+            'postgresql://edfinder:secret@127.0.0.1:5432/edfinder',
+            env={},
+        )
+
+    assert db_isolation.host_5432_is_allowed({}) is False
+
+
+def test_explicit_empty_env_does_not_inherit_ambient_destructive_reset_opt_in(monkeypatch):
+    monkeypatch.setenv(db_isolation.DESTRUCTIVE_RESET_OPT_IN_ENV, 'yes')
+
+    with pytest.raises(db_isolation.DbIsolationError, match='destructive reset requires'):
+        db_isolation.require_destructive_reset_opt_in({})
+
+
+def test_explicit_ci_mapping_preserves_documented_ci_behavior():
+    target = db_isolation.validate_test_db_target(
+        'postgresql://edfinder:secret@127.0.0.1:5432/edfinder',
+        env={'CI': 'true'},
+    )
+
+    assert target.host_postgres_5432_targeted is True
+    assert target.host_5432_allowed is True
+    assert db_isolation.host_5432_is_allowed({'CI': 'true'}) is True
+
+
+def test_custom_mapping_does_not_inherit_unrelated_ambient_values(monkeypatch):
+    monkeypatch.setenv('CI', 'true')
+    monkeypatch.setenv(db_isolation.HOST_5432_OPT_IN_ENV, 'yes')
+    monkeypatch.setenv(db_isolation.DESTRUCTIVE_RESET_OPT_IN_ENV, 'yes')
+
+    with pytest.raises(db_isolation.DbIsolationError, match='localhost:5432'):
+        db_isolation.validate_test_db_target(
+            'postgresql://edfinder:secret@127.0.0.1:5432/edfinder',
+            env={'UNRELATED': '1'},
+        )
+
+    with pytest.raises(db_isolation.DbIsolationError, match='destructive reset requires'):
+        db_isolation.require_destructive_reset_opt_in({'UNRELATED': '1'})
+
+    assert db_isolation.host_5432_is_allowed({'UNRELATED': '1'}) is False
+
+
+def test_none_env_still_uses_ambient_environment(monkeypatch):
+    monkeypatch.setenv('CI', 'true')
+    monkeypatch.delenv(db_isolation.HOST_5432_OPT_IN_ENV, raising=False)
+
+    target = db_isolation.validate_test_db_target(
+        'postgresql://edfinder:secret@localhost:5432/edfinder',
+        env=None,
+    )
+
+    assert target.host_postgres_5432_targeted is True
+    assert target.host_5432_allowed is True
+    assert db_isolation.host_5432_is_allowed(None) is True
+
+
+def test_none_env_uses_ambient_destructive_reset_opt_in(monkeypatch):
+    monkeypatch.setenv(db_isolation.DESTRUCTIVE_RESET_OPT_IN_ENV, 'yes')
+    db_isolation.require_destructive_reset_opt_in(None)
+
+
+def test_target_from_env_and_pg_env_respect_explicit_empty_mapping(monkeypatch):
+    monkeypatch.setenv('DATABASE_URL', 'postgresql://edfinder:secret@localhost:5432/edfinder')
+    monkeypatch.setenv('PGHOST', 'localhost')
+    monkeypatch.setenv('PGPORT', '5432')
+    monkeypatch.setenv('PGDATABASE', 'edfinder')
+    monkeypatch.setenv('PGUSER', 'edfinder')
+    monkeypatch.setenv('PGPASSWORD', 'secret')
+    monkeypatch.setenv('CI', 'true')
+
+    target = db_isolation.target_from_env({})
+    assert target.host == '127.0.0.1'
+    assert target.port == '55432'
+    assert target.host_5432_allowed is False
+
+    target = db_isolation.target_from_pg_env({})
+    assert target.host == '127.0.0.1'
+    assert target.port == '55432'
+    assert target.host_5432_allowed is False
+
+
+def test_default_target_remains_isolated_from_ambient_ci(monkeypatch):
+    monkeypatch.setenv('CI', 'true')
+
+    target = db_isolation.default_target()
+
+    assert target.host == '127.0.0.1'
+    assert target.port == '55432'
+    assert target.host_postgres_5432_targeted is False
+    assert target.host_5432_allowed is False
+
+
 def test_safe_schema_names_are_generated_and_validated():
     schema = db_isolation.safe_schema_name('Stage 19 AR', token='abc123')
 
