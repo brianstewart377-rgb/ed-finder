@@ -75,6 +75,12 @@ def test_stage18h2_backend_builder_returns_report_only_and_safe_unavailable_stat
             'warnings': [],
         },
     )
+    fixtures = backend.DEVELOPMENT_FIXTURE_SYSTEMS
+    monkeypatch.setattr(
+        backend,
+        'resolve_runtime_warehouse_fixture',
+        lambda id64: fixtures.get(id64),
+    )
 
     available = backend.build_warehouse_planner_evidence(12866676218109)
     stale = backend.build_warehouse_planner_evidence(9466842275401)
@@ -83,12 +89,14 @@ def test_stage18h2_backend_builder_returns_report_only_and_safe_unavailable_stat
     assert available.schema_version == 'warehouse_planner_evidence/v1'
     assert available.system_id64 == 12866676218109
     assert available.freshness.status == 'fresh'
+    assert available.freshness.evaluated_at == '2026-06-17T12:00:00Z'
     assert available.source_run.source_name == 'warehouse_reconciliation'
     assert available.source_run.run_key == 'warehouse/run-20260617.json'
     assert available.evidence_summary.availability == 'report_only'
     assert available.evidence_summary.report_only is True
     assert available.evidence_summary.manual_review_required is False
     assert available.evidence_summary.items
+    assert any('non-live example data' in warning.lower() for warning in available.warnings)
 
     assert stale.evidence_summary.availability == 'report_only'
     assert stale.evidence_summary.manual_review_required is True
@@ -97,7 +105,10 @@ def test_stage18h2_backend_builder_returns_report_only_and_safe_unavailable_stat
 
     assert fallback.evidence_summary.availability == 'unavailable'
     assert fallback.evidence_summary.report_only is True
+    assert fallback.evidence_summary.manual_review_required is True
     assert fallback.evidence_summary.items == []
+    assert fallback.freshness.status == 'not_evaluated'
+    assert fallback.freshness.evaluated_at is None
     assert any('fallback' in warning.lower() for warning in fallback.warnings)
 
 

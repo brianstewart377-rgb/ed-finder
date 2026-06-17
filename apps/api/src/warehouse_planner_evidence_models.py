@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 WarehouseEvidenceSource = Literal['canonical', 'observed', 'warehouse_report_only', 'unknown']
 WarehouseEvidenceAvailability = Literal['unavailable', 'report_only']
 WarehouseEvidenceLabel = Literal['report_only', 'needs_review', 'verify', 'unresolved', 'stale', 'blocked', 'unknown']
-WarehouseEvidenceFreshnessStatus = Literal['fresh', 'stale', 'unknown']
+WarehouseEvidenceFreshnessStatus = Literal['fresh', 'stale', 'unknown', 'not_evaluated']
 
 
 class WarehousePlannerEvidenceItem(BaseModel):

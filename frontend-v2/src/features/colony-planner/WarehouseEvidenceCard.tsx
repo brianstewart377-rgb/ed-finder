@@ -53,6 +53,7 @@ const FRESHNESS_LABEL: Record<WarehousePlannerEvidenceFreshnessStatus, string> =
   fresh: 'Fresh',
   stale: 'Stale',
   unknown: 'Unknown freshness',
+  not_evaluated: 'Not evaluated',
 };
 
 const SOURCE_POSTURE_LABEL: Record<NonNullable<PlannerWarehouseEvidence['sourcePosture']>, string> = {

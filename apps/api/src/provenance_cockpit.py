@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+from functools import lru_cache
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,14 +23,21 @@ from provenance_cockpit_models import (
 ROOT = Path(__file__).resolve().parents[3]
 AUTHORITY_PATH = ROOT / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
 SCHEMA_VERSION = 'stage20a_provenance_cockpit/v1'
+DEV_FIXTURE_ENV = 'ED_FINDER_ENABLE_PLANNER_EVIDENCE_DEV_FIXTURES'
 
-FIXTURE_SYSTEMS: dict[int, dict[str, Any]] = {
+DEVELOPMENT_FIXTURE_SYSTEMS: dict[int, dict[str, Any]] = {
     12866676218109: {
         'name': 'Shinrarta Dezhra',
         'primary_archetype': 'refinery_industrial',
         'summary_state': 'available',
         'warehouse_state': 'available',
         'planner_state': 'available',
+        'source_run_state': 'available',
+        'source_name': 'edsm',
+        'rows_read': 250,
+        'rows_staged': 250,
+        'artifact_name': 'provenance-cockpit-dev-fixture.json',
+        'latest_source_run_key': 'dev-fixture/warehouse-planner-evidence-shinrarta',
         'planner_observed_facts_count': 3,
         'planner_projected_build_count': 1,
         'planner_manual_review_required': True,
@@ -41,6 +51,12 @@ FIXTURE_SYSTEMS: dict[int, dict[str, Any]] = {
         'summary_state': 'stale',
         'warehouse_state': 'stale',
         'planner_state': 'available',
+        'source_run_state': 'available',
+        'source_name': 'edsm',
+        'rows_read': 250,
+        'rows_staged': 250,
+        'artifact_name': 'provenance-cockpit-dev-fixture.json',
+        'latest_source_run_key': 'dev-fixture/warehouse-planner-evidence-lave',
         'planner_observed_facts_count': 1,
         'planner_projected_build_count': 0,
         'planner_manual_review_required': True,
@@ -54,11 +70,11 @@ FIXTURE_SYSTEMS: dict[int, dict[str, Any]] = {
 
 
 def build_provenance_cockpit(id64: int) -> ProvenanceCockpitResponse:
-    authority = _load_authority()
-    stage20 = _mapping(authority.get('stage20'))
-    stage19av_proof = _mapping(_mapping(authority.get('stage19ay_test_environment_closeout')).get('stage19av_proof'))
+    authority, authority_warning = _load_authority_snapshot()
+    current_safety_state = _current_safety_state(authority)
+    fixture = resolve_runtime_provenance_fixture(id64)
+    warnings = _safe_warning_rows([authority_warning])
 
-    fixture = FIXTURE_SYSTEMS.get(id64)
     if fixture is None:
         return ProvenanceCockpitResponse(
             schema_version=SCHEMA_VERSION,
@@ -94,9 +110,10 @@ def build_provenance_cockpit(id64: int) -> ProvenanceCockpitResponse:
                     manual_review_required=True,
                 ),
             ),
-            guardrails=_guardrails(stage20),
+            guardrails=_guardrails(current_safety_state),
             warnings=[
                 'No provenance artifact is configured for this system yet; unknown values remain unknown.',
+                *warnings,
             ],
             ui_hints=UiHints(
                 severity='neutral',
@@ -113,17 +130,17 @@ def build_provenance_cockpit(id64: int) -> ProvenanceCockpitResponse:
         ),
         provenance_summary=ProvenanceSummary(
             state=fixture['summary_state'],
-            latest_source_run_key=_text_or_none(stage19av_proof.get('source_run_key')),
+            latest_source_run_key=_text_or_none(fixture.get('latest_source_run_key')),
             warehouse_state=fixture['warehouse_state'],
             planner_evidence_state=fixture['planner_state'],
         ),
         evidence_panels=EvidencePanels(
             source_run=SourceRunEvidencePanel(
-                state='available',
-                source_name='edsm',
-                rows_read=_int_or_none(stage19av_proof.get('rows_read')),
-                rows_staged=_int_or_none(stage19av_proof.get('rows_staged')),
-                artifact_name=_basename(stage19av_proof.get('artifact_path')),
+                state=_text_or_none(fixture.get('source_run_state')) or 'unknown',
+                source_name=_text_or_none(fixture.get('source_name')),
+                rows_read=_int_or_none(fixture.get('rows_read')),
+                rows_staged=_int_or_none(fixture.get('rows_staged')),
+                artifact_name=_text_or_none(fixture.get('artifact_name')),
             ),
             warehouse=WarehouseEvidencePanel(
                 state=fixture['warehouse_state'],
@@ -138,8 +155,12 @@ def build_provenance_cockpit(id64: int) -> ProvenanceCockpitResponse:
                 manual_review_required=fixture['planner_manual_review_required'],
             ),
         ),
-        guardrails=_guardrails(stage20),
-        warnings=list(fixture['warnings']),
+        guardrails=_guardrails(current_safety_state),
+        warnings=[
+            'Development fixture evidence is enabled for this system; treat it as non-live example data.',
+            *_safe_warning_rows(fixture.get('warnings')),
+            *warnings,
+        ],
         ui_hints=UiHints(
             severity=fixture['severity'],
             empty_state_key=None,
@@ -149,7 +170,7 @@ def build_provenance_cockpit(id64: int) -> ProvenanceCockpitResponse:
 
 def _guardrails(stage20: Mapping[str, Any]) -> GuardrailsSummary:
     return GuardrailsSummary(
-        stage19_paused=bool(stage20.get('stage19_remains_paused')),
+        stage19_paused=_bool_or_default(stage20.get('stage19_remains_paused'), True),
         stage19_production_activation_complete=bool(stage20.get('stage19_production_activation_complete')),
         next_stage19_write_lane_authorized=bool(stage20.get('next_stage19_write_lane_authorized')),
         canonical_apply_complete=bool(stage20.get('canonical_apply_complete')),
@@ -160,12 +181,37 @@ def _guardrails(stage20: Mapping[str, Any]) -> GuardrailsSummary:
     )
 
 
-def _load_authority() -> dict[str, Any]:
-    return json.loads(AUTHORITY_PATH.read_text(encoding='utf-8'))
+def resolve_runtime_provenance_fixture(id64: int) -> Mapping[str, Any] | None:
+    if os.getenv(DEV_FIXTURE_ENV) != '1':
+        return None
+    fixture = DEVELOPMENT_FIXTURE_SYSTEMS.get(id64)
+    return fixture if isinstance(fixture, Mapping) else None
+
+
+@lru_cache(maxsize=1)
+def _load_authority_snapshot() -> tuple[dict[str, Any], str | None]:
+    try:
+        return json.loads(AUTHORITY_PATH.read_text(encoding='utf-8')), None
+    except FileNotFoundError:
+        return {}, 'Current authority snapshot is unavailable; global safety status is shown conservatively.'
+    except JSONDecodeError:
+        return {}, 'Current authority snapshot is malformed; global safety status is shown conservatively.'
+
+
+def _current_safety_state(authority: Mapping[str, Any]) -> Mapping[str, Any]:
+    for key in ('stage22', 'stage21', 'stage20'):
+        value = authority.get(key)
+        if isinstance(value, Mapping):
+            return value
+    return {}
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _bool_or_default(value: Any, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -176,6 +222,9 @@ def _text_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _basename(value: Any) -> str | None:
+def _safe_warning_rows(value: Any) -> list[str]:
+    if isinstance(value, list):
+        rows = [_text_or_none(item) for item in value]
+        return [row for row in rows if row]
     text = _text_or_none(value)
-    return Path(text).name if text else None
+    return [text] if text else []

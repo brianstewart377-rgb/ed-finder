@@ -118,7 +118,7 @@ describe('ProvenanceCockpitPanel — Stage 20B read-only evidence and status sur
     expect(screen.getByText('Live observations API')).toBeTruthy();
     expect(screen.getByText('Projected builds')).toBeTruthy();
     expect(screen.getByTestId('planner-warehouse-evidence')).toBeTruthy();
-    const guardrails = screen.getByLabelText('Provenance guardrails');
+    const guardrails = screen.getByLabelText('Authority safety status');
     expect(within(guardrails).getByText('Stage 19 paused')).toBeTruthy();
     expect(within(guardrails).getByText('DB writes authorized')).toBeTruthy();
     await waitFor(() => expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(12866676218109));
@@ -178,7 +178,8 @@ describe('ProvenanceCockpitPanel — Stage 20B read-only evidence and status sur
     const warnings = await screen.findByLabelText('Provenance warnings');
     expect(within(warnings).getByText(/Warehouse freshness is stale/)).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-label-stale')).toBeTruthy();
-    expect(screen.getByText(/DB writes remain unauthorized in this checkpoint/)).toBeTruthy();
+    expect(screen.queryByText(/DB writes remain unauthorized in this checkpoint/)).toBeNull();
+    expect(screen.getByTestId('warehouse-evidence-freshness-stale')).toBeTruthy();
   });
 
   it('shows loading then the unknown state without collapsing it to success', async () => {
@@ -245,7 +246,7 @@ describe('ProvenanceCockpitPanel — Stage 20B read-only evidence and status sur
       }),
     );
 
-    expect(await screen.findByText(/No provenance artifact is configured/)).toBeTruthy();
+    expect((await screen.findAllByText(/No provenance artifact is configured/)).length).toBeGreaterThan(0);
     expect(screen.getAllByText('unknown').length).toBeGreaterThan(0);
     expect(screen.getByText('ID64 2293822313194')).toBeTruthy();
     expect(screen.getByText('2')).toBeTruthy();
