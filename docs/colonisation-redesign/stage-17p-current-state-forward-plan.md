@@ -48,12 +48,14 @@ Current merged direction, based on the latest roadmap trail:
 Use this order before starting new colonisation work:
 
 1. `docs/colonisation-redesign/README.md`
-2. `docs/colonisation-redesign/stage-22-roadmap.md`
-3. This file.
-4. `docs/colonisation-redesign/engine-roadmap.md` for broad engine history and delivered stage summaries.
-5. `docs/colonisation-redesign/enrichment-roadmap.md` for station/body/ring enrichment, warehouse, and operator-roadmap work.
-6. Specific stage docs only when they directly apply to the task.
-7. For mechanics-heavy or source-sensitive work, read `docs/reference/colonisation/README.md`, `docs/reference/colonisation/source-priority.md`, and `docs/reference/colonisation/source-inventory.md`.
+2. `docs/colonisation-redesign/stage-23-roadmap.md`
+3. `docs/colonisation-redesign/stage-23a-first-live-per-system-evidence-provider.md`
+4. `docs/colonisation-redesign/stage-22-roadmap.md`
+5. This file.
+6. `docs/colonisation-redesign/engine-roadmap.md` for broad engine history and delivered stage summaries.
+7. `docs/colonisation-redesign/enrichment-roadmap.md` for station/body/ring enrichment, warehouse, and operator-roadmap work.
+8. Specific stage docs only when they directly apply to the task.
+9. For mechanics-heavy or source-sensitive work, read `docs/reference/colonisation/README.md`, `docs/reference/colonisation/source-priority.md`, and `docs/reference/colonisation/source-inventory.md`.
 
 If this file conflicts with an older "recommended next stage" section, treat this file as newer planning control unless the older doc is being used only for historical context.
 

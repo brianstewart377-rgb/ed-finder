@@ -8,16 +8,16 @@ import type {
 /**
  * Stage 18H — Warehouse-to-Planner Evidence Bridge (read-only).
  *
- * A compact, presentation-only card that surfaces carefully selected warehouse
- * / report-only evidence context inside the Colony Planner. It is EVIDENCE,
- * NOT TRUTH.
+ * A compact, presentation-only card that surfaces carefully selected
+ * source-labelled planner evidence context inside the Colony Planner. It is
+ * EVIDENCE, NOT TRUTH.
  *
  * Hard boundaries (see
  * `docs/colonisation-redesign/stage-18h-warehouse-planner-evidence-bridge.md`):
  *   - Read-only. No callbacks, no controls, no fetch, no mutation of planner
  *     state, Build Plans, roles, observed evidence, validation, scoring,
  *     Simulation Preview, optimiser output, or canonical data.
- *   - The planner always runs on canonical data; warehouse evidence is
+ *   - The planner always runs on canonical data; this evidence panel is
  *     report-only and source-labelled.
  *   - When no evidence summary is supplied (the default today, because the
  *     Stage 18G artifact is admin-gated and aggregate-only with no per-system
@@ -75,12 +75,12 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
   return (
     <aside
       data-testid="planner-warehouse-evidence"
-      aria-label="Warehouse evidence (report-only)"
+      aria-label="Planner evidence (report-only)"
       className="panel-thin p-3 font-mono text-[11px] text-silver-dk space-y-2"
     >
       <div className="flex items-center gap-2">
         <span className="font-display tracking-[0.14em] text-orange-lt text-xs">
-          Warehouse evidence
+          Planner evidence
         </span>
         <span
           data-testid="warehouse-evidence-report-only-tag"
@@ -94,7 +94,7 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
         data-testid="warehouse-evidence-source-boundary"
         className="leading-snug text-text-dim"
       >
-        Planner is using canonical data; warehouse evidence is report-only.
+        Planner is using canonical data; this evidence panel is report-only.
       </p>
 
       <div data-testid="warehouse-evidence-metadata" className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-[10px] text-text-dim">
@@ -126,7 +126,7 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
           className="flex items-center gap-2"
         >
           <SourceBadge source="unknown" />
-          <span>No warehouse evidence artifact is available.</span>
+          <span>No per-system planner evidence is available.</span>
         </div>
       ) : (
         <ul data-testid="warehouse-evidence-items" className="space-y-1.5">

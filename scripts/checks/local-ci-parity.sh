@@ -118,6 +118,8 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage22c_operator_artifact_review_surfaces.py \
     tests/test_stage22d_export_documentation_governance.py \
     tests/test_stage22e_deferred_stage19_decision_gate_closeout.py \
+    tests/test_stage23_planning_baseline.py \
+    tests/test_stage23a_live_per_system_evidence.py \
     tests/test_station_type_canonical_pilot.py \
     tests/test_enrichment_staging_db_loader.py \
     tests/test_enrichment_staging_reconciliation.py \
