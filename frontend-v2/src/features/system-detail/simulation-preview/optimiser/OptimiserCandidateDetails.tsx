@@ -8,7 +8,7 @@ import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { OptimiserComparisonPanel, compareBuildSources, sourceFromCurrentPreview, sourceFromOptimiserCandidate } from './comparison';
 import { formatScore, rankTone, strategyLabel } from './optimiserUtils';
 import { suggestedBuildPresentation } from './optimiserQualityUtils';
-import type { SuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
+import { buildSuggestedBuildAdvisorHighlights, type SuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
 
 export function OptimiserCandidateDetails({
   candidate,
@@ -90,6 +90,7 @@ export function OptimiserCandidateDetails({
     })),
     templates,
   });
+  const advisorHighlights = advisor ? buildSuggestedBuildAdvisorHighlights(advisor) : [];
 
   const requestLoad = () => {
     if (!onLoadCandidate) return;
@@ -146,6 +147,9 @@ export function OptimiserCandidateDetails({
         <SummaryBox title="Why suggested" body={presentation.reason} />
         <SummaryBox title="Tradeoff" body={presentation.tradeoff} />
         <SummaryBox title="Next action" body={presentation.nextAction} />
+        {advisorHighlights.length > 0 && (
+          <SummaryBox title="Review focus" body={advisorHighlights.join(' · ')} />
+        )}
       </div>
 
       {advisor && <StrategyAdvisorSection advisor={advisor} />}

@@ -6,6 +6,27 @@ state, Build Plans, scoring, CP, economy/service, buildability, Simulation
 Preview, optimiser output, roles, observed evidence, validation, or canonical
 data.
 
+## Current State
+
+Stage 18H no longer sits only in a placeholder state.
+
+The planner now has a live, read-only warehouse bridge through the sanitized
+provenance cockpit route:
+
+- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+- `frontend-v2/src/features/colony-planner/warehouseEvidenceBridge.ts`
+- `frontend-v2/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
+
+This bridge reuses the existing non-admin provenance cockpit endpoint and
+surfaces warehouse status as report-only evidence inside the main planner
+workspace. It does not mutate Build Plans, roles, scoring, Preview,
+optimisation, or canonical data.
+
+What it still does **not** claim is a dedicated per-system warehouse artifact
+contract. The bridge remains conservative: it surfaces sanitized warehouse
+status already approved for the provenance cockpit rather than inventing a new
+artifact join.
+
 ## Decision Gate Outcome
 
 Stage 18H reached the architectural decision gate defined in the stage brief and
@@ -40,13 +61,17 @@ Therefore Stage 18H implements:
 - a typed, read-only planner evidence model (`PlannerWarehouseEvidence`),
 - a compact, pure, read-only planner card that **defaults to a safe
   unavailable/report-only state**,
+- a shared mapper from provenance cockpit warehouse status into the planner
+  evidence model,
+- a live planner-workspace bridge that reuses the sanitized provenance cockpit
+  route,
 - tests proving the unavailable state, the source-labelled report-only labels,
   the stale/risky/blocked wording, source separation, and the absence of any
   mutation, and
 - this design document plus a clear future integration path.
 
-It does **not** add a planner-facing warehouse API endpoint, does not fetch any
-data, and does not link warehouse evidence to a specific system, because no safe
+It does **not** add a new dedicated planner-facing warehouse API endpoint and
+does not claim a true per-system warehouse artifact link, because no safe
 per-system artifact contract exists yet.
 
 ## What the Planner Card Shows
@@ -57,11 +82,12 @@ an optional `evidence?: PlannerWarehouseEvidence` prop and renders:
 
 - A persistent source-boundary line:
   *"Planner is using canonical data; warehouse evidence is report-only."*
-- When no evidence model is supplied (the default today): a safe unavailable
+- When no evidence model is supplied: a safe unavailable
   state — *"No warehouse evidence artifact is available."* — with an
   `unknown` source label.
 - When an evidence model *is* supplied (future integration, and exercised by
-  tests): conservative, source-labelled findings using only the approved
+  tests, and now used by the live provenance/planner bridge): conservative,
+  source-labelled findings using only the approved
   vocabulary — `report-only`, `needs review`, `verify`, `unresolved`, `stale`,
   `blocked`, `unknown`.
 
@@ -117,7 +143,7 @@ unavailable/unknown.
 - No automatic Suggested Build generation or load; no automatic Preview; no
   optimiser changes.
 - No live EDSM/API crawl, no Docker invocation, no production scheduler/job
-  wiring, no new backend endpoint.
+  wiring, no new dedicated backend endpoint.
 - Report-only warehouse evidence is never treated as canonical truth and never
   overrides canonical app data or infrastructure counts.
 - Missing artifact/status remains unavailable/unknown.
@@ -149,8 +175,9 @@ future stage (after the Stage 18I canonical-write design review and the Stage
    `reportOnly` and source-labelled; it must not mutate Build Plans, roles,
    observed evidence, validation, scoring, Preview, or optimiser state.
 
-Until that contract and boundary review exist, the planner card stays in its
-safe unavailable/report-only state.
+Until that contract and boundary review exist, the planner bridge stays on the
+sanitized provenance-cockpit path and does not pretend warehouse evidence is a
+true per-system planner fact source.
 
 ## Validation
 

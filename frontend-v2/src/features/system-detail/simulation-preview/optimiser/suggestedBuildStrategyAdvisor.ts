@@ -36,6 +36,34 @@ export interface SuggestedBuildStrategyAdvisor {
   manualBoundary: string;
 }
 
+export function buildSuggestedBuildAdvisorHighlights(advisor: SuggestedBuildStrategyAdvisor): string[] {
+  const highlights: string[] = [];
+
+  if (/\bverify\/inferred\b|\bverify\b/i.test(advisor.existingInfrastructure)) {
+    highlights.push('Verify existing');
+  }
+  if (/\bunresolved\b|\bunknown-lane\b/i.test(advisor.existingInfrastructure)) {
+    highlights.push('Unresolved infra');
+  }
+  if (/exceed visible capacity|pressure|full after existing/i.test(advisor.slotPressure)) {
+    highlights.push('Capacity pressure');
+  }
+  if (/no slot prediction|slots unknown|estimated/i.test(advisor.slotPressure)) {
+    highlights.push('Slot estimate');
+  }
+  if (/manual review/i.test(advisor.roleGaps) && !/none from available role context/i.test(advisor.roleGaps)) {
+    highlights.push('Role review');
+  }
+  if (/sparse, estimated, or incomplete data/i.test(advisor.uncertainty)) {
+    highlights.push('Sparse evidence');
+  }
+  if (/Support bodies:/i.test(advisor.bodyChoice)) {
+    highlights.push('Multi-body');
+  }
+
+  return highlights.slice(0, 4);
+}
+
 interface AdvisorInput {
   candidate: OptimiserCandidate;
   system?: SystemDetail | null;

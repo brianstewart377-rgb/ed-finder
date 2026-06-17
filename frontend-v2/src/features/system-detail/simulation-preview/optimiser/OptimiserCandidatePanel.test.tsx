@@ -11,7 +11,7 @@ import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { candidatePlacementsToPreviewPlacements, sortCandidatesForDisplay } from './optimiserUtils';
 import { filterUsefulSuggestedBuilds, suggestedBuildPresentation, suggestedBuildScale } from './optimiserQualityUtils';
-import { buildSuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
+import { buildSuggestedBuildAdvisorHighlights, buildSuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
@@ -421,6 +421,33 @@ describe('optimiser candidate comparison UI', () => {
     expect(currentPlacements).toEqual(beforeCurrent);
   });
 
+  it('builds compact review-focus highlights from advisor context', () => {
+    const advisor = buildSuggestedBuildStrategyAdvisor({
+      candidate: {
+        ...candidate('advisor-candidate', 'Advisor candidate'),
+        placements: [
+          { facility_template_id: 'generic_port_alpha', local_body_id: '1', is_primary_port: true, build_order: 1 },
+          { facility_template_id: 'agri_support_a', local_body_id: '1', is_primary_port: false, build_order: 2 },
+        ],
+        warnings: ['Candidate scale is limited by sparse body or facility data.'],
+        assumptions: ['Generate additional data/imports to unlock larger strategic plans for this system.'],
+      },
+      system: advisorSystem,
+      templates,
+      bodyLabelsById: { '1': 'Advisor Test 1', '2': 'Advisor Test 2' },
+      currentPreviewPlacements: [{ facility_template_id: 'generic_port_alpha', local_body_id: '2', is_primary_port: true, build_order: 1 }],
+      declaredRoles: advisorDeclaredRoles,
+      slotPredictions: advisorSlotPredictions,
+    });
+
+    expect(buildSuggestedBuildAdvisorHighlights(advisor)).toEqual([
+      'Verify existing',
+      'Unresolved infra',
+      'Capacity pressure',
+      'Sparse evidence',
+    ]);
+  });
+
   it('defaults Suggested Builds scale to Expansion and avoids bootstrap-first display', async () => {
     const bootstrap = {
       ...candidate('bootstrap-option', 'Bootstrap option'),
@@ -563,6 +590,8 @@ describe('optimiser candidate comparison UI', () => {
 
     expect(screen.getByTestId('suggested-build-strategy-advisor')).toBeTruthy();
     expect(screen.getByText('Strategy advisor')).toBeTruthy();
+    expect(screen.getByText('Review focus')).toBeTruthy();
+    expect(screen.getByText('Verify existing · Unresolved infra · Capacity pressure · Sparse evidence')).toBeTruthy();
     expect(container.textContent).toMatch(/Body choice: main body is Advisor Test 1/i);
     expect(container.textContent).toMatch(/Existing items remain Existing and are not Build Plan placements/i);
     expect(container.textContent).toMatch(/projection would exceed visible capacity by 1/i);

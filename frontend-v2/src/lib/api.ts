@@ -37,6 +37,7 @@ import type {
   OperatorStagingImpactSummary,
   PredictionObservationCompareRequest,
   PredictionObservationCompareResponse,
+  ProvenanceCockpitResponse,
   RecommendedBuildsResponse,
   RegionalAnalysisResponse,
   RerankRequest,
@@ -258,6 +259,10 @@ export const api = {
   recommendedBuilds(id64: number, archetype?: string): Promise<RecommendedBuildsResponse> {
     const params = archetype ? `?${new URLSearchParams({ archetype }).toString()}` : '';
     return jsonFetch(`/systems/${id64}/recommended-builds${params}`);
+  },
+
+  provenanceCockpit(id64: number): Promise<ProvenanceCockpitResponse> {
+    return jsonFetch(`/colony-planner/system/${id64}/provenance-cockpit`);
   },
 
   regionalAnalysis(id64: number): Promise<RegionalAnalysisResponse> {
@@ -535,6 +540,10 @@ export function getSimulationSummary(id64: number, archetype?: string): Promise<
 
 export function getRecommendedBuilds(id64: number, archetype?: string): Promise<RecommendedBuildsResponse> {
   return api.recommendedBuilds(id64, archetype);
+}
+
+export function getProvenanceCockpit(id64: number): Promise<ProvenanceCockpitResponse> {
+  return api.provenanceCockpit(id64);
 }
 
 export function fetchOptimiserCandidates(request: OptimiserCandidatesRequest): Promise<OptimiserCandidatesResponse> {

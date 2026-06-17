@@ -23,7 +23,10 @@ import { compactBodyDisplayName, groupPlacementsByBody, type BodyGroup } from '.
 import { BuildPlanWorkspaceView } from './BuildPlanWorkspaceView';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
 import { EvidenceWorkspaceView } from './EvidenceWorkspaceView';
+import { ExportReadinessWorkspaceView } from './ExportReadinessWorkspaceView';
+import { MapFoundationWorkspaceView } from './MapFoundationWorkspaceView';
 import { PreviewWorkspaceView } from './PreviewWorkspaceView';
+import { SequenceCockpitWorkspaceView } from './SequenceCockpitWorkspaceView';
 import { SuggestedBuildsWorkspaceView } from './SuggestedBuildsWorkspaceView';
 import { ValidationWorkspaceView } from './ValidationWorkspaceView';
 import { WorkspaceModeTabs, type SimulationWorkspaceMode } from './WorkspaceModeTabs';
@@ -399,6 +402,23 @@ export function SimulationPreview({
           />
         )}
 
+        {activeMode === 'sequence' && (
+          <SequenceCockpitWorkspaceView
+            placements={plan.placements}
+            templates={templates}
+            bodies={bodies}
+            result={runState.result}
+            isResultStale={runState.isResultStale}
+            canRun={runState.canRun}
+            running={runState.running}
+            onRunPreview={() => void runState.runSimulation()}
+          />
+        )}
+
+        {activeMode === 'map' && (
+          <MapFoundationWorkspaceView system={system} />
+        )}
+
         {activeMode === 'evidence' && (
           <EvidenceWorkspaceView
             systemId64={system.id64}
@@ -429,6 +449,19 @@ export function SimulationPreview({
                 reviewLabel={roleReview.consistencyLabel}
               />
             )}
+            roleReview={roleReview}
+          />
+        )}
+
+        {activeMode === 'export' && (
+          <ExportReadinessWorkspaceView
+            system={system}
+            targetArchetype={plan.targetArchetype}
+            placements={plan.placements}
+            templates={templates}
+            bodies={bodies}
+            previewResult={runState.result}
+            previewResultStale={runState.isResultStale}
             roleReview={roleReview}
           />
         )}

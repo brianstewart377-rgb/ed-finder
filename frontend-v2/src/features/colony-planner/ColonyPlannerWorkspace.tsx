@@ -1,9 +1,13 @@
 import { ArrowLeft, Rocket } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
+import { getProvenanceCockpit } from '@/lib/api';
 import { WholeSystemColonyPlanner } from './WholeSystemColonyPlanner';
 import { WarehouseEvidenceCard } from './WarehouseEvidenceCard';
 import { WorkspaceHeader, WorkspaceHeaderSkeleton } from './WorkspaceHeader';
+import { toWarehouseEvidenceFromProvenance } from './warehouseEvidenceBridge';
 
 export interface ColonyPlannerWorkspaceProps {
   id64: number | null;
@@ -17,6 +21,17 @@ export function ColonyPlannerWorkspace({
   onOpenSystemDetail,
 }: ColonyPlannerWorkspaceProps) {
   const { data, loading, error, refetch } = useSystemDetail(id64);
+  const provenanceQuery = useQuery({
+    queryKey: ['planner-workspace-provenance-cockpit', id64],
+    queryFn: () => getProvenanceCockpit(id64 as number),
+    enabled: id64 != null,
+    retry: 1,
+    staleTime: 60_000,
+  });
+  const warehouseEvidence = useMemo(
+    () => toWarehouseEvidenceFromProvenance(provenanceQuery.data),
+    [provenanceQuery.data],
+  );
 
   if (id64 == null) {
     return (
@@ -74,13 +89,13 @@ export function ColonyPlannerWorkspace({
       />
       <WholeSystemColonyPlanner system={data} />
       {/*
-       * Stage 18H: read-only warehouse evidence bridge. No data is passed
-       * today (the warehouse artifact is admin-gated and aggregate-only with
-       * no per-system linkage), so this renders the safe unavailable/unknown
-       * state. It never mutates planner state. See
+       * Stage 18H: read-only warehouse evidence bridge. The planner now reuses
+       * the sanitized non-admin provenance cockpit route so warehouse evidence
+       * can appear here as report-only context without touching planner truth,
+       * admin tokens, or write lanes. It never mutates planner state. See
        * docs/colonisation-redesign/stage-18h-warehouse-planner-evidence-bridge.md.
        */}
-      <WarehouseEvidenceCard />
+      <WarehouseEvidenceCard evidence={warehouseEvidence} />
     </WorkspaceShell>
   );
 }

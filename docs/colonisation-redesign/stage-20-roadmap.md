@@ -146,6 +146,41 @@ Purpose:
 Stage 20A is not another empty decision checkpoint. It should leave the repo
 with an implementation contract that the next API/UI PR can execute against.
 
+Stage 20A contract checkpoint output:
+
+- `docs/colonisation-redesign/stage-20a-provenance-cockpit-implementation-contract.md`
+- fixture payloads under `tests/fixtures/stage20a/`
+- static guardrails proving the contract remains docs/static-only and does not
+  authorize deferred Stage 19 production work
+
+Stage 20B read-only status surface output:
+
+- `docs/colonisation-redesign/stage-20b-readonly-evidence-status-surfaces.md`
+- one fixture-backed aggregation route for the provenance cockpit
+- one Evidence Workspace provenance panel
+- focused backend/frontend tests proving the slice remains read-only
+
+Stage 20C map foundation output:
+
+- `docs/colonisation-redesign/stage-20c-map-planning-surface-foundation.md`
+- planner `Map` workspace mode built on the existing map primitives
+- timeline-layer ownership and summary in the shared `MapTab`
+- focused frontend/static tests proving the map surface remains read-only
+
+Stage 20D sequence cockpit output:
+
+- `docs/colonisation-redesign/stage-20d-planner-sequence-cp-curve-cockpit.md`
+- planner `Sequence` workspace mode
+- explicit build-order list plus CP summary/timeline/repair reuse after manual preview
+- focused frontend/static tests proving the cockpit remains explicit and read-only
+
+Stage 20E export and closeout output:
+
+- `docs/colonisation-redesign/stage-20e-export-operator-pack-closeout-readiness.md`
+- planner `Export` workspace mode
+- Markdown/JSON/CSV review pack builders with separated evidence sections
+- final closeout readiness/completion record proving Stage 19 deferred production work remains deferred
+
 ## Acceptance Criteria For Stage 20
 
 Stage 20 is complete when:

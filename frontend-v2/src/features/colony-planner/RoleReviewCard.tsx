@@ -45,19 +45,43 @@ export function RoleReviewCard({
           </span>
         )}
       </div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+        {buildRoleReviewHighlights(result).map((highlight) => (
+          <span
+            key={highlight}
+            className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 uppercase tracking-[0.12em] text-cyan"
+          >
+            {highlight}
+          </span>
+        ))}
+      </div>
       {!compact && (
         <>
-          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-            {result.declaredRoles.slice(0, 4).map((role) => (
-              <span key={role.id} className="rounded border border-green/35 bg-green/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-green">
-                Declared: {roleCompactLabel(role.role_id)}
-              </span>
-            ))}
-            {result.observedRoles.slice(0, 4).map((role) => (
-              <span key={role.id} className="rounded border border-orange/35 bg-orange/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-orange">
-                {role.label}
-              </span>
-            ))}
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
+            <div className="rounded border border-green/25 bg-green/8 px-2 py-2">
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-green">Declared strategy</div>
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                {result.declaredRoles.length > 0 ? result.declaredRoles.slice(0, 4).map((role) => (
+                  <span key={role.id} className="rounded border border-green/35 bg-bg3/35 px-1.5 py-0.5 uppercase tracking-[0.12em] text-green">
+                    {roleCompactLabel(role.role_id)}
+                  </span>
+                )) : (
+                  <span className="text-silver-dk">No declared roles</span>
+                )}
+              </div>
+            </div>
+            <div className="rounded border border-orange/25 bg-orange/8 px-2 py-2">
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-orange">Observed evidence</div>
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                {result.observedRoles.length > 0 ? result.observedRoles.slice(0, 4).map((role) => (
+                  <span key={role.id} className="rounded border border-orange/35 bg-bg3/35 px-1.5 py-0.5 text-orange">
+                    {role.label} / {role.evidenceLabel}
+                  </span>
+                )) : (
+                  <span className="text-silver-dk">No observed role evidence</span>
+                )}
+              </div>
+            </div>
           </div>
           <div className="mt-2 space-y-1">
             {result.summaries.map((summary) => (
@@ -76,4 +100,18 @@ export function RoleReviewCard({
       )}
     </section>
   );
+}
+
+function buildRoleReviewHighlights(result: RoleReviewResult): string[] {
+  const highlights: string[] = [];
+  if (result.coverage.observedCount === 0) highlights.push('Observed evidence missing');
+  if (result.coverage.mismatchCount > 0) highlights.push('Declared/observed mismatch');
+  if (result.conflicts.length > 0) highlights.push('Declared conflict');
+  if (result.observedRoles.some((role) => !result.declaredRoles.some((declared) => declared.body_id === role.body_id && declared.role_id === role.role_id))) {
+    highlights.push('Observed but not declared');
+  }
+  if (result.declaredRoles.some((role) => !result.observedRoles.some((observed) => observed.body_id === role.body_id && observed.role_id === role.role_id))) {
+    highlights.push('Declared without support');
+  }
+  return highlights.length > 0 ? highlights : ['Signals aligned'];
 }

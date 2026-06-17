@@ -236,6 +236,43 @@ describe('MapTab', () => {
     );
   });
 
+  it('enables the timeline layer and shows a summary when data is present', () => {
+    vi.mocked(useMapLayers).mockReturnValue({
+      regions: { data: undefined, isLoading: false, isError: false, error: null },
+      clusters: { data: undefined, isLoading: false, isError: false, error: null },
+      heatmap: { data: undefined, isLoading: false, isError: false, error: null },
+      timeline: {
+        data: { bucket: 'month', points: [{ date: '2026-01-01', count: 100 }], total: 100 },
+        isLoading: false,
+        isError: false,
+        error: null,
+      },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof useMapLayers>);
+
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-timeline-toggle'));
+    expect(vi.mocked(useMapLayers)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeline: { enabled: true, bucket: 'month' } }),
+    );
+    expect(screen.getByTestId('map-timeline-summary')).toBeTruthy();
+    expect(screen.getByText(/100 discoveries tracked/)).toBeTruthy();
+  });
+
+  it('updates the timeline bucket when changed', () => {
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<MapTab systems={systems} reference={reference} />);
+
+    fireEvent.click(screen.getByTestId('map-timeline-toggle'));
+    fireEvent.change(screen.getByTestId('map-timeline-bucket'), { target: { value: 'year' } });
+    expect(vi.mocked(useMapLayers)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeline: { enabled: true, bucket: 'year' } }),
+    );
+  });
+
   it('shows heatmap loading state when toggled', () => {
     vi.mocked(useMapLayers).mockReturnValue({
       regions:  { data: undefined, isLoading: false, isError: false, error: null },

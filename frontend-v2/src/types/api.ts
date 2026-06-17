@@ -426,6 +426,75 @@ export interface PlannerWarehouseEvidence {
   items:        PlannerWarehouseEvidenceItem[];
 }
 
+export type ProvenanceCockpitState = 'available' | 'stale' | 'unknown';
+
+export interface ProvenanceCockpitSystem {
+  id64: number;
+  name?: string | null;
+  primary_archetype?: string | null;
+}
+
+export interface ProvenanceSummary {
+  state: ProvenanceCockpitState;
+  latest_source_run_key?: string | null;
+  warehouse_state: ProvenanceCockpitState;
+  planner_evidence_state: ProvenanceCockpitState;
+}
+
+export interface SourceRunEvidencePanel {
+  state: ProvenanceCockpitState;
+  source_name?: string | null;
+  rows_read?: number | null;
+  rows_staged?: number | null;
+  artifact_name?: string | null;
+}
+
+export interface WarehouseStatusEvidencePanel {
+  state: ProvenanceCockpitState;
+  report_only: boolean;
+  canonical_writes_planned: number;
+  stale_records?: number | null;
+}
+
+export interface PlannerStatusEvidencePanel {
+  state: ProvenanceCockpitState;
+  observed_facts_count: number;
+  projected_build_count: number;
+  manual_review_required: boolean;
+}
+
+export interface ProvenanceEvidencePanels {
+  source_run: SourceRunEvidencePanel;
+  warehouse: WarehouseStatusEvidencePanel;
+  planner: PlannerStatusEvidencePanel;
+}
+
+export interface ProvenanceGuardrails {
+  stage19_paused: boolean;
+  stage19_production_activation_complete: boolean;
+  next_stage19_write_lane_authorized: boolean;
+  canonical_apply_complete: boolean;
+  rebaseline_complete: boolean;
+  scheduler_enabled: boolean;
+  db_writes_authorized: boolean;
+  stage19_operator_commands_authorized: boolean;
+}
+
+export interface ProvenanceUiHints {
+  severity: 'info' | 'warning' | 'neutral';
+  empty_state_key?: string | null;
+}
+
+export interface ProvenanceCockpitResponse {
+  schema_version: 'stage20a_provenance_cockpit/v1';
+  system: ProvenanceCockpitSystem;
+  provenance_summary: ProvenanceSummary;
+  evidence_panels: ProvenanceEvidencePanels;
+  guardrails: ProvenanceGuardrails;
+  warnings: string[];
+  ui_hints: ProvenanceUiHints;
+}
+
 export interface SlotReason {
   factor: string;
   delta?: number | null;

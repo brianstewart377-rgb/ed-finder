@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FacilityTemplate, SimulationSummary, SlotPredictionResponse, SystemDetail } from '@/types/api';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
-import { getFacilityTemplates, getSimulationSummary, getSlotPredictions } from '@/lib/api';
+import { getFacilityTemplates, getProvenanceCockpit, getSimulationSummary, getSlotPredictions } from '@/lib/api';
 import { ColonyPlannerWorkspace } from './ColonyPlannerWorkspace';
 import { useColonyProjectStore } from './colonyProjectStore';
 
@@ -14,6 +14,7 @@ vi.mock('@/features/system-detail/useSystemDetail', () => ({
 
 vi.mock('@/lib/api', () => ({
   getFacilityTemplates: vi.fn(),
+  getProvenanceCockpit: vi.fn(),
   getSimulationSummary: vi.fn(),
   getSlotPredictions: vi.fn(),
 }));
@@ -101,8 +102,58 @@ vi.mock('@/features/system-detail/SimulationPreviewPanel', async () => {
 const mockedUseSystemDetail = vi.mocked(useSystemDetail);
 const mockedSimulationPreviewPanel = vi.mocked(SimulationPreviewPanel);
 const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
+const mockedGetProvenanceCockpit = vi.mocked(getProvenanceCockpit);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
 const mockedGetSlotPredictions = vi.mocked(getSlotPredictions);
+
+function provenanceResponse() {
+  return {
+    schema_version: 'stage20a_provenance_cockpit/v1',
+    system: { id64: 123, name: 'Workspace System', primary_archetype: 'refinery_industrial' },
+    provenance_summary: {
+      state: 'available',
+      latest_source_run_key: 'warehouse/run-123',
+      warehouse_state: 'available',
+      planner_evidence_state: 'available',
+    },
+    evidence_panels: {
+      source_run: {
+        state: 'available',
+        source_name: 'eddn',
+        rows_read: 120,
+        rows_staged: 120,
+        artifact_name: 'run-123.json',
+      },
+      warehouse: {
+        state: 'available',
+        report_only: true,
+        canonical_writes_planned: 0,
+        stale_records: 0,
+      },
+      planner: {
+        state: 'available',
+        observed_facts_count: 2,
+        projected_build_count: 1,
+        manual_review_required: false,
+      },
+    },
+    guardrails: {
+      stage19_paused: true,
+      stage19_production_activation_complete: false,
+      next_stage19_write_lane_authorized: false,
+      canonical_apply_complete: false,
+      rebaseline_complete: false,
+      scheduler_enabled: false,
+      db_writes_authorized: false,
+      stage19_operator_commands_authorized: false,
+    },
+    warnings: [],
+    ui_hints: {
+      severity: 'info',
+      empty_state_key: null,
+    },
+  } as const;
+}
 
 const system = {
   id64: 123,
@@ -232,6 +283,7 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
     mockedGetFacilityTemplates.mockResolvedValue(facilityTemplates);
+    mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
     mockedGetSimulationSummary.mockResolvedValue({
       classification: { primary_archetype: 'refinery_industrial' },
       buildability: { recommended_build_order: [] },
@@ -244,6 +296,7 @@ describe('ColonyPlannerWorkspace', () => {
     mockedUseSystemDetail.mockReset();
     mockedSimulationPreviewPanel.mockClear();
     mockedGetFacilityTemplates.mockReset();
+    mockedGetProvenanceCockpit.mockReset();
     mockedGetSimulationSummary.mockReset();
     mockedGetSlotPredictions.mockReset();
     localStorage.clear();
@@ -327,6 +380,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('true');
     expect(screen.getByTestId('raven-real-telemetry-panel')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
+    expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
+    expect(await screen.findByText(/Canonical writes planned:\s*0\./)).toBeTruthy();
     expect(screen.getByTestId('workspace-economy-ledger')).toBeTruthy();
     expect(screen.getByTestId('summary-economy-ledger')).toBeTruthy();
     expect(screen.getByRole('region', { name: /Raven-style real planner canvas/i })).toBeTruthy();
@@ -337,8 +392,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
     expect(screen.queryByTestId('system-overview-planner-canvas')).toBeNull();
     expect(screen.queryByTestId('system-overview-map')).toBeNull();
-    expect(screen.queryByTestId('body1-orbital-slot-3')).toBeNull();
-    expect(screen.queryByTestId('body1-ground-slot-4')).toBeNull();
+    expect(screen.getByTestId('body1-orbital-slot-3')).toBeTruthy();
+    expect(screen.getByTestId('body1-ground-slot-4')).toBeTruthy();
     expect(screen.getByTestId('advanced-workspace-toggle')).toBeTruthy();
     expect(screen.getByTestId('advanced-workspace-toggle').textContent).toContain('Open');
     expect(screen.queryByTestId('advanced-planner-content')).toBeNull();

@@ -11,6 +11,7 @@ import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { BodySlotPlanner, type BodyPlannerLane } from './BodySlotPlanner';
 import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
+import { resolveExistingInfrastructure } from './existingInfrastructure';
 import {
   ESTIMATED_SLOT_LAYOUT_DISCLAIMER,
   buildBodyDataSlotEstimateMap,
@@ -106,6 +107,8 @@ export function SelectedBodyPlannerCanvas({
     }))
     .filter((item) => sameBodyId(item.placement.local_body_id, bodyId));
   const slotPrediction = snapshot.slotPredictions?.predictions?.find((item) => sameBodyId(item.body_id, bodyId)) ?? null;
+  const existingResolution = resolveExistingInfrastructure(system);
+  const existingByBody = existingResolution.byBodyId.get(bodyId) ?? { orbital: [], surface: [], unknown: [] };
 
   return (
     <div data-testid="selected-body-planner-canvas" data-readability="stage17k" className="text-sm leading-relaxed">
@@ -128,6 +131,8 @@ export function SelectedBodyPlannerCanvas({
         projectedPlacements={projectedPlacements}
         placementLaneHints={snapshot.placementLaneHints}
         projectedPlacementLaneHints={snapshot.projection?.placementLaneHints}
+        existingOrbital={existingByBody.orbital}
+        existingSurface={existingByBody.surface}
         selectedPlacementIndex={selectedPlacementIndex}
         selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
         hasTemplates={snapshot.templates.length > 0}

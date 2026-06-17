@@ -101,6 +101,12 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage19ax_readonly_av_safety_gate.py \
     tests/test_stage19ay_test_environment_closeout.py \
     tests/test_stage20_planning_baseline.py \
+    tests/test_stage21_planning_baseline.py \
+    tests/test_stage20a_implementation_contract.py \
+    tests/test_stage20b_readonly_status_surfaces.py \
+    tests/test_stage20c_map_foundation.py \
+    tests/test_stage20d_sequence_cp_cockpit.py \
+    tests/test_stage20e_export_closeout.py \
     tests/test_stage19aq1_test_fortress_guardrails.py \
     -q
 )
