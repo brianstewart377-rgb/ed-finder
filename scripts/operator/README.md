@@ -32,5 +32,11 @@ Current scripts:
   source hash, sanitized source-reference display, target-shape, row-cap, and
   runtime-cap checks, creates no artifact directory during dry-run, and does
   not authorize execution by itself.
+- `stage19bb_first_production_staging_activation.py`: prepares or runs the exact
+  Stage 19BB first production-staging activation lane. It defaults to dry-run,
+  requires merged authority plus `--commit --confirm-stage19bb` for execution,
+  pins the approved EDSM source SHA-256 and approved isolated target
+  fingerprint, enforces the exact five-table write boundary, and blocks
+  canonical apply, rebaseline, and scheduler/service dispatch.
 
 Production artifacts are private operator files and should not be committed.

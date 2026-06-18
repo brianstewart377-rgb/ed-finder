@@ -78,6 +78,7 @@ def run_edsm_station_import(
     finished_at: datetime | None = None,
     station_stager: Callable[..., int] | None = None,
     cancel_requested: bool = False,
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """Run the local-file staging wrapper against a caller-owned connection."""
     source_path = Path(source_file)
@@ -107,6 +108,7 @@ def run_edsm_station_import(
                 source_uri=source_uri,
                 source_input_sha256=source_input_sha256,
                 file_format=file_format,
+                limit=limit,
             )
 
             if cancel_requested:
@@ -243,6 +245,7 @@ def build_edsm_station_import_plan(
     source_uri: str,
     source_input_sha256: str,
     file_format: Mapping[str, Any] | None = None,
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """Parse and validate a local EDSM station file into staging-ready rows."""
     source_path = Path(source_file)
@@ -256,6 +259,7 @@ def build_edsm_station_import_plan(
     source_run = {'source_run_key': source_run_key}
 
     rows_read = 0
+    raw_records: list[dict[str, Any]] = []
     staged_rows: list[dict[str, Any]] = []
     rejected_rows: list[dict[str, Any]] = []
     skipped_rows: list[dict[str, Any]] = []
@@ -266,8 +270,12 @@ def build_edsm_station_import_plan(
         source=normalised_source,
         source_run=source_run,
         source_file_summary=source_file_summary,
+        limit=limit,
     ):
         rows_read += 1
+        raw_record = entry.get('raw_record')
+        if isinstance(raw_record, Mapping):
+            raw_records.append(dict(raw_record))
         staged_rows.extend(_copy_rows(entry.get('staged_rows', ())))
         warnings.extend(_copy_rows(entry.get('warnings', ())))
         for skipped in _copy_rows(entry.get('skipped_rows', ())):
@@ -294,6 +302,7 @@ def build_edsm_station_import_plan(
         'rows_staged': len(staged_rows),
         'rows_rejected': len(rejected_rows),
         'rows_skipped': len(skipped_rows),
+        'raw_records': raw_records,
         'staged_rows': staged_rows,
         'rejected_rows': rejected_rows,
         'skipped_rows': skipped_rows,
@@ -321,6 +330,7 @@ def empty_import_plan(
         'rows_staged': 0,
         'rows_rejected': 0,
         'rows_skipped': 0,
+        'raw_records': [],
         'staged_rows': [],
         'rejected_rows': [],
         'skipped_rows': [],
