@@ -69,6 +69,19 @@ The initial bounded activation is staging-only and may write only these tables:
 - `enrichment_source_runs`;
 - `staging_edsm_stations`.
 
+This three-table description is the original Stage 19BA control-baseline
+shorthand. A later executable loader audit in Stage 19BB established that the
+real tested loader path also depends on two additional non-canonical support
+tables:
+
+- `enrichment_source_files`;
+- `enrichment_raw_records`.
+
+That Stage 19BB correction does not rewrite Stage 19BA history and does not
+claim Stage 19BA previously authorized five-table execution. It records that
+the real execution boundary for the later exact authorization lane is five
+tables, not three, while canonical tables remain forbidden.
+
 Everything else is forbidden for this lane. In particular, this checkpoint does
 not authorize writes to:
 
@@ -182,8 +195,11 @@ Before any future execution:
 
 Any future approved execution must verify:
 
-- staging writes occurred only in `source_runs`, `enrichment_source_runs`, and
-  `staging_edsm_stations`;
+- staging writes occurred only in the exact later-reviewed boundary for the
+  selected execution lane;
+- Stage 19BB's exact execution lane narrows that executable boundary to:
+  `source_runs`, `enrichment_source_runs`, `enrichment_source_files`,
+  `enrichment_raw_records`, and `staging_edsm_stations`;
 - row counts match the approved cap and source-run ledger;
 - the audit artifact checksum matches the ledger record;
 - no canonical table write occurred;

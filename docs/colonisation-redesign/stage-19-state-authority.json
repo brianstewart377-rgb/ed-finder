@@ -203,11 +203,25 @@
     "manual_operator_invocation_only": true,
     "source_identity_required": true,
     "source_hash_required": true,
+    "original_three_table_shorthand": true,
     "permitted_tables": [
       "source_runs",
       "enrichment_source_runs",
       "staging_edsm_stations"
     ],
+    "loader_dependency_audit_completed_in_stage19bb": true,
+    "loader_support_tables_identified": [
+      "enrichment_source_files",
+      "enrichment_raw_records"
+    ],
+    "exact_execution_boundary_deferred_to_stage19bb": [
+      "source_runs",
+      "enrichment_source_runs",
+      "enrichment_source_files",
+      "enrichment_raw_records",
+      "staging_edsm_stations"
+    ],
+    "historical_stage19ba_execution_authorized_for_five_tables": false,
     "forbidden_tables_exactly_bounded": true,
     "initial_row_cap": 100,
     "hard_max_rows": 100,
@@ -233,6 +247,78 @@
     "db_commands_run": false,
     "db_mutation_performed": false,
     "production_like_db_execution_authorized": false,
+    "runtime_source_files_are_authority": false,
+    "operator_artifact_json_committed_as_authority": false
+  },
+  "stage19bb_first_production_staging_activation": {
+    "status": "authorized_after_merge",
+    "checkpoint_type": "first_production_staging_activation_authorization",
+    "prepared_at": "2026-06-18T16:00:00Z",
+    "document": "docs/colonisation-redesign/stage-19bb-first-production-staging-activation.md",
+    "operator_wrapper": "scripts/operator/stage19bb_first_production_staging_activation.py",
+    "authorization_pr_contains_execution_evidence": false,
+    "source_acquisition_completed": true,
+    "source_name": "edsm",
+    "source_batch_label": "edsm-stations-20260618T145715Z",
+    "source_reference_sanitized": "https://www.edsm.net/dump/stations.json.gz",
+    "source_basename": "stations.json.gz",
+    "approved_source_sha256": "09225e43323464e332a792f8716a6e4264ef5999ce1544f1157bfc60f406f4a2",
+    "approved_source_size_bytes": 2614426684,
+    "approved_eligible_source_rows": 713624,
+    "approved_source_format": "json",
+    "approved_source_record_stream_shape": "json_array",
+    "approved_source_compression": "gzip",
+    "source_acquired_at": "2026-06-18T14:52:50.594163Z",
+    "reported_target_fingerprint": "759499c54f9d41cd636b4b5aa54e9bda1e4435c49e7a9a9bc34450b8671945b2",
+    "approved_target_fingerprint": "fb59921a3c4f913c318e12709e602261450edf3632e8e20e0b669fd8f1622753",
+    "target_fingerprint_formula_reviewed": true,
+    "target_fingerprint_formula_mismatch_not_target_drift": true,
+    "target_type": "isolated_persistent_local_staging",
+    "target_identity": {
+      "host": "127.0.0.1",
+      "port": 56432,
+      "database": "edfinder_stage19_staging",
+      "role": "stage19_loader"
+    },
+    "permitted_tables": [
+      "source_runs",
+      "enrichment_source_runs",
+      "enrichment_source_files",
+      "enrichment_raw_records",
+      "staging_edsm_stations"
+    ],
+    "canonical_tables_absent": true,
+    "canonical_tables_forbidden": [
+      "systems",
+      "stations",
+      "bodies",
+      "body_rings",
+      "station_body_links",
+      "body_scan_facts",
+      "observed_facts"
+    ],
+    "restricted_loader_verified": true,
+    "default_mode_dry_run": true,
+    "commit_confirmation_required": true,
+    "merged_authority_required_for_execution": true,
+    "approved_batch_limits": [
+      100,
+      1000,
+      10000
+    ],
+    "batch_runtime_caps_seconds": {
+      "100": 900,
+      "1000": 1800,
+      "10000": 3600
+    },
+    "stage19_execution_performed": false,
+    "staging_import_performed": false,
+    "runtime_source_run_created": false,
+    "runtime_artifact_created": false,
+    "canonical_apply_authorized": false,
+    "rebaseline_authorized": false,
+    "scheduler_service_authorized": false,
+    "production_automation_complete": false,
     "runtime_source_files_are_authority": false,
     "operator_artifact_json_committed_as_authority": false
   },

@@ -23,6 +23,9 @@ writes, operator commands, or production-like DB execution.
   `unavailable`/`unknown`.
 - The next recommended checkpoint is `Stage 23B - Safe per-system warehouse join
   expansion`.
+- Stage 19BB authorization is now the separate operational dependency for any
+  future bounded warehouse-evidence execution lane; Stage 23 itself remains
+  read-only.
 
 ## Source Order
 
@@ -53,6 +56,9 @@ Only if a safe and explicit selected-system warehouse join is already available,
 expand the provider to include per-system warehouse evidence without guessing.
 This remains operationally dependent on the separate bounded Stage 19
 production-staging activation contract rather than inferred warehouse truth.
+That separate dependency is now pinned to the merged Stage 19BB authorization
+checkpoint, which approves only the reviewed EDSM source, the reviewed isolated
+staging target fingerprint, and the `100 -> 1,000 -> 10,000` bounded ladder.
 
 ### Stage 23C
 

@@ -1190,3 +1190,30 @@ contract for a future manual EDSM staging-only run:
 
 This keeps Stage 23 as the active product/evidence roadmap while making the
 warehouse dependency explicit instead of implicit.
+
+## Stage 19BB authorization dependency
+
+Stage 19BB is the exact source-and-target authorization checkpoint for the
+first real bounded production-staging execution lane. It is recorded in
+`docs/colonisation-redesign/stage-19bb-first-production-staging-activation.md`.
+
+Stage 19BB does not execute a staging import in the authorization PR. It
+records:
+
+- the approved official EDSM station snapshot identity;
+- approved source SHA-256
+  `09225e43323464e332a792f8716a6e4264ef5999ce1544f1157bfc60f406f4a2`;
+- approved eligible row count `713624`;
+- exact five-table execution boundary:
+  `source_runs`, `enrichment_source_runs`, `enrichment_source_files`,
+  `enrichment_raw_records`, and `staging_edsm_stations`;
+- approved isolated target fingerprint
+  `fb59921a3c4f913c318e12709e602261450edf3632e8e20e0b669fd8f1622753`;
+- the reviewed formula mismatch versus the earlier setup-reported fingerprint,
+  treated as formula drift rather than target drift;
+- the only authorized successful batch sizes: `100`, `1,000`, and `10,000`.
+
+Stage 19BB also corrects the earlier Stage 19BA shorthand by recording that the
+real executable loader path requires `enrichment_source_files` and
+`enrichment_raw_records` in addition to the previously named three tables. This
+is a dependency-map correction, not permission for arbitrary warehouse writes.
