@@ -33,6 +33,7 @@ from enrichment_staging import (  # noqa: E402
     classify_source_adapter,
     classify_source_field,
     idempotency_key,
+    normalise_source_updated_at_value,
     normalise_station_type_label,
     normalise_source_file_metadata,
     normalise_source_run_metadata,
@@ -81,6 +82,29 @@ def test_null_missing_and_scalar_read_helpers_are_safe():
     assert read_int(True) is None
     assert read_int('42') == 42
     assert read_float('503.2') == 503.2
+
+
+def test_source_updated_at_normaliser_prefers_information_then_market_then_shipyard_then_outfitting():
+    assert normalise_source_updated_at_value({
+        'information': '2017-04-21 07:06:46',
+        'market': '2017-04-20 07:06:46',
+        'shipyard': '2017-04-19 07:06:46',
+        'outfitting': '2017-04-18 07:06:46',
+    }) == '2017-04-21 07:06:46'
+    assert normalise_source_updated_at_value({
+        'information': None,
+        'market': '2017-04-20 07:06:46',
+        'shipyard': '2017-04-19 07:06:46',
+        'outfitting': '2017-04-18 07:06:46',
+    }) == '2017-04-20 07:06:46'
+    assert normalise_source_updated_at_value({
+        'information': None,
+        'market': None,
+        'shipyard': None,
+        'outfitting': None,
+    }) is None
+    assert normalise_source_updated_at_value('2017-04-21 07:06:46') == '2017-04-21 07:06:46'
+    assert normalise_source_updated_at_value(['2017-04-21 07:06:46']) is None
 
 
 def test_idempotency_and_source_file_keys_are_deterministic():

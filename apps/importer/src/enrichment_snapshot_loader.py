@@ -33,6 +33,7 @@ from enrichment_staging import (
     normalise_source_adapter,
     normalise_source_file_metadata,
     normalise_source_run_metadata,
+    source_updated_at_from_record,
     read_float,
     read_int,
     read_text,
@@ -904,20 +905,6 @@ def iter_json_records(
                         json.loads(line),
                         expand_station_collections=expand_station_collections,
                     )
-
-
-def source_updated_at_from_record(record: Mapping[str, Any]) -> str | None:
-    return read_text(first_present(
-        record,
-        'updatedAt',
-        'updated_at',
-        'updateTime',
-        'lastUpdate',
-        'lastUpdated',
-        'date',
-    ))
-
-
 def file_digest(path: Path) -> tuple[str, int]:
     hasher = hashlib.sha256()
     size = 0

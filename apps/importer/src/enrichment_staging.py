@@ -403,6 +403,18 @@ def read_text(value: Any) -> str | None:
     return text or None
 
 
+def normalise_source_updated_at_value(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        for field_name in ('information', 'market', 'shipyard', 'outfitting'):
+            candidate = read_text(value.get(field_name))
+            if candidate is not None:
+                return candidate
+        return None
+    if isinstance(value, (list, tuple, set)):
+        return None
+    return read_text(value)
+
+
 def read_int(value: Any) -> int | None:
     if isinstance(value, bool) or value is None:
         return None
@@ -619,7 +631,7 @@ def normalise_edsm_body_ring_snapshot_records(
 
 
 def source_updated_at_from_record(record: Mapping[str, Any]) -> str | None:
-    return read_text(first_present(
+    return normalise_source_updated_at_value(first_present(
         record,
         'updatedAt',
         'updated_at',

@@ -153,6 +153,118 @@ def test_normalisation_accepts_edsm_station_snapshot_shapes():
     assert row['source_record_hash']
 
 
+def test_update_time_object_normalises_to_scalar_source_updated_at_and_preserves_raw_payload(tmp_path):
+    update_time = {
+        'information': '2017-04-21 07:06:46',
+        'market': None,
+        'shipyard': None,
+        'outfitting': None,
+    }
+    source_file = tmp_path / 'update-time-object.json'
+    source_file.write_text(json.dumps([
+        {
+            'systemName': 'Sol',
+            'systemId64': 10477373803,
+            'marketId': 322,
+            'id': 1234,
+            'name': 'Galileo',
+            'type': 'Coriolis Starport',
+            'updateTime': update_time,
+        }
+    ]), encoding='utf-8')
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    raw_record = report['raw_records_planned'][0]
+    station_row = report['staged_rows'][0]
+    assert raw_record['source_updated_at'] == '2017-04-21 07:06:46'
+    assert station_row['source_updated_at'] == '2017-04-21 07:06:46'
+    assert raw_record['raw_payload']['updateTime'] == update_time
+    assert station_row['raw_payload']['updateTime'] == update_time
+    assert isinstance(raw_record['source_updated_at'], str)
+    assert isinstance(station_row['source_updated_at'], str)
+
+
+def test_update_time_object_falls_back_to_market_when_information_missing(tmp_path):
+    source_file = tmp_path / 'update-time-market-fallback.json'
+    source_file.write_text(json.dumps([
+        {
+            'systemName': 'Fallback System',
+            'marketId': 400,
+            'id': 400,
+            'name': 'Fallback Port',
+            'type': 'Outpost',
+            'updateTime': {
+                'information': None,
+                'market': '2018-01-02 03:04:05',
+                'shipyard': None,
+                'outfitting': None,
+            },
+        }
+    ]), encoding='utf-8')
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['raw_records_planned'][0]['source_updated_at'] == '2018-01-02 03:04:05'
+    assert report['staged_rows'][0]['source_updated_at'] == '2018-01-02 03:04:05'
+
+
+def test_update_time_object_with_no_valid_timestamp_uses_none(tmp_path):
+    source_file = tmp_path / 'update-time-none.json'
+    source_file.write_text(json.dumps([
+        {
+            'systemName': 'Unknown Freshness',
+            'marketId': 500,
+            'id': 500,
+            'name': 'Archive Station',
+            'type': 'Outpost',
+            'updateTime': {
+                'information': None,
+                'market': None,
+                'shipyard': None,
+                'outfitting': None,
+            },
+        }
+    ]), encoding='utf-8')
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['raw_records_planned'][0]['source_updated_at'] is None
+    assert report['staged_rows'][0]['source_updated_at'] is None
+    assert report['staged_rows'][0]['freshness_class'] == 'file_snapshot'
+
+
+def test_scalar_update_time_string_still_works(tmp_path):
+    source_file = tmp_path / 'update-time-scalar.json'
+    source_file.write_text(json.dumps([
+        {
+            'systemName': 'Scalar Freshness',
+            'marketId': 600,
+            'id': 600,
+            'name': 'Scalar Port',
+            'type': 'Outpost',
+            'updateTime': '2019-02-03 04:05:06',
+        }
+    ]), encoding='utf-8')
+
+    report = loader.build_snapshot_load_report(
+        source_file=source_file,
+        source='edsm_nightly_stations',
+    )
+
+    assert report['raw_records_planned'][0]['source_updated_at'] == '2019-02-03 04:05:06'
+    assert report['staged_rows'][0]['source_updated_at'] == '2019-02-03 04:05:06'
+
+
 def test_report_output_is_deterministic_for_fixed_fixture():
     first = loader.build_snapshot_load_report(
         source_file=FIXTURE,
