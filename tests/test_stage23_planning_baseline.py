@@ -10,6 +10,7 @@ AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 README_PATH = DOCS / 'README.md'
 STAGE17P_PATH = DOCS / 'stage-17p-current-state-forward-plan.md'
 STAGE23_ROADMAP_PATH = DOCS / 'stage-23-roadmap.md'
+STAGE23E_PATH = DOCS / 'stage-23e-readonly-evidence-closeout.md'
 STAGE23D_PATH = DOCS / 'stage-23d-planner-evidence-ux-follow-through.md'
 STAGE23C_PATH = DOCS / 'stage-23c-evidence-envelope-governance.md'
 STAGE23B_PATH = DOCS / 'stage-23b-readonly-per-system-warehouse-join.md'
@@ -31,18 +32,19 @@ def test_stage23_authority_activates_the_next_post22_control_baseline():
     stage22 = authority['stage22']
     stage23 = authority['stage23']
     baseline = authority['stage23_planning_baseline']
+    stage23e = authority['stage23e']
     stage23d = authority['stage23d']
     stage23c = authority['stage23c']
     stage23b = authority['stage23b']
 
     assert stage22['status'] == 'completed'
-    assert stage23['status'] == 'readonly_planner_evidence_ux_followthrough_completed'
+    assert stage23['status'] == 'completed'
     assert stage23['planning_authorized'] is True
     assert stage23['implementation_started'] is True
     assert stage23['implementation_authorized'] is True
     assert stage23['first_executable_checkpoint'] == 'Stage 23A - First bounded live per-system evidence provider'
-    assert stage23['current_checkpoint'] == 'Stage 23D - Read-only planner evidence UX follow-through'
-    assert stage23['next_checkpoint'] == 'Stage 23E - Closeout or next-control handoff'
+    assert stage23['current_checkpoint'] == 'Stage 23E - Closeout or next-control handoff'
+    assert stage23['next_checkpoint'] is None
     assert stage23['roadmap'] == 'docs/colonisation-redesign/stage-23-roadmap.md'
     assert stage23['stage22_complete'] is True
     assert stage23['stage23a_live_provider_completed'] is True
@@ -54,7 +56,12 @@ def test_stage23_authority_activates_the_next_post22_control_baseline():
     assert stage23['stage23c_evidence_envelope_governance_completed'] is True
     assert stage23['stage23d_readonly_ux_followthrough_started'] is True
     assert stage23['stage23d_readonly_ux_followthrough_completed'] is True
-    assert stage23['closeout_ready'] is False
+    assert stage23['stage23e_closeout_started'] is True
+    assert stage23['stage23e_closeout_completed'] is True
+    assert stage23['closeout_ready'] is True
+    assert stage23['stage23_closed'] is True
+    assert stage23['next_control_named'] == 'New explicit post-Stage-23 control document required'
+    assert stage23['next_control_implementation_authorized'] is False
     assert stage23['stage19_remains_paused'] is True
     assert stage23['db_writes_authorized'] is False
 
@@ -110,6 +117,25 @@ def test_stage23_authority_activates_the_next_post22_control_baseline():
     assert stage23d['rebaseline_authorized'] is False
     assert stage23d['scheduler_enabled'] is False
 
+    assert stage23e['status'] == 'completed'
+    assert stage23e['checkpoint_type'] == 'readonly_planner_evidence_closeout'
+    assert stage23e['document'] == 'docs/colonisation-redesign/stage-23e-readonly-evidence-closeout.md'
+    assert stage23e['stage23_closed'] is True
+    assert stage23e['readonly_planner_evidence_baseline_complete'] is True
+    assert stage23e['future_control_document_required'] is True
+    assert stage23e['next_control_named'] == 'New explicit post-Stage-23 control document required'
+    assert stage23e['next_control_implementation_authorized'] is False
+    assert stage23e['bounded_staging_report_only'] is True
+    assert stage23e['bounded_staging_never_canonical_truth'] is True
+    assert stage23e['bounded_staging_never_implies_full_edsm_coverage'] is True
+    assert stage23e['stage19_execution_run'] is False
+    assert stage23e['db_writes_performed'] is False
+    assert stage23e['canonical_apply_authorized'] is False
+    assert stage23e['rebaseline_authorized'] is False
+    assert stage23e['scheduler_enabled'] is False
+    assert stage23e['source_files_committed'] is False
+    assert stage23e['runtime_artifacts_committed'] is False
+
     assert baseline['status'] == 'prepared'
     assert baseline['checkpoint_type'] == 'planning_baseline'
     assert baseline['historical_snapshot'] is True
@@ -123,6 +149,7 @@ def test_stage23_authority_activates_the_next_post22_control_baseline():
 @pytest.mark.unit
 def test_stage23_docs_readme_and_stage17p_make_the_new_control_order_explicit():
     roadmap = ' '.join(_read(STAGE23_ROADMAP_PATH).split())
+    stage23e = ' '.join(_read(STAGE23E_PATH).split())
     stage23d = ' '.join(_read(STAGE23D_PATH).split())
     stage23c = ' '.join(_read(STAGE23C_PATH).split())
     stage23b = ' '.join(_read(STAGE23B_PATH).split())
@@ -132,6 +159,7 @@ def test_stage23_docs_readme_and_stage17p_make_the_new_control_order_explicit():
     parity = _read(LOCAL_CI_PARITY)
 
     assert STAGE23_ROADMAP_PATH.exists()
+    assert STAGE23E_PATH.exists()
     assert STAGE23D_PATH.exists()
     assert STAGE23C_PATH.exists()
     assert STAGE23B_PATH.exists()
@@ -141,11 +169,18 @@ def test_stage23_docs_readme_and_stage17p_make_the_new_control_order_explicit():
     assert 'Stage 23B is complete' in roadmap
     assert 'Stage 23C is complete' in roadmap
     assert 'Stage 23D is complete' in roadmap
+    assert 'Stage 23E is complete' in roadmap
     assert 'The dedicated `warehouse_planner_evidence/v1` endpoint remains the preferred planner evidence path.' in roadmap
     assert 'Unsupported or insufficiently evidenced systems still remain' in roadmap
-    assert 'Stage 23E - Closeout or next-control handoff' in roadmap
+    assert 'New explicit post-Stage-23 control document required' in roadmap
     assert 'Read-only only.' in roadmap
 
+    assert 'Stage 23E closes Stage 23 as a read-only planner evidence programme.' in stage23e
+    assert 'Stage 23A' in stage23e
+    assert 'Stage 23B' in stage23e
+    assert 'Stage 23C' in stage23e
+    assert 'Stage 23D' in stage23e
+    assert 'new explicit post-Stage-23 control document' in stage23e
     assert 'Stage 23D is complete.' in stage23d
     assert 'evidence status' in stage23d
     assert 'Bounded staging evidence' in stage23d
@@ -162,11 +197,12 @@ def test_stage23_docs_readme_and_stage17p_make_the_new_control_order_explicit():
     assert 'at least one real selected system can return non-fixture evidence in normal runtime' in stage23a
 
     assert 'stage-23-roadmap.md' in readme
+    assert 'stage-23e-readonly-evidence-closeout.md' in readme
     assert 'stage-23d-planner-evidence-ux-follow-through.md' in readme
     assert 'stage-23c-evidence-envelope-governance.md' in readme
     assert 'stage-23b-readonly-per-system-warehouse-join.md' in readme
     assert 'stage-23a-first-live-per-system-evidence-provider.md' in readme
-    assert 'active post-22 roadmap and current control baseline' in readme
+    assert 'latest completed Stage 23 control document' in readme
     assert 'docs/colonisation-redesign/stage-23-roadmap.md' in stage17p
     assert 'docs/colonisation-redesign/stage-23a-first-live-per-system-evidence-provider.md' in stage17p
     assert 'tests/test_stage23_planning_baseline.py' in parity
