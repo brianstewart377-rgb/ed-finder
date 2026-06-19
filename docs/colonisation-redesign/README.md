@@ -6,13 +6,14 @@ This folder contains the planning, architecture, forensic-review, and implementa
 
 Start here for any new colonisation work:
 
-1. [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) - completed Stage 23E closeout for the read-only planner evidence programme.
-2. [`stage-24-roadmap.md`](./stage-24-roadmap.md) - active post-Stage-23 control baseline for read-only evidence adoption and governance planning.
-3. [`stage-23-roadmap.md`](./stage-23-roadmap.md) - latest completed Stage 23 control document and closeout baseline.
-4. [`stage-23d-planner-evidence-ux-follow-through.md`](./stage-23d-planner-evidence-ux-follow-through.md) - completed Stage 23D planner evidence UX follow-through slice.
-5. [`stage-23c-evidence-envelope-governance.md`](./stage-23c-evidence-envelope-governance.md) - completed Stage 23C evidence envelope governance and source semantics slice.
-6. [`stage-23b-readonly-per-system-warehouse-join.md`](./stage-23b-readonly-per-system-warehouse-join.md) - completed Stage 23B read-only warehouse join expansion with bounded Stage 19BB staging provenance.
-7. [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) - completed Stage 23A first live per-system evidence provider slice.
+1. [`stage-24a-readonly-evidence-adoption-contract.md`](./stage-24a-readonly-evidence-adoption-contract.md) - completed Stage 24A contract-only checkpoint for read-only evidence adoption.
+2. [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) - completed Stage 23E closeout for the read-only planner evidence programme.
+3. [`stage-24-roadmap.md`](./stage-24-roadmap.md) - active post-Stage-23 control baseline for read-only evidence adoption and governance planning.
+4. [`stage-23-roadmap.md`](./stage-23-roadmap.md) - latest completed Stage 23 control document and closeout baseline.
+5. [`stage-23d-planner-evidence-ux-follow-through.md`](./stage-23d-planner-evidence-ux-follow-through.md) - completed Stage 23D planner evidence UX follow-through slice.
+6. [`stage-23c-evidence-envelope-governance.md`](./stage-23c-evidence-envelope-governance.md) - completed Stage 23C evidence envelope governance and source semantics slice.
+7. [`stage-23b-readonly-per-system-warehouse-join.md`](./stage-23b-readonly-per-system-warehouse-join.md) - completed Stage 23B read-only warehouse join expansion with bounded Stage 19BB staging provenance.
+8. [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) - completed Stage 23A first live per-system evidence provider slice.
 8. [`stage-19bb-production-staging-execution-closeout.md`](./stage-19bb-production-staging-execution-closeout.md) - sanitized evidence closeout for the completed Stage 19BB bounded `100 -> 1,000 -> 10,000` staging ladder.
 9. [`stage-19bb-first-production-staging-activation.md`](./stage-19bb-first-production-staging-activation.md) - exact Stage 19BB authorization for the first real bounded production-staging execution lane.
 10. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - completed post-18/20/21 roadmap and prior control baseline.
@@ -38,7 +39,9 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 
 ## Current Control Documents
 
-[`stage-24-roadmap.md`](./stage-24-roadmap.md) is the active post-Stage-23 control baseline. It selects read-only evidence adoption and governance as the next primary objective, names the first executable checkpoint, and keeps Stage 19 execution, DB writes, canonical apply, rebaseline, and scheduler/service activation unauthorized.
+[`stage-24a-readonly-evidence-adoption-contract.md`](./stage-24a-readonly-evidence-adoption-contract.md) records the completed Stage 24A contract checkpoint: the repo now has an explicit surfaces inventory, ownership map, evidence-state language contract, fixture/test plan, and Stage 24B implementation boundary for adopting the Stage 23 read-only evidence baseline.
+
+[`stage-24-roadmap.md`](./stage-24-roadmap.md) is the active post-Stage-23 control baseline. It selects read-only evidence adoption and governance as the next primary objective, records Stage 24A as complete, names Stage 24B as the next implementation checkpoint, and keeps Stage 19 execution, DB writes, canonical apply, rebaseline, and scheduler/service activation unauthorized.
 
 [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) records the completed Stage 23 closeout: the read-only planner evidence baseline is complete, bounded staging remains report-only and non-canonical, and Stage 24 is now the explicit successor control.
 
@@ -120,6 +123,7 @@ It supersedes the old assumption that the project should simply continue from St
 
 | Document | Status | Purpose |
 |---|---|---|
+| [`stage-24a-readonly-evidence-adoption-contract.md`](./stage-24a-readonly-evidence-adoption-contract.md) | Completed Stage 24A contract | Defines the read-only evidence adoption surfaces, ownership seams, language contract, fixture expectations, and Stage 24B boundaries without mixing in implementation. |
 | [`stage-24-roadmap.md`](./stage-24-roadmap.md) | Active Stage 24 control | Records the post-Stage-23 read-only evidence adoption and governance baseline, chosen workstream, first executable checkpoint, and preserved no-write boundaries. |
 | [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) | Completed Stage 23E closeout record | Records that the Stage 23 read-only planner evidence programme is complete and that any future follow-on requires a new explicit control document. |
 | [`stage-23-roadmap.md`](./stage-23-roadmap.md) | Completed Stage 23 control | Records the completed Stage 23A, Stage 23B, Stage 23C, Stage 23D, and Stage 23E read-only evidence sequence without reopening Stage 19. |
