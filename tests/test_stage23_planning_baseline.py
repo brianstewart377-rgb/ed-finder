@@ -60,7 +60,7 @@ def test_stage23_authority_activates_the_next_post22_control_baseline():
     assert stage23['stage23e_closeout_completed'] is True
     assert stage23['closeout_ready'] is True
     assert stage23['stage23_closed'] is True
-    assert stage23['next_control_named'] == 'New explicit post-Stage-23 control document required'
+    assert stage23['next_control_named'] == 'Stage 24 - Read-only evidence adoption and governance roadmap'
     assert stage23['next_control_implementation_authorized'] is False
     assert stage23['stage19_remains_paused'] is True
     assert stage23['db_writes_authorized'] is False
@@ -123,7 +123,7 @@ def test_stage23_authority_activates_the_next_post22_control_baseline():
     assert stage23e['stage23_closed'] is True
     assert stage23e['readonly_planner_evidence_baseline_complete'] is True
     assert stage23e['future_control_document_required'] is True
-    assert stage23e['next_control_named'] == 'New explicit post-Stage-23 control document required'
+    assert stage23e['next_control_named'] == 'Stage 24 - Read-only evidence adoption and governance roadmap'
     assert stage23e['next_control_implementation_authorized'] is False
     assert stage23e['bounded_staging_report_only'] is True
     assert stage23e['bounded_staging_never_canonical_truth'] is True
@@ -172,7 +172,7 @@ def test_stage23_docs_readme_and_stage17p_make_the_new_control_order_explicit():
     assert 'Stage 23E is complete' in roadmap
     assert 'The dedicated `warehouse_planner_evidence/v1` endpoint remains the preferred planner evidence path.' in roadmap
     assert 'Unsupported or insufficiently evidenced systems still remain' in roadmap
-    assert 'New explicit post-Stage-23 control document required' in roadmap
+    assert 'Stage 24 - Read-only evidence adoption and governance roadmap' in roadmap
     assert 'Read-only only.' in roadmap
 
     assert 'Stage 23E closes Stage 23 as a read-only planner evidence programme.' in stage23e
@@ -181,6 +181,7 @@ def test_stage23_docs_readme_and_stage17p_make_the_new_control_order_explicit():
     assert 'Stage 23C' in stage23e
     assert 'Stage 23D' in stage23e
     assert 'new explicit post-Stage-23 control document' in stage23e
+    assert 'docs/colonisation-redesign/stage-24-roadmap.md' in roadmap
     assert 'Stage 23D is complete.' in stage23d
     assert 'evidence status' in stage23d
     assert 'Bounded staging evidence' in stage23d

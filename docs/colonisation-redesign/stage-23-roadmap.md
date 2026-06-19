@@ -35,8 +35,8 @@ writes, operator commands, or production-like DB execution.
 - Provenance fallback remains preserved.
 - Unsupported or insufficiently evidenced systems still remain
   `unavailable`/`unknown`.
-- The next recommended control is `New explicit post-Stage-23 control document
-  required`.
+- The next recommended control is `Stage 24 - Read-only evidence adoption and
+  governance roadmap`.
 - The separate Stage 19BB bounded-staging execution dependency is now
   satisfied. The merged closeout is recorded in
   `docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
@@ -144,6 +144,9 @@ The delivered closeout confirms:
 - future work must begin under a new explicit post-Stage-23 control document;
 - Stage 19 remains separately gated unless a later control document explicitly
   re-authorizes it.
+
+The successor control is now recorded in
+`docs/colonisation-redesign/stage-24-roadmap.md` and does not reopen Stage 23.
 
 ## Preserved Boundaries
 
