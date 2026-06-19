@@ -71,8 +71,8 @@ class FakeConn:
         return cursor
 
 
-def valid_source_run_kwargs():
-    return {
+def valid_source_run_kwargs(**overrides):
+    kwargs = {
         'source_run_key': 'stage-19r-run',
         'source_name': 'edsm',
         'source_category': 'source_of_evidence',
@@ -85,6 +85,8 @@ def valid_source_run_kwargs():
         'status': 'running',
         'metadata': {'stage': '19r'},
     }
+    kwargs.update(overrides)
+    return kwargs
 
 
 def assert_sql_only_touches_source_runs(conn):
@@ -213,6 +215,34 @@ def test_run_source_run_artifact_flow_creates_writes_and_completes_success(tmp_p
     assert metadata['artifact_record']['file_sha256'] == result['artifact_record']['file_sha256']
     assert update_params[13] == 'stage-19r-run'
     assert update_params[14] == ['planned', 'running']
+    assert_sql_only_touches_source_runs(conn)
+
+
+def test_run_source_run_artifact_flow_clamps_fast_finished_at_in_source_run_completion_sql(tmp_path):
+    conn = FakeConn()
+    artifact_path = tmp_path / 'runs' / 'stage-19r-fast-success.json'
+    started_at = datetime(2026, 1, 2, 3, 4, 5, 721498, tzinfo=timezone.utc)
+    finished_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+    result = artifacts.run_source_run_artifact_flow(
+        conn,
+        source_run_kwargs=valid_source_run_kwargs(started_at=started_at),
+        artifact_path=artifact_path,
+        operation=lambda _source_run: artifacts.SourceRunArtifactOutcome(
+            payload=payload_shell(),
+            rows_read=1,
+            rows_staged=1,
+            rows_rejected=0,
+            rows_skipped=0,
+            finished_at=finished_at,
+            duration_ms=0,
+        ),
+    )
+
+    update_sql, update_params = conn.statements[1]
+    assert 'finished_at = GREATEST(%s, started_at)' in update_sql
+    assert update_params[1] == finished_at
+    assert result['completion']['status'] == 'succeeded'
     assert_sql_only_touches_source_runs(conn)
 
 

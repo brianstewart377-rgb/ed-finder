@@ -241,7 +241,7 @@ def test_success_completion_records_finished_counts_and_artifact_fields():
     assert row['status'] == 'succeeded'
     sql, params = conn.statements[0]
     assert 'UPDATE source_runs' in sql
-    assert 'finished_at = %s' in sql
+    assert 'finished_at = GREATEST(%s, started_at)' in sql
     assert params[:13] == (
         'succeeded',
         NOW,
@@ -265,6 +265,7 @@ def test_success_completion_records_finished_counts_and_artifact_fields():
 @pytest.mark.parametrize('complete_func,status', [
     (ledger.complete_source_run_failed, 'failed'),
     (ledger.complete_source_run_rejected, 'rejected'),
+    (ledger.complete_source_run_cancelled, 'cancelled'),
 ])
 def test_failed_and_rejected_completion_record_error_code_and_summary(complete_func, status):
     conn = FakeConn()
@@ -280,14 +281,21 @@ def test_failed_and_rejected_completion_record_error_code_and_summary(complete_f
     )
 
     assert row['status'] == status
-    _sql, params = conn.statements[0]
+    sql, params = conn.statements[0]
+    assert 'finished_at = GREATEST(%s, started_at)' in sql
     assert params[0] == status
     assert params[3] == 3
     assert params[5] == 3
-    assert params[10:12] == (
-        'source_schema_mismatch',
-        'source schema did not match expected fields',
-    )
+    if status == 'cancelled':
+        assert params[10:12] == (
+            'source_schema_mismatch',
+            'source schema did not match expected fields',
+        )
+    else:
+        assert params[10:12] == (
+            'source_schema_mismatch',
+            'source schema did not match expected fields',
+        )
     assert_helper_sql_only_touches_source_runs(conn)
 
 
@@ -321,6 +329,8 @@ def test_cancelled_and_superseded_transitions_are_explicit():
         finished_at=NOW,
     )
     assert cancelled['status'] == 'cancelled'
+    cancel_sql, _cancel_params = cancel_conn.statements[0]
+    assert 'finished_at = GREATEST(%s, started_at)' in cancel_sql
 
     supersede_conn = FakeConn()
     superseded = ledger.supersede_source_run(
@@ -330,9 +340,43 @@ def test_cancelled_and_superseded_transitions_are_explicit():
         metadata={'replaced_by': 'run-new'},
     )
     assert superseded['status'] == 'superseded'
+    supersede_sql, supersede_params = supersede_conn.statements[0]
+    assert 'finished_at = COALESCE(finished_at, GREATEST(%s, started_at))' in supersede_sql
+    assert supersede_params[0] == 'superseded'
     assert supersede_conn.statements[0][1][-1] == ['succeeded']
     assert_helper_sql_only_touches_source_runs(cancel_conn)
     assert_helper_sql_only_touches_source_runs(supersede_conn)
+
+
+@pytest.mark.parametrize('complete_func,status', [
+    (ledger.complete_source_run_success, 'succeeded'),
+    (ledger.complete_source_run_failed, 'failed'),
+    (ledger.complete_source_run_rejected, 'rejected'),
+    (ledger.complete_source_run_cancelled, 'cancelled'),
+])
+def test_terminal_completion_sql_clamps_finished_at_against_started_at(complete_func, status):
+    conn = FakeConn()
+    kwargs = {
+        'finished_at': NOW.replace(microsecond=0),
+        'duration_ms': 0,
+    }
+    if status == 'succeeded':
+        kwargs.update(rows_read=1, rows_staged=1, rows_rejected=0, rows_skipped=0)
+    else:
+        kwargs.update(
+            error_code='state_transition_test',
+            error_summary='verify finished_at clamp',
+            rows_read=1,
+            rows_rejected=1 if status == 'rejected' else 0,
+        )
+
+    complete_func(conn, 'run-key', **kwargs)
+
+    sql, params = conn.statements[0]
+    assert 'finished_at = GREATEST(%s, started_at)' in sql
+    assert params[1] == NOW.replace(microsecond=0)
+    if status == 'succeeded':
+        assert params[2] == 0
 
 
 def test_active_run_helpers_read_and_block_duplicate_running_run():
