@@ -9,6 +9,7 @@ WarehouseEvidenceSource = Literal['canonical', 'observed', 'warehouse_report_onl
 WarehouseEvidenceAvailability = Literal['unavailable', 'report_only']
 WarehouseEvidenceLabel = Literal['report_only', 'needs_review', 'verify', 'unresolved', 'stale', 'blocked', 'unknown']
 WarehouseEvidenceFreshnessStatus = Literal['fresh', 'stale', 'unknown', 'not_evaluated']
+WarehouseBoundedStagingStatus = Literal['available', 'unavailable', 'not_evaluated']
 
 
 class WarehousePlannerEvidenceItem(BaseModel):
@@ -42,6 +43,24 @@ class WarehousePlannerEvidenceSourceRun(BaseModel):
     run_key: str | None = None
 
 
+class WarehousePlannerEvidenceBoundedStaging(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    status: WarehouseBoundedStagingStatus
+    report_only: Literal[True]
+    bounded_staging_only: Literal[True]
+    source_name: str | None = None
+    source_batch_label: str | None = None
+    source_sha256: str | None = None
+    source_run_key: str | None = None
+    bridge_key: str | None = None
+    row_limit: int | None = None
+    available_row_limits: list[int]
+    matched_row_count: int | None = None
+    latest_source_updated_at: str | None = None
+    summary: str | None = None
+
+
 class WarehousePlannerEvidenceContract(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -50,5 +69,6 @@ class WarehousePlannerEvidenceContract(BaseModel):
     generated_at: str
     freshness: WarehousePlannerEvidenceFreshness
     source_run: WarehousePlannerEvidenceSourceRun
+    bounded_staging: WarehousePlannerEvidenceBoundedStaging
     evidence_summary: WarehousePlannerEvidenceSummary
     warnings: list[str]

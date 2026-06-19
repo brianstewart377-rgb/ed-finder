@@ -22,6 +22,7 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-freshness-unknown').textContent).toMatch(/unknown freshness/i);
     expect(screen.getByTestId('warehouse-evidence-source-posture-unknown').textContent).toMatch(/unknown source path/i);
     expect(screen.getByTestId('warehouse-evidence-review-status').textContent).toContain('Passive review only');
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-not_evaluated').textContent).toMatch(/not evaluated/i);
     // Unknown source label, not a "no evidence" / false claim.
     expect(within(unavailable).getByTestId('warehouse-evidence-source-unknown')).toBeTruthy();
     expect(within(card).queryByTestId('warehouse-evidence-items')).toBeNull();
@@ -58,6 +59,21 @@ describe('WarehouseEvidenceCard', () => {
       sourceName: 'warehouse_reconciliation',
       runKey: 'warehouse/run-20260617.json',
       sourcePosture: 'dedicated_contract',
+      boundedStaging: {
+        status: 'available',
+        reportOnly: true,
+        boundedStagingOnly: true,
+        sourceName: 'edsm',
+        sourceBatchLabel: 'edsm-stations-20260619T190906Z',
+        sourceSha256: 'b256017814a1015fb24748c8027f1a00cba2f187a257ef3e0f9e3a6ba6e45984',
+        sourceRunKey: 'stage19bb-edsm-10000-row-bounded-staging-20260619T200018Z',
+        bridgeKey: 'source_runs:stage19bb-edsm-10000-row-bounded-staging-20260619T200018Z',
+        rowLimit: 10000,
+        availableRowLimits: [1000, 10000],
+        matchedRowCount: 2,
+        latestSourceUpdatedAt: '2026-06-19T20:00:18Z',
+        summary: 'Stage 19BB bounded staging evidence includes 2 staging rows for this system in the approved 10000-row context; it remains bounded staging-only review context, not canonical truth and not full EDSM coverage.',
+      },
       items: [
         {
           label: 'report_only',
@@ -81,6 +97,9 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-freshness-fresh').textContent).toMatch(/fresh/i);
     expect(screen.getByTestId('warehouse-evidence-source-posture-dedicated_contract').textContent).toMatch(/dedicated contract/i);
     expect(screen.getByTestId('warehouse-evidence-source-run').textContent).toContain('warehouse_reconciliation');
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-available').textContent).toMatch(/available/i);
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-summary').textContent).toContain('edsm-stations-20260619T190906Z');
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-summary').textContent).toContain('limit 10000');
     expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
   });
 
@@ -123,6 +142,11 @@ describe('WarehouseEvidenceCard', () => {
       evaluatedAt: null,
       manualReviewRequired: true,
       sourcePosture: 'provenance_bridge',
+      boundedStaging: {
+        status: 'not_evaluated',
+        reportOnly: true,
+        boundedStagingOnly: true,
+      },
       items: [
         {
           label: 'report_only',

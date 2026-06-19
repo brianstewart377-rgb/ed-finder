@@ -415,6 +415,27 @@ export interface PlannerWarehouseEvidenceItem {
   summary: string;
 }
 
+export type WarehouseBoundedStagingStatus =
+  | 'available'
+  | 'unavailable'
+  | 'not_evaluated';
+
+export interface PlannerWarehouseBoundedStaging {
+  status: WarehouseBoundedStagingStatus;
+  reportOnly: true;
+  boundedStagingOnly: true;
+  sourceName?: string | null;
+  sourceBatchLabel?: string | null;
+  sourceSha256?: string | null;
+  sourceRunKey?: string | null;
+  bridgeKey?: string | null;
+  rowLimit?: number | null;
+  availableRowLimits?: number[];
+  matchedRowCount?: number | null;
+  latestSourceUpdatedAt?: string | null;
+  summary?: string | null;
+}
+
 export interface PlannerWarehouseEvidence {
   availability: WarehouseEvidenceAvailability;
   /**
@@ -430,6 +451,7 @@ export interface PlannerWarehouseEvidence {
   sourceName?: string | null;
   runKey?: string | null;
   sourcePosture?: 'dedicated_contract' | 'provenance_bridge' | 'unknown';
+  boundedStaging?: PlannerWarehouseBoundedStaging;
   warnings?: string[];
 }
 
@@ -449,12 +471,29 @@ export interface WarehousePlannerEvidenceSourceRun {
   run_key?: string | null;
 }
 
+export interface WarehousePlannerEvidenceBoundedStagingContract {
+  status: WarehouseBoundedStagingStatus;
+  report_only: true;
+  bounded_staging_only: true;
+  source_name?: string | null;
+  source_batch_label?: string | null;
+  source_sha256?: string | null;
+  source_run_key?: string | null;
+  bridge_key?: string | null;
+  row_limit?: number | null;
+  available_row_limits: number[];
+  matched_row_count?: number | null;
+  latest_source_updated_at?: string | null;
+  summary?: string | null;
+}
+
 export interface WarehousePlannerEvidenceContract {
   schema_version: 'warehouse_planner_evidence/v1';
   system_id64: number;
   generated_at: string;
   freshness: WarehousePlannerEvidenceFreshness;
   source_run: WarehousePlannerEvidenceSourceRun;
+  bounded_staging: WarehousePlannerEvidenceBoundedStagingContract;
   evidence_summary: {
     availability: WarehouseEvidenceAvailability;
     report_only: true;

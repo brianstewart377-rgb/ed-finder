@@ -7,13 +7,14 @@ from typing import Any, Mapping
 from config import settings
 from enrichment_operator_status import read_warehouse_status_snapshot
 from warehouse_planner_evidence_models import (
+    WarehousePlannerEvidenceBoundedStaging,
     WarehousePlannerEvidenceContract,
     WarehousePlannerEvidenceFreshness,
     WarehousePlannerEvidenceItem,
     WarehousePlannerEvidenceSourceRun,
     WarehousePlannerEvidenceSummary,
 )
-from warehouse_planner_evidence_provider import LivePlannerEvidenceResult
+from warehouse_planner_evidence_provider import LivePlannerEvidenceResult, load_stage19bb_closeout_metadata
 
 
 SCHEMA_VERSION = 'warehouse_planner_evidence/v1'
@@ -88,6 +89,7 @@ def build_warehouse_planner_evidence(
             generated_at=_text_or_none(fixture.get('generated_at')) or generated_at,
             freshness=freshness,
             source_run=source_run,
+            bounded_staging=_fixture_bounded_staging(fixture),
             evidence_summary=WarehousePlannerEvidenceSummary(
                 availability='report_only',
                 report_only=True,
@@ -115,6 +117,7 @@ def build_warehouse_planner_evidence(
             generated_at=generated_at,
             freshness=freshness,
             source_run=source_run,
+            bounded_staging=live_result.bounded_staging,
             evidence_summary=WarehousePlannerEvidenceSummary(
                 availability=live_result.availability,
                 report_only=True,
@@ -130,6 +133,7 @@ def build_warehouse_planner_evidence(
         generated_at=generated_at,
         freshness=freshness,
         source_run=source_run,
+        bounded_staging=_default_bounded_staging_contract(status='not_evaluated'),
         evidence_summary=WarehousePlannerEvidenceSummary(
             availability='unavailable',
             report_only=True,
@@ -147,6 +151,27 @@ def resolve_runtime_warehouse_fixture(id64: int) -> Mapping[str, Any] | None:
     return fixture if isinstance(fixture, Mapping) else None
 
 
+def _fixture_bounded_staging(fixture: Mapping[str, Any]) -> WarehousePlannerEvidenceBoundedStaging:
+    staged = _mapping(fixture.get('bounded_staging'))
+    status = _text_or_none(staged.get('status')) or 'not_evaluated'
+    available_row_limits = [
+        value for value in staged.get('available_row_limits', [])
+        if isinstance(value, int)
+    ] if isinstance(staged.get('available_row_limits'), list) else []
+    matched_row_count = _int_or_none(staged.get('matched_row_count'))
+    row_limit = _int_or_none(staged.get('row_limit'))
+    return _default_bounded_staging_contract(
+        status=status,
+        source_run_key=_text_or_none(staged.get('source_run_key')),
+        bridge_key=_text_or_none(staged.get('bridge_key')),
+        row_limit=row_limit,
+        available_row_limits=available_row_limits,
+        matched_row_count=matched_row_count,
+        latest_source_updated_at=_text_or_none(staged.get('latest_source_updated_at')),
+        summary=_text_or_none(staged.get('summary')),
+    )
+
+
 def _fallback_warnings(warehouse_status: Mapping[str, Any]) -> list[str]:
     warnings = _safe_rows(warehouse_status.get('warnings'))
     if warehouse_status.get('available') is False:
@@ -162,6 +187,35 @@ def _fallback_warnings(warehouse_status: Mapping[str, Any]) -> list[str]:
             'Per-system warehouse evidence has not been evaluated for this system yet; planner fallback must remain in place.'
         )
     return warnings[:8]
+
+
+def _default_bounded_staging_contract(
+    *,
+    status: str,
+    source_run_key: str | None = None,
+    bridge_key: str | None = None,
+    row_limit: int | None = None,
+    available_row_limits: list[int] | None = None,
+    matched_row_count: int | None = None,
+    latest_source_updated_at: str | None = None,
+    summary: str | None = None,
+) -> WarehousePlannerEvidenceBoundedStaging:
+    metadata = load_stage19bb_closeout_metadata()
+    return WarehousePlannerEvidenceBoundedStaging(
+        status=status,  # type: ignore[arg-type]
+        report_only=True,
+        bounded_staging_only=True,
+        source_name=metadata.source_name if metadata else None,
+        source_batch_label=metadata.source_batch_label if metadata else None,
+        source_sha256=metadata.source_sha256 if metadata else None,
+        source_run_key=source_run_key,
+        bridge_key=bridge_key,
+        row_limit=row_limit,
+        available_row_limits=available_row_limits or [],
+        matched_row_count=matched_row_count,
+        latest_source_updated_at=latest_source_updated_at,
+        summary=summary,
+    )
 
 
 def _freshness_status(

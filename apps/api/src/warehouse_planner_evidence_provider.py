@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import asyncpg
 
 from observations.store import observed_fact_summary
-from warehouse_planner_evidence_models import WarehousePlannerEvidenceItem
+from warehouse_planner_evidence_models import (
+    WarehousePlannerEvidenceBoundedStaging,
+    WarehousePlannerEvidenceItem,
+)
+
+
+ROOT = Path(__file__).resolve().parents[3]
+AUTHORITY_PATH = ROOT / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
 
 
 @dataclass(frozen=True)
@@ -16,7 +26,23 @@ class LivePlannerEvidenceResult:
     freshness_status: str
     evaluated_at: str | None
     manual_review_required: bool
+    bounded_staging: WarehousePlannerEvidenceBoundedStaging
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Stage19bbRunMetadata:
+    row_limit: int
+    source_run_key: str
+    bridge_key: str
+
+
+@dataclass(frozen=True)
+class Stage19bbCloseoutMetadata:
+    source_name: str
+    source_batch_label: str
+    source_sha256: str
+    runs: tuple[Stage19bbRunMetadata, ...]
 
 
 async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlannerEvidenceResult:
@@ -34,6 +60,7 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
                 freshness_status='unknown',
                 evaluated_at=None,
                 manual_review_required=True,
+                bounded_staging=_default_bounded_staging(status='unavailable'),
                 warnings=[
                     'System is not present in canonical app data; selected-system evidence remains unavailable.',
                 ],
@@ -92,6 +119,7 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
             warnings.append(
                 'Canonical evidence timestamps are unavailable; freshness remains conservative.'
             )
+        bounded_staging = await _load_stage19bb_bounded_staging_evidence(conn, id64)
 
     observed_summary = await _safe_observed_summary(pool, id64)
     observed_total = _int_or_zero(observed_summary.get('total_count'))
@@ -138,6 +166,15 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
             )
         )
 
+    if bounded_staging.status == 'available' and bounded_staging.summary:
+        items.append(
+            WarehousePlannerEvidenceItem(
+                label='report_only',
+                source='warehouse_report_only',
+                summary=bounded_staging.summary,
+            )
+        )
+
     if observed_summary.get('_warning'):
         warnings.append(str(observed_summary['_warning']))
 
@@ -148,8 +185,10 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
             freshness_status='unknown',
             evaluated_at=None,
             manual_review_required=True,
+            bounded_staging=bounded_staging,
             warnings=[
                 'No safe selected-system evidence is currently linked for this system; unavailable remains unknown.',
+                *bounded_staging_warnings(bounded_staging),
                 *warnings,
             ][:8],
         )
@@ -159,16 +198,15 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
             'No persisted observed facts were found for this system; selected-system evidence currently relies on canonical data only.'
         )
 
-    warnings.append(
-        'Per-system warehouse evidence is not included until a safe selected-system warehouse join exists; any source-run metadata remains review context only.'
-    )
+    warnings.extend(bounded_staging_warnings(bounded_staging))
 
     return LivePlannerEvidenceResult(
         availability='report_only',
         items=items[:6],
         freshness_status='not_evaluated',
-        evaluated_at=_max_timestamp(latest_canonical_at, observed_latest_at),
+        evaluated_at=_max_timestamp(latest_canonical_at, observed_latest_at, bounded_staging.latest_source_updated_at),
         manual_review_required=any(item.label in {'needs_review', 'verify', 'unresolved'} for item in items),
+        bounded_staging=bounded_staging,
         warnings=warnings[:8],
     )
 
@@ -222,8 +260,180 @@ def _max_timestamp(*values: str | None) -> str | None:
     return max(present) if present else None
 
 
+def _default_bounded_staging(
+    *,
+    status: str = 'not_evaluated',
+    summary: str | None = None,
+    available_row_limits: list[int] | None = None,
+    matched_row_count: int | None = None,
+    latest_source_updated_at: str | None = None,
+    source_run_key: str | None = None,
+    bridge_key: str | None = None,
+    row_limit: int | None = None,
+) -> WarehousePlannerEvidenceBoundedStaging:
+    metadata = load_stage19bb_closeout_metadata()
+    return WarehousePlannerEvidenceBoundedStaging(
+        status=status,
+        report_only=True,
+        bounded_staging_only=True,
+        source_name=metadata.source_name if metadata else None,
+        source_batch_label=metadata.source_batch_label if metadata else None,
+        source_sha256=metadata.source_sha256 if metadata else None,
+        source_run_key=source_run_key,
+        bridge_key=bridge_key,
+        row_limit=row_limit,
+        available_row_limits=available_row_limits or [],
+        matched_row_count=matched_row_count,
+        latest_source_updated_at=latest_source_updated_at,
+        summary=summary,
+    )
+
+
+def bounded_staging_warnings(value: WarehousePlannerEvidenceBoundedStaging) -> list[str]:
+    if value.status == 'available':
+        return [
+            'Stage 19BB bounded staging evidence is available for this system as report-only context only; it is not canonical truth and does not imply full EDSM coverage.',
+        ]
+    if value.status == 'unavailable':
+        return [
+            'No Stage 19BB bounded staging evidence is linked to this selected system in the committed closeout runs; bounded staging remains unavailable.',
+        ]
+    return [
+        'Stage 19BB bounded staging evidence is not safely queryable in this runtime; bounded staging remains not evaluated.',
+    ]
+
+
+@lru_cache(maxsize=1)
+def load_stage19bb_closeout_metadata() -> Stage19bbCloseoutMetadata | None:
+    try:
+        authority = json.loads(AUTHORITY_PATH.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+
+    closeout = authority.get('stage19bb_execution_closeout')
+    if not isinstance(closeout, dict):
+        return None
+
+    runs_value = closeout.get('runs')
+    if not isinstance(runs_value, list) or not runs_value:
+        return None
+
+    runs: list[Stage19bbRunMetadata] = []
+    for run in runs_value:
+        if not isinstance(run, dict):
+            continue
+        row_limit = run.get('limit')
+        source_run_key = run.get('source_run_key')
+        bridge_key = run.get('bridge_key')
+        if not isinstance(row_limit, int) or not isinstance(source_run_key, str) or not isinstance(bridge_key, str):
+            continue
+        runs.append(
+            Stage19bbRunMetadata(
+                row_limit=row_limit,
+                source_run_key=source_run_key,
+                bridge_key=bridge_key,
+            )
+        )
+
+    source_name = closeout.get('source_name')
+    source_batch_label = closeout.get('source_batch_label')
+    source_sha256 = closeout.get('approved_source_sha256')
+    if not runs or not isinstance(source_name, str) or not isinstance(source_batch_label, str) or not isinstance(source_sha256, str):
+        return None
+
+    return Stage19bbCloseoutMetadata(
+        source_name=source_name,
+        source_batch_label=source_batch_label,
+        source_sha256=source_sha256,
+        runs=tuple(sorted(runs, key=lambda item: item.row_limit)),
+    )
+
+
+async def _load_stage19bb_bounded_staging_evidence(
+    conn: asyncpg.Connection,
+    id64: int,
+) -> WarehousePlannerEvidenceBoundedStaging:
+    metadata = load_stage19bb_closeout_metadata()
+    if metadata is None:
+        return _default_bounded_staging(status='not_evaluated')
+
+    table_state = await conn.fetchrow(
+        """
+        SELECT
+          to_regclass('public.enrichment_source_runs') IS NOT NULL AS has_bridge,
+          to_regclass('public.staging_edsm_stations') IS NOT NULL AS has_staging
+        """
+    )
+    has_bridge = bool(_row_value(table_state, 'has_bridge'))
+    has_staging = bool(_row_value(table_state, 'has_staging'))
+    if not (has_bridge and has_staging):
+        return _default_bounded_staging(status='not_evaluated')
+
+    rows = await conn.fetch(
+        """
+        SELECT
+          esr.source_run_key AS bridge_key,
+          COUNT(*)::int AS matched_row_count,
+          MAX(ses.source_updated_at)::text AS latest_source_updated_at
+        FROM enrichment_source_runs esr
+        JOIN staging_edsm_stations ses
+          ON ses.source_run_id = esr.id
+        WHERE esr.source_run_key = ANY($1::text[])
+          AND ses.system_id64 = $2
+        GROUP BY esr.source_run_key
+        """,
+        [run.bridge_key for run in metadata.runs],
+        id64,
+    )
+
+    by_bridge_key = {
+        str(_row_value(row, 'bridge_key')): {
+            'matched_row_count': _int_or_zero(_row_value(row, 'matched_row_count')),
+            'latest_source_updated_at': _text_or_none(_row_value(row, 'latest_source_updated_at')),
+        }
+        for row in rows
+    }
+    available_runs = [
+        run for run in metadata.runs
+        if by_bridge_key.get(run.bridge_key, {}).get('matched_row_count', 0) > 0
+    ]
+    if not available_runs:
+        return _default_bounded_staging(status='unavailable')
+
+    best_run = max(available_runs, key=lambda item: item.row_limit)
+    best_row = by_bridge_key[best_run.bridge_key]
+    limits = sorted(run.row_limit for run in available_runs)
+    count = best_row['matched_row_count']
+    plural = '' if count == 1 else 's'
+    return _default_bounded_staging(
+        status='available',
+        source_run_key=best_run.source_run_key,
+        bridge_key=best_run.bridge_key,
+        row_limit=best_run.row_limit,
+        available_row_limits=limits,
+        matched_row_count=count,
+        latest_source_updated_at=best_row['latest_source_updated_at'],
+        summary=(
+            f'Stage 19BB bounded staging evidence includes {count} staging row{plural} '
+            f'for this system in the approved {best_run.row_limit}-row context; it remains bounded staging-only review context, '
+            'not canonical truth and not full EDSM coverage.'
+        ),
+    )
+
+
 def _int_or_zero(value: Any) -> int:
     return value if isinstance(value, int) else 0
+
+
+def _row_value(row: Any, key: str) -> Any:
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row.get(key)
+    try:
+        return row[key]
+    except (KeyError, TypeError, IndexError):
+        return None
 
 
 def _text_or_none(value: Any) -> str | None:

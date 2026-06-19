@@ -172,6 +172,12 @@ function warehousePlannerEvidenceResponse(
       source_name: 'warehouse_reconciliation',
       run_key: 'warehouse/run-20260617.json',
     },
+    bounded_staging: {
+      status: 'not_evaluated',
+      report_only: true,
+      bounded_staging_only: true,
+      available_row_limits: [],
+    },
     evidence_summary: {
       availability: 'report_only',
       report_only: true,
@@ -620,10 +626,8 @@ describe('ColonyPlannerWorkspace', () => {
     await renderPlanner();
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
-    await waitFor(() => expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(123));
-    expect(await screen.findByText(/Selected-system warehouse evidence is only available as provenance fallback review context\./)).toBeTruthy();
+    expect(await screen.findByTestId('warehouse-evidence-source-posture-provenance_bridge')).toBeTruthy();
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
-    expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(123);
   });
 
   it('does not render role conflict controls in the default rescue surface', async () => {

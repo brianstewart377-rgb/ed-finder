@@ -1,6 +1,8 @@
 import type {
+  PlannerWarehouseBoundedStaging,
   PlannerWarehouseEvidence,
   WarehouseEvidenceLabel,
+  WarehouseBoundedStagingStatus,
   WarehousePlannerEvidenceFreshnessStatus,
   WarehouseEvidenceSource,
 } from '@/types/api';
@@ -62,6 +64,12 @@ const SOURCE_POSTURE_LABEL: Record<NonNullable<PlannerWarehouseEvidence['sourceP
   unknown: 'Unknown source path',
 };
 
+const BOUNDED_STAGING_LABEL: Record<WarehouseBoundedStagingStatus, string> = {
+  available: 'Bounded staging available',
+  unavailable: 'Bounded staging unavailable',
+  not_evaluated: 'Bounded staging not evaluated',
+};
+
 export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) {
   const isUnavailable =
     !evidence ||
@@ -70,6 +78,11 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
   const freshness = evidence?.freshnessStatus ?? 'unknown';
   const reviewStatus = evidence?.manualReviewRequired ? 'Manual review required' : 'Passive review only';
   const sourcePosture = evidence?.sourcePosture ?? 'unknown';
+  const boundedStaging: PlannerWarehouseBoundedStaging = evidence?.boundedStaging ?? {
+    status: 'not_evaluated',
+    reportOnly: true,
+    boundedStagingOnly: true,
+  };
   const warnings = evidence?.warnings ?? [];
 
   return (
@@ -118,7 +131,35 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
             Source run: {[evidence?.sourceName, evidence?.runKey].filter(Boolean).join(' · ')}
           </span>
         ) : null}
+        {boundedStaging ? (
+          <span
+            data-testid={`warehouse-evidence-bounded-staging-${boundedStaging.status}`}
+            className="leading-snug"
+          >
+            {BOUNDED_STAGING_LABEL[boundedStaging.status]}
+          </span>
+        ) : null}
       </div>
+
+      {boundedStaging ? (
+        <div
+          data-testid="warehouse-evidence-bounded-staging-summary"
+          className="border-t border-border pt-2 text-[10px] text-text-dim space-y-1"
+        >
+          {boundedStaging.summary ? (
+            <p className="leading-snug">{boundedStaging.summary}</p>
+          ) : null}
+          <p className="leading-snug">
+            Stage 19BB provenance:{' '}
+            {[
+              boundedStaging.sourceBatchLabel,
+              boundedStaging.sourceRunKey,
+              boundedStaging.rowLimit != null ? `limit ${boundedStaging.rowLimit}` : null,
+              boundedStaging.matchedRowCount != null ? `${boundedStaging.matchedRowCount} matched row(s)` : null,
+            ].filter(Boolean).join(' · ') || 'not evaluated'}
+          </p>
+        </div>
+      ) : null}
 
       {isUnavailable ? (
         <div
