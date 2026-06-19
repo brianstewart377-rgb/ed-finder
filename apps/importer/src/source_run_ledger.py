@@ -409,7 +409,7 @@ def supersede_source_run(
         UPDATE {SOURCE_RUNS_TABLE}
         SET
             status = %s,
-            finished_at = COALESCE(finished_at, %s),
+            finished_at = COALESCE(finished_at, GREATEST(%s, started_at)),
             metadata = metadata || %s::jsonb,
             updated_at = NOW()
         WHERE source_run_key = %s
@@ -514,7 +514,7 @@ def _complete_source_run(
         UPDATE {SOURCE_RUNS_TABLE}
         SET
             status = %s,
-            finished_at = %s,
+            finished_at = GREATEST(%s, started_at),
             duration_ms = COALESCE(%s, duration_ms),
             rows_read = COALESCE(%s, rows_read),
             rows_staged = COALESCE(%s, rows_staged),
