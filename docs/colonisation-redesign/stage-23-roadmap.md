@@ -27,13 +27,16 @@ writes, operator commands, or production-like DB execution.
 - Stage 23D is complete: the planner UI now consumes the governed evidence
   envelope directly and renders distinct user-facing wording for available,
   unavailable, not-evaluated, unknown, and bounded-staging review states.
+- Stage 23E is complete: Stage 23 is now closed as a read-only planner
+  evidence programme, and any future follow-on must begin under a new explicit
+  control document.
 - The dedicated `warehouse_planner_evidence/v1` endpoint remains the preferred
   planner evidence path.
 - Provenance fallback remains preserved.
 - Unsupported or insufficiently evidenced systems still remain
   `unavailable`/`unknown`.
-- The next recommended checkpoint is `Stage 23E - Closeout or next-control
-  handoff`.
+- The next recommended control is `New explicit post-Stage-23 control document
+  required`.
 - The separate Stage 19BB bounded-staging execution dependency is now
   satisfied. The merged closeout is recorded in
   `docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
@@ -130,8 +133,17 @@ envelope directly in the planner UI:
 
 `Stage 23E - Closeout or next-control handoff`
 
-Close Stage 23 or hand off to the next explicit control document while keeping
-Stage 19 separately gated unless re-authorized by a new control document.
+Stage 23E is complete and recorded in
+`docs/colonisation-redesign/stage-23e-readonly-evidence-closeout.md`.
+
+The delivered closeout confirms:
+
+- Stage 23 is complete as a read-only planner evidence programme;
+- the selected-system evidence baseline now exists across endpoint, envelope,
+  bounded staging provenance, and planner UI wording;
+- future work must begin under a new explicit post-Stage-23 control document;
+- Stage 19 remains separately gated unless a later control document explicitly
+  re-authorizes it.
 
 ## Preserved Boundaries
 
