@@ -598,7 +598,7 @@ describe('ColonyPlannerWorkspace', () => {
 
   });
 
-  it('falls back to provenance warehouse evidence when the dedicated endpoint is unavailable', async () => {
+  it('renders the dedicated unavailable envelope directly instead of falling back on unavailable status', async () => {
     mockedUseSystemDetail.mockReturnValue({
       data: system,
       loading: false,
@@ -606,6 +606,23 @@ describe('ColonyPlannerWorkspace', () => {
       refetch: vi.fn(),
     });
     mockedGetWarehousePlannerEvidence.mockResolvedValue(warehousePlannerEvidenceResponse({
+      evidence_envelope: {
+        status: 'unavailable',
+        source_classes: ['unavailable'],
+        semantics: ['report_only_review_context', 'not_full_coverage'],
+        report_only: true,
+        selected_system_only: true,
+        planner_truth_source_class: 'unavailable',
+        claims_canonical_truth: false,
+        claims_full_coverage: false,
+        summary: 'Selected-system evidence is unavailable in this read-only planner envelope. Source classes: no linked selected-system evidence.',
+      },
+      bounded_staging: {
+        status: 'unavailable',
+        report_only: true,
+        bounded_staging_only: true,
+        available_row_limits: [],
+      },
       evidence_summary: {
         availability: 'unavailable',
         report_only: true,
@@ -618,10 +635,13 @@ describe('ColonyPlannerWorkspace', () => {
     await renderPlanner();
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
-    expect(await screen.findByText(/Selected-system warehouse evidence is only available as provenance fallback review context\./)).toBeTruthy();
+    expect(await screen.findByTestId('warehouse-evidence-envelope-status-unavailable')).toBeTruthy();
+    expect((await screen.findByTestId('warehouse-evidence-unavailable')).textContent).toContain(
+      'No approved bounded staging evidence is linked to this selected system.',
+    );
     expect(screen.queryByText(/DB writes remain unauthorized/i)).toBeNull();
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
-    expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(123);
+    expect(mockedGetProvenanceCockpit).not.toHaveBeenCalled();
   });
 
   it('keeps a safe unknown warehouse evidence card when the dedicated endpoint errors', async () => {

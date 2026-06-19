@@ -24,13 +24,16 @@ writes, operator commands, or production-like DB execution.
   envelope so callers can distinguish canonical, observed-facts,
   bounded-staging, derived-report, unavailable, and not-evaluated semantics
   without inferring them from warnings alone.
+- Stage 23D is complete: the planner UI now consumes the governed evidence
+  envelope directly and renders distinct user-facing wording for available,
+  unavailable, not-evaluated, unknown, and bounded-staging review states.
 - The dedicated `warehouse_planner_evidence/v1` endpoint remains the preferred
   planner evidence path.
 - Provenance fallback remains preserved.
 - Unsupported or insufficiently evidenced systems still remain
   `unavailable`/`unknown`.
-- The next recommended checkpoint is `Stage 23D - Read-only planner evidence UX
-  follow-through`.
+- The next recommended checkpoint is `Stage 23E - Closeout or next-control
+  handoff`.
 - The separate Stage 19BB bounded-staging execution dependency is now
   satisfied. The merged closeout is recorded in
   `docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
@@ -109,8 +112,19 @@ same read-only planner evidence surface.
 
 `Stage 23D - Read-only planner evidence UX follow-through`
 
-Refine user-visible wording and review posture after live provider semantics are
-proven stable.
+Stage 23D is complete and recorded in
+`docs/colonisation-redesign/stage-23d-planner-evidence-ux-follow-through.md`.
+
+The delivered slice keeps the existing endpoint path and applies the Stage 23C
+envelope directly in the planner UI:
+
+- the dedicated endpoint response is preferred whenever it exists;
+- envelope `status` now drives the user-facing state wording;
+- source classes and source semantics are rendered directly;
+- bounded staging stays explicitly report-only, non-canonical, and not full
+  coverage;
+- provenance fallback remains a fallback for dedicated-endpoint read failure,
+  not a replacement for explicit `unavailable` responses.
 
 ### Stage 23E
 
