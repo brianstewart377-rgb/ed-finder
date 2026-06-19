@@ -23,9 +23,11 @@ writes, operator commands, or production-like DB execution.
   `unavailable`/`unknown`.
 - The next recommended checkpoint is `Stage 23B - Safe per-system warehouse join
   expansion`.
-- Stage 19BB authorization is now the separate operational dependency for any
-  future bounded warehouse-evidence execution lane; Stage 23 itself remains
-  read-only.
+- The separate Stage 19BB bounded-staging execution dependency is now
+  satisfied. The merged closeout is recorded in
+  `docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
+- Stage 23 itself remains read-only: the satisfied dependency does not
+  authorize Stage 23 DB writes, canonical apply, rebaseline, or scheduler work.
 
 ## Source Order
 
@@ -57,8 +59,11 @@ expand the provider to include per-system warehouse evidence without guessing.
 This remains operationally dependent on the separate bounded Stage 19
 production-staging activation contract rather than inferred warehouse truth.
 That separate dependency is now pinned to the merged Stage 19BB authorization
-checkpoint, which approves only the reviewed EDSM source, the reviewed isolated
-staging target fingerprint, and the `100 -> 1,000 -> 10,000` bounded ladder.
+and closeout chain, which records the reviewed EDSM source, the reviewed
+isolated staging target fingerprint, and the completed `100 -> 1,000 -> 10,000`
+bounded ladder as sanitized staging-only evidence. Stage 23B may proceed if it
+needs that evidence, but Stage 23 still does not authorize operator execution
+or any write-capable lane.
 
 ### Stage 23C
 
