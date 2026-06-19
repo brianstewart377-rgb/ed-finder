@@ -35,10 +35,12 @@ def test_stage24a_authority_records_a_completed_contract_only_checkpoint():
     assert stage23['status'] == 'completed'
     assert stage23['stage23_closed'] is True
 
-    assert stage24['current_checkpoint'] == 'Stage 24A - Read-only evidence adoption implementation contract'
-    assert stage24['next_checkpoint'] == 'Stage 24B - Planner evidence discoverability surfaces'
+    assert stage24['current_checkpoint'] == 'Stage 24B - Planner evidence discoverability surfaces'
+    assert stage24['next_checkpoint'] == 'Stage 24C - Cross-surface evidence consistency'
     assert stage24['stage24a_contract_completed'] is True
-    assert stage24['stage24b_implementation_started'] is False
+    assert stage24['stage24b_implementation_started'] is True
+    assert stage24['stage24b_implementation_completed'] is True
+    assert stage24['stage24c_implementation_started'] is False
 
     assert stage24a['status'] == 'completed'
     assert stage24a['checkpoint_type'] == 'implementation_contract'
@@ -145,7 +147,7 @@ def test_stage24a_is_discoverable_from_stage24_roadmap_and_readme():
     readme = _read(README_PATH)
 
     assert 'docs/colonisation-redesign/stage-24a-readonly-evidence-adoption-contract.md' in roadmap
-    assert 'Stage 24B is the next implementation checkpoint.' in roadmap
+    assert 'Stage 24B is complete as the first narrow discoverability implementation slice.' in roadmap
     assert 'stage-24a-readonly-evidence-adoption-contract.md' in readme
     assert 'completed Stage 24A contract checkpoint' in readme
     assert 'Completed Stage 24A contract' in readme

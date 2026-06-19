@@ -25,8 +25,14 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-review-status').textContent).toContain('Passive review only');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-not_evaluated').textContent).toMatch(/not evaluated/i);
     expect(screen.getByTestId('warehouse-evidence-status-detail').textContent).toContain('Unknown. Selected-system evidence has not been established.');
+    expect(screen.getByTestId('warehouse-evidence-discoverability-highlights').textContent).toContain('Selected-system only');
+    expect(screen.getByTestId('warehouse-evidence-discoverability-highlights').textContent).toContain('Report-only review context');
+    expect(screen.getByTestId('warehouse-evidence-discoverability-highlights').textContent).toContain('Not canonical truth');
+    expect(screen.getByTestId('warehouse-evidence-discoverability-highlights').textContent).toContain('Not full EDSM coverage');
     expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Unavailable');
     expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Report-only review context');
+    expect(screen.getByTestId('warehouse-evidence-source-class-list').textContent).toContain('Unavailable');
+    expect(screen.getByTestId('warehouse-evidence-semantic-list').textContent).toContain('Report-only review context');
     // Unknown source label, not a "no evidence" / false claim.
     expect(within(unavailable).getByTestId('warehouse-evidence-source-unknown')).toBeTruthy();
     expect(within(card).queryByTestId('warehouse-evidence-items')).toBeNull();
@@ -132,8 +138,16 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-source-run').textContent).toContain('warehouse_reconciliation');
     expect(screen.getByTestId('warehouse-evidence-envelope-status-available').textContent).toMatch(/available/i);
     expect(screen.getByTestId('warehouse-evidence-status-detail').textContent).toContain('Available. Selected-system evidence is present as read-only review context only.');
-    expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Bounded staging');
+    expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Bounded staging evidence');
     expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Not full EDSM coverage');
+    expect(screen.getByTestId('warehouse-evidence-discoverability-highlights').textContent).toContain('Selected-system only');
+    expect(screen.getByTestId('warehouse-evidence-discoverability-highlights').textContent).toContain('Report-only review context');
+    expect(screen.getByTestId('warehouse-evidence-discoverability-highlights').textContent).toContain('Not canonical truth');
+    expect(screen.getByTestId('warehouse-evidence-discoverability-highlights').textContent).toContain('Not full EDSM coverage');
+    expect(screen.getByTestId('warehouse-evidence-source-class-list').textContent).toContain('Bounded staging evidence');
+    expect(screen.getByTestId('warehouse-evidence-source-class-list').textContent).toContain('Derived report');
+    expect(screen.getByTestId('warehouse-evidence-semantic-list').textContent).toContain('Bounded staging evidence');
+    expect(screen.getByTestId('warehouse-evidence-semantic-list').textContent).toContain('Report-only review context');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-available').textContent).toContain('Bounded staging evidence');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-summary').textContent).toContain('edsm-stations-20260619T190906Z');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-summary').textContent).toContain('limit 10000');
@@ -186,8 +200,12 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-source-observed')).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Canonical evidence');
     expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Observed facts');
+    expect(screen.getByTestId('warehouse-evidence-source-class-list').textContent).toContain('Canonical evidence');
+    expect(screen.getByTestId('warehouse-evidence-source-class-list').textContent).toContain('Observed facts');
     expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Canonical truth remains separate');
     expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Observed report');
+    expect(screen.getByTestId('warehouse-evidence-semantic-list').textContent).toContain('Canonical truth remains separate');
+    expect(screen.getByTestId('warehouse-evidence-semantic-list').textContent).toContain('Observed report');
     expect(screen.getByTestId('warehouse-evidence-source-boundary').textContent).not.toMatch(/warehouse evidence is report-only/i);
   });
 

@@ -466,6 +466,16 @@ describe('ColonyPlannerWorkspace', () => {
     expect(await screen.findByTestId('raven-real-telemetry-panel')).toBeTruthy();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
+    expect(screen.getByTestId('planner-evidence-discoverability-surface')).toBeTruthy();
+    expect(screen.getByTestId('planner-evidence-discoverability-summary').textContent).toContain(
+      'Available. Selected-system evidence is present as read-only review context only.',
+    );
+    expect(screen.getByTestId('planner-evidence-discoverability-highlights').textContent).toContain(
+      'Dedicated contract preferred',
+    );
+    expect(screen.getByTestId('planner-evidence-discoverability-highlights').textContent).toContain(
+      'Planner truth stays canonical',
+    );
     expect(await screen.findByText(/Canonical app data for Workspace System includes 2 bodies and 1 stations\./i)).toBeTruthy();
     expect(await screen.findByText(/Observed evidence includes 3 persisted facts/i)).toBeTruthy();
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
@@ -635,7 +645,11 @@ describe('ColonyPlannerWorkspace', () => {
     await renderPlanner();
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
+    expect(await screen.findByTestId('planner-evidence-discoverability-surface')).toBeTruthy();
     expect(await screen.findByTestId('warehouse-evidence-envelope-status-unavailable')).toBeTruthy();
+    expect(screen.getByTestId('planner-evidence-discoverability-summary').textContent).toContain(
+      'Unavailable. No approved bounded staging evidence is linked to this selected system.',
+    );
     expect((await screen.findByTestId('warehouse-evidence-unavailable')).textContent).toContain(
       'No approved bounded staging evidence is linked to this selected system.',
     );
@@ -658,6 +672,9 @@ describe('ColonyPlannerWorkspace', () => {
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
     expect(await screen.findByTestId('warehouse-evidence-envelope-status-unknown')).toBeTruthy();
+    expect(screen.getByTestId('planner-evidence-discoverability-summary').textContent).toContain(
+      'Unknown. Selected-system evidence has not been established.',
+    );
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
   });
 
