@@ -20,7 +20,7 @@ PRIMARY_OBJECTIVE = (
     'scheduler/service activation.'
 )
 FIRST_CHECKPOINT = 'Stage 24A - Read-only evidence adoption implementation contract'
-NEXT_CHECKPOINT = 'Stage 24C - Cross-surface evidence consistency'
+NEXT_CHECKPOINT = 'Stage 24D - Closeout or next-control decision'
 SELECTED_WORKSTREAM = 'ux_product_adoption_of_readonly_evidence_baseline'
 
 
@@ -54,7 +54,7 @@ def test_stage24_authority_establishes_a_planning_only_post_stage23_control():
     assert stage24['implementation_authorized'] is True
     assert stage24['primary_objective'] == PRIMARY_OBJECTIVE
     assert stage24['first_executable_checkpoint'] == FIRST_CHECKPOINT
-    assert stage24['current_checkpoint'] == 'Stage 24B - Planner evidence discoverability surfaces'
+    assert stage24['current_checkpoint'] == 'Stage 24C - Cross-surface evidence consistency'
     assert stage24['next_checkpoint'] == NEXT_CHECKPOINT
     assert stage24['roadmap'] == 'docs/colonisation-redesign/stage-24-roadmap.md'
     assert stage24['stage23_closed'] is True
@@ -71,7 +71,9 @@ def test_stage24_authority_establishes_a_planning_only_post_stage23_control():
     assert stage24['stage24a_contract_completed'] is True
     assert stage24['stage24b_implementation_started'] is True
     assert stage24['stage24b_implementation_completed'] is True
-    assert stage24['stage24c_implementation_started'] is False
+    assert stage24['stage24c_implementation_started'] is True
+    assert stage24['stage24c_implementation_completed'] is True
+    assert stage24['stage24d_implementation_started'] is False
     assert stage24['source_files_committed'] is False
     assert stage24['runtime_artifacts_committed'] is False
 
@@ -180,6 +182,7 @@ def test_stage24_first_executable_checkpoint_and_closeout_criteria_are_explicit(
     assert FIRST_CHECKPOINT in roadmap
     assert 'Stage 24A is now recorded in' in roadmap
     assert 'Stage 24B is complete as the first narrow discoverability implementation slice.' in roadmap
+    assert 'Stage 24C is complete as the narrow adjacent-surface consistency slice.' in roadmap
     assert NEXT_CHECKPOINT in roadmap
     assert '## Proposed Checkpoint Plan' in roadmap
     assert 'Stage 24D - Closeout or next-control decision' in roadmap

@@ -35,12 +35,14 @@ def test_stage24a_authority_records_a_completed_contract_only_checkpoint():
     assert stage23['status'] == 'completed'
     assert stage23['stage23_closed'] is True
 
-    assert stage24['current_checkpoint'] == 'Stage 24B - Planner evidence discoverability surfaces'
-    assert stage24['next_checkpoint'] == 'Stage 24C - Cross-surface evidence consistency'
+    assert stage24['current_checkpoint'] == 'Stage 24C - Cross-surface evidence consistency'
+    assert stage24['next_checkpoint'] == 'Stage 24D - Closeout or next-control decision'
     assert stage24['stage24a_contract_completed'] is True
     assert stage24['stage24b_implementation_started'] is True
     assert stage24['stage24b_implementation_completed'] is True
-    assert stage24['stage24c_implementation_started'] is False
+    assert stage24['stage24c_implementation_started'] is True
+    assert stage24['stage24c_implementation_completed'] is True
+    assert stage24['stage24d_implementation_started'] is False
 
     assert stage24a['status'] == 'completed'
     assert stage24a['checkpoint_type'] == 'implementation_contract'
