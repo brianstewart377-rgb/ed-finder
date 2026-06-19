@@ -1202,8 +1202,11 @@ records:
 
 - the approved official EDSM station snapshot identity;
 - approved source SHA-256
-  `09225e43323464e332a792f8716a6e4264ef5999ce1544f1157bfc60f406f4a2`;
-- approved eligible row count `713624`;
+  `b256017814a1015fb24748c8027f1a00cba2f187a257ef3e0f9e3a6ba6e45984`;
+- approved eligible row count `714117`;
+- the source refresh reason: the live EDSM dump rotated after PR `#243`
+  authorization, so Stage 19BB now binds the refreshed artifact served from the
+  same sanitized source identity;
 - exact five-table execution boundary:
   `source_runs`, `enrichment_source_runs`, `enrichment_source_files`,
   `enrichment_raw_records`, and `staging_edsm_stations`;

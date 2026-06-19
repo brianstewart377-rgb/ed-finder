@@ -15,17 +15,24 @@ authorization PR. The authority status recorded for this checkpoint is
 ## Approved source
 
 - source name: `edsm`;
-- logical batch label: `edsm-stations-20260618T145715Z`;
+- logical batch label: `edsm-stations-20260619T190906Z`;
 - sanitized source reference: `https://www.edsm.net/dump/stations.json.gz`;
 - basename: `stations.json.gz`;
 - approved SHA-256:
-  `09225e43323464e332a792f8716a6e4264ef5999ce1544f1157bfc60f406f4a2`;
-- size bytes: `2614426684`;
-- eligible station rows: `713624`;
+  `b256017814a1015fb24748c8027f1a00cba2f187a257ef3e0f9e3a6ba6e45984`;
+- size bytes: `2616931545`;
+- eligible station rows: `714117`;
 - format: `json`;
 - record stream shape: `json_array`;
 - compression: `gzip`;
-- acquisition timestamp: `2026-06-18T14:52:50.594163Z`.
+- acquisition timestamp: `2026-06-19T19:09:06Z`.
+
+The original approved snapshot for this checkpoint had SHA-256
+`09225e43323464e332a792f8716a6e4264ef5999ce1544f1157bfc60f406f4a2` and
+size `2614426684`, but the live EDSM dump rotated after PR `#243`
+authorization. This checkpoint therefore records a narrow source-artifact
+refresh only; it does not broaden the target boundary, authorize canonical
+apply, authorize rebaseline, or enable any scheduler/service path.
 
 Source acquisition completed before this PR was merged. The source file itself
 is not committed, private full paths are not committed, and signed or secret
