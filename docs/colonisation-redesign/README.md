@@ -7,18 +7,19 @@ This folder contains the planning, architecture, forensic-review, and implementa
 Start here for any new colonisation work:
 
 1. [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) - completed Stage 23E closeout for the read-only planner evidence programme.
-2. [`stage-23-roadmap.md`](./stage-23-roadmap.md) - latest completed Stage 23 control document and closeout baseline.
-3. [`stage-23d-planner-evidence-ux-follow-through.md`](./stage-23d-planner-evidence-ux-follow-through.md) - completed Stage 23D planner evidence UX follow-through slice.
-4. [`stage-23c-evidence-envelope-governance.md`](./stage-23c-evidence-envelope-governance.md) - completed Stage 23C evidence envelope governance and source semantics slice.
-5. [`stage-23b-readonly-per-system-warehouse-join.md`](./stage-23b-readonly-per-system-warehouse-join.md) - completed Stage 23B read-only warehouse join expansion with bounded Stage 19BB staging provenance.
-6. [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) - completed Stage 23A first live per-system evidence provider slice.
-7. [`stage-19bb-production-staging-execution-closeout.md`](./stage-19bb-production-staging-execution-closeout.md) - sanitized evidence closeout for the completed Stage 19BB bounded `100 -> 1,000 -> 10,000` staging ladder.
-8. [`stage-19bb-first-production-staging-activation.md`](./stage-19bb-first-production-staging-activation.md) - exact Stage 19BB authorization for the first real bounded production-staging execution lane.
-7. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - completed post-18/20/21 roadmap and prior control baseline.
-7. [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) - completed Stage 22B planner/provenance/warehouse evidence hardening slice.
-8. [`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) - completed Stage 22C operator artifact review and export audit surface slice.
-9. [`stage-22d-export-and-documentation-governance-consolidation.md`](./stage-22d-export-and-documentation-governance-consolidation.md) - completed Stage 22D export-pack governance and documentation-consolidation slice.
-10. [`stage-22e-deferred-stage19-decision-gate-and-closeout.md`](./stage-22e-deferred-stage19-decision-gate-and-closeout.md) - completed Stage 22E closeout and explicit deferred-Stage-19 decision gate.
+2. [`stage-24-roadmap.md`](./stage-24-roadmap.md) - active post-Stage-23 control baseline for read-only evidence adoption and governance planning.
+3. [`stage-23-roadmap.md`](./stage-23-roadmap.md) - latest completed Stage 23 control document and closeout baseline.
+4. [`stage-23d-planner-evidence-ux-follow-through.md`](./stage-23d-planner-evidence-ux-follow-through.md) - completed Stage 23D planner evidence UX follow-through slice.
+5. [`stage-23c-evidence-envelope-governance.md`](./stage-23c-evidence-envelope-governance.md) - completed Stage 23C evidence envelope governance and source semantics slice.
+6. [`stage-23b-readonly-per-system-warehouse-join.md`](./stage-23b-readonly-per-system-warehouse-join.md) - completed Stage 23B read-only warehouse join expansion with bounded Stage 19BB staging provenance.
+7. [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) - completed Stage 23A first live per-system evidence provider slice.
+8. [`stage-19bb-production-staging-execution-closeout.md`](./stage-19bb-production-staging-execution-closeout.md) - sanitized evidence closeout for the completed Stage 19BB bounded `100 -> 1,000 -> 10,000` staging ladder.
+9. [`stage-19bb-first-production-staging-activation.md`](./stage-19bb-first-production-staging-activation.md) - exact Stage 19BB authorization for the first real bounded production-staging execution lane.
+10. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - completed post-18/20/21 roadmap and prior control baseline.
+11. [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) - completed Stage 22B planner/provenance/warehouse evidence hardening slice.
+12. [`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) - completed Stage 22C operator artifact review and export audit surface slice.
+13. [`stage-22d-export-and-documentation-governance-consolidation.md`](./stage-22d-export-and-documentation-governance-consolidation.md) - completed Stage 22D export-pack governance and documentation-consolidation slice.
+14. [`stage-22e-deferred-stage19-decision-gate-and-closeout.md`](./stage-22e-deferred-stage19-decision-gate-and-closeout.md) - completed Stage 22E closeout and explicit deferred-Stage-19 decision gate.
 11. [`stage-21-closeout.md`](./stage-21-closeout.md) - Stage 21 completion record and validation summary.
 12. [`stage-21-roadmap.md`](./stage-21-roadmap.md) - completed post-20 roadmap and trust/operationalisation plan.
 13. [`stage-21b-to-21f-stage17-stage18-burn-down.md`](./stage-21b-to-21f-stage17-stage18-burn-down.md) - Stage 21 progress record showing how Stage 17 and Stage 18 backlog items were burned down or reclassified.
@@ -37,7 +38,9 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 
 ## Current Control Documents
 
-[`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) records the completed Stage 23 closeout: the read-only planner evidence baseline is complete, bounded staging remains report-only and non-canonical, and any later work must begin under a new explicit post-Stage-23 control document.
+[`stage-24-roadmap.md`](./stage-24-roadmap.md) is the active post-Stage-23 control baseline. It selects read-only evidence adoption and governance as the next primary objective, names the first executable checkpoint, and keeps Stage 19 execution, DB writes, canonical apply, rebaseline, and scheduler/service activation unauthorized.
+
+[`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) records the completed Stage 23 closeout: the read-only planner evidence baseline is complete, bounded staging remains report-only and non-canonical, and Stage 24 is now the explicit successor control.
 
 [`stage-23-roadmap.md`](./stage-23-roadmap.md) is the latest completed Stage 23 control document. It records the completed Stage 23A, Stage 23B, Stage 23C, Stage 23D, and Stage 23E sequence while keeping Stage 19 separately gated and keeping the overall Stage 23 work read-only.
 
@@ -117,6 +120,7 @@ It supersedes the old assumption that the project should simply continue from St
 
 | Document | Status | Purpose |
 |---|---|---|
+| [`stage-24-roadmap.md`](./stage-24-roadmap.md) | Active Stage 24 control | Records the post-Stage-23 read-only evidence adoption and governance baseline, chosen workstream, first executable checkpoint, and preserved no-write boundaries. |
 | [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) | Completed Stage 23E closeout record | Records that the Stage 23 read-only planner evidence programme is complete and that any future follow-on requires a new explicit control document. |
 | [`stage-23-roadmap.md`](./stage-23-roadmap.md) | Completed Stage 23 control | Records the completed Stage 23A, Stage 23B, Stage 23C, Stage 23D, and Stage 23E read-only evidence sequence without reopening Stage 19. |
 | [`stage-23d-planner-evidence-ux-follow-through.md`](./stage-23d-planner-evidence-ux-follow-through.md) | Completed Stage 23D implementation record | Records the user-visible adoption of the governed evidence envelope, including explicit unavailable / not-evaluated / unknown wording and bounded staging limits. |
