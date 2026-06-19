@@ -39,4 +39,8 @@ Current scripts:
   fingerprint, enforces the exact five-table write boundary, and blocks
   canonical apply, rebaseline, and scheduler/service dispatch.
 
+The sanitized execution evidence for the completed bounded `100 -> 1,000 ->
+10,000` Stage 19BB ladder is recorded in
+`docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
+
 Production artifacts are private operator files and should not be committed.

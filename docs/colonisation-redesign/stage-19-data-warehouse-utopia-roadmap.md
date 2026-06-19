@@ -1191,6 +1191,41 @@ contract for a future manual EDSM staging-only run:
 This keeps Stage 23 as the active product/evidence roadmap while making the
 warehouse dependency explicit instead of implicit.
 
+## Stage 19BB bounded execution closeout
+
+Stage 19BB execution is now complete and recorded in
+`docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
+
+The bounded staging-only ladder succeeded at the only approved limits:
+
+- `100` rows;
+- `1,000` rows;
+- `10,000` rows.
+
+Recorded sanitized evidence:
+
+- source run keys:
+  `stage19bb-edsm-100-row-bounded-staging-20260619T195845Z`,
+  `stage19bb-edsm-1000-row-bounded-staging-20260619T195942Z`,
+  `stage19bb-edsm-10000-row-bounded-staging-20260619T200018Z`;
+- bridge keys:
+  `source_runs:stage19bb-edsm-100-row-bounded-staging-20260619T195845Z`,
+  `source_runs:stage19bb-edsm-1000-row-bounded-staging-20260619T195942Z`,
+  `source_runs:stage19bb-edsm-10000-row-bounded-staging-20260619T200018Z`;
+- artifact basenames:
+  `stage19bb_edsm_import_20260619T195845Z.json`,
+  `stage19bb_edsm_import_20260619T195942Z.json`,
+  `stage19bb_edsm_import_20260619T200018Z.json`;
+- artifact SHA-256 values:
+  `d5d30b7831e1ed97dc3aebd4dc546a17907e8a158db3416a4c28adfc00fdd3f2`,
+  `35e1122da2494640592bf02b35ca08425c583d8aedb97b776c0d22d97184a7fc`,
+  `17f24db6cf9cddb4b49e8b948165e3fbef0b9a451b004a8d2685dce6bc5a70fb`.
+
+The execution stayed inside the approved five-table staging boundary, kept
+canonical tables absent, and kept canonical apply, rebaseline, and
+scheduler/service activation unauthorized. Production automation is still not
+complete.
+
 ## Stage 19BB authorization dependency
 
 Stage 19BB is the exact source-and-target authorization checkpoint for the

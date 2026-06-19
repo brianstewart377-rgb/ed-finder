@@ -13,6 +13,7 @@ AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 README_PATH = DOCS / 'README.md'
 STAGE19BA_PATH = DOCS / 'stage-19-bounded-production-staging-activation.md'
 STAGE19BB_PATH = DOCS / 'stage-19bb-first-production-staging-activation.md'
+STAGE19BB_CLOSEOUT_PATH = DOCS / 'stage-19bb-production-staging-execution-closeout.md'
 STAGE19_ROADMAP_PATH = DOCS / 'stage-19-data-warehouse-utopia-roadmap.md'
 STAGE23_PATH = DOCS / 'stage-23-roadmap.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
@@ -87,11 +88,13 @@ def _approved_preflight() -> dict[str, object]:
 def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merge_boundary():
     authority = _json(AUTHORITY_PATH)
     checkpoint = authority['stage19bb_first_production_staging_activation']
+    closeout = authority['stage19bb_execution_closeout']
     stage19ba = authority['stage19ba_bounded_production_staging_activation']
     readme = _read(README_PATH)
     operator_readme = _read(OPERATOR_README_PATH)
     stage19ba_doc = _read(STAGE19BA_PATH)
     stage19bb_doc = _read(STAGE19BB_PATH)
+    stage19bb_closeout = _read(STAGE19BB_CLOSEOUT_PATH)
     stage19_roadmap = _read(STAGE19_ROADMAP_PATH)
     stage23 = _read(STAGE23_PATH)
     parity = _read(LOCAL_CI_PARITY)
@@ -110,10 +113,32 @@ def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merg
     assert checkpoint['canonical_tables_absent'] is True
     assert checkpoint['restricted_loader_verified'] is True
     assert checkpoint['authorization_pr_contains_execution_evidence'] is False
-    assert checkpoint['stage19_execution_performed'] is False
+    assert checkpoint['stage19_execution_performed'] is True
+    assert checkpoint['staging_import_performed'] is True
+    assert checkpoint['runtime_source_run_created'] is True
+    assert checkpoint['runtime_artifact_created'] is True
+    assert checkpoint['execution_closeout_prepared'] is True
+    assert checkpoint['execution_closeout_document'] == str(STAGE19BB_CLOSEOUT_PATH.relative_to(ROOT))
     assert checkpoint['canonical_apply_authorized'] is False
     assert checkpoint['rebaseline_authorized'] is False
     assert checkpoint['scheduler_service_authorized'] is False
+
+    assert closeout['status'] == 'completed'
+    assert closeout['approved_source_sha256'] == stage19bb.APPROVED_SOURCE_SHA256
+    assert closeout['approved_target_fingerprint'] == stage19bb.APPROVED_TARGET_FINGERPRINT
+    assert closeout['permitted_tables'] == stage19bb.PERMITTED_TABLES
+    assert [run['limit'] for run in closeout['runs']] == [100, 1000, 10000]
+    assert all(run['rows_rejected'] == 0 for run in closeout['runs'])
+    assert all(run['rows_skipped'] == 0 for run in closeout['runs'])
+    assert all(run['verification_passed'] is True for run in closeout['runs'])
+    assert closeout['only_permitted_tables_changed'] is True
+    assert closeout['canonical_tables_absent_after_runs'] is True
+    assert closeout['canonical_apply_performed'] is False
+    assert closeout['rebaseline_performed'] is False
+    assert closeout['scheduler_enabled'] is False
+    assert closeout['production_automation_complete'] is False
+    assert closeout['stage23b_dependency_satisfied'] is True
+    assert closeout['stage23b_may_proceed_if_final_run_evidence_sufficient'] is True
 
     assert stage19ba['permitted_tables'] == [
         'source_runs',
@@ -127,16 +152,23 @@ def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merg
     assert stage19ba['historical_stage19ba_execution_authorized_for_five_tables'] is False
 
     assert 'stage-19bb-first-production-staging-activation.md' in readme
+    assert 'stage-19bb-production-staging-execution-closeout.md' in readme
     assert 'stage19bb_first_production_staging_activation.py' in operator_readme
+    assert 'stage-19bb-production-staging-execution-closeout.md' in operator_readme
     assert 'five-table' in stage19ba_doc
     assert 'authorized_after_merge' in stage19bb_doc
     assert stage19bb.APPROVED_SOURCE_SHA256 in stage19bb_doc
     assert 'live EDSM dump rotated after PR `#243`' in stage19bb_doc
+    assert 'bounded production staging execution is complete' in stage19bb_closeout
+    assert 'stage19bb-edsm-10000-row-bounded-staging-20260619T200018Z' in stage19bb_closeout
     assert stage19bb.APPROVED_TARGET_FINGERPRINT in stage19bb_doc
     assert 'formula mismatch' in stage19bb_doc
     assert 'Stage 19BB authorization dependency' in stage19_roadmap
+    assert 'Stage 19BB bounded execution closeout' in stage19_roadmap
     assert 'source refresh reason' in stage19_roadmap
     assert 'Stage 19BB authorization' in stage23
+    assert 'dependency is now' in stage23
+    assert 'satisfied' in stage23
     assert 'tests/test_stage19bb_first_production_staging_activation.py' in parity
 
 
