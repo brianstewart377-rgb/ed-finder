@@ -22,6 +22,7 @@ AUTHORITY_PATH = ROOT / 'docs' / 'colonisation-redesign' / 'stage-19-state-autho
 @dataclass(frozen=True)
 class LivePlannerEvidenceResult:
     availability: str
+    envelope_status: str
     items: list[WarehousePlannerEvidenceItem]
     freshness_status: str
     evaluated_at: str | None
@@ -56,6 +57,7 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
         if not system:
             return LivePlannerEvidenceResult(
                 availability='unavailable',
+                envelope_status='unknown',
                 items=[],
                 freshness_status='unknown',
                 evaluated_at=None,
@@ -181,6 +183,7 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
     if not items:
         return LivePlannerEvidenceResult(
             availability='unavailable',
+            envelope_status='not_evaluated' if bounded_staging.status == 'not_evaluated' else 'unavailable',
             items=[],
             freshness_status='unknown',
             evaluated_at=None,
@@ -202,6 +205,7 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
 
     return LivePlannerEvidenceResult(
         availability='report_only',
+        envelope_status='available',
         items=items[:6],
         freshness_status='not_evaluated',
         evaluated_at=_max_timestamp(latest_canonical_at, observed_latest_at, bounded_staging.latest_source_updated_at),

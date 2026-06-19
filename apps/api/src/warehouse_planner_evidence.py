@@ -9,6 +9,7 @@ from enrichment_operator_status import read_warehouse_status_snapshot
 from warehouse_planner_evidence_models import (
     WarehousePlannerEvidenceBoundedStaging,
     WarehousePlannerEvidenceContract,
+    WarehousePlannerEvidenceEnvelope,
     WarehousePlannerEvidenceFreshness,
     WarehousePlannerEvidenceItem,
     WarehousePlannerEvidenceSourceRun,
@@ -89,6 +90,18 @@ def build_warehouse_planner_evidence(
             generated_at=_text_or_none(fixture.get('generated_at')) or generated_at,
             freshness=freshness,
             source_run=source_run,
+            evidence_envelope=_build_evidence_envelope(
+                status='available',
+                items=[
+                    WarehousePlannerEvidenceItem(
+                        label=item['label'],
+                        source=item['source'],
+                        summary=item['summary'],
+                    )
+                    for item in fixture.get('items', [])
+                ],
+                bounded_staging=_fixture_bounded_staging(fixture),
+            ),
             bounded_staging=_fixture_bounded_staging(fixture),
             evidence_summary=WarehousePlannerEvidenceSummary(
                 availability='report_only',
@@ -117,6 +130,11 @@ def build_warehouse_planner_evidence(
             generated_at=generated_at,
             freshness=freshness,
             source_run=source_run,
+            evidence_envelope=_build_evidence_envelope(
+                status=live_result.envelope_status,
+                items=live_result.items,
+                bounded_staging=live_result.bounded_staging,
+            ),
             bounded_staging=live_result.bounded_staging,
             evidence_summary=WarehousePlannerEvidenceSummary(
                 availability=live_result.availability,
@@ -133,6 +151,11 @@ def build_warehouse_planner_evidence(
         generated_at=generated_at,
         freshness=freshness,
         source_run=source_run,
+        evidence_envelope=_build_evidence_envelope(
+            status=_fallback_envelope_status(warehouse_status),
+            items=[],
+            bounded_staging=_default_bounded_staging_contract(status='not_evaluated'),
+        ),
         bounded_staging=_default_bounded_staging_contract(status='not_evaluated'),
         evidence_summary=WarehousePlannerEvidenceSummary(
             availability='unavailable',
@@ -216,6 +239,84 @@ def _default_bounded_staging_contract(
         latest_source_updated_at=latest_source_updated_at,
         summary=summary,
     )
+
+
+def _build_evidence_envelope(
+    *,
+    status: str,
+    items: list[WarehousePlannerEvidenceItem],
+    bounded_staging: WarehousePlannerEvidenceBoundedStaging,
+) -> WarehousePlannerEvidenceEnvelope:
+    source_classes = _source_classes(items, bounded_staging)
+    semantics = _semantics(items, bounded_staging)
+    source_labels = {
+        'canonical': 'canonical evidence',
+        'observed_facts': 'observed-facts evidence',
+        'bounded_staging': 'bounded staging evidence',
+        'derived_report': 'derived report evidence',
+        'unavailable': 'no linked selected-system evidence',
+    }
+    status_text = {
+        'available': 'Selected-system evidence is available in this read-only planner envelope.',
+        'unavailable': 'Selected-system evidence is unavailable in this read-only planner envelope.',
+        'not_evaluated': 'Selected-system evidence was not evaluated in this runtime.',
+        'unknown': 'Selected-system evidence remains unknown in this runtime.',
+    }[status]
+    source_summary = ', '.join(source_labels[value] for value in source_classes)
+    return WarehousePlannerEvidenceEnvelope(
+        status=status,  # type: ignore[arg-type]
+        source_classes=source_classes,
+        semantics=semantics,
+        report_only=True,
+        selected_system_only=True,
+        planner_truth_source_class='canonical' if any(item.source == 'canonical' for item in items) else 'unavailable',
+        claims_canonical_truth=False,
+        claims_full_coverage=False,
+        summary=f'{status_text} Source classes: {source_summary}.',
+    )
+
+
+def _source_classes(
+    items: list[WarehousePlannerEvidenceItem],
+    bounded_staging: WarehousePlannerEvidenceBoundedStaging,
+) -> list[str]:
+    values: list[str] = []
+    for item in items:
+        mapped = {
+            'canonical': 'canonical',
+            'observed': 'observed_facts',
+            'warehouse_report_only': 'derived_report',
+            'unknown': 'unavailable',
+        }[item.source]
+        if mapped not in values:
+            values.append(mapped)
+    if bounded_staging.status == 'available' and 'bounded_staging' not in values:
+        values.append('bounded_staging')
+    if not values:
+        values.append('unavailable')
+    return values
+
+
+def _semantics(
+    items: list[WarehousePlannerEvidenceItem],
+    bounded_staging: WarehousePlannerEvidenceBoundedStaging,
+) -> list[str]:
+    values = ['report_only_review_context', 'not_full_coverage']
+    if any(item.source == 'canonical' for item in items):
+        values.insert(0, 'canonical_truth')
+    if any(item.source == 'observed' for item in items) and 'observed_report' not in values:
+        values.append('observed_report')
+    if bounded_staging.status == 'available' and 'bounded_staging_evidence' not in values:
+        values.append('bounded_staging_evidence')
+    return values
+
+
+def _fallback_envelope_status(warehouse_status: Mapping[str, Any]) -> str:
+    if warehouse_status.get('available') is True:
+        return 'not_evaluated'
+    if warehouse_status.get('available') is False:
+        return 'unavailable'
+    return 'unknown'
 
 
 def _freshness_status(

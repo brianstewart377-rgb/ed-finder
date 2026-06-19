@@ -10,6 +10,15 @@ WarehouseEvidenceAvailability = Literal['unavailable', 'report_only']
 WarehouseEvidenceLabel = Literal['report_only', 'needs_review', 'verify', 'unresolved', 'stale', 'blocked', 'unknown']
 WarehouseEvidenceFreshnessStatus = Literal['fresh', 'stale', 'unknown', 'not_evaluated']
 WarehouseBoundedStagingStatus = Literal['available', 'unavailable', 'not_evaluated']
+WarehouseEvidenceEnvelopeStatus = Literal['available', 'unavailable', 'not_evaluated', 'unknown']
+WarehouseEvidenceSourceClass = Literal['canonical', 'observed_facts', 'bounded_staging', 'derived_report', 'unavailable']
+WarehouseEvidenceSemantics = Literal[
+    'canonical_truth',
+    'observed_report',
+    'bounded_staging_evidence',
+    'report_only_review_context',
+    'not_full_coverage',
+]
 
 
 class WarehousePlannerEvidenceItem(BaseModel):
@@ -61,6 +70,20 @@ class WarehousePlannerEvidenceBoundedStaging(BaseModel):
     summary: str | None = None
 
 
+class WarehousePlannerEvidenceEnvelope(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    status: WarehouseEvidenceEnvelopeStatus
+    source_classes: list[WarehouseEvidenceSourceClass]
+    semantics: list[WarehouseEvidenceSemantics]
+    report_only: Literal[True]
+    selected_system_only: Literal[True]
+    planner_truth_source_class: Literal['canonical', 'unavailable']
+    claims_canonical_truth: Literal[False]
+    claims_full_coverage: Literal[False]
+    summary: str
+
+
 class WarehousePlannerEvidenceContract(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -69,6 +92,7 @@ class WarehousePlannerEvidenceContract(BaseModel):
     generated_at: str
     freshness: WarehousePlannerEvidenceFreshness
     source_run: WarehousePlannerEvidenceSourceRun
+    evidence_envelope: WarehousePlannerEvidenceEnvelope
     bounded_staging: WarehousePlannerEvidenceBoundedStaging
     evidence_summary: WarehousePlannerEvidenceSummary
     warnings: list[str]

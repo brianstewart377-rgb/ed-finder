@@ -1,7 +1,10 @@
 import type {
   PlannerWarehouseBoundedStaging,
   PlannerWarehouseEvidence,
+  WarehouseEvidenceEnvelopeStatus,
   WarehouseEvidenceLabel,
+  WarehouseEvidenceSemantic,
+  WarehouseEvidenceSourceClass,
   WarehouseBoundedStagingStatus,
   WarehousePlannerEvidenceFreshnessStatus,
   WarehouseEvidenceSource,
@@ -70,6 +73,29 @@ const BOUNDED_STAGING_LABEL: Record<WarehouseBoundedStagingStatus, string> = {
   not_evaluated: 'Bounded staging not evaluated',
 };
 
+const EVIDENCE_STATUS_LABEL: Record<WarehouseEvidenceEnvelopeStatus, string> = {
+  available: 'Evidence available',
+  unavailable: 'Evidence unavailable',
+  not_evaluated: 'Evidence not evaluated',
+  unknown: 'Evidence unknown',
+};
+
+const SOURCE_CLASS_LABEL: Record<WarehouseEvidenceSourceClass, string> = {
+  canonical: 'Canonical evidence',
+  observed_facts: 'Observed facts',
+  bounded_staging: 'Bounded staging',
+  derived_report: 'Derived report',
+  unavailable: 'Unavailable',
+};
+
+const SEMANTIC_LABEL: Record<WarehouseEvidenceSemantic, string> = {
+  canonical_truth: 'Canonical truth remains separate',
+  observed_report: 'Observed report',
+  bounded_staging_evidence: 'Bounded staging evidence',
+  report_only_review_context: 'Report-only review context',
+  not_full_coverage: 'Not full EDSM coverage',
+};
+
 export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) {
   const isUnavailable =
     !evidence ||
@@ -78,6 +104,17 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
   const freshness = evidence?.freshnessStatus ?? 'unknown';
   const reviewStatus = evidence?.manualReviewRequired ? 'Manual review required' : 'Passive review only';
   const sourcePosture = evidence?.sourcePosture ?? 'unknown';
+  const evidenceEnvelope = evidence?.evidenceEnvelope ?? {
+    status: 'unknown' as const,
+    sourceClasses: ['unavailable'] as const,
+    semantics: ['report_only_review_context', 'not_full_coverage'] as const,
+    reportOnly: true as const,
+    selectedSystemOnly: true as const,
+    plannerTruthSourceClass: 'canonical' as const,
+    claimsCanonicalTruth: false as const,
+    claimsFullCoverage: false as const,
+    summary: 'Selected-system evidence remains unknown in this runtime. Source classes: no linked selected-system evidence.',
+  };
   const boundedStaging: PlannerWarehouseBoundedStaging = evidence?.boundedStaging ?? {
     status: 'not_evaluated',
     reportOnly: true,
@@ -116,6 +153,12 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
           className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
         >
           {FRESHNESS_LABEL[freshness]}
+        </span>
+        <span
+          data-testid={`warehouse-evidence-envelope-status-${evidenceEnvelope.status}`}
+          className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
+        >
+          {EVIDENCE_STATUS_LABEL[evidenceEnvelope.status]}
         </span>
         <span
           data-testid={`warehouse-evidence-source-posture-${sourcePosture}`}
@@ -160,6 +203,19 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
           </p>
         </div>
       ) : null}
+
+      <div
+        data-testid="warehouse-evidence-envelope-summary"
+        className="border-t border-border pt-2 text-[10px] text-text-dim space-y-1"
+      >
+        <p className="leading-snug">{evidenceEnvelope.summary}</p>
+        <p data-testid="warehouse-evidence-source-classes" className="leading-snug">
+          Source classes: {evidenceEnvelope.sourceClasses.map((value) => SOURCE_CLASS_LABEL[value]).join(' · ')}
+        </p>
+        <p data-testid="warehouse-evidence-semantics" className="leading-snug">
+          Semantics: {evidenceEnvelope.semantics.map((value) => SEMANTIC_LABEL[value]).join(' · ')}
+        </p>
+      </div>
 
       {isUnavailable ? (
         <div

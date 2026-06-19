@@ -20,9 +20,12 @@ describe('WarehouseEvidenceCard', () => {
     const unavailable = within(card).getByTestId('warehouse-evidence-unavailable');
     expect(unavailable.textContent).toContain('No per-system planner evidence is available.');
     expect(screen.getByTestId('warehouse-evidence-freshness-unknown').textContent).toMatch(/unknown freshness/i);
+    expect(screen.getByTestId('warehouse-evidence-envelope-status-unknown').textContent).toMatch(/unknown/i);
     expect(screen.getByTestId('warehouse-evidence-source-posture-unknown').textContent).toMatch(/unknown source path/i);
     expect(screen.getByTestId('warehouse-evidence-review-status').textContent).toContain('Passive review only');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-not_evaluated').textContent).toMatch(/not evaluated/i);
+    expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Unavailable');
+    expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Report-only review context');
     // Unknown source label, not a "no evidence" / false claim.
     expect(within(unavailable).getByTestId('warehouse-evidence-source-unknown')).toBeTruthy();
     expect(within(card).queryByTestId('warehouse-evidence-items')).toBeNull();
@@ -59,6 +62,17 @@ describe('WarehouseEvidenceCard', () => {
       sourceName: 'warehouse_reconciliation',
       runKey: 'warehouse/run-20260617.json',
       sourcePosture: 'dedicated_contract',
+      evidenceEnvelope: {
+        status: 'available',
+        sourceClasses: ['bounded_staging', 'derived_report'],
+        semantics: ['bounded_staging_evidence', 'report_only_review_context', 'not_full_coverage'],
+        reportOnly: true,
+        selectedSystemOnly: true,
+        plannerTruthSourceClass: 'unavailable',
+        claimsCanonicalTruth: false,
+        claimsFullCoverage: false,
+        summary: 'Selected-system evidence is available in this read-only planner envelope. Source classes: bounded staging evidence, derived report evidence.',
+      },
       boundedStaging: {
         status: 'available',
         reportOnly: true,
@@ -97,6 +111,9 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-freshness-fresh').textContent).toMatch(/fresh/i);
     expect(screen.getByTestId('warehouse-evidence-source-posture-dedicated_contract').textContent).toMatch(/dedicated contract/i);
     expect(screen.getByTestId('warehouse-evidence-source-run').textContent).toContain('warehouse_reconciliation');
+    expect(screen.getByTestId('warehouse-evidence-envelope-status-available').textContent).toMatch(/available/i);
+    expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Bounded staging');
+    expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Not full EDSM coverage');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-available').textContent).toMatch(/available/i);
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-summary').textContent).toContain('edsm-stations-20260619T190906Z');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-summary').textContent).toContain('limit 10000');
@@ -113,6 +130,17 @@ describe('WarehouseEvidenceCard', () => {
       sourceName: 'warehouse_reconciliation',
       runKey: 'warehouse/run-20260618.json',
       sourcePosture: 'dedicated_contract',
+      evidenceEnvelope: {
+        status: 'available',
+        sourceClasses: ['canonical', 'observed_facts'],
+        semantics: ['canonical_truth', 'observed_report', 'report_only_review_context', 'not_full_coverage'],
+        reportOnly: true,
+        selectedSystemOnly: true,
+        plannerTruthSourceClass: 'canonical',
+        claimsCanonicalTruth: false,
+        claimsFullCoverage: false,
+        summary: 'Selected-system evidence is available in this read-only planner envelope. Source classes: canonical evidence, observed-facts evidence.',
+      },
       items: [
         {
           label: 'report_only',
@@ -131,6 +159,8 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByText('Planner evidence')).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-source-canonical')).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-source-observed')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Canonical truth remains separate');
+    expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Observed report');
     expect(screen.getByTestId('warehouse-evidence-source-boundary').textContent).not.toMatch(/warehouse evidence is report-only/i);
   });
 
@@ -142,6 +172,17 @@ describe('WarehouseEvidenceCard', () => {
       evaluatedAt: null,
       manualReviewRequired: true,
       sourcePosture: 'provenance_bridge',
+      evidenceEnvelope: {
+        status: 'not_evaluated',
+        sourceClasses: ['derived_report'],
+        semantics: ['report_only_review_context', 'not_full_coverage'],
+        reportOnly: true,
+        selectedSystemOnly: true,
+        plannerTruthSourceClass: 'canonical',
+        claimsCanonicalTruth: false,
+        claimsFullCoverage: false,
+        summary: 'Selected-system evidence was not evaluated in this runtime. Source classes: derived report evidence.',
+      },
       boundedStaging: {
         status: 'not_evaluated',
         reportOnly: true,
@@ -158,6 +199,7 @@ describe('WarehouseEvidenceCard', () => {
     render(<WarehouseEvidenceCard evidence={evidence} />);
 
     expect(screen.getByTestId('warehouse-evidence-freshness-not_evaluated').textContent).toMatch(/not evaluated/i);
+    expect(screen.getByTestId('warehouse-evidence-envelope-status-not_evaluated').textContent).toMatch(/not evaluated/i);
     expect(screen.getByTestId('warehouse-evidence-freshness-not_evaluated').textContent).not.toMatch(/fresh/i);
   });
 
