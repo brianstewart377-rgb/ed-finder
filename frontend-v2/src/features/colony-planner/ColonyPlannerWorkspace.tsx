@@ -42,6 +42,10 @@ export function ColonyPlannerWorkspace({
     }
     return toWarehouseEvidenceFromProvenance(provenanceQuery.data);
   }, [provenanceQuery.data, warehouseEvidenceQuery.data]);
+  const workspaceSourcePostureLabel = warehouseEvidence?.sourcePosture === 'provenance_bridge'
+    || warehouseEvidenceQuery.isError
+    ? 'Provenance fallback'
+    : 'Dedicated contract preferred';
 
   if (id64 == null) {
     return (
@@ -101,12 +105,72 @@ export function ColonyPlannerWorkspace({
       {/*
        * Stage 18H.3: fetch the dedicated read-only warehouse planner evidence
        * contract first, then fall back to the existing provenance cockpit
-       * bridge whenever the endpoint returns unavailable or cannot be read.
+       * bridge only when the endpoint cannot be read.
        * The planner still treats the result as report-only context only.
        */}
-      <WarehouseEvidenceCard evidence={warehouseEvidence} />
+      <section
+        data-testid="planner-evidence-discoverability-surface"
+        className="panel-thin p-3 space-y-3"
+      >
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-display tracking-[0.14em] text-orange-lt text-xs">
+              Read-only evidence posture
+            </h2>
+            <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 text-[9px] uppercase tracking-wider text-text-dim">
+              Selected-system context
+            </span>
+          </div>
+          <p
+            data-testid="planner-evidence-discoverability-summary"
+            className="font-mono text-[11px] leading-snug text-text-dim"
+          >
+            {workspaceEvidenceDiscoverabilitySummary(warehouseEvidence)}
+          </p>
+          <div
+            data-testid="planner-evidence-discoverability-highlights"
+            className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-text-dim"
+          >
+            <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+              Planner truth stays canonical
+            </span>
+            <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+              Report-only review context
+            </span>
+            <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+              {workspaceSourcePostureLabel}
+            </span>
+            {warehouseEvidence?.boundedStaging?.status === 'available' ? (
+              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+                Stage 19BB bounded staging evidence
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <WarehouseEvidenceCard evidence={warehouseEvidence} />
+      </section>
     </WorkspaceShell>
   );
+}
+
+function workspaceEvidenceDiscoverabilitySummary(
+  evidence: ReturnType<typeof toWarehouseEvidenceFromContract> | ReturnType<typeof toWarehouseEvidenceFromProvenance>,
+) {
+  const status = evidence?.evidenceEnvelope?.status ?? 'unknown';
+
+  if (status === 'available') {
+    return 'Available. Selected-system evidence is present as read-only review context only.';
+  }
+  if (status === 'unknown') {
+    return 'Unknown. Selected-system evidence has not been established.';
+  }
+  if (status === 'unavailable') {
+    return 'Unavailable. No approved bounded staging evidence is linked to this selected system.';
+  }
+  if (status === 'not_evaluated') {
+    return 'Not evaluated in this runtime. The staging boundary was not safely queryable for this request.';
+  }
+  return 'Unknown. Selected-system evidence has not been established.';
 }
 
 function WorkspaceShell({ children }: { children: ReactNode }) {

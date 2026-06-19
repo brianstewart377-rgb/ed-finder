@@ -6,7 +6,9 @@ Stage 24 planning baseline is prepared.
 
 Stage 24A is complete as a contract-only checkpoint.
 
-Stage 24B is the next implementation checkpoint.
+Stage 24B is complete as the first narrow discoverability implementation slice.
+
+Stage 24C is the next implementation checkpoint.
 
 ## Background From Stage 23
 
@@ -156,7 +158,7 @@ That contract document:
 | Checkpoint | Purpose | Deliverables | Acceptance criteria |
 | --- | --- | --- | --- |
 | Stage 24A - Read-only evidence adoption implementation contract | Define exact Stage 24 contract scope before implementation spreads. | Stage 24A contract doc, fixture/test plan, ownership map, guardrail assertions. | Complete. One primary contract set is named; no write-capable lane is authorized; the next implementation slice is reviewable. |
-| Stage 24B - Planner evidence discoverability surfaces | Apply read-only evidence explanation patterns to the most important planner surfaces. | Narrow planner/doc/test slice only. | Users can locate and interpret evidence posture more easily without implying canonical truth. |
+| Stage 24B - Planner evidence discoverability surfaces | Apply read-only evidence explanation patterns to the most important planner surfaces. | Narrow planner/doc/test slice only. | Complete. Users can locate and interpret evidence posture more easily without implying canonical truth. |
 | Stage 24C - Cross-surface evidence consistency | Align wording and review posture between planner evidence surfaces and adjacent read-only views. | Narrow contract/UI/doc/test slice only. | Source semantics remain consistent, explicit, and non-canonical across read-only surfaces. |
 | Stage 24D - Closeout or next-control decision | Close Stage 24 or explicitly hand off to a later control if needed. | Closeout or handoff doc, authority updates, tests. | Stage 24 ends without silently authorizing writes or reopening Stage 19. |
 
@@ -176,6 +178,17 @@ Stage 24 planning baseline is acceptable when:
 - scheduler/service activation remains disabled;
 - bounded staging remains report-only and non-canonical unless a later control
   explicitly changes that state.
+
+Stage 24B is now recorded in
+`docs/colonisation-redesign/stage-24b-planner-evidence-discoverability.md`.
+
+That implementation slice:
+
+- stays inside the Stage 24A in-scope planner surfaces;
+- improves discoverability in the primary planner workspace and evidence card;
+- keeps the dedicated endpoint preferred;
+- keeps provenance fallback fallback-only;
+- leaves Stage 24C as future cross-surface work.
 
 ## Risks And Mitigations
 

@@ -83,7 +83,7 @@ const EVIDENCE_STATUS_LABEL: Record<WarehouseEvidenceEnvelopeStatus, string> = {
 const SOURCE_CLASS_LABEL: Record<WarehouseEvidenceSourceClass, string> = {
   canonical: 'Canonical evidence',
   observed_facts: 'Observed facts',
-  bounded_staging: 'Bounded staging',
+  bounded_staging: 'Bounded staging evidence',
   derived_report: 'Derived report',
   unavailable: 'Unavailable',
 };
@@ -125,6 +125,12 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
   const boundedStagingLimit = boundedStaging.rowLimit != null
     ? `Limited to approved Stage 19BB row-cap evidence (limit ${boundedStaging.rowLimit}).`
     : 'Limited to approved Stage 19BB row-cap evidence.';
+  const discoverabilityHighlights = [
+    evidenceEnvelope.selectedSystemOnly ? 'Selected-system only' : null,
+    evidenceEnvelope.reportOnly ? 'Report-only review context' : null,
+    evidenceEnvelope.claimsCanonicalTruth === false ? 'Not canonical truth' : null,
+    evidenceEnvelope.claimsFullCoverage === false ? 'Not full EDSM coverage' : null,
+  ].filter(Boolean) as string[];
 
   return (
     <aside
@@ -150,6 +156,20 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
       >
         Planner is using canonical data; this evidence panel is report-only.
       </p>
+
+      <div
+        data-testid="warehouse-evidence-discoverability-highlights"
+        className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-[10px] text-text-dim"
+      >
+        {discoverabilityHighlights.map((highlight) => (
+          <span
+            key={highlight}
+            className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
+          >
+            {highlight}
+          </span>
+        ))}
+      </div>
 
       <div data-testid="warehouse-evidence-metadata" className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-[10px] text-text-dim">
         <span
@@ -219,9 +239,35 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
         <p data-testid="warehouse-evidence-source-classes" className="leading-snug">
           Source classes: {evidenceEnvelope.sourceClasses.map((value) => SOURCE_CLASS_LABEL[value]).join(' · ')}
         </p>
+        <div
+          data-testid="warehouse-evidence-source-class-list"
+          className="flex flex-wrap items-center gap-2"
+        >
+          {evidenceEnvelope.sourceClasses.map((value) => (
+            <span
+              key={value}
+              className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
+            >
+              {SOURCE_CLASS_LABEL[value]}
+            </span>
+          ))}
+        </div>
         <p data-testid="warehouse-evidence-semantics" className="leading-snug">
           Semantics: {evidenceEnvelope.semantics.map((value) => SEMANTIC_LABEL[value]).join(' · ')}
         </p>
+        <div
+          data-testid="warehouse-evidence-semantic-list"
+          className="flex flex-wrap items-center gap-2"
+        >
+          {evidenceEnvelope.semantics.map((value) => (
+            <span
+              key={value}
+              className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
+            >
+              {SEMANTIC_LABEL[value]}
+            </span>
+          ))}
+        </div>
       </div>
 
       {boundedStaging.status === 'available' ? (
@@ -276,31 +322,37 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
 
 function statusDetailCopy(
   status: WarehouseEvidenceEnvelopeStatus,
-  boundedStagingStatus: WarehouseBoundedStagingStatus,
+  _boundedStagingStatus: WarehouseBoundedStagingStatus,
 ) {
+  if (status === 'available') {
+    return 'Available. Selected-system evidence is present as read-only review context only.';
+  }
   if (status === 'unknown') {
     return 'Unknown. Selected-system evidence has not been established.';
   }
-  if (status === 'unavailable' || boundedStagingStatus === 'unavailable') {
+  if (status === 'unavailable') {
     return 'Unavailable. No approved bounded staging evidence is linked to this selected system.';
   }
-  if (status === 'not_evaluated' || boundedStagingStatus === 'not_evaluated') {
+  if (status === 'not_evaluated') {
     return 'Not evaluated in this runtime. The staging boundary was not safely queryable for this request.';
   }
-  return 'Available. Selected-system evidence is present as read-only review context only.';
+  return 'Unknown. Selected-system evidence has not been established.';
 }
 
 function unavailableCopy(
   status: WarehouseEvidenceEnvelopeStatus,
-  boundedStagingStatus: WarehouseBoundedStagingStatus,
+  _boundedStagingStatus: WarehouseBoundedStagingStatus,
 ) {
+  if (status === 'available') {
+    return 'Available. Selected-system evidence is present as read-only review context only.';
+  }
   if (status === 'unknown') {
     return 'Unknown. Selected-system evidence has not been established.';
   }
-  if (status === 'unavailable' || boundedStagingStatus === 'unavailable') {
+  if (status === 'unavailable') {
     return 'Unavailable. No approved bounded staging evidence is linked to this selected system.';
   }
-  if (status === 'not_evaluated' || boundedStagingStatus === 'not_evaluated') {
+  if (status === 'not_evaluated') {
     return 'Not evaluated in this runtime. The staging boundary was not safely queryable for this request.';
   }
   return 'Unknown. Selected-system evidence has not been established.';
