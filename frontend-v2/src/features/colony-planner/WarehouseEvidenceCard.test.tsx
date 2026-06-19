@@ -18,12 +18,13 @@ describe('WarehouseEvidenceCard', () => {
     const card = screen.getByTestId('planner-warehouse-evidence');
     expect(card).toBeTruthy();
     const unavailable = within(card).getByTestId('warehouse-evidence-unavailable');
-    expect(unavailable.textContent).toContain('No per-system planner evidence is available.');
+    expect(unavailable.textContent).toContain('Unknown. Selected-system evidence has not been established.');
     expect(screen.getByTestId('warehouse-evidence-freshness-unknown').textContent).toMatch(/unknown freshness/i);
     expect(screen.getByTestId('warehouse-evidence-envelope-status-unknown').textContent).toMatch(/unknown/i);
     expect(screen.getByTestId('warehouse-evidence-source-posture-unknown').textContent).toMatch(/unknown source path/i);
     expect(screen.getByTestId('warehouse-evidence-review-status').textContent).toContain('Passive review only');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-not_evaluated').textContent).toMatch(/not evaluated/i);
+    expect(screen.getByTestId('warehouse-evidence-status-detail').textContent).toContain('Unknown. Selected-system evidence has not been established.');
     expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Unavailable');
     expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Report-only review context');
     // Unknown source label, not a "no evidence" / false claim.
@@ -31,15 +32,33 @@ describe('WarehouseEvidenceCard', () => {
     expect(within(card).queryByTestId('warehouse-evidence-items')).toBeNull();
   });
 
-  it('treats an explicitly unavailable summary the same as missing (stays unknown)', () => {
+  it('renders unavailable as a distinct state instead of collapsing it into unknown', () => {
     const evidence: PlannerWarehouseEvidence = {
       availability: 'unavailable',
       reportOnly: true,
       items: [],
+      evidenceEnvelope: {
+        status: 'unavailable',
+        sourceClasses: ['unavailable'],
+        semantics: ['report_only_review_context', 'not_full_coverage'],
+        reportOnly: true,
+        selectedSystemOnly: true,
+        plannerTruthSourceClass: 'unavailable',
+        claimsCanonicalTruth: false,
+        claimsFullCoverage: false,
+        summary: 'Selected-system evidence is unavailable in this read-only planner envelope. Source classes: no linked selected-system evidence.',
+      },
+      boundedStaging: {
+        status: 'unavailable',
+        reportOnly: true,
+        boundedStagingOnly: true,
+      },
     };
     render(<WarehouseEvidenceCard evidence={evidence} />);
 
     expect(screen.getByTestId('warehouse-evidence-unavailable')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-envelope-status-unavailable').textContent).toMatch(/unavailable/i);
+    expect(screen.getByTestId('warehouse-evidence-status-detail').textContent).toContain('No approved bounded staging evidence is linked to this selected system.');
     expect(screen.queryByTestId('warehouse-evidence-item')).toBeNull();
   });
 
@@ -112,11 +131,17 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-source-posture-dedicated_contract').textContent).toMatch(/dedicated contract/i);
     expect(screen.getByTestId('warehouse-evidence-source-run').textContent).toContain('warehouse_reconciliation');
     expect(screen.getByTestId('warehouse-evidence-envelope-status-available').textContent).toMatch(/available/i);
+    expect(screen.getByTestId('warehouse-evidence-status-detail').textContent).toContain('Available. Selected-system evidence is present as read-only review context only.');
     expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Bounded staging');
     expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Not full EDSM coverage');
-    expect(screen.getByTestId('warehouse-evidence-bounded-staging-available').textContent).toMatch(/available/i);
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-available').textContent).toContain('Bounded staging evidence');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-summary').textContent).toContain('edsm-stations-20260619T190906Z');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-summary').textContent).toContain('limit 10000');
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-guidance').textContent).toContain('Bounded staging evidence');
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-guidance').textContent).toContain('Report-only review context');
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-guidance').textContent).toContain('Not canonical truth');
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-guidance').textContent).toContain('Not full EDSM coverage');
+    expect(screen.getByTestId('warehouse-evidence-bounded-staging-guidance').textContent).toContain('Limited to approved Stage 19BB row-cap evidence');
     expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
   });
 
@@ -159,6 +184,8 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByText('Planner evidence')).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-source-canonical')).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-source-observed')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Canonical evidence');
+    expect(screen.getByTestId('warehouse-evidence-source-classes').textContent).toContain('Observed facts');
     expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Canonical truth remains separate');
     expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Observed report');
     expect(screen.getByTestId('warehouse-evidence-source-boundary').textContent).not.toMatch(/warehouse evidence is report-only/i);
@@ -200,6 +227,7 @@ describe('WarehouseEvidenceCard', () => {
 
     expect(screen.getByTestId('warehouse-evidence-freshness-not_evaluated').textContent).toMatch(/not evaluated/i);
     expect(screen.getByTestId('warehouse-evidence-envelope-status-not_evaluated').textContent).toMatch(/not evaluated/i);
+    expect(screen.getByTestId('warehouse-evidence-status-detail').textContent).toContain('The staging boundary was not safely queryable for this request.');
     expect(screen.getByTestId('warehouse-evidence-freshness-not_evaluated').textContent).not.toMatch(/fresh/i);
   });
 

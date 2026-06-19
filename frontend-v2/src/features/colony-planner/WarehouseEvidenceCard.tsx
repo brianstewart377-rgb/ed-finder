@@ -68,9 +68,9 @@ const SOURCE_POSTURE_LABEL: Record<NonNullable<PlannerWarehouseEvidence['sourceP
 };
 
 const BOUNDED_STAGING_LABEL: Record<WarehouseBoundedStagingStatus, string> = {
-  available: 'Bounded staging available',
+  available: 'Bounded staging evidence',
   unavailable: 'Bounded staging unavailable',
-  not_evaluated: 'Bounded staging not evaluated',
+  not_evaluated: 'Bounded staging not evaluated in this runtime',
 };
 
 const EVIDENCE_STATUS_LABEL: Record<WarehouseEvidenceEnvelopeStatus, string> = {
@@ -121,6 +121,10 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
     boundedStagingOnly: true,
   };
   const warnings = evidence?.warnings ?? [];
+  const statusDetail = statusDetailCopy(evidenceEnvelope.status, boundedStaging.status);
+  const boundedStagingLimit = boundedStaging.rowLimit != null
+    ? `Limited to approved Stage 19BB row-cap evidence (limit ${boundedStaging.rowLimit}).`
+    : 'Limited to approved Stage 19BB row-cap evidence.';
 
   return (
     <aside
@@ -209,6 +213,9 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
         className="border-t border-border pt-2 text-[10px] text-text-dim space-y-1"
       >
         <p className="leading-snug">{evidenceEnvelope.summary}</p>
+        <p data-testid="warehouse-evidence-status-detail" className="leading-snug">
+          {statusDetail}
+        </p>
         <p data-testid="warehouse-evidence-source-classes" className="leading-snug">
           Source classes: {evidenceEnvelope.sourceClasses.map((value) => SOURCE_CLASS_LABEL[value]).join(' · ')}
         </p>
@@ -217,13 +224,26 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
         </p>
       </div>
 
+      {boundedStaging.status === 'available' ? (
+        <div
+          data-testid="warehouse-evidence-bounded-staging-guidance"
+          className="border-t border-border pt-2 text-[10px] text-text-dim space-y-1"
+        >
+          <p className="leading-snug">Bounded staging evidence</p>
+          <p className="leading-snug">Report-only review context</p>
+          <p className="leading-snug">Not canonical truth</p>
+          <p className="leading-snug">Not full EDSM coverage</p>
+          <p className="leading-snug">{boundedStagingLimit}</p>
+        </div>
+      ) : null}
+
       {isUnavailable ? (
         <div
           data-testid="warehouse-evidence-unavailable"
           className="flex items-center gap-2"
         >
           <SourceBadge source="unknown" />
-          <span>No per-system planner evidence is available.</span>
+          <span>{unavailableCopy(evidenceEnvelope.status, boundedStaging.status)}</span>
         </div>
       ) : (
         <ul data-testid="warehouse-evidence-items" className="space-y-1.5">
@@ -252,6 +272,38 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
       ) : null}
     </aside>
   );
+}
+
+function statusDetailCopy(
+  status: WarehouseEvidenceEnvelopeStatus,
+  boundedStagingStatus: WarehouseBoundedStagingStatus,
+) {
+  if (status === 'unknown') {
+    return 'Unknown. Selected-system evidence has not been established.';
+  }
+  if (status === 'unavailable' || boundedStagingStatus === 'unavailable') {
+    return 'Unavailable. No approved bounded staging evidence is linked to this selected system.';
+  }
+  if (status === 'not_evaluated' || boundedStagingStatus === 'not_evaluated') {
+    return 'Not evaluated in this runtime. The staging boundary was not safely queryable for this request.';
+  }
+  return 'Available. Selected-system evidence is present as read-only review context only.';
+}
+
+function unavailableCopy(
+  status: WarehouseEvidenceEnvelopeStatus,
+  boundedStagingStatus: WarehouseBoundedStagingStatus,
+) {
+  if (status === 'unknown') {
+    return 'Unknown. Selected-system evidence has not been established.';
+  }
+  if (status === 'unavailable' || boundedStagingStatus === 'unavailable') {
+    return 'Unavailable. No approved bounded staging evidence is linked to this selected system.';
+  }
+  if (status === 'not_evaluated' || boundedStagingStatus === 'not_evaluated') {
+    return 'Not evaluated in this runtime. The staging boundary was not safely queryable for this request.';
+  }
+  return 'Unknown. Selected-system evidence has not been established.';
 }
 
 function SourceBadge({ source }: { source: WarehouseEvidenceSource }) {

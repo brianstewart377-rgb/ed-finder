@@ -31,19 +31,16 @@ export function ColonyPlannerWorkspace({
   const provenanceQuery = useQuery({
     queryKey: ['planner-workspace-provenance-cockpit', id64],
     queryFn: () => getProvenanceCockpit(id64 as number),
-    enabled: id64 != null && (
-      warehouseEvidenceQuery.isError
-      || warehouseEvidenceQuery.data?.evidence_summary.availability === 'unavailable'
-    ),
+    enabled: id64 != null && warehouseEvidenceQuery.isError,
     retry: 1,
     staleTime: 60_000,
   });
   const warehouseEvidence = useMemo(() => {
     const primaryEvidence = toWarehouseEvidenceFromContract(warehouseEvidenceQuery.data);
-    if (primaryEvidence && primaryEvidence.availability !== 'unavailable') {
+    if (primaryEvidence) {
       return primaryEvidence;
     }
-    return toWarehouseEvidenceFromProvenance(provenanceQuery.data) ?? primaryEvidence;
+    return toWarehouseEvidenceFromProvenance(provenanceQuery.data);
   }, [provenanceQuery.data, warehouseEvidenceQuery.data]);
 
   if (id64 == null) {
