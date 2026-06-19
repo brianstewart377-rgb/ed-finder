@@ -117,6 +117,7 @@ async def test_stage23a_live_provider_returns_real_source_labelled_system_eviden
     result = await provider.load_live_planner_evidence(pool, 9466842275401)
 
     assert result.availability == 'report_only'
+    assert result.envelope_status == 'available'
     assert result.freshness_status == 'not_evaluated'
     assert result.evaluated_at == '2026-06-18T09:30:00Z'
     assert result.manual_review_required is True
@@ -161,6 +162,7 @@ async def test_stage23b_live_provider_exposes_bounded_staging_provenance_when_sa
     result = await provider.load_live_planner_evidence(pool, 9466842275401)
 
     assert result.availability == 'report_only'
+    assert result.envelope_status == 'available'
     assert result.bounded_staging.status == 'available'
     assert result.bounded_staging.source_name == 'edsm'
     assert result.bounded_staging.source_sha256 == 'b256017814a1015fb24748c8027f1a00cba2f187a257ef3e0f9e3a6ba6e45984'
@@ -196,6 +198,7 @@ async def test_stage23b_live_provider_returns_unavailable_when_system_has_no_bou
     result = await provider.load_live_planner_evidence(pool, 9466842275401)
 
     assert result.availability == 'report_only'
+    assert result.envelope_status == 'available'
     assert result.bounded_staging.status == 'unavailable'
     assert result.bounded_staging.source_run_key is None
     assert result.bounded_staging.row_limit is None
@@ -213,6 +216,7 @@ async def test_stage23a_live_provider_keeps_unknown_systems_unavailable(monkeypa
     result = await provider.load_live_planner_evidence(pool, 42)
 
     assert result.availability == 'unavailable'
+    assert result.envelope_status == 'unknown'
     assert result.freshness_status == 'unknown'
     assert result.evaluated_at is None
     assert result.manual_review_required is True
@@ -237,6 +241,7 @@ def test_stage23a_builder_uses_live_provider_results_and_fixture_gate(monkeypatc
 
     live_result = LivePlannerEvidenceResult(
         availability='report_only',
+        envelope_status='available',
         items=[
             backend.WarehousePlannerEvidenceItem(
                 label='report_only',
@@ -273,6 +278,20 @@ def test_stage23a_builder_uses_live_provider_results_and_fixture_gate(monkeypatc
     response = backend.build_warehouse_planner_evidence(9466842275401, live_result=live_result)
 
     assert response.schema_version == 'warehouse_planner_evidence/v1'
+    assert response.evidence_envelope.status == 'available'
+    assert response.evidence_envelope.source_classes == ['canonical', 'observed_facts', 'bounded_staging']
+    assert response.evidence_envelope.semantics == [
+        'canonical_truth',
+        'report_only_review_context',
+        'not_full_coverage',
+        'observed_report',
+        'bounded_staging_evidence',
+    ]
+    assert response.evidence_envelope.report_only is True
+    assert response.evidence_envelope.selected_system_only is True
+    assert response.evidence_envelope.planner_truth_source_class == 'canonical'
+    assert response.evidence_envelope.claims_canonical_truth is False
+    assert response.evidence_envelope.claims_full_coverage is False
     assert response.evidence_summary.availability == 'report_only'
     assert response.evidence_summary.items[0].source == 'canonical'
     assert response.evidence_summary.items[1].source == 'observed'
@@ -292,4 +311,7 @@ def test_stage23a_builder_uses_live_provider_results_and_fixture_gate(monkeypatc
     fixture_response = backend.build_warehouse_planner_evidence(12866676218109, live_result=live_result)
     assert any(item.source == 'warehouse_report_only' for item in fixture_response.evidence_summary.items)
     assert any('non-live example data' in warning.lower() for warning in fixture_response.warnings)
+    assert fixture_response.evidence_envelope.status == 'available'
+    assert fixture_response.evidence_envelope.source_classes == ['derived_report']
+    assert fixture_response.evidence_envelope.semantics == ['report_only_review_context', 'not_full_coverage']
     assert fixture_response.bounded_staging.status == 'not_evaluated'

@@ -20,13 +20,17 @@ writes, operator commands, or production-like DB execution.
   staging evidence for a selected system when that evidence is safely queryable
   and otherwise returns explicit unavailable / not-evaluated bounded-staging
   status.
+- Stage 23C is complete: the same endpoint now exposes an explicit evidence
+  envelope so callers can distinguish canonical, observed-facts,
+  bounded-staging, derived-report, unavailable, and not-evaluated semantics
+  without inferring them from warnings alone.
 - The dedicated `warehouse_planner_evidence/v1` endpoint remains the preferred
   planner evidence path.
 - Provenance fallback remains preserved.
 - Unsupported or insufficiently evidenced systems still remain
   `unavailable`/`unknown`.
-- The next recommended checkpoint is `Stage 23C - Evidence envelope governance
-  and source semantics`.
+- The next recommended checkpoint is `Stage 23D - Read-only planner evidence UX
+  follow-through`.
 - The separate Stage 19BB bounded-staging execution dependency is now
   satisfied. The merged closeout is recorded in
   `docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
@@ -85,9 +89,21 @@ execution or any write-capable lane.
 
 `Stage 23C - Evidence envelope governance and source semantics`
 
-Clarify long-term contract boundaries if the dedicated endpoint continues to
-serve canonical, observed, and warehouse evidence under one report-only
-envelope.
+Stage 23C is complete and recorded in
+`docs/colonisation-redesign/stage-23c-evidence-envelope-governance.md`.
+
+The delivered slice keeps the endpoint path stable and adds explicit envelope
+governance:
+
+- envelope-level `status`;
+- explicit `source_classes`;
+- explicit `semantics`;
+- explicit report-only and selected-system-only posture;
+- explicit non-canonical and non-full-coverage semantics for bounded staging.
+
+This keeps canonical evidence, observed-facts evidence, bounded staging
+evidence, unavailable evidence, and not-evaluated evidence distinct inside the
+same read-only planner evidence surface.
 
 ### Stage 23D
 

@@ -420,6 +420,26 @@ export type WarehouseBoundedStagingStatus =
   | 'unavailable'
   | 'not_evaluated';
 
+export type WarehouseEvidenceEnvelopeStatus =
+  | 'available'
+  | 'unavailable'
+  | 'not_evaluated'
+  | 'unknown';
+
+export type WarehouseEvidenceSourceClass =
+  | 'canonical'
+  | 'observed_facts'
+  | 'bounded_staging'
+  | 'derived_report'
+  | 'unavailable';
+
+export type WarehouseEvidenceSemantic =
+  | 'canonical_truth'
+  | 'observed_report'
+  | 'bounded_staging_evidence'
+  | 'report_only_review_context'
+  | 'not_full_coverage';
+
 export interface PlannerWarehouseBoundedStaging {
   status: WarehouseBoundedStagingStatus;
   reportOnly: true;
@@ -434,6 +454,18 @@ export interface PlannerWarehouseBoundedStaging {
   matchedRowCount?: number | null;
   latestSourceUpdatedAt?: string | null;
   summary?: string | null;
+}
+
+export interface PlannerWarehouseEvidenceEnvelope {
+  status: WarehouseEvidenceEnvelopeStatus;
+  sourceClasses: WarehouseEvidenceSourceClass[];
+  semantics: WarehouseEvidenceSemantic[];
+  reportOnly: true;
+  selectedSystemOnly: true;
+  plannerTruthSourceClass: 'canonical' | 'unavailable';
+  claimsCanonicalTruth: false;
+  claimsFullCoverage: false;
+  summary: string;
 }
 
 export interface PlannerWarehouseEvidence {
@@ -451,6 +483,7 @@ export interface PlannerWarehouseEvidence {
   sourceName?: string | null;
   runKey?: string | null;
   sourcePosture?: 'dedicated_contract' | 'provenance_bridge' | 'unknown';
+  evidenceEnvelope?: PlannerWarehouseEvidenceEnvelope;
   boundedStaging?: PlannerWarehouseBoundedStaging;
   warnings?: string[];
 }
@@ -487,12 +520,25 @@ export interface WarehousePlannerEvidenceBoundedStagingContract {
   summary?: string | null;
 }
 
+export interface WarehousePlannerEvidenceEnvelopeContract {
+  status: WarehouseEvidenceEnvelopeStatus;
+  source_classes: WarehouseEvidenceSourceClass[];
+  semantics: WarehouseEvidenceSemantic[];
+  report_only: true;
+  selected_system_only: true;
+  planner_truth_source_class: 'canonical' | 'unavailable';
+  claims_canonical_truth: false;
+  claims_full_coverage: false;
+  summary: string;
+}
+
 export interface WarehousePlannerEvidenceContract {
   schema_version: 'warehouse_planner_evidence/v1';
   system_id64: number;
   generated_at: string;
   freshness: WarehousePlannerEvidenceFreshness;
   source_run: WarehousePlannerEvidenceSourceRun;
+  evidence_envelope: WarehousePlannerEvidenceEnvelopeContract;
   bounded_staging: WarehousePlannerEvidenceBoundedStagingContract;
   evidence_summary: {
     availability: WarehouseEvidenceAvailability;

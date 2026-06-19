@@ -172,6 +172,17 @@ function warehousePlannerEvidenceResponse(
       source_name: 'warehouse_reconciliation',
       run_key: 'warehouse/run-20260617.json',
     },
+    evidence_envelope: {
+      status: 'available',
+      source_classes: ['canonical', 'observed_facts'],
+      semantics: ['canonical_truth', 'observed_report', 'report_only_review_context', 'not_full_coverage'],
+      report_only: true,
+      selected_system_only: true,
+      planner_truth_source_class: 'canonical',
+      claims_canonical_truth: false,
+      claims_full_coverage: false,
+      summary: 'Selected-system evidence is available in this read-only planner envelope. Source classes: canonical evidence, observed-facts evidence.',
+    },
     bounded_staging: {
       status: 'not_evaluated',
       report_only: true,
@@ -613,7 +624,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(mockedGetProvenanceCockpit).toHaveBeenCalledWith(123);
   });
 
-  it('falls back to provenance warehouse evidence when the dedicated endpoint errors', async () => {
+  it('keeps a safe unknown warehouse evidence card when the dedicated endpoint errors', async () => {
     mockedUseSystemDetail.mockReturnValue({
       data: system,
       loading: false,
@@ -626,7 +637,7 @@ describe('ColonyPlannerWorkspace', () => {
     await renderPlanner();
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
-    expect(await screen.findByTestId('warehouse-evidence-source-posture-provenance_bridge')).toBeTruthy();
+    expect(await screen.findByTestId('warehouse-evidence-envelope-status-unknown')).toBeTruthy();
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
   });
 
