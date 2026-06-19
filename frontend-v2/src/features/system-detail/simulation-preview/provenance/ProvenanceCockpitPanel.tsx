@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { WarehouseEvidenceCard } from '@/features/colony-planner/WarehouseEvidenceCard';
-import { toWarehouseEvidenceFromProvenance } from '@/features/colony-planner/warehouseEvidenceBridge';
-import { ApiError, getProvenanceCockpit, listObservedFacts } from '@/lib/api';
+import { toWarehouseEvidenceFromContract, toWarehouseEvidenceFromProvenance } from '@/features/colony-planner/warehouseEvidenceBridge';
+import { ApiError, getProvenanceCockpit, getWarehousePlannerEvidence, listObservedFacts } from '@/lib/api';
 import type {
+  PlannerWarehouseEvidence,
   ProvenanceCockpitResponse,
   ProvenanceCockpitState,
 } from '@/types/api';
@@ -28,6 +29,12 @@ export function ProvenanceCockpitPanel({
     retry: 1,
     staleTime: 60_000,
   });
+  const warehouseEvidenceQuery = useQuery({
+    queryKey: ['provenance-cockpit-warehouse-planner-evidence', systemId64],
+    queryFn: () => getWarehousePlannerEvidence(systemId64),
+    retry: 1,
+    staleTime: 60_000,
+  });
 
   const effectiveResponse = useMemo(
     () => mergeLiveObservedFactCount(query.data, observedFactsQuery.data?.summary?.total_count),
@@ -35,9 +42,22 @@ export function ProvenanceCockpitPanel({
   );
 
   const warehouseEvidence = useMemo(
-    () => toWarehouseEvidenceFromProvenance(effectiveResponse),
-    [effectiveResponse],
+    () => {
+      const primaryEvidence = toWarehouseEvidenceFromContract(warehouseEvidenceQuery.data);
+      if (primaryEvidence) {
+        return primaryEvidence;
+      }
+      if (warehouseEvidenceQuery.isError) {
+        return toWarehouseEvidenceFromProvenance(effectiveResponse);
+      }
+      return null;
+    },
+    [effectiveResponse, warehouseEvidenceQuery.data, warehouseEvidenceQuery.isError],
   );
+  const warehouseEvidenceSourceLabel =
+    warehouseEvidence?.sourcePosture === 'provenance_bridge' || warehouseEvidenceQuery.isError
+      ? 'Provenance fallback'
+      : 'Dedicated contract preferred';
 
   return (
     <section
@@ -76,6 +96,44 @@ export function ProvenanceCockpitPanel({
       {effectiveResponse && (
         <>
           <SummaryGrid response={effectiveResponse} liveObservedFactsLoaded={observedFactsQuery.isSuccess} />
+          <section
+            data-testid="provenance-evidence-consistency-surface"
+            className="rounded border border-border bg-bg2/70 p-3 space-y-2"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-display tracking-[0.14em] text-[10px] text-cyan">
+                Selected-system evidence posture
+              </span>
+              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 text-[9px] uppercase tracking-wider text-text-dim">
+                Read-only review surface
+              </span>
+            </div>
+            <p
+              data-testid="provenance-evidence-consistency-summary"
+              className="leading-snug text-text-dim"
+            >
+              {crossSurfaceEvidenceSummary(warehouseEvidence)}
+            </p>
+            <div
+              data-testid="provenance-evidence-consistency-highlights"
+              className="flex flex-wrap items-center gap-2 text-[10px] text-text-dim"
+            >
+              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+                Selected-system context
+              </span>
+              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+                Report-only review context
+              </span>
+              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+                {warehouseEvidenceSourceLabel}
+              </span>
+              {warehouseEvidence?.boundedStaging?.status === 'available' ? (
+                <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+                  Stage 19BB bounded staging evidence
+                </span>
+              ) : null}
+            </div>
+          </section>
           <WarehouseEvidenceCard evidence={warehouseEvidence} />
           <GuardrailsSummaryCard response={effectiveResponse} />
         </>
@@ -209,6 +267,24 @@ function StateBadge({ state }: { state: ProvenanceCockpitState }) {
 
 function formatCount(value: number | null | undefined): string {
   return typeof value === 'number' ? String(value) : 'Unknown';
+}
+
+function crossSurfaceEvidenceSummary(evidence: PlannerWarehouseEvidence | null) {
+  const status = evidence?.evidenceEnvelope?.status ?? 'unknown';
+
+  if (status === 'available') {
+    return 'Available. Selected-system evidence is present as read-only review context only.';
+  }
+  if (status === 'unknown') {
+    return 'Unknown. Selected-system evidence has not been established.';
+  }
+  if (status === 'unavailable') {
+    return 'Unavailable. No approved bounded staging evidence is linked to this selected system.';
+  }
+  if (status === 'not_evaluated') {
+    return 'Not evaluated in this runtime. The staging boundary was not safely queryable for this request.';
+  }
+  return 'Unknown. Selected-system evidence has not been established.';
 }
 
 function mergeLiveObservedFactCount(

@@ -35,13 +35,15 @@ def test_stage24b_authority_records_a_narrow_in_scope_discoverability_slice():
     assert stage24['status'] == 'in_progress'
     assert stage24['implementation_started'] is True
     assert stage24['implementation_authorized'] is True
-    assert stage24['current_checkpoint'] == 'Stage 24B - Planner evidence discoverability surfaces'
-    assert stage24['next_checkpoint'] == 'Stage 24C - Cross-surface evidence consistency'
+    assert stage24['current_checkpoint'] == 'Stage 24C - Cross-surface evidence consistency'
+    assert stage24['next_checkpoint'] == 'Stage 24D - Closeout or next-control decision'
     assert stage24['docs_static_only'] is False
     assert stage24['stage24a_contract_completed'] is True
     assert stage24['stage24b_implementation_started'] is True
     assert stage24['stage24b_implementation_completed'] is True
-    assert stage24['stage24c_implementation_started'] is False
+    assert stage24['stage24c_implementation_started'] is True
+    assert stage24['stage24c_implementation_completed'] is True
+    assert stage24['stage24d_implementation_started'] is False
 
     assert stage24a['status'] == 'completed'
     assert stage24a['contract_only'] is True
@@ -127,7 +129,8 @@ def test_stage24b_is_discoverable_from_roadmap_and_readme():
 
     assert 'Stage 24B is complete as the first narrow discoverability implementation slice.' in roadmap
     assert 'docs/colonisation-redesign/stage-24b-planner-evidence-discoverability.md' in roadmap
-    assert 'Stage 24C is the next implementation checkpoint.' in roadmap
+    assert 'Stage 24C is complete as the narrow adjacent-surface consistency slice.' in roadmap
+    assert 'Stage 24D is the next checkpoint.' in roadmap
     assert 'stage-24b-planner-evidence-discoverability.md' in readme
     assert 'completed Stage 24B slice' in readme
     assert 'Completed Stage 24B implementation record' in readme

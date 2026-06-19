@@ -8,7 +8,9 @@ Stage 24A is complete as a contract-only checkpoint.
 
 Stage 24B is complete as the first narrow discoverability implementation slice.
 
-Stage 24C is the next implementation checkpoint.
+Stage 24C is complete as the narrow adjacent-surface consistency slice.
+
+Stage 24D is the next checkpoint.
 
 ## Background From Stage 23
 
@@ -159,7 +161,7 @@ That contract document:
 | --- | --- | --- | --- |
 | Stage 24A - Read-only evidence adoption implementation contract | Define exact Stage 24 contract scope before implementation spreads. | Stage 24A contract doc, fixture/test plan, ownership map, guardrail assertions. | Complete. One primary contract set is named; no write-capable lane is authorized; the next implementation slice is reviewable. |
 | Stage 24B - Planner evidence discoverability surfaces | Apply read-only evidence explanation patterns to the most important planner surfaces. | Narrow planner/doc/test slice only. | Complete. Users can locate and interpret evidence posture more easily without implying canonical truth. |
-| Stage 24C - Cross-surface evidence consistency | Align wording and review posture between planner evidence surfaces and adjacent read-only views. | Narrow contract/UI/doc/test slice only. | Source semantics remain consistent, explicit, and non-canonical across read-only surfaces. |
+| Stage 24C - Cross-surface evidence consistency | Align wording and review posture between planner evidence surfaces and adjacent read-only views. | Narrow contract/UI/doc/test slice only. | Complete. Source semantics remain consistent, explicit, and non-canonical across read-only surfaces. |
 | Stage 24D - Closeout or next-control decision | Close Stage 24 or explicitly hand off to a later control if needed. | Closeout or handoff doc, authority updates, tests. | Stage 24 ends without silently authorizing writes or reopening Stage 19. |
 
 ## Acceptance Criteria
@@ -189,6 +191,18 @@ That implementation slice:
 - keeps the dedicated endpoint preferred;
 - keeps provenance fallback fallback-only;
 - leaves Stage 24C as future cross-surface work.
+
+Stage 24C is now recorded in
+`docs/colonisation-redesign/stage-24c-cross-surface-evidence-consistency.md`.
+
+That implementation slice:
+
+- selects the system-detail Evidence mode provenance cockpit panel as the one
+  adjacent read-only surface;
+- reuses governed evidence semantics instead of inventing a second local model;
+- keeps the dedicated endpoint preferred for the warehouse-evidence subsection;
+- keeps provenance fallback fallback-only on endpoint-read failure;
+- leaves Stage 24D as the next closeout-or-handoff checkpoint.
 
 ## Risks And Mitigations
 
