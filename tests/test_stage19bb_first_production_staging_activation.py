@@ -98,7 +98,12 @@ def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merg
 
     assert checkpoint['status'] == 'authorized_after_merge'
     assert checkpoint['approved_source_sha256'] == stage19bb.APPROVED_SOURCE_SHA256
+    assert checkpoint['approved_source_size_bytes'] == stage19bb.APPROVED_SOURCE_SIZE_BYTES
     assert checkpoint['approved_eligible_source_rows'] == stage19bb.APPROVED_ELIGIBLE_SOURCE_ROWS
+    assert checkpoint['previous_approved_source_sha256'] == '09225e43323464e332a792f8716a6e4264ef5999ce1544f1157bfc60f406f4a2'
+    assert checkpoint['previous_approved_source_size_bytes'] == 2614426684
+    assert checkpoint['source_refresh_reason'] == 'live EDSM dump rotated after PR #243 authorization'
+    assert checkpoint['source_refresh_pr_required_before_execution'] is True
     assert checkpoint['approved_target_fingerprint'] == stage19bb.APPROVED_TARGET_FINGERPRINT
     assert checkpoint['target_type'] == stage19bb.APPROVED_TARGET_TYPE
     assert checkpoint['permitted_tables'] == stage19bb.PERMITTED_TABLES
@@ -126,9 +131,11 @@ def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merg
     assert 'five-table' in stage19ba_doc
     assert 'authorized_after_merge' in stage19bb_doc
     assert stage19bb.APPROVED_SOURCE_SHA256 in stage19bb_doc
+    assert 'live EDSM dump rotated after PR `#243`' in stage19bb_doc
     assert stage19bb.APPROVED_TARGET_FINGERPRINT in stage19bb_doc
     assert 'formula mismatch' in stage19bb_doc
     assert 'Stage 19BB authorization dependency' in stage19_roadmap
+    assert 'source refresh reason' in stage19_roadmap
     assert 'Stage 19BB authorization' in stage23
     assert 'tests/test_stage19bb_first_production_staging_activation.py' in parity
 
