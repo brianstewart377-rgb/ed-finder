@@ -16,13 +16,17 @@ writes, operator commands, or production-like DB execution.
 - Stage 23A is complete: the dedicated planner-evidence endpoint now has a
   first bounded live per-system provider built from existing canonical
   system/station data and existing observed-facts summaries.
+- Stage 23B is complete: the same endpoint now exposes bounded Stage 19BB
+  staging evidence for a selected system when that evidence is safely queryable
+  and otherwise returns explicit unavailable / not-evaluated bounded-staging
+  status.
 - The dedicated `warehouse_planner_evidence/v1` endpoint remains the preferred
   planner evidence path.
 - Provenance fallback remains preserved.
 - Unsupported or insufficiently evidenced systems still remain
   `unavailable`/`unknown`.
-- The next recommended checkpoint is `Stage 23B - Safe per-system warehouse join
-  expansion`.
+- The next recommended checkpoint is `Stage 23C - Evidence envelope governance
+  and source semantics`.
 - The separate Stage 19BB bounded-staging execution dependency is now
   satisfied. The merged closeout is recorded in
   `docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
@@ -54,16 +58,28 @@ only existing read-only data already present in the app.
 
 `Stage 23B - Safe per-system warehouse join expansion`
 
-Only if a safe and explicit selected-system warehouse join is already available,
-expand the provider to include per-system warehouse evidence without guessing.
-This remains operationally dependent on the separate bounded Stage 19
+Stage 23B is complete and recorded in
+`docs/colonisation-redesign/stage-23b-readonly-per-system-warehouse-join.md`.
+
+The delivered slice keeps the existing dedicated endpoint and expands it with a
+guarded read-only lookup for Stage 19BB bounded staging evidence:
+
+- selected-system responses can expose bounded staging provenance;
+- bounded staging remains explicitly `report-only`;
+- bounded staging remains explicitly `bounded staging only`;
+- bounded staging is unavailable when no approved closeout run links the
+  selected system;
+- bounded staging remains not evaluated when the staging boundary is not safely
+  queryable in the current runtime.
+
+This still remains operationally dependent on the separate bounded Stage 19
 production-staging activation contract rather than inferred warehouse truth.
 That separate dependency is now pinned to the merged Stage 19BB authorization
 and closeout chain, which records the reviewed EDSM source, the reviewed
 isolated staging target fingerprint, and the completed `100 -> 1,000 -> 10,000`
-bounded ladder as sanitized staging-only evidence. Stage 23B may proceed if it
-needs that evidence, but Stage 23 still does not authorize operator execution
-or any write-capable lane.
+bounded ladder as sanitized staging-only evidence. Stage 23B uses that
+dependency as review context only; Stage 23 still does not authorize operator
+execution or any write-capable lane.
 
 ### Stage 23C
 

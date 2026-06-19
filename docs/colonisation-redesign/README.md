@@ -7,11 +7,12 @@ This folder contains the planning, architecture, forensic-review, and implementa
 Start here for any new colonisation work:
 
 1. [`stage-23-roadmap.md`](./stage-23-roadmap.md) - active post-22 roadmap and current control baseline.
-2. [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) - completed Stage 23A first live per-system evidence provider slice.
-3. [`stage-19bb-production-staging-execution-closeout.md`](./stage-19bb-production-staging-execution-closeout.md) - sanitized evidence closeout for the completed Stage 19BB bounded `100 -> 1,000 -> 10,000` staging ladder.
-4. [`stage-19bb-first-production-staging-activation.md`](./stage-19bb-first-production-staging-activation.md) - exact Stage 19BB authorization for the first real bounded production-staging execution lane.
-5. [`stage-19-bounded-production-staging-activation.md`](./stage-19-bounded-production-staging-activation.md) - Stage 19BA control-baseline shorthand that Stage 19BB later corrects to the exact five-table execution boundary.
-6. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - completed post-18/20/21 roadmap and prior control baseline.
+2. [`stage-23b-readonly-per-system-warehouse-join.md`](./stage-23b-readonly-per-system-warehouse-join.md) - completed Stage 23B read-only warehouse join expansion with bounded Stage 19BB staging provenance.
+3. [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) - completed Stage 23A first live per-system evidence provider slice.
+4. [`stage-19bb-production-staging-execution-closeout.md`](./stage-19bb-production-staging-execution-closeout.md) - sanitized evidence closeout for the completed Stage 19BB bounded `100 -> 1,000 -> 10,000` staging ladder.
+5. [`stage-19bb-first-production-staging-activation.md`](./stage-19bb-first-production-staging-activation.md) - exact Stage 19BB authorization for the first real bounded production-staging execution lane.
+6. [`stage-19-bounded-production-staging-activation.md`](./stage-19-bounded-production-staging-activation.md) - Stage 19BA control-baseline shorthand that Stage 19BB later corrects to the exact five-table execution boundary.
+7. [`stage-22-roadmap.md`](./stage-22-roadmap.md) - completed post-18/20/21 roadmap and prior control baseline.
 7. [`stage-22b-current-state-planner-evidence-hardening.md`](./stage-22b-current-state-planner-evidence-hardening.md) - completed Stage 22B planner/provenance/warehouse evidence hardening slice.
 8. [`stage-22c-operator-artifact-review-and-audit-surfaces.md`](./stage-22c-operator-artifact-review-and-audit-surfaces.md) - completed Stage 22C operator artifact review and export audit surface slice.
 9. [`stage-22d-export-and-documentation-governance-consolidation.md`](./stage-22d-export-and-documentation-governance-consolidation.md) - completed Stage 22D export-pack governance and documentation-consolidation slice.
@@ -34,7 +35,9 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 
 ## Current Control Documents
 
-[`stage-23-roadmap.md`](./stage-23-roadmap.md) is the active post-22 control document. It starts the next read-only sequence after Stage 22 closeout and introduces the first bounded live per-system planner-evidence provider while keeping Stage 19 separately gated.
+[`stage-23-roadmap.md`](./stage-23-roadmap.md) is the active post-22 control document. It now records completed Stage 23A and Stage 23B slices while keeping Stage 19 separately gated and keeping the overall Stage 23 sequence read-only.
+
+[`stage-23b-readonly-per-system-warehouse-join.md`](./stage-23b-readonly-per-system-warehouse-join.md) records the completed Stage 23B slice: the dedicated evidence endpoint can now expose bounded Stage 19BB staging provenance for a selected system when the staging boundary is safely queryable, while still returning unavailable or not-evaluated states conservatively when it is not.
 
 [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) records the completed Stage 23A slice: the dedicated evidence endpoint now has a first live selected-system provider using existing canonical and observed data while keeping unsupported systems unknown.
 
@@ -106,7 +109,8 @@ It supersedes the old assumption that the project should simply continue from St
 
 | Document | Status | Purpose |
 |---|---|---|
-| [`stage-23-roadmap.md`](./stage-23-roadmap.md) | Active Stage 23 control | Starts the next read-only control sequence after Stage 22 closeout and ranks the bounded live per-system evidence work without reopening Stage 19. |
+| [`stage-23-roadmap.md`](./stage-23-roadmap.md) | Active Stage 23 control | Records the completed Stage 23A and Stage 23B read-only evidence slices and the next follow-on checkpoint without reopening Stage 19. |
+| [`stage-23b-readonly-per-system-warehouse-join.md`](./stage-23b-readonly-per-system-warehouse-join.md) | Completed Stage 23B implementation record | Records the guarded read-only per-system warehouse join that exposes bounded Stage 19BB staging provenance without claiming canonical truth. |
 | [`stage-23a-first-live-per-system-evidence-provider.md`](./stage-23a-first-live-per-system-evidence-provider.md) | Completed Stage 23A implementation record | Records the first live selected-system evidence provider built from existing canonical and observed sources under the dedicated endpoint. |
 | [`stage-19bb-first-production-staging-activation.md`](./stage-19bb-first-production-staging-activation.md) | Stage 19BB exact authorization record | Records the approved EDSM source SHA-256, exact five-table execution boundary, approved isolated target fingerprint, and the post-merge bounded execution policy. |
 | [`stage-19-bounded-production-staging-activation.md`](./stage-19-bounded-production-staging-activation.md) | Separate Stage 19 operational dependency baseline | Records the bounded future production-staging activation contract while keeping Stage 23 as the active product/evidence roadmap and keeping execution unauthorized. |

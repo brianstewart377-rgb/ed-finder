@@ -45,6 +45,11 @@ export function toWarehouseEvidenceFromProvenance(
     sourceName: response.evidence_panels.source_run.source_name ?? null,
     runKey: response.provenance_summary.latest_source_run_key ?? null,
     sourcePosture: 'provenance_bridge',
+    boundedStaging: {
+      status: 'not_evaluated',
+      reportOnly: true,
+      boundedStagingOnly: true,
+    },
     warnings: response.warnings,
   };
 }
@@ -59,6 +64,12 @@ export function toWarehouseEvidenceFromContract(
     source: item.source,
     summary: item.summary,
   }));
+  const boundedStaging = response.bounded_staging ?? {
+    status: 'not_evaluated' as const,
+    report_only: true as const,
+    bounded_staging_only: true as const,
+    available_row_limits: [],
+  };
 
   return {
     availability: response.evidence_summary.availability,
@@ -70,6 +81,21 @@ export function toWarehouseEvidenceFromContract(
     sourceName: response.source_run.source_name ?? null,
     runKey: response.source_run.run_key ?? null,
     sourcePosture: 'dedicated_contract',
+    boundedStaging: {
+      status: boundedStaging.status,
+      reportOnly: boundedStaging.report_only,
+      boundedStagingOnly: boundedStaging.bounded_staging_only,
+      sourceName: boundedStaging.source_name ?? null,
+      sourceBatchLabel: boundedStaging.source_batch_label ?? null,
+      sourceSha256: boundedStaging.source_sha256 ?? null,
+      sourceRunKey: boundedStaging.source_run_key ?? null,
+      bridgeKey: boundedStaging.bridge_key ?? null,
+      rowLimit: boundedStaging.row_limit ?? null,
+      availableRowLimits: boundedStaging.available_row_limits,
+      matchedRowCount: boundedStaging.matched_row_count ?? null,
+      latestSourceUpdatedAt: boundedStaging.latest_source_updated_at ?? null,
+      summary: boundedStaging.summary ?? null,
+    },
     warnings: response.warnings,
   };
 }
