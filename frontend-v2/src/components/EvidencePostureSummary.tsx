@@ -99,15 +99,15 @@ export function EvidencePostureSummary({
             />
             {isOpen ? `Hide ${disclosureLabel}` : `Show ${disclosureLabel}`}
           </button>
-          {isOpen ? (
-            <div
-              id={disclosureId}
-              data-testid={`${testIdPrefix}-disclosure-panel`}
-              className="mt-3 space-y-3 text-[11px] leading-relaxed text-silver-dk"
-            >
-              {disclosureContent}
-            </div>
-          ) : null}
+          <div
+            id={disclosureId}
+            data-testid={`${testIdPrefix}-disclosure-panel`}
+            hidden={!isOpen}
+            aria-hidden={!isOpen}
+            className="mt-3 space-y-3 text-[11px] leading-relaxed text-silver-dk"
+          >
+            {disclosureContent}
+          </div>
         </div>
       ) : null}
     </section>
