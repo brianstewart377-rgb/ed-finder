@@ -3,6 +3,40 @@ import { hasKnownCoords, ratingTier } from '@/lib/format';
 import type { SystemResult } from '@/types/api';
 import type { MapRegion, MapHeatmapResponse, MapClusterHull } from '@/lib/api';
 
+interface MapViewState {
+  cx: number;
+  cz: number;
+  scale: number;
+}
+
+const MIN_MAP_SCALE = 0.05;
+const MAX_MAP_SCALE = 60;
+const DEFAULT_MAP_SCALE = 6;
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function clampScale(scale: number): number {
+  if (!isFiniteNumber(scale)) return DEFAULT_MAP_SCALE;
+  return Math.max(MIN_MAP_SCALE, Math.min(MAX_MAP_SCALE, scale));
+}
+
+function sanitizeView(view: MapViewState, fallback: MapViewState): MapViewState {
+  return {
+    cx: isFiniteNumber(view.cx) ? view.cx : fallback.cx,
+    cz: isFiniteNumber(view.cz) ? view.cz : fallback.cz,
+    scale: clampScale(view.scale),
+  };
+}
+
+function normalizeWheelDelta(deltaY: number, deltaMode: number, viewportHeight: number): number {
+  if (!isFiniteNumber(deltaY)) return 0;
+  if (deltaMode === WheelEvent.DOM_DELTA_LINE) return deltaY * 16;
+  if (deltaMode === WheelEvent.DOM_DELTA_PAGE) return deltaY * Math.max(viewportHeight, 1);
+  return deltaY;
+}
+
 /**
  * Galaxy frame geometry (ED-Finder-native context, NOT copied in-game art).
  *
@@ -60,12 +94,18 @@ export function GalacticMap({
   showGalacticFrame = true, viewMode = 'results',
 }: GalacticMapProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fallbackView = useMemo<MapViewState>(
+    () => ({ cx: reference.x, cz: reference.z, scale: DEFAULT_MAP_SCALE }),
+    [reference.x, reference.z],
+  );
   // Camera state: centre is in galactic LY coords, scale = pixels per LY.
-  const [view, setView] = useState({
+  const [view, setView] = useState<MapViewState>({
     cx: reference.x,
     cz: reference.z,
-    scale: 6,                          // px per LY at zoom = 1
+    scale: DEFAULT_MAP_SCALE,           // px per LY at zoom = 1
   });
+  const viewRef = useRef(view);
+  const fallbackViewRef = useRef(fallbackView);
   const autoFitSignature = useMemo(
     () => systems
       .map((system) => `${system.id64}:${system.coords?.x ?? ''}:${system.coords?.y ?? ''}:${system.coords?.z ?? ''}`)
@@ -78,15 +118,25 @@ export function GalacticMap({
     [systems],
   );
 
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+
+  useEffect(() => {
+    fallbackViewRef.current = fallbackView;
+  }, [fallbackView]);
+
   // ── Viewport presets. Re-applied when the mode or data changes. ─────
   // Each mode resets pan/zoom to a sensible framing; the user can still
   // freely pan/zoom afterwards (state lives in `view`).
   useEffect(() => {
     const el = canvasRef.current;
-    const w = el?.clientWidth  ?? 600;
-    const h = el?.clientHeight ?? 400;
-    const fitScale = (radiusLy: number) =>
-      Math.max(0.5, Math.min(w, h) / (2 * radiusLy));
+    const w = Math.max(el?.clientWidth ?? 600, 1);
+    const h = Math.max(el?.clientHeight ?? 400, 1);
+    const fitScale = (radiusLy: number) => {
+      const safeRadius = isFiniteNumber(radiusLy) && radiusLy > 0 ? radiusLy : 50;
+      return clampScale(Math.min(w, h) / (2 * safeRadius));
+    };
 
     if (viewMode === 'galaxy') {
       // Frame the whole galaxy disc + a little margin around the rings.
@@ -123,9 +173,18 @@ export function GalacticMap({
     if (!cvs) return;
     const ctx = cvs.getContext('2d');
     if (!ctx) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = cvs.clientWidth;
-    const h = cvs.clientHeight;
+    const safeView = sanitizeView(view, fallbackView);
+    if (
+      safeView.cx !== view.cx
+      || safeView.cz !== view.cz
+      || safeView.scale !== view.scale
+    ) {
+      setView(safeView);
+      return;
+    }
+    const dpr = Math.max(1, Math.min(isFiniteNumber(window.devicePixelRatio) ? window.devicePixelRatio : 1, 2));
+    const w = Math.max(cvs.clientWidth, 1);
+    const h = Math.max(cvs.clientHeight, 1);
     if (cvs.width !== w * dpr || cvs.height !== h * dpr) {
       cvs.width  = w * dpr;
       cvs.height = h * dpr;
@@ -134,8 +193,8 @@ export function GalacticMap({
     ctx.clearRect(0, 0, w, h);
 
     // World→screen: x_screen = (x - cx)*scale + w/2 ;  z flipped so +z is up
-    const wx = (x: number) => (x - view.cx) * view.scale + w / 2;
-    const wz = (z: number) => -(z - view.cz) * view.scale + h / 2;
+    const wx = (x: number) => (x - safeView.cx) * safeView.scale + w / 2;
+    const wz = (z: number) => -(z - safeView.cz) * safeView.scale + h / 2;
 
     // ── Backdrop — gunmetal radial fade ─────────────────────────────
     const grd = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
@@ -149,7 +208,7 @@ export function GalacticMap({
     if (showGalacticFrame) {
       const gcx = wx(GALAXY_CENTER.x);
       const gcz = wz(GALAXY_CENTER.z);
-      const discR = GALAXY_RADIUS_LY * view.scale;
+      const discR = GALAXY_RADIUS_LY * safeView.scale;
 
       ctx.save();
       // Faint disc glow toward the galactic centre.
@@ -190,14 +249,14 @@ export function GalacticMap({
     }
 
     // Background grid every 10 LY at scales > 2 px/LY
-    if (view.scale >= 2) {
+    if (safeView.scale >= 2) {
       const step = 10;
       ctx.strokeStyle = 'rgba(200,204,209,0.06)';   // silver-dim
       ctx.lineWidth = 1;
-      const left = view.cx - w / 2 / view.scale;
-      const right = view.cx + w / 2 / view.scale;
-      const top  = view.cz + h / 2 / view.scale;
-      const bot  = view.cz - h / 2 / view.scale;
+      const left = safeView.cx - w / 2 / safeView.scale;
+      const right = safeView.cx + w / 2 / safeView.scale;
+      const top  = safeView.cz + h / 2 / safeView.scale;
+      const bot  = safeView.cz - h / 2 / safeView.scale;
       ctx.beginPath();
       for (let x = Math.ceil(left / step) * step; x < right; x += step) {
         ctx.moveTo(wx(x), 0); ctx.lineTo(wx(x), h);
@@ -210,11 +269,13 @@ export function GalacticMap({
 
     // ── Heatmap voxels (behind everything except backdrop/grid) ─────
     if (heatmap && heatmap.cells.length > 0) {
-      const cell = heatmap.voxel_size * view.scale;
+      const cell = heatmap.voxel_size * safeView.scale;
       // Half-cell offset: backend cx/cz are voxel CENTRES.
       const half = cell / 2;
+      if (!isFiniteNumber(cell) || cell <= 0) return;
       ctx.save();
       for (const c of heatmap.cells) {
+        if (!isFiniteNumber(c.cx) || !isFiniteNumber(c.cz)) continue;
         const px = wx(c.cx);
         const py = wz(c.cz);
         if (px + half < 0 || py + half < 0 || px - half > w || py - half > h) continue;
@@ -236,7 +297,8 @@ export function GalacticMap({
         if (c.x == null || c.z == null) continue;
         const px = wx(c.x);
         const py = wz(c.z);
-        const rad = c.radius_ly * view.scale;
+        const rad = c.radius_ly * safeView.scale;
+        if (!isFiniteNumber(rad) || rad <= 0) continue;
         if (px + rad < 0 || py + rad < 0 || px - rad > w || py - rad > h) continue;
         const tier = ratingTier(c.top_score ?? null);
         // subtle translucent fill + slightly stronger ring
@@ -303,6 +365,7 @@ export function GalacticMap({
     // ── Systems ─────────────────────────────────────────────────────
     for (const sys of plottableSystems) {
       const coords = sys.coords!;
+      if (!isFiniteNumber(coords.x) || !isFiniteNumber(coords.z)) continue;
       const px = wx(coords.x!);
       const py = wz(coords.z!);
       if (px < -10 || py < -10 || px > w + 10 || py > h + 10) continue;
@@ -354,12 +417,12 @@ export function GalacticMap({
     ctx.fillStyle = 'rgba(200,204,209,0.65)';   // silver-dk
     ctx.font = '600 11px JetBrains Mono, ui-monospace, monospace';
     ctx.fillText(
-      `${plottableSystems.length} SYSTEMS · ${view.scale.toFixed(1)} PX/LY`,
+      `${plottableSystems.length} SYSTEMS · ${safeView.scale.toFixed(1)} PX/LY`,
       10, h - 10,
     );
     // 50-LY scale bar
-    const barLy = view.scale > 4 ? 10 : view.scale > 1 ? 50 : 200;
-    const barPx = barLy * view.scale;
+    const barLy = safeView.scale > 4 ? 10 : safeView.scale > 1 ? 50 : 200;
+    const barPx = barLy * safeView.scale;
     if (barPx > 12 && barPx < w * 0.4) {
       const bx = w - 16 - barPx;
       const by = h - 16;
@@ -379,16 +442,29 @@ export function GalacticMap({
   const drag = useRef<{ x: number; y: number; cx: number; cz: number } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    drag.current = { x: e.clientX, y: e.clientY, cx: view.cx, cz: view.cz };
+    const currentView = sanitizeView(viewRef.current, fallbackViewRef.current);
+    drag.current = { x: e.clientX, y: e.clientY, cx: currentView.cx, cz: currentView.cz };
     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!drag.current) return;
-    const dx = (e.clientX - drag.current.x) / view.scale;
-    const dy = (e.clientY - drag.current.y) / view.scale;
-    setView((v) => ({ ...v, cx: drag.current!.cx - dx, cz: drag.current!.cz + dy }));
+    setView((prev) => {
+      const safePrev = sanitizeView(prev, fallbackViewRef.current);
+      const dx = (e.clientX - drag.current!.x) / safePrev.scale;
+      const dy = (e.clientY - drag.current!.y) / safePrev.scale;
+      if (!isFiniteNumber(dx) || !isFiniteNumber(dy)) return safePrev;
+      return sanitizeView({ ...safePrev, cx: drag.current!.cx - dx, cz: drag.current!.cz + dy }, fallbackViewRef.current);
+    });
   };
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const target = e.target as HTMLCanvasElement;
+    if (
+      typeof target.hasPointerCapture === 'function'
+      && typeof target.releasePointerCapture === 'function'
+      && target.hasPointerCapture(e.pointerId)
+    ) {
+      target.releasePointerCapture(e.pointerId);
+    }
     const wasDrag = drag.current && (
       Math.abs(e.clientX - drag.current.x) > 3 || Math.abs(e.clientY - drag.current.y) > 3
     );
@@ -399,12 +475,16 @@ export function GalacticMap({
     const rect = cvs.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    const w = cvs.clientWidth, h = cvs.clientHeight;
-    const wx = (x: number) => (x - view.cx) * view.scale + w / 2;
-    const wz = (z: number) => -(z - view.cz) * view.scale + h / 2;
+    const w = Math.max(cvs.clientWidth, 1);
+    const h = Math.max(cvs.clientHeight, 1);
+    if (!isFiniteNumber(px) || !isFiniteNumber(py)) return;
+    const currentView = sanitizeView(viewRef.current, fallbackViewRef.current);
+    const wx = (x: number) => (x - currentView.cx) * currentView.scale + w / 2;
+    const wz = (z: number) => -(z - currentView.cz) * currentView.scale + h / 2;
     let best: { sys: SystemResult; d: number } | null = null;
     for (const sys of plottableSystems) {
       const coords = sys.coords!;
+      if (!isFiniteNumber(coords.x) || !isFiniteNumber(coords.z)) continue;
       const dx = wx(coords.x!) - px;
       const dy = wz(coords.z!) - py;
       const d  = Math.hypot(dx, dy);
@@ -412,11 +492,27 @@ export function GalacticMap({
     }
     onSelect?.(best ? best.sys : null);
   };
-  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const factor = Math.exp(-e.deltaY * 0.0015);
-    setView((v) => ({ ...v, scale: Math.max(0.05, Math.min(60, v.scale * factor)) }));
-  };
+
+  useEffect(() => {
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const delta = normalizeWheelDelta(event.deltaY, event.deltaMode, cvs.clientHeight);
+      if (delta === 0) return;
+      const clampedDelta = Math.max(-4000, Math.min(4000, delta));
+      setView((prev) => {
+        const safePrev = sanitizeView(prev, fallbackViewRef.current);
+        const factor = Math.exp(-clampedDelta * 0.0015);
+        if (!isFiniteNumber(factor)) return safePrev;
+        return { ...safePrev, scale: clampScale(safePrev.scale * factor) };
+      });
+    };
+    cvs.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      cvs.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   return (
     <div
@@ -435,7 +531,6 @@ export function GalacticMap({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={() => { drag.current = null; }}
-        onWheel={onWheel}
       />
       <Legend />
     </div>
