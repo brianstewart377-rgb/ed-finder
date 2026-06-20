@@ -27,12 +27,13 @@ def test_stage24c_authority_records_one_narrow_adjacent_surface_slice():
     stage24b = authority['stage24b']
     stage24c = authority['stage24c']
 
-    assert stage24['current_checkpoint'] == 'Stage 24C - Cross-surface evidence consistency'
-    assert stage24['next_checkpoint'] == 'Stage 24D - Closeout or next-control decision'
+    assert stage24['current_checkpoint'] == 'Stage 24D - Closeout'
+    assert stage24['next_checkpoint'] is None
     assert stage24['stage24b_implementation_completed'] is True
     assert stage24['stage24c_implementation_started'] is True
     assert stage24['stage24c_implementation_completed'] is True
-    assert stage24['stage24d_implementation_started'] is False
+    assert stage24['stage24d_implementation_started'] is True
+    assert stage24['stage24_closed'] is True
 
     assert stage24b['status'] == 'completed'
     assert stage24b['in_scope_surfaces_only'] is True
@@ -99,7 +100,7 @@ def test_stage24c_is_discoverable_from_roadmap_and_readme():
 
     assert 'Stage 24C is complete as the narrow adjacent-surface consistency slice.' in roadmap
     assert 'docs/colonisation-redesign/stage-24c-cross-surface-evidence-consistency.md' in roadmap
-    assert 'Stage 24D is the next checkpoint.' in roadmap
+    assert 'Stage 24D is complete as the closeout checkpoint.' in roadmap
     assert 'stage-24c-cross-surface-evidence-consistency.md' in readme
     assert 'completed Stage 24C slice' in readme
     assert 'Completed Stage 24C implementation record' in readme

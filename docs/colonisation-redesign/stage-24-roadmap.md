@@ -10,7 +10,10 @@ Stage 24B is complete as the first narrow discoverability implementation slice.
 
 Stage 24C is complete as the narrow adjacent-surface consistency slice.
 
-Stage 24D is the next checkpoint.
+Stage 24D is complete as the closeout checkpoint.
+
+Stage 24 is closed as the read-only evidence adoption and governance
+programme.
 
 ## Background From Stage 23
 
@@ -162,7 +165,7 @@ That contract document:
 | Stage 24A - Read-only evidence adoption implementation contract | Define exact Stage 24 contract scope before implementation spreads. | Stage 24A contract doc, fixture/test plan, ownership map, guardrail assertions. | Complete. One primary contract set is named; no write-capable lane is authorized; the next implementation slice is reviewable. |
 | Stage 24B - Planner evidence discoverability surfaces | Apply read-only evidence explanation patterns to the most important planner surfaces. | Narrow planner/doc/test slice only. | Complete. Users can locate and interpret evidence posture more easily without implying canonical truth. |
 | Stage 24C - Cross-surface evidence consistency | Align wording and review posture between planner evidence surfaces and adjacent read-only views. | Narrow contract/UI/doc/test slice only. | Complete. Source semantics remain consistent, explicit, and non-canonical across read-only surfaces. |
-| Stage 24D - Closeout or next-control decision | Close Stage 24 or explicitly hand off to a later control if needed. | Closeout or handoff doc, authority updates, tests. | Stage 24 ends without silently authorizing writes or reopening Stage 19. |
+| Stage 24D - Closeout or next-control decision | Close Stage 24 and require a later explicit control before any follow-on work. | Closeout doc, authority updates, README update, tests. | Complete. Stage 24 closes without silently authorizing writes or reopening Stage 19. |
 
 ## Acceptance Criteria
 
@@ -202,7 +205,23 @@ That implementation slice:
 - reuses governed evidence semantics instead of inventing a second local model;
 - keeps the dedicated endpoint preferred for the warehouse-evidence subsection;
 - keeps provenance fallback fallback-only on endpoint-read failure;
-- leaves Stage 24D as the next closeout-or-handoff checkpoint.
+- leaves Stage 24D as the closeout checkpoint.
+
+Stage 24D is now recorded in
+`docs/colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md`.
+
+That closeout checkpoint:
+
+- runs in `closeout` mode;
+- closes Stage 24 as the read-only evidence adoption and governance programme;
+- preserves Stage 24A, Stage 24B, and Stage 24C as completed checkpoints;
+- requires any future work to begin under a new explicit post-Stage-24 control
+  document;
+- keeps Stage 23 closed and Stage 19 separately gated;
+- keeps no write-capable lane authorized;
+- keeps canonical apply unauthorized;
+- keeps rebaseline unauthorized;
+- keeps scheduler/service activation disabled.
 
 ## Risks And Mitigations
 
@@ -262,4 +281,6 @@ Stage 24 can close only when:
 - Stage 19 remains separately gated unless another later control explicitly
   changes that state;
 - no write-capable lane has been silently authorized by Stage 24 planning or
-  implementation checkpoints.
+  implementation checkpoints;
+- any future work is required to begin under a new explicit post-Stage-24
+  control document.

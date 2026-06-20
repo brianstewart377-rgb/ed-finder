@@ -6,11 +6,12 @@ This folder contains the planning, architecture, forensic-review, and implementa
 
 Start here for any new colonisation work:
 
-1. [`stage-24c-cross-surface-evidence-consistency.md`](./stage-24c-cross-surface-evidence-consistency.md) - completed Stage 24C adjacent read-only evidence-consistency slice.
-2. [`stage-24b-planner-evidence-discoverability.md`](./stage-24b-planner-evidence-discoverability.md) - completed Stage 24B planner evidence discoverability implementation slice.
-3. [`stage-24a-readonly-evidence-adoption-contract.md`](./stage-24a-readonly-evidence-adoption-contract.md) - completed Stage 24A contract-only checkpoint for read-only evidence adoption.
-4. [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) - completed Stage 23E closeout for the read-only planner evidence programme.
-5. [`stage-24-roadmap.md`](./stage-24-roadmap.md) - active post-Stage-23 control baseline for read-only evidence adoption and governance planning.
+1. [`stage-24d-readonly-evidence-adoption-closeout.md`](./stage-24d-readonly-evidence-adoption-closeout.md) - completed Stage 24D closeout for the read-only evidence adoption and governance programme.
+2. [`stage-24-roadmap.md`](./stage-24-roadmap.md) - completed Stage 24 control baseline and closeout summary for read-only evidence adoption and governance.
+3. [`stage-24c-cross-surface-evidence-consistency.md`](./stage-24c-cross-surface-evidence-consistency.md) - completed Stage 24C adjacent read-only evidence-consistency slice.
+4. [`stage-24b-planner-evidence-discoverability.md`](./stage-24b-planner-evidence-discoverability.md) - completed Stage 24B planner evidence discoverability implementation slice.
+5. [`stage-24a-readonly-evidence-adoption-contract.md`](./stage-24a-readonly-evidence-adoption-contract.md) - completed Stage 24A contract-only checkpoint for read-only evidence adoption.
+6. [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) - completed Stage 23E closeout for the read-only planner evidence programme.
 5. [`stage-23-roadmap.md`](./stage-23-roadmap.md) - latest completed Stage 23 control document and closeout baseline.
 5. [`stage-23d-planner-evidence-ux-follow-through.md`](./stage-23d-planner-evidence-ux-follow-through.md) - completed Stage 23D planner evidence UX follow-through slice.
 6. [`stage-23c-evidence-envelope-governance.md`](./stage-23c-evidence-envelope-governance.md) - completed Stage 23C evidence envelope governance and source semantics slice.
@@ -41,13 +42,15 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 
 ## Current Control Documents
 
-[`stage-24c-cross-surface-evidence-consistency.md`](./stage-24c-cross-surface-evidence-consistency.md) records the completed Stage 24C slice: the system-detail Evidence mode provenance cockpit panel now uses the same governed evidence semantics and dedicated-endpoint preference for its warehouse-evidence subsection while staying read-only and leaving Stage 24D as the next checkpoint.
+[`stage-24d-readonly-evidence-adoption-closeout.md`](./stage-24d-readonly-evidence-adoption-closeout.md) records the completed Stage 24D closeout: Stage 24 closes as the read-only evidence adoption and governance programme, Stage 24A/24B/24C remain complete, and any future work now requires a new explicit post-Stage-24 control document.
+
+[`stage-24-roadmap.md`](./stage-24-roadmap.md) is the completed post-Stage-23 control baseline. It records the completed Stage 24A, Stage 24B, Stage 24C, and Stage 24D sequence while keeping Stage 19 execution, DB writes, canonical apply, rebaseline, and scheduler/service activation unauthorized.
+
+[`stage-24c-cross-surface-evidence-consistency.md`](./stage-24c-cross-surface-evidence-consistency.md) records the completed Stage 24C slice: the system-detail Evidence mode provenance cockpit panel now uses the same governed evidence semantics and dedicated-endpoint preference for its warehouse-evidence subsection while staying read-only and handing off to Stage 24D closeout.
 
 [`stage-24b-planner-evidence-discoverability.md`](./stage-24b-planner-evidence-discoverability.md) records the completed Stage 24B slice: the primary planner workspace and planner evidence card now make the read-only evidence posture easier to find and scan while preserving the dedicated endpoint preference, fallback-only provenance bridge behavior, and bounded staging limits.
 
 [`stage-24a-readonly-evidence-adoption-contract.md`](./stage-24a-readonly-evidence-adoption-contract.md) records the completed Stage 24A contract checkpoint: the repo now has an explicit surfaces inventory, ownership map, evidence-state language contract, fixture/test plan, and Stage 24B implementation boundary for adopting the Stage 23 read-only evidence baseline.
-
-[`stage-24-roadmap.md`](./stage-24-roadmap.md) is the active post-Stage-23 control baseline. It selects read-only evidence adoption and governance as the primary objective, records Stage 24A, Stage 24B, and Stage 24C as complete, names Stage 24D as the next checkpoint, and keeps Stage 19 execution, DB writes, canonical apply, rebaseline, and scheduler/service activation unauthorized.
 
 [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) records the completed Stage 23 closeout: the read-only planner evidence baseline is complete, bounded staging remains report-only and non-canonical, and Stage 24 is now the explicit successor control.
 
@@ -129,10 +132,11 @@ It supersedes the old assumption that the project should simply continue from St
 
 | Document | Status | Purpose |
 |---|---|---|
+| [`stage-24d-readonly-evidence-adoption-closeout.md`](./stage-24d-readonly-evidence-adoption-closeout.md) | Completed Stage 24D closeout record | Records that Stage 24 is closed, that Stage 24A/24B/24C remain complete, and that any future work requires a new explicit post-Stage-24 control document. |
+| [`stage-24-roadmap.md`](./stage-24-roadmap.md) | Completed Stage 24 control | Records the completed post-Stage-23 read-only evidence adoption and governance sequence and preserved no-write boundaries. |
 | [`stage-24c-cross-surface-evidence-consistency.md`](./stage-24c-cross-surface-evidence-consistency.md) | Completed Stage 24C implementation record | Records the narrow adjacent-surface consistency slice, selecting the system-detail provenance cockpit panel and keeping evidence semantics read-only, distinct, and non-canonical. |
 | [`stage-24b-planner-evidence-discoverability.md`](./stage-24b-planner-evidence-discoverability.md) | Completed Stage 24B implementation record | Records the first narrow planner-surface discoverability implementation slice, keeping the evidence posture read-only, non-canonical, and selected-system-only. |
 | [`stage-24a-readonly-evidence-adoption-contract.md`](./stage-24a-readonly-evidence-adoption-contract.md) | Completed Stage 24A contract | Defines the read-only evidence adoption surfaces, ownership seams, language contract, fixture expectations, and Stage 24B boundaries without mixing in implementation. |
-| [`stage-24-roadmap.md`](./stage-24-roadmap.md) | Active Stage 24 control | Records the post-Stage-23 read-only evidence adoption and governance baseline, chosen workstream, first executable checkpoint, and preserved no-write boundaries. |
 | [`stage-23e-readonly-evidence-closeout.md`](./stage-23e-readonly-evidence-closeout.md) | Completed Stage 23E closeout record | Records that the Stage 23 read-only planner evidence programme is complete and that any future follow-on requires a new explicit control document. |
 | [`stage-23-roadmap.md`](./stage-23-roadmap.md) | Completed Stage 23 control | Records the completed Stage 23A, Stage 23B, Stage 23C, Stage 23D, and Stage 23E read-only evidence sequence without reopening Stage 19. |
 | [`stage-23d-planner-evidence-ux-follow-through.md`](./stage-23d-planner-evidence-ux-follow-through.md) | Completed Stage 23D implementation record | Records the user-visible adoption of the governed evidence envelope, including explicit unavailable / not-evaluated / unknown wording and bounded staging limits. |

@@ -20,7 +20,7 @@ PRIMARY_OBJECTIVE = (
     'scheduler/service activation.'
 )
 FIRST_CHECKPOINT = 'Stage 24A - Read-only evidence adoption implementation contract'
-NEXT_CHECKPOINT = 'Stage 24D - Closeout or next-control decision'
+FINAL_CHECKPOINT = 'Stage 24D - Closeout'
 SELECTED_WORKSTREAM = 'ux_product_adoption_of_readonly_evidence_baseline'
 
 
@@ -37,7 +37,7 @@ def _squash(text: str) -> str:
 
 
 @pytest.mark.unit
-def test_stage24_authority_establishes_a_planning_only_post_stage23_control():
+def test_stage24_authority_records_the_closed_post_stage23_control():
     authority = _json(AUTHORITY_PATH)
     stage23 = authority['stage23']
     stage23e = authority['stage23e']
@@ -48,19 +48,19 @@ def test_stage24_authority_establishes_a_planning_only_post_stage23_control():
     assert stage23['stage23_closed'] is True
     assert stage23e['stage23_closed'] is True
 
-    assert stage24['status'] == 'in_progress'
+    assert stage24['status'] == 'completed'
     assert stage24['planning_authorized'] is True
     assert stage24['implementation_started'] is True
     assert stage24['implementation_authorized'] is True
     assert stage24['primary_objective'] == PRIMARY_OBJECTIVE
     assert stage24['first_executable_checkpoint'] == FIRST_CHECKPOINT
-    assert stage24['current_checkpoint'] == 'Stage 24C - Cross-surface evidence consistency'
-    assert stage24['next_checkpoint'] == NEXT_CHECKPOINT
+    assert stage24['current_checkpoint'] == FINAL_CHECKPOINT
+    assert stage24['next_checkpoint'] is None
     assert stage24['roadmap'] == 'docs/colonisation-redesign/stage-24-roadmap.md'
     assert stage24['stage23_closed'] is True
     assert stage24['stage23_readonly_baseline_complete'] is True
     assert stage24['selected_workstream'] == SELECTED_WORKSTREAM
-    assert stage24['docs_static_only'] is False
+    assert stage24['docs_static_only'] is True
     assert stage24['write_capable_lane_authorized'] is False
     assert stage24['stage19_execution_authorized'] is False
     assert stage24['canonical_apply_authorized'] is False
@@ -73,11 +73,18 @@ def test_stage24_authority_establishes_a_planning_only_post_stage23_control():
     assert stage24['stage24b_implementation_completed'] is True
     assert stage24['stage24c_implementation_started'] is True
     assert stage24['stage24c_implementation_completed'] is True
-    assert stage24['stage24d_implementation_started'] is False
+    assert stage24['stage24d_implementation_started'] is True
+    assert stage24['stage24_closed'] is True
+    assert stage24['future_control_document_required'] is True
+    assert stage24['closeout_mode'] == 'closeout'
+    assert stage24['closeout_document'] == (
+        'docs/colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md'
+    )
+    assert stage24['no_new_implementation_mixed_in'] is True
     assert stage24['source_files_committed'] is False
     assert stage24['runtime_artifacts_committed'] is False
 
-    assert baseline['status'] == 'prepared'
+    assert baseline['status'] == 'completed'
     assert baseline['checkpoint_type'] == 'planning_baseline'
     assert baseline['docs_static_only'] is True
     assert baseline['roadmap'] == 'docs/colonisation-redesign/stage-24-roadmap.md'
@@ -87,6 +94,9 @@ def test_stage24_authority_establishes_a_planning_only_post_stage23_control():
     assert baseline['checkpoint_count'] == 4
     assert len(baseline['checkpoints']) == 4
     assert baseline['checkpoints'][0] == FIRST_CHECKPOINT
+    assert baseline['closeout_checkpoint'] == FINAL_CHECKPOINT
+    assert baseline['stage24_closed'] is True
+    assert baseline['future_control_document_required'] is True
     assert baseline['stage23_remains_closed'] is True
     assert baseline['read_only_baseline_preserved'] is True
     assert baseline['bounded_staging_report_only'] is True
@@ -171,8 +181,8 @@ def test_stage24_is_discoverable_from_stage23_closeout_and_index():
     assert 'docs/colonisation-redesign/stage-24-roadmap.md' in stage23_roadmap
     assert 'Any further work must begin under a new explicit control document' in stage23e
     assert 'stage-24-roadmap.md' in readme
-    assert 'active post-Stage-23 control baseline' in readme
-    assert 'Active Stage 24 control' in readme
+    assert 'completed post-Stage-23 control baseline' in readme
+    assert 'Completed Stage 24 control' in readme
 
 
 @pytest.mark.unit
@@ -183,8 +193,11 @@ def test_stage24_first_executable_checkpoint_and_closeout_criteria_are_explicit(
     assert 'Stage 24A is now recorded in' in roadmap
     assert 'Stage 24B is complete as the first narrow discoverability implementation slice.' in roadmap
     assert 'Stage 24C is complete as the narrow adjacent-surface consistency slice.' in roadmap
-    assert NEXT_CHECKPOINT in roadmap
+    assert 'Stage 24D is complete as the closeout checkpoint.' in roadmap
+    assert 'Stage 24 is closed as the read-only evidence adoption and governance' in roadmap
     assert '## Proposed Checkpoint Plan' in roadmap
     assert 'Stage 24D - Closeout or next-control decision' in roadmap
+    assert 'stage-24d-readonly-evidence-adoption-closeout.md' in roadmap
     assert '## Closeout Criteria' in roadmap
     assert 'no write-capable lane has been silently authorized' in roadmap
+    assert 'new explicit post-Stage-24' in roadmap
