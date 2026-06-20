@@ -93,6 +93,15 @@ The visual system must stay legible, evidence-first, and operationally serious.
 
 Stage 25A preserves evidence-language principles:
 
+- evidence must be presented in player-facing language first: clear enough to
+  support a planning decision, concise enough not to overwhelm normal use, and
+  paired with an understandable next action;
+- that simplification must remain technically honest and must never hide
+  uncertainty, freshness, provenance, report-only status, bounded or incomplete
+  coverage, unavailable data, unknown state, or non-canonical status;
+- player-facing wording may progressively disclose technical provenance and
+  implementation detail, but it must never convert a weak, unavailable,
+  observed, bounded, or report-only signal into apparent canonical truth;
 - evidence language must stay explicit and reviewable;
 - decorative styling must not compete with technical provenance;
 - dense evidence surfaces must prioritize clarity over ambience;

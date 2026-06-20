@@ -62,6 +62,26 @@ def test_stage25_docs_define_visual_direction_and_reject_glass_for_dense_content
 
 
 @pytest.mark.unit
+def test_stage25_docs_require_player_facing_but_technically_honest_evidence_language():
+    combined = _squash(f'{_read(ROADMAP_PATH)} {_read(BASELINE_PATH)}').lower()
+
+    assert 'player-facing' in combined
+    assert 'planning decision' in combined
+    assert 'understandable next action' in combined
+    assert 'technically honest' in combined
+    assert 'uncertainty' in combined
+    assert 'freshness' in combined
+    assert 'provenance' in combined
+    assert 'report-only status' in combined
+    assert 'bounded or incomplete coverage' in combined
+    assert 'unavailable data' in combined
+    assert 'unknown state' in combined
+    assert 'non-canonical status' in combined
+    assert 'apparent canonical truth' in combined
+    assert 'weak, unavailable, observed, bounded, or report-only signal' in combined
+
+
+@pytest.mark.unit
 def test_stage25_docs_preserve_closed_and_deferred_boundaries():
     combined = _squash(f'{_read(ROADMAP_PATH)} {_read(BASELINE_PATH)}')
 
