@@ -20,8 +20,16 @@ from provenance_cockpit_models import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[3]
-AUTHORITY_PATH = ROOT / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
+def _resolve_authority_path() -> Path:
+    here = Path(__file__).resolve()
+    for candidate in (here.parent, *here.parents):
+        path = candidate / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
+        if path.is_file():
+            return path
+    return here.parent / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
+
+
+AUTHORITY_PATH = _resolve_authority_path()
 SCHEMA_VERSION = 'stage20a_provenance_cockpit/v1'
 DEV_FIXTURE_ENV = 'ED_FINDER_ENABLE_PLANNER_EVIDENCE_DEV_FIXTURES'
 
@@ -67,8 +75,6 @@ DEVELOPMENT_FIXTURE_SYSTEMS: dict[int, dict[str, Any]] = {
         'severity': 'warning',
     },
 }
-
-
 def build_provenance_cockpit(id64: int) -> ProvenanceCockpitResponse:
     authority, authority_warning = _load_authority_snapshot()
     current_safety_state = _current_safety_state(authority)

@@ -58,8 +58,6 @@ DEVELOPMENT_FIXTURE_SYSTEMS: dict[int, dict[str, Any]] = {
         ],
     },
 }
-
-
 def build_warehouse_planner_evidence(
     id64: int,
     *,
