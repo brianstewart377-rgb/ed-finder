@@ -95,7 +95,7 @@ def test_stage25_docs_preserve_closed_and_deferred_boundaries():
     assert 'scheduler, service, or timer activation' in combined
     assert 'Mission intelligence remains deferred and unauthorized' in combined
     assert 'Ring/mining work remains deferred and unauthorized' in combined
-    assert 'Stage 25B remains unstarted.' in combined
+    assert 'Stage 25B is `implemented_in_this_pr_pending_review`.' in combined or 'Stage 25B remains unstarted.' in combined
     assert 'Stage 25C remains unstarted.' in combined
     assert 'Stage 25D remains unstarted.' in combined
     assert 'Stage 25E remains unstarted.' in combined

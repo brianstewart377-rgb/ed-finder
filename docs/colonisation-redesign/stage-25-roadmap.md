@@ -9,7 +9,7 @@ Stage 25 is the new explicit post-Stage-24 control.
 Stage 25A is prepared as the current-state audit, map product decision, and
 visual-system baseline checkpoint.
 
-Stage 25B remains unstarted.
+Stage 25B is `implemented_in_this_pr_pending_review`.
 
 Stage 25C remains unstarted.
 
@@ -117,7 +117,7 @@ Mission intelligence remains deferred and unauthorized in Stage 25A.
 
 Ring/mining work remains deferred and unauthorized in Stage 25A.
 
-Stage 25B, Stage 25C, Stage 25D, and Stage 25E remain unstarted.
+Stage 25C, Stage 25D, and Stage 25E remain unstarted.
 
 ## Relationship To Earlier Controls
 
@@ -142,7 +142,7 @@ Stage 25A does not authorize:
 | Checkpoint | Purpose |
 | --- | --- |
 | Stage 25A | Current-state audit, map product decision and visual-system baseline |
-| Stage 25B | Evidence language and visual-system primitives |
+| Stage 25B | Evidence language and visual-system primitives - `implemented_in_this_pr_pending_review` |
 | Stage 25C | Unified cockpit entry and shared context |
 | Stage 25D | Selected planner and simulation integration |
 | Stage 25E | Consolidation and closeout |

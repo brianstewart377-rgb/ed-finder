@@ -76,12 +76,12 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(screen.getByText('Workspace available')).toBeTruthy();
     expect(
       screen.getByText(
-        /Open the Colony Planner to create, compare, preview, and validate a build plan for this system/i,
+        /Open the canonical planning workspace for this system/i,
       ),
     ).toBeTruthy();
-    expect(screen.getByText(/Suggested builds can be reviewed in the Colony Planner/i)).toBeTruthy();
+    expect(screen.getByText(/review report-only evidence separately before you commit to assumptions/i)).toBeTruthy();
     expect(screen.getAllByText('Test System').length).toBeGreaterThan(0);
-    expect(screen.getByText('ID64 123')).toBeTruthy();
+    expect(screen.getAllByText('ID64 123').length).toBeGreaterThan(0);
   });
 
   it('opens the dedicated Colony Planner workspace through the existing route handler', () => {
@@ -140,6 +140,8 @@ describe('SystemDetailModal Colony Planner entry point', () => {
       />,
     );
 
+    expect(screen.getByText('Journey stage: Inspect')).toBeTruthy();
+    expect(screen.getByText('System Detail')).toBeTruthy();
     expect(screen.getByText('Rating radar')).toBeTruthy();
     expect(screen.getByText('System info')).toBeTruthy();
     expect(screen.getByText('Coordinates')).toBeTruthy();
@@ -232,7 +234,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     render(<SystemDetailModal id64={123} onClose={() => undefined} />);
 
     expect(screen.getByText('Planner unavailable')).toBeTruthy();
-    expect(screen.getByText(/Planner route is unavailable for this system record/i)).toBeTruthy();
+    expect(screen.getByText(/Planner routing is unavailable for this system record/i)).toBeTruthy();
     expect((screen.getByTestId('open-colony-planner') as HTMLButtonElement).disabled).toBe(true);
   });
 
