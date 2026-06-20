@@ -808,14 +808,14 @@
     "production_automation_complete": false
   },
   "stage24": {
-    "status": "in_progress",
+    "status": "completed",
     "planning_authorized": true,
     "implementation_started": true,
     "implementation_authorized": true,
     "primary_objective": "Turn the completed Stage 23 read-only planner evidence baseline into a discoverable, explainable, and consistently governed product surface without authorizing Stage 19 execution, DB writes, canonical apply, rebaseline, or scheduler/service activation.",
     "first_executable_checkpoint": "Stage 24A - Read-only evidence adoption implementation contract",
-    "current_checkpoint": "Stage 24C - Cross-surface evidence consistency",
-    "next_checkpoint": "Stage 24D - Closeout or next-control decision",
+    "current_checkpoint": "Stage 24D - Closeout",
+    "next_checkpoint": null,
     "roadmap": "docs/colonisation-redesign/stage-24-roadmap.md",
     "stage23_closed": true,
     "stage23_readonly_baseline_complete": true,
@@ -828,7 +828,7 @@
       "ux_product_adoption_of_readonly_evidence_baseline",
       "data_quality_source_governance_control"
     ],
-    "docs_static_only": false,
+    "docs_static_only": true,
     "write_capable_lane_authorized": false,
     "stage19_execution_authorized": false,
     "canonical_apply_authorized": false,
@@ -841,12 +841,18 @@
     "stage24b_implementation_completed": true,
     "stage24c_implementation_started": true,
     "stage24c_implementation_completed": true,
-    "stage24d_implementation_started": false,
+    "stage24d_implementation_started": true,
     "source_files_committed": false,
-    "runtime_artifacts_committed": false
+    "runtime_artifacts_committed": false,
+    "stage24_closed": true,
+    "future_control_document_required": true,
+    "future_control_document_scope": "post_stage24_explicit_control_required",
+    "no_new_implementation_mixed_in": true,
+    "closeout_mode": "closeout",
+    "closeout_document": "docs/colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md"
   },
   "stage24_planning_baseline": {
-    "status": "prepared",
+    "status": "completed",
     "checkpoint_type": "planning_baseline",
     "docs_static_only": true,
     "roadmap": "docs/colonisation-redesign/stage-24-roadmap.md",
@@ -880,7 +886,10 @@
     "source_acquisition_run": false,
     "source_files_committed": false,
     "runtime_artifacts_committed": false,
-    "implementation_started": false
+    "implementation_started": false,
+    "closeout_checkpoint": "Stage 24D - Closeout",
+    "stage24_closed": true,
+    "future_control_document_required": true
   },
   "stage24a": {
     "status": "completed",
@@ -1752,5 +1761,31 @@
     "source_of_truth_unavailable_is_hard_stop": true,
     "db_credentials_missing_is_hard_stop_for_db_work": true,
     "docs_checkpoint_required_after_material_state_change": true
+  },
+  "stage24d": {
+    "status": "completed",
+    "checkpoint_type": "readonly_evidence_adoption_closeout",
+    "document": "docs/colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md",
+    "mode": "closeout",
+    "stage24_closed": true,
+    "stage24a_completed": true,
+    "stage24b_completed": true,
+    "stage24c_completed": true,
+    "future_control_document_required": true,
+    "stage23_remains_closed": true,
+    "stage19_remains_separately_gated": true,
+    "no_stage19bb_execution_occurred": true,
+    "write_capable_lane_authorized": false,
+    "db_writes_authorized": false,
+    "db_writes_performed": false,
+    "canonical_apply_authorized": false,
+    "canonical_apply_performed": false,
+    "rebaseline_authorized": false,
+    "rebaseline_performed": false,
+    "scheduler_enabled": false,
+    "scheduler_service_authorized": false,
+    "source_files_committed": false,
+    "runtime_artifacts_committed": false,
+    "no_new_implementation_mixed_in": true
   }
 }
