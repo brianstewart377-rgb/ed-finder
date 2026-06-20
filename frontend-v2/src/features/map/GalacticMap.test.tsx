@@ -289,6 +289,45 @@ describe('GalacticMap', () => {
     // Different camera centre → reference lands at a different screen X.
     expect(galaxyX).not.toBe(resultsX);
   });
+
+  it('keeps wheel zoom finite after repeated wheel events', () => {
+    const ctx = makeRecordingContext([]);
+    getContextSpy.mockReturnValue(ctx as unknown as RenderingContext);
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<GalacticMap systems={systems} reference={reference} />);
+
+    const canvas = screen.getByTestId('galactic-map-canvas') as HTMLCanvasElement;
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 600 });
+    Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 400 });
+
+    for (let i = 0; i < 12; i += 1) {
+      fireEvent.wheel(canvas, { deltaY: i % 2 === 0 ? 120 : -120 });
+    }
+
+    const scaleLabel = lastScaleLabel(ctx);
+    expect(scaleLabel).toContain('PX/LY');
+    expect(scaleLabel).not.toMatch(/NaN|Infinity/);
+  });
+
+  it('ignores malformed wheel deltas without corrupting the view scale', () => {
+    const ctx = makeRecordingContext([]);
+    getContextSpy.mockReturnValue(ctx as unknown as RenderingContext);
+    const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
+    render(<GalacticMap systems={systems} reference={reference} />);
+
+    const canvas = screen.getByTestId('galactic-map-canvas') as HTMLCanvasElement;
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 600 });
+    Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 400 });
+
+    const malformedWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+    Object.defineProperty(malformedWheel, 'deltaY', { configurable: true, value: Number.NaN });
+    canvas.dispatchEvent(malformedWheel);
+    fireEvent.wheel(canvas, { deltaY: 120 });
+
+    const scaleLabel = lastScaleLabel(ctx);
+    expect(scaleLabel).toContain('PX/LY');
+    expect(scaleLabel).not.toMatch(/NaN|Infinity/);
+  });
 });
 
 function makeRecordingContext(order: string[]): CanvasRenderingContext2D {
@@ -310,4 +349,12 @@ function makeRecordingContext(order: string[]): CanvasRenderingContext2D {
     createRadialGradient: vi.fn(() => { order.push('radialGradient'); return { addColorStop: vi.fn() }; }),
     createLinearGradient: vi.fn(() => { order.push('linearGradient'); return { addColorStop: vi.fn() }; }),
   } as unknown as CanvasRenderingContext2D;
+}
+
+function lastScaleLabel(ctx: CanvasRenderingContext2D): string {
+  const fillText = ctx.fillText as unknown as ReturnType<typeof vi.fn>;
+  const labels = fillText.mock.calls
+    .map((call) => call[0])
+    .filter((value): value is string => typeof value === 'string' && value.includes('PX/LY'));
+  return labels.at(-1) ?? '';
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { GalacticMap, type MapViewMode } from './GalacticMap';
+import { MapErrorBoundary } from './MapErrorBoundary';
 import { useMapLayers } from './useMapLayers';
 import type { SystemResult } from '@/types/api';
 import { ratingTier, formatPopulationForSystem, formatDistance, formatCoords } from '@/lib/format';
@@ -244,17 +245,19 @@ export function MapTab({ systems, reference }: MapTabProps) {
             />
           )}
           <div className="grid lg:grid-cols-[1fr_280px] gap-4">
-            <GalacticMap
-              systems={systems}
-              reference={reference}
-              selectedId64={selected?.id64 ?? null}
-              onSelect={setSelected}
-              regions={layers.regions.data?.regions}
-              heatmap={layers.heatmap.data}
-              clusters={layers.clusters.data?.clusters}
-              showGalacticFrame={showFrame}
-              viewMode={viewMode}
-            />
+            <MapErrorBoundary>
+              <GalacticMap
+                systems={systems}
+                reference={reference}
+                selectedId64={selected?.id64 ?? null}
+                onSelect={setSelected}
+                regions={layers.regions.data?.regions}
+                heatmap={layers.heatmap.data}
+                clusters={layers.clusters.data?.clusters}
+                showGalacticFrame={showFrame}
+                viewMode={viewMode}
+              />
+            </MapErrorBoundary>
             <SelectionPanel system={selected} />
           </div>
         </div>
