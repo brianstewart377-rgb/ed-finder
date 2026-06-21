@@ -15,8 +15,16 @@ from warehouse_planner_evidence_models import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[3]
-AUTHORITY_PATH = ROOT / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
+def _resolve_authority_path() -> Path:
+    here = Path(__file__).resolve()
+    for candidate in (here.parent, *here.parents):
+        path = candidate / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
+        if path.is_file():
+            return path
+    return here.parent / 'docs' / 'colonisation-redesign' / 'stage-19-state-authority.json'
+
+
+AUTHORITY_PATH = _resolve_authority_path()
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
@@ -19,45 +18,6 @@ from warehouse_planner_evidence_provider import LivePlannerEvidenceResult, load_
 
 
 SCHEMA_VERSION = 'warehouse_planner_evidence/v1'
-DEV_FIXTURE_ENV = 'ED_FINDER_ENABLE_PLANNER_EVIDENCE_DEV_FIXTURES'
-
-DEVELOPMENT_FIXTURE_SYSTEMS: dict[int, dict[str, Any]] = {
-    12866676218109: {
-        'generated_at': '2026-06-17T12:00:00Z',
-        'freshness_status': 'fresh',
-        'availability': 'report_only',
-        'manual_review_required': False,
-        'items': [
-            {
-                'label': 'report_only',
-                'source': 'warehouse_report_only',
-                'summary': 'Warehouse reconciliation evidence is available for this system as report-only context.',
-            },
-        ],
-        'warnings': [],
-    },
-    9466842275401: {
-        'generated_at': '2026-06-17T12:15:00Z',
-        'freshness_status': 'stale',
-        'availability': 'report_only',
-        'manual_review_required': True,
-        'items': [
-            {
-                'label': 'stale',
-                'source': 'warehouse_report_only',
-                'summary': 'Warehouse reconciliation evidence for this system is stale and requires review.',
-            },
-            {
-                'label': 'needs_review',
-                'source': 'warehouse_report_only',
-                'summary': 'Use the evidence as review-only context; planner truth remains unchanged.',
-            },
-        ],
-        'warnings': [
-            'Warehouse freshness is stale; treat this per-system evidence as review-only context.',
-        ],
-    },
-}
 
 
 def build_warehouse_planner_evidence(
@@ -66,7 +26,6 @@ def build_warehouse_planner_evidence(
     live_result: LivePlannerEvidenceResult | None = None,
 ) -> WarehousePlannerEvidenceContract:
     warehouse_status = read_warehouse_status_snapshot(settings.enrichment_warehouse_status_json_path)
-    fixture = resolve_runtime_warehouse_fixture(id64)
 
     generated_at = (
         _text_or_none(_mapping(warehouse_status.get('artifact')).get('updated_at'))
@@ -75,53 +34,13 @@ def build_warehouse_planner_evidence(
     )
 
     freshness = WarehousePlannerEvidenceFreshness(
-        status=_freshness_status(warehouse_status, fixture, live_result),
-        evaluated_at=_evaluated_at(generated_at, fixture, live_result),
+        status=_freshness_status(warehouse_status, live_result),
+        evaluated_at=_evaluated_at(live_result),
     )
     source_run = WarehousePlannerEvidenceSourceRun(
         source_name='warehouse_reconciliation' if _source_run_key(warehouse_status) else None,
         run_key=_source_run_key(warehouse_status),
     )
-
-    if fixture is not None:
-        return WarehousePlannerEvidenceContract(
-            schema_version=SCHEMA_VERSION,
-            system_id64=id64,
-            generated_at=_text_or_none(fixture.get('generated_at')) or generated_at,
-            freshness=freshness,
-            source_run=source_run,
-            evidence_envelope=_build_evidence_envelope(
-                status='available',
-                items=[
-                    WarehousePlannerEvidenceItem(
-                        label=item['label'],
-                        source=item['source'],
-                        summary=item['summary'],
-                    )
-                    for item in fixture.get('items', [])
-                ],
-                bounded_staging=_fixture_bounded_staging(fixture),
-            ),
-            bounded_staging=_fixture_bounded_staging(fixture),
-            evidence_summary=WarehousePlannerEvidenceSummary(
-                availability='report_only',
-                report_only=True,
-                manual_review_required=bool(fixture.get('manual_review_required')),
-                items=[
-                    WarehousePlannerEvidenceItem(
-                        label=item['label'],
-                        source=item['source'],
-                        summary=item['summary'],
-                    )
-                    for item in fixture.get('items', [])
-                ],
-            ),
-            warnings=[
-                'Development fixture evidence is enabled for this system; treat it as non-live example data.',
-                *(_safe_rows(fixture.get('warnings'))),
-                *(_fallback_warnings(warehouse_status) if warehouse_status.get('available') is False else []),
-            ][:8],
-        )
 
     if live_result is not None:
         return WarehousePlannerEvidenceContract(
@@ -164,34 +83,6 @@ def build_warehouse_planner_evidence(
             items=[],
         ),
         warnings=_fallback_warnings(warehouse_status),
-    )
-
-
-def resolve_runtime_warehouse_fixture(id64: int) -> Mapping[str, Any] | None:
-    if os.getenv(DEV_FIXTURE_ENV) != '1':
-        return None
-    fixture = DEVELOPMENT_FIXTURE_SYSTEMS.get(id64)
-    return fixture if isinstance(fixture, Mapping) else None
-
-
-def _fixture_bounded_staging(fixture: Mapping[str, Any]) -> WarehousePlannerEvidenceBoundedStaging:
-    staged = _mapping(fixture.get('bounded_staging'))
-    status = _text_or_none(staged.get('status')) or 'not_evaluated'
-    available_row_limits = [
-        value for value in staged.get('available_row_limits', [])
-        if isinstance(value, int)
-    ] if isinstance(staged.get('available_row_limits'), list) else []
-    matched_row_count = _int_or_none(staged.get('matched_row_count'))
-    row_limit = _int_or_none(staged.get('row_limit'))
-    return _default_bounded_staging_contract(
-        status=status,
-        source_run_key=_text_or_none(staged.get('source_run_key')),
-        bridge_key=_text_or_none(staged.get('bridge_key')),
-        row_limit=row_limit,
-        available_row_limits=available_row_limits,
-        matched_row_count=matched_row_count,
-        latest_source_updated_at=_text_or_none(staged.get('latest_source_updated_at')),
-        summary=_text_or_none(staged.get('summary')),
     )
 
 
@@ -321,7 +212,6 @@ def _fallback_envelope_status(warehouse_status: Mapping[str, Any]) -> str:
 
 def _freshness_status(
     warehouse_status: Mapping[str, Any],
-    fixture: Mapping[str, Any] | None,
     live_result: LivePlannerEvidenceResult | None,
 ) -> str:
     evidence_health = _mapping(warehouse_status.get('evidence_health'))
@@ -330,26 +220,15 @@ def _freshness_status(
         return live_result.freshness_status
     if stale_records > 0:
         return 'stale'
-    if fixture is not None:
-        status = _text_or_none(fixture.get('freshness_status'))
-        if status in {'fresh', 'stale', 'unknown', 'not_evaluated'}:
-            return status
-        return 'not_evaluated'
     if warehouse_status.get('available') is True:
         return 'not_evaluated'
     return 'unknown'
 
 
-def _evaluated_at(
-    generated_at: str,
-    fixture: Mapping[str, Any] | None,
-    live_result: LivePlannerEvidenceResult | None,
-) -> str | None:
+def _evaluated_at(live_result: LivePlannerEvidenceResult | None) -> str | None:
     if live_result is not None:
         return live_result.evaluated_at
-    if fixture is None:
-        return None
-    return _text_or_none(fixture.get('generated_at')) or generated_at
+    return None
 
 
 def _source_run_key(warehouse_status: Mapping[str, Any]) -> str | None:
