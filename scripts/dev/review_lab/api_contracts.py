@@ -3,13 +3,20 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from .contract import REQUIRED_REVIEW_SYSTEM_NAMES, REVIEW_SYSTEM_IDS, ReviewLabError
-from .lifecycle import ensure_contract_shape, fetch_json
+from .lifecycle import ensure_contract_shape, fetch_json, probe_event_stream
 from .scenarios import ScenarioDefinition
+from .support_matrix import api_contract_validated_routes
+
+
+def _record_support_route_check(diagnostics: dict[str, Any], route: str) -> None:
+    checked = diagnostics.setdefault('support_routes_checked', [])
+    if route not in checked:
+        checked.append(route)
 
 
 def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> dict[str, Any]:
     selected_names = {scenario.name for scenario in selected_scenarios}
-    diagnostics: dict[str, Any] = {'contracts_checked': []}
+    diagnostics: dict[str, Any] = {'contracts_checked': [], 'support_routes_checked': []}
 
     health = fetch_json('GET', '/api/health')
     if health['status'] != 200 or not isinstance(health['body'], dict):
@@ -130,13 +137,39 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
         diagnostics['contracts_checked'].append('delta_provenance')
 
     if selected_names & {'planner_core', 'empty_optional_support_data', 'partial_optional_data', 'support_route_compatibility'}:
+        live_events = probe_event_stream('/api/events/live')
         recent = fetch_json('GET', '/api/events/recent')
         watchlist = fetch_json('GET', '/api/watchlist')
         cache_stats = fetch_json('GET', '/api/cache/stats')
+        if live_events['status'] != 200:
+            raise ReviewLabError(
+                '/api/events/live did not return the expected SSE handshake response.',
+                failure_code='REQUIRED_ROUTE_MISSING',
+                safe_diagnostics={'route': '/api/events/live', 'status': live_events['status']},
+            )
+        content_type = str(live_events.get('content_type') or '').lower()
+        if 'text/event-stream' not in content_type:
+            raise ReviewLabError(
+                '/api/events/live did not return an event-stream content type.',
+                failure_code='REQUIRED_ROUTE_MISSING',
+                safe_diagnostics={'route': '/api/events/live', 'content_type': live_events.get('content_type')},
+            )
+        if not live_events.get('stream_opened'):
+            raise ReviewLabError(
+                '/api/events/live did not complete the expected bounded SSE handshake.',
+                failure_code='UNEXPECTED_API_ERROR',
+                safe_diagnostics={
+                    'route': '/api/events/live',
+                    'initial_byte_count': live_events.get('initial_byte_count', 0),
+                    'read_bytes_limit': live_events.get('read_bytes_limit'),
+                },
+            )
         ensure_contract_shape(recent, required_keys={'events', 'jobs'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/events/recent')
         ensure_contract_shape(watchlist, required_keys={'watchlist'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/watchlist')
         ensure_contract_shape(cache_stats, required_keys={'cache_hits', 'cache_misses', 'db_cache_rows'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/cache/stats')
-        diagnostics['contracts_checked'].extend(['events_recent', 'watchlist', 'cache_stats'])
+        diagnostics['contracts_checked'].extend(['events_live', 'events_recent', 'watchlist', 'cache_stats'])
+        for route in ('/api/events/live', '/api/events/recent', '/api/watchlist', '/api/cache/stats'):
+            _record_support_route_check(diagnostics, route)
 
     if selected_names & {'planner_core', 'evidence_available', 'evidence_unavailable', 'evidence_unknown', 'evidence_not_evaluated', 'provenance_fallback', 'support_route_compatibility'}:
         facility_templates = fetch_json('GET', '/api/facility-templates')
@@ -147,8 +180,23 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
         ensure_contract_shape(simulation_summary, required_keys={'classification', 'buildability', 'system_id64'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/systems/{id64}/simulation-summary')
         ensure_contract_shape(slot_predictions, required_keys={'system_id64', 'predictions', 'prediction_status'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/systems/{id64}/slot-predictions')
         diagnostics['contracts_checked'].extend(['facility_templates', 'simulation_summary', 'slot_predictions'])
+        for route in (
+            '/api/facility-templates',
+            '/api/systems/{id64}/simulation-summary',
+            '/api/systems/{id64}/slot-predictions',
+        ):
+            _record_support_route_check(diagnostics, route)
 
     diagnostics['contracts_checked'] = sorted(set(diagnostics['contracts_checked']))
+    diagnostics['support_routes_checked'] = sorted(set(diagnostics['support_routes_checked']))
+    expected_api_routes = {route.route for route in api_contract_validated_routes()}
+    missing_api_routes = sorted(expected_api_routes - set(diagnostics['support_routes_checked']))
+    if missing_api_routes:
+        raise ReviewLabError(
+            'One or more api-contract-validated support routes were not exercised.',
+            failure_code='REQUIRED_ROUTE_MISSING',
+            safe_diagnostics={'missing_routes': missing_api_routes},
+        )
     return {
         'summary': 'Loopback review API health, Finder, System Detail, planner evidence, provenance fallback, and support-route contracts passed.',
         'safe_diagnostics': diagnostics,

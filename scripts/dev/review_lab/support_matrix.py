@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from .contract import SupportRoute, ReviewLabError
+from .contract import SupportRoute, ReviewLabError, SupportRouteValidationMode
 from .scenarios import scenario_names
+
+VALIDATION_MODES: tuple[SupportRouteValidationMode, ...] = (
+    'api_contract_validated',
+    'browser_only_validated',
+    'intentionally_not_exercised',
+)
 
 
 REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
@@ -13,6 +19,7 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
         review_only_handling='Review-only SSE keepalive stream.',
         allowed_response_characteristics=('text/event-stream', 'keepalive comments only', 'no live operational claims'),
         scenario_coverage=('planner_core', 'empty_optional_support_data', 'support_route_compatibility'),
+        validation_mode='api_contract_validated',
     ),
     SupportRoute(
         route='/api/events/recent',
@@ -22,6 +29,7 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
         review_only_handling='Review-only empty synthetic events payload.',
         allowed_response_characteristics=('JSON object', 'events array empty', 'jobs object empty'),
         scenario_coverage=('planner_core', 'empty_optional_support_data', 'support_route_compatibility'),
+        validation_mode='api_contract_validated',
     ),
     SupportRoute(
         route='/api/watchlist',
@@ -31,6 +39,7 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
         review_only_handling='Review-only empty synthetic watchlist payload.',
         allowed_response_characteristics=('JSON object', 'watchlist array empty'),
         scenario_coverage=('planner_core', 'empty_optional_support_data', 'partial_optional_data', 'support_route_compatibility'),
+        validation_mode='api_contract_validated',
     ),
     SupportRoute(
         route='/api/cache/stats',
@@ -40,6 +49,7 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
         review_only_handling='Review-only zeroed cache stats payload.',
         allowed_response_characteristics=('JSON object', 'all counters zeroed', 'no operational/source claims'),
         scenario_coverage=('planner_core', 'empty_optional_support_data', 'partial_optional_data', 'support_route_compatibility'),
+        validation_mode='api_contract_validated',
     ),
     SupportRoute(
         route='/api/facility-templates',
@@ -49,6 +59,7 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
         review_only_handling='Normal read-only facility catalogue route against the review database.',
         allowed_response_characteristics=('JSON array', 'non-empty', 'real route shape'),
         scenario_coverage=('planner_core', 'evidence_available', 'evidence_unavailable', 'evidence_unknown', 'evidence_not_evaluated', 'provenance_fallback', 'support_route_compatibility'),
+        validation_mode='api_contract_validated',
     ),
     SupportRoute(
         route='/api/systems/{id64}/simulation-summary',
@@ -58,6 +69,7 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
         review_only_handling='Normal read-only simulation summary route against the review database.',
         allowed_response_characteristics=('JSON object', 'classification/buildability/system_id64 keys', 'real route shape'),
         scenario_coverage=('planner_core', 'evidence_available', 'evidence_unavailable', 'evidence_unknown', 'evidence_not_evaluated', 'provenance_fallback', 'support_route_compatibility'),
+        validation_mode='api_contract_validated',
     ),
     SupportRoute(
         route='/api/systems/{id64}/slot-predictions',
@@ -67,6 +79,7 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
         review_only_handling='Normal read-only slot prediction route against the review database.',
         allowed_response_characteristics=('JSON object', 'system_id64/predictions/prediction_status keys', 'real route shape'),
         scenario_coverage=('planner_core', 'evidence_available', 'evidence_unavailable', 'evidence_unknown', 'evidence_not_evaluated', 'provenance_fallback', 'support_route_compatibility'),
+        validation_mode='api_contract_validated',
     ),
 )
 
@@ -83,6 +96,10 @@ REQUIRED_MATRIX_ROUTES = {
 
 def support_route_payload() -> list[dict[str, object]]:
     return [route.to_dict() for route in REVIEW_SUPPORT_ROUTE_MATRIX]
+
+
+def api_contract_validated_routes() -> tuple[SupportRoute, ...]:
+    return tuple(route for route in REVIEW_SUPPORT_ROUTE_MATRIX if route.validation_mode == 'api_contract_validated')
 
 
 def validate_support_route_matrix() -> None:
@@ -115,4 +132,10 @@ def validate_support_route_matrix() -> None:
                 'Support-route matrix rows must declare allowed response characteristics.',
                 failure_code='STATIC_CONTAINMENT_FAILED',
                 safe_diagnostics={'route': route.route},
+            )
+        if route.validation_mode not in VALIDATION_MODES:
+            raise ReviewLabError(
+                'Support-route matrix rows must declare an explicit validation mode.',
+                failure_code='STATIC_CONTAINMENT_FAILED',
+                safe_diagnostics={'route': route.route, 'validation_mode': route.validation_mode},
             )

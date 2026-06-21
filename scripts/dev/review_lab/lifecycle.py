@@ -15,7 +15,6 @@ from urllib.request import Request, urlopen
 from .contract import (
     API_SRC,
     COMPOSE_FILE,
-    CONFIRM_FLAG,
     DISALLOWED_REFERENCES,
     EXPECTED_REVIEW_API_BIND,
     EXPECTED_REVIEW_API_HOST,
@@ -349,6 +348,7 @@ def run_preflight() -> dict[str, Any]:
     validate_normal_api_sources()
     validate_review_entrypoint_sources()
     validate_support_route_matrix()
+    assert_no_preexisting_review_resources()
     run_compose_config_check()
     return {
         'ok': True,
@@ -372,6 +372,7 @@ def up_review_stack() -> dict[str, Any]:
     validate_normal_api_sources()
     validate_review_entrypoint_sources()
     ensure_docker_cli_available()
+    assert_no_preexisting_review_resources()
     run_compose_config_check()
     run_compose('up', '-d', 'review-postgres', 'review-redis', timeout_seconds=TIMEOUTS.stack_readiness, failure_code='REVIEW_STACK_START_FAILED')
     wait_for_postgres()
@@ -428,6 +429,44 @@ def is_review_managed_docker_name(name: str) -> bool:
     return name.startswith(review_container_prefix) or name.startswith(review_volume_prefix)
 
 
+def list_review_owned_resources() -> dict[str, list[str]]:
+    ensure_docker_cli_available()
+    label_filter = ['--filter', f'label=com.docker.compose.project={PROJECT_NAME}']
+    labelled_containers = run_command(
+        ['docker', 'ps', '-a', *label_filter, '--format', '{{.Names}}'],
+        timeout_seconds=15,
+    )
+    labelled_volumes = run_command(
+        ['docker', 'volume', 'ls', *label_filter, '--format', '{{.Name}}'],
+        timeout_seconds=15,
+    )
+    baseline = capture_docker_baseline()
+    containers = {
+        line.strip() for line in labelled_containers.splitlines() if line.strip()
+    } | {
+        name for name in baseline['containers'] if is_review_managed_docker_name(name)
+    }
+    volumes = {
+        line.strip() for line in labelled_volumes.splitlines() if line.strip()
+    } | {
+        name for name in baseline['volumes'] if is_review_managed_docker_name(name)
+    }
+    return {
+        'containers': sorted(containers),
+        'volumes': sorted(volumes),
+    }
+
+
+def assert_no_preexisting_review_resources() -> None:
+    existing = list_review_owned_resources()
+    if existing['containers'] or existing['volumes']:
+        raise ReviewLabError(
+            'Review-owned Docker resources already exist before verification.',
+            failure_code='REVIEW_RESOURCES_NOT_REMOVED',
+            safe_diagnostics=existing,
+        )
+
+
 def compare_docker_baseline(before: Mapping[str, list[str]], after: Mapping[str, list[str]]) -> dict[str, list[str]]:
     before_containers = {name for name in before.get('containers', []) if not is_review_managed_docker_name(name)}
     after_containers = {name for name in after.get('containers', []) if not is_review_managed_docker_name(name)}
@@ -439,6 +478,38 @@ def compare_docker_baseline(before: Mapping[str, list[str]], after: Mapping[str,
         'volumes_added': sorted(after_volumes - before_volumes),
         'volumes_removed': sorted(before_volumes - after_volumes),
     }
+
+
+def probe_event_stream(route: str, *, timeout_seconds: int = TIMEOUTS.sse_probe, read_bytes: int = 64) -> dict[str, Any]:
+    request = Request(
+        f'{review_api_origin()}{route}',
+        headers={'Accept': 'text/event-stream'},
+        method='GET',
+    )
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            content_type = response.headers.get('Content-Type', '')
+            return {
+                'status': response.status,
+                'content_type': content_type,
+                'initial_byte_count': 0,
+                'stream_opened': True,
+                'read_bytes_limit': read_bytes,
+            }
+    except HTTPError as exc:
+        return {
+            'status': exc.code,
+            'content_type': exc.headers.get('Content-Type', ''),
+            'initial_byte_count': 0,
+            'stream_opened': False,
+            'read_bytes_limit': read_bytes,
+        }
+    except (OSError, URLError) as exc:
+        raise ReviewLabError(
+            f'Loopback review API request failed for {route}.',
+            failure_code='UNEXPECTED_API_ERROR',
+            safe_diagnostics={'route': route, 'reason': type(exc).__name__, 'timeout_seconds': timeout_seconds},
+        ) from exc
 
 
 def parse_passed_test_count(output: str) -> int:

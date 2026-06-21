@@ -221,6 +221,203 @@ def test_support_route_matrix_covers_required_reviewed_flow_endpoints():
     assert route_map['/api/systems/{id64}/simulation-summary']['expected_status'] == 200
     assert route_map['/api/watchlist']['required_for_reviewed_flow'] is False
     assert route_map['/api/events/live']['frontend_caller'] == 'useEddnFeed SSE bootstrap'
+    assert route_map['/api/events/live']['validation_mode'] == 'api_contract_validated'
+    assert all(row['validation_mode'] in {
+        'api_contract_validated',
+        'browser_only_validated',
+        'intentionally_not_exercised',
+    } for row in route_map.values())
+
+
+@pytest.mark.unit
+def test_every_api_contract_validated_support_route_is_exercised_by_api_contract_phase(monkeypatch: pytest.MonkeyPatch):
+    def _fake_fetch_json(method: str, route: str, _payload=None):
+        if route == '/api/health':
+            return {'status': 200, 'body': {'ok': True}}
+        if route == '/api/local/search':
+            assert method == 'POST'
+            return {
+                'status': 200,
+                'body': {
+                    'results': [
+                        {'name': 'Review Alpha'},
+                        {'name': 'Review Beta'},
+                        {'name': 'Review Gamma'},
+                        {'name': 'Review Delta'},
+                    ],
+                    'count': 4,
+                    'total': 4,
+                    'source': 'local_db',
+                },
+            }
+        if route.startswith('/api/system/'):
+            system_names = {
+                '/api/system/7200000000001': 'Review Alpha',
+                '/api/system/7200000000002': 'Review Beta',
+                '/api/system/7200000000003': 'Review Gamma',
+                '/api/system/7200000000004': 'Review Delta',
+            }
+            return {
+                'status': 200,
+                'body': {
+                    'record': {'id64': int(route.rsplit('/', 1)[1])},
+                    'system': {'id64': int(route.rsplit('/', 1)[1]), 'name': system_names[route], 'stations': [], 'bodies': []},
+                },
+            }
+        if route.endswith('/warehouse-planner-evidence'):
+            if route.endswith('/7200000000001/warehouse-planner-evidence'):
+                status = 'available'
+            elif route.endswith('/7200000000002/warehouse-planner-evidence'):
+                status = 'unavailable'
+            elif route.endswith('/7200000000003/warehouse-planner-evidence'):
+                status = 'unknown'
+            else:
+                return {
+                    'status': 503,
+                    'body': {'fallback_route': '/api/colony-planner/system/7200000000004/provenance-cockpit'},
+                }
+            return {
+                'status': 200,
+                'body': {
+                    'system_id64': int(route.split('/')[-2]),
+                    'evidence_summary': {},
+                    'evidence_envelope': {'status': status},
+                },
+            }
+        if route.endswith('/provenance-cockpit'):
+            return {
+                'status': 200,
+                'body': {
+                    'system': {'name': 'Review Delta'},
+                    'provenance_summary': {},
+                    'evidence_panels': {},
+                    'warnings': ['review fallback'],
+                },
+            }
+        if route == '/api/events/recent':
+            return {'status': 200, 'body': {'events': [], 'jobs': {}}}
+        if route == '/api/watchlist':
+            return {'status': 200, 'body': {'watchlist': []}}
+        if route == '/api/cache/stats':
+            return {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
+        if route == '/api/facility-templates':
+            return {'status': 200, 'body': [{'name': 'Outpost'}]}
+        if route.endswith('/simulation-summary'):
+            return {'status': 200, 'body': {'classification': 'ok', 'buildability': 'ok', 'system_id64': 7200000000001}}
+        if route.endswith('/slot-predictions'):
+            return {'status': 200, 'body': {'system_id64': 7200000000001, 'predictions': [], 'prediction_status': 'ok'}}
+        raise AssertionError(f'unexpected route {route}')
+
+    monkeypatch.setattr(review_env.api_contracts, 'fetch_json', _fake_fetch_json)
+    monkeypatch.setattr(
+        review_env.api_contracts,
+        'probe_event_stream',
+        lambda route, timeout_seconds=3, read_bytes=64: {
+            'status': 200,
+            'content_type': 'text/event-stream; charset=utf-8',
+            'initial_byte_count': 0,
+            'stream_opened': True,
+            'read_bytes_limit': read_bytes,
+        },
+    )
+
+    result = review_env.run_api_contract_phase(review_env.scenarios.resolve_scenarios('all'))
+
+    expected_routes = {
+        route.route for route in review_env.support_matrix.api_contract_validated_routes()
+    }
+    assert set(result['safe_diagnostics']['support_routes_checked']) == expected_routes
+    assert '/api/events/live' in result['safe_diagnostics']['support_routes_checked']
+
+
+@pytest.mark.unit
+def test_events_live_probe_is_bounded_and_completes_without_consuming_the_stream(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    class _FakeHeaders(dict):
+        def get(self, key, default=None):
+            return super().get(key, default)
+
+    class _FakeResponse:
+        status = 200
+        headers = _FakeHeaders({'Content-Type': 'text/event-stream; charset=utf-8'})
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_urlopen(request, timeout):
+        captured['timeout'] = timeout
+        captured['url'] = request.full_url
+        return _FakeResponse()
+
+    monkeypatch.setattr(review_env.lifecycle, 'urlopen', _fake_urlopen)
+
+    result = review_env.probe_event_stream('/api/events/live', timeout_seconds=3, read_bytes=8)
+
+    assert captured['timeout'] == 3
+    assert captured['url'] == 'http://127.0.0.1:8001/api/events/live'
+    assert result['status'] == 200
+    assert result['stream_opened'] is True
+    assert result['read_bytes_limit'] == 8
+
+
+@pytest.mark.unit
+def test_events_live_wrong_content_type_fails_api_contract_phase(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        review_env.api_contracts,
+        'fetch_json',
+        lambda method, route, payload=None: (
+            {'status': 200, 'body': {'ok': True}} if route == '/api/health'
+            else {'status': 200, 'body': {'events': [], 'jobs': {}}} if route == '/api/events/recent'
+            else {'status': 200, 'body': {'watchlist': []}} if route == '/api/watchlist'
+            else {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
+        ),
+    )
+    monkeypatch.setattr(
+        review_env.api_contracts,
+        'probe_event_stream',
+        lambda route, timeout_seconds=3, read_bytes=64: {
+            'status': 200,
+            'content_type': 'application/json',
+            'initial_byte_count': 2,
+            'stream_opened': True,
+            'read_bytes_limit': read_bytes,
+        },
+    )
+
+    with pytest.raises(review_env.ReviewEnvironmentError, match='event-stream content type'):
+        review_env.run_api_contract_phase(review_env.scenarios.resolve_scenarios('empty_optional_support_data'))
+
+
+@pytest.mark.unit
+def test_events_live_missing_route_fails_api_contract_phase(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        review_env.api_contracts,
+        'fetch_json',
+        lambda method, route, payload=None: (
+            {'status': 200, 'body': {'ok': True}} if route == '/api/health'
+            else {'status': 200, 'body': {'events': [], 'jobs': {}}} if route == '/api/events/recent'
+            else {'status': 200, 'body': {'watchlist': []}} if route == '/api/watchlist'
+            else {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
+        ),
+    )
+    monkeypatch.setattr(
+        review_env.api_contracts,
+        'probe_event_stream',
+        lambda route, timeout_seconds=3, read_bytes=64: {
+            'status': 404,
+            'content_type': 'text/plain',
+            'initial_byte_count': 0,
+            'stream_opened': False,
+            'read_bytes_limit': read_bytes,
+        },
+    )
+
+    with pytest.raises(review_env.ReviewEnvironmentError, match='SSE handshake response'):
+        review_env.run_api_contract_phase(review_env.scenarios.resolve_scenarios('empty_optional_support_data'))
 
 
 @pytest.mark.unit
@@ -535,10 +732,14 @@ def test_review_main_import_succeeds_only_with_exact_review_guards(monkeypatch: 
 def test_frontend_target_remains_compatible_with_review_api():
     vite_config = _read(FRONTEND_VITE_CONFIG)
     docs = _read(DOC_PATH)
+    review_spec = _read(ROOT / 'frontend-v2' / 'e2e' / 'review-environment.spec.js')
     assert "|| 'http://127.0.0.1:8001';" in vite_config
     assert 'verify --mode quick --scenario planner_core --confirm-local-review-environment' in docs
     assert 'verify --mode full --scenario all --confirm-local-review-environment' in docs
     assert 'report --latest' in docs
+    assert 'test.skip(' in review_spec
+    assert 'EDFINDER_REVIEW_OUTPUT_PATH' in review_spec
+    assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in review_spec
 
 
 @pytest.mark.unit
@@ -1018,6 +1219,7 @@ def test_verify_runs_cleanup_after_browser_failure(
     tmp_path: Path,
 ):
     calls: list[str] = []
+    review_resource_checks: list[str] = []
     baselines = iter((
         {'containers': [], 'volumes': []},
         {'containers': [], 'volumes': []},
@@ -1068,11 +1270,17 @@ def test_verify_runs_cleanup_after_browser_failure(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(
+        review_env,
+        'list_review_owned_resources',
+        lambda: review_resource_checks.append('checked') or {'containers': [], 'volumes': []},
+    )
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 
     assert report['ok'] is False
     assert calls == ['static', 'stack', 'api', 'browser', 'stop', 'down']
+    assert review_resource_checks == ['checked']
     assert report['phase_results']['browser_desktop']['status'] == 'failed'
     assert report['phase_results']['teardown']['status'] == 'passed'
 
@@ -1183,12 +1391,107 @@ def test_verify_detects_docker_baseline_mismatch(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 
     assert report['ok'] is False
     assert report['phase_results']['teardown']['status'] == 'failed'
     assert report['phase_results']['teardown']['failure_code'] == 'DOCKER_BASELINE_NOT_RESTORED'
+
+
+@pytest.mark.unit
+def test_verify_detects_review_owned_container_leak_after_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    baselines = iter((
+        {'containers': ['keep-me'], 'volumes': ['keep-volume']},
+        {'containers': ['keep-me'], 'volumes': ['keep-volume']},
+    ))
+
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-review-container-leak', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+    monkeypatch.setattr(review_env, 'run_static_phase', lambda: {'summary': 'static ok', 'static_test_count': 1, 'safe_diagnostics': {}})
+    monkeypatch.setattr(review_env, 'run_stack_phase', lambda: {'summary': 'stack ok', 'safe_diagnostics': {}})
+    monkeypatch.setattr(review_env, 'run_api_contract_phase', lambda _selected: {'summary': 'api ok', 'safe_diagnostics': {}})
+    monkeypatch.setattr(review_env, 'run_browser_phase', lambda *_args: _successful_browser_payload())
+
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
+
+        def stop_all(self) -> None:
+            return None
+
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: {'ok': True})
+    monkeypatch.setattr(
+        review_env,
+        'list_review_owned_resources',
+        lambda: {'containers': ['edfinder-review-review-api-1'], 'volumes': []},
+    )
+
+    report = review_env.verify_review_environment(mode='full', scenario='all')
+
+    assert report['ok'] is False
+    assert report['phase_results']['teardown']['status'] == 'failed'
+    assert report['phase_results']['teardown']['failure_code'] == 'REVIEW_RESOURCES_NOT_REMOVED'
+
+
+@pytest.mark.unit
+def test_verify_detects_review_owned_volume_leak_after_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    baselines = iter((
+        {'containers': ['keep-me'], 'volumes': ['keep-volume']},
+        {'containers': ['keep-me'], 'volumes': ['keep-volume']},
+    ))
+
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-review-volume-leak', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+    monkeypatch.setattr(review_env, 'run_static_phase', lambda: {'summary': 'static ok', 'static_test_count': 1, 'safe_diagnostics': {}})
+    monkeypatch.setattr(review_env, 'run_stack_phase', lambda: {'summary': 'stack ok', 'safe_diagnostics': {}})
+    monkeypatch.setattr(review_env, 'run_api_contract_phase', lambda _selected: {'summary': 'api ok', 'safe_diagnostics': {}})
+    monkeypatch.setattr(review_env, 'run_browser_phase', lambda *_args: _successful_browser_payload())
+
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
+
+        def stop_all(self) -> None:
+            return None
+
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: {'ok': True})
+    monkeypatch.setattr(
+        review_env,
+        'list_review_owned_resources',
+        lambda: {'containers': [], 'volumes': ['edfinder_review_postgres_data']},
+    )
+
+    report = review_env.verify_review_environment(mode='full', scenario='all')
+
+    assert report['ok'] is False
+    assert report['phase_results']['teardown']['status'] == 'failed'
+    assert report['phase_results']['teardown']['failure_code'] == 'REVIEW_RESOURCES_NOT_REMOVED'
 
 
 @pytest.mark.unit
@@ -1334,7 +1637,7 @@ def test_known_narrow_viewport_finding_is_preserved_even_when_not_redetected():
 
 
 @pytest.mark.unit
-def test_compare_docker_baseline_ignores_review_managed_resources():
+def test_compare_docker_baseline_preserves_only_non_review_resources():
     diff = review_env.compare_docker_baseline(
         {
             'containers': ['edfinder-review-review-api-1', 'keep-me'],
@@ -1351,6 +1654,49 @@ def test_compare_docker_baseline_ignores_review_managed_resources():
         'volumes_added': [],
         'volumes_removed': [],
     }
+
+
+@pytest.mark.unit
+def test_list_review_owned_resources_ignores_unrelated_developer_resources(monkeypatch: pytest.MonkeyPatch):
+    commands: list[list[str]] = []
+    outputs = iter((
+        'edfinder-review-review-api-1\n',
+        'edfinder_review_postgres_data\n',
+        'edfinder-review-review-api-1\nkeep-me\n',
+        'edfinder_review_postgres_data\nkeep-volume\n',
+    ))
+
+    def _fake_run_command(command, **_kwargs):
+        commands.append(command)
+        return next(outputs)
+
+    monkeypatch.setattr(review_env.lifecycle, 'run_command', _fake_run_command)
+
+    resources = review_env.lifecycle.list_review_owned_resources()
+
+    assert resources == {
+        'containers': ['edfinder-review-review-api-1'],
+        'volumes': ['edfinder_review_postgres_data'],
+    }
+    assert all('keep-me' not in command for command in commands)
+
+
+@pytest.mark.unit
+def test_preflight_fails_closed_when_review_owned_resources_already_exist(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(review_env.lifecycle, 'load_compose_text', lambda: 'services:\n  review-postgres:\n  review-redis:\n  review-api:\n')
+    monkeypatch.setattr(review_env.lifecycle, 'validate_compose_text', lambda _text: None)
+    monkeypatch.setattr(review_env.lifecycle, 'validate_normal_api_sources', lambda: None)
+    monkeypatch.setattr(review_env.lifecycle, 'validate_review_entrypoint_sources', lambda: None)
+    monkeypatch.setattr(review_env.lifecycle, 'validate_support_route_matrix', lambda: None)
+    monkeypatch.setattr(review_env.lifecycle, 'run_compose_config_check', lambda: None)
+    monkeypatch.setattr(
+        review_env.lifecycle,
+        'list_review_owned_resources',
+        lambda: {'containers': ['edfinder-review-review-api-1'], 'volumes': []},
+    )
+
+    with pytest.raises(review_env.ReviewEnvironmentError, match='already exist before verification'):
+        review_env.run_preflight()
 
 
 @pytest.mark.unit

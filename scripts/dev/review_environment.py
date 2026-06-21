@@ -32,6 +32,9 @@ run_api_contract_phase = api_contracts.run_api_contract_phase
 run_browser_phase = browser_runner.run_browser_phase
 capture_docker_baseline = lifecycle.capture_docker_baseline
 compare_docker_baseline = lifecycle.compare_docker_baseline
+list_review_owned_resources = lifecycle.list_review_owned_resources
+assert_no_preexisting_review_resources = lifecycle.assert_no_preexisting_review_resources
+probe_event_stream = lifecycle.probe_event_stream
 healthcheck_url = lifecycle.healthcheck_url
 frontend_start_command = lifecycle.frontend_start_command
 phase_result = reporting.phase_result
@@ -240,14 +243,22 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
                     failure_code='DOCKER_BASELINE_NOT_RESTORED',
                     safe_diagnostics=mismatch,
                 )
+            remaining_review_resources = list_review_owned_resources()
+            if remaining_review_resources['containers'] or remaining_review_resources['volumes']:
+                raise ReviewEnvironmentError(
+                    'Review-owned Docker resources remained after teardown.',
+                    failure_code='REVIEW_RESOURCES_NOT_REMOVED',
+                    safe_diagnostics=remaining_review_resources,
+                )
             phases['teardown'] = phase_result(
                 status='passed',
                 duration_ms=elapsed_ms(teardown_started_at),
-                summary='Review stack teardown succeeded and the Docker baseline matched the pre-verify snapshot.',
+                summary='Review stack teardown succeeded, the non-review Docker baseline matched the pre-verify snapshot, and no review-owned resources remained.',
                 failure_code=None,
                 safe_diagnostics={
                     'baseline_container_count': len(baseline_after['containers']),
                     'baseline_volume_count': len(baseline_after['volumes']),
+                    'remaining_review_resources': remaining_review_resources,
                     'owned_processes': process_registry.safe_diagnostics(),
                 },
             )

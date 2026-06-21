@@ -63,6 +63,11 @@ from review_runtime_guard import EXPECTED_REVIEW_DATABASE_HOST, EXPECTED_REVIEW_
 
 ReviewMode = Literal['quick', 'full']
 PhaseStatus = Literal['passed', 'failed', 'skipped']
+SupportRouteValidationMode = Literal[
+    'api_contract_validated',
+    'browser_only_validated',
+    'intentionally_not_exercised',
+]
 
 
 class ReviewLabError(RuntimeError):
@@ -115,6 +120,7 @@ class SupportRoute:
     review_only_handling: str
     allowed_response_characteristics: tuple[str, ...]
     scenario_coverage: tuple[str, ...]
+    validation_mode: SupportRouteValidationMode
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +131,7 @@ class SupportRoute:
             'review_only_handling': self.review_only_handling,
             'allowed_response_characteristics': list(self.allowed_response_characteristics),
             'scenario_coverage': list(self.scenario_coverage),
+            'validation_mode': self.validation_mode,
         }
 
 

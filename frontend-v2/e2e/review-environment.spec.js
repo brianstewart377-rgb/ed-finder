@@ -5,6 +5,15 @@ import { test, expect } from '@playwright/test';
 const OUTPUT_PATH = process.env.EDFINDER_REVIEW_OUTPUT_PATH
   || path.join(process.cwd(), 'test-results', 'review-environment-summary.json');
 const SCENARIO_PLAN = parseScenarioPlan(process.env.EDFINDER_REVIEW_SCENARIOS_JSON);
+const REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED = Boolean(process.env.EDFINDER_REVIEW_OUTPUT_PATH);
+const REVIEW_ENVIRONMENT_PLAN_CONFIGURED = Boolean(process.env.EDFINDER_REVIEW_SCENARIOS_JSON);
+
+function reviewEnvironmentConfigError() {
+  if (REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED === REVIEW_ENVIRONMENT_PLAN_CONFIGURED) {
+    return null;
+  }
+  return 'Review Lab browser verification requires both EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.';
+}
 
 const SYSTEMS = {
   alpha: { id64: 7200000000001, name: 'Review Alpha' },
@@ -16,6 +25,14 @@ const SYSTEMS = {
 test.describe('Local review environment verification', () => {
   test('captures deterministic browser verification summary', async ({ page }) => {
     test.setTimeout(120_000);
+    test.skip(
+      !REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED && !REVIEW_ENVIRONMENT_PLAN_CONFIGURED,
+      'Review Lab browser verification only runs under scripts/dev/review_environment.py verify --mode full.',
+    );
+    const configError = reviewEnvironmentConfigError();
+    if (configError) {
+      throw new Error(configError);
+    }
 
     const summary = {
       selectedPlan: SCENARIO_PLAN,
