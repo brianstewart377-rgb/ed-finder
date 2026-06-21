@@ -131,6 +131,13 @@ def test_cli_does_not_accept_credentials_or_secret_paths():
 
 
 @pytest.mark.unit
+def test_verify_cli_requires_explicit_confirmation_flag():
+    args = review_env.parse_args(['verify', '--confirm-local-review-environment'])
+    assert args.command == 'verify'
+    assert args.confirm_local_review_environment is True
+
+
+@pytest.mark.unit
 def test_review_database_name_and_api_binding_are_fixed():
     assert review_env.validate_review_database_name('edfinder_local_review') == 'edfinder_local_review'
     assert review_env.validate_review_api_host('127.0.0.1') == '127.0.0.1'
@@ -168,6 +175,23 @@ def test_postgres_and_redis_publish_no_host_ports():
     assert 'ports:' not in _service_block('review-postgres')
     assert 'ports:' not in _service_block('review-redis')
     assert 'ports:' in _service_block('review-api')
+
+
+@pytest.mark.unit
+def test_support_route_matrix_covers_required_reviewed_flow_endpoints():
+    review_env.validate_support_route_matrix()
+    route_map = {row['route']: row for row in review_env.REVIEW_SUPPORT_ROUTE_MATRIX}
+    assert set(route_map) >= {
+        '/api/events/recent',
+        '/api/watchlist',
+        '/api/cache/stats',
+        '/api/facility-templates',
+        '/api/systems/{id64}/simulation-summary',
+        '/api/systems/{id64}/slot-predictions',
+    }
+    assert route_map['/api/facility-templates']['required_for_reviewed_flow'] is True
+    assert route_map['/api/systems/{id64}/simulation-summary']['expected_status'] == 200
+    assert route_map['/api/watchlist']['required_for_reviewed_flow'] is False
 
 
 @pytest.mark.unit
@@ -483,7 +507,7 @@ def test_frontend_target_remains_compatible_with_review_api():
     vite_config = _read(FRONTEND_VITE_CONFIG)
     docs = _read(DOC_PATH)
     assert "|| 'http://127.0.0.1:8001';" in vite_config
-    assert 'VITE_DEV_API_TARGET=http://127.0.0.1:8001 npm run start' in docs
+    assert 'verify --confirm-local-review-environment' in docs
 
 
 @pytest.mark.unit
@@ -580,17 +604,14 @@ def test_normal_runtime_cannot_reach_synthetic_review_fixtures():
 def test_docs_cover_real_browser_journey_and_safety_constraints():
     docs = _read(DOC_PATH)
     for fragment in (
-        'Finder',
-        'System Detail',
-        'Colony Planner',
-        'Review Alpha',
-        'Review Beta',
-        'Review Gamma',
-        'Review Delta',
-        'Open Colony Planner',
-        'keyboard focus',
-        'narrow viewport',
-        'browser console',
+        'verify --confirm-local-review-environment',
+        'preflight',
+        'down --confirm-local-review-environment',
+        'Delta',
+        '503',
+        'provenance fallback',
+        'product observation',
+        'PR `#259`',
         '127.0.0.1:8001',
         'review-postgres',
         'review-redis',
@@ -620,6 +641,453 @@ def test_no_public_endpoint_stage19_scheduler_or_prod_path_is_present():
     assert 'canonical apply' in docs_text
     assert 'rebaseline' in docs_text
     assert 'scheduler' in docs_text
+
+
+@pytest.mark.unit
+def test_verify_phase_ordering_is_static_stack_api_browser_then_teardown(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+    baselines = iter((
+        {'containers': [], 'volumes': []},
+        {'containers': [], 'volumes': []},
+    ))
+
+    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-order'))
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+    monkeypatch.setattr(
+        review_env,
+        'run_static_phase',
+        lambda: calls.append('static') or {
+            'summary': 'static ok',
+            'static_test_count': 3,
+            'safe_diagnostics': {},
+        },
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_stack_phase',
+        lambda: calls.append('stack') or {'summary': 'stack ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_api_contract_phase',
+        lambda: calls.append('api') or {'summary': 'api ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_browser_phase',
+        lambda _path: calls.append('browser') or {
+            'browser_desktop': review_env.phase_result(status='passed', duration_ms=0, summary='desktop ok', failure_code=None, safe_diagnostics={}),
+            'browser_accessibility': review_env.phase_result(status='passed', duration_ms=0, summary='a11y ok', failure_code=None, safe_diagnostics={}),
+            'browser_console': review_env.phase_result(status='passed', duration_ms=0, summary='console ok', failure_code=None, safe_diagnostics={}),
+            'product_observations': review_env.phase_result(
+                status='passed',
+                duration_ms=0,
+                summary='product ok',
+                failure_code=None,
+                safe_diagnostics={
+                    'known_product_observations': [{
+                        'key': 'known-pr259-narrow-viewport-planner-overflow',
+                        'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
+                        'owner': 'PR #259',
+                    }],
+                    'unexpected_product_observations': [],
+                },
+            ),
+            'delta_503_fallback_correlation_verified': True,
+            'unexpected_console_errors': [],
+            'unexpected_api_errors': [],
+            'known_product_observations': [{
+                'key': 'known-pr259-narrow-viewport-planner-overflow',
+                'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
+                'owner': 'PR #259',
+            }],
+            'unexpected_product_observations': [],
+        },
+    )
+
+    def _invoke_self(args: list[str]):
+        calls.append(args[0])
+        return {'ok': True}
+
+    monkeypatch.setattr(review_env, 'invoke_self_command', _invoke_self)
+
+    report = review_env.verify_review_environment()
+
+    assert report['ok'] is True
+    assert calls == ['static', 'stack', 'api', 'browser', 'down']
+    assert report['phase_results']['teardown']['status'] == 'passed'
+
+
+@pytest.mark.unit
+def test_verify_fails_before_stack_start_when_static_phase_fails(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+    baselines = iter((
+        {'containers': [], 'volumes': []},
+        {'containers': [], 'volumes': []},
+    ))
+
+    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-static-fail'))
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+
+    def _fail_static():
+        calls.append('static')
+        raise review_env.ReviewEnvironmentError(
+            'static broke',
+            failure_code='STATIC_CONTAINMENT_FAILED',
+            safe_diagnostics={'phase': 'static'},
+        )
+
+    monkeypatch.setattr(review_env, 'run_static_phase', _fail_static)
+    monkeypatch.setattr(
+        review_env,
+        'run_stack_phase',
+        lambda: pytest.fail('stack phase must not run after a static failure'),
+    )
+    monkeypatch.setattr(review_env, 'invoke_self_command', lambda args: calls.append(args[0]) or {'ok': True})
+
+    report = review_env.verify_review_environment()
+
+    assert report['ok'] is False
+    assert calls == ['static', 'down']
+    assert report['phase_results']['static']['status'] == 'failed'
+    assert report['phase_results']['stack']['status'] == 'skipped'
+
+
+@pytest.mark.unit
+def test_verify_runs_cleanup_after_browser_failure(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+    baselines = iter((
+        {'containers': [], 'volumes': []},
+        {'containers': [], 'volumes': []},
+    ))
+
+    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-browser-fail'))
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+    monkeypatch.setattr(
+        review_env,
+        'run_static_phase',
+        lambda: calls.append('static') or {'summary': 'static ok', 'static_test_count': 1, 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_stack_phase',
+        lambda: calls.append('stack') or {'summary': 'stack ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_api_contract_phase',
+        lambda: calls.append('api') or {'summary': 'api ok', 'safe_diagnostics': {}},
+    )
+
+    def _fail_browser(_path: Path):
+        calls.append('browser')
+        raise review_env.ReviewEnvironmentError(
+            'browser broke',
+            failure_code='UNEXPECTED_BROWSER_CONSOLE_ERROR',
+            safe_diagnostics={'browser': 'error'},
+        )
+
+    monkeypatch.setattr(review_env, 'run_browser_phase', _fail_browser)
+    monkeypatch.setattr(review_env, 'invoke_self_command', lambda args: calls.append(args[0]) or {'ok': True})
+
+    report = review_env.verify_review_environment()
+
+    assert report['ok'] is False
+    assert calls == ['static', 'stack', 'api', 'browser', 'down']
+    assert report['phase_results']['browser_desktop']['status'] == 'failed'
+    assert report['phase_results']['teardown']['status'] == 'passed'
+
+
+@pytest.mark.unit
+def test_verify_detects_docker_baseline_mismatch(monkeypatch: pytest.MonkeyPatch):
+    baselines = iter((
+        {'containers': ['keep-me'], 'volumes': ['keep-volume']},
+        {'containers': ['keep-me', 'extra-review-container'], 'volumes': ['keep-volume']},
+    ))
+
+    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-baseline'))
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+    monkeypatch.setattr(
+        review_env,
+        'run_static_phase',
+        lambda: {'summary': 'static ok', 'static_test_count': 1, 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_stack_phase',
+        lambda: {'summary': 'stack ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_api_contract_phase',
+        lambda: {'summary': 'api ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_browser_phase',
+        lambda _path: {
+            'browser_desktop': review_env.phase_result(status='passed', duration_ms=0, summary='desktop ok', failure_code=None, safe_diagnostics={}),
+            'browser_accessibility': review_env.phase_result(status='passed', duration_ms=0, summary='a11y ok', failure_code=None, safe_diagnostics={}),
+            'browser_console': review_env.phase_result(status='passed', duration_ms=0, summary='console ok', failure_code=None, safe_diagnostics={}),
+            'product_observations': review_env.phase_result(
+                status='passed',
+                duration_ms=0,
+                summary='product ok',
+                failure_code=None,
+                safe_diagnostics={
+                    'known_product_observations': [{
+                        'key': 'known-pr259-narrow-viewport-planner-overflow',
+                        'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
+                        'owner': 'PR #259',
+                    }],
+                    'unexpected_product_observations': [],
+                },
+            ),
+            'delta_503_fallback_correlation_verified': True,
+            'unexpected_console_errors': [],
+            'unexpected_api_errors': [],
+            'known_product_observations': [{
+                'key': 'known-pr259-narrow-viewport-planner-overflow',
+                'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
+                'owner': 'PR #259',
+            }],
+            'unexpected_product_observations': [],
+        },
+    )
+    monkeypatch.setattr(review_env, 'invoke_self_command', lambda _args: {'ok': True})
+
+    report = review_env.verify_review_environment()
+
+    assert report['ok'] is False
+    assert report['phase_results']['teardown']['status'] == 'failed'
+    assert report['phase_results']['teardown']['failure_code'] == 'DOCKER_BASELINE_NOT_RESTORED'
+
+
+@pytest.mark.unit
+def test_delta_503_requires_full_successful_fallback_sequence():
+    summary = {
+        'scenarios': {
+            'delta': {
+                'apiResponses': [
+                    {'path': '/api/colony-planner/system/7200000000004/warehouse-planner-evidence', 'status': 503},
+                    {'path': '/api/colony-planner/system/7200000000004/provenance-cockpit', 'status': 200},
+                ],
+                'checks': {
+                    'provenanceFallbackVisible': True,
+                    'technicalFallbackDisclosureVisible': True,
+                    'fallbackRemainsNonCanonical': True,
+                    'noDedicatedEvidenceClaim': True,
+                    'noRecoveryScreen': True,
+                },
+            },
+        },
+    }
+    assert review_env.validate_delta_fallback_sequence(summary) is True
+
+    broken_summary = {
+        'scenarios': {
+            'delta': {
+                'apiResponses': [
+                    {'path': '/api/colony-planner/system/7200000000004/warehouse-planner-evidence', 'status': 503},
+                ],
+                'checks': {
+                    'provenanceFallbackVisible': False,
+                    'technicalFallbackDisclosureVisible': True,
+                    'fallbackRemainsNonCanonical': True,
+                    'noDedicatedEvidenceClaim': True,
+                    'noRecoveryScreen': True,
+                },
+            },
+        },
+    }
+    assert review_env.validate_delta_fallback_sequence(broken_summary) is False
+
+
+@pytest.mark.unit
+def test_unexpected_api_errors_fail_browser_console_phase():
+    phase = review_env.evaluate_browser_console(
+        {
+            'apiResponses': [
+                {'path': '/api/colony-planner/system/7200000000004/warehouse-planner-evidence', 'status': 503, 'method': 'GET'},
+                {'path': '/api/systems/7200000000001/simulation-summary', 'status': 500, 'method': 'GET'},
+            ],
+            'consoleEntries': [],
+            'pageErrors': [],
+        }
+    )
+    assert phase['status'] == 'failed'
+    assert phase['failure_code'] == 'UNEXPECTED_API_ERROR'
+
+
+@pytest.mark.unit
+def test_unexpected_console_error_fails_browser_console_phase():
+    phase = review_env.evaluate_browser_console(
+        {
+            'apiResponses': [],
+            'consoleEntries': [{'type': 'error', 'text': 'kaboom'}],
+            'pageErrors': [],
+        }
+    )
+    assert phase['status'] == 'failed'
+    assert phase['failure_code'] == 'UNEXPECTED_BROWSER_CONSOLE_ERROR'
+
+
+@pytest.mark.unit
+def test_expected_delta_console_503_is_allowed_when_fallback_sequence_succeeds():
+    phase = review_env.evaluate_browser_console(
+        {
+            'apiResponses': [
+                {
+                    'path': '/api/colony-planner/system/7200000000004/warehouse-planner-evidence',
+                    'status': 503,
+                    'method': 'GET',
+                },
+                {
+                    'path': '/api/colony-planner/system/7200000000004/provenance-cockpit',
+                    'status': 200,
+                    'method': 'GET',
+                },
+            ],
+            'consoleEntries': [
+                {
+                    'type': 'error',
+                    'text': 'Failed to load resource: the server responded with a status of 503 (Service Unavailable)',
+                },
+            ],
+            'pageErrors': [],
+            'scenarios': {
+                'delta': {
+                    'apiResponses': [
+                        {'path': '/api/colony-planner/system/7200000000004/warehouse-planner-evidence', 'status': 503},
+                        {'path': '/api/colony-planner/system/7200000000004/provenance-cockpit', 'status': 200},
+                    ],
+                    'checks': {
+                        'provenanceFallbackVisible': True,
+                        'technicalFallbackDisclosureVisible': True,
+                        'fallbackRemainsNonCanonical': True,
+                        'noDedicatedEvidenceClaim': True,
+                        'noRecoveryScreen': True,
+                    },
+                },
+            },
+        }
+    )
+    assert phase['status'] == 'passed'
+
+
+@pytest.mark.unit
+def test_known_narrow_viewport_finding_is_reported_not_silently_ignored():
+    phase = review_env.evaluate_product_observations(
+        {
+            'productObservations': [
+                {
+                    'key': 'known-pr259-narrow-viewport-planner-overflow',
+                    'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
+                    'owner': 'PR #259',
+                    'environmentReady': True,
+                    'productAcceptanceReady': False,
+                },
+            ],
+        }
+    )
+    assert phase['status'] == 'passed'
+    known = phase['safe_diagnostics']['known_product_observations'][0]
+    assert known['environmentReady'] is True
+    assert known['productAcceptanceReady'] is False
+
+
+@pytest.mark.unit
+def test_known_narrow_viewport_finding_is_preserved_even_when_not_redetected():
+    phase = review_env.evaluate_product_observations({'productObservations': []})
+    assert phase['status'] == 'passed'
+    known = phase['safe_diagnostics']['known_product_observations'][0]
+    assert known['key'] == 'known-pr259-narrow-viewport-planner-overflow'
+    assert known['observedInRun'] is False
+
+
+@pytest.mark.unit
+def test_compare_docker_baseline_ignores_review_managed_resources():
+    diff = review_env.compare_docker_baseline(
+        {
+            'containers': ['edfinder-review-review-api-1', 'keep-me'],
+            'volumes': ['edfinder_review_postgres_data', 'keep-volume'],
+        },
+        {
+            'containers': ['keep-me'],
+            'volumes': ['keep-volume'],
+        },
+    )
+    assert diff == {
+        'containers_added': [],
+        'containers_removed': [],
+        'volumes_added': [],
+        'volumes_removed': [],
+    }
+
+
+@pytest.mark.unit
+def test_verify_reports_known_product_observation_without_product_acceptance_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    baselines = iter((
+        {'containers': [], 'volumes': []},
+        {'containers': [], 'volumes': []},
+    ))
+    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-known-product-observation'))
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+    monkeypatch.setattr(
+        review_env,
+        'run_static_phase',
+        lambda: {'summary': 'static ok', 'static_test_count': 1, 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_stack_phase',
+        lambda: {'summary': 'stack ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_api_contract_phase',
+        lambda: {'summary': 'api ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_browser_phase',
+        lambda _path: {
+            'browser_desktop': review_env.phase_result(status='passed', duration_ms=0, summary='desktop ok', failure_code=None, safe_diagnostics={}),
+            'browser_accessibility': review_env.phase_result(status='passed', duration_ms=0, summary='a11y ok', failure_code=None, safe_diagnostics={}),
+            'browser_console': review_env.phase_result(status='passed', duration_ms=0, summary='console ok', failure_code=None, safe_diagnostics={}),
+            'product_observations': review_env.phase_result(
+                status='passed',
+                duration_ms=0,
+                summary='known product observation recorded',
+                failure_code=None,
+                safe_diagnostics={
+                    'known_product_observations': [review_env.KNOWN_PRODUCT_OBSERVATIONS['known-pr259-narrow-viewport-planner-overflow']],
+                    'unexpected_product_observations': [],
+                },
+            ),
+            'delta_503_fallback_correlation_verified': True,
+            'unexpected_console_errors': [],
+            'unexpected_api_errors': [],
+            'known_product_observations': [review_env.KNOWN_PRODUCT_OBSERVATIONS['known-pr259-narrow-viewport-planner-overflow']],
+            'unexpected_product_observations': [],
+        },
+    )
+    monkeypatch.setattr(review_env, 'invoke_self_command', lambda _args: {'ok': True})
+
+    report = review_env.verify_review_environment()
+
+    assert report['ok'] is True
+    assert report['environment_ready'] is True
+    assert report['product_acceptance_ready'] is False
+
+
+@pytest.mark.unit
+def test_verify_diagnostics_root_is_tmp_only_and_not_repo_tracked():
+    source = _read(SCRIPT_DIR / 'review_environment.py')
+    assert "/tmp/edfinder-local-review" in source
+    assert "test-results/review-environment-summary.json" not in source
 
 
 @pytest.mark.integration

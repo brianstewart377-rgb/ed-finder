@@ -2,30 +2,27 @@
 
 ## Purpose
 
-This workflow prepares a self-contained disposable local review stack for the
-real application-backed browser journey:
+This workflow hardens the isolated local review stack for the real
+application-backed review journey:
 
 - Finder
 - System Detail
 - Colony Planner
 
-It exists to unblock manual acceptance review for draft PR `#259` without
-changing that PR, without using public endpoints, and without touching any
-existing developer, Stage 19, warehouse, staging, canonical, or disposable
-database.
+It exists to validate review-environment readiness for draft PR `#260` without
+changing PR `#259`, without using public endpoints, and without touching any
+developer database, Stage 19 path, source acquisition, canonical apply,
+rebaseline, or scheduler work.
 
 ## Safety Boundary
 
-The review environment is fail-closed and isolated.
+The review environment is isolated, disposable, and fail-closed.
 
 - It does not reuse `ed-postgres`.
-- It starts a dedicated Compose project named `edfinder-review`.
-- It creates only the review-only services `review-postgres`, `review-redis`,
+- It starts only the review-only services `review-postgres`, `review-redis`,
   and `review-api`.
 - It uses only the dedicated review database `edfinder_local_review`.
-- It uses uniquely named review-only volumes and removes only those volumes on
-  shutdown.
-- It publishes only the API on `127.0.0.1:8001`.
+- It binds the review API only to `127.0.0.1:8001`.
 - It does not publish host ports for Postgres or Redis.
 - It never reads a developer `.env` file and never uses `env_file`.
 - It never accepts passwords, DSNs, tokens, or secret file paths as CLI
@@ -36,145 +33,127 @@ The review environment is fail-closed and isolated.
 - Synthetic review data is reachable only inside the isolated review stack.
 - Normal API runtime cannot serve synthetic review fixtures.
 
-## Review Stack
-
-The tracked stack definition lives in `docker-compose.review.yml`.
-
-- `review-postgres` stores the review-only schema and synthetic review corpus.
-- `review-redis` is review-only and internal to the Compose network.
-- `review-api` exposes the real API routes on `127.0.0.1:8001`.
-
-The review API entrypoint is `apps/api/src/review_main.py`.
-
-- It is not imported by normal `apps/api/src/main.py`.
-- It fails closed unless both of these are true:
-  - review stack marker is `edfinder-review`
-  - database target is exactly `review-postgres` / `edfinder_local_review`
-- It serves the real Finder, System Detail, and Colony Planner routes with the
-  normal database-backed application code.
-- It serves review-only planner evidence and provenance contracts from review
-  data stored in the dedicated review database.
-
 ## Commands
 
 Run commands from the repository root with the project virtualenv:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py preflight
-PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py up --confirm-local-review-environment
-PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py status
+PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py verify --confirm-local-review-environment
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py down --confirm-local-review-environment
 ```
 
-Command behavior:
+Use exactly these commands:
 
-- `preflight` is fully read-only and starts nothing.
-- `up` validates the review Compose file statically, starts only the isolated
-  review services, bootstraps schema only inside `review-postgres`, seeds only
-  review-only synthetic data into `edfinder_local_review`, and then starts the
-  isolated review API.
-- `status` reports running review services and API health without printing
-  credentials.
-- `down` removes only the review-stack containers, network, and review-only
-  volumes.
+- `preflight` is read-only. It validates containment, review-only routing,
+  support-route matrix coverage, and Compose safety before Docker startup.
+- `verify --confirm-local-review-environment` is the normal one-command
+  readiness check. It runs static validation, captures the Docker baseline,
+  starts the isolated stack, checks API contracts, runs the real browser flow,
+  records product observations, and always tears the review stack down again.
+- `down --confirm-local-review-environment` is the explicit cleanup command if
+  you need to stop the isolated stack outside `verify`.
+
+## What Verify Proves
+
+`verify --confirm-local-review-environment` proves that the isolated review
+stack is ready for the real review journey against the real frontend and the
+loopback review API on `127.0.0.1:8001`.
+
+It validates all of the following:
+
+- Finder returns `Review Alpha`, `Review Beta`, `Review Gamma`, and
+  `Review Delta`.
+- System Detail loads the synthetic review systems.
+- Colony Planner loads using the real planner support routes
+  `/api/facility-templates`,
+  `/api/systems/{id64}/simulation-summary`, and
+  `/api/systems/{id64}/slot-predictions`.
+- Review-only support routes prevent avoidable browser noise for
+  `/api/events/recent`, `/api/watchlist`, and `/api/cache/stats`.
+- Review Alpha dedicated evidence succeeds.
+- Review Beta preserves the unavailable posture.
+- Review Gamma preserves the unknown posture.
+- Review Delta deliberately returns a dedicated-evidence `503`, then triggers
+  the existing provenance fallback path.
+- The Delta sequence is only accepted when the browser shows:
+  dedicated evidence `503` -> provenance fallback request -> provenance
+  fallback `200` -> visible fallback posture.
+- The fallback remains report-only, non-canonical, and honest about
+  provenance/fallback state.
+- No unexpected browser console error, uncaught exception, unexpected API
+  4xx/5xx response, or app-wide recovery screen appears.
+- The review stack tears down safely and the Docker baseline is restored.
+
+## What Verify Does Not Prove
+
+`verify` is review-environment reliability work only.
+
+- It does not mark PR `#260` ready.
+- It does not merge PR `#260`.
+- It does not prove full product acceptance for PR `#259`.
+- It does not authorize Stage 19, production database work, source
+  acquisition, canonical apply, rebaseline, or scheduler work.
+- It does not make normal runtime capable of serving review fixtures.
 
 ## Synthetic Review Corpus
 
 The seeded review database is deterministic, synthetic, and review-only.
 
 - `Review Alpha` exercises available evidence while keeping canonical planner
-  data as the planner truth source. Supporting evidence is report-only,
-  non-canonical, bounded, and incomplete.
+  data as the planner truth source.
 - `Review Beta` exercises unavailable selected-system evidence.
 - `Review Gamma` exercises unknown selected-system evidence.
-- `Review Delta` exercises not-evaluated selected-system evidence and the
-  provenance fallback route.
+- `Review Delta` exercises the deliberate dedicated-evidence `503` and the
+  provenance fallback path.
 
-Every review system has:
+Review Delta is special by design:
 
-- a deterministic `id64`
-- coordinates near Sol so Finder's normal default query can surface it
-- at least one station
-- bodies and ratings sufficient for System Detail and Colony Planner rendering
+- The dedicated warehouse-evidence request must fail with `503`.
+- That `503` is acceptable only when the browser immediately follows it with a
+  successful provenance fallback request and renders the honest fallback state.
+- The UI must not claim dedicated warehouse evidence is available.
+- The fallback remains report-only and non-canonical.
 
-## Frontend Startup
+## Product Observations
 
-Start the normal frontend in a separate terminal and intentionally point it at
-the isolated review API:
+`verify` separates environment failures from product observations.
 
-```bash
-cd frontend-v2
-VITE_DEV_API_TARGET=http://127.0.0.1:8001 npm run start
-```
+- A broken stack, missing route, unexpected API error, unexpected browser
+  console error, or failed teardown is an environment failure.
+- A known narrow viewport planner overflow remains a product observation owned
+  by PR `#259`.
 
-This keeps the normal frontend development environment unchanged unless you
-explicitly choose the isolated review API target.
+The current known product observation is recorded as:
 
-## Health Checks
+- classification: `PRODUCT_NARROW_VIEWPORT_OVERFLOW`
+- owner: PR `#259`
+- environment ready: `true`
+- product acceptance ready: `false`
 
-API health:
+This means the isolated review stack can be ready even while PR `#259`
+continues to own the narrow viewport acceptance issue.
 
-```bash
-curl http://127.0.0.1:8001/api/health
-```
+## Review Runtime
 
-Finder:
+The review API entrypoint is `apps/api/src/review_main.py`.
 
-```bash
-curl -X POST http://127.0.0.1:8001/api/local/search \
-  -H 'Content-Type: application/json' \
-  -d '{"reference_coords":{"x":0,"y":0,"z":0},"filters":{"distance":{"min":0,"max":200},"population":{"value":null,"comparison":"equal"},"economy":"any"},"size":50,"from":0,"sort_by":"rating","galaxy_wide":false}'
-```
+- It is not imported by normal `apps/api/src/main.py`.
+- It fails closed unless the review stack marker is `edfinder-review`.
+- It fails closed unless the database target is exactly `review-postgres` /
+  `edfinder_local_review`.
+- It serves the real Finder, System Detail, and Colony Planner routes with the
+  normal database-backed application code.
+- It serves review-only planner evidence and provenance contracts from review
+  data stored in the dedicated review database.
 
-System Detail:
+## Cleanup
 
-```bash
-curl http://127.0.0.1:8001/api/system/7200000000001
-```
-
-Planner evidence:
-
-```bash
-curl http://127.0.0.1:8001/api/colony-planner/system/7200000000001/warehouse-planner-evidence
-```
-
-Provenance fallback:
-
-```bash
-curl http://127.0.0.1:8001/api/colony-planner/system/7200000000004/provenance-cockpit
-```
-
-## Browser Acceptance Journey
-
-Follow this exact browser review flow:
-
-1. Open Finder.
-2. Confirm `Review Alpha`, `Review Beta`, `Review Gamma`, and `Review Delta`
-   are visible in search results.
-3. Open `Review Alpha`.
-4. Confirm System Detail loads full synthetic fields.
-5. Confirm `Open Colony Planner` works.
-6. Confirm Colony Planner identifies `Review Alpha`.
-7. Confirm the player-facing evidence summary says planning uses canonical
-   planner data.
-8. Confirm report-only, non-canonical, bounded, and incomplete review context
-   is explicit.
-9. Open the technical evidence details disclosure.
-10. Confirm freshness, provenance, source class, and source posture are visible.
-11. Repeat the key evidence checks for `Review Beta`, `Review Gamma`, and
-    `Review Delta`.
-12. Confirm keyboard focus and disclosure operation.
-13. Confirm narrow viewport usability.
-14. Confirm no app-wide recovery screen appears.
-15. Confirm no unexpected browser console exception appears.
-
-## Shutdown
-
-When review is complete:
+When manual cleanup is needed, run:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py down --confirm-local-review-environment
 ```
 
-This removes only the `edfinder-review` stack resources created by this
-workflow.
+This removes only the `edfinder-review` stack resources created by the local
+review workflow.
