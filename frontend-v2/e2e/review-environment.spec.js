@@ -129,7 +129,7 @@ async function runAlphaScenario(page, summary) {
   try {
     await gotoFinder(page);
     await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
+    await clickResultCardAction(page, SYSTEMS.alpha.id64, /^Details$/);
     await expect(page.getByTestId('system-detail-modal')).toBeVisible();
     await expect(page.getByText(SYSTEMS.alpha.name).first()).toBeVisible();
     checks.systemDetailLoaded = true;
@@ -140,7 +140,7 @@ async function runAlphaScenario(page, summary) {
     summary.accessibility.modalEscapeCloseWorks = true;
 
     await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
+    await clickResultCardAction(page, SYSTEMS.alpha.id64, /^Details$/);
     await expect(page.getByTestId('system-detail-modal')).toBeVisible();
     const openPlanner = page.getByTestId('open-colony-planner');
     await openPlanner.focus();
@@ -176,11 +176,11 @@ async function runBetaScenario(page, summary) {
   try {
     await gotoFinder(page);
     await openResultCard(page, SYSTEMS.beta.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
+    await clickResultCardAction(page, SYSTEMS.beta.id64, /^Details$/);
     await expect(page.getByTestId('system-detail-modal')).toBeVisible();
     await expect(page.getByText(SYSTEMS.beta.name).first()).toBeVisible();
     checks.systemDetailLoaded = true;
-    await page.getByTestId('open-colony-planner').click();
+    await openPlannerFromSystemDetail(page);
     await waitForPlanner(page, SYSTEMS.beta.name);
     checks.plannerOpened = true;
     checks.unavailablePostureVisible = await expectVisible(page.getByTestId('warehouse-evidence-envelope-status-unavailable'));
@@ -204,11 +204,11 @@ async function runGammaScenario(page, summary) {
   try {
     await gotoFinder(page);
     await openResultCard(page, SYSTEMS.gamma.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
+    await clickResultCardAction(page, SYSTEMS.gamma.id64, /^Details$/);
     await expect(page.getByTestId('system-detail-modal')).toBeVisible();
     await expect(page.getByText(SYSTEMS.gamma.name).first()).toBeVisible();
     checks.systemDetailLoaded = true;
-    await page.getByTestId('open-colony-planner').click();
+    await openPlannerFromSystemDetail(page);
     await waitForPlanner(page, SYSTEMS.gamma.name);
     checks.plannerOpened = true;
     checks.unknownPostureVisible = await expectVisible(page.getByTestId('warehouse-evidence-envelope-status-unknown'));
@@ -232,12 +232,12 @@ async function runDeltaScenario(page, summary) {
   try {
     await gotoFinder(page);
     await openResultCard(page, SYSTEMS.delta.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
+    await clickResultCardAction(page, SYSTEMS.delta.id64, /^Details$/);
     await expect(page.getByTestId('system-detail-modal')).toBeVisible();
     await expect(page.getByText(SYSTEMS.delta.name).first()).toBeVisible();
     checks.systemDetailLoaded = true;
 
-    await page.getByTestId('open-colony-planner').click();
+    await openPlannerFromSystemDetail(page);
     await waitForPlanner(page, SYSTEMS.delta.name);
     checks.plannerOpened = true;
     checks.provenanceFallbackVisible = await expectVisible(page.getByTestId('warehouse-evidence-source-posture-provenance_bridge'));
@@ -282,7 +282,7 @@ async function runMobileObservation(page, summary) {
   await page.setViewportSize({ width: 390, height: 844 });
   await gotoFinder(page);
   await openResultCard(page, SYSTEMS.delta.id64);
-  await page.getByRole('button', { name: /Evaluate in Colony Planner/i }).click();
+  await clickResultCardAction(page, SYSTEMS.delta.id64, /Evaluate in Colony Planner/i);
   await waitForPlanner(page, SYSTEMS.delta.name);
 
   const dockToggle = page.getByTestId('planner-telemetry-dock-toggle');
@@ -358,6 +358,19 @@ async function openResultCard(page, id64) {
     }
   });
   await expect(actionButton).toBeVisible({ timeout: 10_000 });
+}
+
+async function clickResultCardAction(page, id64, name) {
+  const button = page.getByTestId(`result-card-${id64}`).getByRole('button', { name }).first();
+  await expect(button).toBeVisible({ timeout: 10_000 });
+  await button.click({ force: true });
+}
+
+async function openPlannerFromSystemDetail(page) {
+  const button = page.getByTestId('open-colony-planner');
+  await expect(button).toBeVisible({ timeout: 10_000 });
+  await button.focus();
+  await page.keyboard.press('Enter');
 }
 
 async function waitForPlanner(page, systemName) {
