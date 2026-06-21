@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 
 const OUTPUT_PATH = process.env.EDFINDER_REVIEW_OUTPUT_PATH
   || path.join(process.cwd(), 'test-results', 'review-environment-summary.json');
+const SCENARIO_PLAN = parseScenarioPlan(process.env.EDFINDER_REVIEW_SCENARIOS_JSON);
 
 const SYSTEMS = {
   alpha: { id64: 7200000000001, name: 'Review Alpha' },
@@ -17,6 +18,7 @@ test.describe('Local review environment verification', () => {
     test.setTimeout(120_000);
 
     const summary = {
+      selectedPlan: SCENARIO_PLAN,
       scenarios: {},
       accessibility: {},
       productObservations: [],
@@ -59,11 +61,20 @@ test.describe('Local review environment verification', () => {
 
     try {
       await clearState(page);
-      await runAlphaScenario(page, summary);
-      await runBetaScenario(page, summary);
-      await runGammaScenario(page, summary);
-      await runDeltaScenario(page, summary);
-      await runMobileObservation(page, summary);
+      for (const flowKey of SCENARIO_PLAN.browserFlowKeys) {
+        if (flowKey === 'alpha') {
+          await runAlphaScenario(page, summary);
+        } else if (flowKey === 'beta') {
+          await runBetaScenario(page, summary);
+        } else if (flowKey === 'gamma') {
+          await runGammaScenario(page, summary);
+        } else if (flowKey === 'delta') {
+          await runDeltaScenario(page, summary);
+        }
+      }
+      if (SCENARIO_PLAN.includeProductObservations) {
+        await runMobileObservation(page, summary);
+      }
     } catch (error) {
       summary.fatalError = sanitizeText(error?.stack || error?.message || String(error));
       throw error;
@@ -126,7 +137,11 @@ async function runBetaScenario(page, summary) {
   try {
     await gotoFinder(page);
     await openResultCard(page, SYSTEMS.beta.id64);
-    await page.getByRole('button', { name: /Evaluate in Colony Planner/i }).click();
+    await page.getByRole('button', { name: 'Details' }).click();
+    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+    await expect(page.getByText(SYSTEMS.beta.name).first()).toBeVisible();
+    checks.systemDetailLoaded = true;
+    await page.getByTestId('open-colony-planner').click();
     await waitForPlanner(page, SYSTEMS.beta.name);
     checks.plannerOpened = true;
     checks.unavailablePostureVisible = await expectVisible(page.getByTestId('warehouse-evidence-envelope-status-unavailable'));
@@ -150,7 +165,11 @@ async function runGammaScenario(page, summary) {
   try {
     await gotoFinder(page);
     await openResultCard(page, SYSTEMS.gamma.id64);
-    await page.getByRole('button', { name: /Evaluate in Colony Planner/i }).click();
+    await page.getByRole('button', { name: 'Details' }).click();
+    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+    await expect(page.getByText(SYSTEMS.gamma.name).first()).toBeVisible();
+    checks.systemDetailLoaded = true;
+    await page.getByTestId('open-colony-planner').click();
     await waitForPlanner(page, SYSTEMS.gamma.name);
     checks.plannerOpened = true;
     checks.unknownPostureVisible = await expectVisible(page.getByTestId('warehouse-evidence-envelope-status-unknown'));
@@ -335,6 +354,30 @@ function scenarioResult(status, checks, apiResponses, error) {
 function apiPath(urlString) {
   const url = new URL(urlString);
   return `${url.pathname}${url.search}`;
+}
+
+function parseScenarioPlan(rawValue) {
+  if (!rawValue) {
+    return {
+      selectedScenarioNames: ['planner_core'],
+      browserFlowKeys: ['alpha', 'beta', 'gamma', 'delta'],
+      includeProductObservations: true,
+    };
+  }
+  try {
+    const parsed = JSON.parse(rawValue);
+    return {
+      selectedScenarioNames: Array.isArray(parsed.selectedScenarioNames) ? parsed.selectedScenarioNames : ['planner_core'],
+      browserFlowKeys: Array.isArray(parsed.browserFlowKeys) ? parsed.browserFlowKeys : ['alpha', 'beta', 'gamma', 'delta'],
+      includeProductObservations: Boolean(parsed.includeProductObservations),
+    };
+  } catch {
+    return {
+      selectedScenarioNames: ['planner_core'],
+      browserFlowKeys: ['alpha', 'beta', 'gamma', 'delta'],
+      includeProductObservations: true,
+    };
+  }
 }
 
 function sanitizeText(value) {

@@ -28,6 +28,7 @@ for path in (ROOT, API_SRC, SCRIPT_DIR):
 
 import review_environment as review_env  # noqa: E402
 import review_environment_seed as review_seed  # noqa: E402
+import review_lab.process_registry as review_process_registry  # noqa: E402
 import provenance_cockpit as normal_provenance_backend  # noqa: E402
 import review_provenance_cockpit as review_provenance_backend  # noqa: E402
 import review_support_routes as review_support_backend  # noqa: E402
@@ -135,6 +136,32 @@ def test_verify_cli_requires_explicit_confirmation_flag():
     args = review_env.parse_args(['verify', '--confirm-local-review-environment'])
     assert args.command == 'verify'
     assert args.confirm_local_review_environment is True
+    assert args.mode == 'full'
+    assert args.scenario == 'all'
+
+
+@pytest.mark.unit
+def test_list_scenarios_cli_exposes_finite_registry_and_rejects_unknown_scenarios():
+    args = review_env.parse_args(['list-scenarios'])
+    assert args.command == 'list-scenarios'
+
+    payload = review_env.scenarios.list_scenarios_payload()
+    scenario_names = [scenario['name'] for scenario in payload['scenarios']]
+    assert scenario_names == [
+        'planner_core',
+        'evidence_available',
+        'evidence_unavailable',
+        'evidence_unknown',
+        'evidence_not_evaluated',
+        'provenance_fallback',
+        'empty_optional_support_data',
+        'large_result_set',
+        'partial_optional_data',
+        'support_route_compatibility',
+    ]
+
+    with pytest.raises(SystemExit):
+        review_env.parse_args(['verify', '--scenario', 'not-a-real-scenario', '--confirm-local-review-environment'])
 
 
 @pytest.mark.unit
@@ -182,6 +209,7 @@ def test_support_route_matrix_covers_required_reviewed_flow_endpoints():
     review_env.validate_support_route_matrix()
     route_map = {row['route']: row for row in review_env.REVIEW_SUPPORT_ROUTE_MATRIX}
     assert set(route_map) >= {
+        '/api/events/live',
         '/api/events/recent',
         '/api/watchlist',
         '/api/cache/stats',
@@ -192,6 +220,7 @@ def test_support_route_matrix_covers_required_reviewed_flow_endpoints():
     assert route_map['/api/facility-templates']['required_for_reviewed_flow'] is True
     assert route_map['/api/systems/{id64}/simulation-summary']['expected_status'] == 200
     assert route_map['/api/watchlist']['required_for_reviewed_flow'] is False
+    assert route_map['/api/events/live']['frontend_caller'] == 'useEddnFeed SSE bootstrap'
 
 
 @pytest.mark.unit
@@ -507,7 +536,9 @@ def test_frontend_target_remains_compatible_with_review_api():
     vite_config = _read(FRONTEND_VITE_CONFIG)
     docs = _read(DOC_PATH)
     assert "|| 'http://127.0.0.1:8001';" in vite_config
-    assert 'verify --confirm-local-review-environment' in docs
+    assert 'verify --mode quick --scenario planner_core --confirm-local-review-environment' in docs
+    assert 'verify --mode full --scenario all --confirm-local-review-environment' in docs
+    assert 'report --latest' in docs
 
 
 @pytest.mark.unit
@@ -604,12 +635,18 @@ def test_normal_runtime_cannot_reach_synthetic_review_fixtures():
 def test_docs_cover_real_browser_journey_and_safety_constraints():
     docs = _read(DOC_PATH)
     for fragment in (
-        'verify --confirm-local-review-environment',
+        'list-scenarios',
+        'verify --mode quick --scenario planner_core --confirm-local-review-environment',
+        'verify --mode full --scenario all --confirm-local-review-environment',
+        'report --latest',
         'preflight',
         'down --confirm-local-review-environment',
         'Delta',
         '503',
         'provenance fallback',
+        'quick mode',
+        'full mode',
+        'support-route matrix',
         'product observation',
         'PR `#259`',
         '127.0.0.1:8001',
@@ -644,23 +681,191 @@ def test_no_public_endpoint_stage19_scheduler_or_prod_path_is_present():
 
 
 @pytest.mark.unit
-def test_verify_phase_ordering_is_static_stack_api_browser_then_teardown(monkeypatch: pytest.MonkeyPatch):
+def test_system_detail_contract_shape_accepts_valid_payload_and_rejects_malformed_payload():
+    review_env.lifecycle.ensure_contract_shape(
+        {
+            'status': 200,
+            'body': {
+                'record': {'id64': 7200000000001},
+                'system': {'name': 'Review Alpha'},
+            },
+        },
+        required_keys={'record', 'system'},
+        failure_code='UNEXPECTED_API_ERROR',
+        route='/api/system/7200000000001',
+    )
+
+    with pytest.raises(review_env.ReviewEnvironmentError, match='missing required contract keys'):
+        review_env.lifecycle.ensure_contract_shape(
+            {
+                'status': 200,
+                'body': {
+                    'record': {'id64': 7200000000001},
+                },
+            },
+            required_keys={'record', 'system'},
+            failure_code='UNEXPECTED_API_ERROR',
+            route='/api/system/7200000000001',
+        )
+
+
+@pytest.mark.unit
+def test_browser_result_card_expansion_helper_is_idempotent():
+    source = _read(ROOT / 'frontend-v2' / 'e2e' / 'review-environment.spec.js')
+    assert "if (await actionButton.isVisible().catch(() => false)) {" in source
+    assert 'return;' in source
+    assert 'await header.evaluate((node) => {' in source
+    assert "await expect(actionButton).toBeVisible({ timeout: 10_000 });" in source
+
+
+@pytest.mark.unit
+def test_process_registry_inherits_host_env_and_records_only_review_owned_processes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    captured_env: dict[str, str] = {}
+    popen_calls: list[list[str]] = []
+
+    class _FakeProcess:
+        def __init__(self):
+            self.pid = 43210
+
+        def poll(self):
+            return 0
+
+    def _fake_popen(command, **kwargs):
+        popen_calls.append(command)
+        captured_env.update(kwargs['env'])
+        return _FakeProcess()
+
+    monkeypatch.setenv('PATH', '/usr/local/bin:/usr/bin')
+    monkeypatch.setattr(review_process_registry.subprocess, 'Popen', _fake_popen)
+    monkeypatch.setattr(review_process_registry.os, 'getpgid', lambda _pid: 98765)
+
+    registry = review_env.ReviewProcessRegistry(tmp_path)
+    registry.start(
+        'frontend-preview',
+        ['yarn', 'preview'],
+        cwd=tmp_path,
+        env={'EDFINDER_REVIEW_OUTPUT_PATH': '/tmp/edfinder-local-review/test/browser-summary.json'},
+        stdout_log_name='preview.stdout.log',
+        stderr_log_name='preview.stderr.log',
+    )
+
+    assert popen_calls == [['yarn', 'preview']]
+    assert captured_env['PATH'] == '/usr/local/bin:/usr/bin'
+    assert captured_env['EDFINDER_REVIEW_OUTPUT_PATH'].startswith('/tmp/edfinder-local-review/')
+    diagnostics = registry.safe_diagnostics()
+    assert len(diagnostics['processes']) == 1
+    assert diagnostics['processes'][0]['name'] == 'frontend-preview'
+    assert diagnostics['processes'][0]['command'] == ['yarn', 'preview']
+
+
+@pytest.mark.unit
+def test_report_latest_round_trips_sanitised_report_from_tmp_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr(review_env.reporting, 'VERIFY_TMP_ROOT', tmp_path)
+    monkeypatch.setattr(review_env.reporting, 'LATEST_REPORT_POINTER', tmp_path / 'latest-report.json')
+
+    context = review_env.reporting.create_verify_context(
+        'quick',
+        review_env.scenarios.resolve_scenarios('planner_core'),
+    )
+    report = {
+        'ok': True,
+        'run_id': context.run_id,
+        'mode': 'quick',
+        'phase_results': {
+            name: review_env.phase_result(
+                status='passed' if name in {'static', 'stack', 'api_contracts', 'teardown'} else 'skipped',
+                duration_ms=1,
+                summary=f'{name} ok',
+                failure_code=None,
+                safe_diagnostics={},
+            )
+            for name in review_env.reporting.REQUIRED_PHASE_NAMES
+        },
+    }
+
+    review_env.reporting.write_verify_report(context, report)
+
+    latest = review_env.report_latest()
+    assert latest == report
+    assert context.report_path.is_file()
+    assert (tmp_path / 'latest-report.json').is_file()
+
+
+class _FakeVerifyContext:
+    def __init__(self, run_dir: Path, mode: str, scenario_names: list[str]):
+        self.run_id = 'test-run'
+        self.run_dir = run_dir
+        self.report_path = run_dir / 'report.json'
+        self._mode = mode
+        self._scenario_names = scenario_names
+
+    def command_text(self) -> str:
+        scenario_label = ','.join(self._scenario_names) if self._scenario_names else 'all'
+        return (
+            'scripts/dev/review_environment.py verify '
+            f'--mode {self._mode} --scenario {scenario_label} '
+            '--confirm-local-review-environment'
+        )
+
+
+def _successful_browser_payload() -> dict[str, Any]:
+    known = {
+        'key': 'known-pr259-narrow-viewport-planner-overflow',
+        'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
+        'owner': 'PR #259',
+        'environmentReady': True,
+        'productAcceptanceReady': False,
+    }
+    return {
+        'browser_desktop': review_env.phase_result(status='passed', duration_ms=0, summary='desktop ok', failure_code=None, safe_diagnostics={}),
+        'browser_accessibility': review_env.phase_result(status='passed', duration_ms=0, summary='a11y ok', failure_code=None, safe_diagnostics={}),
+        'browser_console': review_env.phase_result(status='passed', duration_ms=0, summary='console ok', failure_code=None, safe_diagnostics={}),
+        'product_observations': review_env.phase_result(
+            status='passed',
+            duration_ms=0,
+            summary='known product observation recorded',
+            failure_code=None,
+            safe_diagnostics={
+                'known_product_observations': [known],
+                'unexpected_product_observations': [],
+            },
+        ),
+        'delta_503_fallback_correlation_verified': True,
+        'unexpected_console_errors': [],
+        'unexpected_api_errors': [],
+        'known_product_observations': [known],
+        'unexpected_product_observations': [],
+    }
+
+
+@pytest.mark.unit
+def test_verify_phase_ordering_is_static_stack_api_browser_then_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
     calls: list[str] = []
     baselines = iter((
         {'containers': [], 'volumes': []},
         {'containers': [], 'volumes': []},
     ))
 
-    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-order'))
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-order', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
     monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
     monkeypatch.setattr(
         review_env,
         'run_static_phase',
-        lambda: calls.append('static') or {
-            'summary': 'static ok',
-            'static_test_count': 3,
-            'safe_diagnostics': {},
-        },
+        lambda: calls.append('static') or {'summary': 'static ok', 'static_test_count': 3, 'safe_diagnostics': {}},
     )
     monkeypatch.setattr(
         review_env,
@@ -670,63 +875,51 @@ def test_verify_phase_ordering_is_static_stack_api_browser_then_teardown(monkeyp
     monkeypatch.setattr(
         review_env,
         'run_api_contract_phase',
-        lambda: calls.append('api') or {'summary': 'api ok', 'safe_diagnostics': {}},
+        lambda _selected: calls.append('api') or {'summary': 'api ok', 'safe_diagnostics': {}},
     )
     monkeypatch.setattr(
         review_env,
         'run_browser_phase',
-        lambda _path: calls.append('browser') or {
-            'browser_desktop': review_env.phase_result(status='passed', duration_ms=0, summary='desktop ok', failure_code=None, safe_diagnostics={}),
-            'browser_accessibility': review_env.phase_result(status='passed', duration_ms=0, summary='a11y ok', failure_code=None, safe_diagnostics={}),
-            'browser_console': review_env.phase_result(status='passed', duration_ms=0, summary='console ok', failure_code=None, safe_diagnostics={}),
-            'product_observations': review_env.phase_result(
-                status='passed',
-                duration_ms=0,
-                summary='product ok',
-                failure_code=None,
-                safe_diagnostics={
-                    'known_product_observations': [{
-                        'key': 'known-pr259-narrow-viewport-planner-overflow',
-                        'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
-                        'owner': 'PR #259',
-                    }],
-                    'unexpected_product_observations': [],
-                },
-            ),
-            'delta_503_fallback_correlation_verified': True,
-            'unexpected_console_errors': [],
-            'unexpected_api_errors': [],
-            'known_product_observations': [{
-                'key': 'known-pr259-narrow-viewport-planner-overflow',
-                'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
-                'owner': 'PR #259',
-            }],
-            'unexpected_product_observations': [],
-        },
+        lambda _run_dir, _selected, _registry: calls.append('browser') or _successful_browser_payload(),
     )
 
-    def _invoke_self(args: list[str]):
-        calls.append(args[0])
-        return {'ok': True}
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
 
-    monkeypatch.setattr(review_env, 'invoke_self_command', _invoke_self)
+        def stop_all(self) -> None:
+            calls.append('stop')
 
-    report = review_env.verify_review_environment()
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+
+    report = review_env.verify_review_environment(mode='full', scenario='all')
 
     assert report['ok'] is True
-    assert calls == ['static', 'stack', 'api', 'browser', 'down']
+    assert calls == ['static', 'stack', 'api', 'browser', 'stop', 'down']
     assert report['phase_results']['teardown']['status'] == 'passed'
 
 
 @pytest.mark.unit
-def test_verify_fails_before_stack_start_when_static_phase_fails(monkeypatch: pytest.MonkeyPatch):
+def test_verify_fails_before_stack_start_when_static_phase_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
     calls: list[str] = []
     baselines = iter((
         {'containers': [], 'volumes': []},
         {'containers': [], 'volumes': []},
     ))
 
-    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-static-fail'))
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-static-fail', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
     monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
 
     def _fail_static():
@@ -738,30 +931,104 @@ def test_verify_fails_before_stack_start_when_static_phase_fails(monkeypatch: py
         )
 
     monkeypatch.setattr(review_env, 'run_static_phase', _fail_static)
-    monkeypatch.setattr(
-        review_env,
-        'run_stack_phase',
-        lambda: pytest.fail('stack phase must not run after a static failure'),
-    )
-    monkeypatch.setattr(review_env, 'invoke_self_command', lambda args: calls.append(args[0]) or {'ok': True})
+    monkeypatch.setattr(review_env, 'run_stack_phase', lambda: pytest.fail('stack phase must not run after a static failure'))
 
-    report = review_env.verify_review_environment()
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
+
+        def stop_all(self) -> None:
+            calls.append('stop')
+
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+
+    report = review_env.verify_review_environment(mode='full', scenario='all')
 
     assert report['ok'] is False
-    assert calls == ['static', 'down']
+    assert calls == ['static', 'stop', 'down']
     assert report['phase_results']['static']['status'] == 'failed'
     assert report['phase_results']['stack']['status'] == 'skipped'
 
 
 @pytest.mark.unit
-def test_verify_runs_cleanup_after_browser_failure(monkeypatch: pytest.MonkeyPatch):
+def test_verify_skips_browser_when_stack_phase_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
     calls: list[str] = []
     baselines = iter((
         {'containers': [], 'volumes': []},
         {'containers': [], 'volumes': []},
     ))
 
-    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-browser-fail'))
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-stack-fail', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+    monkeypatch.setattr(
+        review_env,
+        'run_static_phase',
+        lambda: calls.append('static') or {'summary': 'static ok', 'static_test_count': 1, 'safe_diagnostics': {}},
+    )
+
+    def _fail_stack():
+        calls.append('stack')
+        raise review_env.ReviewEnvironmentError(
+            'stack broke',
+            failure_code='REVIEW_STACK_START_FAILED',
+            safe_diagnostics={'phase': 'stack'},
+        )
+
+    monkeypatch.setattr(review_env, 'run_stack_phase', _fail_stack)
+    monkeypatch.setattr(review_env, 'run_api_contract_phase', lambda *_args: pytest.fail('api phase must not run after stack failure'))
+    monkeypatch.setattr(review_env, 'run_browser_phase', lambda *_args: pytest.fail('browser phase must not run after stack failure'))
+
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
+
+        def stop_all(self) -> None:
+            calls.append('stop')
+
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+
+    report = review_env.verify_review_environment(mode='full', scenario='all')
+
+    assert report['ok'] is False
+    assert calls == ['static', 'stack', 'stop', 'down']
+    assert report['phase_results']['stack']['status'] == 'failed'
+    assert report['phase_results']['api_contracts']['status'] == 'skipped'
+    assert report['phase_results']['browser_desktop']['status'] == 'skipped'
+
+
+@pytest.mark.unit
+def test_verify_runs_cleanup_after_browser_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    calls: list[str] = []
+    baselines = iter((
+        {'containers': [], 'volumes': []},
+        {'containers': [], 'volumes': []},
+    ))
+
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-browser-fail', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
     monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
     monkeypatch.setattr(
         review_env,
@@ -776,36 +1043,116 @@ def test_verify_runs_cleanup_after_browser_failure(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(
         review_env,
         'run_api_contract_phase',
-        lambda: calls.append('api') or {'summary': 'api ok', 'safe_diagnostics': {}},
+        lambda _selected: calls.append('api') or {'summary': 'api ok', 'safe_diagnostics': {}},
     )
 
-    def _fail_browser(_path: Path):
+    def _fail_browser(_run_dir: Path, _selected, _registry):
         calls.append('browser')
         raise review_env.ReviewEnvironmentError(
             'browser broke',
-            failure_code='UNEXPECTED_BROWSER_CONSOLE_ERROR',
-            safe_diagnostics={'browser': 'error'},
+            failure_code='BROWSER_PHASE_TIMEOUT',
+            safe_diagnostics={'browser': 'timeout'},
         )
 
     monkeypatch.setattr(review_env, 'run_browser_phase', _fail_browser)
-    monkeypatch.setattr(review_env, 'invoke_self_command', lambda args: calls.append(args[0]) or {'ok': True})
 
-    report = review_env.verify_review_environment()
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
+
+        def stop_all(self) -> None:
+            calls.append('stop')
+
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+
+    report = review_env.verify_review_environment(mode='full', scenario='all')
 
     assert report['ok'] is False
-    assert calls == ['static', 'stack', 'api', 'browser', 'down']
+    assert calls == ['static', 'stack', 'api', 'browser', 'stop', 'down']
     assert report['phase_results']['browser_desktop']['status'] == 'failed'
     assert report['phase_results']['teardown']['status'] == 'passed'
 
 
 @pytest.mark.unit
-def test_verify_detects_docker_baseline_mismatch(monkeypatch: pytest.MonkeyPatch):
+def test_quick_verify_skips_browser_phases_but_runs_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    calls: list[str] = []
+    baselines = iter((
+        {'containers': [], 'volumes': []},
+        {'containers': [], 'volumes': []},
+    ))
+
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-quick', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
+    monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
+    monkeypatch.setattr(
+        review_env,
+        'run_static_phase',
+        lambda: calls.append('static') or {'summary': 'static ok', 'static_test_count': 1, 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_stack_phase',
+        lambda: calls.append('stack') or {'summary': 'stack ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_api_contract_phase',
+        lambda _selected: calls.append('api') or {'summary': 'api ok', 'safe_diagnostics': {}},
+    )
+    monkeypatch.setattr(
+        review_env,
+        'run_browser_phase',
+        lambda *_args, **_kwargs: pytest.fail('browser phase must not run in quick mode'),
+    )
+
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
+
+        def stop_all(self) -> None:
+            calls.append('stop')
+
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+
+    report = review_env.verify_review_environment(mode='quick', scenario='all')
+
+    assert report['ok'] is True
+    assert calls == ['static', 'stack', 'api', 'stop', 'down']
+    assert report['phase_results']['browser_desktop']['status'] == 'skipped'
+    assert report['phase_results']['product_observations']['status'] == 'skipped'
+
+
+@pytest.mark.unit
+def test_verify_detects_docker_baseline_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
     baselines = iter((
         {'containers': ['keep-me'], 'volumes': ['keep-volume']},
         {'containers': ['keep-me', 'extra-review-container'], 'volumes': ['keep-volume']},
     ))
 
-    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-baseline'))
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-baseline', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
     monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
     monkeypatch.setattr(
         review_env,
@@ -820,43 +1167,24 @@ def test_verify_detects_docker_baseline_mismatch(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(
         review_env,
         'run_api_contract_phase',
-        lambda: {'summary': 'api ok', 'safe_diagnostics': {}},
+        lambda _selected: {'summary': 'api ok', 'safe_diagnostics': {}},
     )
-    monkeypatch.setattr(
-        review_env,
-        'run_browser_phase',
-        lambda _path: {
-            'browser_desktop': review_env.phase_result(status='passed', duration_ms=0, summary='desktop ok', failure_code=None, safe_diagnostics={}),
-            'browser_accessibility': review_env.phase_result(status='passed', duration_ms=0, summary='a11y ok', failure_code=None, safe_diagnostics={}),
-            'browser_console': review_env.phase_result(status='passed', duration_ms=0, summary='console ok', failure_code=None, safe_diagnostics={}),
-            'product_observations': review_env.phase_result(
-                status='passed',
-                duration_ms=0,
-                summary='product ok',
-                failure_code=None,
-                safe_diagnostics={
-                    'known_product_observations': [{
-                        'key': 'known-pr259-narrow-viewport-planner-overflow',
-                        'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
-                        'owner': 'PR #259',
-                    }],
-                    'unexpected_product_observations': [],
-                },
-            ),
-            'delta_503_fallback_correlation_verified': True,
-            'unexpected_console_errors': [],
-            'unexpected_api_errors': [],
-            'known_product_observations': [{
-                'key': 'known-pr259-narrow-viewport-planner-overflow',
-                'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
-                'owner': 'PR #259',
-            }],
-            'unexpected_product_observations': [],
-        },
-    )
-    monkeypatch.setattr(review_env, 'invoke_self_command', lambda _args: {'ok': True})
+    monkeypatch.setattr(review_env, 'run_browser_phase', lambda *_args: _successful_browser_payload())
 
-    report = review_env.verify_review_environment()
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
+
+        def stop_all(self) -> None:
+            return None
+
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: {'ok': True})
+
+    report = review_env.verify_review_environment(mode='full', scenario='all')
 
     assert report['ok'] is False
     assert report['phase_results']['teardown']['status'] == 'failed'
@@ -916,7 +1244,7 @@ def test_unexpected_api_errors_fail_browser_console_phase():
         }
     )
     assert phase['status'] == 'failed'
-    assert phase['failure_code'] == 'UNEXPECTED_API_ERROR'
+    assert phase['failure_code'] == 'UNEXPECTED_BROWSER_NETWORK_ERROR'
 
 
 @pytest.mark.unit
@@ -1028,12 +1356,18 @@ def test_compare_docker_baseline_ignores_review_managed_resources():
 @pytest.mark.unit
 def test_verify_reports_known_product_observation_without_product_acceptance_readiness(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ):
     baselines = iter((
         {'containers': [], 'volumes': []},
         {'containers': [], 'volumes': []},
     ))
-    monkeypatch.setattr(review_env, 'prepare_verify_tmp_dir', lambda: Path('/tmp/edfinder-local-review/test-known-product-observation'))
+    monkeypatch.setattr(
+        review_env.reporting,
+        'create_verify_context',
+        lambda mode, selected: _FakeVerifyContext(tmp_path / 'verify-known-observation', mode, [scenario.name for scenario in selected]),
+    )
+    monkeypatch.setattr(review_env.reporting, 'write_verify_report', lambda _context, _report: None)
     monkeypatch.setattr(review_env, 'capture_docker_baseline', lambda: next(baselines))
     monkeypatch.setattr(
         review_env,
@@ -1048,35 +1382,28 @@ def test_verify_reports_known_product_observation_without_product_acceptance_rea
     monkeypatch.setattr(
         review_env,
         'run_api_contract_phase',
-        lambda: {'summary': 'api ok', 'safe_diagnostics': {}},
+        lambda _selected: {'summary': 'api ok', 'safe_diagnostics': {}},
     )
     monkeypatch.setattr(
         review_env,
         'run_browser_phase',
-        lambda _path: {
-            'browser_desktop': review_env.phase_result(status='passed', duration_ms=0, summary='desktop ok', failure_code=None, safe_diagnostics={}),
-            'browser_accessibility': review_env.phase_result(status='passed', duration_ms=0, summary='a11y ok', failure_code=None, safe_diagnostics={}),
-            'browser_console': review_env.phase_result(status='passed', duration_ms=0, summary='console ok', failure_code=None, safe_diagnostics={}),
-            'product_observations': review_env.phase_result(
-                status='passed',
-                duration_ms=0,
-                summary='known product observation recorded',
-                failure_code=None,
-                safe_diagnostics={
-                    'known_product_observations': [review_env.KNOWN_PRODUCT_OBSERVATIONS['known-pr259-narrow-viewport-planner-overflow']],
-                    'unexpected_product_observations': [],
-                },
-            ),
-            'delta_503_fallback_correlation_verified': True,
-            'unexpected_console_errors': [],
-            'unexpected_api_errors': [],
-            'known_product_observations': [review_env.KNOWN_PRODUCT_OBSERVATIONS['known-pr259-narrow-viewport-planner-overflow']],
-            'unexpected_product_observations': [],
-        },
+        lambda _run_dir, _selected, _registry: _successful_browser_payload(),
     )
-    monkeypatch.setattr(review_env, 'invoke_self_command', lambda _args: {'ok': True})
 
-    report = review_env.verify_review_environment()
+    class _Registry:
+        def __init__(self, _run_dir: Path):
+            pass
+
+        def stop_all(self) -> None:
+            return None
+
+        def safe_diagnostics(self) -> dict[str, object]:
+            return {'processes': []}
+
+    monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
+    monkeypatch.setattr(review_env, 'down_review_stack', lambda: {'ok': True})
+
+    report = review_env.verify_review_environment(mode='full', scenario='all')
 
     assert report['ok'] is True
     assert report['environment_ready'] is True
@@ -1085,7 +1412,7 @@ def test_verify_reports_known_product_observation_without_product_acceptance_rea
 
 @pytest.mark.unit
 def test_verify_diagnostics_root_is_tmp_only_and_not_repo_tracked():
-    source = _read(SCRIPT_DIR / 'review_environment.py')
+    source = _read(SCRIPT_DIR / 'review_lab' / 'contract.py')
     assert "/tmp/edfinder-local-review" in source
     assert "test-results/review-environment-summary.json" not in source
 
