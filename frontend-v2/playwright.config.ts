@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === '1';
+
 /**
  * Playwright config for ED Finder v2 E2E tests.
  *
@@ -36,7 +38,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
+  webServer: reviewLabRun ? undefined : {
     // `yarn preview` after `yarn build` — serves the production bundle.
     command: 'yarn preview --port 4173 --strictPort',
     url:     'http://localhost:4173',

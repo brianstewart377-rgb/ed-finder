@@ -2,17 +2,27 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 
-const OUTPUT_PATH = process.env.EDFINDER_REVIEW_OUTPUT_PATH
-  || path.join(process.cwd(), 'test-results', 'review-environment-summary.json');
-const SCENARIO_PLAN = parseScenarioPlan(process.env.EDFINDER_REVIEW_SCENARIOS_JSON);
+const REVIEW_LAB_RUN = process.env.EDFINDER_REVIEW_LAB_RUN === '1';
+const OUTPUT_PATH = process.env.EDFINDER_REVIEW_OUTPUT_PATH || '';
+const RAW_SCENARIO_PLAN = process.env.EDFINDER_REVIEW_SCENARIOS_JSON || '';
 const REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED = Boolean(process.env.EDFINDER_REVIEW_OUTPUT_PATH);
 const REVIEW_ENVIRONMENT_PLAN_CONFIGURED = Boolean(process.env.EDFINDER_REVIEW_SCENARIOS_JSON);
+const REVIEW_ENVIRONMENT_MARKER_CONFIGURED = REVIEW_LAB_RUN;
+
+function shouldSkipReviewLabCollector() {
+  return !REVIEW_ENVIRONMENT_MARKER_CONFIGURED
+    && !REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED
+    && !REVIEW_ENVIRONMENT_PLAN_CONFIGURED;
+}
 
 function reviewEnvironmentConfigError() {
-  if (REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED === REVIEW_ENVIRONMENT_PLAN_CONFIGURED) {
+  if (shouldSkipReviewLabCollector()) {
     return null;
   }
-  return 'Review Lab browser verification requires both EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.';
+  if (!REVIEW_ENVIRONMENT_MARKER_CONFIGURED || !REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED || !REVIEW_ENVIRONMENT_PLAN_CONFIGURED) {
+    return 'Review Lab browser verification requires EDFINDER_REVIEW_LAB_RUN=1 together with EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.';
+  }
+  return null;
 }
 
 const SYSTEMS = {
@@ -26,16 +36,16 @@ test.describe('Local review environment verification', () => {
   test('captures deterministic browser verification summary', async ({ page }) => {
     test.setTimeout(120_000);
     test.skip(
-      !REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED && !REVIEW_ENVIRONMENT_PLAN_CONFIGURED,
+      shouldSkipReviewLabCollector(),
       'Review Lab browser verification only runs under scripts/dev/review_environment.py verify --mode full.',
     );
     const configError = reviewEnvironmentConfigError();
-    if (configError) {
-      throw new Error(configError);
-    }
-
     const summary = {
-      selectedPlan: SCENARIO_PLAN,
+      summarySchemaVersion: 1,
+      reviewLabRun: REVIEW_LAB_RUN,
+      selectedScenarioNames: [],
+      browserFlowKeys: [],
+      selectedPlan: null,
       scenarios: {},
       accessibility: {},
       productObservations: [],
@@ -44,6 +54,18 @@ test.describe('Local review environment verification', () => {
       pageErrors: [],
       fatalError: null,
     };
+    if (configError) {
+      summary.fatalError = sanitizeText(configError);
+      if (REVIEW_ENVIRONMENT_OUTPUT_CONFIGURED) {
+        await writeSummary(OUTPUT_PATH, summary);
+      }
+      throw new Error(configError);
+    }
+    const scenarioPlan = parseScenarioPlan(RAW_SCENARIO_PLAN, { strict: true });
+    summary.selectedScenarioNames = scenarioPlan.selectedScenarioNames;
+    summary.browserFlowKeys = scenarioPlan.browserFlowKeys;
+    summary.selectedPlan = scenarioPlan;
+    await assertOutputPathWritable(OUTPUT_PATH);
 
     page.on('console', (message) => {
       summary.consoleEntries.push({
@@ -78,7 +100,7 @@ test.describe('Local review environment verification', () => {
 
     try {
       await clearState(page);
-      for (const flowKey of SCENARIO_PLAN.browserFlowKeys) {
+      for (const flowKey of scenarioPlan.browserFlowKeys) {
         if (flowKey === 'alpha') {
           await runAlphaScenario(page, summary);
         } else if (flowKey === 'beta') {
@@ -89,14 +111,14 @@ test.describe('Local review environment verification', () => {
           await runDeltaScenario(page, summary);
         }
       }
-      if (SCENARIO_PLAN.includeProductObservations) {
+      if (scenarioPlan.includeProductObservations) {
         await runMobileObservation(page, summary);
       }
     } catch (error) {
       summary.fatalError = sanitizeText(error?.stack || error?.message || String(error));
       throw error;
     } finally {
-      await writeSummary(summary);
+      await writeSummary(OUTPUT_PATH, summary);
     }
   });
 });
@@ -373,28 +395,38 @@ function apiPath(urlString) {
   return `${url.pathname}${url.search}`;
 }
 
-function parseScenarioPlan(rawValue) {
+function parseScenarioPlan(rawValue, options = {}) {
+  const strict = Boolean(options.strict);
   if (!rawValue) {
-    return {
-      selectedScenarioNames: ['planner_core'],
-      browserFlowKeys: ['alpha', 'beta', 'gamma', 'delta'],
-      includeProductObservations: true,
-    };
+    if (strict) {
+      throw new Error('Review Lab scenario plan is required.');
+    }
+    return defaultScenarioPlan();
   }
   try {
     const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed.selectedScenarioNames) || !Array.isArray(parsed.browserFlowKeys)) {
+      throw new Error('Review Lab scenario plan is malformed.');
+    }
     return {
-      selectedScenarioNames: Array.isArray(parsed.selectedScenarioNames) ? parsed.selectedScenarioNames : ['planner_core'],
-      browserFlowKeys: Array.isArray(parsed.browserFlowKeys) ? parsed.browserFlowKeys : ['alpha', 'beta', 'gamma', 'delta'],
+      selectedScenarioNames: parsed.selectedScenarioNames,
+      browserFlowKeys: parsed.browserFlowKeys,
       includeProductObservations: Boolean(parsed.includeProductObservations),
     };
   } catch {
-    return {
-      selectedScenarioNames: ['planner_core'],
-      browserFlowKeys: ['alpha', 'beta', 'gamma', 'delta'],
-      includeProductObservations: true,
-    };
+    if (strict) {
+      throw new Error('Review Lab scenario plan could not be parsed.');
+    }
+    return defaultScenarioPlan();
   }
+}
+
+function defaultScenarioPlan() {
+  return {
+    selectedScenarioNames: ['planner_core'],
+    browserFlowKeys: ['alpha', 'beta', 'gamma', 'delta'],
+    includeProductObservations: true,
+  };
 }
 
 function sanitizeText(value) {
@@ -404,7 +436,15 @@ function sanitizeText(value) {
     .slice(0, 500);
 }
 
-async function writeSummary(summary) {
-  await fs.mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
-  await fs.writeFile(OUTPUT_PATH, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+async function assertOutputPathWritable(outputPath) {
+  const directory = path.dirname(outputPath);
+  const probePath = path.join(directory, '.review-lab-write-probe');
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(probePath, 'ok\n', 'utf8');
+  await fs.unlink(probePath);
+}
+
+async function writeSummary(outputPath, summary) {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
 }

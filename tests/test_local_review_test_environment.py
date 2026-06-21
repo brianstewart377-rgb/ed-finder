@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from urllib.request import urlopen
@@ -18,6 +19,7 @@ SCRIPT_DIR = ROOT / 'scripts' / 'dev'
 DOC_PATH = ROOT / 'docs' / 'development' / 'local-review-test-environment.md'
 COMPOSE_PATH = ROOT / 'docker-compose.review.yml'
 FRONTEND_VITE_CONFIG = ROOT / 'frontend-v2' / 'vite.config.ts'
+FRONTEND_PLAYWRIGHT_CONFIG = ROOT / 'frontend-v2' / 'playwright.config.ts'
 FRONTEND_API = ROOT / 'frontend-v2' / 'src' / 'lib' / 'api.ts'
 PLANNER_WORKSPACE = ROOT / 'frontend-v2' / 'src' / 'features' / 'colony-planner' / 'ColonyPlannerWorkspace.tsx'
 REVIEW_LAB_WORKFLOW_PATH = ROOT / '.github' / 'workflows' / 'review-lab.yml'
@@ -737,6 +739,7 @@ def test_review_main_import_succeeds_only_with_exact_review_guards(monkeypatch: 
 @pytest.mark.unit
 def test_frontend_target_remains_compatible_with_review_api():
     vite_config = _read(FRONTEND_VITE_CONFIG)
+    playwright_config = _read(FRONTEND_PLAYWRIGHT_CONFIG)
     docs = _read(DOC_PATH)
     review_spec = _read(ROOT / 'frontend-v2' / 'e2e' / 'review-environment.spec.js')
     assert "|| 'http://127.0.0.1:8001';" in vite_config
@@ -749,8 +752,15 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'failure-only, sanitised Review Lab artifacts' in docs
     assert "PR `#259`'s narrow viewport" in docs
     assert 'test.skip(' in review_spec
+    assert 'EDFINDER_REVIEW_LAB_RUN' in review_spec
     assert 'EDFINDER_REVIEW_OUTPUT_PATH' in review_spec
     assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in review_spec
+    assert 'summarySchemaVersion' in review_spec
+    assert 'reviewLabRun' in review_spec
+    assert 'Review Lab browser verification requires EDFINDER_REVIEW_LAB_RUN=1 together with EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.' in review_spec
+    assert 'shouldSkipReviewLabCollector()' in review_spec
+    assert 'reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === \'1\'' in playwright_config
+    assert 'webServer: reviewLabRun ? undefined :' in playwright_config
 
 
 @pytest.mark.unit
@@ -1053,6 +1063,280 @@ def test_process_registry_inherits_host_env_and_records_only_review_owned_proces
     assert len(diagnostics['processes']) == 1
     assert diagnostics['processes'][0]['name'] == 'frontend-preview'
     assert diagnostics['processes'][0]['command'] == ['yarn', 'preview']
+
+
+def _valid_browser_summary(selected_scenarios: tuple[object, ...]) -> dict[str, object]:
+    flow_keys = list(review_env.browser_runner.selected_browser_flow_keys(selected_scenarios))
+    summary = {
+        'summarySchemaVersion': 1,
+        'reviewLabRun': True,
+        'selectedScenarioNames': [scenario.name for scenario in selected_scenarios],
+        'browserFlowKeys': flow_keys,
+        'selectedPlan': {
+            'selectedScenarioNames': [scenario.name for scenario in selected_scenarios],
+            'browserFlowKeys': flow_keys,
+            'includeProductObservations': True,
+        },
+        'scenarios': {
+            'alpha': {
+                'status': 'passed',
+                'checks': {
+                    'systemDetailLoaded': True,
+                    'plannerOpened': True,
+                    'reportOnlyBoundaryVisible': True,
+                    'canonicalBoundaryVisible': True,
+                },
+                'apiResponses': [],
+                'error': None,
+            },
+            'beta': {
+                'status': 'passed',
+                'checks': {
+                    'systemDetailLoaded': True,
+                    'plannerOpened': True,
+                    'unavailablePostureVisible': True,
+                },
+                'apiResponses': [],
+                'error': None,
+            },
+            'gamma': {
+                'status': 'passed',
+                'checks': {
+                    'systemDetailLoaded': True,
+                    'plannerOpened': True,
+                    'unknownPostureVisible': True,
+                },
+                'apiResponses': [],
+                'error': None,
+            },
+            'delta': {
+                'status': 'passed',
+                'checks': {
+                    'systemDetailLoaded': True,
+                    'plannerOpened': True,
+                    'provenanceFallbackVisible': True,
+                    'reportOnlyBoundaryVisible': True,
+                    'fallbackRemainsNonCanonical': True,
+                    'technicalFallbackDisclosureVisible': True,
+                    'noDedicatedEvidenceClaim': True,
+                    'noRecoveryScreen': True,
+                    'deltaDedicated503Seen': True,
+                    'deltaFallback200Seen': True,
+                },
+                'apiResponses': [
+                    {
+                        'method': 'GET',
+                        'path': '/api/colony-planner/system/7200000000004/warehouse-planner-evidence',
+                        'status': 503,
+                    },
+                    {
+                        'method': 'GET',
+                        'path': '/api/colony-planner/system/7200000000004/provenance-cockpit',
+                        'status': 200,
+                    },
+                ],
+                'error': None,
+            },
+        },
+        'accessibility': {
+            'modalEscapeCloseWorks': True,
+            'alphaKeyboardOpenPlannerWorks': True,
+            'mobileTelemetryToggleKeyboardWorks': True,
+        },
+        'productObservations': [],
+        'apiResponses': [
+            {
+                'method': 'GET',
+                'path': '/api/colony-planner/system/7200000000004/warehouse-planner-evidence',
+                'status': 503,
+            },
+            {
+                'method': 'GET',
+                'path': '/api/colony-planner/system/7200000000004/provenance-cockpit',
+                'status': 200,
+            },
+        ],
+        'consoleEntries': [],
+        'pageErrors': [],
+        'fatalError': None,
+    }
+    return summary
+
+
+@pytest.mark.unit
+def test_run_browser_phase_passes_review_lab_marker_and_validates_summary_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    selected = review_env.scenarios.resolve_scenarios('all')
+    subprocess_envs: list[dict[str, str]] = []
+    preview_envs: list[dict[str, str]] = []
+
+    def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
+        env = dict(env_overrides or {})
+        subprocess_envs.append(env)
+        if command[:3] == ['npx', 'playwright', 'test']:
+            output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
+            output_path.write_text(json.dumps(_valid_browser_summary(selected)), encoding='utf-8')
+        return subprocess.CompletedProcess(command, 0, stdout='1 passed\n', stderr='')
+
+    class _Registry:
+        def start(self, name, command, *, cwd, env, stdout_log_name, stderr_log_name):
+            preview_envs.append(dict(env))
+            return object()
+
+    monkeypatch.setattr(review_env.browser_runner, 'run_subprocess', _fake_run_subprocess)
+    monkeypatch.setattr(review_env.browser_runner, '_wait_for_preview_ready', lambda _timeout: None)
+    monkeypatch.setattr(review_env.browser_runner, '_port_available', lambda _port: True)
+
+    result = review_env.browser_runner.run_browser_phase(tmp_path, selected, _Registry())
+
+    assert result['browser_desktop']['status'] == 'passed'
+    assert result['delta_503_fallback_correlation_verified'] is True
+    assert len(subprocess_envs) == 2
+    assert all(env['EDFINDER_REVIEW_LAB_RUN'] == '1' for env in subprocess_envs)
+    assert all(env['EDFINDER_REVIEW_OUTPUT_PATH'].endswith('browser-summary.json') for env in subprocess_envs)
+    assert all(env['EDFINDER_REVIEW_SCENARIOS_JSON'] for env in subprocess_envs)
+    assert all(env['VITE_DEV_API_TARGET'] == 'http://127.0.0.1:8001' for env in subprocess_envs)
+    assert preview_envs[0]['EDFINDER_REVIEW_LAB_RUN'] == '1'
+    assert preview_envs[0]['VITE_DEV_API_TARGET'] == 'http://127.0.0.1:8001'
+
+
+@pytest.mark.unit
+def test_run_browser_phase_missing_summary_fails_with_bounded_configuration_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    selected = review_env.scenarios.resolve_scenarios('all')
+
+    def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout='',
+            stderr='Error: http://localhost:4173 is already used, make sure that nothing is running on the port/url or set reuseExistingServer:true in config.webServer.\n',
+        )
+
+    class _Registry:
+        def start(self, name, command, *, cwd, env, stdout_log_name, stderr_log_name):
+            return object()
+
+    monkeypatch.setattr(review_env.browser_runner, 'run_subprocess', _fake_run_subprocess)
+    monkeypatch.setattr(review_env.browser_runner, '_wait_for_preview_ready', lambda _timeout: None)
+    monkeypatch.setattr(review_env.browser_runner, '_port_available', lambda _port: True)
+
+    with pytest.raises(review_env.ReviewEnvironmentError) as exc_info:
+        review_env.browser_runner.run_browser_phase(tmp_path, selected, _Registry())
+
+    error = exc_info.value
+    assert error.failure_code == 'BROWSER_SUMMARY_MISSING'
+    assert error.safe_diagnostics == {
+        'playwright_return_code': 1,
+        'review_marker_present': True,
+        'output_path_configured': True,
+        'scenario_plan_configured': True,
+        'summary_exists': False,
+        'summary_schema_valid': False,
+        'stdout_status_hint': 'none',
+        'stderr_status_hint': 'playwright_web_server_conflict',
+    }
+
+
+@pytest.mark.unit
+def test_run_browser_phase_invalid_summary_fails_handshake_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    selected = review_env.scenarios.resolve_scenarios('all')
+
+    def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
+        env = dict(env_overrides or {})
+        if command[:3] == ['npx', 'playwright', 'test']:
+            output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
+            invalid = _valid_browser_summary(selected)
+            invalid['reviewLabRun'] = False
+            output_path.write_text(json.dumps(invalid), encoding='utf-8')
+        return subprocess.CompletedProcess(command, 0, stdout='1 skipped\n', stderr='')
+
+    class _Registry:
+        def start(self, name, command, *, cwd, env, stdout_log_name, stderr_log_name):
+            return object()
+
+    monkeypatch.setattr(review_env.browser_runner, 'run_subprocess', _fake_run_subprocess)
+    monkeypatch.setattr(review_env.browser_runner, '_wait_for_preview_ready', lambda _timeout: None)
+    monkeypatch.setattr(review_env.browser_runner, '_port_available', lambda _port: True)
+
+    with pytest.raises(review_env.ReviewEnvironmentError) as exc_info:
+        review_env.browser_runner.run_browser_phase(tmp_path, selected, _Registry())
+
+    error = exc_info.value
+    assert error.failure_code == 'BROWSER_RUNNER_CONFIGURATION_FAILED'
+    assert error.safe_diagnostics == {
+        'playwright_return_code': 0,
+        'review_marker_present': True,
+        'output_path_configured': True,
+        'scenario_plan_configured': True,
+        'summary_exists': True,
+        'summary_schema_valid': False,
+        'stdout_status_hint': 'test_skipped',
+        'stderr_status_hint': 'none',
+    }
+
+
+@pytest.mark.unit
+def test_run_browser_phase_rejects_mismatched_summary_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    selected = review_env.scenarios.resolve_scenarios('all')
+
+    def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
+        env = dict(env_overrides or {})
+        if command[:3] == ['npx', 'playwright', 'test']:
+            output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
+            invalid = _valid_browser_summary(selected)
+            invalid['selectedScenarioNames'] = ['planner_core']
+            output_path.write_text(json.dumps(invalid), encoding='utf-8')
+        return subprocess.CompletedProcess(command, 0, stdout='1 passed\n', stderr='')
+
+    class _Registry:
+        def start(self, name, command, *, cwd, env, stdout_log_name, stderr_log_name):
+            return object()
+
+    monkeypatch.setattr(review_env.browser_runner, 'run_subprocess', _fake_run_subprocess)
+    monkeypatch.setattr(review_env.browser_runner, '_wait_for_preview_ready', lambda _timeout: None)
+    monkeypatch.setattr(review_env.browser_runner, '_port_available', lambda _port: True)
+
+    with pytest.raises(review_env.ReviewEnvironmentError, match='handshake validation'):
+        review_env.browser_runner.run_browser_phase(tmp_path, selected, _Registry())
+
+
+@pytest.mark.unit
+def test_run_browser_phase_rejects_mismatched_summary_flow_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    selected = review_env.scenarios.resolve_scenarios('all')
+
+    def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
+        env = dict(env_overrides or {})
+        if command[:3] == ['npx', 'playwright', 'test']:
+            output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
+            invalid = _valid_browser_summary(selected)
+            invalid['browserFlowKeys'] = ['alpha']
+            output_path.write_text(json.dumps(invalid), encoding='utf-8')
+        return subprocess.CompletedProcess(command, 0, stdout='1 passed\n', stderr='')
+
+    class _Registry:
+        def start(self, name, command, *, cwd, env, stdout_log_name, stderr_log_name):
+            return object()
+
+    monkeypatch.setattr(review_env.browser_runner, 'run_subprocess', _fake_run_subprocess)
+    monkeypatch.setattr(review_env.browser_runner, '_wait_for_preview_ready', lambda _timeout: None)
+    monkeypatch.setattr(review_env.browser_runner, '_port_available', lambda _port: True)
+
+    with pytest.raises(review_env.ReviewEnvironmentError, match='handshake validation'):
+        review_env.browser_runner.run_browser_phase(tmp_path, selected, _Registry())
 
 
 @pytest.mark.unit

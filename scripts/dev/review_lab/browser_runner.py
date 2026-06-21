@@ -8,7 +8,14 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from .contract import EXPECTED_FRONTEND_PREVIEW_PORT, FRONTEND_DIR, VERIFY_BROWSER_SPEC, ReviewLabError
+from .contract import (
+    EXPECTED_FRONTEND_PREVIEW_PORT,
+    FRONTEND_DIR,
+    REVIEW_LAB_BROWSER_MARKER,
+    REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION,
+    VERIFY_BROWSER_SPEC,
+    ReviewLabError,
+)
 from .lifecycle import review_api_origin, review_preview_origin, run_subprocess
 from .network_policy import (
     evaluate_browser_console,
@@ -127,6 +134,71 @@ def _port_available(port: int) -> bool:
         return sock.connect_ex(('127.0.0.1', port)) != 0
 
 
+def _playwright_status_hint(text: str) -> str:
+    lowered = (text or '').lower()
+    if not lowered.strip():
+        return 'none'
+    if 'already used' in lowered and 'reuseexistingserver' in lowered:
+        return 'playwright_web_server_conflict'
+    if 'no tests found' in lowered:
+        return 'no_tests_found'
+    if '1 skipped' in lowered or 'skipped' in lowered:
+        return 'test_skipped'
+    if 'review lab browser verification requires' in lowered or 'edfinder_review_lab_run' in lowered:
+        return 'review_lab_configuration_error'
+    if 'error:' in lowered:
+        return 'playwright_error'
+    return 'unknown'
+
+
+def _browser_runner_diagnostics(
+    *,
+    completed: Any,
+    review_marker_present: bool,
+    output_path_configured: bool,
+    scenario_plan_configured: bool,
+    summary_exists: bool,
+    summary_schema_valid: bool,
+) -> dict[str, Any]:
+    return {
+        'playwright_return_code': completed.returncode if completed is not None else None,
+        'review_marker_present': review_marker_present,
+        'output_path_configured': output_path_configured,
+        'scenario_plan_configured': scenario_plan_configured,
+        'summary_exists': summary_exists,
+        'summary_schema_valid': summary_schema_valid,
+        'stdout_status_hint': _playwright_status_hint(getattr(completed, 'stdout', '') if completed is not None else ''),
+        'stderr_status_hint': _playwright_status_hint(getattr(completed, 'stderr', '') if completed is not None else ''),
+    }
+
+
+def _validate_browser_summary(summary: Any, selected_scenarios: tuple[ScenarioDefinition, ...]) -> None:
+    expected_scenarios = [scenario.name for scenario in selected_scenarios]
+    expected_flow_keys = list(selected_browser_flow_keys(selected_scenarios))
+    required_sections = {
+        'scenarios': dict,
+        'accessibility': dict,
+        'productObservations': list,
+        'apiResponses': list,
+        'consoleEntries': list,
+        'pageErrors': list,
+    }
+    schema_valid = (
+        isinstance(summary, dict)
+        and summary.get('summarySchemaVersion') == REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION
+        and summary.get('reviewLabRun') is True
+        and summary.get('selectedScenarioNames') == expected_scenarios
+        and summary.get('browserFlowKeys') == expected_flow_keys
+        and all(isinstance(summary.get(key), expected_type) for key, expected_type in required_sections.items())
+        and 'fatalError' in summary
+    )
+    if not schema_valid:
+        raise ReviewLabError(
+            'Browser verification summary failed the Review Lab handshake validation.',
+            failure_code='BROWSER_RUNNER_CONFIGURATION_FAILED',
+        )
+
+
 def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinition, ...], registry: ReviewProcessRegistry) -> dict[str, Any]:
     if not VERIFY_BROWSER_SPEC.is_file():
         raise ReviewLabError(
@@ -149,6 +221,7 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
     }
     (run_dir / 'browser-plan.json').write_text(json.dumps(browser_plan, indent=2, sort_keys=True) + '\n', encoding='utf-8')
     env = {
+        REVIEW_LAB_BROWSER_MARKER: '1',
         'EDFINDER_REVIEW_OUTPUT_PATH': str(output_path),
         'EDFINDER_REVIEW_SCENARIOS_JSON': json.dumps(browser_plan, sort_keys=True),
         'VITE_DEV_API_TARGET': review_api_origin(),
@@ -170,7 +243,7 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         stderr_log_name='frontend-preview.stderr.log',
     )
     _wait_for_preview_ready(TIMEOUTS.preview_readiness)
-    run_subprocess(
+    completed = run_subprocess(
         ['npx', 'playwright', 'test', 'e2e/review-environment.spec.js', '--config', 'playwright.config.ts', '--project', 'chromium', '--reporter=line'],
         cwd=FRONTEND_DIR,
         env_overrides=env,
@@ -181,11 +254,47 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
     if not output_path.is_file():
         raise ReviewLabError(
             'Browser verification did not produce a structured summary.',
-            failure_code='BROWSER_JOURNEY_FAILED',
-            safe_diagnostics={'artifact': 'browser-summary.json'},
+            failure_code='BROWSER_SUMMARY_MISSING',
+            safe_diagnostics=_browser_runner_diagnostics(
+                completed=completed,
+                review_marker_present=env.get(REVIEW_LAB_BROWSER_MARKER) == '1',
+                output_path_configured=bool(env.get('EDFINDER_REVIEW_OUTPUT_PATH')),
+                scenario_plan_configured=bool(env.get('EDFINDER_REVIEW_SCENARIOS_JSON')),
+                summary_exists=False,
+                summary_schema_valid=False,
+            ),
         )
 
-    summary = json.loads(output_path.read_text(encoding='utf-8'))
+    try:
+        summary = json.loads(output_path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as exc:
+        raise ReviewLabError(
+            'Browser verification summary was not valid JSON.',
+            failure_code='BROWSER_RUNNER_CONFIGURATION_FAILED',
+            safe_diagnostics=_browser_runner_diagnostics(
+                completed=completed,
+                review_marker_present=env.get(REVIEW_LAB_BROWSER_MARKER) == '1',
+                output_path_configured=bool(env.get('EDFINDER_REVIEW_OUTPUT_PATH')),
+                scenario_plan_configured=bool(env.get('EDFINDER_REVIEW_SCENARIOS_JSON')),
+                summary_exists=True,
+                summary_schema_valid=False,
+            ),
+        ) from exc
+    try:
+        _validate_browser_summary(summary, selected_scenarios)
+    except ReviewLabError as exc:
+        raise ReviewLabError(
+            str(exc),
+            failure_code=exc.failure_code,
+            safe_diagnostics=_browser_runner_diagnostics(
+                completed=completed,
+                review_marker_present=env.get(REVIEW_LAB_BROWSER_MARKER) == '1',
+                output_path_configured=bool(env.get('EDFINDER_REVIEW_OUTPUT_PATH')),
+                scenario_plan_configured=bool(env.get('EDFINDER_REVIEW_SCENARIOS_JSON')),
+                summary_exists=True,
+                summary_schema_valid=False,
+            ),
+        ) from exc
     desktop_phase = evaluate_browser_desktop(summary, selected_scenarios)
     accessibility_phase = evaluate_browser_accessibility(summary, selected_scenarios)
     console_phase = evaluate_browser_console(summary)
