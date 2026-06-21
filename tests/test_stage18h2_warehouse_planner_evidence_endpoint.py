@@ -62,7 +62,7 @@ def test_stage18h2_authority_records_readonly_endpoint_scaffold():
 
 
 @pytest.mark.unit
-def test_stage18h2_backend_builder_returns_report_only_and_safe_unavailable_states(monkeypatch: pytest.MonkeyPatch):
+def test_stage18h2_backend_builder_returns_conservative_states_without_runtime_fixtures(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         backend,
         'read_warehouse_status_snapshot',
@@ -75,33 +75,21 @@ def test_stage18h2_backend_builder_returns_report_only_and_safe_unavailable_stat
             'warnings': [],
         },
     )
-    fixtures = backend.DEVELOPMENT_FIXTURE_SYSTEMS
-    monkeypatch.setattr(
-        backend,
-        'resolve_runtime_warehouse_fixture',
-        lambda id64: fixtures.get(id64),
-    )
 
-    available = backend.build_warehouse_planner_evidence(12866676218109)
-    stale = backend.build_warehouse_planner_evidence(9466842275401)
+    known_system = backend.build_warehouse_planner_evidence(12866676218109)
     fallback = backend.build_warehouse_planner_evidence(42)
 
-    assert available.schema_version == 'warehouse_planner_evidence/v1'
-    assert available.system_id64 == 12866676218109
-    assert available.freshness.status == 'fresh'
-    assert available.freshness.evaluated_at == '2026-06-17T12:00:00Z'
-    assert available.source_run.source_name == 'warehouse_reconciliation'
-    assert available.source_run.run_key == 'warehouse/run-20260617.json'
-    assert available.evidence_summary.availability == 'report_only'
-    assert available.evidence_summary.report_only is True
-    assert available.evidence_summary.manual_review_required is False
-    assert available.evidence_summary.items
-    assert any('non-live example data' in warning.lower() for warning in available.warnings)
-
-    assert stale.evidence_summary.availability == 'report_only'
-    assert stale.evidence_summary.manual_review_required is True
-    assert stale.freshness.status == 'stale'
-    assert any(item.label == 'stale' for item in stale.evidence_summary.items)
+    assert known_system.schema_version == 'warehouse_planner_evidence/v1'
+    assert known_system.system_id64 == 12866676218109
+    assert known_system.source_run.source_name == 'warehouse_reconciliation'
+    assert known_system.source_run.run_key == 'warehouse/run-20260617.json'
+    assert known_system.evidence_summary.availability == 'unavailable'
+    assert known_system.evidence_summary.report_only is True
+    assert known_system.evidence_summary.manual_review_required is True
+    assert known_system.evidence_summary.items == []
+    assert known_system.freshness.status == 'not_evaluated'
+    assert known_system.freshness.evaluated_at is None
+    assert all('non-live example data' not in warning.lower() for warning in known_system.warnings)
 
     assert fallback.evidence_summary.availability == 'unavailable'
     assert fallback.evidence_summary.report_only is True

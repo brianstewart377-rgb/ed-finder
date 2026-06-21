@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -15,16 +17,24 @@ DOC_PATH = ROOT / 'docs' / 'development' / 'local-review-test-environment.md'
 COMPOSE_PATH = ROOT / 'docker-compose.review.yml'
 FRONTEND_VITE_CONFIG = ROOT / 'frontend-v2' / 'vite.config.ts'
 
+os.environ.setdefault('CORS_ORIGINS', 'https://example.com')
+
 for path in (ROOT, API_SRC, SCRIPT_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
 import review_environment as review_env  # noqa: E402
+import provenance_cockpit as normal_provenance_backend  # noqa: E402
+import review_provenance_cockpit as review_provenance_backend  # noqa: E402
+import review_warehouse_planner_evidence as review_warehouse_backend  # noqa: E402
+import warehouse_planner_evidence as normal_warehouse_backend  # noqa: E402
 from review_environment_fixtures import (  # noqa: E402
     REQUIRED_REVIEW_SYSTEM_NAMES,
     REVIEW_PROVENANCE_CONTRACTS,
     REVIEW_SYSTEMS,
     REVIEW_WAREHOUSE_CONTRACTS,
+    review_provenance_contract_key,
+    review_warehouse_contract_key,
 )
 from review_runtime_guard import (  # noqa: E402
     EXPECTED_REVIEW_DATABASE_HOST,
@@ -34,6 +44,13 @@ from review_runtime_guard import (  # noqa: E402
     ReviewRuntimeGuardError,
     validate_review_runtime_env,
 )
+from routers import provenance_cockpit as normal_provenance_router  # noqa: E402
+from routers import warehouse_planner_evidence as normal_warehouse_router  # noqa: E402
+from warehouse_planner_evidence_models import (  # noqa: E402
+    WarehousePlannerEvidenceBoundedStaging,
+    WarehousePlannerEvidenceItem,
+)
+from warehouse_planner_evidence_provider import LivePlannerEvidenceResult  # noqa: E402
 
 
 def _read(path: Path) -> str:
@@ -42,6 +59,56 @@ def _read(path: Path) -> str:
 
 def _service_block(service_name: str) -> str:
     return review_env.extract_service_block(_read(COMPOSE_PATH), service_name)
+
+
+class _FakeAcquire:
+    def __init__(self, conn: object):
+        self._conn = conn
+
+    async def __aenter__(self) -> object:
+        return self._conn
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+class _FakeAppMetaConnection:
+    def __init__(self, payload_by_key: dict[str, str]):
+        self._payload_by_key = payload_by_key
+
+    async def fetchval(self, query: str, key: str) -> str | None:
+        assert 'SELECT value FROM app_meta WHERE key = $1' in query
+        return self._payload_by_key.get(key)
+
+
+class _FakePool:
+    def __init__(self, conn: _FakeAppMetaConnection):
+        self._conn = conn
+
+    def acquire(self) -> _FakeAcquire:
+        return _FakeAcquire(self._conn)
+
+
+def _review_runtime_env() -> dict[str, str]:
+    return {
+        'ED_FINDER_REVIEW_STACK_MARKER': EXPECTED_REVIEW_STACK_MARKER,
+        'DATABASE_URL': 'postgresql://review_user:review_password@review-postgres:5432/edfinder_local_review',
+        'REDIS_URL': 'redis://review-redis:6379/0',
+        'CORS_ORIGINS': 'http://127.0.0.1:3000',
+    }
+
+
+def _import_review_main_with_env(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]):
+    for key in ('ED_FINDER_REVIEW_STACK_MARKER', 'DATABASE_URL', 'REDIS_URL', 'CORS_ORIGINS'):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    sys.modules.pop('review_main', None)
+    importlib.invalidate_caches()
+    try:
+        return importlib.import_module('review_main')
+    finally:
+        sys.modules.pop('review_main', None)
 
 
 @pytest.mark.unit
@@ -103,10 +170,18 @@ def test_normal_api_route_modules_contain_no_review_fixture_wiring():
     warehouse_source = _read(API_SRC / 'warehouse_planner_evidence.py')
     provenance_source = _read(API_SRC / 'provenance_cockpit.py')
     main_source = _read(API_SRC / 'main.py')
+    warehouse_router_source = _read(API_SRC / 'routers' / 'warehouse_planner_evidence.py')
+    provenance_router_source = _read(API_SRC / 'routers' / 'provenance_cockpit.py')
     assert 'review_environment_fixtures' not in warehouse_source
     assert 'review_environment_fixtures' not in provenance_source
     assert 'REVIEW_WAREHOUSE_CONTRACTS' not in warehouse_source
     assert 'REVIEW_PROVENANCE_CONTRACTS' not in provenance_source
+    assert 'ED_FINDER_ENABLE_PLANNER_EVIDENCE_DEV_FIXTURES' not in warehouse_source
+    assert 'ED_FINDER_ENABLE_PLANNER_EVIDENCE_DEV_FIXTURES' not in provenance_source
+    assert 'resolve_runtime_warehouse_fixture' not in warehouse_source
+    assert 'resolve_runtime_provenance_fixture' not in provenance_source
+    assert 'review_' not in warehouse_router_source
+    assert 'review_' not in provenance_router_source
     assert 'review_main' not in main_source
 
 
@@ -139,6 +214,121 @@ def test_review_only_entrypoint_isolated_from_normal_runtime():
     assert 'review_provenance_cockpit_router' in review_main_source
     assert 'review_warehouse_planner_evidence_router' in review_main_source
     assert 'routers.events' not in review_main_source
+
+
+@pytest.mark.asyncio
+async def test_normal_runtime_warehouse_route_ignores_legacy_fixture_flag(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv('ED_FINDER_ENABLE_PLANNER_EVIDENCE_DEV_FIXTURES', '1')
+
+    async def _fake_live_result(_pool, _id64: int) -> LivePlannerEvidenceResult:
+        return LivePlannerEvidenceResult(
+            availability='report_only',
+            envelope_status='available',
+            items=[
+                WarehousePlannerEvidenceItem(
+                    label='report_only',
+                    source='canonical',
+                    summary='Canonical planner data remains the truth source.',
+                ),
+            ],
+            freshness_status='not_evaluated',
+            evaluated_at='2026-06-21T12:00:00Z',
+            manual_review_required=True,
+            bounded_staging=WarehousePlannerEvidenceBoundedStaging(
+                status='not_evaluated',
+                report_only=True,
+                bounded_staging_only=True,
+                source_name=None,
+                source_batch_label=None,
+                source_sha256=None,
+                source_run_key=None,
+                bridge_key=None,
+                row_limit=None,
+                available_row_limits=[],
+                matched_row_count=None,
+                latest_source_updated_at=None,
+                summary='No approved bounded staging evidence is linked for this system.',
+            ),
+            warnings=['Planner fallback remains in place.'],
+        )
+
+    monkeypatch.setattr(normal_warehouse_router, 'load_live_planner_evidence', _fake_live_result)
+    monkeypatch.setattr(
+        normal_warehouse_backend,
+        'read_warehouse_status_snapshot',
+        lambda _path: {
+            'available': True,
+            'artifact': {'file_name': 'warehouse-status.json', 'updated_at': '2026-06-21T12:00:00Z'},
+            'latest_reconciliation_run': {'report_file_name': 'run-20260621.json'},
+            'warnings': [],
+        },
+    )
+
+    response = await normal_warehouse_router.warehouse_planner_evidence(id64=7200000000001, pool=object())
+
+    assert response.evidence_envelope.status == 'available'
+    assert response.evidence_summary.items[0].source == 'canonical'
+    assert all('review alpha' not in warning.lower() for warning in response.warnings)
+    assert all('development fixture evidence' not in warning.lower() for warning in response.warnings)
+
+
+@pytest.mark.asyncio
+async def test_normal_runtime_provenance_route_ignores_legacy_fixture_flag(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv('ED_FINDER_ENABLE_PLANNER_EVIDENCE_DEV_FIXTURES', '1')
+    normal_provenance_backend._load_authority_snapshot.cache_clear()
+
+    response = await normal_provenance_router.provenance_cockpit(7200000000001)
+
+    assert response.provenance_summary.state == 'unknown'
+    assert response.system.name is None
+    assert response.evidence_panels.source_run.source_name is None
+    assert all('development fixture evidence' not in warning.lower() for warning in response.warnings)
+    normal_provenance_backend._load_authority_snapshot.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_review_runtime_can_load_synthetic_review_contracts_from_review_db():
+    warehouse_payload = json.dumps(REVIEW_WAREHOUSE_CONTRACTS[7200000000001], sort_keys=True)
+    provenance_payload = json.dumps(REVIEW_PROVENANCE_CONTRACTS[7200000000001], sort_keys=True)
+    pool = _FakePool(
+        _FakeAppMetaConnection(
+            {
+                review_warehouse_contract_key(7200000000001): warehouse_payload,
+                review_provenance_contract_key(7200000000001): provenance_payload,
+            }
+        )
+    )
+
+    warehouse_response = await review_warehouse_backend.warehouse_planner_evidence(7200000000001, pool=pool)
+    provenance_response = await review_provenance_backend.provenance_cockpit(7200000000001, pool=pool)
+
+    assert warehouse_response.system_id64 == 7200000000001
+    assert warehouse_response.evidence_envelope.status == 'available'
+    assert provenance_response.system.name == 'Review Alpha'
+    assert provenance_response.provenance_summary.state == 'available'
+
+
+def test_review_main_import_succeeds_only_with_exact_review_guards(monkeypatch: pytest.MonkeyPatch):
+    module = _import_review_main_with_env(monkeypatch, _review_runtime_env())
+    assert module.app.title == 'ED Finder Review API'
+
+    with pytest.raises(ReviewRuntimeGuardError, match='marker'):
+        _import_review_main_with_env(
+            monkeypatch,
+            {
+                **_review_runtime_env(),
+                'ED_FINDER_REVIEW_STACK_MARKER': '',
+            },
+        )
+
+    with pytest.raises(ReviewRuntimeGuardError, match='database host'):
+        _import_review_main_with_env(
+            monkeypatch,
+            {
+                **_review_runtime_env(),
+                'DATABASE_URL': 'postgresql://review_user:review_password@127.0.0.1:5432/edfinder_local_review',
+            },
+        )
 
 
 @pytest.mark.unit
