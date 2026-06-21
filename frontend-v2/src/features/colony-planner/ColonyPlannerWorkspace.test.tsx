@@ -453,6 +453,10 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
     expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();
+    expect(screen.getByTestId('raven-real-planner-scroll-region').className).toContain('overflow-x-hidden');
+    expect(screen.getByTestId('raven-real-planner-scroll-region').className).toContain('lg:overflow-x-auto');
+    expect(screen.getByTestId('raven-real-planner-grid-frame').className).toContain('min-w-0');
+    expect(screen.getByTestId('raven-real-planner-grid-frame').className).toContain('lg:min-w-[860px]');
     expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
     expect(screen.getByTestId('workspace-planner-content').getAttribute('data-readability')).toBe('stage17n');
     expect(screen.getByTestId('workspace-planner-content').getAttribute('data-layout')).toBe('main-system-canvas');
@@ -468,13 +472,10 @@ describe('ColonyPlannerWorkspace', () => {
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
     expect(screen.getByTestId('planner-evidence-discoverability-surface')).toBeTruthy();
     expect(screen.getByTestId('planner-evidence-discoverability-summary').textContent).toContain(
-      'Available. Selected-system evidence is present as read-only review context only.',
+      'Selected-system evidence stays separate from canonical planner truth.',
     );
-    expect(screen.getByTestId('planner-evidence-discoverability-highlights').textContent).toContain(
-      'Dedicated contract preferred',
-    );
-    expect(screen.getByTestId('planner-evidence-discoverability-highlights').textContent).toContain(
-      'Planner truth stays canonical',
+    expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
+      'Selected-system evidence is available as review context. Your plan still uses canonical planner data.',
     );
     expect(await screen.findByText(/Canonical app data for Workspace System includes 2 bodies and 1 stations\./i)).toBeTruthy();
     expect(await screen.findByText(/Observed evidence includes 3 persisted facts/i)).toBeTruthy();
@@ -524,6 +525,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
     expect(screen.queryByText('Body slot planner')).toBeNull();
     expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
+    expect(screen.getByTestId('raven-real-body-row-body1').firstElementChild?.className).toContain('grid-cols-1');
+    expect(screen.getByTestId('raven-real-body-row-body1').firstElementChild?.className).toContain('lg:[grid-template-columns:280px_minmax(300px,1fr)_minmax(320px,1.05fr)]');
     expect((screen.getByTestId('body1-ground-add') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByTestId('slot-lane-flex')).toBeNull();
     expect(screen.queryByTestId('slot-lane-add-flex')).toBeNull();
@@ -646,9 +649,8 @@ describe('ColonyPlannerWorkspace', () => {
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
     expect(await screen.findByTestId('planner-evidence-discoverability-surface')).toBeTruthy();
-    expect(await screen.findByTestId('warehouse-evidence-envelope-status-unavailable')).toBeTruthy();
-    expect(screen.getByTestId('planner-evidence-discoverability-summary').textContent).toContain(
-      'Unavailable. No approved bounded staging evidence is linked to this selected system.',
+    expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
+      'No approved selected-system evidence is linked here. Continue planning with canonical data.',
     );
     expect((await screen.findByTestId('warehouse-evidence-unavailable')).textContent).toContain(
       'No approved bounded staging evidence is linked to this selected system.',
@@ -671,9 +673,8 @@ describe('ColonyPlannerWorkspace', () => {
     await renderPlanner();
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
-    expect(await screen.findByTestId('warehouse-evidence-envelope-status-unknown')).toBeTruthy();
-    expect(screen.getByTestId('planner-evidence-discoverability-summary').textContent).toContain(
-      'Unknown. Selected-system evidence has not been established.',
+    expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
+      'Selected-system evidence has not been established. Continue with canonical planner data.',
     );
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
   });

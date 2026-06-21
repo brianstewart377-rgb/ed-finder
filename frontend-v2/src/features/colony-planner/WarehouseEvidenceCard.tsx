@@ -9,6 +9,9 @@ import type {
   WarehousePlannerEvidenceFreshnessStatus,
   WarehouseEvidenceSource,
 } from '@/types/api';
+import { EvidencePostureSummary } from '@/components/EvidencePostureSummary';
+import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
+import { evidenceEnvelopeStatusLabel, evidencePostureContent } from '@/lib/evidenceLanguage';
 
 /**
  * Stage 18H — Warehouse-to-Planner Evidence Bridge (read-only).
@@ -121,194 +124,227 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
     boundedStagingOnly: true,
   };
   const warnings = evidence?.warnings ?? [];
-  const statusDetail = statusDetailCopy(evidenceEnvelope.status, boundedStaging.status);
+  const posture = evidencePostureContent(evidenceEnvelope.status, {
+    freshnessStatus: freshness,
+    manualReviewRequired: evidence?.manualReviewRequired,
+    boundedStagingStatus: boundedStaging.status,
+  });
   const boundedStagingLimit = boundedStaging.rowLimit != null
     ? `Limited to approved Stage 19BB row-cap evidence (limit ${boundedStaging.rowLimit}).`
     : 'Limited to approved Stage 19BB row-cap evidence.';
-  const discoverabilityHighlights = [
-    evidenceEnvelope.selectedSystemOnly ? 'Selected-system only' : null,
-    evidenceEnvelope.reportOnly ? 'Report-only review context' : null,
-    evidenceEnvelope.claimsCanonicalTruth === false ? 'Not canonical truth' : null,
-    evidenceEnvelope.claimsFullCoverage === false ? 'Not full EDSM coverage' : null,
-  ].filter(Boolean) as string[];
+  const sourcePostureLabel = SOURCE_POSTURE_LABEL[sourcePosture];
 
   return (
     <aside
       data-testid="planner-warehouse-evidence"
       aria-label="Planner evidence (report-only)"
-      className="panel-thin p-3 font-mono text-[11px] text-silver-dk space-y-2"
+      className="rounded-chunk-lg border border-border bg-bg2 p-4 font-mono text-[11px] text-silver-dk shadow-[0_16px_40px_-28px_rgba(0,0,0,0.75)] space-y-4"
     >
-      <div className="flex items-center gap-2">
-        <span className="font-display tracking-[0.14em] text-orange-lt text-xs">
-          Planner evidence
-        </span>
-        <span
-          data-testid="warehouse-evidence-report-only-tag"
-          className="px-1.5 py-0.5 rounded border border-border bg-bg4 text-[9px] uppercase tracking-wider text-text-dim"
-        >
-          Report-only
-        </span>
-      </div>
+      <EvidencePostureSummary
+        title="Planner evidence"
+        statusLabel={posture.badgeLabel}
+        statusTone={posture.badgeTone}
+        summary={posture.summary}
+        nextAction={posture.nextAction}
+        plannerBoundary={posture.plannerBoundary}
+        caution={posture.caution}
+        testIdPrefix="warehouse-evidence"
+        highlights={(
+          <>
+            {evidenceEnvelope.reportOnly ? (
+              <SemanticStatusBadge
+                label="Report-only review context"
+                tone="report_only"
+                testId="warehouse-evidence-report-only-tag"
+              />
+            ) : null}
+            {evidenceEnvelope.selectedSystemOnly ? (
+              <SemanticStatusBadge
+                label="Selected-system only"
+                tone="observed"
+              />
+            ) : null}
+            {evidenceEnvelope.claimsCanonicalTruth === false ? (
+              <SemanticStatusBadge
+                label="Planner truth stays canonical"
+                tone="canonical"
+              />
+            ) : null}
+            {evidenceEnvelope.claimsFullCoverage === false ? (
+              <SemanticStatusBadge
+                label="Bounded or incomplete coverage"
+                tone="caution"
+              />
+            ) : null}
+            <SemanticStatusBadge
+              label={sourcePostureLabel}
+              tone={sourcePosture === 'dedicated_contract' ? 'canonical' : sourcePosture === 'provenance_bridge' ? 'caution' : 'unknown'}
+              testId={`warehouse-evidence-source-posture-${sourcePosture}`}
+            />
+          </>
+        )}
+        disclosureLabel="technical evidence detail"
+        disclosureContent={(
+          <>
+            <section className="space-y-2">
+              <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver">
+                Technical posture
+              </h3>
+              <div
+                data-testid="warehouse-evidence-metadata"
+                className="flex flex-wrap items-center gap-2"
+              >
+                <SemanticStatusBadge
+                  label={FRESHNESS_LABEL[freshness]}
+                  tone={freshness === 'fresh' ? 'available' : freshness === 'stale' ? 'stale' : freshness === 'not_evaluated' ? 'not_evaluated' : 'unknown'}
+                  testId={`warehouse-evidence-freshness-${freshness}`}
+                />
+                <SemanticStatusBadge
+                  label={EVIDENCE_STATUS_LABEL[evidenceEnvelope.status]}
+                  tone={posture.badgeTone}
+                  testId={`warehouse-evidence-envelope-status-${evidenceEnvelope.status}`}
+                />
+                <SemanticStatusBadge
+                  label={reviewStatus}
+                  tone={evidence?.manualReviewRequired ? 'needs_review' : 'canonical'}
+                  testId="warehouse-evidence-review-status"
+                />
+                <SemanticStatusBadge
+                  label={BOUNDED_STAGING_LABEL[boundedStaging.status]}
+                  tone={boundedStaging.status === 'available' ? 'available' : boundedStaging.status === 'unavailable' ? 'unavailable' : 'not_evaluated'}
+                  testId={`warehouse-evidence-bounded-staging-${boundedStaging.status}`}
+                />
+              </div>
+              {(evidence?.sourceName || evidence?.runKey) ? (
+                <p data-testid="warehouse-evidence-source-run">
+                  Source run: {[evidence?.sourceName, evidence?.runKey].filter(Boolean).join(' · ')}
+                </p>
+              ) : null}
+            </section>
 
-      <p
-        data-testid="warehouse-evidence-source-boundary"
-        className="leading-snug text-text-dim"
-      >
-        Planner is using canonical data; this evidence panel is report-only.
-      </p>
-
-      <div
-        data-testid="warehouse-evidence-discoverability-highlights"
-        className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-[10px] text-text-dim"
-      >
-        {discoverabilityHighlights.map((highlight) => (
-          <span
-            key={highlight}
-            className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
-          >
-            {highlight}
-          </span>
-        ))}
-      </div>
-
-      <div data-testid="warehouse-evidence-metadata" className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-[10px] text-text-dim">
-        <span
-          data-testid={`warehouse-evidence-freshness-${freshness}`}
-          className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
-        >
-          {FRESHNESS_LABEL[freshness]}
-        </span>
-        <span
-          data-testid={`warehouse-evidence-envelope-status-${evidenceEnvelope.status}`}
-          className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
-        >
-          {EVIDENCE_STATUS_LABEL[evidenceEnvelope.status]}
-        </span>
-        <span
-          data-testid={`warehouse-evidence-source-posture-${sourcePosture}`}
-          className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
-        >
-          {SOURCE_POSTURE_LABEL[sourcePosture]}
-        </span>
-        <span data-testid="warehouse-evidence-review-status" className="leading-snug">
-          {reviewStatus}
-        </span>
-        {(evidence?.sourceName || evidence?.runKey) ? (
-          <span data-testid="warehouse-evidence-source-run" className="leading-snug">
-            Source run: {[evidence?.sourceName, evidence?.runKey].filter(Boolean).join(' · ')}
-          </span>
-        ) : null}
-        {boundedStaging ? (
-          <span
-            data-testid={`warehouse-evidence-bounded-staging-${boundedStaging.status}`}
-            className="leading-snug"
-          >
-            {BOUNDED_STAGING_LABEL[boundedStaging.status]}
-          </span>
-        ) : null}
-      </div>
-
-      {boundedStaging ? (
-        <div
-          data-testid="warehouse-evidence-bounded-staging-summary"
-          className="border-t border-border pt-2 text-[10px] text-text-dim space-y-1"
-        >
-          {boundedStaging.summary ? (
-            <p className="leading-snug">{boundedStaging.summary}</p>
-          ) : null}
-          <p className="leading-snug">
-            Stage 19BB provenance:{' '}
-            {[
-              boundedStaging.sourceBatchLabel,
-              boundedStaging.sourceRunKey,
-              boundedStaging.rowLimit != null ? `limit ${boundedStaging.rowLimit}` : null,
-              boundedStaging.matchedRowCount != null ? `${boundedStaging.matchedRowCount} matched row(s)` : null,
-            ].filter(Boolean).join(' · ') || 'not evaluated'}
-          </p>
-        </div>
-      ) : null}
-
-      <div
-        data-testid="warehouse-evidence-envelope-summary"
-        className="border-t border-border pt-2 text-[10px] text-text-dim space-y-1"
-      >
-        <p className="leading-snug">{evidenceEnvelope.summary}</p>
-        <p data-testid="warehouse-evidence-status-detail" className="leading-snug">
-          {statusDetail}
-        </p>
-        <p data-testid="warehouse-evidence-source-classes" className="leading-snug">
-          Source classes: {evidenceEnvelope.sourceClasses.map((value) => SOURCE_CLASS_LABEL[value]).join(' · ')}
-        </p>
-        <div
-          data-testid="warehouse-evidence-source-class-list"
-          className="flex flex-wrap items-center gap-2"
-        >
-          {evidenceEnvelope.sourceClasses.map((value) => (
-            <span
-              key={value}
-              className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
+            <section
+              data-testid="warehouse-evidence-envelope-summary"
+              className="space-y-2"
             >
-              {SOURCE_CLASS_LABEL[value]}
-            </span>
-          ))}
-        </div>
-        <p data-testid="warehouse-evidence-semantics" className="leading-snug">
-          Semantics: {evidenceEnvelope.semantics.map((value) => SEMANTIC_LABEL[value]).join(' · ')}
-        </p>
-        <div
-          data-testid="warehouse-evidence-semantic-list"
-          className="flex flex-wrap items-center gap-2"
-        >
-          {evidenceEnvelope.semantics.map((value) => (
-            <span
-              key={value}
-              className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider"
-            >
-              {SEMANTIC_LABEL[value]}
-            </span>
-          ))}
-        </div>
-      </div>
+              <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver">
+                Envelope truth boundary
+              </h3>
+              <p>{evidenceEnvelope.summary}</p>
+              <p data-testid="warehouse-evidence-status-detail">
+                {statusDetailCopy(evidenceEnvelope.status, boundedStaging.status)}
+              </p>
+              <p data-testid="warehouse-evidence-source-classes">
+                Source classes: {evidenceEnvelope.sourceClasses.map((value) => SOURCE_CLASS_LABEL[value]).join(' · ')}
+              </p>
+              <div
+                data-testid="warehouse-evidence-source-class-list"
+                className="flex flex-wrap items-center gap-2"
+              >
+                {evidenceEnvelope.sourceClasses.map((value) => (
+                  <SemanticStatusBadge
+                    key={value}
+                    label={SOURCE_CLASS_LABEL[value]}
+                    tone={value === 'canonical' ? 'canonical' : value === 'observed_facts' ? 'observed' : value === 'unavailable' ? 'unavailable' : 'report_only'}
+                  />
+                ))}
+              </div>
+              <p data-testid="warehouse-evidence-semantics">
+                Semantics: {evidenceEnvelope.semantics.map((value) => SEMANTIC_LABEL[value]).join(' · ')}
+              </p>
+              <div
+                data-testid="warehouse-evidence-semantic-list"
+                className="flex flex-wrap items-center gap-2"
+              >
+                {evidenceEnvelope.semantics.map((value) => (
+                  <SemanticStatusBadge
+                    key={value}
+                    label={SEMANTIC_LABEL[value]}
+                    tone={value === 'canonical_truth' ? 'canonical' : value === 'observed_report' ? 'observed' : value === 'not_full_coverage' ? 'caution' : 'report_only'}
+                  />
+                ))}
+              </div>
+            </section>
 
-      {boundedStaging.status === 'available' ? (
-        <div
-          data-testid="warehouse-evidence-bounded-staging-guidance"
-          className="border-t border-border pt-2 text-[10px] text-text-dim space-y-1"
-        >
-          <p className="leading-snug">Bounded staging evidence</p>
-          <p className="leading-snug">Report-only review context</p>
-          <p className="leading-snug">Not canonical truth</p>
-          <p className="leading-snug">Not full EDSM coverage</p>
-          <p className="leading-snug">{boundedStagingLimit}</p>
-        </div>
-      ) : null}
+            <section
+              data-testid="warehouse-evidence-bounded-staging-summary"
+              className="space-y-2"
+            >
+              <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver">
+                Bounded staging detail
+              </h3>
+              {boundedStaging.summary ? (
+                <p>{boundedStaging.summary}</p>
+              ) : null}
+              <p>
+                Stage 19BB provenance:{' '}
+                {[
+                  boundedStaging.sourceBatchLabel,
+                  boundedStaging.sourceRunKey,
+                  boundedStaging.rowLimit != null ? `limit ${boundedStaging.rowLimit}` : null,
+                  boundedStaging.matchedRowCount != null ? `${boundedStaging.matchedRowCount} matched row(s)` : null,
+                ].filter(Boolean).join(' · ') || 'not evaluated'}
+              </p>
+              {boundedStaging.status === 'available' ? (
+                <div
+                  data-testid="warehouse-evidence-bounded-staging-guidance"
+                  className="space-y-1"
+                >
+                  <p>Bounded staging evidence</p>
+                  <p>Report-only review context</p>
+                  <p>Not canonical truth</p>
+                  <p>Not full EDSM coverage</p>
+                  <p>{boundedStagingLimit}</p>
+                </div>
+              ) : null}
+            </section>
+          </>
+        )}
+      />
 
       {isUnavailable ? (
         <div
           data-testid="warehouse-evidence-unavailable"
-          className="flex items-center gap-2"
+          className="rounded-chunk-lg border border-border bg-bg3/30 p-3"
         >
-          <SourceBadge source="unknown" />
-          <span>{unavailableCopy(evidenceEnvelope.status, boundedStaging.status)}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <SourceBadge source="unknown" />
+            <SemanticStatusBadge
+              label={evidenceEnvelopeStatusLabel(evidenceEnvelope.status)}
+              tone={posture.badgeTone}
+            />
+          </div>
+          <p className="mt-2 leading-relaxed text-silver">
+            {unavailableCopy(evidenceEnvelope.status, boundedStaging.status)}
+          </p>
         </div>
       ) : (
-        <ul data-testid="warehouse-evidence-items" className="space-y-1.5">
+        <section className="space-y-2">
+          <h3 className="font-display text-sm tracking-[0.12em] text-orange-lt">
+            Current report-only findings
+          </h3>
+          <ul data-testid="warehouse-evidence-items" className="space-y-2">
           {evidence!.items.map((item, i) => (
             <li
               key={`${item.label}-${item.source}-${i}`}
               data-testid="warehouse-evidence-item"
-              className="flex flex-wrap items-center gap-1.5"
+              className="rounded-chunk-lg border border-border bg-bg3/30 p-3"
             >
-              <FindingBadge label={item.label} />
-              <SourceBadge source={item.source} />
-              <span className="leading-snug text-text">{item.summary}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <FindingBadge label={item.label} />
+                <SourceBadge source={item.source} />
+              </div>
+              <p className="mt-2 leading-relaxed text-silver">{item.summary}</p>
             </li>
           ))}
-        </ul>
+          </ul>
+        </section>
       )}
 
       {warnings.length > 0 ? (
-        <ul data-testid="warehouse-evidence-warnings" className="space-y-1 border-t border-border pt-2 text-[10px] text-text-dim">
+        <ul
+          data-testid="warehouse-evidence-warnings"
+          className="space-y-2 rounded-chunk-lg border border-gold/35 bg-gold/10 p-3 text-[11px] text-gold"
+        >
           {warnings.slice(0, 2).map((warning, index) => (
             <li key={`${warning}-${index}`} data-testid="warehouse-evidence-warning">
               {warning}
@@ -360,22 +396,28 @@ function unavailableCopy(
 
 function SourceBadge({ source }: { source: WarehouseEvidenceSource }) {
   return (
-    <span
-      data-testid={`warehouse-evidence-source-${source}`}
-      className="px-1.5 py-0.5 rounded border border-border bg-bg4 text-[9px] uppercase tracking-wider text-silver-dk"
-    >
-      {SOURCE_LABEL[source]}
-    </span>
+    <SemanticStatusBadge
+      testId={`warehouse-evidence-source-${source}`}
+      label={SOURCE_LABEL[source]}
+      tone={source === 'canonical' ? 'canonical' : source === 'observed' ? 'observed' : source === 'warehouse_report_only' ? 'report_only' : 'unknown'}
+    />
   );
 }
 
 function FindingBadge({ label }: { label: WarehouseEvidenceLabel }) {
   return (
-    <span
-      data-testid={`warehouse-evidence-label-${label}`}
-      className="px-1.5 py-0.5 rounded border border-border bg-bg4 text-[9px] uppercase tracking-wider text-orange-lt"
-    >
-      {FINDING_LABEL[label]}
-    </span>
+    <SemanticStatusBadge
+      testId={`warehouse-evidence-label-${label}`}
+      label={FINDING_LABEL[label]}
+      tone={findingTone(label)}
+    />
   );
+}
+
+function findingTone(label: WarehouseEvidenceLabel) {
+  if (label === 'needs_review' || label === 'verify') return 'needs_review';
+  if (label === 'stale') return 'stale';
+  if (label === 'blocked') return 'blocked';
+  if (label === 'unknown' || label === 'unresolved') return 'unknown';
+  return 'report_only';
 }

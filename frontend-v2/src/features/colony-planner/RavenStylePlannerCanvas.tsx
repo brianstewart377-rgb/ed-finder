@@ -208,9 +208,7 @@ export function RavenStylePlannerCanvas({
         : null;
   const selectedProjectedPlacementIndex = selection.type === 'projected-placement' ? selection.placementIndex : null;
   const hasEstimatedSlots = rows.some((row) => row.orbitalCapacityEstimated || row.groundCapacityEstimated);
-  const gridStyle: CSSProperties = {
-    gridTemplateColumns: '280px minmax(300px,1fr) minmax(320px,1.05fr)',
-  };
+  const responsiveGridClassName = 'grid-cols-1 lg:[grid-template-columns:280px_minmax(300px,1fr)_minmax(320px,1.05fr)]';
 
   return (
     <section
@@ -253,11 +251,13 @@ export function RavenStylePlannerCanvas({
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <div className="min-w-[860px]">
+      <div data-testid="raven-real-planner-scroll-region" className="overflow-x-hidden lg:overflow-x-auto">
+        <div data-testid="raven-real-planner-grid-frame" className="min-w-0 lg:min-w-[860px]">
           <div
-            className="grid border-b border-orange/20 bg-bg2/70 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-silver-dk"
-            style={gridStyle}
+            className={[
+              'grid gap-1.5 border-b border-orange/20 bg-bg2/70 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-silver-dk lg:gap-0',
+              responsiveGridClassName,
+            ].join(' ')}
           >
             <div className="text-cyan">System Tree</div>
             <div>Orbit</div>
@@ -274,7 +274,7 @@ export function RavenStylePlannerCanvas({
                 selected={selectedBodyId === row.id}
                 selectedPlacementIndex={selection.type === 'placement' ? selection.placementIndex : null}
                 selectedProjectedPlacementIndex={selectedProjectedPlacementIndex}
-                gridStyle={gridStyle}
+                responsiveGridClassName={responsiveGridClassName}
                 onSelect={onSelect}
                 onRequestAddStructure={onRequestAddStructure}
                 prerequisiteIssues={prerequisiteIssues}
@@ -395,7 +395,7 @@ function RavenPlannerBodyRow({
   selected,
   selectedPlacementIndex,
   selectedProjectedPlacementIndex,
-  gridStyle,
+  responsiveGridClassName,
   onSelect,
   onRequestAddStructure,
   prerequisiteIssues,
@@ -404,7 +404,7 @@ function RavenPlannerBodyRow({
   selected: boolean;
   selectedPlacementIndex: number | null;
   selectedProjectedPlacementIndex: number | null;
-  gridStyle: CSSProperties;
+  responsiveGridClassName: string;
   onSelect: (selection: TopologySelection) => void;
   onRequestAddStructure?: (bodyId: string, lane: BodyPlannerLane) => void;
   prerequisiteIssues: PrerequisiteIssue[];
@@ -424,10 +424,10 @@ function RavenPlannerBodyRow({
     >
       <div
         className={[
-          'grid min-h-[62px] items-stretch px-3 py-2 transition-colors',
+          'grid min-h-[62px] items-stretch gap-2 px-3 py-2 transition-colors lg:gap-0',
+          responsiveGridClassName,
           rowTone,
         ].join(' ')}
-        style={gridStyle}
       >
         <TreeCell row={row} selected={selected} onSelect={() => onSelect({ type: 'body', bodyId: row.id })} />
         <RavenSlotLane
@@ -464,11 +464,13 @@ function RavenPlannerBodyRow({
       {row.unassignedSlots.length > 0 && (
         <div
           data-testid={`${row.id}-unassigned-lane`}
-          className="grid border-t border-gold/20 bg-gold/5 px-3 py-2"
-          style={gridStyle}
+          className={[
+            'grid gap-2 border-t border-gold/20 bg-gold/5 px-3 py-2 lg:gap-0',
+            responsiveGridClassName,
+          ].join(' ')}
         >
-          <div />
-          <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-2">
+          <div className="hidden lg:block" />
+          <div className="flex min-w-0 flex-wrap items-center gap-2 lg:col-span-2">
             <span className="rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-gold">
               Needs lane
             </span>
@@ -688,7 +690,7 @@ function RavenSlotLane({
 
   return (
     <div data-testid={`${bodyId}-${lane}-lane`} data-disabled={disabledReason ? 'true' : 'false'} className="flex min-w-0 flex-col gap-1 pr-2">
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <span className="flex min-w-[7rem] shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">
           <span
             data-testid={`${bodyId}-${lane}-capacity-badge`}

@@ -25,6 +25,49 @@ EXPECTED_FRONTEND_PREVIEW_HOST = '127.0.0.1'
 EXPECTED_FRONTEND_PREVIEW_PORT = 4173
 REVIEW_LAB_BROWSER_MARKER = 'EDFINDER_REVIEW_LAB_RUN'
 REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION = 1
+REVIEW_LAB_VIEWPORT_PROFILES: tuple[dict[str, Any], ...] = (
+    {
+        'profile_name': 'planner_desktop_primary',
+        'viewport_width': 1440,
+        'viewport_height': 900,
+        'device_scale_factor': 1,
+        'product_scope': 'planner',
+        'acceptance_level': 'required',
+    },
+    {
+        'profile_name': 'planner_laptop_minimum',
+        'viewport_width': 1280,
+        'viewport_height': 720,
+        'device_scale_factor': 1,
+        'product_scope': 'planner',
+        'acceptance_level': 'required',
+    },
+    {
+        'profile_name': 'planner_constrained_diagnostic',
+        'viewport_width': 1024,
+        'viewport_height': 768,
+        'device_scale_factor': 1,
+        'product_scope': 'planner',
+        'acceptance_level': 'diagnostic',
+    },
+    {
+        'profile_name': 'finder_mobile',
+        'viewport_width': 390,
+        'viewport_height': 844,
+        'device_scale_factor': 1,
+        'product_scope': 'finder_and_system_detail',
+        'acceptance_level': 'required',
+    },
+    {
+        'profile_name': 'planner_mobile_resilience',
+        'viewport_width': 390,
+        'viewport_height': 844,
+        'device_scale_factor': 1,
+        'product_scope': 'planner',
+        'acceptance_level': 'resilience_only',
+    },
+)
+REVIEW_LAB_VIEWPORT_PROFILE_NAMES = tuple(profile['profile_name'] for profile in REVIEW_LAB_VIEWPORT_PROFILES)
 REQUIRED_SERVICES = ('review-postgres', 'review-redis', 'review-api')
 REQUIRED_REVIEW_SYSTEM_NAMES = ('Review Alpha', 'Review Beta', 'Review Gamma', 'Review Delta')
 REQUIRED_PHASE_NAMES = (

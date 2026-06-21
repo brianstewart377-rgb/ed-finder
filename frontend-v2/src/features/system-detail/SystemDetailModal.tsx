@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { Rocket, X } from 'lucide-react';
 import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
-import { distanceFromSol, formatCoords, formatPopulationForSystem } from '@/lib/format';
+import { distanceFromSol, formatCoords, formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
 import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import { transientStationPlanningReason } from '@/features/colony-planner/existingInfrastructure';
+import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
+import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 import { useSystemDetail } from './useSystemDetail';
 import { RatingRadar } from './RatingRadar';
 
@@ -74,26 +76,40 @@ export function SystemDetailModal({
           <X size={19} strokeWidth={3} />
         </button>
         <ModalHeader
-          name={data?.name}
+          system={data}
           id64={id64}
           loading={loading}
+          hasError={Boolean(error)}
         />
 
         <div className="px-5 sm:px-6 py-5 space-y-5 text-sm">
           {loading && (
-            <div className="text-text-dim font-mono text-sm py-12 text-center">
-              Loading system data…
+            <div className="rounded-chunk-lg border border-border bg-bg3/30 px-4 py-8 text-center">
+              <div className="flex justify-center">
+                <SemanticStatusBadge label="Loading" tone="loading" />
+              </div>
+              <p className="mt-3 text-sm text-silver">
+                Loading system detail for inspection.
+              </p>
+              <p className="mt-1 text-xs text-silver-dk">
+                Review the selected system here, then move into Colony Planner when the context is ready.
+              </p>
             </div>
           )}
 
           {error && (
-            <div className="rounded border border-red/50 bg-red/10 p-3 font-mono text-xs text-red flex flex-wrap items-center gap-3">
-              <span className="font-bold">System detail is unavailable right now.</span>
-              <span className="text-silver-dk">Retry the request, or open another system from the results list.</span>
+            <div className="rounded-chunk-lg border border-red/50 bg-red/10 p-4 text-sm text-red">
+              <div className="flex flex-wrap items-center gap-2">
+                <SemanticStatusBadge label="Unavailable" tone="unavailable" />
+                <span className="font-semibold">System detail is unavailable right now.</span>
+              </div>
+              <p className="mt-2 text-silver">
+                Retry the request, or return to Explore and inspect another system.
+              </p>
               <button
                 type="button"
                 onClick={refetch}
-                className="ml-auto px-2 py-1 rounded bg-bg4 border border-border text-text-dim hover:text-orange"
+                className="mt-3 rounded-chunk-sm border border-border bg-bg4 px-3 py-2 text-xs font-mono font-bold text-text-dim hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
               >
                 ↺ Retry
               </button>
@@ -142,47 +158,34 @@ function ColonyPlannerEntryPoint({
       data-testid="colony-planner-entry-card"
       className="rounded-chunk-lg border border-orange/35 bg-orange/10 p-4"
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 max-w-3xl space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-mono text-[12px] uppercase tracking-[0.18em] text-orange">
-              Colony Planner
-            </h3>
-            <span className="rounded-full border border-orange/35 bg-bg2/75 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-orange-lt">
-              {canOpenPlanner ? 'Workspace available' : 'Planner unavailable'}
-            </span>
-          </div>
-          <p className="text-[11px] text-silver font-mono leading-snug">
-            Open the Colony Planner to create, compare, preview, and validate a build plan for this system.
-          </p>
-          <p className="text-[11px] text-silver-dk font-mono leading-snug">
-            Suggested builds can be reviewed in the Colony Planner.
-          </p>
-          <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
-            <span className="rounded border border-border bg-bg3/60 px-2 py-1">
-              {system.name || 'Unknown system'}
-            </span>
-            <span className="rounded border border-border bg-bg3/60 px-2 py-1 tabular-nums">
-              ID64 {Number.isFinite(system.id64) ? system.id64 : 'unknown'}
-            </span>
-          </div>
-          {!canOpenPlanner && (
-            <p className="text-[11px] text-gold font-mono leading-snug">
-              Planner route is unavailable for this system record.
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => onOpen?.(system.id64)}
-          disabled={!canOpenPlanner}
-          data-testid="open-colony-planner"
-          className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
-        >
-          <Rocket size={14} />
-          Open Colony Planner
-        </button>
-      </div>
+      <WorkspaceContextHeader
+        journeyLabel="Next step: Plan"
+        title="Colony Planner"
+        headingLevel={3}
+        supportingText={canOpenPlanner
+          ? 'Open the canonical planning workspace for this system, then review report-only evidence separately before you commit to assumptions.'
+          : 'Planner routing is unavailable for this system record, so continue reviewing system detail here or return to Explore.'}
+        selectedSystemName={system.name || 'Unknown system'}
+        selectedSystemMeta={<span className="tabular-nums">ID64 {Number.isFinite(system.id64) ? system.id64 : 'unknown'}</span>}
+        status={(
+          <SemanticStatusBadge
+            label={canOpenPlanner ? 'Workspace available' : 'Planner unavailable'}
+            tone={canOpenPlanner ? 'available' : 'unavailable'}
+          />
+        )}
+        actions={(
+          <button
+            type="button"
+            onClick={() => onOpen?.(system.id64)}
+            disabled={!canOpenPlanner}
+            data-testid="open-colony-planner"
+            className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
+          >
+            <Rocket size={14} />
+            Open Colony Planner
+          </button>
+        )}
+      />
     </section>
   );
 }
@@ -190,21 +193,48 @@ function ColonyPlannerEntryPoint({
 // ─── Header ────────────────────────────────────────────────────────────────
 
 function ModalHeader({
-  name, id64, loading,
-}: { name?: string; id64: number; loading: boolean }) {
+  system,
+  id64,
+  loading,
+  hasError,
+}: {
+  system?: SystemDetail | null;
+  id64: number;
+  loading: boolean;
+  hasError: boolean;
+}) {
+  const statusLabel = loading
+    ? 'Loading'
+    : hasError
+      ? 'Unavailable'
+      : system
+        ? systemStatusLabel(system)
+        : 'Unknown';
+  const statusTone = loading
+    ? 'loading'
+    : hasError
+      ? 'unavailable'
+      : statusLabel === 'Colonised'
+        ? 'canonical'
+        : statusLabel === 'Colonising'
+          ? 'caution'
+          : 'available';
+
   return (
-    <header className="sticky top-0 z-10 flex items-start gap-3 px-5 py-4 pr-16 sm:px-7 sm:pr-20 border-b border-border bg-bg2/85 backdrop-blur-md rounded-t-chunk-lg">
-      <div className="min-w-0 flex-1">
-        <h2
-          id="system-detail-title"
-          className="font-mono text-orange tracking-[0.14em] text-xl font-bold truncate"
-        >
-          {loading ? 'Loading…' : name || 'Unknown system'}
-        </h2>
-        <div className="font-mono text-[10px] tracking-[0.2em] text-silver-dk mt-1 uppercase">
-          ID64 · <span className="tabular-nums text-silver">{id64}</span>
-        </div>
-      </div>
+    <header className="sticky top-0 z-10 border-b border-border bg-bg2/90 px-5 py-4 pr-16 backdrop-blur-md rounded-t-chunk-lg sm:px-7 sm:pr-20">
+      <WorkspaceContextHeader
+        journeyLabel="Journey stage: Inspect"
+        title="System Detail"
+        headingLevel={2}
+        supportingText="Review the selected system, understand its current context, and move into planning when you are ready."
+        selectedSystemName={loading ? 'Loading system...' : system?.name || 'Unknown system'}
+        selectedSystemMeta={<span className="tabular-nums">ID64 {id64}</span>}
+        status={<SemanticStatusBadge label={statusLabel} tone={statusTone} />}
+        testId="system-detail-context-header"
+      />
+      <h2 id="system-detail-title" className="sr-only">
+        {loading ? 'Loading system detail' : system?.name || 'Unknown system'}
+      </h2>
     </header>
   );
 }

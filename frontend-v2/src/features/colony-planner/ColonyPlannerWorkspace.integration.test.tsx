@@ -319,7 +319,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.getByText('Planner summary')).toBeTruthy();
     expect(await screen.findByText('Whole-System Planner')).toBeTruthy();
     expect(screen.getByTestId('raven-real-body-row-body1')).toBeTruthy();
-    expect((await screen.findAllByText('Colony Planner Workspace')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'Colony Planner' })).toBeTruthy();
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
     expect(screen.queryByRole('button', { name: /Generate Suggested Build/i })).toBeNull();
     expect(screen.queryByTestId('suggested-builds-workspace-view')).toBeNull();
