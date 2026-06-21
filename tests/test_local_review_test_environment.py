@@ -784,6 +784,9 @@ def test_review_lab_workflow_uses_least_privilege_and_cancels_stale_runs():
     assert re.search(r'concurrency:\s*\n\s+group:\s+\$\{\{\s*github\.workflow\s*\}\}-\$\{\{\s*github\.ref\s*\}\}', workflow)
     assert re.search(r'cancel-in-progress:\s+true', workflow)
     assert re.search(r'timeout-minutes:\s+15', workflow)
+    assert re.search(r'fetch-depth:\s+0', workflow)
+    assert 'github.event.pull_request.head.sha' in workflow
+    assert 'git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main' in workflow
 
 
 @pytest.mark.unit
@@ -800,6 +803,11 @@ def test_review_lab_workflow_invokes_wrapper_authority_and_not_normal_e2e():
     assert '--confirm-local-review-environment' in workflow
     assert 'scripts/dev/review_environment.py down' in workflow
     assert 'git diff --check' in workflow
+    assert workflow.index('Run strict resolver') < workflow.index('Run focused Review Lab and safety tests')
+    assert workflow.index('Run strict resolver') < workflow.index('Run Review Lab preflight')
+    assert workflow.index('Run strict resolver') < workflow.index('Run Review Lab full verification')
+    assert 'continue-on-error' not in workflow
+    assert '|| true' not in workflow
     assert 'run: yarn e2e\n' not in workflow
     assert 'playwright test' not in workflow
     assert 'docker compose down' not in workflow
