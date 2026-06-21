@@ -453,6 +453,10 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
     expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();
+    expect(screen.getByTestId('raven-real-planner-scroll-region').className).toContain('overflow-x-hidden');
+    expect(screen.getByTestId('raven-real-planner-scroll-region').className).toContain('lg:overflow-x-auto');
+    expect(screen.getByTestId('raven-real-planner-grid-frame').className).toContain('min-w-0');
+    expect(screen.getByTestId('raven-real-planner-grid-frame').className).toContain('lg:min-w-[860px]');
     expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
     expect(screen.getByTestId('workspace-planner-content').getAttribute('data-readability')).toBe('stage17n');
     expect(screen.getByTestId('workspace-planner-content').getAttribute('data-layout')).toBe('main-system-canvas');
@@ -521,6 +525,8 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
     expect(screen.queryByText('Body slot planner')).toBeNull();
     expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
+    expect(screen.getByTestId('raven-real-body-row-body1').firstElementChild?.className).toContain('grid-cols-1');
+    expect(screen.getByTestId('raven-real-body-row-body1').firstElementChild?.className).toContain('lg:[grid-template-columns:280px_minmax(300px,1fr)_minmax(320px,1.05fr)]');
     expect((screen.getByTestId('body1-ground-add') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByTestId('slot-lane-flex')).toBeNull();
     expect(screen.queryByTestId('slot-lane-add-flex')).toBeNull();
