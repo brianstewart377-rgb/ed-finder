@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
+from fastapi.responses import JSONResponse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,8 @@ SCRIPT_DIR = ROOT / 'scripts' / 'dev'
 DOC_PATH = ROOT / 'docs' / 'development' / 'local-review-test-environment.md'
 COMPOSE_PATH = ROOT / 'docker-compose.review.yml'
 FRONTEND_VITE_CONFIG = ROOT / 'frontend-v2' / 'vite.config.ts'
+FRONTEND_API = ROOT / 'frontend-v2' / 'src' / 'lib' / 'api.ts'
+PLANNER_WORKSPACE = ROOT / 'frontend-v2' / 'src' / 'features' / 'colony-planner' / 'ColonyPlannerWorkspace.tsx'
 
 os.environ.setdefault('CORS_ORIGINS', 'https://example.com')
 
@@ -24,8 +27,10 @@ for path in (ROOT, API_SRC, SCRIPT_DIR):
         sys.path.insert(0, str(path))
 
 import review_environment as review_env  # noqa: E402
+import review_environment_seed as review_seed  # noqa: E402
 import provenance_cockpit as normal_provenance_backend  # noqa: E402
 import review_provenance_cockpit as review_provenance_backend  # noqa: E402
+import review_support_routes as review_support_backend  # noqa: E402
 import review_warehouse_planner_evidence as review_warehouse_backend  # noqa: E402
 import warehouse_planner_evidence as normal_warehouse_backend  # noqa: E402
 from review_environment_fixtures import (  # noqa: E402
@@ -210,10 +215,23 @@ def test_review_runtime_requires_exact_marker_and_exact_internal_targets():
 @pytest.mark.unit
 def test_review_only_entrypoint_isolated_from_normal_runtime():
     review_main_source = _read(API_SRC / 'review_main.py')
+    main_source = _read(API_SRC / 'main.py')
     assert 'validate_review_runtime_env' in review_main_source
+    assert 'simulate_router' in review_main_source
+    assert 'simulation_router' in review_main_source
     assert 'review_provenance_cockpit_router' in review_main_source
+    assert 'review_support_router' in review_main_source
     assert 'review_warehouse_planner_evidence_router' in review_main_source
     assert 'routers.events' not in review_main_source
+    assert 'review_support_routes' not in main_source
+
+
+@pytest.mark.unit
+def test_frontend_delta_fallback_still_uses_existing_error_driven_flow():
+    workspace_source = _read(PLANNER_WORKSPACE)
+    api_source = _read(FRONTEND_API)
+    assert 'enabled: id64 != null && warehouseEvidenceQuery.isError' in workspace_source
+    assert "throw new ApiError(res.status, path, body || res.statusText);" in api_source
 
 
 @pytest.mark.asyncio
@@ -287,6 +305,65 @@ async def test_normal_runtime_provenance_route_ignores_legacy_fixture_flag(monke
 
 
 @pytest.mark.asyncio
+async def test_normal_runtime_cannot_return_review_delta_synthetic_outputs(monkeypatch: pytest.MonkeyPatch):
+    async def _fake_live_result(_pool, _id64: int) -> LivePlannerEvidenceResult:
+        return LivePlannerEvidenceResult(
+            availability='report_only',
+            envelope_status='available',
+            items=[
+                WarehousePlannerEvidenceItem(
+                    label='report_only',
+                    source='canonical',
+                    summary='Canonical planner data remains the truth source.',
+                ),
+            ],
+            freshness_status='not_evaluated',
+            evaluated_at='2026-06-21T12:00:00Z',
+            manual_review_required=True,
+            bounded_staging=WarehousePlannerEvidenceBoundedStaging(
+                status='not_evaluated',
+                report_only=True,
+                bounded_staging_only=True,
+                source_name=None,
+                source_batch_label=None,
+                source_sha256=None,
+                source_run_key=None,
+                bridge_key=None,
+                row_limit=None,
+                available_row_limits=[],
+                matched_row_count=None,
+                latest_source_updated_at=None,
+                summary='No approved bounded staging evidence is linked for this system.',
+            ),
+            warnings=['Planner fallback remains in place.'],
+        )
+
+    monkeypatch.setattr(normal_warehouse_router, 'load_live_planner_evidence', _fake_live_result)
+    monkeypatch.setattr(
+        normal_warehouse_backend,
+        'read_warehouse_status_snapshot',
+        lambda _path: {
+            'available': True,
+            'artifact': {'file_name': 'warehouse-status.json', 'updated_at': '2026-06-21T12:00:00Z'},
+            'latest_reconciliation_run': {'report_file_name': 'run-20260621.json'},
+            'warnings': [],
+        },
+    )
+
+    warehouse_response = await normal_warehouse_router.warehouse_planner_evidence(id64=7200000000004, pool=object())
+    normal_provenance_backend._load_authority_snapshot.cache_clear()
+    provenance_response = await normal_provenance_router.provenance_cockpit(7200000000004)
+
+    assert not isinstance(warehouse_response, JSONResponse)
+    assert warehouse_response.system_id64 == 7200000000004
+    assert warehouse_response.evidence_envelope.status == 'available'
+    assert all('review delta' not in warning.lower() for warning in warehouse_response.warnings)
+    assert provenance_response.system.name is None
+    assert all('review delta' not in warning.lower() for warning in provenance_response.warnings)
+    normal_provenance_backend._load_authority_snapshot.cache_clear()
+
+
+@pytest.mark.asyncio
 async def test_review_runtime_can_load_synthetic_review_contracts_from_review_db():
     warehouse_payload = json.dumps(REVIEW_WAREHOUSE_CONTRACTS[7200000000001], sort_keys=True)
     provenance_payload = json.dumps(REVIEW_PROVENANCE_CONTRACTS[7200000000001], sort_keys=True)
@@ -306,6 +383,76 @@ async def test_review_runtime_can_load_synthetic_review_contracts_from_review_db
     assert warehouse_response.evidence_envelope.status == 'available'
     assert provenance_response.system.name == 'Review Alpha'
     assert provenance_response.provenance_summary.state == 'available'
+
+
+@pytest.mark.asyncio
+async def test_review_delta_uses_review_only_dedicated_failure_and_provenance_contract():
+    warehouse_payload = json.dumps(REVIEW_WAREHOUSE_CONTRACTS[7200000000004], sort_keys=True)
+    provenance_payload = json.dumps(REVIEW_PROVENANCE_CONTRACTS[7200000000004], sort_keys=True)
+    pool = _FakePool(
+        _FakeAppMetaConnection(
+            {
+                review_warehouse_contract_key(7200000000004): warehouse_payload,
+                review_provenance_contract_key(7200000000004): provenance_payload,
+            }
+        )
+    )
+
+    warehouse_response = await review_warehouse_backend.warehouse_planner_evidence(7200000000004, pool=pool)
+    provenance_response = await review_provenance_backend.provenance_cockpit(7200000000004, pool=pool)
+
+    assert isinstance(warehouse_response, JSONResponse)
+    assert warehouse_response.status_code == 503
+    failure = json.loads(warehouse_response.body)
+    assert failure['system_id64'] == 7200000000004
+    assert failure['review_runtime_only'] is True
+    assert failure['fallback_route'] == '/api/colony-planner/system/7200000000004/provenance-cockpit'
+    assert 'provenance fallback' in failure['detail'].lower()
+    assert provenance_response.system.name == 'Review Delta'
+    assert provenance_response.provenance_summary.state == 'unknown'
+    assert 'provenance fallback' in provenance_response.warnings[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_review_runtime_alpha_beta_gamma_scenarios_remain_valid():
+    payloads = {
+        review_warehouse_contract_key(7200000000001): json.dumps(REVIEW_WAREHOUSE_CONTRACTS[7200000000001], sort_keys=True),
+        review_warehouse_contract_key(7200000000002): json.dumps(REVIEW_WAREHOUSE_CONTRACTS[7200000000002], sort_keys=True),
+        review_warehouse_contract_key(7200000000003): json.dumps(REVIEW_WAREHOUSE_CONTRACTS[7200000000003], sort_keys=True),
+        review_provenance_contract_key(7200000000001): json.dumps(REVIEW_PROVENANCE_CONTRACTS[7200000000001], sort_keys=True),
+        review_provenance_contract_key(7200000000002): json.dumps(REVIEW_PROVENANCE_CONTRACTS[7200000000002], sort_keys=True),
+        review_provenance_contract_key(7200000000003): json.dumps(REVIEW_PROVENANCE_CONTRACTS[7200000000003], sort_keys=True),
+    }
+    pool = _FakePool(_FakeAppMetaConnection(payloads))
+
+    alpha_warehouse = await review_warehouse_backend.warehouse_planner_evidence(7200000000001, pool=pool)
+    beta_warehouse = await review_warehouse_backend.warehouse_planner_evidence(7200000000002, pool=pool)
+    gamma_warehouse = await review_warehouse_backend.warehouse_planner_evidence(7200000000003, pool=pool)
+    alpha_provenance = await review_provenance_backend.provenance_cockpit(7200000000001, pool=pool)
+    beta_provenance = await review_provenance_backend.provenance_cockpit(7200000000002, pool=pool)
+    gamma_provenance = await review_provenance_backend.provenance_cockpit(7200000000003, pool=pool)
+
+    assert alpha_warehouse.evidence_envelope.status == 'available'
+    assert beta_warehouse.evidence_envelope.status == 'unavailable'
+    assert gamma_warehouse.evidence_envelope.status == 'unknown'
+    assert alpha_provenance.provenance_summary.state == 'available'
+    assert beta_provenance.provenance_summary.state == 'unknown'
+    assert gamma_provenance.provenance_summary.state == 'unknown'
+
+
+@pytest.mark.asyncio
+async def test_review_support_routes_return_synthetic_empty_read_only_payloads():
+    live = await review_support_backend.review_live_events()
+    recent = await review_support_backend.review_recent_events()
+    watchlist = await review_support_backend.review_watchlist()
+    cache_stats = await review_support_backend.review_cache_stats()
+
+    assert live.media_type == 'text/event-stream'
+    assert recent == {'events': [], 'jobs': {}}
+    assert watchlist == {'watchlist': []}
+    assert cache_stats.cache_hits == 0
+    assert cache_stats.db_cache_rows == 0
+    assert cache_stats.redis_memory_mb == 0.0
 
 
 def test_review_main_import_succeeds_only_with_exact_review_guards(monkeypatch: pytest.MonkeyPatch):
@@ -372,6 +519,37 @@ def test_synthetic_review_corpus_covers_required_evidence_states():
 
     assert delta['evidence_envelope']['status'] == 'not_evaluated'
     assert delta['bounded_staging']['status'] == 'not_evaluated'
+
+
+@pytest.mark.unit
+def test_review_seed_builds_archetype_rows_for_all_review_systems():
+    score_rows = review_seed.build_review_archetype_score_rows()
+    trait_rows = review_seed.build_review_archetype_trait_rows()
+
+    assert len(score_rows) == len(REVIEW_SYSTEMS)
+    assert len(trait_rows) == len(REVIEW_SYSTEMS)
+
+    score_by_id = {int(row[0]): row for row in score_rows}
+    trait_by_id = {int(row[0]): row for row in trait_rows}
+
+    assert score_by_id[7200000000001][1] == 'hitech_tourism'
+    assert score_by_id[7200000000002][1] == 'extraction_refinery'
+    assert score_by_id[7200000000003][1] == 'agriculture_terraforming'
+    assert score_by_id[7200000000004][1] == 'refinery_industrial'
+    assert all(float(row[14]) > 0 for row in score_rows)
+
+    assert trait_by_id[7200000000001][1] is True
+    assert trait_by_id[7200000000002][23] == 0
+    assert trait_by_id[7200000000003][2] is True
+    assert trait_by_id[7200000000004][29] == REVIEW_SYSTEMS[3]['rating']['slots']
+
+
+@pytest.mark.unit
+def test_review_seed_refreshes_archetype_mv_for_planner_support():
+    seed_source = _read(SCRIPT_DIR / 'review_environment_seed.py')
+    assert '_upsert_review_archetype_scores' in seed_source
+    assert '_upsert_review_archetype_traits' in seed_source
+    assert 'REFRESH MATERIALIZED VIEW mv_archetype_rankings' in seed_source
 
 
 @pytest.mark.unit

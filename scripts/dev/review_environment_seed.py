@@ -32,6 +32,18 @@ from review_runtime_guard import (  # noqa: E402
 
 
 EXPECTED_REVIEW_DB_NAME = EXPECTED_REVIEW_DATABASE_NAME
+REVIEW_PRIMARY_ARCHETYPES: dict[int, str] = {
+    7200000000001: 'hitech_tourism',
+    7200000000002: 'extraction_refinery',
+    7200000000003: 'agriculture_terraforming',
+    7200000000004: 'refinery_industrial',
+}
+REVIEW_SECONDARY_ARCHETYPES: dict[int, str] = {
+    7200000000001: 'refinery_industrial',
+    7200000000002: 'refinery_industrial',
+    7200000000003: 'hitech_tourism',
+    7200000000004: 'hitech_tourism',
+}
 
 
 class ReviewSeedError(RuntimeError):
@@ -58,7 +70,10 @@ async def ensure_review_seed(pool: asyncpg.Pool) -> dict[str, int]:
         await _upsert_bodies(conn)
         await _upsert_stations(conn)
         await _upsert_ratings(conn)
+        await _upsert_review_archetype_scores(conn)
+        await _upsert_review_archetype_traits(conn)
         await _upsert_review_contracts(conn)
+        await _refresh_review_archetype_mv(conn)
         row = await conn.fetchrow(
             """
             SELECT
@@ -76,6 +91,8 @@ async def ensure_review_seed(pool: asyncpg.Pool) -> dict[str, int]:
         'bodies': int(row['bodies']),
         'stations': int(row['stations']),
         'ratings': int(row['ratings']),
+        'archetype_scores': len(build_review_archetype_score_rows()),
+        'archetype_traits': len(build_review_archetype_trait_rows()),
         'warehouse_contracts': len(REVIEW_WAREHOUSE_CONTRACTS),
         'provenance_contracts': len(REVIEW_PROVENANCE_CONTRACTS),
     }
@@ -469,6 +486,303 @@ def _rating_confidence(value: object) -> float:
     if isinstance(value, (int, float)):
         return float(value)
     return 0.95
+
+
+def build_review_archetype_score_rows() -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    for system in REVIEW_SYSTEMS:
+        rating = system['rating']
+        primary = REVIEW_PRIMARY_ARCHETYPES[int(system['id64'])]
+        secondary = REVIEW_SECONDARY_ARCHETYPES[int(system['id64'])]
+        score_breakdown = {
+            'review_fixture': True,
+            'economy_suggestion': rating['economy_suggestion'],
+            'score_breakdown': rating['score_breakdown'],
+        }
+        rationale = {
+            'summary': rating['rationale'],
+            'headline': f"{system['name']} review-only archetype seed",
+            'positives': [
+                f"Economy suggestion: {rating['economy_suggestion']}",
+                f"Slots: {rating['slots']}",
+            ],
+            'risks': ['Synthetic review-only seed data; confirm in the isolated review runtime only.'],
+            'complexity': _review_build_complexity(rating['slots']),
+            'data_confidence': 'review_fixture',
+        }
+        rows.append(
+            (
+                system['id64'],
+                primary,
+                secondary,
+                _review_archetype_confidence(rating),
+                float(max(rating['score_refinery'], rating['score_industrial'])),
+                float(max(rating['score_extraction'], rating['score_refinery'])),
+                float(rating['score_agriculture']),
+                float(max(rating['score_hightech'], rating['score_tourism'])),
+                float(max(rating['score_industrial'], rating['score_hightech'])),
+                float(max(rating['score_hightech'], rating['score_refinery'])),
+                float(min(100, rating['score'] + 4)),
+                float(rating['score_military']),
+                float(max(rating['score_military'], rating['score_industrial'])),
+                float(sum((
+                    rating['score_agriculture'],
+                    rating['score_refinery'],
+                    rating['score_industrial'],
+                    rating['score_hightech'],
+                    rating['score_tourism'],
+                )) / 5.0),
+                float(rating['score']),
+                _review_buildability_score(rating),
+                _review_build_complexity(rating['slots']),
+                _review_cp_efficiency(rating),
+                _review_t3_scaling(rating),
+                _review_slot_efficiency(rating),
+                _review_purity_score(rating),
+                _review_contamination_risk(rating),
+                0.72,
+                _rating_confidence(rating.get('confidence')),
+                json.dumps(score_breakdown, sort_keys=True),
+                json.dumps(rationale, sort_keys=True),
+            )
+        )
+    return rows
+
+
+def build_review_archetype_trait_rows() -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    for system in REVIEW_SYSTEMS:
+        rating = system['rating']
+        est_ground_slots = int(min(rating['landable_count'], rating['slots']))
+        est_orbital_slots = int(max(rating['slots'] - est_ground_slots, 0))
+        display_tags = [
+            'Review Fixture',
+            f"{rating['economy_suggestion']} seed",
+            f"{rating['slots']} slots",
+        ]
+        rows.append(
+            (
+                system['id64'],
+                rating['elw_count'] > 0,
+                rating['ww_count'] > 0,
+                rating['ammonia_count'] > 0,
+                rating['black_hole_count'] > 0,
+                rating['neutron_count'] > 0,
+                rating['white_dwarf_count'] > 0,
+                False,
+                rating['terraformable_count'] > 0,
+                False,
+                rating['bio_signal_total'] > 0,
+                rating['geo_signal_total'] > 0,
+                any(bool(body.get('is_scoopable')) for body in system['bodies']),
+                rating['elw_count'],
+                rating['ww_count'],
+                rating['ammonia_count'],
+                rating['gas_giant_count'],
+                int(rating.get('rocky_count', 0)),
+                int(rating.get('rocky_ice_count', 0)),
+                int(rating.get('icy_count', 0)),
+                int(rating.get('hmc_count', 0)),
+                int(rating.get('metal_rich_count', 0)),
+                rating['landable_count'],
+                rating['terraformable_count'],
+                rating['bio_signal_total'],
+                rating['geo_signal_total'],
+                system['body_count'],
+                est_orbital_slots,
+                est_ground_slots,
+                rating['slots'],
+                display_tags,
+            )
+        )
+    return rows
+
+
+async def _upsert_review_archetype_scores(conn: asyncpg.Connection) -> None:
+    await conn.executemany(
+        """
+        INSERT INTO system_archetype_scores (
+          system_id64,
+          primary_archetype,
+          secondary_archetype,
+          archetype_confidence,
+          score_refinery_industrial,
+          score_extraction_refinery,
+          score_agriculture_terraforming,
+          score_hitech_tourism,
+          score_expansion_capital,
+          score_trade_logistics,
+          score_population_capital,
+          score_ax_forward_base,
+          score_military_industrial,
+          score_flexible_multirole,
+          overall_development_potential,
+          buildability_score,
+          build_complexity,
+          cp_efficiency,
+          t3_scaling_viability,
+          slot_efficiency,
+          purity_score,
+          contamination_risk,
+          stable_top_two_prob,
+          confidence,
+          score_breakdown,
+          rationale,
+          dirty
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+          $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb, $26::jsonb, FALSE
+        )
+        ON CONFLICT (system_id64) DO UPDATE
+        SET primary_archetype = EXCLUDED.primary_archetype,
+            secondary_archetype = EXCLUDED.secondary_archetype,
+            archetype_confidence = EXCLUDED.archetype_confidence,
+            score_refinery_industrial = EXCLUDED.score_refinery_industrial,
+            score_extraction_refinery = EXCLUDED.score_extraction_refinery,
+            score_agriculture_terraforming = EXCLUDED.score_agriculture_terraforming,
+            score_hitech_tourism = EXCLUDED.score_hitech_tourism,
+            score_expansion_capital = EXCLUDED.score_expansion_capital,
+            score_trade_logistics = EXCLUDED.score_trade_logistics,
+            score_population_capital = EXCLUDED.score_population_capital,
+            score_ax_forward_base = EXCLUDED.score_ax_forward_base,
+            score_military_industrial = EXCLUDED.score_military_industrial,
+            score_flexible_multirole = EXCLUDED.score_flexible_multirole,
+            overall_development_potential = EXCLUDED.overall_development_potential,
+            buildability_score = EXCLUDED.buildability_score,
+            build_complexity = EXCLUDED.build_complexity,
+            cp_efficiency = EXCLUDED.cp_efficiency,
+            t3_scaling_viability = EXCLUDED.t3_scaling_viability,
+            slot_efficiency = EXCLUDED.slot_efficiency,
+            purity_score = EXCLUDED.purity_score,
+            contamination_risk = EXCLUDED.contamination_risk,
+            stable_top_two_prob = EXCLUDED.stable_top_two_prob,
+            confidence = EXCLUDED.confidence,
+            score_breakdown = EXCLUDED.score_breakdown,
+            rationale = EXCLUDED.rationale,
+            dirty = FALSE,
+            updated_at = NOW()
+        """,
+        build_review_archetype_score_rows(),
+    )
+
+
+async def _upsert_review_archetype_traits(conn: asyncpg.Connection) -> None:
+    await conn.executemany(
+        """
+        INSERT INTO system_archetype_traits (
+          system_id64,
+          has_elw,
+          has_water_world,
+          has_ammonia_world,
+          has_black_hole,
+          has_neutron_star,
+          has_white_dwarf,
+          has_ringed_body,
+          has_terraformables,
+          has_pristine_res,
+          has_bio_signals,
+          has_geo_signals,
+          is_scoopable_star,
+          elw_count,
+          ww_count,
+          ammonia_count,
+          gas_giant_count,
+          rocky_clean_count,
+          rocky_ice_count,
+          icy_count,
+          hmc_count,
+          metal_rich_count,
+          landable_count,
+          terraformable_count,
+          bio_signal_total,
+          geo_signal_total,
+          total_body_count,
+          est_orbital_slots,
+          est_ground_slots,
+          est_total_slots,
+          display_tags
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+          $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31
+        )
+        ON CONFLICT (system_id64) DO UPDATE
+        SET has_elw = EXCLUDED.has_elw,
+            has_water_world = EXCLUDED.has_water_world,
+            has_ammonia_world = EXCLUDED.has_ammonia_world,
+            has_black_hole = EXCLUDED.has_black_hole,
+            has_neutron_star = EXCLUDED.has_neutron_star,
+            has_white_dwarf = EXCLUDED.has_white_dwarf,
+            has_ringed_body = EXCLUDED.has_ringed_body,
+            has_terraformables = EXCLUDED.has_terraformables,
+            has_pristine_res = EXCLUDED.has_pristine_res,
+            has_bio_signals = EXCLUDED.has_bio_signals,
+            has_geo_signals = EXCLUDED.has_geo_signals,
+            is_scoopable_star = EXCLUDED.is_scoopable_star,
+            elw_count = EXCLUDED.elw_count,
+            ww_count = EXCLUDED.ww_count,
+            ammonia_count = EXCLUDED.ammonia_count,
+            gas_giant_count = EXCLUDED.gas_giant_count,
+            rocky_clean_count = EXCLUDED.rocky_clean_count,
+            rocky_ice_count = EXCLUDED.rocky_ice_count,
+            icy_count = EXCLUDED.icy_count,
+            hmc_count = EXCLUDED.hmc_count,
+            metal_rich_count = EXCLUDED.metal_rich_count,
+            landable_count = EXCLUDED.landable_count,
+            terraformable_count = EXCLUDED.terraformable_count,
+            bio_signal_total = EXCLUDED.bio_signal_total,
+            geo_signal_total = EXCLUDED.geo_signal_total,
+            total_body_count = EXCLUDED.total_body_count,
+            est_orbital_slots = EXCLUDED.est_orbital_slots,
+            est_ground_slots = EXCLUDED.est_ground_slots,
+            est_total_slots = EXCLUDED.est_total_slots,
+            display_tags = EXCLUDED.display_tags,
+            updated_at = NOW()
+        """,
+        build_review_archetype_trait_rows(),
+    )
+
+
+async def _refresh_review_archetype_mv(conn: asyncpg.Connection) -> None:
+    await conn.execute('REFRESH MATERIALIZED VIEW mv_archetype_rankings')
+
+
+def _review_archetype_confidence(rating: dict[str, object]) -> float:
+    return round(min(max(float(rating['score']) / 100.0, 0.55), 0.95), 3)
+
+
+def _review_build_complexity(slots: int) -> str:
+    if slots >= 10:
+        return 'advanced'
+    if slots >= 8:
+        return 'moderate'
+    return 'simple'
+
+
+def _review_buildability_score(rating: dict[str, object]) -> float:
+    return round(min(100.0, float(rating['score']) * 0.9), 2)
+
+
+def _review_cp_efficiency(rating: dict[str, object]) -> float:
+    slots = max(int(rating['slots']), 1)
+    return round(min(100.0, 35.0 + (slots * 4.5)), 2)
+
+
+def _review_t3_scaling(rating: dict[str, object]) -> float:
+    return round(min(100.0, 25.0 + float(rating['slots']) * 5.0), 2)
+
+
+def _review_slot_efficiency(rating: dict[str, object]) -> float:
+    return round(min(100.0, 30.0 + float(rating['slots']) * 5.5), 2)
+
+
+def _review_purity_score(rating: dict[str, object]) -> float:
+    return round(min(100.0, float(rating['compactness']) + 8.0), 2)
+
+
+def _review_contamination_risk(rating: dict[str, object]) -> float:
+    return round(max(0.0, 100.0 - float(rating['orbital_safety'])), 2)
 
 
 async def _upsert_review_contracts(conn: asyncpg.Connection) -> None:

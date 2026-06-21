@@ -19,8 +19,11 @@ from review_runtime_guard import validate_review_runtime_env
 from routers.colony_planner import router as colony_planner_router
 from routers.meta import router as meta_router
 from routers.search import router as search_router
+from routers.simulate import router as simulate_router
+from routers.simulation import router as simulation_router
 from routers.systems import router as systems_router
 from review_provenance_cockpit import router as review_provenance_cockpit_router
+from review_support_routes import router as review_support_router
 from review_warehouse_planner_evidence import router as review_warehouse_planner_evidence_router
 from state import metrics as _metrics, set_pool, set_redis
 
@@ -166,6 +169,9 @@ async def generic_error_handler(request: Request, exc: Exception):
 app.include_router(meta_router)
 app.include_router(search_router)
 app.include_router(systems_router)
+app.include_router(simulate_router)
+app.include_router(simulation_router)
+app.include_router(review_support_router)
 app.include_router(colony_planner_router)
 app.include_router(review_provenance_cockpit_router)
 app.include_router(review_warehouse_planner_evidence_router)
