@@ -757,6 +757,16 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in review_spec
     assert 'summarySchemaVersion' in review_spec
     assert 'reviewLabRun' in review_spec
+    assert 'viewportProfiles' in review_spec
+    assert 'profileResults' in review_spec
+    for profile_name in (
+        'planner_desktop_primary',
+        'planner_laptop_minimum',
+        'planner_constrained_diagnostic',
+        'finder_mobile',
+        'planner_mobile_resilience',
+    ):
+        assert profile_name in review_spec
     assert 'Review Lab browser verification requires EDFINDER_REVIEW_LAB_RUN=1 together with EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.' in review_spec
     assert 'shouldSkipReviewLabCollector()' in review_spec
     assert 'reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === \'1\'' in playwright_config
@@ -1067,6 +1077,7 @@ def test_process_registry_inherits_host_env_and_records_only_review_owned_proces
 
 def _valid_browser_summary(selected_scenarios: tuple[object, ...]) -> dict[str, object]:
     flow_keys = list(review_env.browser_runner.selected_browser_flow_keys(selected_scenarios))
+    viewport_profiles = list(review_env.browser_runner.REVIEW_LAB_VIEWPORT_PROFILES)
     summary = {
         'summarySchemaVersion': 1,
         'reviewLabRun': True,
@@ -1076,6 +1087,109 @@ def _valid_browser_summary(selected_scenarios: tuple[object, ...]) -> dict[str, 
             'selectedScenarioNames': [scenario.name for scenario in selected_scenarios],
             'browserFlowKeys': flow_keys,
             'includeProductObservations': True,
+        },
+        'viewportProfiles': viewport_profiles,
+        'profileResults': {
+            'planner_desktop_primary': {
+                'status': 'passed',
+                'checks': {
+                    'effectiveViewportApplied': True,
+                    'documentOverflowWithinTolerance': True,
+                    'criticalOverflowWithinTolerance': True,
+                    'telemetryToggleKeyboardWorks': True,
+                    'noRecoveryScreen': True,
+                },
+                'diagnostics': {
+                    'documentOverflowPx': 0,
+                    'containerOverflow': [],
+                },
+                'error': None,
+            },
+            'planner_laptop_minimum': {
+                'status': 'passed',
+                'checks': {
+                    'effectiveViewportApplied': True,
+                    'plannerOpened': True,
+                    'reportOnlyBoundaryVisible': True,
+                    'canonicalBoundaryVisible': True,
+                    'documentOverflowWithinTolerance': True,
+                    'criticalOverflowWithinTolerance': True,
+                    'keyControlsReachable': True,
+                    'telemetryToggleKeyboardWorks': True,
+                    'safeFocusAndNavigation': True,
+                    'noRecoveryScreen': True,
+                },
+                'diagnostics': {
+                    'documentOverflowPx': 0,
+                    'containerOverflow': [],
+                },
+                'error': None,
+            },
+            'planner_constrained_diagnostic': {
+                'status': 'passed',
+                'checks': {
+                    'effectiveViewportApplied': True,
+                    'plannerOpened': True,
+                    'selectedSystemContextVisible': True,
+                    'safeReturnToFinder': True,
+                    'noRecoveryScreen': True,
+                },
+                'diagnostics': {
+                    'documentOverflowPx': 12,
+                    'containerOverflow': [
+                        {
+                            'testId': 'raven-real-planner-canvas',
+                            'clientWidth': 980,
+                            'scrollWidth': 992,
+                            'overflowPx': 12,
+                        },
+                    ],
+                },
+                'error': None,
+            },
+            'finder_mobile': {
+                'status': 'passed',
+                'checks': {
+                    'effectiveViewportApplied': True,
+                    'finderLoaded': True,
+                    'reviewCardsAccessible': True,
+                    'systemDetailOpened': True,
+                    'systemDetailCloseControlVisible': True,
+                    'modalEscapeCloseWorks': True,
+                    'closeControlWorks': True,
+                    'finderDocumentOverflowWithinTolerance': True,
+                    'systemDetailDocumentOverflowWithinTolerance': True,
+                    'noRecoveryScreen': True,
+                },
+                'diagnostics': {
+                    'finder_document': {'documentOverflowPx': 0},
+                    'system_detail_document': {'documentOverflowPx': 0},
+                },
+                'error': None,
+            },
+            'planner_mobile_resilience': {
+                'status': 'passed',
+                'checks': {
+                    'effectiveViewportApplied': True,
+                    'plannerOpened': True,
+                    'selectedSystemContextVisible': True,
+                    'safeExitControlVisible': True,
+                    'safeReturnToFinder': True,
+                    'noRecoveryScreen': True,
+                },
+                'diagnostics': {
+                    'documentOverflowPx': 22,
+                    'containerOverflow': [
+                        {
+                            'testId': 'raven-real-planner-canvas',
+                            'clientWidth': 358,
+                            'scrollWidth': 380,
+                            'overflowPx': 22,
+                        },
+                    ],
+                },
+                'error': None,
+            },
         },
         'scenarios': {
             'alpha': {
@@ -1141,9 +1255,24 @@ def _valid_browser_summary(selected_scenarios: tuple[object, ...]) -> dict[str, 
         'accessibility': {
             'modalEscapeCloseWorks': True,
             'alphaKeyboardOpenPlannerWorks': True,
-            'mobileTelemetryToggleKeyboardWorks': True,
+            'plannerDesktopTelemetryToggleKeyboardWorks': True,
         },
-        'productObservations': [],
+        'productObservations': [
+            {
+                'key': 'planner_constrained_layout_compromise_diagnostic',
+                'classification': 'KNOWN_VIEWPORT_DIAGNOSTIC',
+                'owner': 'PR #259',
+                'environmentReady': True,
+                'productAcceptanceReady': True,
+            },
+            {
+                'key': 'planner_mobile_resilience_overflow_diagnostic',
+                'classification': 'KNOWN_VIEWPORT_DIAGNOSTIC',
+                'owner': 'PR #259',
+                'environmentReady': True,
+                'productAcceptanceReady': True,
+            },
+        ],
         'apiResponses': [
             {
                 'method': 'GET',
@@ -1394,11 +1523,12 @@ class _FakeVerifyContext:
 
 def _successful_browser_payload() -> dict[str, Any]:
     known = {
-        'key': 'known-pr259-narrow-viewport-planner-overflow',
-        'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
+        'key': 'planner_mobile_resilience_overflow_diagnostic',
+        'classification': 'KNOWN_VIEWPORT_DIAGNOSTIC',
         'owner': 'PR #259',
         'environmentReady': True,
-        'productAcceptanceReady': False,
+        'productAcceptanceReady': True,
+        'observedInRun': True,
     }
     return {
         'browser_desktop': review_env.phase_result(status='passed', duration_ms=0, summary='desktop ok', failure_code=None, safe_diagnostics={}),
@@ -1912,6 +2042,27 @@ def test_delta_503_requires_full_successful_fallback_sequence():
 
 
 @pytest.mark.unit
+def test_browser_desktop_evaluation_accepts_constrained_diagnostic_and_mobile_resilience_diagnostics():
+    selected = review_env.scenarios.resolve_scenarios('all')
+    phase = review_env.browser_runner.evaluate_browser_desktop(_valid_browser_summary(selected), selected)
+    assert phase['status'] == 'passed'
+    assert phase['failure_code'] is None
+
+
+@pytest.mark.unit
+def test_browser_desktop_evaluation_fails_when_required_laptop_overflow_gate_fails():
+    selected = review_env.scenarios.resolve_scenarios('all')
+    summary = _valid_browser_summary(selected)
+    summary['profileResults']['planner_laptop_minimum']['checks']['documentOverflowWithinTolerance'] = False
+
+    phase = review_env.browser_runner.evaluate_browser_desktop(summary, selected)
+
+    assert phase['status'] == 'failed'
+    assert phase['failure_code'] == 'BROWSER_VIEWPORT_CONTRACT_FAILED'
+    assert phase['safe_diagnostics']['missing_profile_checks']['planner_laptop_minimum'] == ['documentOverflowWithinTolerance']
+
+
+@pytest.mark.unit
 def test_unexpected_api_errors_fail_browser_console_phase():
     phase = review_env.evaluate_browser_console(
         {
@@ -1984,33 +2135,40 @@ def test_expected_delta_console_503_is_allowed_when_fallback_sequence_succeeds()
 
 
 @pytest.mark.unit
-def test_known_narrow_viewport_finding_is_reported_not_silently_ignored():
+def test_known_mobile_planner_resilience_diagnostic_is_reported_not_silently_ignored():
     phase = review_env.evaluate_product_observations(
         {
             'productObservations': [
                 {
-                    'key': 'known-pr259-narrow-viewport-planner-overflow',
-                    'classification': 'PRODUCT_NARROW_VIEWPORT_OVERFLOW',
+                    'key': 'planner_mobile_resilience_overflow_diagnostic',
+                    'classification': 'KNOWN_VIEWPORT_DIAGNOSTIC',
                     'owner': 'PR #259',
                     'environmentReady': True,
-                    'productAcceptanceReady': False,
+                    'productAcceptanceReady': True,
                 },
             ],
         }
     )
     assert phase['status'] == 'passed'
-    known = phase['safe_diagnostics']['known_product_observations'][0]
+    known = next(
+        observation
+        for observation in phase['safe_diagnostics']['known_product_observations']
+        if observation['key'] == 'planner_mobile_resilience_overflow_diagnostic'
+    )
     assert known['environmentReady'] is True
-    assert known['productAcceptanceReady'] is False
+    assert known['productAcceptanceReady'] is True
 
 
 @pytest.mark.unit
-def test_known_narrow_viewport_finding_is_preserved_even_when_not_redetected():
+def test_known_viewport_diagnostics_are_preserved_even_when_not_redetected():
     phase = review_env.evaluate_product_observations({'productObservations': []})
     assert phase['status'] == 'passed'
-    known = phase['safe_diagnostics']['known_product_observations'][0]
-    assert known['key'] == 'known-pr259-narrow-viewport-planner-overflow'
-    assert known['observedInRun'] is False
+    keys = {observation['key'] for observation in phase['safe_diagnostics']['known_product_observations']}
+    assert keys == {
+        'planner_constrained_layout_compromise_diagnostic',
+        'planner_mobile_resilience_overflow_diagnostic',
+    }
+    assert all(observation['observedInRun'] is False for observation in phase['safe_diagnostics']['known_product_observations'])
 
 
 @pytest.mark.unit
@@ -2077,7 +2235,7 @@ def test_preflight_fails_closed_when_review_owned_resources_already_exist(monkey
 
 
 @pytest.mark.unit
-def test_verify_reports_known_product_observation_without_product_acceptance_readiness(
+def test_verify_reports_known_non_blocking_viewport_diagnostics_without_failing_product_acceptance(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ):
@@ -2130,7 +2288,7 @@ def test_verify_reports_known_product_observation_without_product_acceptance_rea
 
     assert report['ok'] is True
     assert report['environment_ready'] is True
-    assert report['product_acceptance_ready'] is False
+    assert report['product_acceptance_ready'] is True
 
 
 @pytest.mark.unit

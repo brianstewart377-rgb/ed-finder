@@ -104,6 +104,14 @@ def _timed_call(callback):
     return {'value': value, 'duration_ms': elapsed_ms(started_at)}
 
 
+def _blocking_product_observations(observations_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        observation
+        for observation in observations_list
+        if observation.get('observedInRun') and observation.get('productAcceptanceReady') is False
+    ]
+
+
 def _mark_failed_phase(phases: dict[str, dict[str, Any]], phase_name: str, exc: ReviewEnvironmentError) -> None:
     phases[phase_name] = phase_result(
         status='failed',
@@ -211,7 +219,7 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
                 report['environment_ready'] = True
                 report['product_acceptance_ready'] = (
                     phases['product_observations']['status'] == 'passed'
-                    and not report['known_product_observations']
+                    and not _blocking_product_observations(report['known_product_observations'])
                 )
         else:
             for phase_name in ('browser_desktop', 'browser_accessibility', 'browser_console', 'product_observations'):

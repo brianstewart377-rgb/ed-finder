@@ -12,6 +12,7 @@ from .contract import (
     EXPECTED_FRONTEND_PREVIEW_PORT,
     FRONTEND_DIR,
     REVIEW_LAB_BROWSER_MARKER,
+    REVIEW_LAB_VIEWPORT_PROFILES,
     REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION,
     VERIFY_BROWSER_SPEC,
     ReviewLabError,
@@ -31,6 +32,7 @@ from .timeouts import TIMEOUTS
 
 def evaluate_browser_desktop(summary: dict[str, Any], selected_scenarios: tuple[ScenarioDefinition, ...]) -> dict[str, Any]:
     scenarios = summary.get('scenarios') or {}
+    profile_results = summary.get('profileResults') or {}
     required_by_flow = {
         'alpha': {'systemDetailLoaded', 'plannerOpened', 'reportOnlyBoundaryVisible', 'canonicalBoundaryVisible'},
         'beta': {'systemDetailLoaded', 'plannerOpened', 'unavailablePostureVisible'},
@@ -46,33 +48,102 @@ def evaluate_browser_desktop(summary: dict[str, Any], selected_scenarios: tuple[
             'noRecoveryScreen',
         },
     }
+    required_by_profile = {
+        'planner_desktop_primary': {
+            'effectiveViewportApplied',
+            'documentOverflowWithinTolerance',
+            'criticalOverflowWithinTolerance',
+            'telemetryToggleKeyboardWorks',
+            'noRecoveryScreen',
+        },
+        'planner_laptop_minimum': {
+            'effectiveViewportApplied',
+            'plannerOpened',
+            'reportOnlyBoundaryVisible',
+            'canonicalBoundaryVisible',
+            'documentOverflowWithinTolerance',
+            'criticalOverflowWithinTolerance',
+            'keyControlsReachable',
+            'telemetryToggleKeyboardWorks',
+            'safeFocusAndNavigation',
+            'noRecoveryScreen',
+        },
+        'planner_constrained_diagnostic': {
+            'effectiveViewportApplied',
+            'plannerOpened',
+            'selectedSystemContextVisible',
+            'safeReturnToFinder',
+            'noRecoveryScreen',
+        },
+        'finder_mobile': {
+            'effectiveViewportApplied',
+            'finderLoaded',
+            'reviewCardsAccessible',
+            'systemDetailOpened',
+            'systemDetailCloseControlVisible',
+            'modalEscapeCloseWorks',
+            'closeControlWorks',
+            'finderDocumentOverflowWithinTolerance',
+            'systemDetailDocumentOverflowWithinTolerance',
+            'noRecoveryScreen',
+        },
+        'planner_mobile_resilience': {
+            'effectiveViewportApplied',
+            'plannerOpened',
+            'selectedSystemContextVisible',
+            'safeExitControlVisible',
+            'safeReturnToFinder',
+            'noRecoveryScreen',
+        },
+    }
     active_flow_keys = selected_browser_flow_keys(selected_scenarios)
-    missing: dict[str, list[str]] = {}
+    missing_flows: dict[str, list[str]] = {}
     for flow_key in active_flow_keys:
         scenario = scenarios.get(flow_key)
         required_checks = required_by_flow[flow_key]
         if not isinstance(scenario, dict) or scenario.get('status') != 'passed':
-            missing[flow_key] = ['scenario_failed']
+            missing_flows[flow_key] = ['scenario_failed']
             continue
         checks = scenario.get('checks') or {}
         missing_checks = [name for name in sorted(required_checks) if not checks.get(name)]
         if missing_checks:
-            missing[flow_key] = missing_checks
-    if missing:
-        failure_code = 'DELTA_FALLBACK_NOT_TRIGGERED' if 'delta' in missing else 'BROWSER_JOURNEY_FAILED'
+            missing_flows[flow_key] = missing_checks
+    missing_profiles: dict[str, list[str]] = {}
+    for profile_name, required_checks in required_by_profile.items():
+        profile = profile_results.get(profile_name)
+        if not isinstance(profile, dict) or profile.get('status') != 'passed':
+            missing_profiles[profile_name] = ['profile_failed']
+            continue
+        checks = profile.get('checks') or {}
+        missing_checks = [name for name in sorted(required_checks) if not checks.get(name)]
+        if missing_checks:
+            missing_profiles[profile_name] = missing_checks
+    if missing_flows or missing_profiles:
+        if 'delta' in missing_flows:
+            failure_code = 'DELTA_FALLBACK_NOT_TRIGGERED'
+        elif missing_profiles:
+            failure_code = 'BROWSER_VIEWPORT_CONTRACT_FAILED'
+        else:
+            failure_code = 'BROWSER_JOURNEY_FAILED'
         return {
             'status': 'failed',
             'duration_ms': 0,
-            'summary': 'One or more browser review journeys did not satisfy the expected UI contract.',
+            'summary': 'One or more viewport-profile browser journeys did not satisfy the expected UI contract.',
             'failure_code': failure_code,
-            'safe_diagnostics': {'missing_checks': missing},
+            'safe_diagnostics': {
+                'missing_scenario_checks': missing_flows,
+                'missing_profile_checks': missing_profiles,
+            },
         }
     return {
         'status': 'passed',
         'duration_ms': 0,
-        'summary': 'Desktop browser journeys passed for the selected review scenarios against the real review stack.',
+        'summary': 'Desktop-first planner, constrained diagnostic, Finder mobile, and planner resilience browser journeys passed against the real review stack.',
         'failure_code': None,
-        'safe_diagnostics': {'scenario_names': list(active_flow_keys)},
+        'safe_diagnostics': {
+            'scenario_names': list(active_flow_keys),
+            'profile_names': [profile['profile_name'] for profile in REVIEW_LAB_VIEWPORT_PROFILES],
+        },
     }
 
 
@@ -83,8 +154,8 @@ def evaluate_browser_accessibility(summary: dict[str, Any], selected_scenarios: 
         required_checks.append('modalEscapeCloseWorks')
     if any('keyboard_open_planner' in scenario.accessibility_checks for scenario in selected_scenarios):
         required_checks.append('alphaKeyboardOpenPlannerWorks')
-    if any('mobile_telemetry_toggle' in scenario.accessibility_checks for scenario in selected_scenarios):
-        required_checks.append('mobileTelemetryToggleKeyboardWorks')
+    if any('desktop_telemetry_toggle' in scenario.accessibility_checks for scenario in selected_scenarios):
+        required_checks.append('plannerDesktopTelemetryToggleKeyboardWorks')
     if not required_checks:
         return {
             'status': 'skipped',
@@ -105,7 +176,7 @@ def evaluate_browser_accessibility(summary: dict[str, Any], selected_scenarios: 
     return {
         'status': 'passed',
         'duration_ms': 0,
-        'summary': 'Keyboard-driven modal close, planner open, and telemetry dock toggle checks passed.',
+        'summary': 'Keyboard-driven modal close, planner open, and desktop telemetry dock toggle checks passed.',
         'failure_code': None,
         'safe_diagnostics': {'checks': required_checks},
     }
@@ -175,14 +246,29 @@ def _browser_runner_diagnostics(
 def _validate_browser_summary(summary: Any, selected_scenarios: tuple[ScenarioDefinition, ...]) -> None:
     expected_scenarios = [scenario.name for scenario in selected_scenarios]
     expected_flow_keys = list(selected_browser_flow_keys(selected_scenarios))
+    expected_profiles = list(REVIEW_LAB_VIEWPORT_PROFILES)
+    expected_profile_names = {profile['profile_name'] for profile in expected_profiles}
     required_sections = {
         'scenarios': dict,
         'accessibility': dict,
+        'viewportProfiles': list,
+        'profileResults': dict,
         'productObservations': list,
         'apiResponses': list,
         'consoleEntries': list,
         'pageErrors': list,
     }
+    viewport_profiles = summary.get('viewportProfiles') or []
+    profile_results = summary.get('profileResults') or {}
+    viewport_profiles_valid = (
+        isinstance(viewport_profiles, list)
+        and len({profile.get('profile_name') for profile in viewport_profiles if isinstance(profile, dict)}) == len(viewport_profiles)
+        and all(profile in expected_profiles for profile in viewport_profiles)
+    )
+    profile_results_valid = (
+        isinstance(profile_results, dict)
+        and set(profile_results).issubset(expected_profile_names)
+    )
     schema_valid = (
         isinstance(summary, dict)
         and summary.get('summarySchemaVersion') == REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION
@@ -190,6 +276,8 @@ def _validate_browser_summary(summary: Any, selected_scenarios: tuple[ScenarioDe
         and summary.get('selectedScenarioNames') == expected_scenarios
         and summary.get('browserFlowKeys') == expected_flow_keys
         and all(isinstance(summary.get(key), expected_type) for key, expected_type in required_sections.items())
+        and viewport_profiles_valid
+        and profile_results_valid
         and 'fatalError' in summary
     )
     if not schema_valid:
