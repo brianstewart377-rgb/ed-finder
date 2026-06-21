@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from urllib.request import urlopen
@@ -19,6 +20,7 @@ COMPOSE_PATH = ROOT / 'docker-compose.review.yml'
 FRONTEND_VITE_CONFIG = ROOT / 'frontend-v2' / 'vite.config.ts'
 FRONTEND_API = ROOT / 'frontend-v2' / 'src' / 'lib' / 'api.ts'
 PLANNER_WORKSPACE = ROOT / 'frontend-v2' / 'src' / 'features' / 'colony-planner' / 'ColonyPlannerWorkspace.tsx'
+REVIEW_LAB_WORKFLOW_PATH = ROOT / '.github' / 'workflows' / 'review-lab.yml'
 
 os.environ.setdefault('CORS_ORIGINS', 'https://example.com')
 
@@ -65,6 +67,10 @@ def _read(path: Path) -> str:
 
 def _service_block(service_name: str) -> str:
     return review_env.extract_service_block(_read(COMPOSE_PATH), service_name)
+
+
+def _review_lab_workflow_text() -> str:
+    return _read(REVIEW_LAB_WORKFLOW_PATH)
 
 
 class _FakeAcquire:
@@ -737,9 +743,88 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'verify --mode quick --scenario planner_core --confirm-local-review-environment' in docs
     assert 'verify --mode full --scenario all --confirm-local-review-environment' in docs
     assert 'report --latest' in docs
+    assert 'Review Lab CI is separate from the normal Frontend v2 E2E lane.' in docs
+    assert 'workflow_dispatch' in docs
+    assert 'does not call normal `yarn e2e` as a substitute' in docs
+    assert 'failure-only, sanitised Review Lab artifacts' in docs
+    assert "PR `#259`'s narrow viewport" in docs
     assert 'test.skip(' in review_spec
     assert 'EDFINDER_REVIEW_OUTPUT_PATH' in review_spec
     assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in review_spec
+
+
+@pytest.mark.unit
+def test_review_lab_workflow_exists_and_uses_review_lab_specific_triggers():
+    workflow = _review_lab_workflow_text()
+    assert REVIEW_LAB_WORKFLOW_PATH.is_file()
+    assert re.search(r'(?m)^name:\s+Review Lab\s*$', workflow)
+    assert re.search(r'(?m)^\s*workflow_dispatch:\s*$', workflow)
+    assert re.search(r'(?m)^\s*pull_request:\s*$', workflow)
+    for path_fragment in (
+        '.github/workflows/review-lab.yml',
+        'docker-compose.review.yml',
+        'scripts/dev/review_environment.py',
+        'scripts/dev/review_lab/**',
+        'scripts/dev/review_environment_seed.py',
+        'apps/api/src/review_*.py',
+        'frontend-v2/e2e/review-environment.spec.js',
+        'frontend-v2/playwright.config.ts',
+        'frontend-v2/package.json',
+        'frontend-v2/yarn.lock',
+        'docs/development/local-review-test-environment.md',
+        'tests/test_local_review_test_environment.py',
+    ):
+        assert path_fragment in workflow
+
+
+@pytest.mark.unit
+def test_review_lab_workflow_uses_least_privilege_and_cancels_stale_runs():
+    workflow = _review_lab_workflow_text()
+    assert re.search(r'permissions:\s*\n\s+contents:\s+read', workflow)
+    assert re.search(r'concurrency:\s*\n\s+group:\s+\$\{\{\s*github\.workflow\s*\}\}-\$\{\{\s*github\.ref\s*\}\}', workflow)
+    assert re.search(r'cancel-in-progress:\s+true', workflow)
+    assert re.search(r'timeout-minutes:\s+15', workflow)
+
+
+@pytest.mark.unit
+def test_review_lab_workflow_invokes_wrapper_authority_and_not_normal_e2e():
+    workflow = _review_lab_workflow_text()
+    assert 'scripts/dev/resolve_project_state.py --strict' in workflow
+    assert 'tests/test_local_review_test_environment.py' in workflow
+    assert 'tests/test_db_isolation_guardrails.py' in workflow
+    assert 'tests/test_project_state_resolver.py' in workflow
+    assert 'scripts/dev/review_environment.py preflight' in workflow
+    assert 'scripts/dev/review_environment.py verify' in workflow
+    assert '--mode full' in workflow
+    assert '--scenario all' in workflow
+    assert '--confirm-local-review-environment' in workflow
+    assert 'scripts/dev/review_environment.py down' in workflow
+    assert 'git diff --check' in workflow
+    assert 'run: yarn e2e\n' not in workflow
+    assert 'playwright test' not in workflow
+    assert 'docker compose down' not in workflow
+    assert 'docker rm' not in workflow
+    assert 'docker volume rm' not in workflow
+    assert 'psql ' not in workflow
+    assert 'postgresql://' not in workflow
+
+
+@pytest.mark.unit
+def test_review_lab_workflow_uses_failure_only_sanitised_artifacts_and_summary():
+    workflow = _review_lab_workflow_text()
+    workflow_lower = workflow.lower()
+    assert workflow.count('if: failure()') >= 2
+    assert 'review-lab-report' in workflow
+    assert 'review-lab-playwright-failure' in workflow
+    assert '/tmp/edfinder-local-review/latest-report.json' in workflow
+    assert '/tmp/edfinder-local-review/*/report.json' in workflow
+    assert '/tmp/edfinder-local-review/*/browser-summary.json' in workflow
+    assert 'frontend-v2/test-results' in workflow
+    assert 'GITHUB_STEP_SUMMARY' in workflow
+    assert 'docker ps -a --filter "label=com.docker.compose.project=edfinder-review"' in workflow
+    assert 'docker volume ls --filter "label=com.docker.compose.project=edfinder-review"' in workflow
+    for forbidden in ('env_file:', 'postgresql://', 'secret:', 'token:', 'password:', 'dsn:'):
+        assert forbidden not in workflow_lower
 
 
 @pytest.mark.unit

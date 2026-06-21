@@ -39,6 +39,36 @@ work.
 The Review Lab never loads arbitrary scenarios, shell fragments, endpoints,
 credentials, or `.env` files.
 
+## GitHub Actions
+
+Review Lab CI is separate from the normal Frontend v2 E2E lane.
+
+- Normal Frontend v2 E2E continues to test normal application behaviour only.
+- `frontend-v2/e2e/review-environment.spec.js` intentionally skips outside
+  Review Lab execution.
+- The dedicated GitHub Actions workflow is `Review Lab` in
+  `.github/workflows/review-lab.yml`.
+- It is manually triggerable via `workflow_dispatch`.
+- Its `pull_request` trigger is path-filtered to Review Lab-relevant files so
+  unrelated feature changes do not pay for the expensive isolated browser lane.
+- It uses least-privilege `contents: read` permissions and cancels stale runs on
+  the same branch.
+- The workflow authority remains the wrapper command:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B \
+  scripts/dev/review_environment.py verify \
+  --mode full \
+  --scenario all \
+  --confirm-local-review-environment
+```
+
+- The dedicated Review Lab lane does not call normal `yarn e2e` as a substitute
+  for isolated review validation.
+- The Review Lab browser collector receives
+  `EDFINDER_REVIEW_OUTPUT_PATH` and `EDFINDER_REVIEW_SCENARIOS_JSON` only from
+  the wrapper. Partial Review Lab configuration fails closed.
+
 ## Safety Boundary
 
 The review environment is isolated, disposable, and fail-closed.
@@ -86,6 +116,9 @@ PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.p
 - `report --latest` is read-only and prints the latest sanitised JSON report.
 - `down --confirm-local-review-environment` removes only the isolated
   `edfinder-review` stack resources.
+
+The dedicated `Review Lab` GitHub Actions workflow runs the same full-mode
+wrapper command against synthetic review data only.
 
 ## Scenario Registry
 
@@ -186,9 +219,11 @@ Verify always:
 
 - captures a Docker baseline before startup
 - tears the review stack down in `finally`
-- compares the Docker baseline after teardown
-- fails with `DOCKER_BASELINE_NOT_RESTORED` if review-owned cleanup is not
-  restored to baseline
+- compares the non-review Docker baseline after teardown
+- fails closed if review-owned resources already exist before verify
+- fails with `DOCKER_BASELINE_NOT_RESTORED` if the non-review baseline changes
+- fails with `REVIEW_RESOURCES_NOT_REMOVED` if any review-owned container or
+  volume remains after teardown
 
 ## What Verify Proves
 
@@ -236,8 +271,8 @@ It validates all of the following:
 ## Support-Route Matrix
 
 The Review Lab test-enforces a support-route matrix with route, frontend caller,
-required status, review-only handling, allowed response characteristics, and
-scenario coverage.
+required status, review-only handling, allowed response characteristics,
+scenario coverage, and explicit validation mode.
 
 At minimum it covers:
 
@@ -252,6 +287,10 @@ At minimum it covers:
 Rules:
 
 - Normal runtime never mounts review-only routes.
+- Every route must be classified as `api_contract_validated`,
+  `browser_only_validated`, or `intentionally_not_exercised`.
+- `/api/events/live` is validated through a bounded loopback SSE handshake that
+  asserts `200` plus `text/event-stream` without consuming an unbounded stream.
 - Required routes must return contract-shaped review responses.
 - Optional noisy routes may return safe empty or zeroed responses.
 - No fake operational or source claims are allowed.
@@ -276,6 +315,10 @@ The known allowlisted product observation is:
 
 This observation remains owned by PR `#259`. It should be detected and reported,
 not hidden, and it does not make PR `#260` or PR `#259` ready for merge.
+
+That classification also applies in Review Lab CI: PR `#259`'s narrow viewport
+overflow remains a product finding and does not fail the isolated environment
+lane when the Review Lab itself behaves correctly.
 
 Any new or different product issue fails as
 `UNEXPECTED_PRODUCT_OBSERVATION`.
@@ -303,3 +346,17 @@ Review Lab artifacts are temporary and sanitised.
 - Never commit artifacts, logs, screenshots, traces, or browser dumps.
 - Safe diagnostics must not include credentials, DSNs, tokens, passwords,
   secret paths, private local paths, or unredacted stack traces.
+
+GitHub Actions uploads failure-only, sanitised Review Lab artifacts:
+
+- final JSON report and latest-report pointer
+- sanitised browser summary
+- isolated Playwright test results from synthetic review scenarios only
+
+It does not upload `.env` files, Docker inspect output, container environment
+data, DSNs, tokens, passwords, database dumps, operator artifacts, or raw logs
+that could carry credentials.
+
+The Actions job summary records only safe high-level facts such as full verify
+pass/fail state, duration, Delta fallback correlation, unexpected console/API
+error summary, Docker baseline restoration, and review-owned resource absence.
