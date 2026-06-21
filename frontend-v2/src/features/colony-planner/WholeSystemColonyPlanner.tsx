@@ -343,7 +343,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
           aria-expanded={telemetryDockOpen}
           aria-controls="planner-telemetry-dock-content"
           onClick={() => setTelemetryDockOpen((open) => !open)}
-          className="flex w-full items-center justify-between gap-3 rounded-chunk-lg border border-cyan/35 bg-bg2/95 px-3 py-2 shadow-metal xl:hidden"
+          className="flex w-full items-center justify-between gap-3 rounded-chunk-lg border border-cyan/35 bg-bg2/95 px-3 py-2 shadow-metal"
         >
           <span className="flex min-w-0 items-center gap-2">
             <PanelRight size={16} className="shrink-0 text-cyan" />
