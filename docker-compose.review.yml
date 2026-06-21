@@ -1,0 +1,65 @@
+services:
+  review-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: edfinder_local_review
+      POSTGRES_USER: review_user
+      POSTGRES_PASSWORD: review_password
+      PGDATA: /var/lib/postgresql/data/review-pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U review_user -d edfinder_local_review"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - review_postgres_data:/var/lib/postgresql/data
+      - ./sql:/workspace/sql:ro
+    networks:
+      - review
+
+  review-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - review_redis_data:/data
+    networks:
+      - review
+
+  review-api:
+    build:
+      context: ./apps/api
+    command: ["uvicorn", "review_main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    depends_on:
+      review-postgres:
+        condition: service_healthy
+      review-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://review_user:review_password@review-postgres:5432/edfinder_local_review
+      REDIS_URL: redis://review-redis:6379/0
+      CORS_ORIGINS: http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173
+      LOG_LEVEL: WARNING
+      ADMIN_TOKEN: review-environment-admin-token
+      EXPOSE_ERROR_DETAIL: "true"
+      ED_FINDER_REVIEW_STACK_MARKER: edfinder-review
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - ./scripts/dev/review_environment_seed.py:/workspace/scripts/dev/review_environment_seed.py:ro
+    networks:
+      - review
+
+networks:
+  review:
+    name: edfinder-review-network
+
+volumes:
+  review_postgres_data:
+    name: edfinder_review_postgres_data
+  review_redis_data:
+    name: edfinder_review_redis_data

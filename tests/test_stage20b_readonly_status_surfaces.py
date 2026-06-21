@@ -76,30 +76,23 @@ def test_stage20b_authority_records_read_only_surface_completion():
 
 
 @pytest.mark.unit
-def test_stage20b_backend_returns_available_stale_and_unknown_fixture_safe_states(monkeypatch: pytest.MonkeyPatch):
-    fixtures = backend.DEVELOPMENT_FIXTURE_SYSTEMS
-    monkeypatch.setattr(
-        backend,
-        'resolve_runtime_provenance_fixture',
-        lambda id64: fixtures.get(id64),
-    )
-
+def test_stage20b_backend_returns_conservative_unknown_states_without_runtime_fixtures():
     available = backend.build_provenance_cockpit(12866676218109)
     stale = backend.build_provenance_cockpit(9466842275401)
     unknown = backend.build_provenance_cockpit(2293822313194)
     fallback = backend.build_provenance_cockpit(42)
 
     assert available.schema_version == 'stage20a_provenance_cockpit/v1'
-    assert available.provenance_summary.state == 'available'
-    assert available.evidence_panels.source_run.rows_read == 250
-    assert available.evidence_panels.source_run.rows_staged == 250
+    assert available.provenance_summary.state == 'unknown'
+    assert available.evidence_panels.source_run.rows_read is None
+    assert available.evidence_panels.source_run.rows_staged is None
     assert available.guardrails.stage19_paused is True
     assert available.guardrails.db_writes_authorized is False
-    assert any('non-live example data' in warning.lower() for warning in available.warnings)
+    assert any('no provenance artifact is configured' in warning.lower() for warning in available.warnings)
 
-    assert stale.provenance_summary.state == 'stale'
-    assert stale.evidence_panels.warehouse.state == 'stale'
-    assert stale.evidence_panels.warehouse.stale_records == 14
+    assert stale.provenance_summary.state == 'unknown'
+    assert stale.evidence_panels.warehouse.state == 'unknown'
+    assert stale.evidence_panels.warehouse.stale_records is None
     assert stale.warnings
 
     assert unknown.provenance_summary.state == 'unknown'

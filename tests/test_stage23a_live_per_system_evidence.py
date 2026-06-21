@@ -225,7 +225,7 @@ async def test_stage23a_live_provider_keeps_unknown_systems_unavailable(monkeypa
 
 
 @pytest.mark.unit
-def test_stage23a_builder_uses_live_provider_results_and_fixture_gate(monkeypatch: pytest.MonkeyPatch):
+def test_stage23a_builder_uses_live_provider_results(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         backend,
         'read_warehouse_status_snapshot',
@@ -237,7 +237,6 @@ def test_stage23a_builder_uses_live_provider_results_and_fixture_gate(monkeypatc
             'warnings': [],
         },
     )
-    monkeypatch.setattr(backend, 'resolve_runtime_warehouse_fixture', lambda _id64: None)
 
     live_result = LivePlannerEvidenceResult(
         availability='report_only',
@@ -305,13 +304,3 @@ def test_stage23a_builder_uses_live_provider_results_and_fixture_gate(monkeypatc
     assert response.bounded_staging.row_limit == 10000
     assert response.bounded_staging.bounded_staging_only is True
     assert response.bounded_staging.report_only is True
-
-    fixtures = backend.DEVELOPMENT_FIXTURE_SYSTEMS
-    monkeypatch.setattr(backend, 'resolve_runtime_warehouse_fixture', lambda id64: fixtures.get(id64))
-    fixture_response = backend.build_warehouse_planner_evidence(12866676218109, live_result=live_result)
-    assert any(item.source == 'warehouse_report_only' for item in fixture_response.evidence_summary.items)
-    assert any('non-live example data' in warning.lower() for warning in fixture_response.warnings)
-    assert fixture_response.evidence_envelope.status == 'available'
-    assert fixture_response.evidence_envelope.source_classes == ['derived_report']
-    assert fixture_response.evidence_envelope.semantics == ['report_only_review_context', 'not_full_coverage']
-    assert fixture_response.bounded_staging.status == 'not_evaluated'

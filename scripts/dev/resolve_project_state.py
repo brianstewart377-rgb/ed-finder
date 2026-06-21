@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -37,12 +38,14 @@ def main(
     *,
     authority_path: Path = DEFAULT_AUTHORITY_FILE,
     git_runner: GitRunner | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> int:
     args = parse_args(argv)
     result = resolve_project_state(
         authority_path=authority_path,
         git_runner=git_runner,
         allow_docs_only=args.allow_docs_only,
+        env=env,
     )
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -74,8 +77,10 @@ def resolve_project_state(
     authority_path: Path = DEFAULT_AUTHORITY_FILE,
     git_runner: GitRunner | None = None,
     allow_docs_only: bool = False,
+    env: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     runner = git_runner or default_git_runner
+    environment = dict(os.environ if env is None else env)
     authority, authority_error = load_authority(authority_path)
     if authority_error is not None:
         return build_failure(
@@ -102,18 +107,41 @@ def resolve_project_state(
 
     current_branch = git_output(runner, ('branch', '--show-current'))
     current_head = git_output(runner, ('rev-parse', 'HEAD'))
-    if not current_branch or not current_head:
+    checkout_context = 'named_branch'
+    effective_branch = current_branch
+    if not current_head:
         return build_failure(
             authority_path=authority_path,
             authority=authority,
             stage19_status=stage19_status,
             stage19as_au_status=stage19as_au_status,
             current_branch=current_branch,
+            effective_branch=effective_branch,
             current_head=current_head,
             failure_category='ambiguous_local_state',
-            next_action='Check out a named branch with a resolvable HEAD before continuing.',
+            next_action=ambiguous_state_next_action(environment),
+            checkout_context='missing_head',
             allow_docs_only=allow_docs_only,
         )
+    if not effective_branch:
+        detached_context = github_actions_detached_pr_head_context(environment, current_head)
+        if detached_context is not None:
+            effective_branch = detached_context['head_ref']
+            checkout_context = detached_context['checkout_context']
+        else:
+            return build_failure(
+                authority_path=authority_path,
+                authority=authority,
+                stage19_status=stage19_status,
+                stage19as_au_status=stage19as_au_status,
+                current_branch=current_branch,
+                effective_branch=effective_branch,
+                current_head=current_head,
+                failure_category='ambiguous_local_state',
+                next_action=ambiguous_state_next_action(environment),
+                checkout_context='detached_head',
+                allow_docs_only=allow_docs_only,
+            )
 
     origin_main = git_output(runner, ('rev-parse', 'origin/main'))
     origin_main_contains_authority = bool(origin_main)
@@ -130,7 +158,7 @@ def resolve_project_state(
         authority_commit_available = True
         head_contains_authority = True
 
-    matched_state, matched_by = find_matching_invalid_state(authority, current_branch, current_head)
+    matched_state, matched_by = find_matching_invalid_state(authority, effective_branch, current_head)
     failure_category = 'none'
     next_action = 'State authority checks passed for operational work.'
 
@@ -146,7 +174,7 @@ def resolve_project_state(
     elif matched_state and matched_by == 'head':
         failure_category = 'current_head_superseded'
         next_action = 'Do not use this invalid state as authority; switch to a clean branch from origin/main.'
-    elif current_branch == 'work':
+    elif effective_branch == 'work':
         failure_category = 'wrong_branch'
         next_action = 'Branch work is non-authoritative for Stage 19/test-env operational work.'
     elif not head_contains_authority:
@@ -163,7 +191,9 @@ def resolve_project_state(
     return {
         'state_authority_file': relative_path(authority_path),
         'current_branch': current_branch,
+        'effective_branch': effective_branch,
         'current_head': current_head,
+        'checkout_context': checkout_context,
         'origin_main': origin_main,
         'origin_main_contains_authority': origin_main_contains_authority,
         'stage19_status': stage19_status,
@@ -215,13 +245,17 @@ def build_failure(
     stage19_status: str = 'unknown',
     stage19as_au_status: str = 'unknown',
     current_branch: str | None = None,
+    effective_branch: str | None = None,
     current_head: str | None = None,
+    checkout_context: str = 'unknown',
 ) -> dict[str, Any]:
     assert failure_category in FAILURE_CATEGORIES
     return {
         'state_authority_file': relative_path(authority_path),
         'current_branch': current_branch,
+        'effective_branch': effective_branch,
         'current_head': current_head,
+        'checkout_context': checkout_context,
         'origin_main': None,
         'origin_main_contains_authority': False,
         'stage19_status': stage19_status,
@@ -270,6 +304,52 @@ def git_output(runner: GitRunner, args: Sequence[str]) -> str | None:
         return None
     text = completed.stdout.strip()
     return text or None
+
+
+def ambiguous_state_next_action(environment: Mapping[str, str]) -> str:
+    if is_github_actions_pull_request(environment):
+        return 'Ensure CI checks out the pull request head SHA with a resolvable origin/main reference before continuing.'
+    return 'Check out a named branch with a resolvable HEAD before continuing.'
+
+
+def is_github_actions_pull_request(environment: Mapping[str, str]) -> bool:
+    return (
+        str(environment.get('GITHUB_ACTIONS', '')).lower() == 'true'
+        and str(environment.get('GITHUB_EVENT_NAME', '')) == 'pull_request'
+    )
+
+
+def github_actions_detached_pr_head_context(
+    environment: Mapping[str, str],
+    current_head: str,
+) -> dict[str, str] | None:
+    if not is_github_actions_pull_request(environment):
+        return None
+    event_path = environment.get('GITHUB_EVENT_PATH')
+    if not event_path:
+        return None
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding='utf-8'))
+    except Exception:
+        return None
+    pull_request = payload.get('pull_request')
+    if not isinstance(pull_request, Mapping):
+        return None
+    head = pull_request.get('head')
+    if not isinstance(head, Mapping):
+        return None
+    expected_head = str(head.get('sha') or '').strip()
+    expected_branch = str(head.get('ref') or '').strip()
+    head_ref = str(environment.get('GITHUB_HEAD_REF', '')).strip()
+    if not expected_head or not expected_branch or not head_ref or head_ref != expected_branch:
+        return None
+    if not commit_matches(current_head, expected_head):
+        return None
+    return {
+        'head_ref': expected_branch,
+        'head_sha': expected_head,
+        'checkout_context': 'github_actions_detached_pr_head',
+    }
 
 
 def stage19_statuses(authority: Mapping[str, Any]) -> tuple[str, str]:
@@ -388,7 +468,9 @@ def print_human(result: Mapping[str, Any]) -> None:
     for key in (
         'state_authority_file',
         'current_branch',
+        'effective_branch',
         'current_head',
+        'checkout_context',
         'origin_main',
         'origin_main_contains_authority',
         'stage19_status',

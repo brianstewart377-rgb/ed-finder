@@ -29,6 +29,27 @@ def completed(args, returncode=0, stdout='', stderr=''):
     return subprocess.CompletedProcess(tuple(args), returncode, stdout=stdout, stderr=stderr)
 
 
+def github_pr_env(tmp_path: Path, *, head: str = DEFAULT_HEAD, head_ref: str = 'feat/local-review-test-environment'):
+    event_path = tmp_path / 'github-event.json'
+    event_path.write_text(
+        json.dumps({
+            'pull_request': {
+                'head': {
+                    'sha': head,
+                    'ref': head_ref,
+                },
+            },
+        }),
+        encoding='utf-8',
+    )
+    return {
+        'GITHUB_ACTIONS': 'true',
+        'GITHUB_EVENT_NAME': 'pull_request',
+        'GITHUB_HEAD_REF': head_ref,
+        'GITHUB_EVENT_PATH': str(event_path),
+    }
+
+
 def git_runner(
     *,
     branch='docs/trim-state-authority-history',
@@ -55,10 +76,12 @@ def git_runner(
 
 
 def resolve(**kwargs):
+    env = kwargs.pop('env', None)
     return resolver.resolve_project_state(
         authority_path=AUTHORITY_PATH,
         git_runner=git_runner(**kwargs),
         allow_docs_only=kwargs.get('allow_docs_only', False),
+        env=env,
     )
 
 
@@ -114,6 +137,46 @@ def test_resolver_rejects_work_branch_for_operational_work():
     assert result['failure_category'] == 'wrong_branch'
     assert result['safe_for_operational_work'] is False
     assert result['current_branch'] == 'work'
+
+
+def test_resolver_accepts_valid_detached_github_actions_pr_head(tmp_path):
+    result = resolver.resolve_project_state(
+        authority_path=AUTHORITY_PATH,
+        git_runner=git_runner(branch=''),
+        env=github_pr_env(tmp_path),
+    )
+
+    assert result['failure_category'] == 'none'
+    assert result['safe_for_operational_work'] is True
+    assert result['current_branch'] is None
+    assert result['effective_branch'] == 'feat/local-review-test-environment'
+    assert result['checkout_context'] == 'github_actions_detached_pr_head'
+
+
+def test_resolver_rejects_detached_github_actions_merge_checkout(tmp_path):
+    result = resolver.resolve_project_state(
+        authority_path=AUTHORITY_PATH,
+        git_runner=git_runner(branch='', head='4e294371f16c3087ba6f73a1dc82aaf0c6d1a4ad', origin_available=False),
+        env=github_pr_env(tmp_path, head=DEFAULT_HEAD),
+    )
+
+    assert result['failure_category'] == 'ambiguous_local_state'
+    assert result['safe_for_operational_work'] is False
+    assert result['checkout_context'] == 'detached_head'
+    assert result['next_action'] == 'Ensure CI checks out the pull request head SHA with a resolvable origin/main reference before continuing.'
+
+
+def test_resolver_still_rejects_invalid_state_in_detached_github_actions_pr_checkout(tmp_path):
+    invalid_head = '8509171250b1449832a7fe3227d87acc02fb015e'
+    result = resolver.resolve_project_state(
+        authority_path=AUTHORITY_PATH,
+        git_runner=git_runner(branch='', head=invalid_head),
+        env=github_pr_env(tmp_path, head=invalid_head),
+    )
+
+    assert result['failure_category'] == 'current_head_superseded'
+    assert result['safe_for_operational_work'] is False
+    assert result['effective_branch'] == 'feat/local-review-test-environment'
 
 
 def test_resolver_identifies_850917_on_work_as_non_authoritative():
