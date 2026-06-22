@@ -25,9 +25,11 @@ def test_stage25b_docs_exist_and_mark_pending_review_without_false_completion():
     combined = _squash(f'{roadmap} {stage25b}')
 
     assert STAGE25B_PATH.exists()
+    # The frozen Stage 25B implementation doc retains its original pending-review
+    # wording, while the roadmap reset records the corrected merged status.
     assert 'Stage 25B is `implemented_in_this_pr_pending_review`.' in combined
     assert 'It does not claim Stage 25B is complete until the implementing PR is reviewed and merged.' in combined
-    assert 'Evidence language and visual-system primitives - `implemented_in_this_pr_pending_review`' in combined
+    assert 'Stage 25B is complete and merged' in combined
 
 
 @pytest.mark.unit
