@@ -65,11 +65,14 @@ test.describe('ED Finder v2 — smoke', () => {
       }]));
     });
     await page.reload();
-    // The NavBar pin tab badge shows "📌 Pins1" — find an element whose
-    // text contains both "Pin" (for any of "Pin"/"Pins"/"Pinned") and "1".
+    await page.getByTestId('nav-primary-review').click();
+    // Pins now live under the Review workspace, so enter Review before
+    // checking the persisted badge state.
     await expect(
-      page.getByText(/Pin(s|ned)?\s*1/i).first()
+      page.getByTestId('nav-pinned')
     ).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('nav-pinned')).toContainText(/Pin(s|ned)?/i);
+    await expect(page.getByTestId('nav-pinned')).toContainText('1');
   });
 
   test('legacy /api/watchlist returns 410 (Phase 3 contract)', async ({ request }) => {

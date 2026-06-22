@@ -87,6 +87,7 @@ export function NavBar({
     ],
   }), [watchlistCount, pinnedCount, compareCount, fcCount, colonyCount]);
 
+  const operatorMode = current === 'admin' || current === 'operator';
   const currentPrimary = primaryWorkspaceForRoute(current);
   const activeSubnav = currentPrimary ? groupedRoutes[currentPrimary] : [];
   const currentRouteDescriptor = activeSubnav.find((tab) => tab.route === current)
@@ -196,19 +197,7 @@ export function NavBar({
                   />
                 ))}
               </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-1" data-testid="nav-secondary-operator">
-                {groupedRoutes.operator.map((tab) => (
-                  <Tab
-                    key={tab.route}
-                    label={tab.label}
-                    active={current === tab.route}
-                    onClick={() => handleNavigate(tab.route)}
-                    testid={tab.testid}
-                  />
-                ))}
-              </div>
-            )}
+            ) : null}
           </div>
 
           <div className="min-w-0 flex-1 lg:hidden">
@@ -261,75 +250,83 @@ export function NavBar({
         </div>
 
         <div className="mt-4 border-t border-border/70 pt-4">
-          <div className="hidden lg:flex lg:items-start lg:justify-between lg:gap-4">
-            <WorkspaceContextHeader
-              journeyLabel={`Primary workspace: ${currentWorkspaceMeta.primaryLabel}`}
-              title={currentWorkspaceMeta.title}
-              headingLevel={2}
-              supportingText={currentWorkspaceMeta.supportingText}
-              selectedSystemName={selectedSystem ? (selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system') : null}
-              selectedSystemMeta={selectedSystem ? <span className="tabular-nums">ID64 {selectedSystem.id64}</span> : undefined}
-              status={(
-                <SemanticStatusBadge
-                  label={currentWorkspaceMeta.statusLabel}
-                  tone={currentWorkspaceMeta.statusTone}
+          {operatorMode ? (
+            <>
+              <div className="hidden lg:block">
+                <OperatorModePanel
+                  current={current}
+                  onNavigate={handleNavigate}
+                  title={currentWorkspaceMeta.title}
+                  supportingText={currentWorkspaceMeta.supportingText}
+                  contextTestId="operator-mode-context-desktop"
+                  returnTestId="nav-return-to-player-desktop"
                 />
-              )}
-              facts={[{ label: 'Next action', value: currentWorkspaceMeta.nextAction, tone: 'orange' }]}
-              testId="product-shell-context"
-            />
-            <div
-              className="flex min-w-[220px] flex-col gap-2 rounded-chunk-lg border border-border bg-bg3/30 p-3"
-              data-testid="nav-operator-tools"
-            >
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-                Operator tools
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {groupedRoutes.operator.map((tab) => (
-                  <Tab
-                    key={tab.route}
-                    label={tab.label}
-                    active={current === tab.route}
-                    onClick={() => handleNavigate(tab.route)}
-                    testid={tab.testid}
-                    compact
-                  />
-                ))}
               </div>
-            </div>
-          </div>
+              <div className="space-y-3 lg:hidden" data-testid="operator-mode-context-mobile">
+                <OperatorModePanel
+                  current={current}
+                  onNavigate={handleNavigate}
+                  title={currentWorkspaceMeta.title}
+                  supportingText={currentWorkspaceMeta.supportingText}
+                  contextTestId="operator-mode-context-mobile-panel"
+                  returnTestId="nav-return-to-player-mobile"
+                  mobile
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="hidden lg:block">
+                <WorkspaceContextHeader
+                  journeyLabel={`Primary workspace: ${currentWorkspaceMeta.primaryLabel}`}
+                  title={currentWorkspaceMeta.title}
+                  headingLevel={2}
+                  supportingText={currentWorkspaceMeta.supportingText}
+                  selectedSystemName={selectedSystem ? (selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system') : null}
+                  selectedSystemMeta={selectedSystem ? <span className="tabular-nums">ID64 {selectedSystem.id64}</span> : undefined}
+                  status={(
+                    <SemanticStatusBadge
+                      label={currentWorkspaceMeta.statusLabel}
+                      tone={currentWorkspaceMeta.statusTone}
+                    />
+                  )}
+                  facts={[{ label: 'Next action', value: currentWorkspaceMeta.nextAction, tone: 'orange' }]}
+                  testId="product-shell-context"
+                />
+              </div>
 
-          <div className="space-y-3 lg:hidden" data-testid="product-shell-context-mobile">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-                Primary workspace
-              </span>
-              <SemanticStatusBadge
-                label={`${currentWorkspaceMeta.primaryLabel} · ${currentWorkspaceMeta.title}`}
-                tone={currentWorkspaceMeta.statusTone}
-              />
-            </div>
-            <p className="text-sm leading-relaxed text-silver">
-              {currentWorkspaceMeta.supportingText}
-            </p>
-            <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-orange">
-              Next action: {currentWorkspaceMeta.nextAction}
-            </p>
-            {selectedSystem ? (
-              <div className="rounded-chunk-lg border border-border bg-bg3/30 p-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-                  Selected system
+              <div className="space-y-3 lg:hidden" data-testid="product-shell-context-mobile">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                    Primary workspace
+                  </span>
+                  <SemanticStatusBadge
+                    label={`${currentWorkspaceMeta.primaryLabel} · ${currentWorkspaceMeta.title}`}
+                    tone={currentWorkspaceMeta.statusTone}
+                  />
+                </div>
+                <p className="text-sm leading-relaxed text-silver">
+                  {currentWorkspaceMeta.supportingText}
                 </p>
-                <p className="mt-1 text-sm font-semibold text-text">
-                  {selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system'}
+                <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-orange">
+                  Next action: {currentWorkspaceMeta.nextAction}
                 </p>
-                <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
-                  ID64 {selectedSystem.id64}
-                </p>
+                {selectedSystem ? (
+                  <div className="rounded-chunk-lg border border-border bg-bg3/30 p-3">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                      Selected system
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-text">
+                      {selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system'}
+                    </p>
+                    <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
+                      ID64 {selectedSystem.id64}
+                    </p>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -358,12 +355,12 @@ export function NavBar({
               current={current}
               onNavigate={handleNavigate}
             />
-            <MenuSection
-              title="Operator tools"
-              routes={groupedRoutes.operator}
-              current={current}
-              onNavigate={handleNavigate}
-            />
+            {operatorMode ? (
+              <OperatorModeMenu
+                current={current}
+                onNavigate={handleNavigate}
+              />
+            ) : null}
           </div>
         </div>
       )}
@@ -503,6 +500,110 @@ function MenuSection({
             compact
           />
         ))}
+      </div>
+    </section>
+  );
+}
+
+function OperatorModePanel({
+  current,
+  onNavigate,
+  title,
+  supportingText,
+  contextTestId,
+  returnTestId,
+  mobile = false,
+}: {
+  current: Route;
+  onNavigate: (route: Route) => void;
+  title: string;
+  supportingText: string;
+  contextTestId: string;
+  returnTestId: string;
+  mobile?: boolean;
+}) {
+  return (
+    <div
+      className="rounded-chunk-lg border border-gold/40 bg-gold/10 p-4"
+      data-testid="operator-mode-panel"
+    >
+      <WorkspaceContextHeader
+        journeyLabel="Separate mode: Operator"
+        title={title}
+        headingLevel={2}
+        supportingText={`${supportingText} This route sits outside the normal Explore, Plan, and Review player journey.`}
+        status={<SemanticStatusBadge label="Separate operator mode" tone="caution" />}
+        facts={[
+          { label: 'Player shell', value: 'Explore / Plan / Review', tone: 'gold' },
+          { label: 'Next action', value: 'Return to Finder when operator work is complete.', tone: 'orange' },
+        ]}
+        actions={(
+          <>
+            <button
+              type="button"
+              onClick={() => onNavigate('finder')}
+              data-testid={returnTestId}
+              className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+            >
+              Return to player workspace
+            </button>
+            <Tab
+              label="Admin"
+              active={current === 'admin'}
+              onClick={() => onNavigate('admin')}
+              testid={mobile ? 'nav-admin-mobile-operator-mode' : 'nav-admin-operator-mode'}
+            />
+            <Tab
+              label="Operator"
+              active={current === 'operator'}
+              onClick={() => onNavigate('operator')}
+              testid={mobile ? 'nav-operator-mobile-operator-mode' : 'nav-operator-operator-mode'}
+            />
+          </>
+        )}
+        testId={contextTestId}
+      />
+    </div>
+  );
+}
+
+function OperatorModeMenu({
+  current,
+  onNavigate,
+}: {
+  current: Route;
+  onNavigate: (route: Route) => void;
+}) {
+  return (
+    <section data-testid="operator-mode-menu">
+      <p className="mb-2 px-1 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+        Operator mode
+      </p>
+      <p className="mb-3 px-1 text-xs leading-relaxed text-silver">
+        Separate from the normal Explore, Plan, and Review player journey.
+      </p>
+      <div className="grid gap-1">
+        <Tab
+          label="Return to player workspace"
+          active={false}
+          onClick={() => onNavigate('finder')}
+          testid="nav-return-to-player-menu"
+          compact
+        />
+        <Tab
+          label="Admin"
+          active={current === 'admin'}
+          onClick={() => onNavigate('admin')}
+          testid="nav-admin-operator-menu"
+          compact
+        />
+        <Tab
+          label="Operator"
+          active={current === 'operator'}
+          onClick={() => onNavigate('operator')}
+          testid="nav-operator-operator-menu"
+          compact
+        />
       </div>
     </section>
   );

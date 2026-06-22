@@ -3,15 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { NavBar } from './NavBar';
 
 describe('NavBar', () => {
-  it('exposes Explore / Plan / Review as primary player workspaces and keeps operator tools separate', () => {
+  it('exposes Explore / Plan / Review as the only normal player workspaces', () => {
     render(<NavBar current="watchlist" onNavigate={vi.fn()} health="Online" watchlistCount={2} />);
 
     expect(screen.getByTestId('nav-primary-explore').textContent).toContain('Explore');
     expect(screen.getByTestId('nav-primary-plan').textContent).toContain('Plan');
     expect(screen.getByTestId('nav-primary-review').textContent).toContain('Review');
     expect(screen.getByTestId('nav-primary-review').getAttribute('aria-current')).toBe('page');
-    expect(screen.getByTestId('nav-operator-tools').textContent).toContain('Admin');
-    expect(screen.getByTestId('nav-operator-tools').textContent).toContain('Operator');
+    expect(screen.queryByTestId('nav-operator-tools')).toBeNull();
+    expect(screen.queryByTestId('nav-admin')).toBeNull();
+    expect(screen.queryByTestId('nav-operator')).toBeNull();
   });
 
   it('renders route-specific secondary navigation within the active primary workspace', () => {
@@ -71,5 +72,28 @@ describe('NavBar', () => {
     expect(screen.getByTestId('nav-menu-panel')).toBeTruthy();
     fireEvent.mouseDown(document.body);
     expect(screen.queryByTestId('nav-menu-panel')).toBeNull();
+  });
+
+  it('keeps admin and operator out of the standard mobile player menu', () => {
+    render(<NavBar current="finder" onNavigate={vi.fn()} health="Online" />);
+
+    fireEvent.click(screen.getByTestId('nav-menu-toggle'));
+
+    expect(screen.getByTestId('nav-menu-panel')).toBeTruthy();
+    expect(screen.queryByTestId('nav-admin-menu')).toBeNull();
+    expect(screen.queryByTestId('nav-operator-menu')).toBeNull();
+    expect(screen.queryByTestId('operator-mode-menu')).toBeNull();
+  });
+
+  it('renders a separate operator-mode panel with a return action on admin routes', () => {
+    const onNavigate = vi.fn();
+    render(<NavBar current="admin" onNavigate={onNavigate} health="Online" />);
+
+    expect(screen.getByTestId('operator-mode-context-desktop').textContent).toContain('Separate mode: Operator');
+    expect(screen.getByTestId('operator-mode-context-desktop').textContent).toContain('outside the normal Explore, Plan, and Review player journey');
+    expect(screen.queryByTestId('nav-secondary-routes')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-return-to-player-desktop'));
+    expect(onNavigate).toHaveBeenCalledWith('finder');
   });
 });

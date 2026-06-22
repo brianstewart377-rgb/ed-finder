@@ -88,6 +88,14 @@ vi.mock('@/features/admin/useAdmin', () => ({
   useAdmin: () => ({}),
 }));
 
+vi.mock('@/features/admin/AdminTab', () => ({
+  AdminTab: () => <div data-testid="admin-tab">Admin tab</div>,
+}));
+
+vi.mock('@/features/operator/OperatorCockpitTab', () => ({
+  OperatorCockpitTab: () => <div data-testid="operator-tab">Operator tab</div>,
+}));
+
 vi.mock('@/features/eddn/EddnTicker', () => ({
   EddnTicker: () => null,
 }));
@@ -271,7 +279,7 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
   });
 
-  it('renders the player-facing Explore / Plan / Review shell with separate operator tools', async () => {
+  it('renders the player-facing Explore / Plan / Review shell without persistent operator tools', async () => {
     window.location.hash = '#finder';
 
     render(<App />);
@@ -283,8 +291,26 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('nav-primary-explore').textContent).toContain('Explore');
     expect(screen.getByTestId('nav-primary-plan').textContent).toContain('Plan');
     expect(screen.getByTestId('nav-primary-review').textContent).toContain('Review');
-    expect(screen.getByTestId('nav-operator-tools').textContent).toContain('Admin');
-    expect(screen.getByTestId('nav-operator-tools').textContent).toContain('Operator');
+    expect(screen.queryByText('Operator tools')).toBeNull();
+    expect(screen.queryByTestId('nav-admin')).toBeNull();
+    expect(screen.queryByTestId('nav-operator')).toBeNull();
+  });
+
+  it('keeps admin and operator out of the normal mobile player menu', async () => {
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-menu-toggle')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId('nav-menu-toggle'));
+
+    expect(screen.getByTestId('nav-menu-panel')).toBeTruthy();
+    expect(screen.queryByTestId('nav-admin-menu')).toBeNull();
+    expect(screen.queryByTestId('nav-operator-menu')).toBeNull();
+    expect(screen.queryByTestId('operator-mode-menu')).toBeNull();
   });
 
   it('shows selected-system shell context only when the current route provides one and clears it after leaving inspect/plan', async () => {
@@ -304,5 +330,27 @@ describe('App Colony Planner workspace route', () => {
       expect(screen.queryByText('System 123')).toBeNull();
     });
     expect(screen.queryByText(/ID64 123/i)).toBeNull();
+  });
+
+  it.each([
+    ['#admin', 'admin-tab'],
+    ['#operator', 'operator-tab'],
+  ])('keeps direct %s route entries working with separate operator-mode framing', async (hash, tabTestId) => {
+    window.location.hash = hash;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId(tabTestId)).toBeTruthy();
+    });
+
+    expect(screen.getByTestId('operator-mode-context-desktop').textContent).toContain('Separate mode: Operator');
+    expect(screen.getByTestId('operator-mode-context-desktop').textContent).toContain('outside the normal Explore, Plan, and Review player journey');
+
+    fireEvent.click(screen.getByTestId('nav-return-to-player-desktop'));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#finder');
+    });
   });
 });
