@@ -8,8 +8,8 @@ Start here for any new colonisation work:
 
 The active programme is **Stage 25 (cockpit product shell)**:
 
-- [`stage-25-roadmap.md`](./stage-25-roadmap.md) - authoritative Stage 25 roadmap reset: Stage 25A and Stage 25B complete/merged, Stage 25C prepared but not started, Stage 25D-25H unstarted, with the `Explore → Inspect → Plan → Review / Export` product journey and the future `Explore`/`Plan`/`Review` hierarchy.
-- [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) - Stage 25C product-shell, selected-system context, and cockpit visual-foundation implementation contract (`prepared_not_started`; defining it does not authorize runtime implementation).
+- [`stage-25-roadmap.md`](./stage-25-roadmap.md) - authoritative Stage 25 roadmap reset: Stage 25A and Stage 25B complete/merged, Stage 25C Slice 1 in progress/pending review, Stage 25D-25H unstarted, with the `Explore → Inspect → Plan → Review / Export` product journey and the future `Explore`/`Plan`/`Review` hierarchy.
+- [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) - Stage 25C product-shell, selected-system context, and cockpit visual-foundation implementation contract (`slice_1_in_progress_pending_review`; defining the contract did not by itself authorize runtime implementation).
 - [`stage-25b-evidence-language-visual-primitives.md`](./stage-25b-evidence-language-visual-primitives.md) - completed/merged Stage 25B evidence-language and visual-system primitives.
 - [`stage-25a-current-state-map-product-visual-baseline.md`](./stage-25a-current-state-map-product-visual-baseline.md) - frozen Stage 25A current-state audit, map product decision, and visual baseline.
 
@@ -51,9 +51,9 @@ If an older document's "recommended next stage" conflicts with Stage 17P, follow
 
 ## Current Control Documents
 
-[`stage-25-roadmap.md`](./stage-25-roadmap.md) is the authoritative Stage 25 roadmap reset and the current active control. It records Stage 25A and Stage 25B as complete/merged, Stage 25C as prepared but not started, and Stage 25D through Stage 25H as unstarted. It establishes the `Explore → Inspect → Plan → Review / Export` product journey, the future `Explore`/`Plan`/`Review` hierarchy, the substantial-but-restrained cockpit visual-redesign decision, and preserves all Stage 19, database-write, canonical-apply, rebaseline, scheduler, map-redesign, mission-intelligence, and mining/ring boundaries.
+[`stage-25-roadmap.md`](./stage-25-roadmap.md) is the authoritative Stage 25 roadmap reset and the current active control. It records Stage 25A and Stage 25B as complete/merged, Stage 25C Slice 1 as in progress/pending review, and Stage 25D through Stage 25H as unstarted. It establishes the `Explore → Inspect → Plan → Review / Export` product journey, the future `Explore`/`Plan`/`Review` hierarchy, the substantial-but-restrained cockpit visual-redesign decision, and preserves all Stage 19, database-write, canonical-apply, rebaseline, scheduler, map-redesign, mission-intelligence, and mining/ring boundaries.
 
-[`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) is the Stage 25C implementation contract (`prepared_not_started`). It defines the product shell, the persistent selected-system context spine, the workspace hierarchy, and the cockpit visual-system foundation, plus explicit out-of-scope, acceptance, accessibility, and desktop/mobile criteria. Defining this contract does not authorize any runtime implementation.
+[`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) is the Stage 25C implementation contract (`slice_1_in_progress_pending_review`). It defines the product shell, the persistent selected-system context spine, the workspace hierarchy, and the cockpit visual-system foundation, plus explicit out-of-scope, acceptance, accessibility, and desktop/mobile criteria. Defining this contract did not by itself authorize runtime implementation; the current runtime work is limited to Slice 1.
 
 [`stage-24d-readonly-evidence-adoption-closeout.md`](./stage-24d-readonly-evidence-adoption-closeout.md) records the completed Stage 24D closeout: Stage 24 closes as the read-only evidence adoption and governance programme, Stage 24A/24B/24C remain complete, and any future work now requires a new explicit post-Stage-24 control document.
 
@@ -145,8 +145,8 @@ It supersedes the old assumption that the project should simply continue from St
 
 | Document | Status | Purpose |
 |---|---|---|
-| [`stage-25-roadmap.md`](./stage-25-roadmap.md) | Active Stage 25 control | Authoritative Stage 25 roadmap reset: corrected 25A/25B completion, prepared 25C, unstarted 25D-25H, product journey, future hierarchy, visual-redesign decision, and preserved boundaries. |
-| [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) | Stage 25C contract (`prepared_not_started`) | Product shell, selected-system context spine, workspace hierarchy, and cockpit visual-system foundation contract; defining it does not authorize runtime implementation. |
+| [`stage-25-roadmap.md`](./stage-25-roadmap.md) | Active Stage 25 control | Authoritative Stage 25 roadmap reset: corrected 25A/25B completion, Stage 25C Slice 1 in progress/pending review, unstarted 25D-25H, product journey, future hierarchy, visual-redesign decision, and preserved boundaries. |
+| [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) | Stage 25C contract (`slice_1_in_progress_pending_review`) | Product shell, selected-system context spine, workspace hierarchy, and cockpit visual-system foundation contract; defining it did not by itself authorize runtime implementation. |
 | [`stage-25b-evidence-language-visual-primitives.md`](./stage-25b-evidence-language-visual-primitives.md) | Completed Stage 25B record (merged in PR #259) | Evidence-language and visual-system primitives applied to Inspect and Plan surfaces. |
 | [`stage-25a-current-state-map-product-visual-baseline.md`](./stage-25a-current-state-map-product-visual-baseline.md) | Frozen Stage 25A baseline | Current-state audit, map product decision (`retain_as_secondary_explore_surface`), and restrained cockpit visual baseline. |
 | [`stage-24d-readonly-evidence-adoption-closeout.md`](./stage-24d-readonly-evidence-adoption-closeout.md) | Completed Stage 24D closeout record | Records that Stage 24 is closed, that Stage 24A/24B/24C remain complete, and that any future work requires a new explicit post-Stage-24 control document. |

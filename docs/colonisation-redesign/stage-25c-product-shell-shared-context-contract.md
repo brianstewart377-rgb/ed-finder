@@ -2,15 +2,17 @@
 
 ## Status
 
-Stage 25C is `prepared_not_started`.
+Stage 25C is `slice_1_in_progress_pending_review`.
 
-This document is an implementation contract, not a runtime implementation and
-not a generic vision document. Defining this contract does not authorize any
-runtime implementation. No live screen is redesigned, no route is rewired, and
-no component is created by this document.
+This document began as an implementation contract, not a runtime implementation
+and not a generic vision document. Defining this contract did not authorize any
+runtime implementation by itself.
 
-Stage 25C implementation is authorized only by a separate, explicit control
-after this contract is accepted.
+Stage 25C runtime implementation is now authorized only for Slice 1: product
+shell, navigation hierarchy, minimal shared-context scaffolding, and shell
+visual foundation work that remains pending review. Later slices remain
+separately gated by this same contract and do not become complete merely because
+Slice 1 is active.
 
 ## Product Problem
 

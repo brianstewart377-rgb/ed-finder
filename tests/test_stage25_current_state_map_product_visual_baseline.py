@@ -99,6 +99,6 @@ def test_stage25_docs_preserve_closed_and_deferred_boundaries():
     # baseline still records the original pre-reset deferral wording.
     assert 'Stage 25A is complete.' in combined
     assert 'Stage 25B is complete and merged.' in combined
-    assert 'Stage 25C is prepared but not started.' in combined
+    assert 'Stage 25C Slice 1 is in progress and pending review.' in combined
     assert 'Stage 25D, Stage 25E, Stage 25F, Stage 25G, and Stage 25H are unstarted.' in combined
     assert 'Stage 25B through Stage 25E remain unstarted and unimplemented.' in combined

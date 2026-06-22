@@ -1,5 +1,7 @@
 import type { Route } from '@/hooks/useHashRoute';
 import { useDensity } from '@/hooks/useDensity';
+import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
+import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 /** Top-bar nav for the v2 app — sticky chrome panel with brushed-metal sheen
@@ -15,13 +17,45 @@ export interface NavBarProps {
   fcCount?:        number;
   health?:         string;
   fullWidth?:      boolean;
+  selectedSystem?: {
+    id64: number;
+    name: string | null;
+    loading: boolean;
+  } | null;
 }
+
+type PrimaryWorkspace = 'explore' | 'plan' | 'review';
+
+interface RouteDescriptor {
+  route: Route;
+  label: string;
+  shortLabel?: string;
+  testid: string;
+  badge?: number;
+  title?: string;
+}
+
+interface WorkspaceMeta {
+  title: string;
+  primaryLabel: string;
+  supportingText: string;
+  nextAction: string;
+  statusLabel: string;
+  statusTone: 'available' | 'canonical' | 'caution';
+}
+
+const PRIMARY_DEFAULT_ROUTE: Record<PrimaryWorkspace, Route> = {
+  explore: 'finder',
+  plan: 'colony-planner',
+  review: 'watchlist',
+};
 
 export function NavBar({
   current, onNavigate,
   watchlistCount, pinnedCount, compareCount, colonyCount, fcCount,
   health,
   fullWidth = false,
+  selectedSystem = null,
 }: NavBarProps) {
   const appVersionLabel = `v${__APP_VERSION__}`;
   const ok = (health ?? '').toLowerCase() === 'online';
@@ -31,18 +65,34 @@ export function NavBar({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
-  const tabs = useMemo(() => ([
-    { route: 'finder' as const, label: '🔍 Finder', testid: 'nav-finder' },
-    { route: 'watchlist' as const, label: '☁️ Watchlist', testid: 'nav-watchlist', badge: watchlistCount ?? undefined, title: 'Watchlist — synced to your account, alerts on changes' },
-    { route: 'pinned' as const, label: '📌 Pins', testid: 'nav-pinned', badge: pinnedCount, title: 'Pins — quick local shortlist on this device only' },
-    { route: 'compare' as const, label: '⚖️ Compare', testid: 'nav-compare', badge: compareCount },
-    { route: 'search-tuning' as const, label: '🎚️ Advanced Search Tuning', testid: 'nav-search-tuning' },
-    { route: 'fc' as const, label: '🚀 FC Planner', testid: 'nav-fc', badge: fcCount },
-    { route: 'colony' as const, label: '🏗️ Colony Tracker', testid: 'nav-colony', badge: colonyCount },
-    { route: 'map' as const, label: '🗺️ Map', testid: 'nav-map' },
-    { route: 'admin' as const, label: '⚙️ Admin', testid: 'nav-admin' },
-    { route: 'operator' as const, label: 'Operator', testid: 'nav-operator' },
-  ]), [watchlistCount, pinnedCount, compareCount, fcCount, colonyCount]);
+  const groupedRoutes = useMemo<Record<'explore' | 'plan' | 'review' | 'operator', RouteDescriptor[]>>(() => ({
+    explore: [
+      { route: 'finder' as const, label: 'Finder', shortLabel: 'Explore', testid: 'nav-finder' },
+      { route: 'map' as const, label: 'Map', shortLabel: 'Map', testid: 'nav-map', title: 'Secondary Explore surface' },
+      { route: 'search-tuning' as const, label: 'Advanced Search Tuning', shortLabel: 'Advanced', testid: 'nav-search-tuning' },
+    ],
+    plan: [
+      { route: 'colony-planner' as const, label: 'Colony Planner', shortLabel: 'Plan', testid: 'nav-colony-planner' },
+    ],
+    review: [
+      { route: 'watchlist' as const, label: 'Watchlist', testid: 'nav-watchlist', badge: watchlistCount ?? undefined, title: 'Synced saved candidates' },
+      { route: 'pinned' as const, label: 'Pins', testid: 'nav-pinned', badge: pinnedCount, title: 'Device-local shortlist' },
+      { route: 'compare' as const, label: 'Compare', testid: 'nav-compare', badge: compareCount },
+      { route: 'fc' as const, label: 'FC Planner', testid: 'nav-fc', badge: fcCount },
+      { route: 'colony' as const, label: 'Colony Tracker', testid: 'nav-colony', badge: colonyCount },
+    ],
+    operator: [
+      { route: 'admin' as const, label: 'Admin', testid: 'nav-admin' },
+      { route: 'operator' as const, label: 'Operator', testid: 'nav-operator' },
+    ],
+  }), [watchlistCount, pinnedCount, compareCount, fcCount, colonyCount]);
+
+  const currentPrimary = primaryWorkspaceForRoute(current);
+  const activeSubnav = currentPrimary ? groupedRoutes[currentPrimary] : [];
+  const currentRouteDescriptor = activeSubnav.find((tab) => tab.route === current)
+    ?? groupedRoutes.operator.find((tab) => tab.route === current)
+    ?? null;
+  const currentWorkspaceMeta = workspaceMetaForRoute(current);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -72,7 +122,10 @@ export function NavBar({
     setMenuOpen(false);
   };
 
-  const currentTab = tabs.find((tab) => tab.route === current);
+  const navigatePrimary = (workspace: PrimaryWorkspace) => {
+    handleNavigate(PRIMARY_DEFAULT_ROUTE[workspace]);
+  };
+
   return (
     <nav
       className={[
@@ -82,9 +135,10 @@ export function NavBar({
       data-testid="navbar"
     >
       {/* py-1.5 here matches the EDDN ticker bar height so top + bottom chrome align */}
-      <div className="panel relative flex items-center gap-3 sm:gap-5 px-4 sm:px-6 py-1.5">
+      <div className="panel relative overflow-hidden px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-3 sm:gap-5">
         {/* ── Logo lockup ─────────────────────────────── */}
-        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
           <Logo />
           <div className="flex flex-col leading-tight hidden sm:flex">
             <span className="font-mono text-[15px] font-bold tracking-[0.18em] text-orange">
@@ -96,69 +150,186 @@ export function NavBar({
           </div>
         </div>
 
-        {/* divider */}
-        <span className="h-9 w-px bg-gradient-to-b from-transparent via-border-bright to-transparent shrink-0 hidden sm:block" />
+          {/* divider */}
+          <span className="hidden h-9 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent sm:block" />
 
-        <div className="hidden lg:flex flex-1 items-center gap-1 overflow-x-auto">
-          {tabs.map((tab) => (
-            <Tab
-              key={tab.route}
-              label={tab.label}
-              active={current === tab.route}
-              onClick={() => handleNavigate(tab.route)}
-              testid={tab.testid}
-              badge={tab.badge}
-              title={tab.title}
-            />
-          ))}
-        </div>
+          <div className="hidden min-w-0 flex-1 lg:flex lg:flex-col lg:gap-3">
+            <div
+              className="flex flex-wrap items-center gap-2"
+              data-testid="nav-primary-workspaces"
+              aria-label="Primary workspaces"
+            >
+              <PrimaryTab
+                label="Explore"
+                active={currentPrimary === 'explore'}
+                onClick={() => navigatePrimary('explore')}
+                testid="nav-primary-explore"
+              />
+              <PrimaryTab
+                label="Plan"
+                active={currentPrimary === 'plan'}
+                onClick={() => navigatePrimary('plan')}
+                testid="nav-primary-plan"
+              />
+              <PrimaryTab
+                label="Review"
+                active={currentPrimary === 'review'}
+                onClick={() => navigatePrimary('review')}
+                testid="nav-primary-review"
+              />
+            </div>
+            {currentPrimary ? (
+              <div
+                className="flex flex-wrap items-center gap-1 overflow-x-auto"
+                data-testid="nav-secondary-routes"
+                aria-label={`${currentWorkspaceMeta.primaryLabel} routes`}
+              >
+                {groupedRoutes[currentPrimary].map((tab) => (
+                  <Tab
+                    key={tab.route}
+                    label={tab.label}
+                    active={current === tab.route}
+                    onClick={() => handleNavigate(tab.route)}
+                    testid={tab.testid}
+                    badge={tab.badge}
+                    title={tab.title}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1" data-testid="nav-secondary-operator">
+                {groupedRoutes.operator.map((tab) => (
+                  <Tab
+                    key={tab.route}
+                    label={tab.label}
+                    active={current === tab.route}
+                    onClick={() => handleNavigate(tab.route)}
+                    testid={tab.testid}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
 
-        <div className="lg:hidden min-w-0 flex-1">
-          <span className="truncate rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
-            {currentTab?.label ?? 'Route'}
-          </span>
-        </div>
+          <div className="min-w-0 flex-1 lg:hidden">
+            <span className="truncate rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
+              {currentPrimary ? `${currentWorkspaceMeta.primaryLabel} · ${currentRouteDescriptor?.label ?? currentWorkspaceMeta.title}` : currentWorkspaceMeta.title}
+            </span>
+          </div>
 
         {/* ── Density toggle ─────────────────────────── */}
-        <button
-          type="button"
-          onClick={cycle}
-          data-testid="nav-density-toggle"
-          title={`Density: ${densityLabel} (click to cycle)`}
-          aria-label={`Density: ${densityLabel}, click to cycle`}
-          className="flex items-center justify-center shrink-0 w-8 h-8 rounded-full bg-bg3/60 border border-border text-silver hover:text-orange-lt hover:border-orange-dk transition-colors font-mono text-[14px] leading-none"
-        >
-          <span aria-hidden>{densityIcon}</span>
-        </button>
+          <button
+            type="button"
+            onClick={cycle}
+            data-testid="nav-density-toggle"
+            title={`Density: ${densityLabel} (click to cycle)`}
+            aria-label={`Density: ${densityLabel}, click to cycle`}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-bg3/60 font-mono text-[14px] leading-none text-silver transition-colors hover:border-orange-dk hover:text-orange-lt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+          >
+            <span aria-hidden>{densityIcon}</span>
+          </button>
 
-        <button
-          ref={toggleRef}
-          type="button"
-          data-testid="nav-menu-toggle"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((value) => !value)}
-          className="lg:hidden inline-flex items-center justify-center rounded-chunk-sm border border-border bg-bg3/55 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange"
-        >
-          Menu
-        </button>
+          <button
+            ref={toggleRef}
+            type="button"
+            data-testid="nav-menu-toggle"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((value) => !value)}
+            className="inline-flex items-center justify-center rounded-chunk-sm border border-border bg-bg3/55 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 lg:hidden"
+          >
+            Menu
+          </button>
 
         {/* ── Status pill — always visible across breakpoints.
          * Collapses to a dot-only chip on narrow screens, expands with
          * the text label at md+. Used to be 'hidden md:flex' which led
          * users on smaller viewports to think the backend was offline. */}
-        <div
-          className="flex items-center gap-2 shrink-0 px-2 md:px-3 py-1.5 rounded-full bg-bg3/60 border border-border"
-          title={ok ? `Backend online — ${health}` : (health ?? 'Checking…')}
-          data-testid="nav-status-pill"
-        >
-          <span className={[
-            'h-2 w-2 rounded-full',
-            ok ? 'bg-green shadow-[0_0_8px_2px_rgba(74,222,128,0.55)]'
-               : 'bg-red shadow-[0_0_8px_2px_rgba(248,113,113,0.55)]',
-          ].join(' ')} />
-          <span className="hidden md:inline font-mono text-[10px] tracking-wider text-silver-dk uppercase">
-            {ok ? 'Online' : (health ?? 'API')}
-          </span>
+          <div
+            className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-bg3/60 px-2 py-1.5 md:px-3"
+            title={ok ? `Backend online — ${health}` : (health ?? 'Checking…')}
+            data-testid="nav-status-pill"
+          >
+            <span className={[
+              'h-2 w-2 rounded-full',
+              ok ? 'bg-green shadow-[0_0_8px_2px_rgba(74,222,128,0.55)]'
+                 : 'bg-red shadow-[0_0_8px_2px_rgba(248,113,113,0.55)]',
+            ].join(' ')} />
+            <span className="hidden font-mono text-[10px] uppercase tracking-wider text-silver-dk md:inline">
+              {ok ? 'Online' : (health ?? 'API')}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-4 border-t border-border/70 pt-4">
+          <div className="hidden lg:flex lg:items-start lg:justify-between lg:gap-4">
+            <WorkspaceContextHeader
+              journeyLabel={`Primary workspace: ${currentWorkspaceMeta.primaryLabel}`}
+              title={currentWorkspaceMeta.title}
+              headingLevel={2}
+              supportingText={currentWorkspaceMeta.supportingText}
+              selectedSystemName={selectedSystem ? (selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system') : null}
+              selectedSystemMeta={selectedSystem ? <span className="tabular-nums">ID64 {selectedSystem.id64}</span> : undefined}
+              status={(
+                <SemanticStatusBadge
+                  label={currentWorkspaceMeta.statusLabel}
+                  tone={currentWorkspaceMeta.statusTone}
+                />
+              )}
+              facts={[{ label: 'Next action', value: currentWorkspaceMeta.nextAction, tone: 'orange' }]}
+              testId="product-shell-context"
+            />
+            <div
+              className="flex min-w-[220px] flex-col gap-2 rounded-chunk-lg border border-border bg-bg3/30 p-3"
+              data-testid="nav-operator-tools"
+            >
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                Operator tools
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {groupedRoutes.operator.map((tab) => (
+                  <Tab
+                    key={tab.route}
+                    label={tab.label}
+                    active={current === tab.route}
+                    onClick={() => handleNavigate(tab.route)}
+                    testid={tab.testid}
+                    compact
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 lg:hidden" data-testid="product-shell-context-mobile">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                Primary workspace
+              </span>
+              <SemanticStatusBadge
+                label={`${currentWorkspaceMeta.primaryLabel} · ${currentWorkspaceMeta.title}`}
+                tone={currentWorkspaceMeta.statusTone}
+              />
+            </div>
+            <p className="text-sm leading-relaxed text-silver">
+              {currentWorkspaceMeta.supportingText}
+            </p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-orange">
+              Next action: {currentWorkspaceMeta.nextAction}
+            </p>
+            {selectedSystem ? (
+              <div className="rounded-chunk-lg border border-border bg-bg3/30 p-3">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                  Selected system
+                </p>
+                <p className="mt-1 text-sm font-semibold text-text">
+                  {selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system'}
+                </p>
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
+                  ID64 {selectedSystem.id64}
+                </p>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -168,19 +339,31 @@ export function NavBar({
           data-testid="nav-menu-panel"
           className="panel mt-2 p-2 lg:hidden"
         >
-          <div className="grid gap-1">
-            {tabs.map((tab) => (
-              <Tab
-                key={`menu-${tab.route}`}
-                label={tab.label}
-                active={current === tab.route}
-                onClick={() => handleNavigate(tab.route)}
-                testid={`${tab.testid}-menu`}
-                badge={tab.badge}
-                title={tab.title}
-                compact
-              />
-            ))}
+          <div className="grid gap-3">
+            <MenuSection
+              title="Explore"
+              routes={groupedRoutes.explore}
+              current={current}
+              onNavigate={handleNavigate}
+            />
+            <MenuSection
+              title="Plan"
+              routes={groupedRoutes.plan}
+              current={current}
+              onNavigate={handleNavigate}
+            />
+            <MenuSection
+              title="Review"
+              routes={groupedRoutes.review}
+              current={current}
+              onNavigate={handleNavigate}
+            />
+            <MenuSection
+              title="Operator tools"
+              routes={groupedRoutes.operator}
+              current={current}
+              onNavigate={handleNavigate}
+            />
           </div>
         </div>
       )}
@@ -223,11 +406,12 @@ function Tab({ label, active, onClick, testid, badge, title, compact = false }: 
       onClick={onClick}
       data-testid={testid}
       title={title}
+      aria-current={active ? 'page' : undefined}
       className={[
         'group relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-chunk-sm whitespace-nowrap',
         compact ? 'w-full justify-between' : '',
         'font-display font-bold text-[12.5px] tracking-[0.1em] uppercase',
-        'transition-all duration-200',
+        'transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
         active
           ? 'text-white shadow-brand-glow'
           : 'text-silver hover:text-white hover:bg-bg3/70',
@@ -258,4 +442,188 @@ function Tab({ label, active, onClick, testid, badge, title, compact = false }: 
       )}
     </button>
   );
+}
+
+function PrimaryTab({
+  label,
+  active,
+  onClick,
+  testid,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  testid: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testid}
+      aria-current={active ? 'page' : undefined}
+      className={[
+        'rounded-chunk-sm border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
+        active
+          ? 'border-orange/55 bg-orange/15 text-orange'
+          : 'border-border bg-bg3/35 text-silver hover:border-orange/40 hover:text-orange-lt',
+      ].join(' ')}
+    >
+      {label}
+    </button>
+  );
+}
+
+function MenuSection({
+  title,
+  routes,
+  current,
+  onNavigate,
+}: {
+  title: string;
+  routes: RouteDescriptor[];
+  current: Route;
+  onNavigate: (route: Route) => void;
+}) {
+  return (
+    <section>
+      <p className="mb-2 px-1 font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+        {title}
+      </p>
+      <div className="grid gap-1">
+        {routes.map((tab) => (
+          <Tab
+            key={`menu-${tab.route}`}
+            label={tab.label}
+            active={current === tab.route}
+            onClick={() => onNavigate(tab.route)}
+            testid={`${tab.testid}-menu`}
+            badge={tab.badge}
+            title={tab.title}
+            compact
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function primaryWorkspaceForRoute(route: Route): PrimaryWorkspace | null {
+  if (route === 'finder' || route === 'map' || route === 'search-tuning') return 'explore';
+  if (route === 'colony-planner') return 'plan';
+  if (route === 'watchlist' || route === 'pinned' || route === 'compare' || route === 'fc' || route === 'colony') return 'review';
+  return null;
+}
+
+function workspaceMetaForRoute(route: Route): WorkspaceMeta {
+  switch (route) {
+    case 'finder':
+      return {
+        title: 'Finder',
+        primaryLabel: 'Explore',
+        supportingText: 'Discover candidate systems, inspect their current state, and move into planning only when a system is worth serious review.',
+        nextAction: 'Open a system to inspect it, then hand off into Plan.',
+        statusLabel: 'Discovery workspace',
+        statusTone: 'available',
+      };
+    case 'map':
+      return {
+        title: 'Galactic Map',
+        primaryLabel: 'Explore',
+        supportingText: 'Use the map as a secondary Explore aid for current Finder results. It stays discoverability-focused and does not become a planning cockpit in this slice.',
+        nextAction: 'Inspect a mapped system or return to Finder for the main discovery flow.',
+        statusLabel: 'Secondary Explore surface',
+        statusTone: 'available',
+      };
+    case 'search-tuning':
+      return {
+        title: 'Advanced Search',
+        primaryLabel: 'Explore',
+        supportingText: 'Refine discovery weighting and candidate filters without changing the core Finder or planning logic.',
+        nextAction: 'Run a search, inspect a candidate, then enter Plan from a real system.',
+        statusLabel: 'Explore support tool',
+        statusTone: 'available',
+      };
+    case 'colony-planner':
+      return {
+        title: 'Colony Planner',
+        primaryLabel: 'Plan',
+        supportingText: 'Use the canonical live planning workspace for serious colony planning. Simulation preview remains reusable inventory only and is not wired here.',
+        nextAction: 'Plan from a selected system or return to Explore to choose one safely.',
+        statusLabel: 'Canonical live planner',
+        statusTone: 'canonical',
+      };
+    case 'watchlist':
+      return {
+        title: 'Watchlist',
+        primaryLabel: 'Review',
+        supportingText: 'Review synced saved candidates and bring them back into Explore or Plan when they become actionable.',
+        nextAction: 'Open a watched system to inspect it or compare it against alternatives.',
+        statusLabel: 'Review workspace',
+        statusTone: 'available',
+      };
+    case 'pinned':
+      return {
+        title: 'Pins',
+        primaryLabel: 'Review',
+        supportingText: 'Review the local shortlist kept on this device without changing cloud-synced watchlist state.',
+        nextAction: 'Open a pinned system to inspect it or move it into comparison.',
+        statusLabel: 'Review support tool',
+        statusTone: 'available',
+      };
+    case 'compare':
+      return {
+        title: 'Compare',
+        primaryLabel: 'Review',
+        supportingText: 'Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.',
+        nextAction: 'Inspect a compared system or return to Explore to find a better candidate.',
+        statusLabel: 'Decision review',
+        statusTone: 'available',
+      };
+    case 'fc':
+      return {
+        title: 'FC Planner',
+        primaryLabel: 'Review',
+        supportingText: 'Use fleet-carrier routing as a supporting tool for player logistics without turning it into a primary Explore or Plan workspace.',
+        nextAction: 'Review route support needs, then return to Explore or Plan for system work.',
+        statusLabel: 'Supporting tool',
+        statusTone: 'available',
+      };
+    case 'colony':
+      return {
+        title: 'Colony Tracker',
+        primaryLabel: 'Review',
+        supportingText: 'Track local colony project notes and progress as supporting retained context outside the canonical live planner.',
+        nextAction: 'Review tracked systems, then inspect or plan from the canonical live routes.',
+        statusLabel: 'Supporting tracker',
+        statusTone: 'available',
+      };
+    case 'admin':
+      return {
+        title: 'Admin',
+        primaryLabel: 'Operator',
+        supportingText: 'Admin tools remain separate from normal player navigation and are not promoted into the Explore, Plan, or Review hierarchy.',
+        nextAction: 'Use only when operator/admin access is intentionally required.',
+        statusLabel: 'Operator-only tools',
+        statusTone: 'caution',
+      };
+    case 'operator':
+      return {
+        title: 'Operator Cockpit',
+        primaryLabel: 'Operator',
+        supportingText: 'Read-only operator surfaces remain outside the normal player shell and are not part of the player-facing primary hierarchy.',
+        nextAction: 'Use only for guarded operator review tasks.',
+        statusLabel: 'Operator-only tools',
+        statusTone: 'caution',
+      };
+    case 'colony-planner-prototype':
+      return {
+        title: 'Planner Prototype',
+        primaryLabel: 'Prototype',
+        supportingText: 'The static prototype route remains isolated from the live player shell and does not replace the canonical live planner.',
+        nextAction: 'Return to the canonical live planner for real player workflows.',
+        statusLabel: 'Prototype route',
+        statusTone: 'caution',
+      };
+  }
 }

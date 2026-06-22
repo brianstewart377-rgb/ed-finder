@@ -109,6 +109,15 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
   ),
 }));
 
+vi.mock('@/features/system-detail/useSystemDetail', () => ({
+  useSystemDetail: (id64: number | null) => ({
+    data: id64 != null ? { id64, name: `System ${id64}` } : null,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock('@/features/colony-planner/ColonyPlannerWorkspace', () => ({
   ColonyPlannerWorkspace: ({
     id64,
@@ -260,5 +269,40 @@ describe('App Colony Planner workspace route', () => {
       expect(window.location.hash).toBe('#colony-planner/system/123');
     });
     expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
+  });
+
+  it('renders the player-facing Explore / Plan / Review shell with separate operator tools', async () => {
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-primary-explore')).toBeTruthy();
+    });
+
+    expect(screen.getByTestId('nav-primary-explore').textContent).toContain('Explore');
+    expect(screen.getByTestId('nav-primary-plan').textContent).toContain('Plan');
+    expect(screen.getByTestId('nav-primary-review').textContent).toContain('Review');
+    expect(screen.getByTestId('nav-operator-tools').textContent).toContain('Admin');
+    expect(screen.getByTestId('nav-operator-tools').textContent).toContain('Operator');
+  });
+
+  it('shows selected-system shell context only when the current route provides one and clears it after leaving inspect/plan', async () => {
+    window.location.hash = '#finder/system/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
+    });
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('ID64 123');
+
+    window.location.hash = '#watchlist';
+    fireEvent(window, new HashChangeEvent('hashchange'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('System 123')).toBeNull();
+    });
+    expect(screen.queryByText(/ID64 123/i)).toBeNull();
   });
 });
