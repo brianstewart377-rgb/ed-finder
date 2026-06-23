@@ -27,7 +27,7 @@ export function WorkspaceHeaderSkeleton({
   return (
     <header className="panel overflow-hidden p-4 sm:p-5">
       <WorkspaceContextHeader
-        journeyLabel="Journey stage: Plan"
+        journeyLabel="Plan"
         title="Colony Planner"
         supportingText="Build and review a canonical plan while the selected-system evidence lane stays read-only."
         selectedSystemName="Loading system..."
@@ -74,7 +74,7 @@ export function WorkspaceHeader({
     <header className="panel overflow-hidden p-4 sm:p-5">
       <WorkspaceContextHeader
         testId="workspace-context-header"
-        journeyLabel="Journey stage: Plan"
+        journeyLabel="Plan"
         title="Colony Planner"
         supportingText="Build the selected system with canonical planner data, then review read-only evidence separately before committing to assumptions."
         selectedSystemName={system.name || 'Unknown system'}

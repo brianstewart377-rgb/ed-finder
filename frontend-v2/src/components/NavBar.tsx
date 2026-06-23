@@ -86,6 +86,7 @@ export function NavBar({
   }), [compareCount, fcCount]);
 
   const operatorMode = current === 'admin' || current === 'operator';
+  const showPlayerContext = current !== 'finder' && current !== 'colony-planner';
   const currentPrimary = primaryWorkspaceForRoute(current);
   const activeSubnav = currentPrimary ? groupedRoutes[currentPrimary] : [];
   const currentRouteDescriptor = activeSubnav.find((tab) => tab.route === current)
@@ -152,9 +153,12 @@ export function NavBar({
           {/* divider */}
           <span className="hidden h-9 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent sm:block" />
 
-          <div className="hidden min-w-0 flex-1 lg:flex lg:flex-col lg:gap-3">
+          <div
+            className="hidden min-w-0 flex-1 items-center gap-3 lg:flex"
+            data-testid="nav-desktop-route-strip"
+          >
             <div
-              className="flex flex-wrap items-center gap-2"
+              className="flex shrink-0 flex-wrap items-center gap-2"
               data-testid="nav-primary-workspaces"
               aria-label="Primary workspaces"
             >
@@ -178,23 +182,29 @@ export function NavBar({
               />
             </div>
             {currentPrimary ? (
-              <div
-                className="flex flex-wrap items-center gap-1 overflow-x-auto"
-                data-testid="nav-secondary-routes"
-                aria-label={`${currentWorkspaceMeta.primaryLabel} routes`}
-              >
-                {groupedRoutes[currentPrimary].map((tab) => (
-                  <Tab
-                    key={tab.route}
-                    label={tab.label}
-                    active={current === tab.route}
-                    onClick={() => handleNavigate(tab.route)}
-                    testid={tab.testid}
-                    badge={tab.badge}
-                    title={tab.title}
-                  />
-                ))}
-              </div>
+              <>
+                <span
+                  className="hidden h-7 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent xl:block"
+                  aria-hidden
+                />
+                <div
+                  className="flex min-w-0 flex-wrap items-center gap-1 overflow-x-auto"
+                  data-testid="nav-secondary-routes"
+                  aria-label={`${currentWorkspaceMeta.primaryLabel} routes`}
+                >
+                  {groupedRoutes[currentPrimary].map((tab) => (
+                    <Tab
+                      key={tab.route}
+                      label={tab.label}
+                      active={current === tab.route}
+                      onClick={() => handleNavigate(tab.route)}
+                      testid={tab.testid}
+                      badge={tab.badge}
+                      title={tab.title}
+                    />
+                  ))}
+                </div>
+              </>
             ) : null}
           </div>
 
@@ -247,6 +257,7 @@ export function NavBar({
           </div>
         </div>
 
+        {operatorMode || showPlayerContext ? (
         <div className="mt-4 border-t border-border/70 pt-4">
           {operatorMode ? (
             <>
@@ -272,11 +283,11 @@ export function NavBar({
                 />
               </div>
             </>
-          ) : (
+          ) : showPlayerContext ? (
             <>
               <div className="hidden lg:block">
                 <WorkspaceContextHeader
-                  journeyLabel={`Primary workspace: ${currentWorkspaceMeta.primaryLabel}`}
+                  journeyLabel={currentWorkspaceMeta.primaryLabel}
                   title={currentWorkspaceMeta.title}
                   headingLevel={2}
                   supportingText={currentWorkspaceMeta.supportingText}
@@ -288,7 +299,6 @@ export function NavBar({
                       tone={currentWorkspaceMeta.statusTone}
                     />
                   )}
-                  facts={[{ label: 'Next action', value: currentWorkspaceMeta.nextAction, tone: 'orange' }]}
                   testId="product-shell-context"
                 />
               </div>
@@ -296,7 +306,7 @@ export function NavBar({
               <div className="space-y-3 lg:hidden" data-testid="product-shell-context-mobile">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-                    Primary workspace
+                    Workspace
                   </span>
                   <SemanticStatusBadge
                     label={`${currentWorkspaceMeta.primaryLabel} · ${currentWorkspaceMeta.title}`}
@@ -305,9 +315,6 @@ export function NavBar({
                 </div>
                 <p className="text-sm leading-relaxed text-silver">
                   {currentWorkspaceMeta.supportingText}
-                </p>
-                <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-orange">
-                  Next action: {currentWorkspaceMeta.nextAction}
                 </p>
                 {selectedSystem ? (
                   <div className="rounded-chunk-lg border border-border bg-bg3/30 p-3">
@@ -324,8 +331,9 @@ export function NavBar({
                 ) : null}
               </div>
             </>
-          )}
+          ) : null}
         </div>
+        ) : null}
       </div>
 
       {menuOpen && (
@@ -620,9 +628,9 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
       return {
         title: 'Finder',
         primaryLabel: 'Explore',
-        supportingText: 'Discover candidate systems, inspect their current state, and move into planning only when a system is worth serious review.',
-        nextAction: 'Open a system to inspect it, then hand off into Plan.',
-        statusLabel: 'Discovery workspace',
+        supportingText: 'Find promising systems. Save them for later or inspect them before starting a plan.',
+        nextAction: 'Save systems for later or inspect them before starting a plan.',
+        statusLabel: 'Finder',
         statusTone: 'available',
       };
     case 'map':

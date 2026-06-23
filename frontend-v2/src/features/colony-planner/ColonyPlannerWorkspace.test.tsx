@@ -437,6 +437,25 @@ describe('ColonyPlannerWorkspace', () => {
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 
+  it('renders one planner-local identity header without internal journey wording', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner(undefined, { settle: false });
+
+    const headers = await screen.findAllByTestId('workspace-context-header');
+    expect(headers).toHaveLength(1);
+    expect(headers[0].textContent).toContain('Plan');
+    expect(headers[0].textContent).toContain('Colony Planner');
+    expect(headers[0].textContent).toContain('Workspace System');
+    expect(headers[0].textContent).toContain('ID64 123');
+    expect(screen.queryByText(/Journey stage/i)).toBeNull();
+  });
+
   it('renders the new whole-system planner by default and keeps Advanced Planner collapsed', async () => {
     const onOpenSystemDetail = vi.fn();
     mockedUseSystemDetail.mockReturnValue({

@@ -273,7 +273,7 @@ describe('App Colony Planner workspace route', () => {
     expect(fetchMock).toHaveBeenCalledWith('/v2/bg/coalsack-1600.jpg?v=2', { method: 'HEAD', cache: 'no-cache' });
   });
 
-  it('renders the dedicated workspace without opening the System Detail modal', async () => {
+  it('renders the dedicated workspace without the global product-shell context or System Detail modal', async () => {
     window.location.hash = '#colony-planner/system/123';
 
     render(<App />);
@@ -281,6 +281,9 @@ describe('App Colony Planner workspace route', () => {
     await waitFor(() => {
       expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
     });
+    expect(screen.getByTestId('navbar')).toBeTruthy();
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
   });
 
@@ -304,7 +307,7 @@ describe('App Colony Planner workspace route', () => {
     expect(finderMain?.className).toContain('max-w-[1840px]');
   });
 
-  it('renders the workspace no-system state for #colony-planner', async () => {
+  it('renders the workspace no-system state for #colony-planner without duplicate shell context', async () => {
     window.location.hash = '#colony-planner';
 
     render(<App />);
@@ -312,6 +315,8 @@ describe('App Colony Planner workspace route', () => {
     await waitFor(() => {
       expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('none');
     });
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
   });
 
@@ -410,7 +415,7 @@ describe('App Colony Planner workspace route', () => {
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
   });
 
-  it('renders the player-facing Explore / Plan / Review shell without persistent operator tools', async () => {
+  it('renders the compact player-facing Finder intro without internal shell labels', async () => {
     window.location.hash = '#finder';
 
     render(<App />);
@@ -422,6 +427,15 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('nav-primary-explore').textContent).toContain('Explore');
     expect(screen.getByTestId('nav-primary-plan').textContent).toContain('Plan');
     expect(screen.getByTestId('nav-primary-review').textContent).toContain('Review');
+    expect(screen.getByTestId('finder-page-heading').textContent).toContain('Finder');
+    expect(screen.getByTestId('finder-page-heading').textContent).toContain(
+      'Find promising systems. Save them for later or inspect them before starting a plan.',
+    );
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.queryByText('Primary workspace')).toBeNull();
+    expect(screen.queryByText('Discovery workspace')).toBeNull();
+    expect(screen.queryByText('Next action')).toBeNull();
+    expect(screen.queryByText(/hand off into Plan/i)).toBeNull();
     expect(screen.queryByText('Operator tools')).toBeNull();
     expect(screen.queryByTestId('nav-admin')).toBeNull();
     expect(screen.queryByTestId('nav-operator')).toBeNull();
@@ -444,15 +458,19 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByTestId('operator-mode-menu')).toBeNull();
   });
 
-  it('shows selected-system shell context only when the current route provides one and clears it after leaving inspect/plan', async () => {
+  it('keeps Finder inspect routes compact and clears selected-system context after leaving inspect/plan', async () => {
     window.location.hash = '#finder/system/123';
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
+      expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
     });
-    expect(screen.getByTestId('product-shell-context').textContent).toContain('ID64 123');
+    expect(screen.getByTestId('finder-page-heading').textContent).toContain(
+      'Find promising systems. Save them for later or inspect them before starting a plan.',
+    );
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.queryByText('Primary workspace')).toBeNull();
 
     window.location.hash = '#my-work';
     fireEvent(window, new HashChangeEvent('hashchange'));
