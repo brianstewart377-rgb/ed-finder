@@ -31,10 +31,10 @@ describe('NavBar', () => {
     expect(screen.queryByTestId('nav-colony')).toBeNull();
   });
 
-  it('shows selected-system context only when provided and keeps primary navigation keyboard focusable', () => {
+  it('shows selected-system context only when the active route uses the global context panel', () => {
     render(
       <NavBar
-        current="colony-planner"
+        current="map"
         onNavigate={vi.fn()}
         health="Online"
         selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false }}
@@ -48,6 +48,42 @@ describe('NavBar', () => {
     planButton.focus();
     expect(document.activeElement).toBe(planButton);
     expect(planButton.className).toContain('focus-visible:ring-2');
+  });
+
+  it('keeps Finder and Colony Planner free of the global product-shell context panel', () => {
+    const { rerender } = render(<NavBar current="finder" onNavigate={vi.fn()} health="Online" />);
+
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
+    expect(screen.queryByText('Primary workspace')).toBeNull();
+    expect(screen.queryByText('Discovery workspace')).toBeNull();
+    expect(screen.queryByText('Next action')).toBeNull();
+
+    rerender(
+      <NavBar
+        current="colony-planner"
+        onNavigate={vi.fn()}
+        health="Online"
+        selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false }}
+      />,
+    );
+
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
+    expect(screen.queryByText('Shinrarta Dezhra')).toBeNull();
+  });
+
+  it('renders primary and active secondary desktop navigation in one route strip', () => {
+    render(<NavBar current="colony-planner" onNavigate={vi.fn()} health="Online" />);
+
+    const routeStrip = screen.getByTestId('nav-desktop-route-strip');
+    expect(routeStrip.contains(screen.getByTestId('nav-primary-explore'))).toBe(true);
+    expect(routeStrip.contains(screen.getByTestId('nav-primary-plan'))).toBe(true);
+    expect(routeStrip.contains(screen.getByTestId('nav-primary-review'))).toBe(true);
+    expect(routeStrip.contains(screen.getByTestId('nav-my-work'))).toBe(true);
+    expect(routeStrip.contains(screen.getByTestId('nav-colony-planner'))).toBe(true);
+    expect(screen.getByTestId('nav-primary-plan').getAttribute('aria-current')).toBe('page');
+    expect(screen.getByTestId('nav-colony-planner').getAttribute('aria-current')).toBe('page');
   });
 
   it('keeps menu closed by default and toggles open/close explicitly', () => {

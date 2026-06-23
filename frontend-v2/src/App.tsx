@@ -479,8 +479,18 @@ function FinderView({
   const { filters, setFilters, reset, run, state, results } = search;
 
   return (
-    <div className="grid lg:grid-cols-[340px_1fr] gap-6">
-      <aside className="panel overflow-hidden lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-11rem)] flex flex-col">
+    <div className="space-y-4">
+      <header data-testid="finder-page-heading" className="max-w-4xl">
+        <h1 className="font-display text-2xl tracking-[0.12em] text-orange sm:text-3xl">
+          Finder
+        </h1>
+        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-silver sm:text-base">
+          Find promising systems. Save them for later or inspect them before starting a plan.
+        </p>
+      </header>
+
+      <div className="grid lg:grid-cols-[340px_1fr] gap-6">
+        <aside className="panel overflow-hidden lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-11rem)] flex flex-col">
         <div className="overflow-y-auto flex-1 p-1">
           <SearchForm
             filters={filters}
@@ -563,7 +573,8 @@ function FinderView({
             )}
           </>
         )}
-      </section>
+        </section>
+      </div>
     </div>
   );
 }
