@@ -353,7 +353,7 @@ async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
     await page.getByRole('button', { name: /Evaluate in Colony Planner/i }).click();
     await waitForPlanner(page, SYSTEMS.alpha.name);
     checks.plannerOpened = true;
-    checks.selectedSystemContextVisible = await expectVisible(page.getByText(SYSTEMS.alpha.name).first());
+    checks.selectedSystemContextVisible = await expectVisible(plannerSelectedSystem(page, SYSTEMS.alpha.name));
     checks.noRecoveryScreen = !(await recoveryVisible(page));
     const overflow = await collectOverflowMetrics(page, PLANNER_OVERFLOW_TEST_IDS);
     if (overflow.documentOverflowPx > 4 || overflow.containerOverflow.length > 0) {
@@ -420,7 +420,7 @@ async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
     await page.getByRole('button', { name: /Evaluate in Colony Planner/i }).click();
     await waitForPlanner(page, SYSTEMS.alpha.name);
     checks.plannerOpened = true;
-    checks.selectedSystemContextVisible = await expectVisible(page.getByText(SYSTEMS.alpha.name).first());
+    checks.selectedSystemContextVisible = await expectVisible(plannerSelectedSystem(page, SYSTEMS.alpha.name));
     checks.safeExitControlVisible = await expectVisible(page.getByRole('button', { name: /Back to Finder/i }));
     checks.noRecoveryScreen = !(await recoveryVisible(page));
     const overflow = await collectOverflowMetrics(page, PLANNER_OVERFLOW_TEST_IDS);
@@ -635,7 +635,9 @@ async function waitForPlanner(page, systemName) {
   await expect(page.getByTestId('colony-planner-workspace')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId('planner-evidence-discoverability-surface')).toBeVisible();
   await expect(page.getByTestId('planner-warehouse-evidence')).toBeVisible();
-  await expect(page.getByText(systemName).first()).toBeVisible();
+  await expect(plannerWorkspaceHeader(page)).toBeVisible();
+  await expect(plannerWorkspaceHeader(page).getByRole('heading', { name: 'Colony Planner' })).toBeVisible();
+  await expect(plannerSelectedSystem(page, systemName)).toBeVisible();
 }
 
 async function openEvidenceTechnicalDetail(page) {
@@ -651,6 +653,14 @@ async function openEvidenceTechnicalDetail(page) {
 async function expectVisible(locator) {
   await expect(locator).toBeVisible();
   return true;
+}
+
+function plannerWorkspaceHeader(page) {
+  return page.getByTestId('workspace-context-header');
+}
+
+function plannerSelectedSystem(page, systemName) {
+  return plannerWorkspaceHeader(page).getByText(systemName, { exact: true });
 }
 
 async function expectText(locator, pattern) {
