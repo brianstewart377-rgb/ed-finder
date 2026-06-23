@@ -32,7 +32,7 @@ def test_stage25_reset_records_corrected_stage_statuses():
 
     assert 'Stage 25A is complete.' in roadmap
     assert 'Stage 25B is complete and merged.' in roadmap
-    assert 'Stage 25C is prepared but not started.' in roadmap
+    assert 'Stage 25C Slice 1 is in progress and pending review.' in roadmap
     assert 'Stage 25D, Stage 25E, Stage 25F, Stage 25G, and Stage 25H are unstarted.' in roadmap
 
 
@@ -133,13 +133,13 @@ def test_stage25_reset_does_not_authorize_runtime_by_defining_contract():
     roadmap = _squash(_read(ROADMAP_PATH))
     contract = _squash(_read(CONTRACT_PATH))
 
-    assert 'Defining that contract does not authorize runtime implementation.' in roadmap
+    assert 'The full Stage 25C implementation contract lives in' in roadmap
     assert (
         'defining the Stage 25C contract does not by itself authorize runtime implementation.'
         in roadmap
     )
-    assert 'Stage 25C is `prepared_not_started`.' in contract
-    assert 'Defining this contract does not authorize any runtime implementation.' in contract
+    assert 'Stage 25C is `slice_1_in_progress_pending_review`.' in contract
+    assert 'Defining this contract did not authorize any runtime implementation by itself.' in contract
     assert 'runtime UI implementation merely by defining this contract.' in contract
 
 

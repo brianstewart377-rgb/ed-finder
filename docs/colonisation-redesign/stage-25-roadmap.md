@@ -14,12 +14,13 @@ Programme status after this reset:
 
 - Stage 25A is complete.
 - Stage 25B is complete and merged.
-- Stage 25C is prepared but not started.
+- Stage 25C Slice 1 is in progress and pending review.
 - Stage 25D, Stage 25E, Stage 25F, Stage 25G, and Stage 25H are unstarted.
 
-This reset PR is documentation, roadmap authority, static tests, and guardrails
-only. It does not begin Stage 25C runtime implementation, does not redesign any
-live screen, and does not start Stage 25D or later work.
+The original roadmap-reset PR was documentation, roadmap authority, static
+tests, and guardrails only. Stage 25C runtime implementation now begins
+separately with Slice 1: product shell, navigation hierarchy, minimal selected-
+system context scaffolding, and visual foundation framing only.
 
 ## Stage 25B Status Correction
 
@@ -208,7 +209,7 @@ Stage 25 preserves evidence-language discipline:
 | --- | --- | --- |
 | Stage 25A | complete | Current-state audit, map product decision and visual-system baseline |
 | Stage 25B | complete (merged in PR #259) | Evidence language and visual-system primitives |
-| Stage 25C | prepared but not started | Product shell, shared selected-system context, and cockpit visual foundation |
+| Stage 25C | Slice 1 in progress and pending review | Product shell, shared selected-system context, and cockpit visual foundation |
 | Stage 25D | unstarted | Canonical Colony Cockpit and planner/simulation integration |
 | Stage 25E | unstarted | Review, evidence, validation and export coherence |
 | Stage 25F | unstarted | Facility intelligence and explainable next actions |
@@ -228,17 +229,22 @@ broad polish.
 
 ### Stage 25C - Product Shell, Shared Context and Cockpit Visual Foundation
 
-Status: prepared but not started.
+Status: Slice 1 in progress and pending review.
 
-Primary objective: create the authoritative implementation contract for a
-coherent player product shell, a persistent selected-system context spine, the
-future Explore/Plan/Review hierarchy, and the cockpit-oriented visual-system
-foundation.
+Primary objective: implement the first runtime slice of the coherent player
+product shell, the Explore/Plan/Review hierarchy, truthful shared-context
+scaffolding, and the cockpit-oriented visual-system foundation without
+broadening into Stage 25D or later work.
 
-Implementation scope (later, not in this reset): future navigation hierarchy;
-selected-system context contract; workspace shell; visual tokens and semantic
-status system; System Detail hand-off into Plan; player/operator boundary;
-desktop-first workspace behaviour; Finder/mobile basic-inspection compatibility.
+Slice 1 implementation scope: player-facing product shell; Explore/Plan/Review
+hierarchy; separate operator/admin lane; shell-level selected-system context
+framing where existing route truth provides it; System Detail contextual hand-
+off clarity; desktop-first workspace framing; Finder/mobile basic-inspection
+compatibility; planner phone-width resilience-only handling.
+
+Later Stage 25C slices remain pending for deeper selected-system continuity
+rules, broader cockpit visual-system consolidation, and follow-through
+verification.
 
 Explicitly out of scope for Stage 25C implementation: simulation-preview
 integration; map redesign or deeper map integration; planner rules/data changes;
@@ -248,7 +254,8 @@ activity.
 
 The full Stage 25C implementation contract lives in
 `stage-25c-product-shell-shared-context-contract.md`. Defining that contract
-does not authorize runtime implementation.
+did not by itself authorize runtime implementation; this first runtime slice is
+separately authorized and remains pending review.
 
 ### Stage 25D - Canonical Colony Cockpit and Planner/Simulation Integration
 
@@ -346,7 +353,7 @@ This Stage 25 roadmap reset is acceptable only if:
 
 - Stage 24 remains closed;
 - Stage 25A is recorded as complete and Stage 25B as complete/merged;
-- Stage 25C is recorded as prepared but not started;
+- Stage 25C is recorded as Slice 1 in progress and pending review rather than complete;
 - Stage 25D through Stage 25H are recorded as unstarted;
 - PR #257 is recorded as the map recovery point;
 - the map remains a secondary Explore surface only and no deeper map integration

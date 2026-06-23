@@ -24,6 +24,7 @@ import { AdminTab } from '@/features/admin/AdminTab';
 import { OperatorCockpitTab } from '@/features/operator/OperatorCockpitTab';
 import { MapTab } from '@/features/map/MapTab';
 import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
+import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { ColonyPlannerWorkspace } from '@/features/colony-planner/ColonyPlannerWorkspace';
 import { RavenStylePlannerPrototype } from '@/features/colony-planner/prototype/RavenStylePlannerPrototype';
 import { EddnTicker } from '@/features/eddn/EddnTicker';
@@ -145,6 +146,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const admin     = useAdmin();
   const [health, setHealth] = useState<string>('Checking API');
   const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
+  const shellSystemId = plannerSystemId ?? selectedSystemId;
+  const shellSystem = useSystemDetail(shellSystemId);
 
   const openSystemDetail = (id64: number, options?: { focus?: 'colony-planner' }) => {
     setDetailFocus(options?.focus ?? null);
@@ -192,6 +195,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         fcCount={fc.waypoints.length}
         health={health}
         fullWidth={plannerWorkspaceRoute}
+        selectedSystem={shellSystemId != null ? {
+          id64: shellSystemId,
+          name: shellSystem.data?.name ?? null,
+          loading: shellSystem.loading,
+        } : null}
       />
 
       {route === 'finder' && (
