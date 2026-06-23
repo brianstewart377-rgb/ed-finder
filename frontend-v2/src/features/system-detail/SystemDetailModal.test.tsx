@@ -9,25 +9,6 @@ vi.mock('./useSystemDetail', () => ({
 }));
 
 vi.mock('./RatingRadar', () => ({ RatingRadar: () => <div>Rating radar</div> }));
-const {
-  mockBuildabilityPanel,
-  mockSlotPredictionPanel,
-  mockRecommendedBuildsPanel,
-  mockSimulationPreviewPanel,
-  mockRegionalPositionPanel,
-} = vi.hoisted(() => ({
-  mockBuildabilityPanel: vi.fn(() => <div>Buildability panel</div>),
-  mockSlotPredictionPanel: vi.fn(() => <div>Slot prediction panel</div>),
-  mockRecommendedBuildsPanel: vi.fn(() => <div>Recommended builds panel</div>),
-  mockSimulationPreviewPanel: vi.fn(() => <div>Embedded Colony Planner</div>),
-  mockRegionalPositionPanel: vi.fn(() => <div>Regional position panel</div>),
-}));
-
-vi.mock('./BuildabilityPanel', () => ({ BuildabilityPanel: mockBuildabilityPanel }));
-vi.mock('./SlotPredictionPanel', () => ({ SlotPredictionPanel: mockSlotPredictionPanel }));
-vi.mock('./RecommendedBuildsPanel', () => ({ RecommendedBuildsPanel: mockRecommendedBuildsPanel }));
-vi.mock('./SimulationPreviewPanel', () => ({ SimulationPreviewPanel: mockSimulationPreviewPanel }));
-vi.mock('./RegionalPositionPanel', () => ({ RegionalPositionPanel: mockRegionalPositionPanel }));
 
 const mockedUseSystemDetail = vi.mocked(useSystemDetail);
 
@@ -53,80 +34,90 @@ function mockLoadedSystem(overrides: Partial<SystemDetail> = {}) {
 describe('SystemDetailModal Colony Planner entry point', () => {
   afterEach(() => {
     mockedUseSystemDetail.mockReset();
-    mockBuildabilityPanel.mockClear();
-    mockSlotPredictionPanel.mockClear();
-    mockRecommendedBuildsPanel.mockClear();
-    mockSimulationPreviewPanel.mockClear();
-    mockRegionalPositionPanel.mockClear();
     vi.restoreAllMocks();
   });
 
-  it('renders a compact Colony Planner entry card on System Detail', () => {
+  it('renders the new save-or-start planning entry point on System Detail', () => {
     mockLoadedSystem();
 
     render(
       <SystemDetailModal
         id64={123}
         onClose={() => undefined}
-        onOpenColonyPlanner={() => undefined}
+        onStartPlan={() => undefined}
       />,
     );
 
     expect(screen.getByTestId('colony-planner-entry-card')).toBeTruthy();
-    expect(screen.getByText('Workspace available')).toBeTruthy();
+    expect(screen.getByText('Planning available')).toBeTruthy();
     expect(
       screen.getByText(
-        /Open the canonical planning workspace for this system/i,
+        /Assess this system, save it for later if needed, then create an intentional draft/i,
       ),
     ).toBeTruthy();
-    expect(screen.getByText(/review report-only evidence separately before you commit to assumptions/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Save for later/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Start a plan/i })).toBeTruthy();
     expect(screen.getAllByText('Test System').length).toBeGreaterThan(0);
     expect(screen.getAllByText('ID64 123').length).toBeGreaterThan(0);
   });
 
-  it('opens the dedicated Colony Planner workspace through the existing route handler', () => {
-    const onOpenColonyPlanner = vi.fn();
+  it('creates a draft only after explicit objective and manual start confirmation', () => {
+    const onStartPlan = vi.fn();
     mockLoadedSystem();
 
     render(
       <SystemDetailModal
         id64={123}
         onClose={() => undefined}
-        onOpenColonyPlanner={onOpenColonyPlanner}
+        onStartPlan={onStartPlan}
       />,
     );
 
-    fireEvent.click(screen.getByTestId('open-colony-planner'));
+    fireEvent.click(screen.getByTestId('open-plan-start'));
+    expect(screen.getByTestId('plan-start-panel')).toBeTruthy();
+    expect(onStartPlan).not.toHaveBeenCalled();
 
-    expect(onOpenColonyPlanner).toHaveBeenCalledTimes(1);
-    expect(onOpenColonyPlanner).toHaveBeenCalledWith(123);
+    fireEvent.click(screen.getByTestId('plan-objective-materials_coverage'));
+    fireEvent.click(screen.getByTestId('plan-approach-manual'));
+    expect(screen.getByText('Test System - Materials coverage')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('confirm-start-plan'));
+
+    expect(onStartPlan).toHaveBeenCalledTimes(1);
+    expect(onStartPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ id64: 123, name: 'Test System' }),
+      {
+        objective: 'materials_coverage',
+        startApproach: 'manual',
+      },
+    );
   });
 
-  it('does not render the full planner stack inline on System Detail', () => {
+  it('accepts decide-later plus recommendation-assisted as a valid plan start', () => {
+    const onStartPlan = vi.fn();
     mockLoadedSystem();
 
     render(
       <SystemDetailModal
         id64={123}
         onClose={() => undefined}
-        onOpenColonyPlanner={() => undefined}
+        onStartPlan={onStartPlan}
       />,
     );
 
-    expect(screen.queryByText('Buildability panel')).toBeNull();
-    expect(screen.queryByText('Regional position panel')).toBeNull();
-    expect(screen.queryByText('Recommended builds panel')).toBeNull();
-    expect(screen.queryByText('Embedded Colony Planner')).toBeNull();
-    expect(screen.queryByText('Slot prediction panel')).toBeNull();
-    expect(screen.queryByText('Colony Planning')).toBeNull();
-    expect(screen.queryByText('Observed Evidence')).toBeNull();
-    expect(screen.queryByText('Validation')).toBeNull();
-    expect(screen.queryByTestId('colony-planner-focus-target')).toBeNull();
-    expect(mockBuildabilityPanel).not.toHaveBeenCalled();
-    expect(mockRegionalPositionPanel).not.toHaveBeenCalled();
-    expect(mockRecommendedBuildsPanel).not.toHaveBeenCalled();
-    expect(mockSimulationPreviewPanel).not.toHaveBeenCalled();
-    expect(mockSlotPredictionPanel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('open-plan-start'));
+    fireEvent.click(screen.getByTestId('plan-objective-decide_later'));
+    fireEvent.click(screen.getByTestId('plan-approach-recommendation'));
+    fireEvent.click(screen.getByTestId('confirm-start-plan'));
+
+    expect(onStartPlan).toHaveBeenCalledTimes(1);
+    expect(onStartPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ id64: 123 }),
+      {
+        objective: 'decide_later',
+        startApproach: 'recommendation_assisted',
+      },
+    );
   });
 
   it('keeps the normal System Detail overview visible', () => {
@@ -136,7 +127,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
       <SystemDetailModal
         id64={123}
         onClose={() => undefined}
-        onOpenColonyPlanner={() => undefined}
+        onStartPlan={() => undefined}
       />,
     );
 
@@ -207,7 +198,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
       <SystemDetailModal
         id64={123}
         onClose={() => undefined}
-        onOpenColonyPlanner={() => undefined}
+        onStartPlan={() => undefined}
       />,
     );
 
@@ -235,7 +226,28 @@ describe('SystemDetailModal Colony Planner entry point', () => {
 
     expect(screen.getByText('Planner unavailable')).toBeTruthy();
     expect(screen.getByText(/Planner routing is unavailable for this system record/i)).toBeTruthy();
-    expect((screen.getByTestId('open-colony-planner') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('open-plan-start') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('saving a system does not create a plan', () => {
+    const onStartPlan = vi.fn();
+    const onToggleSaveForLater = vi.fn();
+    mockLoadedSystem();
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onToggleSaveForLater={onToggleSaveForLater}
+        onStartPlan={onStartPlan}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('system-detail-save-for-later'));
+
+    expect(onToggleSaveForLater).toHaveBeenCalledTimes(1);
+    expect(onToggleSaveForLater).toHaveBeenCalledWith(expect.objectContaining({ id64: 123 }));
+    expect(onStartPlan).not.toHaveBeenCalled();
   });
 
   it('does not expose raw backend errors in the compact System Detail error state', () => {
@@ -260,11 +272,10 @@ describe('SystemDetailModal Colony Planner entry point', () => {
       <SystemDetailModal
         id64={123}
         onClose={onClose}
-        onOpenColonyPlanner={() => undefined}
+        onStartPlan={() => undefined}
       />,
     );
 
-    expect(screen.queryByTestId('colony-planner-focus-target')).toBeNull();
     fireEvent.click(screen.getByTestId('system-detail-close'));
     expect(onClose).toHaveBeenCalledTimes(1);
 

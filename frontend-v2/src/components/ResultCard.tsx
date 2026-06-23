@@ -12,15 +12,14 @@ import {
 import { displayRationale } from '@/lib/rationale';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
-  Rocket,
 } from 'lucide-react';
 
 /**
  * One row in the search-results list — chunky brushed-metal card with
  * collapsible body.
  *
- * Stateless: parents pass action callbacks (onPin / onWatch / onCompare /
- * onOpenDetail / onOpenColonyPlanner / onShowOnMap). The card only owns the
+ * Stateless: parents pass action callbacks (onPin / onToggleSavedForLater /
+ * onCompare / onOpenDetail / onShowOnMap). The card only owns the
  * open/closed toggle.
  */
 export interface ResultCardProps {
@@ -28,17 +27,18 @@ export interface ResultCardProps {
   index:  number;
   isPinned?: boolean;
   isCompared?: boolean;
+  isSavedForLater?: boolean;
   onPin?:     (id64: number) => void;
   onCompare?: (id64: number) => void;
-  onWatch?:   (id64: number) => void;
+  onToggleSavedForLater?: (id64: number) => void;
   onShowOnMap?:  (id64: number) => void;
-  onOpenDetail?: (id64: number, options?: { focus?: 'colony-planner' }) => void;
-  onOpenColonyPlanner?: (id64: number) => void;
+  onOpenDetail?: (id64: number) => void;
 }
 
 export function ResultCard({
   system, index, isPinned = false, isCompared = false,
-  onPin, onCompare, onWatch, onShowOnMap, onOpenDetail, onOpenColonyPlanner,
+  isSavedForLater = false,
+  onPin, onCompare, onToggleSavedForLater, onShowOnMap, onOpenDetail,
 }: ResultCardProps) {
   const [open, setOpen] = useState(false);
 
@@ -53,14 +53,6 @@ export function ResultCard({
   const status     = systemStatusLabel(system);
   const systemId64 = Number(system.id64);
   const hasValidSystemId = Number.isFinite(systemId64) && systemId64 > 0;
-  const openColonyPlanner = () => {
-    if (!hasValidSystemId) return;
-    if (onOpenColonyPlanner) {
-      onOpenColonyPlanner(systemId64);
-    } else {
-      onOpenDetail?.(systemId64, { focus: 'colony-planner' });
-    }
-  };
 
   return (
     <article
@@ -229,24 +221,18 @@ export function ResultCard({
           ) : null}
 
           <div className="flex flex-wrap gap-2 pt-1">
-            {onOpenDetail && (
-              <ActionButton onClick={() => onOpenDetail(system.id64)} primary>
-                <Search size={13} className="mr-1.5" /> Details
-              </ActionButton>
-            )}
-            {(onOpenColonyPlanner || onOpenDetail) && (
-              <ActionButton
-                onClick={() => {
-                  openColonyPlanner();
-                }}
-                disabled={!hasValidSystemId}
-              >
-                <Rocket size={13} className="mr-1.5" /> Evaluate in Colony Planner
-              </ActionButton>
-            )}
-            <ActionButton onClick={() => onWatch?.(system.id64)}>
-              <Eye size={13} className="mr-1.5" /> Watch
+            <ActionButton
+              onClick={() => onToggleSavedForLater?.(system.id64)}
+              active={isSavedForLater}
+            >
+              <Eye size={13} className="mr-1.5" />
+              {isSavedForLater ? 'Saved - remove' : 'Save for later'}
             </ActionButton>
+            {onOpenDetail && (
+              <ActionButton onClick={() => onOpenDetail(system.id64)} primary disabled={!hasValidSystemId}>
+                <Search size={13} className="mr-1.5" /> Inspect system
+              </ActionButton>
+            )}
             <ActionButton onClick={() => onShowOnMap?.(system.id64)}>
               <Map size={13} className="mr-1.5" /> Map
             </ActionButton>
@@ -303,12 +289,13 @@ function IconToggle({
 }
 
 function ActionButton({
-  onClick, children, primary, disabled = false,
+  onClick, children, primary, disabled = false, active = false,
 }: {
   onClick: () => void;
   children: React.ReactNode;
   primary?: boolean;
   disabled?: boolean;
+  active?: boolean;
 }) {
   return (
     <button
@@ -316,7 +303,7 @@ function ActionButton({
       disabled={disabled}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={[
-        primary ? 'btn-primary' : 'btn-metal',
+        primary ? 'btn-primary' : active ? 'btn-primary' : 'btn-metal',
         'inline-flex items-center text-[11px] py-1.5 px-3',
         disabled ? 'cursor-not-allowed opacity-45' : '',
       ].join(' ')}

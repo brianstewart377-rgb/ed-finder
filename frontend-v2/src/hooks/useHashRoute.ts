@@ -10,7 +10,9 @@ import { useEffect, useState } from 'react';
  *   #search-tuning                → route='search-tuning', selectedSystemId=null
  *   #optimizer                    → route='search-tuning', selectedSystemId=null (legacy alias)
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
+ *   #my-work                      → route='my-work', selectedSystemId=null
  *   #colony-planner/system/123    → route='colony-planner', plannerSystemId=123
+ *   #colony-planner/system/123/project/abc → route='colony-planner', plannerSystemId=123, plannerProjectId='abc'
  *   #operator                     → route='operator', selectedSystemId=null
  *   #colony-planner               → route='colony-planner', plannerSystemId=null
  *   #colony-planner-prototype     → route='colony-planner-prototype', static visual prototype
@@ -27,13 +29,14 @@ import { useEffect, useState } from 'react';
  * The route set is still simple enough that this hand-rolled parser beats
  * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
  */
-export type Route = 'finder' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'operator' | 'colony-planner' | 'colony-planner-prototype';
-const VALID_ROUTES: Route[] = ['finder', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'operator', 'colony-planner', 'colony-planner-prototype'];
+export type Route = 'finder' | 'my-work' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'operator' | 'colony-planner' | 'colony-planner-prototype';
+const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'operator', 'colony-planner', 'colony-planner-prototype'];
 
 export interface ParsedHash {
   route:            Route;
   selectedSystemId: number | null;
   plannerSystemId:  number | null;
+  plannerProjectId: string | null;
 }
 
 function parsePositiveId(value: string | undefined): number | null {
@@ -47,7 +50,7 @@ function parseHash(): ParsedHash {
   const parts = raw.split('/').filter(Boolean);
 
   if (parts.length === 0) {
-    return { route: 'finder', selectedSystemId: null, plannerSystemId: null };
+    return { route: 'finder', selectedSystemId: null, plannerSystemId: null, plannerProjectId: null };
   }
 
   let route: Route = 'finder';
@@ -62,16 +65,20 @@ function parseHash(): ParsedHash {
 
   let selectedSystemId: number | null = null;
   let plannerSystemId: number | null = null;
+  let plannerProjectId: string | null = null;
   if (parts[i] === 'system') {
     const id64 = parsePositiveId(parts[i + 1]);
     if (route === 'colony-planner') {
       plannerSystemId = id64;
+      if (parts[i + 2] === 'project' && parts[i + 3]) {
+        plannerProjectId = parts[i + 3];
+      }
     } else {
       selectedSystemId = id64;
     }
   }
 
-  return { route, selectedSystemId, plannerSystemId };
+  return { route, selectedSystemId, plannerSystemId, plannerProjectId };
 }
 
 function buildHash(route: Route, selectedSystemId: number | null): string {
@@ -80,21 +87,24 @@ function buildHash(route: Route, selectedSystemId: number | null): string {
   return selectedSystemId != null ? `${base}/system/${selectedSystemId}` : base;
 }
 
-function buildPlannerHash(plannerSystemId: number | null): string {
+function buildPlannerHash(plannerSystemId: number | null, plannerProjectId: string | null = null): string {
   const base = '#colony-planner';
-  return plannerSystemId != null ? `${base}/system/${plannerSystemId}` : base;
+  if (plannerSystemId == null) return base;
+  if (plannerProjectId) return `${base}/system/${plannerSystemId}/project/${encodeURIComponent(plannerProjectId)}`;
+  return `${base}/system/${plannerSystemId}`;
 }
 
 export interface HashRoute {
   route:            Route;
   selectedSystemId: number | null;
   plannerSystemId:  number | null;
+  plannerProjectId: string | null;
   /** Navigate to a tab. Preserves any open system modal. */
   navigate:    (r: Route) => void;
   /** Open the system detail modal on top of the current tab. */
   openSystem:  (id64: number) => void;
   /** Open the dedicated Colony Planner workspace for a system. */
-  openColonyPlanner: (id64: number) => void;
+  openColonyPlanner: (id64: number, options?: { projectId?: string | null }) => void;
   /** Close the modal — pops back to the current tab. */
   closeSystem: () => void;
 }
@@ -109,24 +119,26 @@ export function useHashRoute(): HashRoute {
   }, []);
 
   const navigate = (r: Route) => {
-    window.location.hash = r === 'colony-planner'
-      ? buildPlannerHash(parsed.plannerSystemId)
-      : buildHash(r, parsed.selectedSystemId);
+    if (r === 'colony-planner') {
+      window.location.hash = buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId);
+      return;
+    }
+    window.location.hash = buildHash(r, parsed.selectedSystemId);
   };
 
   const openSystem = (id64: number) => {
     window.location.hash = buildHash(parsed.route, id64);
   };
 
-  const openColonyPlanner = (id64: number) => {
+  const openColonyPlanner = (id64: number, options?: { projectId?: string | null }) => {
     const systemId64 = Number(id64);
     if (!Number.isFinite(systemId64) || systemId64 <= 0) return;
-    window.location.hash = buildPlannerHash(systemId64);
+    window.location.hash = buildPlannerHash(systemId64, options?.projectId ?? null);
   };
 
   const closeSystem = () => {
     window.location.hash = parsed.route === 'colony-planner'
-      ? buildPlannerHash(parsed.plannerSystemId)
+      ? buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId)
       : buildHash(parsed.route, null);
   };
 
@@ -134,6 +146,7 @@ export function useHashRoute(): HashRoute {
     route:            parsed.route,
     selectedSystemId: parsed.selectedSystemId,
     plannerSystemId:  parsed.plannerSystemId,
+    plannerProjectId: parsed.plannerProjectId,
     navigate, openSystem, openColonyPlanner, closeSystem,
   };
 }

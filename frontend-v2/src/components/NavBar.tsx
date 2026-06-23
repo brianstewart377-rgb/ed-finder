@@ -46,13 +46,13 @@ interface WorkspaceMeta {
 
 const PRIMARY_DEFAULT_ROUTE: Record<PrimaryWorkspace, Route> = {
   explore: 'finder',
-  plan: 'colony-planner',
-  review: 'watchlist',
+  plan: 'my-work',
+  review: 'compare',
 };
 
 export function NavBar({
   current, onNavigate,
-  watchlistCount, pinnedCount, compareCount, colonyCount, fcCount,
+  compareCount, fcCount,
   health,
   fullWidth = false,
   selectedSystem = null,
@@ -72,20 +72,18 @@ export function NavBar({
       { route: 'search-tuning' as const, label: 'Advanced Search Tuning', shortLabel: 'Advanced', testid: 'nav-search-tuning' },
     ],
     plan: [
+      { route: 'my-work' as const, label: 'My Work', shortLabel: 'My Work', testid: 'nav-my-work' },
       { route: 'colony-planner' as const, label: 'Colony Planner', shortLabel: 'Plan', testid: 'nav-colony-planner' },
     ],
     review: [
-      { route: 'watchlist' as const, label: 'Watchlist', testid: 'nav-watchlist', badge: watchlistCount ?? undefined, title: 'Synced saved candidates' },
-      { route: 'pinned' as const, label: 'Pins', testid: 'nav-pinned', badge: pinnedCount, title: 'Device-local shortlist' },
       { route: 'compare' as const, label: 'Compare', testid: 'nav-compare', badge: compareCount },
       { route: 'fc' as const, label: 'FC Planner', testid: 'nav-fc', badge: fcCount },
-      { route: 'colony' as const, label: 'Colony Tracker', testid: 'nav-colony', badge: colonyCount },
     ],
     operator: [
       { route: 'admin' as const, label: 'Admin', testid: 'nav-admin' },
       { route: 'operator' as const, label: 'Operator', testid: 'nav-operator' },
     ],
-  }), [watchlistCount, pinnedCount, compareCount, fcCount, colonyCount]);
+  }), [compareCount, fcCount]);
 
   const operatorMode = current === 'admin' || current === 'operator';
   const currentPrimary = primaryWorkspaceForRoute(current);
@@ -611,8 +609,8 @@ function OperatorModeMenu({
 
 function primaryWorkspaceForRoute(route: Route): PrimaryWorkspace | null {
   if (route === 'finder' || route === 'map' || route === 'search-tuning') return 'explore';
-  if (route === 'colony-planner') return 'plan';
-  if (route === 'watchlist' || route === 'pinned' || route === 'compare' || route === 'fc' || route === 'colony') return 'review';
+  if (route === 'my-work' || route === 'watchlist' || route === 'pinned' || route === 'colony' || route === 'colony-planner') return 'plan';
+  if (route === 'compare' || route === 'fc') return 'review';
   return null;
 }
 
@@ -654,22 +652,31 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
         statusLabel: 'Canonical live planner',
         statusTone: 'canonical',
       };
+    case 'my-work':
+      return {
+        title: 'My Work',
+        primaryLabel: 'Plan',
+        supportingText: 'Return to saved systems, local plans, and established colony work without splitting that context between Watchlist, Pins, and the planner.',
+        nextAction: 'Resume a saved system, continue a plan, or review established colony work.',
+        statusLabel: 'Player planning home',
+        statusTone: 'available',
+      };
     case 'watchlist':
       return {
-        title: 'Watchlist',
-        primaryLabel: 'Review',
-        supportingText: 'Review synced saved candidates and bring them back into Explore or Plan when they become actionable.',
-        nextAction: 'Open a watched system to inspect it or compare it against alternatives.',
-        statusLabel: 'Review workspace',
+        title: 'My Work',
+        primaryLabel: 'Plan',
+        supportingText: 'Watchlist now feeds the Saved Systems view in My Work so synced saved candidates sit beside local planning context.',
+        nextAction: 'Inspect a saved system or start planning from a deliberate hand-off.',
+        statusLabel: 'Player planning home',
         statusTone: 'available',
       };
     case 'pinned':
       return {
-        title: 'Pins',
-        primaryLabel: 'Review',
-        supportingText: 'Review the local shortlist kept on this device without changing cloud-synced watchlist state.',
-        nextAction: 'Open a pinned system to inspect it or move it into comparison.',
-        statusLabel: 'Review support tool',
+        title: 'My Work',
+        primaryLabel: 'Plan',
+        supportingText: 'Pins now feed the Saved Systems view in My Work so local shortlist context stays beside saved systems and plans.',
+        nextAction: 'Inspect a saved system or continue from active planning work.',
+        statusLabel: 'Player planning home',
         statusTone: 'available',
       };
     case 'compare':
@@ -693,9 +700,9 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
     case 'colony':
       return {
         title: 'Colony Tracker',
-        primaryLabel: 'Review',
-        supportingText: 'Track local colony project notes and progress as supporting retained context outside the canonical live planner.',
-        nextAction: 'Review tracked systems, then inspect or plan from the canonical live routes.',
+        primaryLabel: 'Plan',
+        supportingText: 'Legacy colony tracking remains available by route while My Work becomes the calm player-facing home for saved systems, plans, and colonies.',
+        nextAction: 'Use My Work for the current player flow, or inspect tracked systems directly.',
         statusLabel: 'Supporting tracker',
         statusTone: 'available',
       };

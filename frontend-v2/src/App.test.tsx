@@ -1,6 +1,18 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
+import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
+import { useMyWorkStore } from '@/features/my-work/myWorkStore';
+
+const {
+  mockWatchlistAdd,
+  mockWatchlistRemove,
+  mockWatchlistHas,
+} = vi.hoisted(() => ({
+  mockWatchlistAdd: vi.fn(),
+  mockWatchlistRemove: vi.fn(),
+  mockWatchlistHas: vi.fn(() => false),
+}));
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -32,9 +44,9 @@ vi.mock('@/features/watchlist/useWatchlist', () => ({
     loading: false,
     error: null,
     refresh: vi.fn(),
-    add: vi.fn(),
-    remove: vi.fn(),
-    has: vi.fn(() => false),
+    add: mockWatchlistAdd,
+    remove: mockWatchlistRemove,
+    has: mockWatchlistHas,
   }),
 }));
 
@@ -103,15 +115,76 @@ vi.mock('@/features/eddn/EddnTicker', () => ({
 vi.mock('@/features/system-detail/SystemDetailModal', () => ({
   SystemDetailModal: ({
     id64,
-    onOpenColonyPlanner,
+    onToggleSaveForLater,
+    onStartPlan,
   }: {
     id64: number;
-    onOpenColonyPlanner?: (id64: number) => void;
+    onToggleSaveForLater?: (system: {
+      id64: number;
+      name: string;
+      x: number;
+      y: number;
+      z: number;
+      population: number | null;
+      is_colonised: boolean;
+      score: number | null;
+      primary_economy: string | null;
+      economy_suggestion: string | null;
+    }) => void;
+    onStartPlan?: (system: {
+      id64: number;
+      name: string;
+      x: number;
+      y: number;
+      z: number;
+      population: number | null;
+      is_colonised: boolean;
+      score: number | null;
+      primary_economy: string | null;
+      economy_suggestion: string | null;
+    }, planStart: {
+      objective: 'materials_coverage';
+      startApproach: 'manual';
+    }) => void;
   }) => (
     <div data-testid="system-detail-modal">
       System detail {id64}
-      <button type="button" onClick={() => onOpenColonyPlanner?.(id64)}>
-        Open Colony Planner
+      <button
+        type="button"
+        onClick={() => onToggleSaveForLater?.({
+          id64,
+          name: `System ${id64}`,
+          x: 1,
+          y: 2,
+          z: 3,
+          population: 0,
+          is_colonised: false,
+          score: 77,
+          primary_economy: 'Agriculture',
+          economy_suggestion: 'Refinery',
+        })}
+      >
+        Save for later
+      </button>
+      <button
+        type="button"
+        onClick={() => onStartPlan?.({
+          id64,
+          name: `System ${id64}`,
+          x: 1,
+          y: 2,
+          z: 3,
+          population: 0,
+          is_colonised: false,
+          score: 77,
+          primary_economy: 'Agriculture',
+          economy_suggestion: 'Refinery',
+        }, {
+          objective: 'materials_coverage',
+          startApproach: 'manual',
+        })}
+      >
+        Create manual draft
       </button>
     </div>
   ),
@@ -129,15 +202,17 @@ vi.mock('@/features/system-detail/useSystemDetail', () => ({
 vi.mock('@/features/colony-planner/ColonyPlannerWorkspace', () => ({
   ColonyPlannerWorkspace: ({
     id64,
+    projectId,
     onBackToFinder,
     onOpenSystemDetail,
   }: {
     id64: number | null;
+    projectId?: string | null;
     onBackToFinder: () => void;
     onOpenSystemDetail: (id64: number) => void;
   }) => (
     <div data-testid="colony-planner-workspace">
-      Colony Planner workspace {id64 ?? 'none'}
+      Colony Planner workspace {id64 ?? 'none'} / {projectId ?? 'no-project'}
       <button type="button" onClick={onBackToFinder}>Back to Finder</button>
       <button type="button" onClick={() => id64 != null && onOpenSystemDetail(id64)}>Open full system detail</button>
     </div>
@@ -146,8 +221,15 @@ vi.mock('@/features/colony-planner/ColonyPlannerWorkspace', () => ({
 
 afterEach(() => {
   window.location.hash = '';
+  localStorage.clear();
+  useColonyProjectStore.setState({ projects: {} });
+  useMyWorkStore.setState({ systems: {} });
   document.documentElement.style.removeProperty('--coalsack-bg-2560');
   document.documentElement.style.removeProperty('--coalsack-bg-1600');
+  mockWatchlistAdd.mockReset();
+  mockWatchlistRemove.mockReset();
+  mockWatchlistHas.mockReset();
+  mockWatchlistHas.mockReturnValue(false);
   vi.unstubAllGlobals();
 });
 
@@ -271,12 +353,61 @@ describe('App Colony Planner workspace route', () => {
       expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Open Colony Planner/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Create manual draft/i }));
 
     await waitFor(() => {
-      expect(window.location.hash).toBe('#colony-planner/system/123');
+      expect(window.location.hash).toMatch(/^#colony-planner\/system\/123\/project\//);
     });
     expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
+    const projects = Object.values(useColonyProjectStore.getState().projects);
+    expect(projects).toHaveLength(1);
+    expect(projects[0]).toEqual(expect.objectContaining({
+      system_id64: 123,
+      project_name: 'System 123 - Materials coverage',
+      objective: 'materials_coverage',
+      start_approach: 'manual',
+      created_from: 'system_detail',
+      status: 'draft',
+    }));
+    expect(screen.getByTestId('colony-planner-workspace').textContent).toContain(projects[0].id);
+  });
+
+  it('renders My Work as the player-facing Plan destination and keeps Watchlist as a safe compatibility route', async () => {
+    window.location.hash = '#watchlist';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('my-work-workspace')).toBeTruthy();
+    });
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('My Work');
+    expect(screen.getByTestId('my-work-workspace').textContent).toContain('Watchlist now opens the Saved Systems view inside My Work');
+  });
+
+  it('saves a system for later without creating a draft', async () => {
+    window.location.hash = '#finder/system/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('system-detail-modal')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save for later/i }));
+
+    await waitFor(() => {
+      expect(mockWatchlistAdd).toHaveBeenCalledTimes(1);
+    });
+    expect(mockWatchlistAdd).toHaveBeenCalledWith(123, expect.objectContaining({
+      name: 'System 123',
+      x: 1,
+      y: 2,
+      z: 3,
+      population: 0,
+      is_colonised: false,
+      score: 77,
+    }));
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
   });
 
   it('renders the player-facing Explore / Plan / Review shell without persistent operator tools', async () => {
@@ -323,7 +454,7 @@ describe('App Colony Planner workspace route', () => {
     });
     expect(screen.getByTestId('product-shell-context').textContent).toContain('ID64 123');
 
-    window.location.hash = '#watchlist';
+    window.location.hash = '#my-work';
     fireEvent(window, new HashChangeEvent('hashchange'));
 
     await waitFor(() => {
