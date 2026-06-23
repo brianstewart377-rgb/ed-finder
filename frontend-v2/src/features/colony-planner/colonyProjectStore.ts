@@ -2,8 +2,13 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { SimulateBuildPlacement } from '@/types/api';
 import { normaliseDeclaredRoles, type DeclaredColonyRole } from './colonyRoles';
+import type {
+  ColonyProjectCreatedFrom,
+  ColonyProjectObjective,
+  ColonyProjectStartApproach,
+} from './plannerDraftContext';
 
-export type ColonyProjectStatus = 'draft' | 'previewed' | 'validated';
+export type ColonyProjectStatus = 'draft' | 'ready_to_build' | 'building' | 'established';
 
 export interface ColonyProject {
   id: string;
@@ -16,6 +21,9 @@ export interface ColonyProject {
   target_archetype: string;
   notes: string;
   status: ColonyProjectStatus;
+  objective?: ColonyProjectObjective | null;
+  start_approach?: ColonyProjectStartApproach | null;
+  created_from?: ColonyProjectCreatedFrom | null;
   created_at: string;
   updated_at: string;
   archived_at?: string | null;
@@ -30,12 +38,16 @@ export interface ColonyProjectInput {
   target_archetype: string;
   notes: string;
   status?: ColonyProjectStatus;
+  objective?: ColonyProjectObjective | null;
+  start_approach?: ColonyProjectStartApproach | null;
+  created_from?: ColonyProjectCreatedFrom | null;
 }
 
 interface ColonyProjectState {
   projects: Record<string, ColonyProject>;
   saveProject: (projectId: string | null, input: ColonyProjectInput) => ColonyProject;
   renameProject: (projectId: string, name: string) => void;
+  updateProjectStatus: (projectId: string, status: ColonyProjectStatus) => void;
   duplicateProject: (projectId: string) => ColonyProject | null;
   archiveProject: (projectId: string) => void;
   deleteProject: (projectId: string) => void;
@@ -61,6 +73,9 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
           target_archetype: input.target_archetype,
           notes: input.notes,
           status: input.status ?? existing?.status ?? 'draft',
+          objective: input.objective ?? existing?.objective ?? null,
+          start_approach: input.start_approach ?? existing?.start_approach ?? null,
+          created_from: input.created_from ?? existing?.created_from ?? null,
           created_at: existing?.created_at ?? now,
           updated_at: now,
           archived_at: null,
@@ -81,6 +96,18 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
           },
         }));
       },
+      updateProjectStatus: (projectId, status) => {
+        const project = get().projects[projectId];
+        if (!project) return;
+        const nextStatus = normaliseProjectStatus(status);
+        const now = new Date().toISOString();
+        set((state) => ({
+          projects: {
+            ...state.projects,
+            [projectId]: { ...project, status: nextStatus, updated_at: now },
+          },
+        }));
+      },
       duplicateProject: (projectId) => {
         const source = get().projects[projectId];
         if (!source) return null;
@@ -88,7 +115,7 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
         const duplicate: ColonyProject = {
           ...source,
           id: createProjectId(source.system_id64),
-          project_name: `${source.project_name} copy`,
+          project_name: `${source.project_name} - Copy`,
           build_plan_placements: clonePlacements(source.build_plan_placements),
           selected_body_assignments: { ...source.selected_body_assignments },
           declared_roles: normaliseDeclaredRoles(source.declared_roles),
@@ -122,7 +149,7 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
     {
       name: STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
-      version: 2,
+      version: 3,
       migrate: (persistedState) => ({
         ...(persistedState as Partial<ColonyProjectState> | undefined),
         projects: normaliseProjectRecord((persistedState as { projects?: unknown } | undefined)?.projects),
@@ -146,6 +173,10 @@ export function activeProjectsForSystem(projects: ColonyProject[], systemId64: n
         ? project.selected_body_assignments
         : {},
       declared_roles: normaliseDeclaredRoles(project.declared_roles),
+      objective: project.objective ?? null,
+      start_approach: project.start_approach ?? null,
+      created_from: project.created_from ?? null,
+      status: normaliseProjectStatus(project.status),
     }))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
@@ -212,10 +243,21 @@ function normaliseProjectRecord(projects: unknown): Record<string, ColonyProject
         ? candidate.selected_body_assignments
         : {},
       declared_roles: normaliseDeclaredRoles(candidate.declared_roles),
+      objective: candidate.objective ?? null,
+      start_approach: candidate.start_approach ?? null,
+      created_from: candidate.created_from ?? null,
+      status: normaliseProjectStatus(candidate.status),
       archived_at: candidate.archived_at ?? null,
     };
     return record;
   }, {});
+}
+
+function normaliseProjectStatus(status: unknown): ColonyProjectStatus {
+  if (status === 'ready_to_build' || status === 'building' || status === 'established') {
+    return status;
+  }
+  return 'draft';
 }
 
 function createProjectId(systemId64: number) {

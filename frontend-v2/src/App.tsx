@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient } from '@/lib/queryClient';
@@ -8,9 +8,8 @@ import { NavBar } from '@/components/NavBar';
 import { SearchForm } from '@/features/search/SearchForm';
 import { useSearch } from '@/features/search/useSearch';
 import { useWatchlist } from '@/features/watchlist/useWatchlist';
-import { WatchlistTab } from '@/features/watchlist/WatchlistTab';
 import { usePinned } from '@/features/pinned/usePinned';
-import { PinnedTab, toPinnedEntry } from '@/features/pinned/PinnedTab';
+import { toPinnedEntry } from '@/features/pinned/PinnedTab';
 import { useCompare } from '@/features/compare/useCompare';
 import { CompareTab } from '@/features/compare/CompareTab';
 import { useSearchTuning } from '@/features/search-tuning/useSearchTuning';
@@ -27,6 +26,14 @@ import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { ColonyPlannerWorkspace } from '@/features/colony-planner/ColonyPlannerWorkspace';
 import { RavenStylePlannerPrototype } from '@/features/colony-planner/prototype/RavenStylePlannerPrototype';
+import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
+import {
+  defaultDraftProjectName,
+  type ColonyProjectObjective,
+  type ColonyProjectStartApproach,
+} from '@/features/colony-planner/plannerDraftContext';
+import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
+import { MyWorkWorkspace } from '@/features/my-work/MyWorkWorkspace';
 import { EddnTicker } from '@/features/eddn/EddnTicker';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
 import './index.css';
@@ -135,7 +142,7 @@ function PrototypeAppShell({ navigate }: { navigate: HashRoute['navigate'] }) {
 }
 
 function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
-  const { route, selectedSystemId, plannerSystemId, navigate, openSystem, openColonyPlanner, closeSystem } = hashRoute;
+  const { route, selectedSystemId, plannerSystemId, plannerProjectId, navigate, openSystem, openColonyPlanner, closeSystem } = hashRoute;
   const search    = useSearch();
   const watchlist = useWatchlist();
   const pinned    = usePinned();
@@ -144,6 +151,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const colony    = useColony();
   const fc        = useFcPlanner();
   const admin     = useAdmin();
+  const saveProject = useColonyProjectStore((state) => state.saveProject);
   const [health, setHealth] = useState<string>('Checking API');
   const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
   const shellSystemId = plannerSystemId ?? selectedSystemId;
@@ -165,6 +173,57 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
     setDetailFocus(null);
     closeSystem();
   };
+
+  const toggleSavedSystem = useCallback(async (
+    id64: number,
+    hint: {
+      name?: string | null;
+      x?: number | null;
+      y?: number | null;
+      z?: number | null;
+      population?: number | null;
+      is_colonised?: boolean;
+      score?: number | null;
+    },
+  ) => {
+    if (watchlist.has(id64)) {
+      await watchlist.remove(id64);
+      return;
+    }
+    await watchlist.add(id64, {
+      name: hint.name ?? `System ${id64}`,
+      x: hint.x ?? null,
+      y: hint.y ?? null,
+      z: hint.z ?? null,
+      population: hint.population ?? null,
+      is_colonised: hint.is_colonised ?? false,
+      score: hint.score ?? null,
+    });
+  }, [watchlist]);
+
+  const startPlanFromSystemDetail = useCallback((
+    system: import('@/types/api').SystemDetail,
+    planStart: {
+      objective: ColonyProjectObjective;
+      startApproach: ColonyProjectStartApproach;
+    },
+  ) => {
+    const targetArchetype = archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy) ?? 'refinery_industrial';
+    const saved = saveProject(null, {
+      system_id64: system.id64,
+      system_name: system.name || 'Unknown system',
+      project_name: defaultDraftProjectName(system.name || 'Unknown system', planStart.objective),
+      build_plan_placements: [],
+      target_archetype: targetArchetype,
+      notes: '',
+      status: 'draft',
+      objective: planStart.objective,
+      start_approach: planStart.startApproach,
+      created_from: 'system_detail',
+    });
+    setDetailFocus(null);
+    openColonyPlanner(system.id64, { projectId: saved.id });
+  }, [openColonyPlanner, saveProject]);
 
   // First-paint: health + default search.
   useEffect(() => {
@@ -210,27 +269,17 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           compare={compare}
           onShowOnMap={() => navigate('map')}
           onOpenDetail={openSystemDetail}
-          onOpenColonyPlanner={openColonyPlannerWorkspace}
         />
       )}
 
-      {route === 'watchlist' && (
-        <WatchlistTab
-          entries={watchlist.entries}
-          loading={watchlist.loading}
-          error={watchlist.error}
-          onRefresh={watchlist.refresh}
-          onRemove={watchlist.remove}
-          onShowOnMap={() => navigate('map')}
-          onOpenDetail={openSystemDetail}
-        />
-      )}
-
-      {route === 'pinned' && (
-        <PinnedTab
+      {(route === 'my-work' || route === 'watchlist' || route === 'pinned') && (
+        <MyWorkWorkspace
+          initialSection="saved-systems"
+          routeSource={route === 'my-work' ? 'my-work' : route}
+          watchlist={watchlist}
           pinned={pinned}
-          onShowOnMap={() => navigate('map')}
           onOpenDetail={openSystemDetail}
+          onOpenPlanner={openColonyPlanner}
         />
       )}
 
@@ -253,6 +302,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       {route === 'colony-planner' && (
         <ColonyPlannerWorkspace
           id64={plannerSystemId}
+          projectId={plannerProjectId}
           onBackToFinder={() => navigate('finder')}
           onOpenSystemDetail={openSystemDetail}
         />
@@ -294,40 +344,21 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           id64={selectedSystemId}
           focusIntent={detailFocus}
           onClose={closeSystemDetail}
-          onOpenColonyPlanner={openColonyPlannerWorkspace}
+          savedForLater={shellSystem.data ? watchlist.has(shellSystem.data.id64) : false}
+          onToggleSaveForLater={(system) => {
+            void toggleSavedSystem(system.id64, {
+              name: system.name,
+              x: system.x,
+              y: system.y,
+              z: system.z,
+              population: system.population ?? null,
+              is_colonised: !!system.is_colonised,
+              score: system.score ?? null,
+            });
+          }}
+          onStartPlan={startPlanFromSystemDetail}
           renderActions={(sys) => (
             <>
-              <button
-                type="button"
-                disabled={!sys}
-                onClick={() => {
-                  if (!sys) return;
-                  if (watchlist.has(sys.id64)) {
-                    void watchlist.remove(sys.id64);
-                  } else {
-                    void watchlist.add(sys.id64, {
-                      name:         sys.name,
-                      x:            sys.x,
-                      y:            sys.y,
-                      z:            sys.z,
-                      population:   sys.population ?? null,
-                      is_colonised: !!sys.is_colonised,
-                      score:        sys.score ?? null,
-                    });
-                  }
-                }}
-                data-testid="modal-watchlist-toggle"
-                className={[
-                  'px-2 py-1 rounded font-mono text-[11px] border transition-colors',
-                  sys && watchlist.has(sys.id64)
-                    ? 'bg-orange/20 border-orange text-orange'
-                    : 'bg-bg4 border-border text-text-dim hover:text-orange hover:border-orange-dk',
-                  !sys && 'opacity-40 cursor-not-allowed',
-                ].filter(Boolean).join(' ')}
-              >
-                {sys && watchlist.has(sys.id64) ? '★ Saved — remove' : '☆ Save to Watchlist'}
-              </button>
-
               <button
                 type="button"
                 disabled={!sys}
@@ -436,7 +467,7 @@ function toCompareSnapshot(sys: import('@/types/api').SystemDetail): import('@/t
 // ─────────────────────────────────────────────────────────────────────────
 
 function FinderView({
-  search, watchlist, pinned, compare, onShowOnMap, onOpenDetail, onOpenColonyPlanner,
+  search, watchlist, pinned, compare, onShowOnMap, onOpenDetail,
 }: {
   search:    ReturnType<typeof useSearch>;
   watchlist: ReturnType<typeof useWatchlist>;
@@ -444,7 +475,6 @@ function FinderView({
   compare:   ReturnType<typeof useCompare>;
   onShowOnMap:  () => void;
   onOpenDetail: (id64: number, options?: { focus?: 'colony-planner' }) => void;
-  onOpenColonyPlanner: (id64: number) => void;
 }) {
   const { filters, setFilters, reset, run, state, results } = search;
 
@@ -506,20 +536,26 @@ function FinderView({
                       index={i}
                       isPinned={pinned.has(sys.id64)}
                       isCompared={compare.has(sys.id64)}
-                      onWatch={(id) => void watchlist.add(id, {
-                        name:       sys.name,
-                        x:          sys.coords?.x ?? null,
-                        y:          sys.coords?.y ?? null,
-                        z:          sys.coords?.z ?? null,
-                        population: sys.population ?? null,
-                        is_colonised: !!sys.is_colonised,
-                        score:      sys._rating?.score ?? null,
-                      })}
+                      isSavedForLater={watchlist.has(sys.id64)}
+                      onToggleSavedForLater={(id) => {
+                        if (watchlist.has(id)) {
+                          void watchlist.remove(id);
+                          return;
+                        }
+                        void watchlist.add(id, {
+                          name:       sys.name,
+                          x:          sys.coords?.x ?? null,
+                          y:          sys.coords?.y ?? null,
+                          z:          sys.coords?.z ?? null,
+                          population: sys.population ?? null,
+                          is_colonised: !!sys.is_colonised,
+                          score:      sys._rating?.score ?? null,
+                        });
+                      }}
                       onShowOnMap={onShowOnMap}
                       onPin={() => pinned.toggle(toPinnedEntry(sys))}
                       onCompare={() => compare.toggle(sys)}
                       onOpenDetail={onOpenDetail}
-                      onOpenColonyPlanner={onOpenColonyPlanner}
                     />
                   </li>
                 ))}

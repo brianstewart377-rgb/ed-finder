@@ -1,6 +1,6 @@
 import { ArrowLeft, Rocket } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { getProvenanceCockpit, getWarehousePlannerEvidence } from '@/lib/api';
@@ -9,18 +9,28 @@ import { WholeSystemColonyPlanner } from './WholeSystemColonyPlanner';
 import { WarehouseEvidenceCard } from './WarehouseEvidenceCard';
 import { WorkspaceHeader, WorkspaceHeaderSkeleton } from './WorkspaceHeader';
 import { toWarehouseEvidenceFromContract, toWarehouseEvidenceFromProvenance } from './warehouseEvidenceBridge';
+import type { ColonyProject } from './colonyProjectStore';
 
 export interface ColonyPlannerWorkspaceProps {
   id64: number | null;
+  projectId?: string | null;
   onBackToFinder: () => void;
   onOpenSystemDetail: (id64: number) => void;
 }
 
 export function ColonyPlannerWorkspace({
   id64,
+  projectId = null,
   onBackToFinder,
   onOpenSystemDetail,
 }: ColonyPlannerWorkspaceProps) {
+  const [projectContext, setProjectContext] = useState<{
+    activeProject: ColonyProject | null;
+    unsavedChanges: boolean;
+  }>({
+    activeProject: null,
+    unsavedChanges: false,
+  });
   const { data, loading, error, refetch } = useSystemDetail(id64);
   const warehouseEvidenceQuery = useQuery({
     queryKey: ['planner-workspace-warehouse-planner-evidence', id64],
@@ -97,8 +107,14 @@ export function ColonyPlannerWorkspace({
         system={data}
         onBackToFinder={onBackToFinder}
         onOpenSystemDetail={onOpenSystemDetail}
+        activeProject={projectContext.activeProject}
+        unsavedChanges={projectContext.unsavedChanges}
       />
-      <WholeSystemColonyPlanner system={data} />
+      <WholeSystemColonyPlanner
+        system={data}
+        initialProjectId={projectId}
+        onProjectContextChange={setProjectContext}
+      />
       {/*
        * Stage 18H.3: fetch the dedicated read-only warehouse planner evidence
        * contract first, then fall back to the existing provenance cockpit
@@ -153,7 +169,7 @@ function EmptyWorkspace({ onBackToFinder }: { onBackToFinder: () => void }) {
         No system selected for Colony Planner.
       </h1>
       <p className="mx-auto mt-2 max-w-xl font-mono text-xs leading-relaxed text-silver-dk">
-        Choose Evaluate in Colony Planner from Finder or Advanced Search Tuning.
+        Open System Detail from Explore and start a plan there, or continue with an existing direct planner route.
       </p>
       <button
         type="button"

@@ -34,7 +34,18 @@ import {
   templateMatchesLane,
 } from './structurePlanningRules';
 
-export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
+export function WholeSystemColonyPlanner({
+  system,
+  initialProjectId = null,
+  onProjectContextChange,
+}: {
+  system: SystemDetail;
+  initialProjectId?: string | null;
+  onProjectContextChange?: (context: {
+    activeProject: ReturnType<typeof useWorkspaceProjectState>['activeProject'];
+    unsavedChanges: boolean;
+  }) => void;
+}) {
   const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
   const [placements, setPlacements] = useState<SimulateBuildPlacement[]>([]);
   const [placementLaneHints, setPlacementLaneHints] = useState<Record<number, BodyPlannerLane>>({});
@@ -120,7 +131,13 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
     [planSnapshot, system],
   );
 
-  const projectState = useWorkspaceProjectState(system, planSnapshot);
+  const projectState = useWorkspaceProjectState(system, planSnapshot, initialProjectId);
+  useEffect(() => {
+    onProjectContextChange?.({
+      activeProject: projectState.activeProject,
+      unsavedChanges: projectState.unsavedChanges,
+    });
+  }, [onProjectContextChange, projectState.activeProject, projectState.unsavedChanges]);
   const projectRequestFingerprint = useMemo(
     () => projectState.projectRequest ? JSON.stringify({
       target_archetype: projectState.projectRequest.target_archetype,
@@ -225,7 +242,7 @@ export function WholeSystemColonyPlanner({ system }: { system: SystemDetail }) {
       ok: true as const,
       message: `Added ${templateDisplayName(template)} to ${describePlacementTarget(body, lane)}.`,
     };
-  }, [planSnapshot, system, system.bodies, templates]);
+  }, [planSnapshot, system, templates]);
 
   const pickStructureTemplate = useCallback((templateId: string) => {
     if (!structurePicker) return;

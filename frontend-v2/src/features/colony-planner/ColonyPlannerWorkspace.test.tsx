@@ -395,7 +395,7 @@ describe('ColonyPlannerWorkspace', () => {
 
     expect(screen.getByTestId('colony-planner-workspace')).toBeTruthy();
     expect(screen.getByText('No system selected for Colony Planner.')).toBeTruthy();
-    expect(screen.getByText(/Choose Evaluate in Colony Planner from Finder or Advanced Search Tuning/i)).toBeTruthy();
+    expect(screen.getByText(/Open System Detail from Explore and start a plan there/i)).toBeTruthy();
     await click(screen.getByRole('button', { name: /Back to Finder/i }));
     expect(onBackToFinder).toHaveBeenCalledTimes(1);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
@@ -748,13 +748,13 @@ describe('ColonyPlannerWorkspace', () => {
     await waitFor(() => expect(storedProjectByName('Renamed local starter')).toBeTruthy());
 
     await click(screen.getByRole('button', { name: 'Duplicate project' }));
-    await waitFor(() => expect(storedProjectByName('Renamed local starter copy')).toBeTruthy());
-    expect(storedProjectByName('Renamed local starter copy')?.declared_roles).toEqual([]);
+    await waitFor(() => expect(storedProjectByName('Renamed local starter - Copy')).toBeTruthy());
+    expect(storedProjectByName('Renamed local starter - Copy')?.declared_roles).toEqual([]);
 
     await click(screen.getByRole('button', { name: 'Delete / archive project' }));
     expect(screen.getByText(/Archive this local project/)).toBeTruthy();
     await click(screen.getByRole('button', { name: 'Archive project' }));
-    await waitFor(() => expect(storedProjectByName('Renamed local starter copy')?.archived_at).toBeTruthy());
+    await waitFor(() => expect(storedProjectByName('Renamed local starter - Copy')?.archived_at).toBeTruthy());
   });
 
   it('loads old local projects without declared roles safely', async () => {
@@ -814,6 +814,40 @@ describe('ColonyPlannerWorkspace', () => {
     expect((await screen.findAllByText('Reloaded project')).length).toBeGreaterThan(0);
     await click(screen.getByTestId('topology-body-button-body1'));
     expect((await screen.findByTestId('body1-ground-slot-0')).textContent).toMatch(/Surface Hub/i);
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('shows draft arrival context for projects created from the new start-plan flow without auto-running advanced planner actions', async () => {
+    useColonyProjectStore.getState().saveProject(null, {
+      system_id64: 123,
+      system_name: 'Workspace System',
+      project_name: 'Workspace System - Materials coverage',
+      build_plan_placements: [],
+      target_archetype: 'refinery_industrial',
+      notes: '',
+      objective: 'materials_coverage',
+      start_approach: 'recommendation_assisted',
+      created_from: 'system_detail',
+      status: 'draft',
+    });
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    expect(screen.getByTestId('planner-arrival-context')).toBeTruthy();
+    expect(screen.getByTestId('planner-project-name').textContent).toContain('Workspace System - Materials coverage');
+    expect(screen.getByTestId('planner-objective-context').textContent).toContain('Materials coverage');
+    expect(screen.getByTestId('planner-start-approach-context').textContent).toContain('ED-Finder recommendation');
+    expect(screen.getByTestId('planner-project-status').textContent).toContain('Draft');
+    expect(screen.getByTestId('planner-local-save-state').textContent).toContain('Saved locally');
+    expect(screen.getByTestId('planner-next-action').textContent).toContain(
+      'Start by reviewing suitable build approaches for this objective.',
+    );
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 });

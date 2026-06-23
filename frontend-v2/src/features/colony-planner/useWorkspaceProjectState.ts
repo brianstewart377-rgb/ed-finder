@@ -16,7 +16,11 @@ import {
 } from './colonyProjectStore';
 import { projectRequestFromProject } from './workspaceUtils';
 
-export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: TopologyPlanSnapshot) {
+export function useWorkspaceProjectState(
+  system: SystemDetail,
+  planSnapshot: TopologyPlanSnapshot,
+  initialProjectId: string | null = null,
+) {
   const projectRecord = useColonyProjectStore((state) => state.projects);
   const saveProject = useColonyProjectStore((state) => state.saveProject);
   const renameProject = useColonyProjectStore((state) => state.renameProject);
@@ -25,7 +29,7 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
 
   const projects = useMemo(() => Object.values(projectRecord), [projectRecord]);
   const systemProjects = useMemo(() => activeProjectsForSystem(projects, system.id64), [projects, system.id64]);
-  const initialProject = systemProjects[0] ?? null;
+  const initialProject = systemProjects.find((project) => project.id === initialProjectId) ?? systemProjects[0] ?? null;
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => initialProject?.id ?? null);
   const [pendingProjectId, setPendingProjectId] = useState<string>(() => initialProject?.id ?? '');
   const [projectName, setProjectName] = useState(() => initialProject?.project_name ?? `${system.name || 'Colony'} project`);
@@ -35,6 +39,15 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
   const hasMountedProjectSync = useRef(false);
 
   const activeProject = systemProjects.find((project) => project.id === activeProjectId) ?? null;
+
+  useEffect(() => {
+    if (!initialProjectId) return;
+    const targetProject = systemProjects.find((project) => project.id === initialProjectId) ?? null;
+    if (!targetProject) return;
+    if (activeProjectId === targetProject.id) return;
+    setActiveProjectId(targetProject.id);
+    setPendingProjectId(targetProject.id);
+  }, [activeProjectId, initialProjectId, systemProjects]);
 
   useEffect(() => {
     if (activeProjectId && systemProjects.some((project) => project.id === activeProjectId)) return;
@@ -53,11 +66,13 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
     const nextProjectNotes = activeProject?.notes ?? '';
     const nextDeclaredRoles = normaliseDeclaredRoles(activeProject?.declared_roles);
 
-    if (pendingProjectId !== nextPendingProjectId) setPendingProjectId(nextPendingProjectId);
-    if (projectName !== nextProjectName) setProjectName(nextProjectName);
-    if (projectNotes !== nextProjectNotes) setProjectNotes(nextProjectNotes);
-    if (JSON.stringify(declaredRoles) !== JSON.stringify(nextDeclaredRoles)) setDeclaredRoles(nextDeclaredRoles);
-    if (confirmArchive) setConfirmArchive(false);
+    setPendingProjectId((current) => (current === nextPendingProjectId ? current : nextPendingProjectId));
+    setProjectName((current) => (current === nextProjectName ? current : nextProjectName));
+    setProjectNotes((current) => (current === nextProjectNotes ? current : nextProjectNotes));
+    setDeclaredRoles((current) => (
+      JSON.stringify(current) === JSON.stringify(nextDeclaredRoles) ? current : nextDeclaredRoles
+    ));
+    setConfirmArchive((current) => (current ? false : current));
   }, [activeProject, activeProjectId, system.name]);
 
   const unsavedChanges = !projectMatchesSnapshot(
@@ -80,10 +95,10 @@ export function useWorkspaceProjectState(system: SystemDetail, planSnapshot: Top
       declared_roles: declaredRoles,
       target_archetype: planSnapshot.targetArchetype,
       notes: projectNotes,
-      status: 'draft',
+      status: activeProject?.status ?? 'draft',
     });
     setActiveProjectId(saved.id);
-  }, [activeProject?.id, declaredRoles, planSnapshot.placements, planSnapshot.targetArchetype, projectName, projectNotes, saveProject, system.id64, system.name]);
+  }, [activeProject?.id, activeProject?.status, declaredRoles, planSnapshot.placements, planSnapshot.targetArchetype, projectName, projectNotes, saveProject, system.id64, system.name]);
 
   const handleRenameProject = useCallback(() => {
     if (!activeProject) return;

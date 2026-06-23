@@ -4,26 +4,31 @@ import { NavBar } from './NavBar';
 
 describe('NavBar', () => {
   it('exposes Explore / Plan / Review as the only normal player workspaces', () => {
-    render(<NavBar current="watchlist" onNavigate={vi.fn()} health="Online" watchlistCount={2} />);
+    render(<NavBar current="my-work" onNavigate={vi.fn()} health="Online" watchlistCount={2} />);
 
     expect(screen.getByTestId('nav-primary-explore').textContent).toContain('Explore');
     expect(screen.getByTestId('nav-primary-plan').textContent).toContain('Plan');
     expect(screen.getByTestId('nav-primary-review').textContent).toContain('Review');
-    expect(screen.getByTestId('nav-primary-review').getAttribute('aria-current')).toBe('page');
+    expect(screen.getByTestId('nav-primary-plan').getAttribute('aria-current')).toBe('page');
     expect(screen.queryByTestId('nav-operator-tools')).toBeNull();
     expect(screen.queryByTestId('nav-admin')).toBeNull();
     expect(screen.queryByTestId('nav-operator')).toBeNull();
   });
 
   it('renders route-specific secondary navigation within the active primary workspace', () => {
-    const { rerender } = render(<NavBar current="search-tuning" onNavigate={vi.fn()} health="Online" />);
+    const { rerender } = render(<NavBar current="my-work" onNavigate={vi.fn()} health="Online" />);
 
+    expect(screen.getByTestId('nav-my-work').textContent).toContain('My Work');
+    expect(screen.queryByTestId('nav-watchlist')).toBeNull();
+    expect(screen.queryByTestId('nav-pinned')).toBeNull();
+
+    rerender(<NavBar current="search-tuning" onNavigate={vi.fn()} health="Online" />);
     expect(screen.getByTestId('nav-search-tuning').textContent).toContain('Advanced Search Tuning');
-    expect(screen.queryByTestId('nav-fc')).toBeNull();
+    expect(screen.queryByTestId('nav-my-work')).toBeNull();
 
     rerender(<NavBar current="compare" onNavigate={vi.fn()} health="Online" compareCount={2} colonyCount={1} fcCount={1} />);
     expect(screen.getByTestId('nav-fc').textContent).toContain('FC Planner');
-    expect(screen.getByTestId('nav-colony').textContent).toContain('Colony Tracker');
+    expect(screen.queryByTestId('nav-colony')).toBeNull();
   });
 
   it('shows selected-system context only when provided and keeps primary navigation keyboard focusable', () => {
