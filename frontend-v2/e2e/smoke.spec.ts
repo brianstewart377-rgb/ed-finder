@@ -65,14 +65,11 @@ test.describe('ED Finder v2 — smoke', () => {
       }]));
     });
     await page.reload();
-    await page.getByTestId('nav-primary-review').click();
-    // Pins now live under the Review workspace, so enter Review before
-    // checking the persisted badge state.
-    await expect(
-      page.getByTestId('nav-pinned')
-    ).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByTestId('nav-pinned')).toContainText(/Pin(s|ned)?/i);
-    await expect(page.getByTestId('nav-pinned')).toContainText('1');
+    await page.getByTestId('nav-primary-plan').click();
+    // Pins now feed the Saved Systems view inside My Work.
+    await expect(page.getByTestId('my-work-workspace')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('saved-system-12345')).toContainText('Persisted');
+    await expect(page.getByTestId('saved-system-12345')).toContainText('Favourite');
   });
 
   test('legacy /api/watchlist returns 410 (Phase 3 contract)', async ({ request }) => {
