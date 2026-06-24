@@ -67,7 +67,7 @@ describe('ResultCard actions', () => {
     );
 
     fireEvent.click(screen.getByText('Handoff'));
-    expect(screen.getByRole('button', { name: /Saved - remove/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Remove from saved/i })).toBeTruthy();
   });
 
   it('copies the system name without toggling the expanded card', () => {

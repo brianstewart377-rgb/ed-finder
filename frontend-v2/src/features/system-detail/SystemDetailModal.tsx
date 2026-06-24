@@ -242,6 +242,7 @@ function ColonyPlannerEntryPoint({
               type="button"
               onClick={() => onToggleSaveForLater?.(system)}
               data-testid="system-detail-save-for-later"
+              aria-pressed={savedForLater}
               className={[
                 'inline-flex items-center gap-2 rounded-chunk-sm border px-3 py-2 text-xs font-mono font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
                 savedForLater
@@ -250,7 +251,7 @@ function ColonyPlannerEntryPoint({
               ].join(' ')}
             >
               <Bookmark size={14} />
-              {savedForLater ? 'Saved - remove' : 'Save for later'}
+              {savedForLater ? 'Remove from saved' : 'Save for later'}
             </button>
             <button
               type="button"

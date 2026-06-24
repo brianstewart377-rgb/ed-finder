@@ -8,10 +8,20 @@ const {
   mockWatchlistAdd,
   mockWatchlistRemove,
   mockWatchlistHas,
+  mockWatchlistEntries,
+  mockSearchRun,
+  mockSearchResults,
+  mockSearchState,
 } = vi.hoisted(() => ({
   mockWatchlistAdd: vi.fn(),
   mockWatchlistRemove: vi.fn(),
-  mockWatchlistHas: vi.fn(() => false),
+  mockWatchlistHas: vi.fn((_id64: number) => false),
+  mockWatchlistEntries: [] as Array<Record<string, unknown>>,
+  mockSearchRun: vi.fn().mockResolvedValue(undefined),
+  mockSearchResults: [] as Array<Record<string, unknown>>,
+  mockSearchState: {
+    current: { kind: 'idle' } as Record<string, unknown>,
+  },
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -22,15 +32,15 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('@/features/search/useSearch', () => ({
   useSearch: () => ({
-    run: vi.fn().mockResolvedValue(undefined),
-    results: [],
+    run: mockSearchRun,
+    results: mockSearchResults,
     filters: {
       refName: 'Sol',
       refCoords: { x: 0, y: 0, z: 0 },
     },
     setFilters: vi.fn(),
     reset: vi.fn(),
-    state: { kind: 'idle' },
+    state: mockSearchState.current,
   }),
 }));
 
@@ -40,7 +50,7 @@ vi.mock('@/features/search/SearchForm', () => ({
 
 vi.mock('@/features/watchlist/useWatchlist', () => ({
   useWatchlist: () => ({
-    entries: [],
+    entries: mockWatchlistEntries,
     loading: false,
     error: null,
     refresh: vi.fn(),
@@ -116,10 +126,12 @@ vi.mock('@/features/eddn/EddnTicker', () => ({
 vi.mock('@/features/system-detail/SystemDetailModal', () => ({
   SystemDetailModal: ({
     id64,
+    savedForLater,
     onToggleSaveForLater,
     onStartPlan,
   }: {
     id64: number;
+    savedForLater?: boolean;
     onToggleSaveForLater?: (system: {
       id64: number;
       name: string;
@@ -165,7 +177,7 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
           economy_suggestion: 'Refinery',
         })}
       >
-        Save for later
+        {savedForLater ? 'Remove from saved' : 'Save for later'}
       </button>
       <button
         type="button"
@@ -231,8 +243,40 @@ afterEach(() => {
   mockWatchlistRemove.mockReset();
   mockWatchlistHas.mockReset();
   mockWatchlistHas.mockReturnValue(false);
+  mockWatchlistEntries.length = 0;
+  mockSearchRun.mockClear();
+  mockSearchResults.length = 0;
+  mockSearchState.current = { kind: 'idle' };
   vi.unstubAllGlobals();
 });
+
+function seedFinderResult(overrides: Record<string, unknown> = {}) {
+  const result = {
+    id64: 777,
+    name: 'Finder Candidate',
+    coords: { x: 10, y: 20, z: 30 },
+    distance: 45.6,
+    population: 0,
+    is_colonised: false,
+    primaryEconomy: 'Refinery',
+    _rating: {
+      score: 88,
+      confidence: 0.9,
+      rationale: 'Strong candidate',
+    },
+    ...overrides,
+  };
+  mockSearchResults.push(result);
+  mockSearchState.current = {
+    kind: 'ok',
+    data: {
+      count: mockSearchResults.length,
+      total: mockSearchResults.length,
+    },
+    queriedAt: Date.now(),
+  };
+  return result;
+}
 
 describe('App Advanced Search Tuning route', () => {
   it.each(['#search-tuning', '#optimizer'])('renders Advanced Search Tuning for %s', async (hash) => {
@@ -350,7 +394,7 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
   });
 
-  it('opens the planner workspace from System Detail through #colony-planner/system/{id64}', async () => {
+  it('creates exactly one selected-system Draft from System Detail and opens its planner project', async () => {
     window.location.hash = '#finder/system/123';
 
     render(<App />);
@@ -367,6 +411,7 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
     const projects = Object.values(useColonyProjectStore.getState().projects);
     expect(projects).toHaveLength(1);
+    expect(projects.filter((project) => project.system_id64 === 123 && project.status === 'draft')).toHaveLength(1);
     expect(projects[0]).toEqual(expect.objectContaining({
       system_id64: 123,
       project_name: 'System 123 - Materials coverage',
@@ -407,6 +452,29 @@ describe('App Colony Planner workspace route', () => {
     }
   });
 
+  it('shows existing Watchlist saved systems in My Work from the current saved-system hook state', async () => {
+    mockWatchlistEntries.push({
+      system_id64: 909,
+      name: 'Existing Saved System',
+      x: 12,
+      y: 34,
+      z: 56,
+      population: 0,
+      is_colonised: false,
+      added_at: '2026-06-24T00:00:00.000Z',
+      score: 82,
+    });
+    window.location.hash = '#watchlist';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('saved-system-909')).toBeTruthy();
+    });
+    expect(screen.getByTestId('saved-system-909').textContent).toContain('Existing Saved System');
+    expect(screen.getByTestId('saved-system-909').textContent).toContain('Considering');
+  });
+
   it('saves a system for later without creating a draft', async () => {
     window.location.hash = '#finder/system/123';
 
@@ -431,6 +499,78 @@ describe('App Colony Planner workspace route', () => {
       score: 77,
     }));
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+  });
+
+  it('removes a saved system from System Detail without creating a draft', async () => {
+    mockWatchlistHas.mockImplementation((id64: number) => id64 === 123);
+    window.location.hash = '#finder/system/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('system-detail-modal')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Remove from saved/i }));
+
+    await waitFor(() => {
+      expect(mockWatchlistRemove).toHaveBeenCalledWith(123);
+    });
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+  });
+
+  it('lets Finder save and inspect the selected system without entering a generic Planner route', async () => {
+    seedFinderResult();
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('result-card-777')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Finder Candidate'));
+    fireEvent.click(screen.getByRole('button', { name: /Save for later/i }));
+
+    expect(mockWatchlistAdd).toHaveBeenCalledWith(777, expect.objectContaining({
+      name: 'Finder Candidate',
+      x: 10,
+      y: 20,
+      z: 30,
+      population: 0,
+      is_colonised: false,
+      score: 88,
+    }));
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+    expect(window.location.hash).toBe('#finder');
+
+    fireEvent.click(screen.getByRole('button', { name: /Inspect system/i }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#finder/system/777');
+    });
+    expect(screen.getByTestId('system-detail-modal').textContent).toContain('777');
+    expect(screen.queryByTestId('colony-planner-workspace')).toBeNull();
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+  });
+
+  it('lets Finder remove an already saved system through the same Watchlist path', async () => {
+    seedFinderResult();
+    mockWatchlistHas.mockImplementation((id64: number) => id64 === 777);
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('result-card-777')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Finder Candidate'));
+    fireEvent.click(screen.getByRole('button', { name: /Remove from saved/i }));
+
+    expect(mockWatchlistRemove).toHaveBeenCalledWith(777);
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+    expect(window.location.hash).toBe('#finder');
   });
 
   it('renders the compact player-facing Finder intro without internal shell labels', async () => {

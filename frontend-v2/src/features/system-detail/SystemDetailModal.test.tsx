@@ -50,6 +50,8 @@ describe('SystemDetailModal Colony Planner entry point', () => {
 
     expect(screen.getByTestId('colony-planner-entry-card')).toBeTruthy();
     expect(screen.getByText('Planning available')).toBeTruthy();
+    expect(screen.queryByText('Inspection checkpoint')).toBeNull();
+    expect(screen.queryByText('Inspection only')).toBeNull();
     expect(
       screen.getByText(
         /Assess this system, save it for later if needed, then create an intentional draft/i,
@@ -59,6 +61,24 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(screen.getByRole('button', { name: /Start a plan/i })).toBeTruthy();
     expect(screen.getAllByText('Test System').length).toBeGreaterThan(0);
     expect(screen.getAllByText('ID64 123').length).toBeGreaterThan(0);
+  });
+
+  it('shows reversible saved-state copy in System Detail without hiding plan start', () => {
+    mockLoadedSystem();
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        savedForLater
+        onStartPlan={() => undefined}
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: /Remove from saved/i });
+    expect(button).toBeTruthy();
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /Start a plan/i })).toBeTruthy();
   });
 
   it('creates a draft only after explicit objective and manual start confirmation', () => {
