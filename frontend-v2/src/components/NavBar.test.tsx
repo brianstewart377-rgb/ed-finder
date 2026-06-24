@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { NavBar } from './NavBar';
 
@@ -50,6 +50,15 @@ describe('NavBar', () => {
     expect(planButton.className).toContain('focus-visible:ring-2');
   });
 
+  it('uses full-width supporting text for Compare when there is no right rail', () => {
+    render(<NavBar current="compare" onNavigate={vi.fn()} health="Online" />);
+
+    const context = screen.getByTestId('product-shell-context');
+    const supportingText = within(context).getByText('Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.');
+    expect(context.textContent).toContain('Compare');
+    expect(supportingText.className).toContain('max-w-none');
+    expect(supportingText.className).not.toContain('max-w-3xl');
+  });
   it('keeps Finder, Colony Planner, and My Work routes free of the global product-shell context panel', () => {
     const { rerender } = render(<NavBar current="finder" onNavigate={vi.fn()} health="Online" />);
 

@@ -42,6 +42,7 @@ export function WorkspaceContextHeader({
   testId,
 }: WorkspaceContextHeaderProps) {
   const HeadingTag = headingLevel === 1 ? 'h1' : headingLevel === 2 ? 'h2' : 'h3';
+  const hasRightRail = Boolean(selectedSystemName || selectedSystemMeta || actions);
 
   return (
     <header
@@ -64,7 +65,7 @@ export function WorkspaceContextHeader({
             {title}
           </HeadingTag>
           {supportingText ? (
-            <p className="max-w-3xl text-sm leading-relaxed text-silver">
+            <p className={[hasRightRail ? 'max-w-3xl' : 'max-w-none', 'text-sm leading-relaxed text-silver'].join(' ')}>
               {supportingText}
             </p>
           ) : null}
