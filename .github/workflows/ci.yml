@@ -281,11 +281,12 @@ jobs:
         run: |
           set -e
           # Build a temporary tree that mimics the docker mount layout.
-          mkdir -p /tmp/ngx/snippets /tmp/ngx/www /tmp/ngx/v2
+          mkdir -p /tmp/ngx/snippets /tmp/ngx/www /tmp/ngx/v2 /tmp/ngx/logs
           cp config/nginx.conf            /tmp/ngx/nginx.conf
           cp config/security-headers.conf /tmp/ngx/snippets/security-headers.conf
           # Patch paths that wouldn't exist in the runner sandbox.
           sed -i 's|/etc/nginx/snippets/security-headers.conf|/tmp/ngx/snippets/security-headers.conf|g' /tmp/ngx/nginx.conf
+          sed -i 's|/var/log/nginx-review/|/tmp/ngx/logs/|g' /tmp/ngx/nginx.conf
           # Replace upstream + comment out HTTPS server block (no certs in CI).
           sed -i 's|server api:8000;|server 127.0.0.1:8000;|' /tmp/ngx/nginx.conf
           python3 - <<'PY'

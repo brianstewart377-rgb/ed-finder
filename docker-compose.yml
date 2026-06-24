@@ -289,6 +289,9 @@ services:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./config/security-headers.conf:/etc/nginx/snippets/security-headers.conf:ro
       - ./frontend-v2/dist:/var/www/v2:ro   # v2 (Vite/React) build output, mounted at /v2/
+      - /opt/ed-finder-review/frontend-v2/dist:/var/www/review:ro
+      - /opt/ed-finder-review/.secrets/review.htpasswd:/etc/nginx/review.htpasswd:ro
+      - /opt/ed-finder-review/.review/nginx-logs:/var/log/nginx-review
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
       - /var/log/nginx:/var/log/nginx
@@ -310,6 +313,9 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - default
+      - review-edge
 
   # ── Import runner (one-shot, run manually) ─────────────────────────────────
   # Always use docker compose --profile import run --rm importer <args>
@@ -455,3 +461,6 @@ volumes:
 networks:
   default:
     name: ed-finder_default
+  review-edge:
+    name: edfinder-review-edge
+    external: true
