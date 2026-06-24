@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SystemDetail } from '@/types/api';
-import { describeTopologySelection, type TopologyPlanSnapshot } from './ColonyTopologyRail';
+import type { TopologyPlanSnapshot } from './ColonyTopologyRail';
+import { describeTopologySelection } from './topologySelectionUtils';
 import {
   deriveArchitectStatus,
   getPlanHealthSummary,

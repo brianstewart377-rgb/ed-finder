@@ -5,11 +5,13 @@ import type { TopologyPlanSnapshot, TopologySelectionContext } from './ColonyTop
 import {
   RavenPlannerTelemetryPanel,
   RavenStylePlannerCanvas,
+} from './RavenStylePlannerCanvas';
+import {
   buildProjectionComparison,
   buildRavenPlannerOccupancySummary,
   buildRavenPlannerRows,
   getRavenLaneCapacityState,
-} from './RavenStylePlannerCanvas';
+} from './ravenPlannerUtils';
 import { buildPlanningEconomyLedger } from './planningEconomy';
 
 const system = {

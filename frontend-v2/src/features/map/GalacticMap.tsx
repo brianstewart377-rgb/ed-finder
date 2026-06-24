@@ -436,7 +436,7 @@ export function GalacticMap({
       ctx.fillStyle = 'rgba(200,204,209,0.65)';
       ctx.fillText(`${barLy} LY`, bx, by - 8);
     }
-  }, [plottableSystems, view, reference.x, reference.z, reference.name, selectedId64, regions, heatmap, clusters, showGalacticFrame]);
+  }, [plottableSystems, view, fallbackView, reference.x, reference.z, reference.name, selectedId64, regions, heatmap, clusters, showGalacticFrame]);
 
   // ── Pointer handlers ───────────────────────────────────────────────
   const drag = useRef<{ x: number; y: number; cx: number; cz: number } | null>(null);
