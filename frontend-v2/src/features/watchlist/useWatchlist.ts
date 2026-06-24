@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type WatchlistEntry } from '@/lib/api';
 
@@ -44,7 +44,7 @@ export function useWatchlist(): UseWatchlist {
     gcTime:      5 * 60_000,    // 5min cache retention
   });
 
-  const entries = query.data ?? [];
+  const entries = useMemo(() => query.data ?? [], [query.data]);
   const loading = query.isPending;
   const error   = query.error
     ? (query.error instanceof Error ? query.error.message : String(query.error))

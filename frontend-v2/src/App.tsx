@@ -9,7 +9,7 @@ import { SearchForm } from '@/features/search/SearchForm';
 import { useSearch } from '@/features/search/useSearch';
 import { useWatchlist } from '@/features/watchlist/useWatchlist';
 import { usePinned } from '@/features/pinned/usePinned';
-import { toPinnedEntry } from '@/features/pinned/PinnedTab';
+import { toPinnedEntry } from '@/features/pinned/pinnedEntry';
 import { useCompare } from '@/features/compare/useCompare';
 import { CompareTab } from '@/features/compare/CompareTab';
 import { useSearchTuning } from '@/features/search-tuning/useSearchTuning';

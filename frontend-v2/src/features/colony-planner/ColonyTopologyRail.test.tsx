@@ -2,11 +2,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FacilityTemplate, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
-import {
-  ColonyTopologyRail,
-  describeTopologySelection,
-  type TopologySelection,
-} from './ColonyTopologyRail';
+import { ColonyTopologyRail, type TopologySelection } from './ColonyTopologyRail';
+import { describeTopologySelection } from './topologySelectionUtils';
 import { buildBodyDataSlotEstimateMap } from './slotCapacityFallback';
 
 const templates: FacilityTemplate[] = [

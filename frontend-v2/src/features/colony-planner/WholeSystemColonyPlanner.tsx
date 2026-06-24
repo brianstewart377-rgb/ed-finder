@@ -8,11 +8,8 @@ import { sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUt
 import { archetypeFromEconomy, resequence } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import type { BodyPlannerLane } from './BodySlotPlanner';
 import { CanvasStructurePicker } from './CanvasStructurePicker';
-import {
-  describeTopologySelection,
-  type TopologyPlanSnapshot,
-  type TopologySelection,
-} from './ColonyTopologyRail';
+import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
+import { describeTopologySelection } from './topologySelectionUtils';
 import { PlannerStatusStrip } from './PlannerStatusStrip';
 import { WorkspaceSummaryRail } from './WorkspaceSummaryRail';
 import { useWorkspaceProjectState } from './useWorkspaceProjectState';
@@ -22,9 +19,11 @@ import { AdvancedPlannerDrawer } from './AdvancedPlannerDrawer';
 import {
   RavenPlannerTelemetryPanel,
   RavenStylePlannerCanvas,
+} from './RavenStylePlannerCanvas';
+import {
   buildRavenPlannerOccupancySummary,
   getRavenLaneCapacityState,
-} from './RavenStylePlannerCanvas';
+} from './ravenPlannerUtils';
 import {
   buildPlanPrerequisiteIssues,
   describePlacementTarget,

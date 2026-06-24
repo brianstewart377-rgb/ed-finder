@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchOptimiserCandidates } from '@/lib/api';
-import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
+import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserEmptyState } from './OptimiserEmptyState';
@@ -298,11 +298,4 @@ function scaleLabel(scale: SuggestedBuildScaleFilter) {
   if (scale === 'starter') return 'Starter';
   if (scale === 'expansion') return 'Expansion';
   return 'Full / Ambitious';
-}
-
-export function getRankForCandidate(
-  lookup: Map<string, RankedOptimiserCandidate>,
-  candidate: OptimiserCandidate,
-): RankedOptimiserCandidate | undefined {
-  return lookup.get(candidate.candidate_id);
 }
