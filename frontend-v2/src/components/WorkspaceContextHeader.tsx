@@ -7,7 +7,7 @@ export interface WorkspaceContextFact {
 }
 
 export interface WorkspaceContextHeaderProps {
-  journeyLabel: string;
+  journeyLabel?: string;
   title: string;
   supportingText?: string;
   selectedSystemName?: string | null;
@@ -54,9 +54,11 @@ export function WorkspaceContextHeader({
     >
       <div className="min-w-0 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-            {journeyLabel}
-          </p>
+          {journeyLabel ? (
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+              {journeyLabel}
+            </p>
+          ) : null}
           {status}
         </div>
 

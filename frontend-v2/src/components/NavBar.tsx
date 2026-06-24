@@ -287,7 +287,7 @@ export function NavBar({
             <>
               <div className="hidden lg:block">
                 <WorkspaceContextHeader
-                  journeyLabel={currentWorkspaceMeta.primaryLabel}
+                  journeyLabel={current === 'compare' ? undefined : currentWorkspaceMeta.primaryLabel}
                   title={currentWorkspaceMeta.title}
                   headingLevel={2}
                   supportingText={currentWorkspaceMeta.supportingText}
