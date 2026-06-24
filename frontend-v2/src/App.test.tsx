@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
@@ -59,6 +59,7 @@ vi.mock('@/features/pinned/usePinned', () => ({
 }));
 
 vi.mock('@/features/compare/useCompare', () => ({
+  COMPARE_MAX: 4,
   useCompare: () => ({
     entries: [],
     has: vi.fn(() => false),
@@ -475,6 +476,19 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByTestId('operator-mode-menu')).toBeNull();
   });
 
+  it('renders Compare with the full existing shared-header supporting text', async () => {
+    window.location.hash = '#compare';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context')).toBeTruthy();
+    });
+
+    const supportingText = within(screen.getByTestId('product-shell-context')).getByText('Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.');
+    expect(supportingText.className).toContain('max-w-none');
+    expect(supportingText.className).not.toContain('max-w-3xl');
+  });
   it('keeps Finder inspect routes compact and clears selected-system context after leaving inspect/plan', async () => {
     window.location.hash = '#finder/system/123';
 
