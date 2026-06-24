@@ -126,6 +126,7 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
     id64,
     savedForLater,
     onToggleSaveForLater,
+    onStartPlan,
   }: {
     id64: number;
     savedForLater?: boolean;
@@ -140,6 +141,21 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
       score: number | null;
       primary_economy: string | null;
       economy_suggestion: string | null;
+    }) => void;
+    onStartPlan?: (system: {
+      id64: number;
+      name: string;
+      x: number;
+      y: number;
+      z: number;
+      population: number | null;
+      is_colonised: boolean;
+      score: number | null;
+      primary_economy: string | null;
+      economy_suggestion: string | null;
+    }, planStart: {
+      objective: 'materials_coverage';
+      startApproach: 'manual';
     }) => void;
   }) => (
     <div data-testid="system-detail-modal">
@@ -160,6 +176,26 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
         })}
       >
         {savedForLater ? 'Remove from saved' : 'Save for later'}
+      </button>
+      <button
+        type="button"
+        onClick={() => onStartPlan?.({
+          id64,
+          name: `System ${id64}`,
+          x: 1,
+          y: 2,
+          z: 3,
+          population: 0,
+          is_colonised: false,
+          score: 77,
+          primary_economy: 'Agriculture',
+          economy_suggestion: 'Refinery',
+        }, {
+          objective: 'materials_coverage',
+          startApproach: 'manual',
+        })}
+      >
+        Create manual draft
       </button>
     </div>
   ),
@@ -355,7 +391,7 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
   });
 
-  it('keeps System Detail passive without creating a draft or routing into Planner', async () => {
+  it('creates exactly one selected-system Draft from System Detail and opens its planner project', async () => {
     window.location.hash = '#finder/system/123';
 
     render(<App />);
@@ -364,12 +400,24 @@ describe('App Colony Planner workspace route', () => {
       expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
     });
 
-    expect(screen.queryByRole('button', { name: /Create manual draft/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Start a plan/i })).toBeNull();
-    expect(window.location.hash).toBe('#finder/system/123');
+    fireEvent.click(screen.getByRole('button', { name: /Create manual draft/i }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toMatch(/^#colony-planner\/system\/123\/project\//);
+    });
+    expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
     const projects = Object.values(useColonyProjectStore.getState().projects);
-    expect(projects).toHaveLength(0);
-    expect(screen.queryByTestId('colony-planner-workspace')).toBeNull();
+    expect(projects).toHaveLength(1);
+    expect(projects.filter((project) => project.system_id64 === 123 && project.status === 'draft')).toHaveLength(1);
+    expect(projects[0]).toEqual(expect.objectContaining({
+      system_id64: 123,
+      project_name: 'System 123 - Materials coverage',
+      objective: 'materials_coverage',
+      start_approach: 'manual',
+      created_from: 'system_detail',
+      status: 'draft',
+    }));
+    expect(screen.getByTestId('colony-planner-workspace').textContent).toContain(projects[0].id);
   });
 
   it.each([
@@ -440,30 +488,24 @@ describe('App Colony Planner workspace route', () => {
     fireEvent.click(screen.getByRole('button', { name: /Remove from saved/i }));
 
     await waitFor(() => {
-      expect(mockWatchlistRemove).toHaveBeenCalledTimes(1);
+      expect(mockWatchlistRemove).toHaveBeenCalledWith(123);
     });
-    expect(mockWatchlistRemove).toHaveBeenCalledWith(123);
-    expect(mockWatchlistAdd).not.toHaveBeenCalled();
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
   });
 
-  it('lets Finder save and inspect the selected system without entering Planner', async () => {
+  it('lets Finder save and inspect the selected system without entering a generic Planner route', async () => {
     seedFinderResult();
     window.location.hash = '#finder';
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText('Finder Candidate')).toBeTruthy();
+      expect(screen.getByTestId('result-card-777')).toBeTruthy();
     });
 
     fireEvent.click(screen.getByText('Finder Candidate'));
-    expect(screen.queryByRole('button', { name: /Evaluate in Colony Planner/i })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Save for later/i }));
 
-    await waitFor(() => {
-      expect(mockWatchlistAdd).toHaveBeenCalledTimes(1);
-    });
     expect(mockWatchlistAdd).toHaveBeenCalledWith(777, expect.objectContaining({
       name: 'Finder Candidate',
       x: 10,
@@ -474,6 +516,7 @@ describe('App Colony Planner workspace route', () => {
       score: 88,
     }));
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+    expect(window.location.hash).toBe('#finder');
 
     fireEvent.click(screen.getByRole('button', { name: /Inspect system/i }));
 
@@ -482,6 +525,7 @@ describe('App Colony Planner workspace route', () => {
     });
     expect(screen.getByTestId('system-detail-modal').textContent).toContain('777');
     expect(screen.queryByTestId('colony-planner-workspace')).toBeNull();
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
   });
 
   it('lets Finder remove an already saved system through the same Watchlist path', async () => {
@@ -492,18 +536,15 @@ describe('App Colony Planner workspace route', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText('Finder Candidate')).toBeTruthy();
+      expect(screen.getByTestId('result-card-777')).toBeTruthy();
     });
 
     fireEvent.click(screen.getByText('Finder Candidate'));
     fireEvent.click(screen.getByRole('button', { name: /Remove from saved/i }));
 
-    await waitFor(() => {
-      expect(mockWatchlistRemove).toHaveBeenCalledTimes(1);
-    });
     expect(mockWatchlistRemove).toHaveBeenCalledWith(777);
-    expect(mockWatchlistAdd).not.toHaveBeenCalled();
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+    expect(window.location.hash).toBe('#finder');
   });
 
   it('renders the compact player-facing Finder intro without internal shell labels', async () => {

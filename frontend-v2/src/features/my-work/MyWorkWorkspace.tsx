@@ -281,6 +281,7 @@ export function MyWorkWorkspace({
                   key={system.id64}
                   system={system}
                   onInspect={() => handleInspectSystem(system.id64)}
+                  onStartPlan={() => handleInspectSystem(system.id64, { focus: 'colony-planner' })}
                   onContinuePlan={() => system.activeProject && handleContinuePlan(system.activeProject)}
                   onToggleConsidering={(enabled) => void handleToggleConsidering(system, enabled)}
                   onToggleFavourite={(enabled) => handleToggleFavourite(system, enabled)}
@@ -298,7 +299,7 @@ export function MyWorkWorkspace({
           {groupedPlans.length === 0 ? (
             <EmptyPanel
               title="No plans yet"
-              body="Plans you create in the planner appear here with their local draft context."
+              body="Start a plan from System Detail and it will appear here with its objective, start approach, and local draft context."
             />
           ) : (
             <div className="space-y-4">
@@ -485,6 +486,7 @@ function ContinueWhereLeftOff({
 function SavedSystemCard({
   system,
   onInspect,
+  onStartPlan,
   onContinuePlan,
   onToggleConsidering,
   onToggleFavourite,
@@ -493,6 +495,7 @@ function SavedSystemCard({
 }: {
   system: SavedSystemViewModel;
   onInspect: () => void;
+  onStartPlan: () => void;
   onContinuePlan: () => void;
   onToggleConsidering: (enabled: boolean) => void;
   onToggleFavourite: (enabled: boolean) => void;
@@ -557,7 +560,15 @@ function SavedSystemCard({
           >
             Continue plan
           </button>
-        ) : null}
+        ) : (
+          <button
+            type="button"
+            onClick={onStartPlan}
+            className="rounded border border-orange/45 bg-orange/10 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/20"
+          >
+            Start plan
+          </button>
+        )}
         <button
           type="button"
           onClick={onRemove}
