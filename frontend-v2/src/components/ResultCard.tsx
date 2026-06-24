@@ -226,7 +226,7 @@ export function ResultCard({
               active={isSavedForLater}
             >
               <Eye size={13} className="mr-1.5" />
-              {isSavedForLater ? 'Saved - remove' : 'Save for later'}
+              {isSavedForLater ? 'Remove from saved' : 'Save for later'}
             </ActionButton>
             {onOpenDetail && (
               <ActionButton onClick={() => onOpenDetail(system.id64)} primary disabled={!hasValidSystemId}>

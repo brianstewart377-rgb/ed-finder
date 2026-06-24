@@ -97,7 +97,7 @@ export function WatchlistTab({
           <div className="text-3xl mb-2" aria-hidden>👁️</div>
           <h3 className="font-display text-orange text-sm tracking-wider mb-1">No systems watched yet</h3>
           <p className="text-silver-dk text-xs max-w-sm mx-auto">
-            Click 👁️ Watch on any system in the Finder tab to keep an eye on it here.
+            Use Save for later on any Finder result to keep an eye on it here.
           </p>
         </div>
       )}

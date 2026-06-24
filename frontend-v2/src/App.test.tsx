@@ -8,10 +8,18 @@ const {
   mockWatchlistAdd,
   mockWatchlistRemove,
   mockWatchlistHas,
+  mockSearchRun,
+  mockSearchResults,
+  mockSearchState,
 } = vi.hoisted(() => ({
   mockWatchlistAdd: vi.fn(),
   mockWatchlistRemove: vi.fn(),
-  mockWatchlistHas: vi.fn(() => false),
+  mockWatchlistHas: vi.fn((_id64: number) => false),
+  mockSearchRun: vi.fn().mockResolvedValue(undefined),
+  mockSearchResults: [] as Array<Record<string, unknown>>,
+  mockSearchState: {
+    current: { kind: 'idle' } as Record<string, unknown>,
+  },
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -22,15 +30,15 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('@/features/search/useSearch', () => ({
   useSearch: () => ({
-    run: vi.fn().mockResolvedValue(undefined),
-    results: [],
+    run: mockSearchRun,
+    results: mockSearchResults,
     filters: {
       refName: 'Sol',
       refCoords: { x: 0, y: 0, z: 0 },
     },
     setFilters: vi.fn(),
     reset: vi.fn(),
-    state: { kind: 'idle' },
+    state: mockSearchState.current,
   }),
 }));
 
@@ -116,10 +124,11 @@ vi.mock('@/features/eddn/EddnTicker', () => ({
 vi.mock('@/features/system-detail/SystemDetailModal', () => ({
   SystemDetailModal: ({
     id64,
+    savedForLater,
     onToggleSaveForLater,
-    onStartPlan,
   }: {
     id64: number;
+    savedForLater?: boolean;
     onToggleSaveForLater?: (system: {
       id64: number;
       name: string;
@@ -131,21 +140,6 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
       score: number | null;
       primary_economy: string | null;
       economy_suggestion: string | null;
-    }) => void;
-    onStartPlan?: (system: {
-      id64: number;
-      name: string;
-      x: number;
-      y: number;
-      z: number;
-      population: number | null;
-      is_colonised: boolean;
-      score: number | null;
-      primary_economy: string | null;
-      economy_suggestion: string | null;
-    }, planStart: {
-      objective: 'materials_coverage';
-      startApproach: 'manual';
     }) => void;
   }) => (
     <div data-testid="system-detail-modal">
@@ -165,27 +159,7 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
           economy_suggestion: 'Refinery',
         })}
       >
-        Save for later
-      </button>
-      <button
-        type="button"
-        onClick={() => onStartPlan?.({
-          id64,
-          name: `System ${id64}`,
-          x: 1,
-          y: 2,
-          z: 3,
-          population: 0,
-          is_colonised: false,
-          score: 77,
-          primary_economy: 'Agriculture',
-          economy_suggestion: 'Refinery',
-        }, {
-          objective: 'materials_coverage',
-          startApproach: 'manual',
-        })}
-      >
-        Create manual draft
+        {savedForLater ? 'Remove from saved' : 'Save for later'}
       </button>
     </div>
   ),
@@ -231,8 +205,39 @@ afterEach(() => {
   mockWatchlistRemove.mockReset();
   mockWatchlistHas.mockReset();
   mockWatchlistHas.mockReturnValue(false);
+  mockSearchRun.mockClear();
+  mockSearchResults.length = 0;
+  mockSearchState.current = { kind: 'idle' };
   vi.unstubAllGlobals();
 });
+
+function seedFinderResult(overrides: Record<string, unknown> = {}) {
+  const result = {
+    id64: 777,
+    name: 'Finder Candidate',
+    coords: { x: 10, y: 20, z: 30 },
+    distance: 45.6,
+    population: 0,
+    is_colonised: false,
+    primaryEconomy: 'Refinery',
+    _rating: {
+      score: 88,
+      confidence: 0.9,
+      rationale: 'Strong candidate',
+    },
+    ...overrides,
+  };
+  mockSearchResults.push(result);
+  mockSearchState.current = {
+    kind: 'ok',
+    data: {
+      count: mockSearchResults.length,
+      total: mockSearchResults.length,
+    },
+    queriedAt: Date.now(),
+  };
+  return result;
+}
 
 describe('App Advanced Search Tuning route', () => {
   it.each(['#search-tuning', '#optimizer'])('renders Advanced Search Tuning for %s', async (hash) => {
@@ -350,7 +355,7 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
   });
 
-  it('opens the planner workspace from System Detail through #colony-planner/system/{id64}', async () => {
+  it('keeps System Detail passive without creating a draft or routing into Planner', async () => {
     window.location.hash = '#finder/system/123';
 
     render(<App />);
@@ -359,23 +364,12 @@ describe('App Colony Planner workspace route', () => {
       expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Create manual draft/i }));
-
-    await waitFor(() => {
-      expect(window.location.hash).toMatch(/^#colony-planner\/system\/123\/project\//);
-    });
-    expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
+    expect(screen.queryByRole('button', { name: /Create manual draft/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Start a plan/i })).toBeNull();
+    expect(window.location.hash).toBe('#finder/system/123');
     const projects = Object.values(useColonyProjectStore.getState().projects);
-    expect(projects).toHaveLength(1);
-    expect(projects[0]).toEqual(expect.objectContaining({
-      system_id64: 123,
-      project_name: 'System 123 - Materials coverage',
-      objective: 'materials_coverage',
-      start_approach: 'manual',
-      created_from: 'system_detail',
-      status: 'draft',
-    }));
-    expect(screen.getByTestId('colony-planner-workspace').textContent).toContain(projects[0].id);
+    expect(projects).toHaveLength(0);
+    expect(screen.queryByTestId('colony-planner-workspace')).toBeNull();
   });
 
   it.each([
@@ -430,6 +424,85 @@ describe('App Colony Planner workspace route', () => {
       is_colonised: false,
       score: 77,
     }));
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+  });
+
+  it('removes a saved system from System Detail without creating a draft', async () => {
+    mockWatchlistHas.mockImplementation((id64: number) => id64 === 123);
+    window.location.hash = '#finder/system/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('system-detail-modal')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Remove from saved/i }));
+
+    await waitFor(() => {
+      expect(mockWatchlistRemove).toHaveBeenCalledTimes(1);
+    });
+    expect(mockWatchlistRemove).toHaveBeenCalledWith(123);
+    expect(mockWatchlistAdd).not.toHaveBeenCalled();
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+  });
+
+  it('lets Finder save and inspect the selected system without entering Planner', async () => {
+    seedFinderResult();
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Finder Candidate')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Finder Candidate'));
+    expect(screen.queryByRole('button', { name: /Evaluate in Colony Planner/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Save for later/i }));
+
+    await waitFor(() => {
+      expect(mockWatchlistAdd).toHaveBeenCalledTimes(1);
+    });
+    expect(mockWatchlistAdd).toHaveBeenCalledWith(777, expect.objectContaining({
+      name: 'Finder Candidate',
+      x: 10,
+      y: 20,
+      z: 30,
+      population: 0,
+      is_colonised: false,
+      score: 88,
+    }));
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /Inspect system/i }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#finder/system/777');
+    });
+    expect(screen.getByTestId('system-detail-modal').textContent).toContain('777');
+    expect(screen.queryByTestId('colony-planner-workspace')).toBeNull();
+  });
+
+  it('lets Finder remove an already saved system through the same Watchlist path', async () => {
+    seedFinderResult();
+    mockWatchlistHas.mockImplementation((id64: number) => id64 === 777);
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Finder Candidate')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Finder Candidate'));
+    fireEvent.click(screen.getByRole('button', { name: /Remove from saved/i }));
+
+    await waitFor(() => {
+      expect(mockWatchlistRemove).toHaveBeenCalledTimes(1);
+    });
+    expect(mockWatchlistRemove).toHaveBeenCalledWith(777);
+    expect(mockWatchlistAdd).not.toHaveBeenCalled();
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
   });
 

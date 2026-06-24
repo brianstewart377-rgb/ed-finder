@@ -26,13 +26,6 @@ import { SystemDetailModal } from '@/features/system-detail/SystemDetailModal';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { ColonyPlannerWorkspace } from '@/features/colony-planner/ColonyPlannerWorkspace';
 import { RavenStylePlannerPrototype } from '@/features/colony-planner/prototype/RavenStylePlannerPrototype';
-import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
-import {
-  defaultDraftProjectName,
-  type ColonyProjectObjective,
-  type ColonyProjectStartApproach,
-} from '@/features/colony-planner/plannerDraftContext';
-import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import { MyWorkWorkspace } from '@/features/my-work/MyWorkWorkspace';
 import { EddnTicker } from '@/features/eddn/EddnTicker';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
@@ -151,26 +144,21 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const colony    = useColony();
   const fc        = useFcPlanner();
   const admin     = useAdmin();
-  const saveProject = useColonyProjectStore((state) => state.saveProject);
   const [health, setHealth] = useState<string>('Checking API');
-  const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
   const shellSystemId = plannerSystemId ?? selectedSystemId;
   const shellSystem = useSystemDetail(shellSystemId);
 
-  const openSystemDetail = (id64: number, options?: { focus?: 'colony-planner' }) => {
-    setDetailFocus(options?.focus ?? null);
+  const openSystemDetail = (id64: number, _options?: { focus?: 'colony-planner' }) => {
     openSystem(id64);
   };
 
   const openColonyPlannerWorkspace = (id64: number) => {
     const systemId64 = Number(id64);
     if (!Number.isFinite(systemId64) || systemId64 <= 0) return;
-    setDetailFocus(null);
     openColonyPlanner(systemId64);
   };
 
   const closeSystemDetail = () => {
-    setDetailFocus(null);
     closeSystem();
   };
 
@@ -200,30 +188,6 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       score: hint.score ?? null,
     });
   }, [watchlist]);
-
-  const startPlanFromSystemDetail = useCallback((
-    system: import('@/types/api').SystemDetail,
-    planStart: {
-      objective: ColonyProjectObjective;
-      startApproach: ColonyProjectStartApproach;
-    },
-  ) => {
-    const targetArchetype = archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy) ?? 'refinery_industrial';
-    const saved = saveProject(null, {
-      system_id64: system.id64,
-      system_name: system.name || 'Unknown system',
-      project_name: defaultDraftProjectName(system.name || 'Unknown system', planStart.objective),
-      build_plan_placements: [],
-      target_archetype: targetArchetype,
-      notes: '',
-      status: 'draft',
-      objective: planStart.objective,
-      start_approach: planStart.startApproach,
-      created_from: 'system_detail',
-    });
-    setDetailFocus(null);
-    openColonyPlanner(system.id64, { projectId: saved.id });
-  }, [openColonyPlanner, saveProject]);
 
   // First-paint: health + default search.
   useEffect(() => {
@@ -342,7 +306,6 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       {selectedSystemId !== null && (
         <SystemDetailModal
           id64={selectedSystemId}
-          focusIntent={detailFocus}
           onClose={closeSystemDetail}
           savedForLater={shellSystem.data ? watchlist.has(shellSystem.data.id64) : false}
           onToggleSaveForLater={(system) => {
@@ -356,7 +319,6 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
               score: system.score ?? null,
             });
           }}
-          onStartPlan={startPlanFromSystemDetail}
           renderActions={(sys) => (
             <>
               <button
