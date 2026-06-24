@@ -67,7 +67,40 @@ describe('ResultCard actions', () => {
     );
 
     fireEvent.click(screen.getByText('Handoff'));
+    expect(screen.getByText('Saved')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Remove from saved/i })).toBeTruthy();
+  });
+
+  it('shows save and remove progress while preventing duplicate clicks', () => {
+    const onToggleSavedForLater = vi.fn();
+    const { rerender } = render(
+      <ResultCard
+        system={system}
+        index={0}
+        savedActionState="saving"
+        onToggleSavedForLater={onToggleSavedForLater}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Handoff'));
+    const savingButton = screen.getByRole('button', { name: /Save for later/i }) as HTMLButtonElement;
+    expect(screen.getByText('Saving…')).toBeTruthy();
+    expect(savingButton.disabled).toBe(true);
+    fireEvent.click(savingButton);
+    expect(onToggleSavedForLater).not.toHaveBeenCalled();
+
+    rerender(
+      <ResultCard
+        system={system}
+        index={0}
+        isSavedForLater
+        savedActionState="removing"
+        onToggleSavedForLater={onToggleSavedForLater}
+      />,
+    );
+
+    expect(screen.getByText('Removing…')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Remove from saved/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('copies the system name without toggling the expanded card', () => {

@@ -32,13 +32,6 @@ async def review_recent_events() -> dict[str, object]:
     }
 
 
-@router.get('/api/watchlist', include_in_schema=False)
-async def review_watchlist() -> dict[str, list[object]]:
-    return {
-        'watchlist': [],
-    }
-
-
 @router.get(
     '/api/cache/stats',
     response_model=CacheStatsResponse,

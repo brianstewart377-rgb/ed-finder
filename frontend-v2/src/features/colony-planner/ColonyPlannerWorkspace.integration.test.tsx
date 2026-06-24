@@ -312,7 +312,8 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
     expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();
-    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-layout')).toBe('telemetry-context-panel');
+    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-layout')).toBe('plan-details-panel');
+    expect(screen.queryByTestId('raven-real-telemetry-panel')).toBeNull();
     expect(screen.getByRole('complementary', { name: /Workspace summary/i })).toBeTruthy();
     expect(screen.getByText('System Build Map')).toBeTruthy();
     expect(screen.queryByText('Whole-System Build Canvas')).toBeNull();
@@ -495,7 +496,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Added Orbital Port to Body 1 / Orbit.');
       expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '')).toMatch(/Orbital|Port/i);
       expect(screen.queryByTestId('raven-inline-body-expansion-1')).toBeNull();
-      expect(within(screen.getByTestId('planner-status-strip')).getByText('1 planned')).toBeTruthy();
+      expect(screen.getByTestId('planner-status-strip').textContent).toMatch(/Planned\s*1/);
       expect(within(screen.getByTestId('planner-status-strip')).getByText('Unsaved changes')).toBeTruthy();
     });
 
@@ -505,7 +506,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     await waitFor(() => {
       expect((screen.getByTestId('1-ground-slot-0').textContent ?? '')).toMatch(/Surface|Hub/i);
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Body 1 / Surface');
-      expect(within(screen.getByTestId('planner-status-strip')).getByText('2 planned')).toBeTruthy();
+      expect(screen.getByTestId('planner-status-strip').textContent).toMatch(/Planned\s*2/);
     });
 
     expect(screen.queryByTestId('advanced-planner-content')).toBeNull();

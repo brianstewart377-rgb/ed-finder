@@ -11,7 +11,7 @@ import type {
 } from '@/types/api';
 import { EvidencePostureSummary } from '@/components/EvidencePostureSummary';
 import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
-import { evidenceEnvelopeStatusLabel, evidencePostureContent } from '@/lib/evidenceLanguage';
+import { evidencePostureContent } from '@/lib/evidenceLanguage';
 
 /**
  * Stage 18H — Warehouse-to-Planner Evidence Bridge (read-only).
@@ -133,6 +133,126 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
     ? `Limited to approved Stage 19BB row-cap evidence (limit ${boundedStaging.rowLimit}).`
     : 'Limited to approved Stage 19BB row-cap evidence.';
   const sourcePostureLabel = SOURCE_POSTURE_LABEL[sourcePosture];
+
+  if (isUnavailable) {
+    return (
+      <aside
+        data-testid="planner-warehouse-evidence"
+        data-size="compact"
+        aria-label="Planner data availability"
+        className="rounded-chunk-lg border border-border bg-bg2/85 p-4 font-mono text-[11px] text-silver-dk shadow-[0_16px_40px_-28px_rgba(0,0,0,0.75)]"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <SemanticStatusBadge
+            label="Data unavailable"
+            tone={posture.badgeTone}
+          />
+          <SemanticStatusBadge
+            label="Plan unchanged"
+            tone="canonical"
+          />
+        </div>
+        <p
+          data-testid="warehouse-evidence-summary"
+          className="mt-2 text-sm leading-relaxed text-silver"
+        >
+          Some data is unavailable for this system. Your plan has not been changed automatically.
+        </p>
+        <details
+          data-testid="warehouse-evidence-technical-details"
+          className="mt-3 rounded border border-border bg-bg3/30 px-3 py-2"
+        >
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+            Data and evidence details
+          </summary>
+          <div className="mt-3 space-y-3">
+            <div
+              data-testid="warehouse-evidence-metadata"
+              className="flex flex-wrap items-center gap-2"
+            >
+              <SourceBadge source="unknown" />
+              <SemanticStatusBadge
+                label={FRESHNESS_LABEL[freshness]}
+                tone={freshness === 'fresh' ? 'available' : freshness === 'stale' ? 'stale' : freshness === 'not_evaluated' ? 'not_evaluated' : 'unknown'}
+                testId={`warehouse-evidence-freshness-${freshness}`}
+              />
+              <SemanticStatusBadge
+                label={EVIDENCE_STATUS_LABEL[evidenceEnvelope.status]}
+                tone={posture.badgeTone}
+                testId={`warehouse-evidence-envelope-status-${evidenceEnvelope.status}`}
+              />
+              <SemanticStatusBadge
+                label={reviewStatus}
+                tone={evidence?.manualReviewRequired ? 'needs_review' : 'canonical'}
+                testId="warehouse-evidence-review-status"
+              />
+              <SemanticStatusBadge
+                label={BOUNDED_STAGING_LABEL[boundedStaging.status]}
+                tone={boundedStaging.status === 'available' ? 'available' : boundedStaging.status === 'unavailable' ? 'unavailable' : 'not_evaluated'}
+                testId={`warehouse-evidence-bounded-staging-${boundedStaging.status}`}
+              />
+              <SemanticStatusBadge
+                label={sourcePostureLabel}
+                tone={sourcePosture === 'dedicated_contract' ? 'canonical' : sourcePosture === 'provenance_bridge' ? 'caution' : 'unknown'}
+                testId={`warehouse-evidence-source-posture-${sourcePosture}`}
+              />
+            </div>
+            <section
+              data-testid="warehouse-evidence-envelope-summary"
+              className="space-y-2"
+            >
+              <p>{evidenceEnvelope.summary}</p>
+              <p data-testid="warehouse-evidence-status-detail">
+                {statusDetailCopy(evidenceEnvelope.status, boundedStaging.status)}
+              </p>
+              <p data-testid="warehouse-evidence-source-classes">
+                Source classes: {evidenceEnvelope.sourceClasses.map((value) => SOURCE_CLASS_LABEL[value]).join(' · ')}
+              </p>
+              <div
+                data-testid="warehouse-evidence-source-class-list"
+                className="flex flex-wrap items-center gap-2"
+              >
+                {evidenceEnvelope.sourceClasses.map((value) => (
+                  <SemanticStatusBadge
+                    key={value}
+                    label={SOURCE_CLASS_LABEL[value]}
+                    tone={value === 'canonical' ? 'canonical' : value === 'observed_facts' ? 'observed' : value === 'unavailable' ? 'unavailable' : 'report_only'}
+                  />
+                ))}
+              </div>
+              <p data-testid="warehouse-evidence-semantics">
+                Semantics: {evidenceEnvelope.semantics.map((value) => SEMANTIC_LABEL[value]).join(' · ')}
+              </p>
+              <div
+                data-testid="warehouse-evidence-semantic-list"
+                className="flex flex-wrap items-center gap-2"
+              >
+                {evidenceEnvelope.semantics.map((value) => (
+                  <SemanticStatusBadge
+                    key={value}
+                    label={SEMANTIC_LABEL[value]}
+                    tone={value === 'canonical_truth' ? 'canonical' : value === 'observed_report' ? 'observed' : value === 'not_full_coverage' ? 'caution' : 'report_only'}
+                  />
+                ))}
+              </div>
+            </section>
+            {warnings.length > 0 ? (
+              <ul
+                data-testid="warehouse-evidence-warnings"
+                className="space-y-2 rounded-chunk-lg border border-gold/35 bg-gold/10 p-3 text-[11px] text-gold"
+              >
+                {warnings.slice(0, 2).map((warning, index) => (
+                  <li key={`${warning}-${index}`} data-testid="warehouse-evidence-warning">
+                    {warning}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </details>
+      </aside>
+    );
+  }
 
   return (
     <aside
@@ -301,28 +421,11 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
         )}
       />
 
-      {isUnavailable ? (
-        <div
-          data-testid="warehouse-evidence-unavailable"
-          className="rounded-chunk-lg border border-border bg-bg3/30 p-3"
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <SourceBadge source="unknown" />
-            <SemanticStatusBadge
-              label={evidenceEnvelopeStatusLabel(evidenceEnvelope.status)}
-              tone={posture.badgeTone}
-            />
-          </div>
-          <p className="mt-2 leading-relaxed text-silver">
-            {unavailableCopy(evidenceEnvelope.status, boundedStaging.status)}
-          </p>
-        </div>
-      ) : (
-        <section className="space-y-2">
-          <h3 className="font-display text-sm tracking-[0.12em] text-orange-lt">
-            Current report-only findings
-          </h3>
-          <ul data-testid="warehouse-evidence-items" className="space-y-2">
+      <section className="space-y-2">
+        <h3 className="font-display text-sm tracking-[0.12em] text-orange-lt">
+          Current report-only findings
+        </h3>
+        <ul data-testid="warehouse-evidence-items" className="space-y-2">
           {evidence!.items.map((item, i) => (
             <li
               key={`${item.label}-${item.source}-${i}`}
@@ -336,9 +439,8 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
               <p className="mt-2 leading-relaxed text-silver">{item.summary}</p>
             </li>
           ))}
-          </ul>
-        </section>
-      )}
+        </ul>
+      </section>
 
       {warnings.length > 0 ? (
         <ul
@@ -357,25 +459,6 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
 }
 
 function statusDetailCopy(
-  status: WarehouseEvidenceEnvelopeStatus,
-  _boundedStagingStatus: WarehouseBoundedStagingStatus,
-) {
-  if (status === 'available') {
-    return 'Available. Selected-system evidence is present as read-only review context only.';
-  }
-  if (status === 'unknown') {
-    return 'Unknown. Selected-system evidence has not been established.';
-  }
-  if (status === 'unavailable') {
-    return 'Unavailable. No approved bounded staging evidence is linked to this selected system.';
-  }
-  if (status === 'not_evaluated') {
-    return 'Not evaluated in this runtime. The staging boundary was not safely queryable for this request.';
-  }
-  return 'Unknown. Selected-system evidence has not been established.';
-}
-
-function unavailableCopy(
   status: WarehouseEvidenceEnvelopeStatus,
   _boundedStagingStatus: WarehouseBoundedStagingStatus,
 ) {

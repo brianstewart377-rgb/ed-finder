@@ -95,9 +95,9 @@ export function startApproachLabel(value: ColonyProjectStartApproach | null | un
 
 export function plannerNextActionCopy(value: ColonyProjectStartApproach | null | undefined): string {
   if (value === 'recommendation_assisted') {
-    return 'Start by reviewing suitable build approaches for this objective.';
+    return 'Review suitable build approaches for this objective.';
   }
-  return 'Start by choosing a body and adding your first structure.';
+  return 'Choose a body to begin planning.';
 }
 
 export function defaultDraftProjectName(

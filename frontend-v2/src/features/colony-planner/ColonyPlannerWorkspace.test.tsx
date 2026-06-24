@@ -7,6 +7,7 @@ import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPrevi
 import { getFacilityTemplates, getProvenanceCockpit, getSimulationSummary, getSlotPredictions, getWarehousePlannerEvidence } from '@/lib/api';
 import { ColonyPlannerWorkspace } from './ColonyPlannerWorkspace';
 import { useColonyProjectStore } from './colonyProjectStore';
+import { useMyWorkStore } from '@/features/my-work/myWorkStore';
 
 vi.mock('@/features/system-detail/useSystemDetail', () => ({
   useSystemDetail: vi.fn(),
@@ -360,6 +361,7 @@ describe('ColonyPlannerWorkspace', () => {
   beforeEach(() => {
     localStorage.clear();
     useColonyProjectStore.setState({ projects: {} });
+    useMyWorkStore.setState({ systems: {} });
     mockedSimulationPreviewPanel.mockClear();
     mockedUseSystemDetail.mockReturnValue({
       data: null,
@@ -479,14 +481,16 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
     expect(screen.getByTestId('workspace-planner-content').getAttribute('data-readability')).toBe('stage17n');
     expect(screen.getByTestId('workspace-planner-content').getAttribute('data-layout')).toBe('main-system-canvas');
-    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-layout')).toBe('telemetry-context-panel');
+    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-layout')).toBe('plan-details-panel');
     expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('closed');
     expect(screen.getByTestId('planner-telemetry-dock-toggle')).toBeTruthy();
+    expect(screen.getByTestId('planner-telemetry-dock-toggle').textContent).toContain('Plan details');
+    expect(screen.getByTestId('planner-telemetry-dock-toggle').textContent).toContain('Choose a body to begin planning.');
     expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('false');
     await click(screen.getByTestId('planner-telemetry-dock-toggle'));
     await waitFor(() => expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('open'));
     await waitFor(() => expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('true'));
-    expect(await screen.findByTestId('raven-real-telemetry-panel')).toBeTruthy();
+    expect(screen.queryByTestId('raven-real-telemetry-panel')).toBeNull();
     expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
     expect(screen.getByTestId('planner-evidence-discoverability-surface')).toBeTruthy();
@@ -669,9 +673,12 @@ describe('ColonyPlannerWorkspace', () => {
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
     expect(await screen.findByTestId('planner-evidence-discoverability-surface')).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
-      'No approved selected-system evidence is linked here. Continue planning with canonical data.',
+      'Some data is unavailable for this system. Your plan has not been changed automatically.',
     );
-    expect((await screen.findByTestId('warehouse-evidence-unavailable')).textContent).toContain(
+    expect(screen.getByTestId('planner-warehouse-evidence').getAttribute('data-size')).toBe('compact');
+    expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
+    expect(screen.getByTestId('warehouse-evidence-technical-details').getAttribute('open')).toBeNull();
+    expect(screen.getByTestId('warehouse-evidence-status-detail').textContent).toContain(
       'No approved bounded staging evidence is linked to this selected system.',
     );
     expect(screen.queryByText(/DB writes remain unauthorized/i)).toBeNull();
@@ -693,8 +700,9 @@ describe('ColonyPlannerWorkspace', () => {
 
     expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
-      'Selected-system evidence has not been established. Continue with canonical planner data.',
+      'Some data is unavailable for this system. Your plan has not been changed automatically.',
     );
+    expect(screen.getByTestId('planner-warehouse-evidence').getAttribute('data-size')).toBe('compact');
     expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
   });
 
@@ -865,8 +873,68 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.getByTestId('planner-project-status').textContent).toContain('Draft');
     expect(screen.getByTestId('planner-local-save-state').textContent).toContain('Saved locally');
     expect(screen.getByTestId('planner-next-action').textContent).toContain(
-      'Start by reviewing suitable build approaches for this objective.',
+      'Review suitable build approaches for this objective.',
     );
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('deletes the active local draft through the existing project store and clears planner header state', async () => {
+    const savedSystemRecord = {
+      id64: 123,
+      name: 'Workspace System',
+      x: 1,
+      y: 2,
+      z: 3,
+      population: 0,
+      is_colonised: false,
+      labels: ['considering' as const],
+      explicit_colonised_at: null,
+      updated_at: '2026-06-24T00:00:00.000Z',
+    };
+    const saved = useColonyProjectStore.getState().saveProject(null, {
+      system_id64: 123,
+      system_name: 'Workspace System',
+      project_name: 'Workspace System - Delete me',
+      build_plan_placements: [
+        { facility_template_id: 'surface_hub', local_body_id: 'body1', build_order: 1 },
+      ],
+      target_archetype: 'refinery_industrial',
+      notes: '',
+      objective: 'balanced',
+      start_approach: 'manual',
+      created_from: 'system_detail',
+      status: 'draft',
+    });
+    useMyWorkStore.setState({ systems: { '123': savedSystemRecord } });
+    const onOpenMyWork = vi.fn();
+    const onPlanDeleted = vi.fn();
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner({ projectId: saved.id, onOpenMyWork, onPlanDeleted });
+
+    expect(await screen.findByTestId('planner-arrival-context')).toBeTruthy();
+    await click(screen.getByTestId('planner-plan-actions'));
+    await click(screen.getByTestId('planner-delete-plan-menu-item'));
+    const confirmation = screen.getByTestId('planner-delete-confirmation');
+    expect(confirmation.textContent).toContain('Delete “Workspace System - Delete me” from My Work.');
+    expect(confirmation.textContent).toContain('Your saved system will stay.');
+    expect(confirmation.textContent).toContain('This will remove 1 planned structure from this draft.');
+    await click(within(confirmation).getByRole('button', { name: 'Delete draft' }));
+
+    await waitFor(() => {
+      expect(useColonyProjectStore.getState().projects[saved.id]).toBeUndefined();
+    });
+    expect(useMyWorkStore.getState().systems['123']).toEqual(savedSystemRecord);
+    await waitFor(() => {
+      expect(screen.queryByTestId('planner-arrival-context')).toBeNull();
+    });
+    expect(onPlanDeleted).toHaveBeenCalledWith('Workspace System - Delete me');
+    expect(onOpenMyWork).toHaveBeenCalledTimes(1);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 });

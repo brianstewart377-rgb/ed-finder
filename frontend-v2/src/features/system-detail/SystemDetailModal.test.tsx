@@ -78,7 +78,29 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     const button = screen.getByRole('button', { name: /Remove from saved/i });
     expect(button).toBeTruthy();
     expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('Saved')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Start a plan/i })).toBeTruthy();
+  });
+
+  it('shows in-progress save feedback and disables duplicate System Detail saves', () => {
+    const onToggleSaveForLater = vi.fn();
+    mockLoadedSystem();
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        saveForLaterState="saving"
+        onToggleSaveForLater={onToggleSaveForLater}
+        onStartPlan={() => undefined}
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: /Save for later/i }) as HTMLButtonElement;
+    expect(screen.getByText('Saving…')).toBeTruthy();
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(onToggleSaveForLater).not.toHaveBeenCalled();
   });
 
   it('creates a draft only after explicit objective and manual start confirmation', () => {

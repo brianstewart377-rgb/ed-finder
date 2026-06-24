@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient } from '@/lib/queryClient';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { ResultCard } from '@/components/ResultCard';
 import { NavBar } from '@/components/NavBar';
 import { SearchForm } from '@/features/search/SearchForm';
@@ -41,6 +41,31 @@ import './index.css';
 const COALSACK_BG_VERSION = 'v=2';
 const COALSACK_BG_2560 = 'coalsack-2560.jpg';
 const COALSACK_BG_1600 = 'coalsack-1600.jpg';
+
+type SavedSystemActionState = 'idle' | 'saving' | 'removing';
+
+interface SavedSystemNoticeState {
+  tone: 'success' | 'error';
+  message: string;
+  detail: string;
+  actionLabel?: string;
+}
+
+function savedSystemFailureDetail(error: unknown, attemptedRemove: boolean): string {
+  if (error instanceof ApiError) {
+    if (attemptedRemove && error.status === 404) {
+      return 'This system was already absent from saved systems, so the view has been refreshed.';
+    }
+    if (error.status === 404) {
+      return 'This system is not available to save right now. Refresh and try again.';
+    }
+    if (error.status === 410) {
+      return 'Saved systems need a current browser sync key. Refresh and try again.';
+    }
+    return 'Saved systems are unavailable right now. Please try again.';
+  }
+  return error instanceof Error ? error.message : 'The saved-system request did not complete.';
+}
 
 function coalsackBackgroundCandidates(fileName: string): string[] {
   const base = import.meta.env.BASE_URL || '/';
@@ -154,6 +179,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const saveProject = useColonyProjectStore((state) => state.saveProject);
   const [health, setHealth] = useState<string>('Checking API');
   const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
+  const [savedSystemActionState, setSavedSystemActionState] = useState<Record<number, SavedSystemActionState>>({});
+  const [savedSystemNotice, setSavedSystemNotice] = useState<SavedSystemNoticeState | null>(null);
   const shellSystemId = plannerSystemId ?? selectedSystemId;
   const shellSystem = useSystemDetail(shellSystemId);
 
@@ -186,20 +213,51 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       score?: number | null;
     },
   ) => {
-    if (watchlist.has(id64)) {
-      await watchlist.remove(id64);
-      return;
+    if (savedSystemActionState[id64] && savedSystemActionState[id64] !== 'idle') return;
+    const saved = watchlist.has(id64);
+    const actionState: SavedSystemActionState = saved ? 'removing' : 'saving';
+    const name = hint.name?.trim() || `System ${id64}`;
+
+    setSavedSystemActionState((current) => ({ ...current, [id64]: actionState }));
+    try {
+      if (saved) {
+        await watchlist.remove(id64);
+        setSavedSystemNotice({
+          tone: 'success',
+          message: 'Removed from saved',
+          detail: `${name} was removed from My Work saved systems.`,
+        });
+        return;
+      }
+      await watchlist.add(id64, {
+        name,
+        x: hint.x ?? null,
+        y: hint.y ?? null,
+        z: hint.z ?? null,
+        population: hint.population ?? null,
+        is_colonised: hint.is_colonised ?? false,
+        score: hint.score ?? null,
+      });
+      setSavedSystemNotice({
+        tone: 'success',
+        message: 'Saved to My Work',
+        detail: `${name} is available in saved systems.`,
+        actionLabel: 'Open My Work',
+      });
+    } catch (error) {
+      setSavedSystemNotice({
+        tone: 'error',
+        message: saved ? 'Could not remove saved system' : 'Could not save system',
+        detail: savedSystemFailureDetail(error, saved),
+      });
+    } finally {
+      setSavedSystemActionState((current) => {
+        const next = { ...current };
+        delete next[id64];
+        return next;
+      });
     }
-    await watchlist.add(id64, {
-      name: hint.name ?? `System ${id64}`,
-      x: hint.x ?? null,
-      y: hint.y ?? null,
-      z: hint.z ?? null,
-      population: hint.population ?? null,
-      is_colonised: hint.is_colonised ?? false,
-      score: hint.score ?? null,
-    });
-  }, [watchlist]);
+  }, [savedSystemActionState, watchlist]);
 
   const startPlanFromSystemDetail = useCallback((
     system: import('@/types/api').SystemDetail,
@@ -261,12 +319,23 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         } : null}
       />
 
+      <SavedSystemNotice
+        notice={savedSystemNotice}
+        onDismiss={() => setSavedSystemNotice(null)}
+        onOpenMyWork={() => {
+          setSavedSystemNotice(null);
+          navigate('my-work');
+        }}
+      />
+
       {route === 'finder' && (
         <FinderView
           search={search}
           watchlist={watchlist}
           pinned={pinned}
           compare={compare}
+          savedActionStates={savedSystemActionState}
+          onToggleSavedForLater={toggleSavedSystem}
           onShowOnMap={() => navigate('map')}
           onOpenDetail={openSystemDetail}
         />
@@ -305,6 +374,14 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           projectId={plannerProjectId}
           onBackToFinder={() => navigate('finder')}
           onOpenSystemDetail={openSystemDetail}
+          onOpenMyWork={() => navigate('my-work')}
+          onPlanDeleted={(projectName) => {
+            setSavedSystemNotice({
+              tone: 'success',
+              message: 'Draft deleted',
+              detail: `${projectName} was removed from this browser.`,
+            });
+          }}
         />
       )}
 
@@ -345,6 +422,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           focusIntent={detailFocus}
           onClose={closeSystemDetail}
           savedForLater={shellSystem.data ? watchlist.has(shellSystem.data.id64) : false}
+          saveForLaterState={shellSystem.data ? savedSystemActionState[shellSystem.data.id64] ?? 'idle' : 'idle'}
           onToggleSaveForLater={(system) => {
             void toggleSavedSystem(system.id64, {
               name: system.name,
@@ -412,6 +490,53 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   );
 }
 
+function SavedSystemNotice({
+  notice,
+  onDismiss,
+  onOpenMyWork,
+}: {
+  notice: SavedSystemNoticeState | null;
+  onDismiss: () => void;
+  onOpenMyWork: () => void;
+}) {
+  if (!notice) return null;
+  const isError = notice.tone === 'error';
+  return (
+    <div
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
+      data-testid="saved-system-notice"
+      className={[
+        'fixed right-4 top-4 z-50 max-w-sm rounded-chunk-lg border p-3 font-mono text-xs shadow-metal',
+        isError
+          ? 'border-red/45 bg-red/15 text-red'
+          : 'border-green/40 bg-bg2/95 text-green',
+      ].join(' ')}
+    >
+      <div className="font-bold">{notice.message}</div>
+      <p className="mt-1 leading-relaxed text-silver">{notice.detail}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {notice.actionLabel ? (
+          <button
+            type="button"
+            onClick={onOpenMyWork}
+            className="rounded-chunk-sm border border-green/40 bg-green/10 px-3 py-1.5 font-bold text-green hover:bg-green/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green/80"
+          >
+            {notice.actionLabel}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="rounded-chunk-sm border border-border bg-bg4 px-3 py-1.5 font-bold text-silver hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Detail → SystemResult adapter ─────────────────────────────────────────
 //
 // Compare stores SystemResult (camelCase rating fields). The detail endpoint
@@ -467,12 +592,25 @@ function toCompareSnapshot(sys: import('@/types/api').SystemDetail): import('@/t
 // ─────────────────────────────────────────────────────────────────────────
 
 function FinderView({
-  search, watchlist, pinned, compare, onShowOnMap, onOpenDetail,
+  search, watchlist, pinned, compare, savedActionStates, onToggleSavedForLater, onShowOnMap, onOpenDetail,
 }: {
   search:    ReturnType<typeof useSearch>;
   watchlist: ReturnType<typeof useWatchlist>;
   pinned:    ReturnType<typeof usePinned>;
   compare:   ReturnType<typeof useCompare>;
+  savedActionStates: Record<number, SavedSystemActionState>;
+  onToggleSavedForLater: (
+    id64: number,
+    hint: {
+      name?: string | null;
+      x?: number | null;
+      y?: number | null;
+      z?: number | null;
+      population?: number | null;
+      is_colonised?: boolean;
+      score?: number | null;
+    },
+  ) => Promise<void>;
   onShowOnMap:  () => void;
   onOpenDetail: (id64: number, options?: { focus?: 'colony-planner' }) => void;
 }) {
@@ -547,12 +685,9 @@ function FinderView({
                       isPinned={pinned.has(sys.id64)}
                       isCompared={compare.has(sys.id64)}
                       isSavedForLater={watchlist.has(sys.id64)}
+                      savedActionState={savedActionStates[sys.id64] ?? 'idle'}
                       onToggleSavedForLater={(id) => {
-                        if (watchlist.has(id)) {
-                          void watchlist.remove(id);
-                          return;
-                        }
-                        void watchlist.add(id, {
+                        void onToggleSavedForLater(id, {
                           name:       sys.name,
                           x:          sys.coords?.x ?? null,
                           y:          sys.coords?.y ?? null,

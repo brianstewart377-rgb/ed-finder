@@ -13,6 +13,13 @@ import { WarehouseEvidenceCard } from './WarehouseEvidenceCard';
  */
 describe('WarehouseEvidenceCard', () => {
   function openTechnicalDetail() {
+    const compactDetails = screen.queryByTestId('warehouse-evidence-technical-details') as HTMLDetailsElement | null;
+    if (compactDetails) {
+      expect(compactDetails.open).toBe(false);
+      fireEvent.click(within(compactDetails).getByText('Data and evidence details'));
+      expect(compactDetails.open).toBe(true);
+      return;
+    }
     fireEvent.click(screen.getByTestId('warehouse-evidence-disclosure-toggle'));
   }
 
@@ -21,27 +28,18 @@ describe('WarehouseEvidenceCard', () => {
 
     const card = screen.getByTestId('planner-warehouse-evidence');
     expect(card).toBeTruthy();
+    expect(card.getAttribute('data-size')).toBe('compact');
     expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
-      'Selected-system evidence has not been established. Continue with canonical planner data.',
+      'Some data is unavailable for this system. Your plan has not been changed automatically.',
     );
-    expect(screen.getByTestId('warehouse-evidence-next-action').textContent).toContain(
-      'Plan with canonical data',
-    );
-    expect(screen.getByTestId('warehouse-evidence-planner-boundary').textContent).toContain(
-      'Planner truth remains canonical',
-    );
-    expect(screen.getByTestId('warehouse-evidence-badge').textContent).toMatch(/unknown/i);
-    expect(screen.getByTestId('warehouse-evidence-highlights').textContent).toContain('Selected-system only');
-    expect(screen.getByTestId('warehouse-evidence-highlights').textContent).toContain('Report-only review context');
-    expect(screen.getByTestId('warehouse-evidence-highlights').textContent).toContain('Planner truth stays canonical');
-    expect(screen.getByTestId('warehouse-evidence-highlights').textContent).toContain('Bounded or incomplete coverage');
-    const unavailable = within(card).getByTestId('warehouse-evidence-unavailable');
-    expect(unavailable.textContent).toContain('Unknown. Selected-system evidence has not been established.');
-    // Unknown source label, not a "no evidence" / false claim.
-    expect(within(unavailable).getByTestId('warehouse-evidence-source-unknown')).toBeTruthy();
+    expect(within(card).getByText('Plan unchanged')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-technical-details').getAttribute('open')).toBeNull();
+    expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
+    expect(screen.queryByTestId('warehouse-evidence-highlights')).toBeNull();
     expect(within(card).queryByTestId('warehouse-evidence-items')).toBeNull();
 
     openTechnicalDetail();
+    expect(screen.getByTestId('warehouse-evidence-source-unknown')).toBeTruthy();
     expect(screen.getByTestId('warehouse-evidence-freshness-unknown').textContent).toMatch(/unknown freshness/i);
     expect(screen.getByTestId('warehouse-evidence-envelope-status-unknown').textContent).toMatch(/unknown/i);
     expect(screen.getByTestId('warehouse-evidence-source-posture-unknown').textContent).toMatch(/unknown source path/i);
@@ -78,10 +76,11 @@ describe('WarehouseEvidenceCard', () => {
     };
     render(<WarehouseEvidenceCard evidence={evidence} />);
 
-    expect(screen.getByTestId('warehouse-evidence-unavailable')).toBeTruthy();
+    expect(screen.getByTestId('planner-warehouse-evidence').getAttribute('data-size')).toBe('compact');
     expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
-      'No approved selected-system evidence is linked here. Continue planning with canonical data.',
+      'Some data is unavailable for this system. Your plan has not been changed automatically.',
     );
+    expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
     expect(screen.queryByTestId('warehouse-evidence-item')).toBeNull();
 
     openTechnicalDetail();
@@ -92,10 +91,12 @@ describe('WarehouseEvidenceCard', () => {
   it('always states that the planner uses canonical data and the evidence panel is report-only', () => {
     render(<WarehouseEvidenceCard />);
 
-    expect(screen.getByTestId('warehouse-evidence-planner-boundary').textContent).toContain(
-      'Planner truth remains canonical',
+    expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
+      'Your plan has not been changed automatically',
     );
-    expect(screen.getByTestId('warehouse-evidence-report-only-tag').textContent).toMatch(/report-only/i);
+    expect(screen.getByText('Plan unchanged')).toBeTruthy();
+    openTechnicalDetail();
+    expect(screen.getByTestId('warehouse-evidence-semantics').textContent).toContain('Report-only review context');
   });
 
   it('renders conservative, source-labelled report-only findings when supplied', () => {
