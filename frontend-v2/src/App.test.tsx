@@ -485,7 +485,11 @@ describe('App Colony Planner workspace route', () => {
       expect(screen.getByTestId('product-shell-context')).toBeTruthy();
     });
 
-    const supportingText = within(screen.getByTestId('product-shell-context')).getByText('Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.');
+    const context = screen.getByTestId('product-shell-context');
+    const supportingText = within(context).getByText('Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.');
+    expect(context.textContent).toContain('Decision review');
+    expect(context.textContent).toContain('Compare');
+    expect(within(context).queryByText(/^Review$/i)).toBeNull();
     expect(supportingText.className).toContain('max-w-none');
     expect(supportingText.className).not.toContain('max-w-3xl');
   });

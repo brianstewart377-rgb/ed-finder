@@ -50,14 +50,19 @@ describe('NavBar', () => {
     expect(planButton.className).toContain('focus-visible:ring-2');
   });
 
-  it('uses full-width supporting text for Compare when there is no right rail', () => {
-    render(<NavBar current="compare" onNavigate={vi.fn()} health="Online" />);
+  it('uses full-width supporting text for Compare and removes its redundant Review eyebrow', () => {
+    const { rerender } = render(<NavBar current="compare" onNavigate={vi.fn()} health="Online" />);
 
     const context = screen.getByTestId('product-shell-context');
     const supportingText = within(context).getByText('Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.');
+    expect(context.textContent).toContain('Decision review');
     expect(context.textContent).toContain('Compare');
+    expect(within(context).queryByText(/^Review$/i)).toBeNull();
     expect(supportingText.className).toContain('max-w-none');
     expect(supportingText.className).not.toContain('max-w-3xl');
+
+    rerender(<NavBar current="map" onNavigate={vi.fn()} health="Online" />);
+    expect(within(screen.getByTestId('product-shell-context')).getByText(/^Explore$/i)).toBeTruthy();
   });
   it('keeps Finder, Colony Planner, and My Work routes free of the global product-shell context panel', () => {
     const { rerender } = render(<NavBar current="finder" onNavigate={vi.fn()} health="Online" />);
