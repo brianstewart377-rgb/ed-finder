@@ -1,7 +1,6 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type WatchlistEntry } from '@/lib/api';
-import { useSyncKeyStore } from '@/store/syncKeyStore';
 
 /**
  * Watchlist state.
@@ -9,7 +8,7 @@ import { useSyncKeyStore } from '@/store/syncKeyStore';
  * Audit Phase 8 (2026-05-09): rewritten on top of TanStack Query so the
  * NavBar count, the Watchlist tab, the SystemDetailModal "Save to
  * Watchlist" toggle, and any future consumer all share one cache entry
- * per sync key (`['watchlist', syncKey]`). Previously each `useWatchlist()` callsite owned its
+ * (`['watchlist']`). Previously each `useWatchlist()` callsite owned its
  * own `useState`, so every tab refetched independently and the same
  * data could be in three different states at once.
  *
@@ -33,37 +32,35 @@ export interface UseWatchlist {
   has:       (id64: number) => boolean;
 }
 
-const watchlistKey = (syncKey: string) => ['watchlist', syncKey] as const;
+const WATCHLIST_KEY = ['watchlist'] as const;
 
 export function useWatchlist(): UseWatchlist {
   const qc = useQueryClient();
-  const syncKey = useSyncKeyStore((state) => state.syncKey);
-  const queryKey = watchlistKey(syncKey);
 
   const query = useQuery({
-    queryKey,
-    queryFn:     async () => (await api.watchlist(syncKey)).watchlist,
+    queryKey:    WATCHLIST_KEY,
+    queryFn:     async () => (await api.watchlist()).watchlist,
     staleTime:   30_000,        // re-fetch on tab focus only after 30s
     gcTime:      5 * 60_000,    // 5min cache retention
   });
 
-  const entries = useMemo(() => query.data ?? [], [query.data]);
+  const entries = query.data ?? [];
   const loading = query.isPending;
   const error   = query.error
     ? (query.error instanceof Error ? query.error.message : String(query.error))
     : null;
 
   const refresh = useCallback(async () => {
-    await qc.invalidateQueries({ queryKey });
-  }, [qc, queryKey]);
+    await qc.invalidateQueries({ queryKey: WATCHLIST_KEY });
+  }, [qc]);
 
   const addMutation = useMutation({
     mutationFn: (vars: { id64: number; hint?: Partial<WatchlistEntry> }) =>
-      api.watchAdd(syncKey, vars.id64),
+      api.watchAdd(vars.id64),
     onMutate: async ({ id64, hint }: { id64: number; hint?: Partial<WatchlistEntry> }) => {
       // Cancel any in-flight refetch so it doesn't overwrite our optimistic update.
-      await qc.cancelQueries({ queryKey });
-      const previous = qc.getQueryData<WatchlistEntry[]>(queryKey) ?? [];
+      await qc.cancelQueries({ queryKey: WATCHLIST_KEY });
+      const previous = qc.getQueryData<WatchlistEntry[]>(WATCHLIST_KEY) ?? [];
       if (previous.some((e) => e.system_id64 === id64)) {
         return { previous, skip: true };
       }
@@ -78,34 +75,34 @@ export function useWatchlist(): UseWatchlist {
         added_at:     new Date().toISOString(),
         score:        hint?.score ?? null,
       };
-      qc.setQueryData<WatchlistEntry[]>(queryKey, [optimistic, ...previous]);
+      qc.setQueryData<WatchlistEntry[]>(WATCHLIST_KEY, [optimistic, ...previous]);
       return { previous, skip: false };
     },
     onError: (_err, _vars, ctx) => {
       // Roll back to the snapshot we took in onMutate.
-      if (ctx?.previous) qc.setQueryData(queryKey, ctx.previous);
+      if (ctx?.previous) qc.setQueryData(WATCHLIST_KEY, ctx.previous);
     },
     onSettled: () => {
-      void qc.invalidateQueries({ queryKey });
+      void qc.invalidateQueries({ queryKey: WATCHLIST_KEY });
     },
   });
 
   const removeMutation = useMutation({
-    mutationFn: (id64: number) => api.watchRemove(syncKey, id64),
+    mutationFn: (id64: number) => api.watchRemove(id64),
     onMutate: async (id64: number) => {
-      await qc.cancelQueries({ queryKey });
-      const previous = qc.getQueryData<WatchlistEntry[]>(queryKey) ?? [];
+      await qc.cancelQueries({ queryKey: WATCHLIST_KEY });
+      const previous = qc.getQueryData<WatchlistEntry[]>(WATCHLIST_KEY) ?? [];
       qc.setQueryData<WatchlistEntry[]>(
-        queryKey,
+        WATCHLIST_KEY,
         previous.filter((e) => e.system_id64 !== id64),
       );
       return { previous };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.previous) qc.setQueryData(queryKey, ctx.previous);
+      if (ctx?.previous) qc.setQueryData(WATCHLIST_KEY, ctx.previous);
     },
     onSettled: () => {
-      void qc.invalidateQueries({ queryKey });
+      void qc.invalidateQueries({ queryKey: WATCHLIST_KEY });
     },
   });
 

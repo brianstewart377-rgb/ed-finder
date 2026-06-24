@@ -8,6 +8,7 @@ const {
   mockWatchlistAdd,
   mockWatchlistRemove,
   mockWatchlistHas,
+  mockWatchlistEntries,
   mockSearchRun,
   mockSearchResults,
   mockSearchState,
@@ -15,6 +16,7 @@ const {
   mockWatchlistAdd: vi.fn(),
   mockWatchlistRemove: vi.fn(),
   mockWatchlistHas: vi.fn((_id64: number) => false),
+  mockWatchlistEntries: [] as Array<Record<string, unknown>>,
   mockSearchRun: vi.fn().mockResolvedValue(undefined),
   mockSearchResults: [] as Array<Record<string, unknown>>,
   mockSearchState: {
@@ -48,7 +50,7 @@ vi.mock('@/features/search/SearchForm', () => ({
 
 vi.mock('@/features/watchlist/useWatchlist', () => ({
   useWatchlist: () => ({
-    entries: [],
+    entries: mockWatchlistEntries,
     loading: false,
     error: null,
     refresh: vi.fn(),
@@ -241,6 +243,7 @@ afterEach(() => {
   mockWatchlistRemove.mockReset();
   mockWatchlistHas.mockReset();
   mockWatchlistHas.mockReturnValue(false);
+  mockWatchlistEntries.length = 0;
   mockSearchRun.mockClear();
   mockSearchResults.length = 0;
   mockSearchState.current = { kind: 'idle' };
@@ -447,6 +450,29 @@ describe('App Colony Planner workspace route', () => {
     } else {
       expect(screen.getByTestId('my-work-workspace').textContent).not.toContain('now opens the Saved Systems view inside My Work');
     }
+  });
+
+  it('shows existing Watchlist saved systems in My Work from the current saved-system hook state', async () => {
+    mockWatchlistEntries.push({
+      system_id64: 909,
+      name: 'Existing Saved System',
+      x: 12,
+      y: 34,
+      z: 56,
+      population: 0,
+      is_colonised: false,
+      added_at: '2026-06-24T00:00:00.000Z',
+      score: 82,
+    });
+    window.location.hash = '#watchlist';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('saved-system-909')).toBeTruthy();
+    });
+    expect(screen.getByTestId('saved-system-909').textContent).toContain('Existing Saved System');
+    expect(screen.getByTestId('saved-system-909').textContent).toContain('Considering');
   });
 
   it('saves a system for later without creating a draft', async () => {

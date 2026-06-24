@@ -224,14 +224,14 @@ export const api = {
   },
 
   // ── Watchlist ─────────────────────────────────────────────────────────
-  watchlist(syncKey: string): Promise<{ sync_key: string; watchlist: WatchlistEntry[] }> {
-    return jsonFetch(`/api/v2/watchlist/${encodeURIComponent(syncKey)}`);
+  watchlist(): Promise<{ watchlist: WatchlistEntry[] }> {
+    return jsonFetch('/watchlist');
   },
-  watchAdd(syncKey: string, id64: number): Promise<{ ok: boolean; sync_key: string }> {
-    return jsonFetch(`/api/v2/watchlist/${encodeURIComponent(syncKey)}/${id64}`, { method: 'POST' });
+  watchAdd(id64: number): Promise<{ ok: boolean }> {
+    return jsonFetch(`/watchlist/${id64}`, { method: 'POST' });
   },
-  watchRemove(syncKey: string, id64: number): Promise<{ ok: boolean }> {
-    return jsonFetch(`/api/v2/watchlist/${encodeURIComponent(syncKey)}/${id64}`, { method: 'DELETE' });
+  watchRemove(id64: number): Promise<{ ok: boolean }> {
+    return jsonFetch(`/watchlist/${id64}`, { method: 'DELETE' });
   },
 
   /** Full system detail (joins ratings + bodies + stations). Cached
@@ -662,7 +662,7 @@ export function getMapTimeline(
   return api.mapTimeline(opts);
 }
 
-/** Shape of one row from /api/v2/watchlist/{sync_key}. */
+/** Shape of one row from /api/watchlist. */
 export interface WatchlistEntry {
   system_id64:        number;
   name:               string;
