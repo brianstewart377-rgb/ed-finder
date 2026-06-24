@@ -203,14 +203,11 @@ export function MyWorkWorkspace({
       <header className="panel space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-              Player workspace
-            </p>
             <h1 className="font-display text-xl tracking-[0.14em] text-orange">
               My Work
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-silver">
-              One calm place to return to saved systems, active plans, and established colony work without guessing which tool last held the context.
+              Saved systems, plans, and colonies in one place.
             </p>
           </div>
           <div className="rounded border border-border/60 bg-bg3/35 px-3 py-2 font-mono text-[11px] text-silver-dk">

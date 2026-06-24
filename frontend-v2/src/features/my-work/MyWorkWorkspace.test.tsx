@@ -38,6 +38,23 @@ afterEach(() => {
 });
 
 describe('MyWorkWorkspace', () => {
+  it('keeps the local My Work header concise with section tabs intact', () => {
+    render(
+      <MyWorkWorkspace
+        watchlist={makeWatchlist()}
+        pinned={makePinned()}
+        onOpenDetail={vi.fn()}
+        onOpenPlanner={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: 'My Work' })).toBeTruthy();
+    expect(screen.queryByText('Player workspace')).toBeNull();
+    expect(screen.getByText('Saved systems, plans, and colonies in one place.')).toBeTruthy();
+    expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Saved Systems');
+    expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Plans');
+    expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('My Colonies');
+  });
   it('merges existing Watchlist, Pins, and local ready-to-plan labels into Saved Systems', async () => {
     const watchlist = makeWatchlist({
       entries: [{

@@ -377,16 +377,33 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('colony-planner-workspace').textContent).toContain(projects[0].id);
   });
 
-  it('renders My Work as the player-facing Plan destination and keeps Watchlist as a safe compatibility route', async () => {
-    window.location.hash = '#watchlist';
+  it.each([
+    ['#my-work', null],
+    ['#watchlist', 'Watchlist now opens the Saved Systems view inside My Work'],
+    ['#pinned', 'Pins now open the Saved Systems view inside My Work'],
+  ])('renders My Work with one local header and no shell context for %s', async (hash, aliasNotice) => {
+    window.location.hash = hash;
 
     render(<App />);
 
     await waitFor(() => {
       expect(screen.getByTestId('my-work-workspace')).toBeTruthy();
     });
-    expect(screen.getByTestId('product-shell-context').textContent).toContain('My Work');
-    expect(screen.getByTestId('my-work-workspace').textContent).toContain('Watchlist now opens the Saved Systems view inside My Work');
+
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
+    expect(screen.getAllByRole('heading', { name: 'My Work' })).toHaveLength(1);
+    expect(screen.getByTestId('my-work-workspace').textContent).toContain('Saved systems, plans, and colonies in one place.');
+    expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Saved Systems');
+    expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Plans');
+    expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('My Colonies');
+    expect(screen.getByTestId('my-work-saved-systems')).toBeTruthy();
+
+    if (aliasNotice) {
+      expect(screen.getByTestId('my-work-workspace').textContent).toContain(aliasNotice);
+    } else {
+      expect(screen.getByTestId('my-work-workspace').textContent).not.toContain('now opens the Saved Systems view inside My Work');
+    }
   });
 
   it('saves a system for later without creating a draft', async () => {

@@ -86,7 +86,7 @@ export function NavBar({
   }), [compareCount, fcCount]);
 
   const operatorMode = current === 'admin' || current === 'operator';
-  const showPlayerContext = current !== 'finder' && current !== 'colony-planner';
+  const showPlayerContext = !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
   const currentPrimary = primaryWorkspaceForRoute(current);
   const activeSubnav = currentPrimary ? groupedRoutes[currentPrimary] : [];
   const currentRouteDescriptor = activeSubnav.find((tab) => tab.route === current)
