@@ -36,6 +36,11 @@ import { archetypeFromEconomy } from '@/features/system-detail/simulation-previe
 import { MyWorkWorkspace } from '@/features/my-work/MyWorkWorkspace';
 import { EddnTicker } from '@/features/eddn/EddnTicker';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
+import {
+  hostedReviewAvailabilityForRoute,
+  isHostedReviewSurface,
+  type HostedReviewFeatureAvailability,
+} from '@/lib/hostedReviewAvailability';
 import './index.css';
 
 const COALSACK_BG_VERSION = 'v=2';
@@ -147,6 +152,49 @@ function AppInner() {
   return <LiveAppInner hashRoute={hashRoute} />;
 }
 
+function HostedReviewUnavailableSurface({
+  feature,
+  onReturn,
+}: {
+  feature: HostedReviewFeatureAvailability;
+  onReturn: () => void;
+}) {
+  const title = feature.state === 'excluded'
+    ? `${feature.label} is outside hosted-review scope`
+    : `${feature.label} is unavailable in hosted review`;
+  const body = feature.state === 'excluded'
+    ? 'This review environment does not include accounts, continuity, or saved-state migration work.'
+    : 'This surface is intentionally hidden from the normal hosted-review journey. It is not mounted here, so it will not issue unsupported operational API calls.';
+
+  return (
+    <section
+      className="panel mx-auto max-w-3xl px-5 py-6"
+      data-testid="hosted-review-unavailable"
+      aria-labelledby="hosted-review-unavailable-title"
+    >
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-gold">
+        Hosted review boundary
+      </div>
+      <h1 id="hosted-review-unavailable-title" className="font-display text-xl tracking-[0.08em] text-orange-lt">
+        {title}
+      </h1>
+      <p className="mt-3 text-sm leading-relaxed text-silver">
+        {body}
+      </p>
+      <p className="mt-2 text-sm leading-relaxed text-silver-dk">
+        {feature.rationale}
+      </p>
+      <button
+        type="button"
+        className="btn btn-primary mt-5"
+        onClick={onReturn}
+        data-testid="hosted-review-return"
+      >
+        Return to Finder
+      </button>
+    </section>
+  );
+}
 function PrototypeAppShell({ navigate }: { navigate: HashRoute['navigate'] }) {
   return (
     <main className="min-h-screen max-w-none px-4 py-6 pb-10 sm:px-6 sm:py-10">
@@ -168,6 +216,9 @@ function PrototypeAppShell({ navigate }: { navigate: HashRoute['navigate'] }) {
 
 function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const { route, selectedSystemId, plannerSystemId, plannerProjectId, navigate, openSystem, openColonyPlanner, closeSystem } = hashRoute;
+  const hostedReviewMode = isHostedReviewSurface();
+  const routeAvailability = hostedReviewMode ? hostedReviewAvailabilityForRoute(route) : null;
+  const unavailableRoute = routeAvailability?.state === 'intentionally_unavailable' || routeAvailability?.state === 'excluded';
   const search    = useSearch();
   const watchlist = useWatchlist();
   const pinned    = usePinned();
@@ -175,7 +226,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const searchTuning = useSearchTuning();
   const colony    = useColony();
   const fc        = useFcPlanner();
-  const admin     = useAdmin();
+  const admin     = useAdmin({ enabled: !hostedReviewMode });
   const saveProject = useColonyProjectStore((state) => state.saveProject);
   const [health, setHealth] = useState<string>('Checking API');
   const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
@@ -292,7 +343,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const plannerWorkspaceRoute = route === 'colony-planner';
+  const plannerWorkspaceRoute = route === 'colony-planner' && !unavailableRoute;
+  const navRoute = unavailableRoute ? 'finder' : route;
 
   return (
     <main
@@ -303,7 +355,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       ].join(' ')}
     >
       <NavBar
-        current={route}
+        current={navRoute}
         onNavigate={navigate}
         watchlistCount={watchlist.entries.length}
         pinnedCount={pinned.entries.length}
@@ -311,6 +363,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         colonyCount={colony.counts.total}
         fcCount={fc.waypoints.length}
         health={health}
+        hostedReviewMode={hostedReviewMode}
         fullWidth={plannerWorkspaceRoute}
         selectedSystem={shellSystemId != null ? {
           id64: shellSystemId,
@@ -328,7 +381,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         }}
       />
 
-      {route === 'finder' && (
+      {unavailableRoute && routeAvailability && (
+        <HostedReviewUnavailableSurface feature={routeAvailability} onReturn={() => navigate('finder')} />
+      )}
+
+      {!unavailableRoute && route === 'finder' && (
         <FinderView
           search={search}
           watchlist={watchlist}
@@ -341,7 +398,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         />
       )}
 
-      {(route === 'my-work' || route === 'watchlist' || route === 'pinned') && (
+      {!unavailableRoute && (route === 'my-work' || route === 'watchlist' || route === 'pinned') && (
         <MyWorkWorkspace
           initialSection="saved-systems"
           routeSource={route === 'my-work' ? 'my-work' : route}
@@ -352,14 +409,14 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         />
       )}
 
-      {route === 'compare' && (
+      {!unavailableRoute && route === 'compare' && (
         <CompareTab
           compare={compare}
           onOpenDetail={openSystemDetail}
         />
       )}
 
-      {route === 'search-tuning' && (
+      {!unavailableRoute && route === 'search-tuning' && (
         <AdvancedSearchTuningTab
           searchTuning={searchTuning}
           search={search}
@@ -368,7 +425,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         />
       )}
 
-      {route === 'colony-planner' && (
+      {!unavailableRoute && route === 'colony-planner' && (
         <ColonyPlannerWorkspace
           id64={plannerSystemId}
           projectId={plannerProjectId}
@@ -385,23 +442,23 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         />
       )}
 
-      {route === 'fc' && (
+      {!unavailableRoute && route === 'fc' && (
         <FcPlannerTab fc={fc} onOpenDetail={openSystemDetail} />
       )}
 
-      {route === 'colony' && (
+      {!unavailableRoute && route === 'colony' && (
         <ColonyTab colony={colony} onOpenDetail={openSystemDetail} />
       )}
 
-      {route === 'admin' && (
+      {!unavailableRoute && route === 'admin' && (
         <AdminTab admin={admin} />
       )}
 
-      {route === 'operator' && (
+      {!unavailableRoute && route === 'operator' && (
         <OperatorCockpitTab admin={admin} />
       )}
 
-      {route === 'map' && (
+      {!unavailableRoute && route === 'map' && (
         <MapTab
           systems={search.results}
           reference={{

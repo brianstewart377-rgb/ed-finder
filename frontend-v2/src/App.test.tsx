@@ -268,6 +268,7 @@ afterEach(() => {
   mockSearchRun.mockClear();
   mockSearchResults.length = 0;
   mockSearchState.current = { kind: 'idle' };
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
@@ -800,5 +801,28 @@ describe('App Colony Planner workspace route', () => {
     await waitFor(() => {
       expect(window.location.hash).toBe('#finder');
     });
+  });
+  it('shows deliberate unavailable states for hosted-review Admin, Operator, and Search Tuning routes', async () => {
+    vi.stubEnv('VITE_REVIEW_SURFACE', 'hosted');
+
+    window.location.hash = '#admin';
+    const { unmount, rerender } = render(<App />);
+    await waitFor(() => expect(screen.getByTestId('hosted-review-unavailable')).toBeTruthy());
+    expect(screen.getByTestId('hosted-review-unavailable').textContent).toContain('Admin is unavailable in hosted review');
+    expect(screen.queryByTestId('admin-tab')).toBeNull();
+    expect(screen.queryByTestId('operator-tab')).toBeNull();
+    expect(screen.queryByTestId('nav-search-tuning')).toBeNull();
+    expect(screen.getByTestId('nav-primary-explore').getAttribute('aria-current')).toBe('page');
+
+    window.location.hash = '#operator';
+    rerender(<App />);
+    await waitFor(() => expect(screen.getByTestId('hosted-review-unavailable').textContent).toContain('Operator is unavailable in hosted review'));
+    expect(screen.queryByTestId('operator-tab')).toBeNull();
+
+    window.location.hash = '#search-tuning';
+    rerender(<App />);
+    await waitFor(() => expect(screen.getByTestId('hosted-review-unavailable').textContent).toContain('Search Tuning is unavailable in hosted review'));
+    expect(screen.queryByTestId('nav-search-tuning')).toBeNull();
+    unmount();
   });
 });

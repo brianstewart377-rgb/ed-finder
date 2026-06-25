@@ -31,6 +31,7 @@ from .contract import (
     STATIC_TEST_FILES,
     ReviewLabError,
 )
+from .feature_availability import REVIEW_FEATURE_AVAILABILITY, validate_feature_availability
 from .support_matrix import REVIEW_SUPPORT_ROUTE_MATRIX, validate_support_route_matrix
 from .timeouts import TIMEOUTS
 
@@ -348,6 +349,7 @@ def run_preflight() -> dict[str, Any]:
     validate_normal_api_sources()
     validate_review_entrypoint_sources()
     validate_support_route_matrix()
+    validate_feature_availability()
     assert_no_preexisting_review_resources()
     run_compose_config_check()
     return {
@@ -360,6 +362,7 @@ def run_preflight() -> dict[str, Any]:
         'review_api_port': EXPECTED_REVIEW_API_PORT,
         'required_review_systems': list(REQUIRED_REVIEW_SYSTEM_NAMES),
         'support_routes': [route.route for route in REVIEW_SUPPORT_ROUTE_MATRIX],
+        'feature_availability': [feature.to_dict() for feature in REVIEW_FEATURE_AVAILABILITY],
         'normal_api_fixture_wiring_removed': True,
         'review_main_isolated': True,
         'frontend_start_command': frontend_start_command(),
@@ -519,6 +522,7 @@ def parse_passed_test_count(output: str) -> int:
 
 def run_static_phase() -> dict[str, Any]:
     validate_support_route_matrix()
+    validate_feature_availability()
     run_command([sys.executable, '-B', 'scripts/dev/resolve_project_state.py', '--strict'], timeout_seconds=TIMEOUTS.static, failure_code='STATIC_CONTAINMENT_FAILED')
     static_test_output = run_command(
         [sys.executable, '-B', '-m', 'pytest', *STATIC_TEST_FILES, '-p', 'no:cacheprovider'],
@@ -529,12 +533,13 @@ def run_static_phase() -> dict[str, Any]:
     run_preflight()
     run_command(['git', 'diff', '--check'], timeout_seconds=TIMEOUTS.static, failure_code='STATIC_CONTAINMENT_FAILED')
     return {
-        'summary': 'Strict resolver, review-environment safety tests, preflight, support-route matrix, and git diff check passed.',
+        'summary': 'Strict resolver, review-environment safety tests, preflight, hosted-review availability, support-route matrix, and git diff check passed.',
         'static_test_count': static_test_count,
         'safe_diagnostics': {
             'static_test_files': list(STATIC_TEST_FILES),
             'static_test_count': static_test_count,
             'support_routes': [route.route for route in REVIEW_SUPPORT_ROUTE_MATRIX],
+            'feature_availability': [feature.to_dict() for feature in REVIEW_FEATURE_AVAILABILITY],
         },
     }
 

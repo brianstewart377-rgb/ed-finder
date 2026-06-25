@@ -295,7 +295,7 @@ deploy_review() {
   (
     cd "$REVIEW_REPO_DIR/frontend-v2"
     corepack yarn install --frozen-lockfile
-    VITE_PUBLIC_BASE=/ corepack yarn build
+    VITE_PUBLIC_BASE=/ VITE_REVIEW_SURFACE=hosted corepack yarn build
   )
   ok 'review frontend built'
 

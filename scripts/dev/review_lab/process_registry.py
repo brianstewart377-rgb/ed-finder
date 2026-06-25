@@ -43,19 +43,22 @@ class ReviewProcessRegistry:
         stderr_path = self.run_dir / stderr_log_name
         stdout_handle = stdout_path.open('w', encoding='utf-8')
         stderr_handle = stderr_path.open('w', encoding='utf-8')
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            env={**os.environ, **dict(env)},
-            stdout=stdout_handle,
-            stderr=stderr_handle,
-            text=True,
-            preexec_fn=os.setsid,
-        )
+        popen_kwargs = {
+            'cwd': cwd,
+            'env': {**os.environ, **dict(env)},
+            'stdout': stdout_handle,
+            'stderr': stderr_handle,
+            'text': True,
+        }
+        if os.name == 'nt':
+            popen_kwargs['creationflags'] = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+        else:
+            popen_kwargs['preexec_fn'] = os.setsid
+        process = subprocess.Popen(command, **popen_kwargs)
         record = ManagedProcessRecord(
             name=name,
             pid=process.pid,
-            pgid=os.getpgid(process.pid),
+            pgid=process.pid if os.name == 'nt' else os.getpgid(process.pid),
             command=command,
             stdout_log=stdout_log_name,
             stderr_log=stderr_log_name,
@@ -71,7 +74,10 @@ class ReviewProcessRegistry:
                 record.running = False
                 continue
             try:
-                os.killpg(record.pgid, signal.SIGTERM)
+                if os.name == 'nt':
+                    process.terminate()
+                else:
+                    os.killpg(record.pgid, signal.SIGTERM)
             except ProcessLookupError:
                 record.running = False
                 continue
@@ -83,7 +89,10 @@ class ReviewProcessRegistry:
         for process, record in reversed(list(zip(self._processes, self._records))):
             if process.poll() is None:
                 try:
-                    os.killpg(record.pgid, signal.SIGKILL)
+                    if os.name == 'nt':
+                        process.kill()
+                    else:
+                        os.killpg(record.pgid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
             record.running = process.poll() is None

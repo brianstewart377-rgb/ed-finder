@@ -164,6 +164,10 @@ def test_list_scenarios_cli_exposes_finite_registry_and_rejects_unknown_scenario
         'evidence_unknown',
         'evidence_not_evaluated',
         'provenance_fallback',
+        'planner_supported_actions',
+        'map_visible',
+        'unavailable_review_surfaces',
+        'excluded_review_features',
         'empty_optional_support_data',
         'large_result_set',
         'partial_optional_data',
@@ -222,18 +226,31 @@ def test_support_route_matrix_covers_required_reviewed_flow_endpoints():
         '/api/events/live',
         '/api/events/recent',
         '/api/v2/watchlist/{sync_key}',
-        '/api/cache/stats',
+        '/api/watchlist',
         '/api/facility-templates',
+        '/api/simulate/build',
+        '/api/optimiser/candidates',
+        '/api/observations/facts',
+        '/api/observations/facts/{observation_id}',
+        '/api/observations/compare',
+        '/api/observations/review',
+        '/api/map/regions',
+        '/api/map/clusters/hulls',
+        '/api/map/heatmap',
+        '/api/map/timeline',
         '/api/systems/{id64}/simulation-summary',
         '/api/systems/{id64}/slot-predictions',
     }
-    assert '/api/watchlist' not in route_map
+    assert '/api/cache/stats' not in route_map
     assert route_map['/api/facility-templates']['required_for_reviewed_flow'] is True
     assert route_map['/api/systems/{id64}/simulation-summary']['expected_status'] == 200
-    assert route_map['/api/v2/watchlist/{sync_key}']['required_for_reviewed_flow'] is False
-    assert route_map['/api/v2/watchlist/{sync_key}']['frontend_caller'] == 'useWatchlist scoped bootstrap'
+    assert route_map['/api/v2/watchlist/{sync_key}']['required_for_reviewed_flow'] is True
+    assert route_map['/api/v2/watchlist/{sync_key}']['frontend_caller'] == 'useWatchlist scoped bootstrap and saved systems'
     assert route_map['/api/events/live']['frontend_caller'] == 'useEddnFeed SSE bootstrap'
     assert route_map['/api/events/live']['validation_mode'] == 'api_contract_validated'
+    assert route_map['/api/optimiser/candidates']['required_for_reviewed_flow'] is True
+    assert route_map['/api/map/regions']['required_for_reviewed_flow'] is True
+    assert route_map['/api/watchlist']['expected_status'] == 410
     assert all(row['validation_mode'] in {
         'api_contract_validated',
         'browser_only_validated',
@@ -312,10 +329,32 @@ def test_every_api_contract_validated_support_route_is_exercised_by_api_contract
             return {'status': 200, 'body': {'sync_key': route.rsplit('/', 1)[1], 'watchlist': []}}
         if route == '/api/watchlist':
             return {'status': 410, 'body': {'detail': {'status': 410}}}
-        if route == '/api/cache/stats':
-            return {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
         if route == '/api/facility-templates':
-            return {'status': 200, 'body': [{'name': 'Outpost'}]}
+            return {'status': 200, 'body': [{'id': 'orbital_outpost', 'name': 'Outpost'}]}
+        if route == '/api/simulate/build':
+            return {'status': 200, 'body': {'system_id64': 7200000000001, 'target_archetype': 'refinery_industrial', 'final_score': 1, 'buildability_score': 1}}
+        if route == '/api/optimiser/candidates':
+            return {'status': 200, 'body': {'system_id64': 7200000000001, 'target_archetype': 'refinery_industrial', 'candidate_count': 0, 'candidates': []}}
+        if route.startswith('/api/observations/facts?'):
+            return {'status': 200, 'body': {'facts': [], 'total': 0, 'summary': {}}}
+        if route == '/api/observations/facts':
+            if method == 'POST':
+                return {'status': 200, 'body': {'observation_id': 'obs-review', 'system_id64': 7200000000001, 'fact_type': 'note', 'status': 'observed_present'}}
+            return {'status': 200, 'body': {'facts': [], 'total': 0, 'summary': {}}}
+        if route == '/api/observations/facts/obs-review':
+            return {'status': 200, 'body': {'observation_id': 'obs-review', 'deleted': True}}
+        if route == '/api/observations/compare':
+            return {'status': 200, 'body': {'system_id64': 7200000000001, 'target_archetype': 'refinery_industrial', 'summary': {}, 'comparisons': []}}
+        if route == '/api/observations/review':
+            return {'status': 200, 'body': {'system_id64': 7200000000001, 'target_archetype': 'refinery_industrial', 'summary': {}, 'signals': []}}
+        if route.startswith('/api/map/regions'):
+            return {'status': 200, 'body': {'regions': []}}
+        if route.startswith('/api/map/clusters/hulls'):
+            return {'status': 200, 'body': {'clusters': []}}
+        if route.startswith('/api/map/heatmap'):
+            return {'status': 200, 'body': {'cells': [], 'count': 0}}
+        if route.startswith('/api/map/timeline'):
+            return {'status': 200, 'body': {'points': []}}
         if route.endswith('/simulation-summary'):
             return {'status': 200, 'body': {'classification': 'ok', 'buildability': 'ok', 'system_id64': 7200000000001}}
         if route.endswith('/slot-predictions'):
@@ -487,6 +526,20 @@ def test_review_runtime_requires_exact_marker_and_exact_internal_targets():
     with pytest.raises(ReviewRuntimeGuardError, match='redis host'):
         validate_review_runtime_env({**valid_env, 'REDIS_URL': 'redis://localhost:6379/0'})
 
+@pytest.mark.unit
+def test_hosted_review_feature_availability_classifies_supported_unavailable_and_excluded_surfaces():
+    review_env.validate_feature_availability()
+    manifest = json.loads(review_env.feature_availability.MANIFEST_PATH.read_text(encoding='utf-8'))
+    assert review_env.REVIEW_FEATURE_AVAILABILITY == tuple(manifest['features'])
+    by_key = {row['key']: row for row in review_env.REVIEW_FEATURE_AVAILABILITY}
+
+    assert by_key['finder']['state'] == 'supported'
+    assert by_key['colony-planner']['state'] == 'supported'
+    assert by_key['map']['state'] == 'supported'
+    assert by_key['admin']['state'] == 'intentionally_unavailable'
+    assert by_key['operator']['state'] == 'intentionally_unavailable'
+    assert by_key['search-tuning']['state'] == 'intentionally_unavailable'
+    assert by_key['profile-sync']['state'] == 'excluded'
 
 @pytest.mark.unit
 def test_review_only_entrypoint_isolated_from_normal_runtime():
@@ -495,10 +548,17 @@ def test_review_only_entrypoint_isolated_from_normal_runtime():
     assert 'validate_review_runtime_env' in review_main_source
     assert 'simulate_router' in review_main_source
     assert 'simulation_router' in review_main_source
+    assert 'map_router' in review_main_source
+    assert 'optimiser_router' in review_main_source
+    assert 'observations_router' in review_main_source
     assert 'review_provenance_cockpit_router' in review_main_source
     assert 'review_support_router' in review_main_source
     assert 'review_warehouse_planner_evidence_router' in review_main_source
     assert 'routers.events' not in review_main_source
+    assert 'profile_router' not in review_main_source
+    assert 'ratings_router' not in review_main_source
+    assert 'admin_router' not in review_main_source
+    assert 'operator_router' not in review_main_source
     assert 'review_support_routes' not in main_source
 
 
@@ -716,20 +776,17 @@ async def test_review_runtime_alpha_beta_gamma_scenarios_remain_valid():
     assert gamma_provenance.provenance_summary.state == 'unknown'
 
 
-def test_review_support_routes_return_synthetic_empty_read_only_event_cache_payloads():
+def test_review_support_routes_return_synthetic_empty_read_only_event_payloads():
     async def _call_support_routes():
         live_response = await review_support_backend.review_live_events()
         recent_response = await review_support_backend.review_recent_events()
-        cache_stats_response = await review_support_backend.review_cache_stats()
-        return live_response, recent_response, cache_stats_response
+        return live_response, recent_response
 
-    live, recent, cache_stats = asyncio.run(_call_support_routes())
+    live, recent = asyncio.run(_call_support_routes())
 
     assert live.media_type == 'text/event-stream'
     assert recent == {'events': [], 'jobs': {}}
-    assert cache_stats.cache_hits == 0
-    assert cache_stats.db_cache_rows == 0
-    assert cache_stats.redis_memory_mb == 0.0
+    assert not hasattr(review_support_backend, 'review_cache_stats')
 
 
 def test_review_main_mounts_real_watchlist_router(monkeypatch: pytest.MonkeyPatch):
@@ -1116,7 +1173,8 @@ def test_process_registry_inherits_host_env_and_records_only_review_owned_proces
 
     monkeypatch.setenv('PATH', '/usr/local/bin:/usr/bin')
     monkeypatch.setattr(review_process_registry.subprocess, 'Popen', _fake_popen)
-    monkeypatch.setattr(review_process_registry.os, 'getpgid', lambda _pid: 98765)
+    if hasattr(review_process_registry.os, 'getpgid'):
+        monkeypatch.setattr(review_process_registry.os, 'getpgid', lambda _pid: 98765)
 
     registry = review_env.ReviewProcessRegistry(tmp_path)
     registry.start(
@@ -1313,6 +1371,39 @@ def _valid_browser_summary(selected_scenarios: tuple[object, ...]) -> dict[str, 
                 ],
                 'error': None,
             },
+            'planner_actions': {
+                'status': 'passed',
+                'checks': {
+                    'plannerOpened': True,
+                    'observedFactCreated': True,
+                    'observedFactRemoved': True,
+                    'structureAddedThroughCanvas': True,
+                    'previewRunThroughUi': True,
+                    'validationContractsRan': True,
+                    'suggestedBuildsInvoked': True,
+                },
+                'apiResponses': [],
+                'error': None,
+            },
+            'map': {
+                'status': 'passed',
+                'checks': {
+                    'mapOpened': True,
+                    'visibleMapRequestsSucceeded': True,
+                },
+                'apiResponses': [],
+                'error': None,
+            },
+            'unavailable_surfaces': {
+                'status': 'passed',
+                'checks': {
+                    'adminUnavailable': True,
+                    'operatorUnavailable': True,
+                    'search-tuningUnavailable': True,
+                },
+                'apiResponses': [],
+                'error': None,
+            },
         },
         'accessibility': {
             'modalEscapeCloseWorks': True,
@@ -1389,8 +1480,10 @@ def test_run_browser_phase_passes_review_lab_marker_and_validates_summary_contra
     assert all(env['EDFINDER_REVIEW_OUTPUT_PATH'].endswith('browser-summary.json') for env in subprocess_envs)
     assert all(env['EDFINDER_REVIEW_SCENARIOS_JSON'] for env in subprocess_envs)
     assert all(env['VITE_DEV_API_TARGET'] == 'http://127.0.0.1:8001' for env in subprocess_envs)
+    assert all(env['VITE_REVIEW_SURFACE'] == 'hosted' for env in subprocess_envs)
     assert preview_envs[0]['EDFINDER_REVIEW_LAB_RUN'] == '1'
     assert preview_envs[0]['VITE_DEV_API_TARGET'] == 'http://127.0.0.1:8001'
+    assert preview_envs[0]['VITE_REVIEW_SURFACE'] == 'hosted'
 
 
 @pytest.mark.unit
@@ -1665,6 +1758,7 @@ def test_verify_phase_ordering_is_static_stack_api_browser_then_teardown(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 
@@ -1715,6 +1809,7 @@ def test_verify_fails_before_stack_start_when_static_phase_fails(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 
@@ -1772,6 +1867,7 @@ def test_verify_skips_browser_when_stack_phase_fails(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 
@@ -1905,6 +2001,7 @@ def test_quick_verify_skips_browser_phases_but_runs_teardown(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='quick', scenario='all')
 
@@ -2285,6 +2382,7 @@ def test_preflight_fails_closed_when_review_owned_resources_already_exist(monkey
     monkeypatch.setattr(review_env.lifecycle, 'validate_normal_api_sources', lambda: None)
     monkeypatch.setattr(review_env.lifecycle, 'validate_review_entrypoint_sources', lambda: None)
     monkeypatch.setattr(review_env.lifecycle, 'validate_support_route_matrix', lambda: None)
+    monkeypatch.setattr(review_env.lifecycle, 'validate_feature_availability', lambda: None)
     monkeypatch.setattr(review_env.lifecycle, 'run_compose_config_check', lambda: None)
     monkeypatch.setattr(
         review_env.lifecycle,
@@ -2345,6 +2443,7 @@ def test_verify_reports_known_non_blocking_viewport_diagnostics_without_failing_
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 

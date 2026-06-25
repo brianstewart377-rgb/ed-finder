@@ -17,6 +17,7 @@ export interface NavBarProps {
   fcCount?:        number;
   health?:         string;
   fullWidth?:      boolean;
+  hostedReviewMode?: boolean;
   selectedSystem?: {
     id64: number;
     name: string | null;
@@ -55,6 +56,7 @@ export function NavBar({
   compareCount, fcCount,
   health,
   fullWidth = false,
+  hostedReviewMode = false,
   selectedSystem = null,
 }: NavBarProps) {
   const appVersionLabel = `v${__APP_VERSION__}`;
@@ -69,7 +71,7 @@ export function NavBar({
     explore: [
       { route: 'finder' as const, label: 'Finder', shortLabel: 'Explore', testid: 'nav-finder' },
       { route: 'map' as const, label: 'Map', shortLabel: 'Map', testid: 'nav-map', title: 'Secondary Explore surface' },
-      { route: 'search-tuning' as const, label: 'Advanced Search Tuning', shortLabel: 'Advanced', testid: 'nav-search-tuning' },
+      ...(!hostedReviewMode ? [{ route: 'search-tuning' as const, label: 'Advanced Search Tuning', shortLabel: 'Advanced', testid: 'nav-search-tuning' }] : []),
     ],
     plan: [
       { route: 'my-work' as const, label: 'My Work', shortLabel: 'My Work', testid: 'nav-my-work' },
@@ -83,7 +85,7 @@ export function NavBar({
       { route: 'admin' as const, label: 'Admin', testid: 'nav-admin' },
       { route: 'operator' as const, label: 'Operator', testid: 'nav-operator' },
     ],
-  }), [compareCount, fcCount]);
+  }), [compareCount, fcCount, hostedReviewMode]);
 
   const operatorMode = current === 'admin' || current === 'operator';
   const showPlayerContext = !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);

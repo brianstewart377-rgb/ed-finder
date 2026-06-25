@@ -7,13 +7,14 @@ import json
 import time
 from typing import Any, Mapping
 
-from review_lab import api_contracts, browser_runner, lifecycle, network_policy, observations, reporting, scenarios, support_matrix
+from review_lab import api_contracts, browser_runner, feature_availability, lifecycle, network_policy, observations, reporting, scenarios, support_matrix
 from review_lab.contract import CONFIRM_FLAG, REQUIRED_PHASE_NAMES, ReviewLabError, elapsed_ms
 from review_lab.process_registry import ReviewProcessRegistry
 
 ReviewEnvironmentError = ReviewLabError
 
 REVIEW_SUPPORT_ROUTE_MATRIX = tuple(route.to_dict() for route in support_matrix.REVIEW_SUPPORT_ROUTE_MATRIX)
+REVIEW_FEATURE_AVAILABILITY = tuple(feature.to_dict() for feature in feature_availability.REVIEW_FEATURE_AVAILABILITY)
 KNOWN_PRODUCT_OBSERVATIONS = observations.KNOWN_PRODUCT_OBSERVATIONS
 
 validate_review_database_name = lifecycle.validate_review_database_name
@@ -22,6 +23,7 @@ validate_review_api_port = lifecycle.validate_review_api_port
 extract_service_block = lifecycle.extract_service_block
 validate_compose_text = lifecycle.validate_compose_text
 validate_support_route_matrix = support_matrix.validate_support_route_matrix
+validate_feature_availability = feature_availability.validate_feature_availability
 run_preflight = lifecycle.run_preflight
 up_review_stack = lifecycle.up_review_stack
 review_status = lifecycle.review_status
@@ -149,6 +151,7 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
         'phase_results': phases,
         'support_route_matrix': REVIEW_SUPPORT_ROUTE_MATRIX,
         'support_route_matrix_complete': False,
+        'feature_availability': REVIEW_FEATURE_AVAILABILITY,
         'delta_503_fallback_correlation_verified': False,
         'unexpected_console_errors': [],
         'unexpected_api_errors': [],
