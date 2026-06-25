@@ -11,7 +11,7 @@ REGISTERED_SCENARIOS: tuple[ScenarioDefinition, ...] = (
         required_review_only_routes=(
             '/api/events/live',
             '/api/events/recent',
-            '/api/watchlist',
+            '/api/v2/watchlist/{sync_key}',
             '/api/cache/stats',
             '/api/facility-templates',
             '/api/systems/{id64}/simulation-summary',
@@ -113,8 +113,8 @@ REGISTERED_SCENARIOS: tuple[ScenarioDefinition, ...] = (
     ScenarioDefinition(
         name='empty_optional_support_data',
         purpose='Validate optional noisy routes return safe empty review-only payloads.',
-        synthetic_data_profile='Review support routes with empty synthetic event/watchlist/cache data',
-        required_review_only_routes=('/api/events/live', '/api/events/recent', '/api/watchlist', '/api/cache/stats'),
+        synthetic_data_profile='Review support routes with empty synthetic event/cache data and fresh scoped Watchlist state',
+        required_review_only_routes=('/api/events/live', '/api/events/recent', '/api/v2/watchlist/{sync_key}', '/api/cache/stats'),
         api_contracts=('events_live', 'events_recent', 'watchlist', 'cache_stats'),
         browser_journey=(),
         expected_network_policy=('no unexpected 404 for optional noisy routes',),
@@ -140,7 +140,7 @@ REGISTERED_SCENARIOS: tuple[ScenarioDefinition, ...] = (
         name='partial_optional_data',
         purpose='Validate contract-shaped responses when optional synthetic fields are absent or unknown.',
         synthetic_data_profile='Review Beta/Gamma/Delta synthetic records with optional/unknown payload members',
-        required_review_only_routes=('/api/watchlist', '/api/cache/stats'),
+        required_review_only_routes=('/api/v2/watchlist/{sync_key}', '/api/cache/stats'),
         api_contracts=('health', 'finder', 'system_detail', 'beta_evidence', 'gamma_evidence', 'delta_provenance'),
         browser_journey=(),
         expected_network_policy=('no malformed JSON contracts',),
@@ -156,7 +156,7 @@ REGISTERED_SCENARIOS: tuple[ScenarioDefinition, ...] = (
         required_review_only_routes=(
             '/api/events/live',
             '/api/events/recent',
-            '/api/watchlist',
+            '/api/v2/watchlist/{sync_key}',
             '/api/cache/stats',
             '/api/facility-templates',
             '/api/systems/{id64}/simulation-summary',

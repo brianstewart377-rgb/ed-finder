@@ -26,6 +26,7 @@ export function useWorkspaceProjectState(
   const renameProject = useColonyProjectStore((state) => state.renameProject);
   const duplicateProject = useColonyProjectStore((state) => state.duplicateProject);
   const archiveProject = useColonyProjectStore((state) => state.archiveProject);
+  const deleteProject = useColonyProjectStore((state) => state.deleteProject);
 
   const projects = useMemo(() => Object.values(projectRecord), [projectRecord]);
   const systemProjects = useMemo(() => activeProjectsForSystem(projects, system.id64), [projects, system.id64]);
@@ -37,6 +38,7 @@ export function useWorkspaceProjectState(
   const [declaredRoles, setDeclaredRoles] = useState<DeclaredColonyRole[]>(() => normaliseDeclaredRoles(initialProject?.declared_roles));
   const [confirmArchive, setConfirmArchive] = useState(false);
   const hasMountedProjectSync = useRef(false);
+  const suppressAutoProjectSelect = useRef(false);
 
   const activeProject = systemProjects.find((project) => project.id === activeProjectId) ?? null;
 
@@ -45,12 +47,17 @@ export function useWorkspaceProjectState(
     const targetProject = systemProjects.find((project) => project.id === initialProjectId) ?? null;
     if (!targetProject) return;
     if (activeProjectId === targetProject.id) return;
+    suppressAutoProjectSelect.current = false;
     setActiveProjectId(targetProject.id);
     setPendingProjectId(targetProject.id);
   }, [activeProjectId, initialProjectId, systemProjects]);
 
   useEffect(() => {
-    if (activeProjectId && systemProjects.some((project) => project.id === activeProjectId)) return;
+    if (activeProjectId && systemProjects.some((project) => project.id === activeProjectId)) {
+      suppressAutoProjectSelect.current = false;
+      return;
+    }
+    if (!activeProjectId && suppressAutoProjectSelect.current) return;
     const next = systemProjects[0] ?? null;
     if ((next?.id ?? null) === activeProjectId) return;
     setActiveProjectId(next?.id ?? null);
@@ -98,6 +105,7 @@ export function useWorkspaceProjectState(
       status: activeProject?.status ?? 'draft',
     });
     setActiveProjectId(saved.id);
+    suppressAutoProjectSelect.current = false;
   }, [activeProject?.id, activeProject?.status, declaredRoles, planSnapshot.placements, planSnapshot.targetArchetype, projectName, projectNotes, saveProject, system.id64, system.name]);
 
   const handleRenameProject = useCallback(() => {
@@ -108,7 +116,10 @@ export function useWorkspaceProjectState(
   const handleDuplicateProject = useCallback(() => {
     if (!activeProject) return;
     const duplicate = duplicateProject(activeProject.id);
-    if (duplicate) setActiveProjectId(duplicate.id);
+    if (duplicate) {
+      suppressAutoProjectSelect.current = false;
+      setActiveProjectId(duplicate.id);
+    }
   }, [activeProject, duplicateProject]);
 
   const handleArchiveProject = useCallback(() => {
@@ -117,6 +128,19 @@ export function useWorkspaceProjectState(
     setConfirmArchive(false);
     setActiveProjectId(null);
   }, [activeProject, archiveProject]);
+
+  const handleDeleteActiveProject = useCallback(() => {
+    if (!activeProject) return false;
+    deleteProject(activeProject.id);
+    setConfirmArchive(false);
+    suppressAutoProjectSelect.current = true;
+    setActiveProjectId(null);
+    setPendingProjectId('');
+    setProjectName(`${system.name || 'Colony'} project`);
+    setProjectNotes('');
+    setDeclaredRoles([]);
+    return true;
+  }, [activeProject, deleteProject, system.name]);
 
   const handleAddDeclaredRole = useCallback((bodyId: string, roleId: DeclaredColonyRoleId) => {
     const body = (system.bodies ?? []).find((candidate) => sameBodyId(candidate.id, bodyId));
@@ -144,10 +168,14 @@ export function useWorkspaceProjectState(
     addDeclaredRole: handleAddDeclaredRole,
     removeDeclaredRole: handleRemoveDeclaredRole,
     setConfirmArchive,
-    loadProject: () => setActiveProjectId(pendingProjectId || null),
+    loadProject: () => {
+      suppressAutoProjectSelect.current = false;
+      setActiveProjectId(pendingProjectId || null);
+    },
     saveProject: handleSaveProject,
     renameProject: handleRenameProject,
     duplicateProject: handleDuplicateProject,
     archiveProject: handleArchiveProject,
+    deleteActiveProject: handleDeleteActiveProject,
   };
 }

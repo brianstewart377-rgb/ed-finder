@@ -16,6 +16,8 @@ export interface ColonyPlannerWorkspaceProps {
   projectId?: string | null;
   onBackToFinder: () => void;
   onOpenSystemDetail: (id64: number) => void;
+  onOpenMyWork?: () => void;
+  onPlanDeleted?: (projectName: string) => void;
 }
 
 export function ColonyPlannerWorkspace({
@@ -23,13 +25,18 @@ export function ColonyPlannerWorkspace({
   projectId = null,
   onBackToFinder,
   onOpenSystemDetail,
+  onOpenMyWork,
+  onPlanDeleted,
 }: ColonyPlannerWorkspaceProps) {
   const [projectContext, setProjectContext] = useState<{
     activeProject: ColonyProject | null;
     unsavedChanges: boolean;
+    plannedStructureCount: number;
+    deleteActiveProject?: () => boolean;
   }>({
     activeProject: null,
     unsavedChanges: false,
+    plannedStructureCount: 0,
   });
   const { data, loading, error, refetch } = useSystemDetail(id64);
   const warehouseEvidenceQuery = useQuery({
@@ -107,8 +114,12 @@ export function ColonyPlannerWorkspace({
         system={data}
         onBackToFinder={onBackToFinder}
         onOpenSystemDetail={onOpenSystemDetail}
+        onOpenMyWork={onOpenMyWork}
+        onPlanDeleted={onPlanDeleted}
         activeProject={projectContext.activeProject}
         unsavedChanges={projectContext.unsavedChanges}
+        plannedStructureCount={projectContext.plannedStructureCount}
+        onDeleteActiveProject={projectContext.deleteActiveProject}
       />
       <WholeSystemColonyPlanner
         system={data}

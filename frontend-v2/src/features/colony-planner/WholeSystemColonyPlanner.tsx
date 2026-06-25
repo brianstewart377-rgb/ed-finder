@@ -17,7 +17,6 @@ import { getPlanningFocusLabel, type PlannerWorkspaceCommand } from './workspace
 import { buildPlanningEconomyLedger } from './planningEconomy';
 import { AdvancedPlannerDrawer } from './AdvancedPlannerDrawer';
 import {
-  RavenPlannerTelemetryPanel,
   RavenStylePlannerCanvas,
 } from './RavenStylePlannerCanvas';
 import {
@@ -43,6 +42,8 @@ export function WholeSystemColonyPlanner({
   onProjectContextChange?: (context: {
     activeProject: ReturnType<typeof useWorkspaceProjectState>['activeProject'];
     unsavedChanges: boolean;
+    plannedStructureCount: number;
+    deleteActiveProject: ReturnType<typeof useWorkspaceProjectState>['deleteActiveProject'];
   }) => void;
 }) {
   const [selection, setSelection] = useState<TopologySelection>({ type: 'system' });
@@ -135,8 +136,10 @@ export function WholeSystemColonyPlanner({
     onProjectContextChange?.({
       activeProject: projectState.activeProject,
       unsavedChanges: projectState.unsavedChanges,
+      plannedStructureCount: placements.length,
+      deleteActiveProject: projectState.deleteActiveProject,
     });
-  }, [onProjectContextChange, projectState.activeProject, projectState.unsavedChanges]);
+  }, [onProjectContextChange, placements.length, projectState.activeProject, projectState.deleteActiveProject, projectState.unsavedChanges]);
   const projectRequestFingerprint = useMemo(
     () => projectState.projectRequest ? JSON.stringify({
       target_archetype: projectState.projectRequest.target_archetype,
@@ -192,6 +195,16 @@ export function WholeSystemColonyPlanner({
     templates,
   }), [placements, projection?.placements, templates]);
   const prerequisiteIssues = useMemo(() => buildPlanPrerequisiteIssues(placements, templates), [placements, templates]);
+  const dockSummary = useMemo(() => {
+    const counts = [
+      placements.length > 0 ? `${placements.length} planned` : null,
+      projection ? `${projection.placements.length} projected` : null,
+    ].filter(Boolean);
+    if (counts.length === 0) {
+      return 'Choose a body to begin planning.';
+    }
+    return `${selectedContext.label} / ${counts.join(' / ')}`;
+  }, [placements.length, projection, selectedContext.label]);
 
   const requestAddStructure = useCallback((bodyId: string, lane: BodyPlannerLane) => {
     const state = getRavenLaneCapacityState(system, planSnapshot, bodyId, lane);
@@ -350,7 +363,7 @@ export function WholeSystemColonyPlanner({
       <div
         className="order-2 min-w-0 max-xl:sticky max-xl:bottom-3 max-xl:z-30 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
         data-testid="planner-telemetry-region"
-        data-layout="telemetry-context-panel"
+        data-layout="plan-details-panel"
         data-mobile-dock={telemetryDockOpen ? 'open' : 'closed'}
       >
         <button
@@ -362,11 +375,11 @@ export function WholeSystemColonyPlanner({
           className="flex w-full items-center justify-between gap-3 rounded-chunk-lg border border-cyan/35 bg-bg2/95 px-3 py-2 shadow-metal"
         >
           <span className="flex min-w-0 items-center gap-2">
-            <PanelRight size={16} className="shrink-0 text-cyan" />
+              <PanelRight size={16} className="shrink-0 text-cyan" />
             <span className="min-w-0 text-left">
-              <span className="block font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Telemetry</span>
+              <span className="block font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Plan details</span>
               <span className="block truncate text-[11px] text-silver-dk">
-                {selectedContext.label} / {placements.length} planned{projection ? ` / ${projection.placements.length} projected` : ''}
+                {dockSummary}
               </span>
             </span>
           </span>
@@ -381,14 +394,6 @@ export function WholeSystemColonyPlanner({
           data-open={telemetryDockOpen ? 'true' : 'false'}
           className={[telemetryDockOpen ? 'block' : 'hidden xl:block', 'max-xl:mt-2 max-xl:max-h-[min(76vh,42rem)] max-xl:overflow-y-auto max-xl:rounded-chunk-lg max-xl:border max-xl:border-cyan/25 max-xl:bg-bg1/95 max-xl:p-2 max-xl:shadow-metal xl:space-y-3'].join(' ')}
         >
-          <RavenPlannerTelemetryPanel
-            system={system}
-            snapshot={planSnapshot}
-            economyLedger={systemEconomyLedger}
-            prerequisiteIssues={prerequisiteIssues}
-            selectedContext={selectedContext}
-            selection={selection}
-          />
           <WorkspaceSummaryRail
             system={system}
             snapshot={planSnapshot}

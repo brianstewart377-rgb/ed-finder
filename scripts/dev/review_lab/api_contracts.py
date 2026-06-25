@@ -8,6 +8,11 @@ from .scenarios import ScenarioDefinition
 from .support_matrix import api_contract_validated_routes
 
 
+REVIEW_WATCHLIST_SYNC_KEY = 'reviewwatchlistkey000000000000'
+REVIEW_WATCHLIST_ROUTE = f'/api/v2/watchlist/{REVIEW_WATCHLIST_SYNC_KEY}'
+REVIEW_WATCHLIST_MATRIX_ROUTE = '/api/v2/watchlist/{sync_key}'
+
+
 def _record_support_route_check(diagnostics: dict[str, Any], route: str) -> None:
     checked = diagnostics.setdefault('support_routes_checked', [])
     if route not in checked:
@@ -139,7 +144,8 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
     if selected_names & {'planner_core', 'empty_optional_support_data', 'partial_optional_data', 'support_route_compatibility'}:
         live_events = probe_event_stream('/api/events/live')
         recent = fetch_json('GET', '/api/events/recent')
-        watchlist = fetch_json('GET', '/api/watchlist')
+        watchlist = fetch_json('GET', REVIEW_WATCHLIST_ROUTE)
+        retired_watchlist = fetch_json('GET', '/api/watchlist')
         cache_stats = fetch_json('GET', '/api/cache/stats')
         if live_events['status'] != 200:
             raise ReviewLabError(
@@ -165,10 +171,22 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
                 },
             )
         ensure_contract_shape(recent, required_keys={'events', 'jobs'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/events/recent')
-        ensure_contract_shape(watchlist, required_keys={'watchlist'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/watchlist')
+        ensure_contract_shape(watchlist, required_keys={'sync_key', 'watchlist'}, failure_code='REQUIRED_ROUTE_MISSING', route=REVIEW_WATCHLIST_MATRIX_ROUTE)
+        if watchlist['body'].get('sync_key') != REVIEW_WATCHLIST_SYNC_KEY:
+            raise ReviewLabError(
+                'Scoped Watchlist route did not echo the review sync key.',
+                failure_code='UNEXPECTED_API_ERROR',
+                safe_diagnostics={'route': REVIEW_WATCHLIST_MATRIX_ROUTE},
+            )
+        if retired_watchlist['status'] != 410:
+            raise ReviewLabError(
+                'Retired unscoped Watchlist route returned a successful review-only response.',
+                failure_code='UNEXPECTED_API_ERROR',
+                safe_diagnostics={'route': '/api/watchlist', 'status': retired_watchlist['status']},
+            )
         ensure_contract_shape(cache_stats, required_keys={'cache_hits', 'cache_misses', 'db_cache_rows'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/cache/stats')
-        diagnostics['contracts_checked'].extend(['events_live', 'events_recent', 'watchlist', 'cache_stats'])
-        for route in ('/api/events/live', '/api/events/recent', '/api/watchlist', '/api/cache/stats'):
+        diagnostics['contracts_checked'].extend(['events_live', 'events_recent', 'watchlist', 'watchlist_legacy_gone', 'cache_stats'])
+        for route in ('/api/events/live', '/api/events/recent', REVIEW_WATCHLIST_MATRIX_ROUTE, '/api/cache/stats'):
             _record_support_route_check(diagnostics, route)
 
     if selected_names & {'planner_core', 'evidence_available', 'evidence_unavailable', 'evidence_unknown', 'evidence_not_evaluated', 'provenance_fallback', 'support_route_compatibility'}:

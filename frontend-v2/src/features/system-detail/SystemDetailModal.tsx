@@ -22,6 +22,7 @@ export interface SystemDetailModalProps {
   onClose: () => void;
   focusIntent?: 'colony-planner' | null;
   savedForLater?: boolean;
+  saveForLaterState?: 'idle' | 'saving' | 'removing';
   onToggleSaveForLater?: (system: SystemDetail) => void;
   onStartPlan?: (
     system: SystemDetail,
@@ -52,6 +53,7 @@ export function SystemDetailModal({
   onClose,
   focusIntent = null,
   savedForLater = false,
+  saveForLaterState = 'idle',
   onToggleSaveForLater,
   onStartPlan,
   renderActions,
@@ -150,6 +152,7 @@ export function SystemDetailModal({
               <ColonyPlannerEntryPoint
                 system={data}
                 savedForLater={savedForLater}
+                saveForLaterState={saveForLaterState}
                 planningOpen={planStartOpen}
                 selectedObjective={selectedObjective}
                 selectedStartApproach={selectedStartApproach}
@@ -184,6 +187,7 @@ export function SystemDetailModal({
 function ColonyPlannerEntryPoint({
   system,
   savedForLater,
+  saveForLaterState,
   planningOpen,
   selectedObjective,
   selectedStartApproach,
@@ -195,6 +199,7 @@ function ColonyPlannerEntryPoint({
 }: {
   system: SystemDetail;
   savedForLater: boolean;
+  saveForLaterState: 'idle' | 'saving' | 'removing';
   planningOpen: boolean;
   selectedObjective: ColonyProjectObjective | null;
   selectedStartApproach: ColonyProjectStartApproach | null;
@@ -211,6 +216,14 @@ function ColonyPlannerEntryPoint({
   ) => void;
 }) {
   const canStartPlan = Number.isFinite(system.id64) && system.id64 > 0 && !!onStartPlan;
+  const saveActionBusy = saveForLaterState === 'saving' || saveForLaterState === 'removing';
+  const saveActionLabel = saveForLaterState === 'saving'
+    ? 'Saving…'
+    : saveForLaterState === 'removing'
+      ? 'Removing…'
+      : savedForLater
+        ? 'Saved'
+        : 'Save for later';
   const defaultDraftName = useMemo(
     () => defaultDraftProjectName(system.name || 'Unknown system', selectedObjective ?? 'decide_later'),
     [selectedObjective, system.name],
@@ -241,17 +254,21 @@ function ColonyPlannerEntryPoint({
             <button
               type="button"
               onClick={() => onToggleSaveForLater?.(system)}
+              disabled={saveActionBusy}
               data-testid="system-detail-save-for-later"
               aria-pressed={savedForLater}
+              aria-label={savedForLater ? 'Remove from saved' : 'Save for later'}
+              aria-busy={saveActionBusy || undefined}
               className={[
                 'inline-flex items-center gap-2 rounded-chunk-sm border px-3 py-2 text-xs font-mono font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
                 savedForLater
                   ? 'border-orange/50 bg-orange/15 text-orange hover:bg-orange/25'
                   : 'border-border bg-bg4 text-silver hover:border-orange/45 hover:text-orange',
+                saveActionBusy ? 'cursor-not-allowed opacity-80' : '',
               ].join(' ')}
             >
               <Bookmark size={14} />
-              {savedForLater ? 'Remove from saved' : 'Save for later'}
+              {saveActionLabel}
             </button>
             <button
               type="button"

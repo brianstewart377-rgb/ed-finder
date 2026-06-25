@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
@@ -24,11 +24,25 @@ const {
   },
 }));
 
-vi.mock('@/lib/api', () => ({
-  api: {
-    health: vi.fn().mockResolvedValue({ status: 'ok', database: 'connected', version: 'test' }),
-  },
-}));
+vi.mock('@/lib/api', () => {
+  class ApiError extends Error {
+    constructor(
+      public readonly status: number,
+      public readonly path: string,
+      public readonly body: string,
+    ) {
+      super(`API ${status} on ${path}: ${body}`);
+      this.name = 'ApiError';
+    }
+  }
+
+  return {
+    ApiError,
+    api: {
+      health: vi.fn().mockResolvedValue({ status: 'ok', database: 'connected', version: 'test' }),
+    },
+  };
+});
 
 vi.mock('@/features/search/useSearch', () => ({
   useSearch: () => ({
@@ -127,11 +141,13 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
   SystemDetailModal: ({
     id64,
     savedForLater,
+    saveForLaterState = 'idle',
     onToggleSaveForLater,
     onStartPlan,
   }: {
     id64: number;
     savedForLater?: boolean;
+    saveForLaterState?: 'idle' | 'saving' | 'removing';
     onToggleSaveForLater?: (system: {
       id64: number;
       name: string;
@@ -164,6 +180,7 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
       System detail {id64}
       <button
         type="button"
+        disabled={saveForLaterState === 'saving' || saveForLaterState === 'removing'}
         onClick={() => onToggleSaveForLater?.({
           id64,
           name: `System ${id64}`,
@@ -177,7 +194,11 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
           economy_suggestion: 'Refinery',
         })}
       >
-        {savedForLater ? 'Remove from saved' : 'Save for later'}
+        {saveForLaterState === 'saving'
+          ? 'Saving…'
+          : saveForLaterState === 'removing'
+            ? 'Removing…'
+            : savedForLater ? 'Remove from saved' : 'Save for later'}
       </button>
       <button
         type="button"
@@ -498,6 +519,9 @@ describe('App Colony Planner workspace route', () => {
       is_colonised: false,
       score: 77,
     }));
+    await waitFor(() => {
+      expect(screen.getByTestId('saved-system-notice').textContent).toContain('Saved to My Work');
+    });
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
   });
 
@@ -516,6 +540,73 @@ describe('App Colony Planner workspace route', () => {
     await waitFor(() => {
       expect(mockWatchlistRemove).toHaveBeenCalledWith(123);
     });
+    await waitFor(() => {
+      expect(screen.getByTestId('saved-system-notice').textContent).toContain('Removed from saved');
+    });
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+  });
+
+  it('shows Finder save progress, confirmed saved state, and a My Work shortcut', async () => {
+    seedFinderResult();
+    let resolveSave: (() => void) | null = null;
+    mockWatchlistAdd.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveSave = () => {
+        mockWatchlistHas.mockImplementation((id64: number) => id64 === 777);
+        resolve();
+      };
+    }));
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('result-card-777')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Finder Candidate'));
+    fireEvent.click(screen.getByRole('button', { name: /Save for later/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Saving…')).toBeTruthy();
+    });
+    await act(async () => {
+      resolveSave?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Saved')).toBeTruthy();
+    });
+    expect(screen.getByRole('button', { name: /Remove from saved/i })).toBeTruthy();
+    expect(screen.getByTestId('saved-system-notice').textContent).toContain('Saved to My Work');
+    expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /Open My Work/i }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#my-work');
+    });
+  });
+
+  it('reports Finder save failures without claiming success or creating a draft', async () => {
+    seedFinderResult();
+    mockWatchlistAdd.mockRejectedValueOnce(new Error('Watchlist unavailable'));
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('result-card-777')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Finder Candidate'));
+    fireEvent.click(screen.getByRole('button', { name: /Save for later/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('saved-system-notice').textContent).toContain('Could not save system');
+    });
+    expect(screen.getByTestId('saved-system-notice').textContent).toContain('Watchlist unavailable');
+    expect(screen.getByRole('button', { name: /Save for later/i })).toBeTruthy();
+    expect(screen.queryByText('Saved to My Work')).toBeNull();
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
   });
 
@@ -571,6 +662,39 @@ describe('App Colony Planner workspace route', () => {
     expect(mockWatchlistRemove).toHaveBeenCalledWith(777);
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
     expect(window.location.hash).toBe('#finder');
+  });
+
+  it('updates Finder and System Detail together after removing a saved system', async () => {
+    seedFinderResult();
+    const savedIds = new Set([777]);
+    mockWatchlistHas.mockImplementation((id64: number) => savedIds.has(id64));
+    mockWatchlistRemove.mockImplementation(async (id64: number) => {
+      savedIds.delete(id64);
+    });
+    window.location.hash = '#finder';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('result-card-777')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Finder Candidate'));
+    expect(screen.getByRole('button', { name: /Remove from saved/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Inspect system/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('system-detail-modal').textContent).toContain('777');
+    });
+    expect(screen.getAllByRole('button', { name: /Remove from saved/i }).length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(within(screen.getByTestId('system-detail-modal')).getByRole('button', { name: /Remove from saved/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Save for later/i }).length).toBeGreaterThanOrEqual(2);
+    });
+    expect(mockWatchlistRemove).toHaveBeenCalledWith(777);
+    expect(screen.getByTestId('saved-system-notice').textContent).toContain('Removed from saved');
   });
 
   it('renders the compact player-facing Finder intro without internal shell labels', async () => {

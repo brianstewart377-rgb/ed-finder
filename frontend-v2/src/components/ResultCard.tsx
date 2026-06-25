@@ -28,6 +28,7 @@ export interface ResultCardProps {
   isPinned?: boolean;
   isCompared?: boolean;
   isSavedForLater?: boolean;
+  savedActionState?: 'idle' | 'saving' | 'removing';
   onPin?:     (id64: number) => void;
   onCompare?: (id64: number) => void;
   onToggleSavedForLater?: (id64: number) => void;
@@ -37,7 +38,7 @@ export interface ResultCardProps {
 
 export function ResultCard({
   system, index, isPinned = false, isCompared = false,
-  isSavedForLater = false,
+  isSavedForLater = false, savedActionState = 'idle',
   onPin, onCompare, onToggleSavedForLater, onShowOnMap, onOpenDetail,
 }: ResultCardProps) {
   const [open, setOpen] = useState(false);
@@ -53,6 +54,14 @@ export function ResultCard({
   const status     = systemStatusLabel(system);
   const systemId64 = Number(system.id64);
   const hasValidSystemId = Number.isFinite(systemId64) && systemId64 > 0;
+  const saveActionBusy = savedActionState === 'saving' || savedActionState === 'removing';
+  const saveActionLabel = savedActionState === 'saving'
+    ? 'Saving…'
+    : savedActionState === 'removing'
+      ? 'Removing…'
+      : isSavedForLater
+        ? 'Saved'
+        : 'Save for later';
 
   return (
     <article
@@ -224,9 +233,12 @@ export function ResultCard({
             <ActionButton
               onClick={() => onToggleSavedForLater?.(system.id64)}
               active={isSavedForLater}
+              disabled={saveActionBusy}
+              ariaLabel={isSavedForLater ? 'Remove from saved' : 'Save for later'}
+              ariaBusy={saveActionBusy}
             >
               <Eye size={13} className="mr-1.5" />
-              {isSavedForLater ? 'Remove from saved' : 'Save for later'}
+              {saveActionLabel}
             </ActionButton>
             {onOpenDetail && (
               <ActionButton onClick={() => onOpenDetail(system.id64)} primary disabled={!hasValidSystemId}>
@@ -289,18 +301,22 @@ function IconToggle({
 }
 
 function ActionButton({
-  onClick, children, primary, disabled = false, active = false,
+  onClick, children, primary, disabled = false, active = false, ariaLabel, ariaBusy = false,
 }: {
   onClick: () => void;
   children: React.ReactNode;
   primary?: boolean;
   disabled?: boolean;
   active?: boolean;
+  ariaLabel?: string;
+  ariaBusy?: boolean;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
+      aria-label={ariaLabel}
+      aria-busy={ariaBusy || undefined}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={[
         primary ? 'btn-primary' : active ? 'btn-primary' : 'btn-metal',

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import os
@@ -10,6 +11,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 
@@ -219,15 +221,17 @@ def test_support_route_matrix_covers_required_reviewed_flow_endpoints():
     assert set(route_map) >= {
         '/api/events/live',
         '/api/events/recent',
-        '/api/watchlist',
+        '/api/v2/watchlist/{sync_key}',
         '/api/cache/stats',
         '/api/facility-templates',
         '/api/systems/{id64}/simulation-summary',
         '/api/systems/{id64}/slot-predictions',
     }
+    assert '/api/watchlist' not in route_map
     assert route_map['/api/facility-templates']['required_for_reviewed_flow'] is True
     assert route_map['/api/systems/{id64}/simulation-summary']['expected_status'] == 200
-    assert route_map['/api/watchlist']['required_for_reviewed_flow'] is False
+    assert route_map['/api/v2/watchlist/{sync_key}']['required_for_reviewed_flow'] is False
+    assert route_map['/api/v2/watchlist/{sync_key}']['frontend_caller'] == 'useWatchlist scoped bootstrap'
     assert route_map['/api/events/live']['frontend_caller'] == 'useEddnFeed SSE bootstrap'
     assert route_map['/api/events/live']['validation_mode'] == 'api_contract_validated'
     assert all(row['validation_mode'] in {
@@ -304,8 +308,10 @@ def test_every_api_contract_validated_support_route_is_exercised_by_api_contract
             }
         if route == '/api/events/recent':
             return {'status': 200, 'body': {'events': [], 'jobs': {}}}
+        if route.startswith('/api/v2/watchlist/'):
+            return {'status': 200, 'body': {'sync_key': route.rsplit('/', 1)[1], 'watchlist': []}}
         if route == '/api/watchlist':
-            return {'status': 200, 'body': {'watchlist': []}}
+            return {'status': 410, 'body': {'detail': {'status': 410}}}
         if route == '/api/cache/stats':
             return {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
         if route == '/api/facility-templates':
@@ -374,15 +380,21 @@ def test_events_live_probe_is_bounded_and_completes_without_consuming_the_stream
 
 @pytest.mark.unit
 def test_events_live_wrong_content_type_fails_api_contract_phase(monkeypatch: pytest.MonkeyPatch):
+    def _fake_optional_fetch(method, route, payload=None):
+        if route == '/api/health':
+            return {'status': 200, 'body': {'ok': True}}
+        if route == '/api/events/recent':
+            return {'status': 200, 'body': {'events': [], 'jobs': {}}}
+        if route.startswith('/api/v2/watchlist/'):
+            return {'status': 200, 'body': {'sync_key': route.rsplit('/', 1)[1], 'watchlist': []}}
+        if route == '/api/watchlist':
+            return {'status': 410, 'body': {'detail': {'status': 410}}}
+        return {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
+
     monkeypatch.setattr(
         review_env.api_contracts,
         'fetch_json',
-        lambda method, route, payload=None: (
-            {'status': 200, 'body': {'ok': True}} if route == '/api/health'
-            else {'status': 200, 'body': {'events': [], 'jobs': {}}} if route == '/api/events/recent'
-            else {'status': 200, 'body': {'watchlist': []}} if route == '/api/watchlist'
-            else {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
-        ),
+        _fake_optional_fetch,
     )
     monkeypatch.setattr(
         review_env.api_contracts,
@@ -402,15 +414,21 @@ def test_events_live_wrong_content_type_fails_api_contract_phase(monkeypatch: py
 
 @pytest.mark.unit
 def test_events_live_missing_route_fails_api_contract_phase(monkeypatch: pytest.MonkeyPatch):
+    def _fake_optional_fetch(method, route, payload=None):
+        if route == '/api/health':
+            return {'status': 200, 'body': {'ok': True}}
+        if route == '/api/events/recent':
+            return {'status': 200, 'body': {'events': [], 'jobs': {}}}
+        if route.startswith('/api/v2/watchlist/'):
+            return {'status': 200, 'body': {'sync_key': route.rsplit('/', 1)[1], 'watchlist': []}}
+        if route == '/api/watchlist':
+            return {'status': 410, 'body': {'detail': {'status': 410}}}
+        return {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
+
     monkeypatch.setattr(
         review_env.api_contracts,
         'fetch_json',
-        lambda method, route, payload=None: (
-            {'status': 200, 'body': {'ok': True}} if route == '/api/health'
-            else {'status': 200, 'body': {'events': [], 'jobs': {}}} if route == '/api/events/recent'
-            else {'status': 200, 'body': {'watchlist': []}} if route == '/api/watchlist'
-            else {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
-        ),
+        _fake_optional_fetch,
     )
     monkeypatch.setattr(
         review_env.api_contracts,
@@ -698,19 +716,63 @@ async def test_review_runtime_alpha_beta_gamma_scenarios_remain_valid():
     assert gamma_provenance.provenance_summary.state == 'unknown'
 
 
-@pytest.mark.asyncio
-async def test_review_support_routes_return_synthetic_empty_read_only_payloads():
-    live = await review_support_backend.review_live_events()
-    recent = await review_support_backend.review_recent_events()
-    watchlist = await review_support_backend.review_watchlist()
-    cache_stats = await review_support_backend.review_cache_stats()
+def test_review_support_routes_return_synthetic_empty_read_only_event_cache_payloads():
+    async def _call_support_routes():
+        live_response = await review_support_backend.review_live_events()
+        recent_response = await review_support_backend.review_recent_events()
+        cache_stats_response = await review_support_backend.review_cache_stats()
+        return live_response, recent_response, cache_stats_response
+
+    live, recent, cache_stats = asyncio.run(_call_support_routes())
 
     assert live.media_type == 'text/event-stream'
     assert recent == {'events': [], 'jobs': {}}
-    assert watchlist == {'watchlist': []}
     assert cache_stats.cache_hits == 0
     assert cache_stats.db_cache_rows == 0
     assert cache_stats.redis_memory_mb == 0.0
+
+
+def test_review_main_mounts_real_watchlist_router(monkeypatch: pytest.MonkeyPatch):
+    module = _import_review_main_with_env(monkeypatch, _review_runtime_env())
+    routes = list(module.app.routes)
+
+    assert any(
+        route.path == '/api/v2/watchlist/{sync_key}'
+        and route.endpoint.__module__ == 'routers.watchlist'
+        and route.endpoint.__name__ == 'get_watchlist'
+        for route in routes
+    )
+    assert any(
+        route.path == '/api/v2/watchlist/{sync_key}/{id64}'
+        and route.endpoint.__module__ == 'routers.watchlist'
+        and route.endpoint.__name__ == 'add_watchlist'
+        for route in routes
+    )
+    assert any(
+        route.path == '/api/v2/watchlist/{sync_key}/{id64}'
+        and route.endpoint.__module__ == 'routers.watchlist'
+        and route.endpoint.__name__ == 'remove_watchlist'
+        for route in routes
+    )
+    assert '/api/watchlist' not in {route.path for route in review_support_backend.router.routes}
+
+
+def test_review_main_unscoped_watchlist_returns_production_gone(monkeypatch: pytest.MonkeyPatch):
+    module = _import_review_main_with_env(monkeypatch, _review_runtime_env())
+    legacy_routes = [
+        route for route in module.app.routes
+        if route.path == '/api/watchlist' and 'GET' in getattr(route, 'methods', set())
+    ]
+
+    assert len(legacy_routes) == 1
+    legacy_route = legacy_routes[0]
+    assert legacy_route.endpoint.__module__ == 'routers.watchlist'
+    assert legacy_route.endpoint.__name__ == 'legacy_get'
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(legacy_route.endpoint())
+
+    assert exc.value.status_code == 410
 
 
 def test_review_main_import_succeeds_only_with_exact_review_guards(monkeypatch: pytest.MonkeyPatch):
