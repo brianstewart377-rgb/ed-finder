@@ -292,6 +292,143 @@ async function runDeltaScenario(page, baseURL, summary) {
   }
 }
 
+async function runPlannerActionsScenario(page, baseURL, summary) {
+  const start = summary.apiResponses.length;
+  const checks = {};
+  const observedNote = 'Review Lab disposable browser observed fact.';
+  try {
+    await gotoFinder(page, baseURL);
+    await openResultCard(page, SYSTEMS.alpha.id64);
+    await page.getByRole('button', { name: /Evaluate in Colony Planner/i }).click();
+    await waitForPlanner(page, SYSTEMS.alpha.name);
+    checks.plannerOpened = true;
+
+    await page.getByTestId('advanced-workspace-toggle').click();
+    await expect(page.getByTestId('advanced-planner-content')).toBeVisible();
+
+    await page.getByTestId('workspace-mode-tabs').getByRole('button', { name: /Evidence/i }).click();
+    await expect(page.getByTestId('evidence-workspace-view')).toBeVisible();
+    const evidenceForm = page.getByRole('form', { name: /Record observed evidence/i });
+    await evidenceForm.getByLabel(/Evidence type/i).selectOption('note');
+    await evidenceForm.getByLabel(/^Status/i).selectOption('observed_present');
+    await evidenceForm.getByLabel(/^Confidence/i).selectOption('medium');
+    await evidenceForm.getByLabel(/^Notes/i).fill(observedNote);
+    const createFactResponse = page.waitForResponse((response) => response.url().includes('/api/observations/facts') && response.request().method() === 'POST' && response.status() === 200);
+    await evidenceForm.getByRole('button', { name: /Record observed evidence/i }).click();
+    await createFactResponse;
+    const createdFactCard = page.getByRole('listitem', { name: /Observed evidence record/i }).filter({ hasText: observedNote });
+    await expect(createdFactCard).toBeVisible();
+    checks.observedFactCreated = true;
+
+    await createdFactCard.getByRole('button', { name: /^Delete$/i }).click();
+    const deleteFactResponse = page.waitForResponse((response) => response.url().includes('/api/observations/facts/') && response.request().method() === 'DELETE' && response.status() === 200);
+    await createdFactCard.getByRole('button', { name: /Confirm delete/i }).click();
+    await deleteFactResponse;
+    await expect(page.getByText(observedNote)).toHaveCount(0);
+    checks.observedFactRemoved = true;
+
+    await page.getByTestId('workspace-mode-tabs').getByRole('button', { name: /Build Plan/i }).click();
+    await expect(page.getByTestId('build-plan-workspace-view')).toBeVisible();
+    const addStructureButton = page.locator('button[data-testid$="-add"]:not([disabled])').first();
+    await addStructureButton.scrollIntoViewIfNeeded();
+    await expect(addStructureButton).toBeVisible({ timeout: 10_000 });
+    await addStructureButton.click();
+    await expect(page.getByTestId('body-structure-picker')).toBeVisible({ timeout: 10_000 });
+    const templateButton = page.locator('[data-testid^="body-structure-template-"]').first();
+    await expect(templateButton).toBeVisible({ timeout: 10_000 });
+    await templateButton.click();
+    await expect(page.getByTestId('canvas-add-structure-feedback')).toContainText(/Added/i);
+    checks.structureAddedThroughCanvas = true;
+
+    await page.getByTestId('workspace-mode-tabs').getByRole('button', { name: /Preview/i }).click();
+    await expect(page.getByTestId('preview-workspace-view')).toBeVisible();
+    const previewResponse = page.waitForResponse((response) => response.url().includes('/api/simulate/build') && response.request().method() === 'POST' && response.status() === 200);
+    await page.getByTestId('preview-workspace-view').getByRole('button', { name: /Run Preview/i }).click();
+    await previewResponse;
+    await expect(page.getByText(/Final score/i)).toBeVisible({ timeout: 10_000 });
+    checks.previewRunThroughUi = true;
+
+    const initialCompareResponse = page.waitForResponse((response) => response.url().includes('/api/observations/compare') && response.request().method() === 'POST' && response.status() === 200);
+    const initialReviewResponse = page.waitForResponse((response) => response.url().includes('/api/observations/review') && response.request().method() === 'POST' && response.status() === 200);
+    await page.getByTestId('workspace-mode-tabs').getByRole('button', { name: /Validation/i }).click();
+    await expect(page.getByTestId('validation-workspace-view')).toBeVisible();
+    await initialCompareResponse;
+    await initialReviewResponse;
+    await expect(page.getByTestId('validation-summary')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('validation-review-panel')).toBeVisible({ timeout: 10_000 });
+
+    const refreshCompareResponse = page.waitForResponse((response) => response.url().includes('/api/observations/compare') && response.request().method() === 'POST' && response.status() === 200);
+    const refreshReviewResponse = page.waitForResponse((response) => response.url().includes('/api/observations/review') && response.request().method() === 'POST' && response.status() === 200);
+    await page.getByTestId('validation-refresh-button').click();
+    await refreshCompareResponse;
+    await refreshReviewResponse;
+    checks.validationContractsRan = true;
+
+    await page.getByTestId('workspace-mode-tabs').getByRole('button', { name: /Suggested Builds/i }).click();
+    await expect(page.getByTestId('suggested-builds-workspace-view')).toBeVisible();
+    const suggestedResponse = page.waitForResponse((response) => response.url().includes('/api/optimiser/candidates') && response.status() === 200);
+    await page.getByTestId('generate-suggested-builds').click();
+    await suggestedResponse;
+    await expect(page.getByText(/Generated for/i)).toBeVisible({ timeout: 10_000 });
+    checks.suggestedBuildsInvoked = true;
+
+    summary.scenarios.planner_actions = scenarioResult('passed', checks, summary.apiResponses.slice(start));
+  } catch (error) {
+    summary.scenarios.planner_actions = scenarioResult('failed', checks, summary.apiResponses.slice(start), error);
+    throw error;
+  }
+}
+
+async function runMapScenario(page, baseURL, summary) {
+  const start = summary.apiResponses.length;
+  const checks = {};
+  try {
+    await gotoFinder(page, baseURL);
+    await page.getByTestId('nav-map').click();
+    await expect(page.getByTestId('map-tab')).toBeVisible();
+    checks.mapOpened = true;
+
+    const regionsResponse = page.waitForResponse((response) => response.url().includes('/api/map/regions') && response.status() === 200);
+    await page.getByTestId('map-regions-toggle').click();
+    await regionsResponse;
+    const heatmapResponse = page.waitForResponse((response) => response.url().includes('/api/map/heatmap') && response.status() === 200);
+    await page.getByTestId('map-heatmap-toggle').click();
+    await heatmapResponse;
+    const clustersResponse = page.waitForResponse((response) => response.url().includes('/api/map/clusters/hulls') && response.status() === 200);
+    await page.getByTestId('map-clusters-toggle').click();
+    await clustersResponse;
+    checks.visibleMapRequestsSucceeded = true;
+
+    summary.scenarios.map = scenarioResult('passed', checks, summary.apiResponses.slice(start));
+  } catch (error) {
+    summary.scenarios.map = scenarioResult('failed', checks, summary.apiResponses.slice(start), error);
+    throw error;
+  }
+}
+
+async function runUnavailableSurfacesScenario(page, baseURL, summary) {
+  const start = summary.apiResponses.length;
+  const checks = {};
+  try {
+    for (const route of ['admin', 'operator', 'search-tuning']) {
+      const before = summary.apiResponses.length;
+      await page.goto(resolveUrl(baseURL, `/#${route}`), { waitUntil: 'domcontentloaded' });
+      await expect(page.getByTestId('hosted-review-unavailable')).toBeVisible();
+      await expect(page.getByTestId('hosted-review-unavailable')).toContainText(/unavailable in hosted review/i);
+      await expect(page.getByTestId('admin-tab')).toHaveCount(0);
+      await expect(page.getByTestId('operator-tab')).toHaveCount(0);
+      const routeResponses = summary.apiResponses.slice(before);
+      if (routeResponses.some((response) => /\/api\/(admin|operator|ratings\/rerank|profile\/sync)/.test(response.path))) {
+        throw new Error(`Unavailable route #${route} issued an operational API request.`);
+      }
+      checks[`${route}Unavailable`] = true;
+    }
+    summary.scenarios.unavailable_surfaces = scenarioResult('passed', checks, summary.apiResponses.slice(start));
+  } catch (error) {
+    summary.scenarios.unavailable_surfaces = scenarioResult('failed', checks, summary.apiResponses.slice(start), error);
+    throw error;
+  }
+}
 async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
   await runViewportProfile(browser, baseURL, summary, profile('planner_desktop_primary'), async (page) => {
     const checks = {};
@@ -304,6 +441,12 @@ async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
         await runGammaScenario(page, baseURL, summary);
       } else if (flowKey === 'delta') {
         await runDeltaScenario(page, baseURL, summary);
+      } else if (flowKey === 'planner_actions') {
+        await runPlannerActionsScenario(page, baseURL, summary);
+      } else if (flowKey === 'map') {
+        await runMapScenario(page, baseURL, summary);
+      } else if (flowKey === 'unavailable_surfaces') {
+        await runUnavailableSurfacesScenario(page, baseURL, summary);
       }
     }
     checks.telemetryToggleKeyboardWorks = await ensureTelemetryToggleKeyboardWorks(page);

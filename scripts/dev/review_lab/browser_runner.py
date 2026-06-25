@@ -47,6 +47,15 @@ def evaluate_browser_desktop(summary: dict[str, Any], selected_scenarios: tuple[
             'noDedicatedEvidenceClaim',
             'noRecoveryScreen',
         },
+        'planner_actions': {
+            'plannerOpened',
+            'observedFactCreated',
+            'observedFactRemoved',
+            'validationContractsRan',
+            'suggestedBuildsInvoked',
+        },
+        'map': {'mapOpened', 'visibleMapRequestsSucceeded'},
+        'unavailable_surfaces': {'adminUnavailable', 'operatorUnavailable', 'search-tuningUnavailable'},
     }
     required_by_profile = {
         'planner_desktop_primary': {
@@ -313,6 +322,7 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         'EDFINDER_REVIEW_OUTPUT_PATH': str(output_path),
         'EDFINDER_REVIEW_SCENARIOS_JSON': json.dumps(browser_plan, sort_keys=True),
         'VITE_DEV_API_TARGET': review_api_origin(),
+        'VITE_REVIEW_SURFACE': 'hosted',
     }
 
     run_subprocess(

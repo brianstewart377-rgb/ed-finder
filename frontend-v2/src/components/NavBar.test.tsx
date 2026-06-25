@@ -167,4 +167,13 @@ describe('NavBar', () => {
     fireEvent.click(screen.getByTestId('nav-return-to-player-desktop'));
     expect(onNavigate).toHaveBeenCalledWith('finder');
   });
+  it('hides Search Tuning from hosted-review player navigation', () => {
+    render(<NavBar current="finder" onNavigate={vi.fn()} health="Online" hostedReviewMode />);
+
+    expect(screen.getByTestId('nav-map')).toBeTruthy();
+    expect(screen.queryByTestId('nav-search-tuning')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('nav-menu-toggle'));
+    expect(screen.queryByTestId('nav-search-tuning-menu')).toBeNull();
+  });
 });

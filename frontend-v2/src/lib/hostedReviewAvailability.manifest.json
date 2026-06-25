@@ -1,0 +1,96 @@
+{
+  "features": [
+    {
+      "key": "finder",
+      "label": "Finder",
+      "state": "supported",
+      "rationale": "Uses the isolated review search and system-detail data set.",
+      "routes": ["#finder"]
+    },
+    {
+      "key": "system-detail",
+      "label": "System Detail",
+      "state": "supported",
+      "rationale": "Uses the production System Detail contract against review data.",
+      "routes": []
+    },
+    {
+      "key": "saved-systems",
+      "label": "Watchlist / saved systems",
+      "state": "supported",
+      "rationale": "Uses scoped disposable watchlist routes against the review database.",
+      "routes": ["#watchlist", "#pinned"]
+    },
+    {
+      "key": "my-work",
+      "label": "My Work",
+      "state": "supported",
+      "rationale": "Local project state and scoped saved-system data are safe for review.",
+      "routes": ["#my-work"]
+    },
+    {
+      "key": "colony-planner",
+      "label": "Colony Planner",
+      "state": "supported",
+      "rationale": "Uses real planner, simulation, evidence, validation, and suggested-build contracts against review data.",
+      "routes": ["#colony-planner"]
+    },
+    {
+      "key": "planner-evidence",
+      "label": "Planner warehouse/provenance evidence",
+      "state": "supported",
+      "rationale": "Uses review-safe planner evidence and provenance routes.",
+      "routes": []
+    },
+    {
+      "key": "observed-evidence-validation",
+      "label": "Observed Evidence and Validation",
+      "state": "supported",
+      "rationale": "Uses disposable observed facts plus passive compare/review endpoints.",
+      "routes": []
+    },
+    {
+      "key": "suggested-builds",
+      "label": "Suggested Builds",
+      "state": "supported",
+      "rationale": "Uses the real deterministic optimiser candidate route against review data.",
+      "routes": []
+    },
+    {
+      "key": "map",
+      "label": "Map",
+      "state": "supported",
+      "rationale": "Visible to normal hosted-review users and backed by real read-only map routes.",
+      "routes": ["#map"]
+    },
+    {
+      "key": "admin",
+      "label": "Admin",
+      "state": "intentionally_unavailable",
+      "rationale": "Operational write and status surfaces are not part of player review.",
+      "routes": ["#admin"]
+    },
+    {
+      "key": "operator",
+      "label": "Operator",
+      "state": "intentionally_unavailable",
+      "rationale": "Operator visibility surfaces remain outside normal player review.",
+      "routes": ["#operator"]
+    },
+    {
+      "key": "search-tuning",
+      "label": "Search Tuning",
+      "state": "intentionally_unavailable",
+      "rationale": "Advanced rerank tooling is outside the current hosted-review player journey.",
+      "routes": ["#search-tuning", "#optimizer"]
+    },
+    {
+      "key": "profile-sync",
+      "label": "Profile Sync",
+      "state": "excluded",
+      "rationale": "Hosted review has no accounts or durable user state to preserve.",
+      "routes": []
+    }
+  ]
+}
+

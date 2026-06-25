@@ -17,7 +17,10 @@ from slowapi.errors import RateLimitExceeded
 from config import limiter, log, settings
 from review_runtime_guard import validate_review_runtime_env
 from routers.colony_planner import router as colony_planner_router
+from routers.map import router as map_router
 from routers.meta import router as meta_router
+from routers.observations import router as observations_router
+from routers.optimiser import router as optimiser_router
 from routers.search import router as search_router
 from routers.simulate import router as simulate_router
 from routers.simulation import router as simulation_router
@@ -170,8 +173,11 @@ async def generic_error_handler(request: Request, exc: Exception):
 app.include_router(meta_router)
 app.include_router(search_router)
 app.include_router(systems_router)
+app.include_router(map_router)
 app.include_router(simulate_router)
 app.include_router(simulation_router)
+app.include_router(optimiser_router)
+app.include_router(observations_router)
 app.include_router(review_support_router)
 app.include_router(watchlist_router)
 app.include_router(colony_planner_router)

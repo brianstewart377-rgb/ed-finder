@@ -42,7 +42,8 @@ export interface UseAdmin {
   resetActionState: () => void;
 }
 
-export function useAdmin(): UseAdmin {
+export function useAdmin(options: { enabled?: boolean } = {}): UseAdmin {
+  const enabled = options.enabled ?? true;
   const [token, setTokenState] = useState<string>(
     () => sessionStorage.getItem(TOKEN_KEY) ?? ''
   );
@@ -70,6 +71,22 @@ export function useAdmin(): UseAdmin {
   const forgetToken = useCallback(() => setToken(''), [setToken]);
 
   const refresh = useCallback(async () => {
+    if (!enabled) {
+      setStatus(null);
+      setCache(null);
+      setEnrichmentStatus(null);
+      setWarehouseStatus(null);
+      setDataStatus(null);
+      setMetaLoading(false);
+      setEnrichmentLoading(false);
+      setWarehouseLoading(false);
+      setDataStatusLoading(false);
+      setMetaError(null);
+      setEnrichmentError(null);
+      setWarehouseError(null);
+      setDataStatusError(null);
+      return;
+    }
     setMetaLoading(true);
     setMetaError(null);
     try {
@@ -126,7 +143,7 @@ export function useAdmin(): UseAdmin {
     } finally {
       setDataStatusLoading(false);
     }
-  }, [token]);
+  }, [enabled, token]);
 
   // Initial fetch + 30s poll. We don't poll faster — these endpoints hit
   // the DB and there's no value in sub-second updates for ops dashboards.

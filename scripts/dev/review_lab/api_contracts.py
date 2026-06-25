@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from . import feature_availability
 from .contract import REQUIRED_REVIEW_SYSTEM_NAMES, REVIEW_SYSTEM_IDS, ReviewLabError
 from .lifecycle import ensure_contract_shape, fetch_json, probe_event_stream
 from .scenarios import ScenarioDefinition
@@ -31,6 +32,7 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
             safe_diagnostics={'route': '/api/health', 'status': health['status']},
         )
     diagnostics['contracts_checked'].append('health')
+    _record_support_route_check(diagnostics, '/api/health')
 
     if selected_names & {
         'planner_core', 'evidence_available', 'evidence_unavailable', 'evidence_unknown', 'evidence_not_evaluated', 'large_result_set', 'partial_optional_data', 'support_route_compatibility',
@@ -68,6 +70,7 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
             )
         diagnostics['finder_systems'] = sorted(result_names)
         diagnostics['contracts_checked'].append('finder')
+        _record_support_route_check(diagnostics, '/api/local/search')
 
     required_detail_labels: list[str] = []
     if selected_names & {'planner_core', 'evidence_available', 'partial_optional_data', 'support_route_compatibility'}:
@@ -101,6 +104,7 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
     if detail_names:
         diagnostics['system_detail_names'] = detail_names
         diagnostics['contracts_checked'].append('system_detail')
+        _record_support_route_check(diagnostics, '/api/system/{id64}')
 
     if selected_names & {'planner_core', 'evidence_available'}:
         alpha = fetch_json('GET', f"/api/colony-planner/system/{REVIEW_SYSTEM_IDS['alpha']}/warehouse-planner-evidence")
@@ -108,6 +112,7 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
         if alpha['body']['evidence_envelope']['status'] != 'available':
             raise ReviewLabError('Review Alpha did not return available dedicated evidence.', failure_code='UNEXPECTED_API_ERROR', safe_diagnostics={'status': alpha['body']['evidence_envelope']['status']})
         diagnostics['contracts_checked'].append('alpha_evidence')
+        _record_support_route_check(diagnostics, '/api/colony-planner/system/{id64}/warehouse-planner-evidence')
 
     if selected_names & {'planner_core', 'evidence_unavailable', 'partial_optional_data'}:
         beta = fetch_json('GET', f"/api/colony-planner/system/{REVIEW_SYSTEM_IDS['beta']}/warehouse-planner-evidence")
@@ -115,6 +120,7 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
         if beta['body']['evidence_envelope']['status'] != 'unavailable':
             raise ReviewLabError('Review Beta did not preserve the unavailable posture.', failure_code='UNEXPECTED_API_ERROR', safe_diagnostics={'status': beta['body']['evidence_envelope']['status']})
         diagnostics['contracts_checked'].append('beta_evidence')
+        _record_support_route_check(diagnostics, '/api/colony-planner/system/{id64}/warehouse-planner-evidence')
 
     if selected_names & {'planner_core', 'evidence_unknown', 'partial_optional_data'}:
         gamma = fetch_json('GET', f"/api/colony-planner/system/{REVIEW_SYSTEM_IDS['gamma']}/warehouse-planner-evidence")
@@ -122,6 +128,7 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
         if gamma['body']['evidence_envelope']['status'] != 'unknown':
             raise ReviewLabError('Review Gamma did not preserve the unknown posture.', failure_code='UNEXPECTED_API_ERROR', safe_diagnostics={'status': gamma['body']['evidence_envelope']['status']})
         diagnostics['contracts_checked'].append('gamma_evidence')
+        _record_support_route_check(diagnostics, '/api/colony-planner/system/{id64}/warehouse-planner-evidence')
 
     delta_response = None
     if selected_names & {'planner_core', 'evidence_not_evaluated', 'provenance_fallback'}:
@@ -133,6 +140,7 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
             raise ReviewLabError('Review Delta did not point to the provenance fallback route.', failure_code='DELTA_FALLBACK_NOT_TRIGGERED', safe_diagnostics={'fallback_route': delta_response['body'].get('fallback_route')})
         diagnostics['delta_fallback_route'] = expected_fallback
         diagnostics['contracts_checked'].append('delta_evidence_503')
+        _record_support_route_check(diagnostics, '/api/colony-planner/system/{id64}/warehouse-planner-evidence')
 
     if selected_names & {'planner_core', 'provenance_fallback', 'partial_optional_data'}:
         delta_provenance = fetch_json('GET', f"/api/colony-planner/system/{REVIEW_SYSTEM_IDS['delta']}/provenance-cockpit")
@@ -140,13 +148,13 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
         if delta_provenance['body']['system']['name'] != 'Review Delta':
             raise ReviewLabError('Review Delta provenance fallback did not load the review-only synthetic contract.', failure_code='DELTA_FALLBACK_PROVENANCE_FAILED', safe_diagnostics={'system_name': delta_provenance['body']['system'].get('name')})
         diagnostics['contracts_checked'].append('delta_provenance')
+        _record_support_route_check(diagnostics, '/api/colony-planner/system/{id64}/provenance-cockpit')
 
     if selected_names & {'planner_core', 'empty_optional_support_data', 'partial_optional_data', 'support_route_compatibility'}:
         live_events = probe_event_stream('/api/events/live')
         recent = fetch_json('GET', '/api/events/recent')
         watchlist = fetch_json('GET', REVIEW_WATCHLIST_ROUTE)
         retired_watchlist = fetch_json('GET', '/api/watchlist')
-        cache_stats = fetch_json('GET', '/api/cache/stats')
         if live_events['status'] != 200:
             raise ReviewLabError(
                 '/api/events/live did not return the expected SSE handshake response.',
@@ -184,9 +192,8 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
                 failure_code='UNEXPECTED_API_ERROR',
                 safe_diagnostics={'route': '/api/watchlist', 'status': retired_watchlist['status']},
             )
-        ensure_contract_shape(cache_stats, required_keys={'cache_hits', 'cache_misses', 'db_cache_rows'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/cache/stats')
-        diagnostics['contracts_checked'].extend(['events_live', 'events_recent', 'watchlist', 'watchlist_legacy_gone', 'cache_stats'])
-        for route in ('/api/events/live', '/api/events/recent', REVIEW_WATCHLIST_MATRIX_ROUTE, '/api/cache/stats'):
+        diagnostics['contracts_checked'].extend(['events_live', 'events_recent', 'watchlist', 'watchlist_legacy_gone'])
+        for route in ('/api/events/live', '/api/events/recent', REVIEW_WATCHLIST_MATRIX_ROUTE, '/api/watchlist'):
             _record_support_route_check(diagnostics, route)
 
     if selected_names & {'planner_core', 'evidence_available', 'evidence_unavailable', 'evidence_unknown', 'evidence_not_evaluated', 'provenance_fallback', 'support_route_compatibility'}:
@@ -205,6 +212,91 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
         ):
             _record_support_route_check(diagnostics, route)
 
+    if selected_names & {'planner_core', 'planner_supported_actions', 'support_route_compatibility'}:
+        feature_availability.validate_feature_availability()
+        availability = {feature.key: feature.to_dict() for feature in feature_availability.REVIEW_FEATURE_AVAILABILITY}
+        diagnostics['feature_availability'] = sorted((key, value['state']) for key, value in availability.items())
+        diagnostics['contracts_checked'].append('feature_availability')
+
+    if selected_names & {'planner_supported_actions', 'support_route_compatibility'}:
+        facility_templates = fetch_json('GET', '/api/facility-templates')
+        if facility_templates['status'] != 200 or not isinstance(facility_templates['body'], list) or not facility_templates['body']:
+            raise ReviewLabError('Facility templates route is missing or empty in the review runtime.', failure_code='REQUIRED_ROUTE_MISSING', safe_diagnostics={'route': '/api/facility-templates', 'status': facility_templates['status']})
+        template_id = facility_templates['body'][0].get('id') if isinstance(facility_templates['body'][0], dict) else None
+        if not template_id:
+            raise ReviewLabError('Facility template payload did not expose an id for planner action probes.', failure_code='UNEXPECTED_API_ERROR')
+        placement = {'facility_template_id': template_id, 'local_body_id': None, 'is_primary_port': True, 'build_order': 1}
+        preview_request = {
+            'system_id64': REVIEW_SYSTEM_IDS['alpha'],
+            'target_archetype': 'refinery_industrial',
+            'placements': [placement],
+        }
+        preview = fetch_json('POST', '/api/simulate/build', preview_request)
+        ensure_contract_shape(preview, required_keys={'system_id64', 'target_archetype', 'final_score', 'buildability_score'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/simulate/build')
+        candidates = fetch_json('POST', '/api/optimiser/candidates', {
+            'system_id64': REVIEW_SYSTEM_IDS['alpha'],
+            'target_archetype': 'refinery_industrial',
+            'max_candidates': 2,
+            'allow_estimated_data': True,
+            'run_preview': True,
+        })
+        ensure_contract_shape(candidates, required_keys={'system_id64', 'target_archetype', 'candidate_count', 'candidates'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/optimiser/candidates')
+        created = fetch_json('POST', '/api/observations/facts', {
+            'system_id64': REVIEW_SYSTEM_IDS['alpha'],
+            'source': 'test_fixture',
+            'fact_type': 'note',
+            'subject_type': 'system',
+            'subject_id': str(REVIEW_SYSTEM_IDS['alpha']),
+            'status': 'observed_present',
+            'confidence': 'medium',
+            'notes': 'Review Lab disposable Stage 26A observed fact.',
+            'target_archetype': 'refinery_industrial',
+            'tags': ['review-lab', 'stage-26a'],
+            'metadata': {'review_lab': True},
+        })
+        ensure_contract_shape(created, required_keys={'observation_id', 'system_id64', 'fact_type', 'status'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/observations/facts')
+        observation_id = created['body']['observation_id']
+        listed = fetch_json('GET', f"/api/observations/facts?system_id64={REVIEW_SYSTEM_IDS['alpha']}&limit=20")
+        ensure_contract_shape(listed, required_keys={'facts', 'total', 'summary'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/observations/facts')
+        compare = fetch_json('POST', '/api/observations/compare', {
+            'system_id64': REVIEW_SYSTEM_IDS['alpha'],
+            'target_archetype': 'refinery_industrial',
+            'prediction': preview['body'],
+        })
+        ensure_contract_shape(compare, required_keys={'system_id64', 'target_archetype', 'summary', 'comparisons'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/observations/compare')
+        review = fetch_json('POST', '/api/observations/review', {
+            'system_id64': REVIEW_SYSTEM_IDS['alpha'],
+            'target_archetype': 'refinery_industrial',
+            'prediction': preview['body'],
+        })
+        ensure_contract_shape(review, required_keys={'system_id64', 'target_archetype', 'summary', 'signals'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/observations/review')
+        deleted = fetch_json('DELETE', f'/api/observations/facts/{observation_id}')
+        ensure_contract_shape(deleted, required_keys={'observation_id', 'deleted'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/observations/facts/{observation_id}')
+        if deleted['body'].get('deleted') is not True:
+            raise ReviewLabError('Disposable observed fact was not deleted after planner action probe.', failure_code='UNEXPECTED_API_ERROR', safe_diagnostics={'observation_id': observation_id})
+        diagnostics['contracts_checked'].extend(['simulate_build', 'optimiser_candidates', 'observed_facts_crud', 'observation_compare', 'observation_review'])
+        for route in (
+            '/api/simulate/build',
+            '/api/optimiser/candidates',
+            '/api/observations/facts',
+            '/api/observations/facts/{observation_id}',
+            '/api/observations/compare',
+            '/api/observations/review',
+        ):
+            _record_support_route_check(diagnostics, route)
+
+    if selected_names & {'map_visible', 'support_route_compatibility'}:
+        map_regions = fetch_json('GET', '/api/map/regions')
+        map_hulls = fetch_json('GET', '/api/map/clusters/hulls?min_count=1&max_hulls=20')
+        map_heatmap = fetch_json('GET', '/api/map/heatmap?voxel_size=200&min_systems=1')
+        map_timeline = fetch_json('GET', '/api/map/timeline?bucket=month')
+        ensure_contract_shape(map_regions, required_keys={'regions'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/map/regions')
+        ensure_contract_shape(map_hulls, required_keys={'clusters'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/map/clusters/hulls')
+        ensure_contract_shape(map_heatmap, required_keys={'cells', 'count'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/map/heatmap')
+        ensure_contract_shape(map_timeline, required_keys={'points'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/map/timeline')
+        diagnostics['contracts_checked'].extend(['map_regions', 'map_cluster_hulls', 'map_heatmap', 'map_timeline'])
+        for route in ('/api/map/regions', '/api/map/clusters/hulls', '/api/map/heatmap', '/api/map/timeline'):
+            _record_support_route_check(diagnostics, route)
     diagnostics['contracts_checked'] = sorted(set(diagnostics['contracts_checked']))
     diagnostics['support_routes_checked'] = sorted(set(diagnostics['support_routes_checked']))
     expected_api_routes = {route.route for route in api_contract_validated_routes()}
