@@ -51,10 +51,22 @@ done
 
 [[ "$USERNAME" =~ ^[A-Za-z0-9._-]+$ ]] || die 'username may contain only letters, numbers, dot, underscore, and dash'
 command -v htpasswd >/dev/null || die 'htpasswd is required; install apache2-utils and rerun'
+command -v docker >/dev/null || die 'docker is required to resolve the production Nginx group id'
+
+resolve_nginx_group_id() {
+  local gid
+  gid="$(docker compose exec -T nginx sh -c 'id -g nginx' 2>/dev/null || true)"
+  if [[ ! "$gid" =~ ^[0-9]+$ ]]; then
+    die 'could not resolve numeric nginx group id from the running production Nginx container; ensure docker compose service nginx is running'
+  fi
+  printf '%s\n' "$gid"
+}
 
 if [[ -e "$AUTH_FILE" && "$FORCE" -ne 1 ]]; then
   die "$AUTH_FILE already exists; pass --force to replace it intentionally"
 fi
+
+NGINX_GROUP_ID="$(resolve_nginx_group_id)"
 
 printf 'Review username: %s\n' "$USERNAME"
 read -r -s -p 'Review password: ' PASSWORD
@@ -74,8 +86,8 @@ TMP_FILE="$(mktemp "$AUTH_DIR/.review.htpasswd.XXXXXX")"
 trap 'rm -f "$TMP_FILE"' EXIT
 
 printf '%s\n' "$PASSWORD" | htpasswd -B -C 12 -i -c "$TMP_FILE" "$USERNAME" >/dev/null
-install -m 600 "$TMP_FILE" "$AUTH_FILE"
+install -o root -g "$NGINX_GROUP_ID" -m 640 "$TMP_FILE" "$AUTH_FILE"
 
 unset PASSWORD PASSWORD_CONFIRM
 
-printf '[OK] wrote %s with mode 600\n' "$AUTH_FILE"
+printf '[OK] wrote %s as root:%s with mode 640\n' "$AUTH_FILE" "$NGINX_GROUP_ID"

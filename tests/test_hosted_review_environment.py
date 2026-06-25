@@ -381,11 +381,24 @@ def test_hosted_review_deploy_ref_guard_runs_after_checkout_before_mutations():
 
 def test_review_auth_helper_prompts_without_echo_and_uses_bcrypt_htpasswd():
     script = _read(AUTH_SCRIPT)
+    file_modes = re.findall(r'-m\s+([0-7]{3})', script)
 
     assert 'read -r -s -p' in script
     assert 'htpasswd -B -C 12 -i -c' in script
-    assert 'install -m 600' in script
     assert '.secrets/review.htpasswd' in script
+    assert 'docker compose exec -T nginx' in script
+    assert 'id -g nginx' in script
+    assert 'getent group nginx' not in script
+    assert '[[ ! "$gid" =~ ^[0-9]+$ ]]' in script
+    assert 'NGINX_GROUP_ID="$(resolve_nginx_group_id)"' in script
+    assert 'install -o root -g "$NGINX_GROUP_ID" -m 640 "$TMP_FILE" "$AUTH_FILE"' in script
+    assert 'install -m 600' not in script
+    assert '640' in file_modes
+    assert '600' not in file_modes
+    assert all(mode[-1] == '0' for mode in file_modes)
+    assert 'mode 640' in script
+    assert 'root:%s' in script
+    assert 'already exists; pass --force to replace it intentionally' in script
     assert 'PASSWORD' not in re.sub(r'PASSWORD(_CONFIRM)?', '', script)
 
 

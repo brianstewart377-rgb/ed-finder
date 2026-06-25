@@ -41,7 +41,7 @@ Create the dedicated edge network that only production `ed-nginx` and hosted `re
 docker network create edfinder-review-edge
 ```
 
-Create the review auth file. The helper prompts without echoing the password, writes a bcrypt htpasswd entry, and applies restrictive permissions:
+Create the review auth file. The helper prompts without echoing the password, writes a bcrypt htpasswd entry as `root:<nginx-worker-group>` with mode `640`, and keeps the file non-public while allowing production Nginx to read it:
 
 ```bash
 cd /opt/ed-finder
