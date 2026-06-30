@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """R1 canonical body evidence foundation.
 
-This module builds versioned, traceable body-evidence aggregates from raw
-`systems`, `bodies`, `body_rings`, and `body_scan_facts` only.
+This module builds versioned, traceable R1 body evidence from raw/source-side
+body facts only. It supports bounded dry runs from:
 
-It does not compute:
-- economy scores
-- recommendations
-- archetype rankings
-- percentiles
-- confidence
+- fixture corpora
+- live read-only system payloads from an imported-data API source
+
+It does not compute scores, recommendations, archetype ranks, or confidence.
 """
 from __future__ import annotations
 
@@ -20,13 +18,23 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 CONTRACT_VERSION = 'canonical_body_semantics_r1/v1'
 DRY_RUN_SCHEMA_VERSION = 'r1_canonical_body_evidence_dry_run/v1'
 TOOL_NAME = 'r1_canonical_body_evidence'
-TOOL_VERSION = 'v1'
+TOOL_VERSION = 'v2'
+
+REQUIRED_LIVE_EXPECTATIONS: dict[int, dict[str, Any]] = {
+    203324695: {'true_ammonia_world_count': 1, 'gas_giant_ammonia_life_count': 0},
+    2164124190: {'true_ammonia_world_count': 0, 'gas_giant_ammonia_life_count': 1},
+    5601477812: {'true_ammonia_world_count': 0, 'water_world_count': 3},
+    972533320043: {'true_ammonia_world_count': 0, 'gas_giant_ammonia_life_count': 1},
+    1865903245675: {'true_ammonia_world_count': 1, 'gas_giant_ammonia_life_count': 1},
+}
 
 CORE_R1_SELECT_SQL = """
 WITH target_systems AS (
@@ -35,6 +43,8 @@ WITH target_systems AS (
 ring_counts AS (
     SELECT body_id, COUNT(*)::integer AS ring_row_count
     FROM body_rings
+    WHERE body_id IS NOT NULL
+      AND association_status = 'local_matched'
     GROUP BY body_id
 )
 SELECT
@@ -57,13 +67,14 @@ SELECT
     b.atmosphere_composition,
     COALESCE(rc.ring_row_count, 0) AS ring_row_count,
     sf.is_ringed AS scan_is_ringed,
-    sf.data_sources AS scan_data_sources
+    sf.data_sources AS scan_data_sources,
+    sf.updated_at AS scan_updated_at
 FROM target_systems t
 JOIN systems s ON s.id64 = t.system_id64
 JOIN bodies b ON b.system_id64 = s.id64
 LEFT JOIN ring_counts rc ON rc.body_id = b.id
 LEFT JOIN LATERAL (
-    SELECT is_ringed, data_sources
+    SELECT is_ringed, data_sources, updated_at
     FROM body_scan_facts
     WHERE system_address = b.system_id64
       AND (body_id::bigint = b.id OR body_name = b.name)
@@ -76,46 +87,22 @@ ORDER BY s.id64, b.id
 TRUE_ELW_SUBTYPES = {'earth-like world'}
 TRUE_WW_SUBTYPES = {'water world'}
 TRUE_AMMONIA_SUBTYPES = {'ammonia world'}
-GG_AMMONIA_LIFE_SUBTYPES = {
-    'gas giant with ammonia-based life',
-    'gas giant with ammonia based life',
-}
-GG_WATER_LIFE_SUBTYPES = {
-    'gas giant with water-based life',
-    'gas giant with water based life',
-}
+GG_AMMONIA_LIFE_SUBTYPES = {'gas giant with ammonia-based life', 'gas giant with ammonia based life'}
+GG_WATER_LIFE_SUBTYPES = {'gas giant with water-based life', 'gas giant with water based life'}
 BLACK_HOLE_SUBTYPES = {'black hole'}
 NEUTRON_STAR_SUBTYPES = {'neutron star'}
 WHITE_DWARF_SUBTYPES = {
-    'white dwarf (d)',
-    'white dwarf (da)',
-    'white dwarf (dab)',
-    'white dwarf (daz)',
-    'white dwarf (db)',
-    'white dwarf (dbz)',
-    'white dwarf (dc)',
-    'white dwarf (dq)',
-    'white dwarf (dx)',
-    'd (white dwarf) star',
-    'da (white dwarf) star',
-    'dab (white dwarf) star',
-    'daz (white dwarf) star',
-    'db (white dwarf) star',
-    'dbz (white dwarf) star',
-    'dc (white dwarf) star',
-    'dq (white dwarf) star',
+    'white dwarf (d)', 'white dwarf (da)', 'white dwarf (dab)', 'white dwarf (daz)',
+    'white dwarf (db)', 'white dwarf (dbz)', 'white dwarf (dc)', 'white dwarf (dq)',
+    'white dwarf (dx)', 'd (white dwarf) star', 'da (white dwarf) star',
+    'dab (white dwarf) star', 'daz (white dwarf) star', 'db (white dwarf) star',
+    'dbz (white dwarf) star', 'dc (white dwarf) star', 'dq (white dwarf) star',
     'dx (white dwarf) star',
 }
 GAS_GIANT_SUBTYPES = {
-    'gas giant',
-    'class i gas giant',
-    'class ii gas giant',
-    'class iii gas giant',
-    'class iv gas giant',
-    'class v gas giant',
-    'helium-rich gas giant',
-    *GG_AMMONIA_LIFE_SUBTYPES,
-    *GG_WATER_LIFE_SUBTYPES,
+    'gas giant', 'class i gas giant', 'class ii gas giant', 'class iii gas giant',
+    'class iv gas giant', 'class v gas giant', 'helium-rich gas giant',
+    *GG_AMMONIA_LIFE_SUBTYPES, *GG_WATER_LIFE_SUBTYPES,
 }
 ROCKY_SUBTYPES = {'rocky body'}
 ROCKY_ICE_SUBTYPES = {'rocky ice body'}
@@ -157,6 +144,15 @@ def optional_bool(value: Any) -> bool | None:
     return None
 
 
+def ordered_unique_text(values: Sequence[Any]) -> list[str]:
+    out: list[str] = []
+    for value in values:
+        normalised = normalise_text(value)
+        if normalised and normalised not in out:
+            out.append(normalised)
+    return out
+
+
 @dataclass(frozen=True)
 class BodyClassification:
     system_id64: int
@@ -167,6 +163,7 @@ class BodyClassification:
     applied_rule_ids: list[str]
     unknown_flags: list[str]
     ambiguous_flags: list[str]
+    conflict_flags: list[str]
     completeness_state: str
 
     def as_dict(self) -> dict[str, Any]:
@@ -174,13 +171,48 @@ class BodyClassification:
             'system_id64': self.system_id64,
             'body_id': self.body_id,
             'body_name': self.body_name,
+            'query_result_evidence': {
+                'stable_body_id': self.body_id,
+                'raw_subtype': self.raw_evidence['raw_subtype'],
+                'is_ammonia_world': self.raw_evidence['raw_is_ammonia_world'],
+                'life_designation': self.raw_evidence['life_designation'],
+                'scan_facts': {
+                    'bio_signal_count': self.raw_evidence['raw_bio_signal_count'],
+                    'geo_signal_count': self.raw_evidence['raw_geo_signal_count'],
+                    'scan_is_ringed': self.raw_evidence['raw_scan_is_ringed'],
+                    'scan_data_sources': self.raw_evidence['raw_scan_data_sources'],
+                },
+                'ring_evidence': {
+                    'ring_row_count': self.raw_evidence['raw_ring_row_count'],
+                    'ring_state': self.raw_evidence['raw_ring_state'],
+                    'ring_source': self.raw_evidence['raw_ring_source'],
+                    'ring_confidence': self.raw_evidence['raw_ring_confidence'],
+                },
+                'distance_source': self.canonical_facts['distance_source_status'],
+            },
+            'final_canonical_classification': self.canonical_facts,
             'canonical_facts': self.canonical_facts,
             'raw_evidence': self.raw_evidence,
             'applied_rule_ids': self.applied_rule_ids,
             'unknown_flags': self.unknown_flags,
             'ambiguous_flags': self.ambiguous_flags,
+            'conflict_flags': self.conflict_flags,
             'completeness_state': self.completeness_state,
         }
+
+
+def _distance_band(value: float | None) -> str:
+    if value is None:
+        return 'unknown'
+    if value <= 1000:
+        return '0_1k_ls'
+    if value <= 10000:
+        return '1k_10k_ls'
+    if value <= 50000:
+        return '10k_50k_ls'
+    if value <= 100000:
+        return '50k_100k_ls'
+    return '100k_plus_ls'
 
 
 def _identity_or_exact_bool(
@@ -190,14 +222,22 @@ def _identity_or_exact_bool(
     explicit_rule: str,
     subtype_rule: str,
     unknown_flag: str,
+    conflict_label: str,
     applied: list[str],
     unknowns: list[str],
+    ambiguities: list[str],
+    conflicts: list[str],
 ) -> bool | None:
     explicit = optional_bool(explicit_value)
+    subtype_match = subtype in exact_subtypes
+    if explicit is False and subtype_match:
+        conflicts.append(conflict_label)
+        ambiguities.append(conflict_label)
+        return None
     if explicit is True:
         applied.append(explicit_rule)
         return True
-    if subtype in exact_subtypes:
+    if subtype_match:
         applied.append(subtype_rule)
         return True
     if subtype is None and explicit is None:
@@ -223,46 +263,73 @@ def _exact_subtype(
     return False
 
 
-def _distance_band(value: float | None) -> str:
-    if value is None:
-        return 'unknown'
-    if value <= 1000:
-        return '0_1k_ls'
-    if value <= 10000:
-        return '1k_10k_ls'
-    if value <= 50000:
-        return '10k_50k_ls'
-    if value <= 100000:
-        return '50k_100k_ls'
-    return '100k_plus_ls'
+def _coalesce_scan_bool(values: Sequence[Any]) -> bool | None:
+    bools = [optional_bool(value) for value in values if optional_bool(value) is not None]
+    if True in bools:
+        return True
+    if False in bools:
+        return False
+    return None
+
+
+def coalesce_source_rows(body_rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[int, int], dict[str, Any]] = {}
+    for row in body_rows:
+        key = (int(row['system_id64']), int(row['body_id']))
+        current = grouped.get(key)
+        if current is None:
+            current = dict(row)
+            current['_source_row_count'] = 0
+            current['_scan_bool_values'] = []
+            current['_scan_source_values'] = []
+            grouped[key] = current
+        current['_source_row_count'] += 1
+        current['_scan_bool_values'].append(row.get('scan_is_ringed'))
+        current['_scan_source_values'].extend(row.get('scan_data_sources') or [])
+        current['ring_row_count'] = max(int(current.get('ring_row_count') or 0), int(row.get('ring_row_count') or 0))
+        current['scan_is_ringed'] = _coalesce_scan_bool(current['_scan_bool_values'])
+        current['scan_data_sources'] = ordered_unique_text(current['_scan_source_values'])
+
+    out: list[dict[str, Any]] = []
+    for key in sorted(grouped):
+        row = grouped[key]
+        row['source_row_count'] = row.pop('_source_row_count')
+        row.pop('_scan_bool_values', None)
+        row.pop('_scan_source_values', None)
+        out.append(row)
+    return out
 
 
 def classify_body_row(row: Mapping[str, Any]) -> BodyClassification:
     subtype = normalise_text(row.get('subtype'))
     applied: list[str] = []
     unknowns: list[str] = []
-    ambiguous: list[str] = []
+    ambiguities: list[str] = []
+    conflicts: list[str] = []
 
     true_earth_like_world = _identity_or_exact_bool(
         subtype, row.get('is_earth_like'), TRUE_ELW_SUBTYPES,
         'R1.BODY.IDENTITY.TRUE_ELW.EXPLICIT_BOOL',
         'R1.BODY.IDENTITY.TRUE_ELW.EXACT_SUBTYPE',
         'missing_special_body_boolean',
-        applied, unknowns,
+        'conflict_true_elw_explicit_false_vs_exact_subtype',
+        applied, unknowns, ambiguities, conflicts,
     )
     true_water_world = _identity_or_exact_bool(
         subtype, row.get('is_water_world'), TRUE_WW_SUBTYPES,
         'R1.BODY.IDENTITY.TRUE_WW.EXPLICIT_BOOL',
         'R1.BODY.IDENTITY.TRUE_WW.EXACT_SUBTYPE',
         'missing_special_body_boolean',
-        applied, unknowns,
+        'conflict_true_ww_explicit_false_vs_exact_subtype',
+        applied, unknowns, ambiguities, conflicts,
     )
     true_ammonia_world = _identity_or_exact_bool(
         subtype, row.get('is_ammonia_world'), TRUE_AMMONIA_SUBTYPES,
         'R1.BODY.IDENTITY.TRUE_AMMONIA_WORLD.EXPLICIT_BOOL',
         'R1.BODY.IDENTITY.TRUE_AMMONIA_WORLD.EXACT_SUBTYPE',
         'missing_special_body_boolean',
-        applied, unknowns,
+        'conflict_true_ammonia_world_explicit_false_vs_exact_subtype',
+        applied, unknowns, ambiguities, conflicts,
     )
 
     gas_giant_ammonia_life = _exact_subtype(
@@ -307,7 +374,7 @@ def classify_body_row(row: Mapping[str, Any]) -> BodyClassification:
 
     ring_row_count = int(row.get('ring_row_count') or 0)
     scan_is_ringed = optional_bool(row.get('scan_is_ringed'))
-    scan_sources = [normalise_text(x) for x in (row.get('scan_data_sources') or []) if normalise_text(x)]
+    scan_sources = ordered_unique_text(row.get('scan_data_sources') or [])
     if ring_row_count > 0:
         rings = True
         applied.append('R1.BODY.RINGS.BODY_RINGS_PRESENT')
@@ -316,7 +383,7 @@ def classify_body_row(row: Mapping[str, Any]) -> BodyClassification:
         rings = True
         applied.append('R1.BODY.RINGS.SCAN_FLAG_TRUE')
         ring_source_status = 'body_scan_facts'
-    elif scan_is_ringed is False and 'eddn_scan' in scan_sources:
+    elif scan_is_ringed is False and any(source in scan_sources for source in ('eddn_scan', 'api_ring_projection')):
         rings = False
         applied.append('R1.BODY.RINGS.SCAN_FLAG_FALSE')
         ring_source_status = 'body_scan_facts'
@@ -348,8 +415,35 @@ def classify_body_row(row: Mapping[str, Any]) -> BodyClassification:
         distance_source_status = 'unknown'
     else:
         applied.append('R1.BODY.DISTANCE.FROM_ARRIVAL_STAR.PRESENT')
-        distance_source_status = 'raw_body_distance'
+        distance_source_status = row.get('distance_source_status') or 'raw_body_distance'
 
+    raw_subtype = row.get('subtype')
+    raw_evidence = {
+        'raw_subtype': raw_subtype,
+        'normalised_subtype': subtype,
+        'raw_body_type': row.get('body_type'),
+        'raw_is_earth_like': row.get('is_earth_like'),
+        'raw_is_water_world': row.get('is_water_world'),
+        'raw_is_ammonia_world': row.get('is_ammonia_world'),
+        'raw_is_landable': row.get('is_landable'),
+        'raw_is_terraformable': row.get('is_terraformable'),
+        'raw_terraforming_state': row.get('terraforming_state'),
+        'raw_distance_from_star': row.get('distance_from_star'),
+        'raw_bio_signal_count': row.get('bio_signal_count'),
+        'raw_geo_signal_count': row.get('geo_signal_count'),
+        'raw_atmosphere_type': row.get('atmosphere_type'),
+        'raw_atmosphere_composition': row.get('atmosphere_composition'),
+        'raw_ring_row_count': ring_row_count,
+        'raw_scan_is_ringed': row.get('scan_is_ringed'),
+        'raw_scan_data_sources': row.get('scan_data_sources') or [],
+        'raw_ring_state': row.get('ring_state'),
+        'raw_ring_source': row.get('ring_source'),
+        'raw_ring_confidence': row.get('ring_confidence'),
+        'raw_rings': row.get('rings'),
+        'life_designation': raw_subtype if normalise_text(raw_subtype) in GG_AMMONIA_LIFE_SUBTYPES | GG_WATER_LIFE_SUBTYPES else None,
+        'source_query_url': row.get('source_query_url'),
+        'source_row_count': row.get('source_row_count', 1),
+    }
     canonical_facts = {
         'true_earth_like_world': true_earth_like_world,
         'true_water_world': true_water_world,
@@ -375,24 +469,8 @@ def classify_body_row(row: Mapping[str, Any]) -> BodyClassification:
         'distance_source_status': distance_source_status,
         'ring_source_status': ring_source_status,
     }
-    raw_evidence = {
-        'raw_subtype': row.get('subtype'),
-        'normalised_subtype': subtype,
-        'raw_is_earth_like': row.get('is_earth_like'),
-        'raw_is_water_world': row.get('is_water_world'),
-        'raw_is_ammonia_world': row.get('is_ammonia_world'),
-        'raw_is_landable': row.get('is_landable'),
-        'raw_is_terraformable': row.get('is_terraformable'),
-        'raw_terraforming_state': row.get('terraforming_state'),
-        'raw_distance_from_star': row.get('distance_from_star'),
-        'raw_bio_signal_count': row.get('bio_signal_count'),
-        'raw_geo_signal_count': row.get('geo_signal_count'),
-        'raw_atmosphere_type': row.get('atmosphere_type'),
-        'raw_atmosphere_composition': row.get('atmosphere_composition'),
-        'raw_ring_row_count': row.get('ring_row_count'),
-        'raw_scan_is_ringed': row.get('scan_is_ringed'),
-        'raw_scan_data_sources': row.get('scan_data_sources'),
-    }
+
+    completeness_state = 'complete' if not unknowns and not conflicts else 'partial'
     return BodyClassification(
         system_id64=int(row['system_id64']),
         body_id=int(row['body_id']),
@@ -401,15 +479,25 @@ def classify_body_row(row: Mapping[str, Any]) -> BodyClassification:
         raw_evidence=raw_evidence,
         applied_rule_ids=sorted(set(applied)),
         unknown_flags=sorted(set(unknowns)),
-        ambiguous_flags=sorted(set(ambiguous)),
-        completeness_state='complete' if not unknowns else 'partial',
+        ambiguous_flags=sorted(set(ambiguities)),
+        conflict_flags=sorted(set(conflicts)),
+        completeness_state=completeness_state,
     )
 
 
 def aggregate_system_classifications(system_id64: int, system_name: str | None, body_rows: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    prepared_rows = [
+        {
+            'system_id64': system_id64,
+            'system_name': system_name,
+            **dict(row),
+        }
+        for row in body_rows
+    ]
+    unique_rows = coalesce_source_rows(prepared_rows)
     traces = [
         classify_body_row({'system_id64': system_id64, 'system_name': system_name, **dict(row)}).as_dict()
-        for row in body_rows
+        for row in unique_rows
     ]
     known_distances = [t['canonical_facts']['distance_from_arrival_star_ls'] for t in traces if t['canonical_facts']['distance_from_arrival_star_ls'] is not None]
     aggregate = {
@@ -418,6 +506,8 @@ def aggregate_system_classifications(system_id64: int, system_name: str | None, 
         'total_body_rows_seen': len(body_rows),
         'total_body_rows_classified': len(traces),
         'unknown_body_count': sum(1 for t in traces if t['unknown_flags']),
+        'ambiguous_body_count': sum(1 for t in traces if t['ambiguous_flags']),
+        'conflict_body_count': sum(1 for t in traces if t['conflict_flags']),
         'true_earth_like_world_count': sum(t['canonical_facts']['true_earth_like_world'] is True for t in traces),
         'true_water_world_count': sum(t['canonical_facts']['true_water_world'] is True for t in traces),
         'true_ammonia_world_count': sum(t['canonical_facts']['true_ammonia_world'] is True for t in traces),
@@ -439,7 +529,7 @@ def aggregate_system_classifications(system_id64: int, system_name: str | None, 
         'geological_signal_body_count': sum(t['canonical_facts']['geological_signals'] is True for t in traces),
         'biological_signal_total': sum(int(t['raw_evidence']['raw_bio_signal_count'] or 0) for t in traces),
         'geological_signal_total': sum(int(t['raw_evidence']['raw_geo_signal_count'] or 0) for t in traces),
-        'body_data_completeness_state': 'complete' if all(not t['unknown_flags'] for t in traces) else ('unknown' if all(t['unknown_flags'] for t in traces) else 'partial'),
+        'body_data_completeness_state': 'complete' if all(not t['unknown_flags'] and not t['conflict_flags'] for t in traces) else ('unknown' if all(t['unknown_flags'] for t in traces) else 'partial'),
         'min_distance_from_arrival_star_ls': min(known_distances) if known_distances else None,
         'max_distance_from_arrival_star_ls': max(known_distances) if known_distances else None,
         'distance_known_body_count': len(known_distances),
@@ -466,29 +556,40 @@ def evaluate_expectations(aggregate: Mapping[str, Any], expectations: Mapping[st
     return {'pass': passed, 'checks': checks}
 
 
-def build_dry_run_report_from_cases(systems: Sequence[Mapping[str, Any]], *, source_snapshot_identifier: str, generated_at: str | None = None, git_commit: str | None = None) -> dict[str, Any]:
+def build_dry_run_report_from_cases(
+    systems: Sequence[Mapping[str, Any]],
+    *,
+    source_snapshot_identifier: str,
+    generated_at: str | None = None,
+    git_commit: str | None = None,
+    scope_mode: str = 'bounded_fixture_corpus',
+) -> dict[str, Any]:
     reports = []
     source_rows = 0
     for system in sorted(systems, key=lambda x: int(x['system_id64'])):
-        aggregate, traces = aggregate_system_classifications(int(system['system_id64']), system.get('name'), list(system.get('bodies') or []))
+        body_rows = list(system.get('bodies') or [])
+        aggregate, traces = aggregate_system_classifications(int(system['system_id64']), system.get('name'), body_rows)
         reports.append({
             'system_id64': int(system['system_id64']),
             'system_name': system.get('name'),
+            'source_kind': system.get('source_kind', 'fixture'),
+            'source_query': system.get('source_query'),
             'legacy_comparison': system.get('legacy_comparison') or {},
             'expected': system.get('expectations') or {},
             'expectation_result': evaluate_expectations(aggregate, system.get('expectations') or {}),
             'aggregate': aggregate,
             'body_classification_trace': traces,
         })
-        source_rows += len(system.get('bodies') or [])
+        source_rows += len(body_rows)
     report = {
         'schema_version': DRY_RUN_SCHEMA_VERSION,
         'generated_at': generated_at or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),
         'tool': {'name': TOOL_NAME, 'version': TOOL_VERSION, 'git_commit': git_commit},
         'contract_version': CONTRACT_VERSION,
         'dry_run': True,
+        'write_enabled': False,
         'scope': {
-            'mode': 'bounded_fixture_corpus',
+            'mode': scope_mode,
             'system_id64_list': [r['system_id64'] for r in reports],
             'system_count': len(reports),
         },
@@ -518,19 +619,123 @@ def load_fixture_cases(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]
     return [dict(x) for x in payload['systems']], dict(payload)
 
 
+def _api_get_json(url: str) -> dict[str, Any]:
+    try:
+        request = Request(
+            url,
+            headers={
+                'Accept': 'application/json',
+                'User-Agent': 'ED-Finder-R1-Review-Gate/1.0',
+            },
+        )
+        with urlopen(request) as response:  # noqa: S310 - known read-only API URL
+            return json.loads(response.read().decode('utf-8'))
+    except HTTPError as exc:  # pragma: no cover - network failure
+        raise RuntimeError(f'API request failed for {url}: HTTP {exc.code}') from exc
+    except URLError as exc:  # pragma: no cover - network failure
+        raise RuntimeError(f'API request failed for {url}: {exc.reason}') from exc
+
+
+def _project_live_api_system_case(api_base: str, system_id64: int) -> dict[str, Any]:
+    url = f'{api_base.rstrip("/")}/system/{system_id64}'
+    payload = _api_get_json(url)
+    system = payload.get('system') or payload.get('record')
+    if not isinstance(system, dict):
+        raise RuntimeError(f'live API payload missing system record for {system_id64}')
+    bodies = []
+    for body in list(system.get('bodies') or []):
+        ring_count = body.get('ring_count')
+        rings = body.get('rings')
+        bodies.append({
+            'system_id64': int(system['id64']),
+            'system_name': system.get('name'),
+            'body_id': int(body['id']),
+            'body_name': body.get('name'),
+            'body_type': body.get('body_type'),
+            'subtype': body.get('subtype'),
+            'is_earth_like': body.get('is_earth_like'),
+            'is_water_world': body.get('is_water_world'),
+            'is_ammonia_world': body.get('is_ammonia_world'),
+            'is_landable': body.get('is_landable'),
+            'is_terraformable': body.get('is_terraformable'),
+            'terraforming_state': body.get('terraform_state'),
+            'distance_from_star': body.get('distance_from_star'),
+            'distance_source_status': 'raw_body_distance' if body.get('distance_from_star') is not None else 'unknown',
+            'bio_signal_count': body.get('bio_signal_count'),
+            'geo_signal_count': body.get('geo_signal_count'),
+            'atmosphere_type': body.get('atmosphere'),
+            'atmosphere_composition': body.get('atmosphere_composition'),
+            'ring_row_count': int(ring_count or (len(rings) if isinstance(rings, list) else 0)),
+            'scan_is_ringed': body.get('is_ringed'),
+            'scan_data_sources': [body.get('ring_source')] if body.get('ring_source') else [],
+            'ring_state': body.get('ring_state'),
+            'ring_source': body.get('ring_source'),
+            'ring_confidence': body.get('ring_confidence'),
+            'rings': rings,
+            'source_query_url': url,
+        })
+    return {
+        'system_id64': int(system['id64']),
+        'name': system.get('name'),
+        'source_kind': 'live_api_system_record',
+        'source_query': url,
+        'legacy_comparison': {
+            'comparison_only_source': 'live_api_system_record',
+            'rating_version': system.get('rating_version'),
+            'ammonia_count': system.get('ammonia_count'),
+            'ww_count': system.get('ww_count'),
+            'elw_count': system.get('elw_count'),
+            'landable_count': system.get('landable_count'),
+        },
+        'expectations': REQUIRED_LIVE_EXPECTATIONS.get(int(system['id64']), {}),
+        'bodies': bodies,
+    }
+
+
+def build_live_source_cases(api_base: str, system_id64s: Sequence[int]) -> list[dict[str, Any]]:
+    return [_project_live_api_system_case(api_base, system_id64) for system_id64 in system_id64s]
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Build bounded R1 canonical body evidence dry-run report')
-    parser.add_argument('--fixture-json', type=Path, required=True)
+    parser.add_argument('--fixture-json', type=Path, help='fixture corpus path')
+    parser.add_argument('--live-api-base', type=str, help='read-only imported-data API base, e.g. https://ed-finder.app/api')
+    parser.add_argument('--system-id64', dest='system_id64s', action='append', type=int, default=[], help='live source system id64; repeatable')
+    parser.add_argument('--append-incomplete-fixture-control', action='store_true', help='append the incomplete fixture control system')
     parser.add_argument('--output-json', type=Path)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if not args.fixture_json and not args.live_api_base:
+        parser.error('one of --fixture-json or --live-api-base is required')
+    if args.live_api_base and not args.system_id64s:
+        parser.error('--live-api-base requires at least one --system-id64')
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    systems, meta = load_fixture_cases(args.fixture_json)
+    systems: list[dict[str, Any]] = []
+    snapshot_parts: list[str] = []
+    scope_mode = 'bounded_fixture_corpus'
+
+    fixture_meta: dict[str, Any] = {}
+    if args.fixture_json:
+        fixture_systems, fixture_meta = load_fixture_cases(args.fixture_json)
+        if args.live_api_base and args.append_incomplete_fixture_control:
+            fixture_control = [system for system in fixture_systems if system['system_id64'] == 999999000001]
+            systems.extend(fixture_control)
+        elif not args.live_api_base:
+            systems.extend(fixture_systems)
+        snapshot_parts.append(fixture_meta.get('source_snapshot_identifier') or args.fixture_json.name)
+
+    if args.live_api_base:
+        systems = build_live_source_cases(args.live_api_base, args.system_id64s) + systems
+        snapshot_parts.insert(0, f'live_api:{args.live_api_base.rstrip("/")}')
+        scope_mode = 'bounded_live_source_corpus'
+
     report = build_dry_run_report_from_cases(
         systems,
-        source_snapshot_identifier=meta.get('source_snapshot_identifier') or args.fixture_json.name,
+        source_snapshot_identifier='|'.join(snapshot_parts),
+        scope_mode=scope_mode,
     )
     rendered = json.dumps(report, indent=2, sort_keys=True, ensure_ascii=True)
     if args.output_json:

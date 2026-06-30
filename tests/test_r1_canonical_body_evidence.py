@@ -9,9 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'importer'
 from r1_canonical_body_evidence import (  # noqa: E402
     CONTRACT_VERSION,
     CORE_R1_SELECT_SQL,
+    aggregate_system_classifications,
     build_dry_run_report_from_cases,
     canonical_json,
     classify_body_row,
+    coalesce_source_rows,
     load_fixture_cases,
 )
 
@@ -97,11 +99,109 @@ def test_unknown_fixture_preserves_unknowns():
     assert incomplete['expectation_result']['pass'] is True
 
 
+def test_body_join_multiplication_prevention_and_single_trace_row():
+    duplicated_rows = [
+        {
+            'system_id64': 1,
+            'body_id': 10,
+            'body_name': 'Test 1',
+            'body_type': 'Planet',
+            'subtype': 'Rocky body',
+            'is_ammonia_world': False,
+            'is_water_world': False,
+            'is_earth_like': False,
+            'is_landable': True,
+            'is_terraformable': False,
+            'distance_from_star': 1200.0,
+            'bio_signal_count': 0,
+            'geo_signal_count': 0,
+            'ring_row_count': 2,
+            'scan_is_ringed': None,
+            'scan_data_sources': [],
+        },
+        {
+            'system_id64': 1,
+            'body_id': 10,
+            'body_name': 'Test 1',
+            'body_type': 'Planet',
+            'subtype': 'Rocky body',
+            'is_ammonia_world': False,
+            'is_water_world': False,
+            'is_earth_like': False,
+            'is_landable': True,
+            'is_terraformable': False,
+            'distance_from_star': 1200.0,
+            'bio_signal_count': 0,
+            'geo_signal_count': 0,
+            'ring_row_count': 0,
+            'scan_is_ringed': True,
+            'scan_data_sources': ['eddn_scan'],
+        },
+    ]
+    collapsed = coalesce_source_rows(duplicated_rows)
+    assert len(collapsed) == 1
+    assert collapsed[0]['source_row_count'] == 2
+
+    aggregate, traces = aggregate_system_classifications(1, 'Test System', duplicated_rows)
+    assert aggregate['total_body_rows_seen'] == 2
+    assert aggregate['total_body_rows_classified'] == 1
+    assert len(traces) == 1
+    assert traces[0]['query_result_evidence']['ring_evidence']['ring_row_count'] == 2
+
+
+def test_boolean_subtype_contradiction_produces_documented_conflict():
+    trace = classify_body_row(
+        {
+            'system_id64': 1,
+            'body_id': 11,
+            'body_name': 'Contradiction',
+            'body_type': 'Planet',
+            'subtype': 'Ammonia world',
+            'is_ammonia_world': False,
+            'distance_from_star': 2000.0,
+            'bio_signal_count': 0,
+            'geo_signal_count': 0,
+            'ring_row_count': 0,
+            'scan_is_ringed': None,
+            'scan_data_sources': [],
+        }
+    ).as_dict()
+
+    assert trace['canonical_facts']['true_ammonia_world'] is None
+    assert 'conflict_true_ammonia_world_explicit_false_vs_exact_subtype' in trace['conflict_flags']
+    assert 'conflict_true_ammonia_world_explicit_false_vs_exact_subtype' in trace['ambiguous_flags']
+
+
+def test_explicit_false_is_distinct_from_source_unknown():
+    trace = classify_body_row(
+        {
+            'system_id64': 1,
+            'body_id': 12,
+            'body_name': 'Explicit False',
+            'body_type': 'Planet',
+            'subtype': None,
+            'is_earth_like': False,
+            'is_water_world': False,
+            'is_ammonia_world': False,
+            'distance_from_star': None,
+            'bio_signal_count': None,
+            'geo_signal_count': None,
+            'ring_row_count': 0,
+            'scan_is_ringed': None,
+            'scan_data_sources': [],
+        }
+    ).as_dict()
+
+    assert trace['canonical_facts']['true_ammonia_world'] is False
+    assert 'missing_special_body_boolean' not in trace['unknown_flags']
+
+
 def test_dry_run_report_is_deterministic_for_fixed_inputs():
     report_a = _build_report()
     report_b = _build_report()
     assert canonical_json(report_a) == canonical_json(report_b)
     assert report_a['artifact_integrity']['canonical_json_sha256'] == report_b['artifact_integrity']['canonical_json_sha256']
+    assert 'order by s.id64, b.id' in CORE_R1_SELECT_SQL.casefold()
 
 
 def test_dry_run_report_contains_machine_readable_evidence():
@@ -122,5 +222,11 @@ def test_migration_is_r1_only_and_reversible_on_paper():
     assert 'drop table if exists r1_body_classification_trace' in sql
     assert 'drop table if exists r1_system_body_aggregates' in sql
     assert 'drop table if exists r1_aggregate_runs' in sql
+    assert 'primary key (run_id, system_id64)' in sql
+    assert 'primary key (run_id, system_id64, body_id)' in sql
+    assert 'check (source_row_count >= 0)' in sql
+    assert 'check (total_body_rows_seen >= 0)' in sql
+    assert 'check (true_ammonia_world_count >= 0)' in sql
+    assert 'status in (\'planned\', \'dry_run\', \'completed\', \'partial\', \'failed\')' in sql
     assert 'score_' not in sql
     assert 'economy_suggestion' not in sql

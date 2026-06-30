@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS r1_aggregate_runs (
     generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     scope TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('planned', 'dry_run', 'completed', 'partial', 'failed')),
-    source_row_count BIGINT NOT NULL DEFAULT 0,
+    source_row_count BIGINT NOT NULL DEFAULT 0 CHECK (source_row_count >= 0),
     source_data_sha256 TEXT DEFAULT NULL,
     notes TEXT DEFAULT NULL
 );
@@ -26,39 +26,42 @@ CREATE TABLE IF NOT EXISTS r1_aggregate_runs (
 CREATE INDEX IF NOT EXISTS idx_r1_aggregate_runs_generated_at
     ON r1_aggregate_runs (generated_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_r1_aggregate_runs_contract_status
+    ON r1_aggregate_runs (contract_version, status, generated_at DESC);
+
 CREATE TABLE IF NOT EXISTS r1_system_body_aggregates (
     run_id BIGINT NOT NULL REFERENCES r1_aggregate_runs(run_id) ON DELETE CASCADE,
     system_id64 BIGINT NOT NULL REFERENCES systems(id64) ON DELETE CASCADE,
-    total_body_rows_seen INTEGER NOT NULL DEFAULT 0,
-    total_body_rows_classified INTEGER NOT NULL DEFAULT 0,
-    unknown_body_count INTEGER NOT NULL DEFAULT 0,
-    true_earth_like_world_count INTEGER NOT NULL DEFAULT 0,
-    true_water_world_count INTEGER NOT NULL DEFAULT 0,
-    true_ammonia_world_count INTEGER NOT NULL DEFAULT 0,
-    gas_giant_ammonia_life_count INTEGER NOT NULL DEFAULT 0,
-    gas_giant_water_life_count INTEGER NOT NULL DEFAULT 0,
-    black_hole_count INTEGER NOT NULL DEFAULT 0,
-    neutron_star_count INTEGER NOT NULL DEFAULT 0,
-    white_dwarf_count INTEGER NOT NULL DEFAULT 0,
-    gas_giant_count INTEGER NOT NULL DEFAULT 0,
-    rocky_count INTEGER NOT NULL DEFAULT 0,
-    rocky_ice_count INTEGER NOT NULL DEFAULT 0,
-    icy_count INTEGER NOT NULL DEFAULT 0,
-    high_metal_content_count INTEGER NOT NULL DEFAULT 0,
-    metal_rich_count INTEGER NOT NULL DEFAULT 0,
-    landable_count INTEGER NOT NULL DEFAULT 0,
-    terraformable_count INTEGER NOT NULL DEFAULT 0,
-    ringed_body_count INTEGER NOT NULL DEFAULT 0,
-    biological_signal_body_count INTEGER NOT NULL DEFAULT 0,
-    geological_signal_body_count INTEGER NOT NULL DEFAULT 0,
-    biological_signal_total INTEGER NOT NULL DEFAULT 0,
-    geological_signal_total INTEGER NOT NULL DEFAULT 0,
+    total_body_rows_seen INTEGER NOT NULL DEFAULT 0 CHECK (total_body_rows_seen >= 0),
+    total_body_rows_classified INTEGER NOT NULL DEFAULT 0 CHECK (total_body_rows_classified >= 0),
+    unknown_body_count INTEGER NOT NULL DEFAULT 0 CHECK (unknown_body_count >= 0),
+    true_earth_like_world_count INTEGER NOT NULL DEFAULT 0 CHECK (true_earth_like_world_count >= 0),
+    true_water_world_count INTEGER NOT NULL DEFAULT 0 CHECK (true_water_world_count >= 0),
+    true_ammonia_world_count INTEGER NOT NULL DEFAULT 0 CHECK (true_ammonia_world_count >= 0),
+    gas_giant_ammonia_life_count INTEGER NOT NULL DEFAULT 0 CHECK (gas_giant_ammonia_life_count >= 0),
+    gas_giant_water_life_count INTEGER NOT NULL DEFAULT 0 CHECK (gas_giant_water_life_count >= 0),
+    black_hole_count INTEGER NOT NULL DEFAULT 0 CHECK (black_hole_count >= 0),
+    neutron_star_count INTEGER NOT NULL DEFAULT 0 CHECK (neutron_star_count >= 0),
+    white_dwarf_count INTEGER NOT NULL DEFAULT 0 CHECK (white_dwarf_count >= 0),
+    gas_giant_count INTEGER NOT NULL DEFAULT 0 CHECK (gas_giant_count >= 0),
+    rocky_count INTEGER NOT NULL DEFAULT 0 CHECK (rocky_count >= 0),
+    rocky_ice_count INTEGER NOT NULL DEFAULT 0 CHECK (rocky_ice_count >= 0),
+    icy_count INTEGER NOT NULL DEFAULT 0 CHECK (icy_count >= 0),
+    high_metal_content_count INTEGER NOT NULL DEFAULT 0 CHECK (high_metal_content_count >= 0),
+    metal_rich_count INTEGER NOT NULL DEFAULT 0 CHECK (metal_rich_count >= 0),
+    landable_count INTEGER NOT NULL DEFAULT 0 CHECK (landable_count >= 0),
+    terraformable_count INTEGER NOT NULL DEFAULT 0 CHECK (terraformable_count >= 0),
+    ringed_body_count INTEGER NOT NULL DEFAULT 0 CHECK (ringed_body_count >= 0),
+    biological_signal_body_count INTEGER NOT NULL DEFAULT 0 CHECK (biological_signal_body_count >= 0),
+    geological_signal_body_count INTEGER NOT NULL DEFAULT 0 CHECK (geological_signal_body_count >= 0),
+    biological_signal_total INTEGER NOT NULL DEFAULT 0 CHECK (biological_signal_total >= 0),
+    geological_signal_total INTEGER NOT NULL DEFAULT 0 CHECK (geological_signal_total >= 0),
     body_data_completeness_state TEXT NOT NULL DEFAULT 'unknown'
         CHECK (body_data_completeness_state IN ('complete', 'partial', 'unknown')),
     min_distance_from_arrival_star_ls REAL DEFAULT NULL,
     max_distance_from_arrival_star_ls REAL DEFAULT NULL,
-    distance_known_body_count INTEGER NOT NULL DEFAULT 0,
-    distance_unknown_body_count INTEGER NOT NULL DEFAULT 0,
+    distance_known_body_count INTEGER NOT NULL DEFAULT 0 CHECK (distance_known_body_count >= 0),
+    distance_unknown_body_count INTEGER NOT NULL DEFAULT 0 CHECK (distance_unknown_body_count >= 0),
     identity_fields_complete BOOLEAN NOT NULL DEFAULT FALSE,
     distance_fields_complete BOOLEAN NOT NULL DEFAULT FALSE,
     ring_fields_complete BOOLEAN NOT NULL DEFAULT FALSE,
@@ -67,6 +70,9 @@ CREATE TABLE IF NOT EXISTS r1_system_body_aggregates (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (run_id, system_id64)
 );
+
+CREATE INDEX IF NOT EXISTS idx_r1_system_body_aggregates_system
+    ON r1_system_body_aggregates (system_id64, run_id DESC);
 
 CREATE TABLE IF NOT EXISTS r1_body_classification_trace (
     run_id BIGINT NOT NULL,
@@ -120,3 +126,14 @@ CREATE TABLE IF NOT EXISTS r1_body_classification_trace (
         REFERENCES r1_system_body_aggregates(run_id, system_id64)
         ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_r1_body_trace_system
+    ON r1_body_classification_trace (system_id64, run_id DESC, body_id);
+
+CREATE INDEX IF NOT EXISTS idx_r1_body_trace_true_ammonia
+    ON r1_body_classification_trace (true_ammonia_world)
+    WHERE true_ammonia_world IS TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_r1_body_trace_ammonia_life
+    ON r1_body_classification_trace (gas_giant_ammonia_life)
+    WHERE gas_giant_ammonia_life IS TRUE;
