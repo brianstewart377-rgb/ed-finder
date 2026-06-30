@@ -1,0 +1,248 @@
+{
+  "fixture_version": "r1_canonical_body_cases/v1",
+  "contract_version": "canonical_body_semantics_r1/v1",
+  "source_snapshot_identifier": "bounded-fixture-corpus-2026-06-30",
+  "systems": [
+    {
+      "system_id64": 203324695,
+      "name": "Eorgh Prou AA-A h24",
+      "legacy_comparison": {
+        "comparison_only_source": "live audit snapshot 2026-06-30",
+        "ammonia_count": 1
+      },
+      "expectations": {
+        "true_ammonia_world_count": 1,
+        "gas_giant_ammonia_life_count": 0,
+        "water_world_count": 0
+      },
+      "bodies": [
+        {
+          "body_id": 203324695001,
+          "body_name": "Eorgh Prou AA-A h24 A",
+          "body_type": "Star",
+          "subtype": "Black hole",
+          "distance_from_star": 0.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        },
+        {
+          "body_id": 203324695002,
+          "body_name": "Eorgh Prou AA-A h24 1",
+          "body_type": "Planet",
+          "subtype": "Ammonia world",
+          "is_ammonia_world": true,
+          "distance_from_star": 4500.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        },
+        {
+          "body_id": 203324695003,
+          "body_name": "Eorgh Prou AA-A h24 2",
+          "body_type": "Planet",
+          "subtype": "Rocky body",
+          "is_landable": true,
+          "is_terraformable": true,
+          "distance_from_star": 4800.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        }
+      ]
+    },
+    {
+      "system_id64": 2164124190,
+      "name": "Brambai DL-Y g32",
+      "legacy_comparison": {
+        "comparison_only_source": "live audit snapshot 2026-06-30",
+        "ammonia_count": 1
+      },
+      "expectations": {
+        "true_ammonia_world_count": 0,
+        "gas_giant_ammonia_life_count": 1
+      },
+      "bodies": [
+        {
+          "body_id": 2164124190001,
+          "body_name": "Brambai DL-Y g32 A",
+          "body_type": "Star",
+          "subtype": "Black hole",
+          "distance_from_star": 0.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        },
+        {
+          "body_id": 2164124190002,
+          "body_name": "Brambai DL-Y g32 A 3",
+          "body_type": "Planet",
+          "subtype": "Gas giant with ammonia-based life",
+          "distance_from_star": 83700.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        }
+      ]
+    },
+    {
+      "system_id64": 5601477812,
+      "name": "HIP 294",
+      "legacy_comparison": {
+        "comparison_only_source": "live audit snapshot 2026-06-30",
+        "legacy_rating_version": null,
+        "water_world_count_observed": 3
+      },
+      "expectations": {
+        "true_ammonia_world_count": 0,
+        "water_world_count": 3
+      },
+      "bodies": [
+        {
+          "body_id": 5601477812001,
+          "body_name": "HIP 294 A 1",
+          "body_type": "Planet",
+          "subtype": "Water world",
+          "is_water_world": true,
+          "distance_from_star": 1200.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        },
+        {
+          "body_id": 5601477812002,
+          "body_name": "HIP 294 A 2",
+          "body_type": "Planet",
+          "subtype": "Water world",
+          "is_water_world": true,
+          "distance_from_star": 1800.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        },
+        {
+          "body_id": 5601477812003,
+          "body_name": "HIP 294 B 1",
+          "body_type": "Planet",
+          "subtype": "Water world",
+          "is_water_world": true,
+          "distance_from_star": 266000.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        }
+      ]
+    },
+    {
+      "system_id64": 972533320043,
+      "name": "HIP 70564",
+      "legacy_comparison": {
+        "comparison_only_source": "live audit snapshot 2026-06-30",
+        "ammonia_count": 1
+      },
+      "expectations": {
+        "true_ammonia_world_count": 0,
+        "gas_giant_ammonia_life_count": 1
+      },
+      "bodies": [
+        {
+          "body_id": 972533320043001,
+          "body_name": "HIP 70564 A 1",
+          "body_type": "Planet",
+          "subtype": "Gas giant with ammonia-based life",
+          "distance_from_star": 24000.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        }
+      ]
+    },
+    {
+      "system_id64": 1865903245675,
+      "name": "36 Ophiuchi",
+      "legacy_comparison": {
+        "comparison_only_source": "live audit snapshot 2026-06-30",
+        "ammonia_count": 2
+      },
+      "expectations": {
+        "true_ammonia_world_count": 1,
+        "gas_giant_ammonia_life_count": 1
+      },
+      "bodies": [
+        {
+          "body_id": 1865903245675001,
+          "body_name": "36 Ophiuchi A 4",
+          "body_type": "Planet",
+          "subtype": "Ammonia world",
+          "is_ammonia_world": true,
+          "distance_from_star": 3200.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        },
+        {
+          "body_id": 1865903245675002,
+          "body_name": "36 Ophiuchi C 9",
+          "body_type": "Planet",
+          "subtype": "Gas giant with ammonia-based life",
+          "distance_from_star": 8700.0,
+          "ring_row_count": 0,
+          "scan_is_ringed": false,
+          "scan_data_sources": ["eddn_scan"],
+          "bio_signal_count": 0,
+          "geo_signal_count": 0
+        }
+      ]
+    },
+    {
+      "system_id64": 999999000001,
+      "name": "R1 Incomplete Fixture",
+      "legacy_comparison": {
+        "comparison_only_source": "none"
+      },
+      "expectations": {
+        "unknown_body_count": 1,
+        "true_ammonia_world_count": 0
+      },
+      "bodies": [
+        {
+          "body_id": 999999000001001,
+          "body_name": "R1 Incomplete Fixture 1",
+          "body_type": "Planet",
+          "subtype": null,
+          "is_ammonia_world": null,
+          "is_water_world": null,
+          "is_earth_like": null,
+          "is_landable": null,
+          "is_terraformable": null,
+          "distance_from_star": null,
+          "ring_row_count": 0,
+          "scan_is_ringed": null,
+          "scan_data_sources": [],
+          "bio_signal_count": null,
+          "geo_signal_count": null
+        }
+      ]
+    }
+  ]
+}
