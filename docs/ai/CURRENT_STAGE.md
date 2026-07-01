@@ -4,22 +4,21 @@
 
 ## Status
 
-**Accepted — merge pending**
+**Stage 3A design accepted — technical contract pending**
 
 ## Baseline
 
 - Base branch: `work/r1-canonical-body-evidence`
-- Exact current base SHA: `cef563c569544089097e7b75f9f43ae62729097d`
-- Implementation branch: `feat/r1-assessment-core`
-- Review PR: `#280`
-- Stage 1 PR: `#277`, merged.
-- Stage 1 merge commit: `6b45e760f20f81a8b7673b412c139b3226caeb29`.
+- Last accepted implementation stage: Stage 2B pure R1 assessment-domain core.
+- Stage 2B PR: `#280`, merged.
+- Stage 2B merge commit: `220c870f89a5af7f98adb88578373dbc3a681a9c`.
+- Stage 3A is read-only design work only. No Stage 3 implementation is authorised.
 
 ## Active goal
 
-Stage 2B pure R1 assessment-domain core — accepted pending merge.
+Prepare the Stage 3B technical contract for the smallest credible DEV-only, fixture-backed R1 assessment-lab presentation layer.
 
-## Read before editing
+## Read before any Stage 3 work
 
 - `docs/ai/README.md`
 - `docs/ai/PROJECT_CONTEXT.md`
@@ -28,91 +27,80 @@ Stage 2B pure R1 assessment-domain core — accepted pending merge.
 - `docs/ai/RECOVERY.md`
 - `docs/ai/ACCEPTANCE_PROTOCOL.md`
 - `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`
+- the merged Stage 1 DEV boundary and Stage 2B core files.
 
-## Allowed Stage 2B files
+## Stage 3A accepted direction
+
+### Confirmed contract
+
+- The lab remains available only through the existing DEV-only `#r1-assessment-lab` entry boundary.
+- Stage 3B is fixture-backed only and directly consumes the accepted pure Stage 2B evaluator.
+- No production routing, normal app navigation, provider, store, API, live-data, or persistence behavior may be added.
+- No score, rank, best-system wording, recommendation, strategy, Plan Fit, report, digest, export, download, material planning, route planning, or colonisation-staging control belongs in Stage 3B.
+- Fixed fixture data must remain read-only.
+- Results must render in this order:
+  1. assessment state;
+  2. structured conditions;
+  3. requirement trace;
+  4. frozen evidence and provenance;
+  5. carrier scenario comparison where `compare_both` is selected.
+- `compare_both` must present `no_carrier` before `carrier_available`.
+
+### Accepted Stage 3B lens decision
+
+- The UI may expose an explicit Role/Question lens picker.
+- The selected lens is passed to the evaluator and displayed as assessment context.
+- Lens selection is **context-only** in Stage 3B. It must not change fixture evaluation, requirement outcomes, conditions, or assessment state.
+- The UI must state this plainly and persistently. It must not imply that lens-specific analysis has been reconstructed.
+
+### Honest status language required
+
+The presentation must clearly state that it is:
+
+- DEV-only;
+- fixture-backed;
+- a reconstruction-contract surface;
+- not a recovery of the historic evaluator;
+- not production scoring or live recommendations.
+
+## Strongly supported Stage 3B boundary
+
+The technical contract should consider this smallest credible file set:
 
 - `docs/ai/CURRENT_STAGE.md`
-- `frontend-v2/src/lab/r1-assessment-lab/core/types.ts`
-- `frontend-v2/src/lab/r1-assessment-lab/core/fixtures.ts`
-- `frontend-v2/src/lab/r1-assessment-lab/core/evaluateAssessment.ts`
-- `frontend-v2/src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts`
+- `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabApp.tsx`
+- `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabApp.test.tsx`
+- `frontend-v2/src/lab/r1-assessment-lab/presentation.ts`
+- `frontend-v2/src/lab/r1-assessment-lab/presentation.test.ts`
 
-No other files were authorised. The Stage 1 boundary and shell, `App.tsx`, routes, navigation, stores, APIs, configuration, build policy, and production behavior were not part of Stage 2B.
+This is a proposed boundary, not coding authorisation. The technical-contract review must either accept it exactly or justify a narrower alternative.
 
-## Fixed Stage 2B contract
+## Required Stage 3B evidence to define before coding
 
-- Assessment states are exactly:
-  - `not_assessable`
-  - `not_supported`
-  - `conditionally_supported`
-  - `supported`
-- Carrier modes are exactly:
-  - `no_carrier`
-  - `carrier_available`
-  - `compare_both`
-- Assessment requires an exclusive discriminated `AssessmentLens`:
-  - `{ kind: 'role'; roleId: string }`, or
-  - `{ kind: 'question'; questionId: string }`.
-- No score, rank, best-system result, or `plan_fit` may exist in code or output.
-- Carrier can change logistics-sensitive requirement outcomes only. It must not alter frozen evidence, provenance, capacity facts, or shared constraints.
-- State precedence is `not_assessable`, `not_supported`, `conditionally_supported`, then `supported`.
-- `compare_both` returns `no_carrier` then `carrier_available`.
-- Output ordering must be deterministic and inputs must remain immutable.
+- existing Stage 1 entry-isolation, route, no-network, and source-boundary tests remain unchanged regression gates;
+- existing Stage 2B core tests remain an unchanged regression gate;
+- dedicated UI tests for fixed fixture selection, visible context-only lens notice, all three carrier modes, and `compare_both` order;
+- visible proof of all four assessment states;
+- visible `No structured conditions.` empty state;
+- deterministic visible frozen evidence/provenance;
+- interaction-time network/persistence silence after changing all controls;
+- no rendered forbidden terms or fields: `score`, `rank`, `best`, `plan_fit`;
+- typecheck and production build;
+- production JS/CSS/HTML scan for the existing seven lab-only identifiers **plus every new Stage 3-specific visible lab string**;
+- explicit diff/check evidence and clean worktree.
 
-## Approved fixture/state mapping
+## Explicit non-goals
 
-This is a forward reconstruction decision, not a claim about lost historic behavior:
+- changes to `App.tsx`, `src/main.tsx`, routes, normal navigation, production behavior, stores, APIs, or configuration;
+- changes to Stage 2B evaluator semantics, fixtures, or types;
+- editable fixture data, JSON inputs, overrides, free-form system search, or what-if modelling;
+- reports, digests, exports, markdown generation, hashes, or downloads;
+- strategy selection, Plan Fit, material recommendations, route planning, or colonisation staging;
+- public-facing UI.
 
-| Fixture | Scenario | Required state |
-|---|---|---|
-| `compact_sufficient_case` | default | `supported` |
-| `incomplete_evidence_case` | default | `not_assessable` |
-| `contradictory_allocation_case` | default | `not_assessable` |
-| `fake_flexibility_case` | default | `not_supported` |
-| `remote_materials_carrier_case` | `no_carrier` | `conditionally_supported` |
-| `remote_materials_carrier_case` | `carrier_available` | `supported` |
+## Next safe action
 
-`wregoe_dual_dodec_control` and `plateau_30_vs_60_case` are not part of Stage 2B.
-
-## Commits
-
-- Initial implementation: `7a7249f5c17fa53616365a440bf5e95770b6f502` — `feat: add pure R1 assessment core`
-- Runtime-validation correction: `1ee4c82aca746bb1036d09e596f075334edfa0be` — `fix: tighten R1 assessment core runtime validation`
-- Final hardening implementation: `e5e052a12c7b16dbc9dbff2bb1bef320f3bbab50` — `fix: harden R1 assessment core template validation`
-- Final evidence handoff before acceptance: `6bbe663474b45d7bc73fea2529f5f737216ba878`
-
-## Final acceptance checkpoint
-
-- Accepted code commit: `e5e052a12c7b16dbc9dbff2bb1bef320f3bbab50`
-- Accepted at: `2026-07-01T20:39:08Z`
-- Branch: `feat/r1-assessment-core`
-- Pull request: `#280`
-- Reviewed scope:
-  - pure local deterministic fixture-backed core only;
-  - exact four assessment states and three carrier modes;
-  - explicit fixture/state mapping;
-  - no UI expansion, reports, digests, exports, strategy selection, Plan Fit, API, persistence, or production integration;
-  - only the five authorised Stage 2B files changed.
-- Runtime protections reviewed:
-  - exclusive lens validation;
-  - non-empty programme/template/revision validation;
-  - carrier-mode validation;
-  - carrier variation limited to non-shared logistics requirements marked carrier-sensitive;
-  - complete and unique template/fixture requirement coverage;
-  - duplicate template requirement ID rejection.
-- Evidence reviewed:
-  - source and test review on PR `#280`;
-  - recorded local Stage 2B core test outcome: 23 tests passed;
-  - recorded local Stage 1 regression outcome: 9 tests passed;
-  - recorded local typecheck and production build outcomes: passed;
-  - recorded deployable JS/CSS/HTML scan: zero matches for all seven Stage 1 lab-only identifiers;
-  - clean final worktree reported.
-- Caveats:
-  - the evaluator remains fixture-backed only and does not claim recovery of lost historical planner semantics;
-  - no GitHub Actions status is attached to the final head, so the command outcomes above are recorded local evidence rather than independently executed CI evidence;
-  - existing Coalsack asset and chunk-size build warnings remain outside Stage 2B scope.
-- Next safe action:
-  - merge PR `#280`; do not start Stage 3 until a separate written contract is accepted.
+Obtain a revised **Stage 3B technical contract** that incorporates the accepted context-only lens decision, the precise UI copy, exact controls/defaults, allowed files, tests, final artifact-scan identifier list, and explicit non-goals. Do not create a Stage 3 branch or edit product code until the owner accepts that contract.
 
 ## Recovery instruction
 
