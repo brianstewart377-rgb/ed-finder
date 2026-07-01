@@ -119,7 +119,16 @@ Every fixed strategy requires:
   - `fixtureId`
   - `fixtureRevision`
 - a unique non-empty list of required assessment requirement IDs
-- a unique non-empty-or-empty-as-appropriate list of logistics-sensitive requirement IDs
+- a possibly empty list of unique logistics-sensitive requirement IDs
+
+The exact Stage 4B strategy records are fixed and non-negotiable:
+
+| Strategy | Exact fields |
+|---|---|
+| `baseline_local_strategy` | `strategyId: baseline_local_strategy`; `strategyRevision: v1`; `label: Baseline local strategy`; compatibility: `r1_assessment_programme / core_assessment_template / r1-contract-v1`; provenance: `fixture / baseline_local_strategy / v1`; `requiredAssessmentRequirementIds`: `foundation_evidence`, `allocation_consistency`, `capacity_floor`; `logisticsSensitiveRequirementIds`: `[]` |
+| `remote_logistics_strategy` | `strategyId: remote_logistics_strategy`; `strategyRevision: v1`; `label: Remote logistics strategy`; compatibility: `r1_assessment_programme / core_assessment_template / r1-contract-v1`; provenance: `fixture / remote_logistics_strategy / v1`; `requiredAssessmentRequirementIds`: `foundation_evidence`, `allocation_consistency`, `capacity_floor`, `remote_logistics`; `logisticsSensitiveRequirementIds`: `remote_logistics` |
+
+These are fixed forward-reconstruction records, not recovered historic strategies.
 
 Hard rules:
 
@@ -176,9 +185,10 @@ Permitted Plan Fit state:
 Required behavior:
 
 - do not evaluate strategy dependencies for fit
-- emit a deterministic assessment-state gate reason
+- emit the deterministic assessment-state gate reason `gate:not_assessable`
 - carrier cannot alter this result
 - no strategy can turn this into blocked or provisional fit
+- `no_plan_fit` contains exactly one reason: `gate:not_assessable`
 
 ### `not_supported`
 
@@ -188,8 +198,9 @@ Permitted Plan Fit state:
 
 Required behavior:
 
-- emit a deterministic blocking assessment-state gate reason
-- strategy dependency reasons may be added for explanation only
+- emit the mandatory blocking assessment-state gate reason `gate:not_supported` first
+- then evaluate every selected strategy dependency and emit its §8 dependency reason where applicable
+- these dependency reasons are explanatory only and cannot change `blocked_plan_fit` to `provisional_plan_fit`
 - no carrier effect can turn this into `provisional_plan_fit`
 
 ### `conditionally_supported`
@@ -221,10 +232,16 @@ Rules:
 
 ### Cross-state reason invariant
 
-- `no_plan_fit` may contain an assessment-state gate reason
+- `no_plan_fit` contains exactly one reason: `gate:not_assessable`
 - `blocked_plan_fit` must contain at least one blocking reason
 - `provisional_plan_fit` must contain zero blocking reasons
 - Plan Fit must never alter the assessment scenario state
+- an assessment-state gate reason is always first when required
+- all remaining dependency reasons are sorted lexically by reason ID
+- `not_assessable` contains exactly one reason: its assessment-state gate reason
+- `not_supported` contains its gate reason first, followed by any emitted dependency reasons in lexical reason-ID order
+- `provisional_plan_fit` has no gate reason and its dependency reasons sort lexically by reason ID
+- `blocked_plan_fit` caused by a selected strategy dependency, rather than an assessment-state gate, contains dependency reasons sorted lexically by reason ID
 
 ## 8. Exact dependency-to-reason mapping
 
@@ -252,14 +269,18 @@ For each selected strategy requirement dependency in each accepted assessment sc
 
 Reasons must:
 
-- contain stable non-empty IDs
+- contain stable non-empty IDs using this exact scheme:
+  - `gate:not_assessable`
+  - `gate:not_supported`
+  - `dependency:<requirementId>`
 - contain neutral summary text
 - carry related requirement IDs
 - carry related evidence IDs where available
-- be sorted by ID
 - have no recommendation, ranking, preference, winner, score, or comparative language
 
-For `not_supported`, the mandatory assessment-state gate must be emitted before any dependency explanation. For `not_assessable`, do not evaluate dependency reasons.
+For `not_supported`, emit the mandatory blocking assessment-state gate reason first. Then evaluate every selected strategy dependency and emit its dependency reason where applicable. These dependency reasons are explanatory only and cannot change `blocked_plan_fit` to `provisional_plan_fit`.
+
+For `not_assessable`, do not evaluate dependency reasons.
 
 ## 9. Assessment-result trust boundary and narrow validation
 
@@ -279,19 +300,30 @@ Require narrow guards for:
   - `compare_both` => `[no_carrier, carrier_available]`
 - no duplicate carrier scenario entries
 - valid scenario assessment states
+- reject any scenario whose assessment state is not `not_assessable` but whose requirement results contain an `unknown` or `contradictory` outcome
 - per-scenario requirement results containing every accepted template requirement exactly once
 - no unknown, duplicate, or missing requirement IDs
 - requirement-result carrier modes matching their enclosing scenario
 - selected strategy ID resolving exactly once in the fixed strategy registry
 
-The evaluator must not verify whether an assessment state was correctly derived from the requirement outcomes. That is Stage 2B’s responsibility.
+The evaluator must not verify whether an assessment state was correctly derived from the full requirement outcomes. That is Stage 2B’s responsibility. The `unknown` / `contradictory` rule above is a narrow structural consistency guard only; it does not recompute Stage 2B assessment state.
 
 ## 10. Carrier and lens invariants
+
+Plan Fit never applies, repairs, transforms, or independently calculates carrier effects.
+
+Any carrier difference originates solely from accepted Stage 2B per-scenario requirement outcomes.
 
 Carrier can affect only strategy dependencies that are both:
 
 - declared logistics-sensitive by the selected strategy
 - validated as logistics, carrier-sensitive, and non-shared in the accepted template
+
+In `compare_both`, for each selected strategy requirement dependency, the evaluator compares its outcome across `no_carrier` and `carrier_available`.
+
+Where an outcome differs across scenarios, that requirement ID must be declared in the selected strategy’s `logisticsSensitiveRequirementIds`; otherwise reject the assessment result as incompatible with the selected strategy.
+
+Plan Fit’s only response to accepted carrier-specific outcomes is to map them through the fixed dependency-to-reason rules.
 
 Carrier must never:
 
@@ -332,7 +364,7 @@ These are forward-reconstruction fixture combinations, not recovered historic st
 3. `remote_materials_carrier_case` + `remote_logistics_strategy` + `compare_both`
    - exact scenario order: `no_carrier` then `carrier_available`
    - `no_carrier` retains the logistics reason
-   - `carrier_available` removes or reduces only that permitted logistics reason
+   - `carrier_available` removes that permitted logistics reason
    - no comparative recommendation language
 
 4. `fake_flexibility_case` + `baseline_local_strategy` + `no_carrier`
@@ -360,18 +392,27 @@ The later Stage 4B test suite must prove:
 - invalid strategy requirement IDs reject
 - strategy logistics-sensitive declarations reject when requirement is non-logistics, carrier-insensitive, capacity, or shared
 - malformed assessment-result structural guards reject
+- rejection of non-`not_assessable` scenarios containing `unknown` or `contradictory` outcomes
+- rejection where a selected strategy requirement changes outcome across `compare_both` without appearing in that strategy’s `logisticsSensitiveRequirementIds`
 - no raw fixture input path exists
 - repeated evaluation is deeply equal and normalized JSON is identical
 - evaluation does not mutate assessment input, nested requirement results, frozen evidence/provenance, fixed template, strategy fixture, or output across calls
 - per-state Plan Fit gating follows the exact rules above
+- `not_supported` emits `gate:not_supported` first and then all applicable selected-strategy dependency reasons
+- `not_assessable` contains exactly `gate:not_assessable` and no dependency reasons
 - dependency-to-reason mapping follows the exact rules above
+- gate-first plus lexical ordering of all following dependency reasons
+- the exact reason-ID scheme is used
 - required fixture matrix passes
 - carrier changes only the permitted remote logistics reason
 - carrier cannot repair missing evidence, contradiction, capacity, shared constraint, `not_assessable`, or `not_supported`
 - changing only lens changes only returned context lens
 - scenario order is exact
-- reason order is lexical by reason ID
+- reason order follows the gate-first then lexical dependency-order rule above
+- exact strategy-table fields are preserved, including compatibility, revision, provenance, required requirement IDs, and logistics-sensitive requirement IDs
 - strategy revision and provenance are preserved exactly
+- rejection paths are thrown errors
+- synthetic or cloned malformed test inputs are permitted solely to exercise required rejection coverage
 - a recursive object-key scan proves output contains no:
   - `score`
   - `rank`

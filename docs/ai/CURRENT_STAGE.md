@@ -4,7 +4,7 @@
 
 ## Status
 
-**Stage 4B technical contract drafted — awaiting independent review and owner approval**
+**Stage 4B technical contract revised after independent review — awaiting final independent review and owner approval**
 
 ## Baseline
 
@@ -21,6 +21,7 @@
 - Contract file: `docs/ai/R1_STAGE4_PLAN_FIT_CONTRACT_V1.md`
 - This branch is documentation-only.
 - No Stage 4B implementation is authorised.
+- The first independent review required deterministic-output and carrier-boundary wording corrections in the contract text.
 
 ## Proposed later Stage 4B implementation allowlist
 
