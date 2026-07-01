@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — final hardening required**
+**Implementing — final hardening evidence gathered**
 
 ## Baseline
 
@@ -89,6 +89,8 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 - `7a7249f5c17fa53616365a440bf5e95770b6f502` — `feat: add pure R1 assessment core`
 - Correction implementation commit: `1ee4c82aca746bb1036d09e596f075334edfa0be` — `fix: tighten R1 assessment core runtime validation`
 - Correction evidence commit: `ee86b05e6745d4dfe4efebd377e7322452d778f7` — `docs: record Stage 2B correction evidence`
+- Final hardening implementation commit: `e5e052a12c7b16dbc9dbff2bb1bef320f3bbab50` — `fix: harden R1 assessment core template validation`
+- Final hardening evidence commit: `pending final docs checkpoint`
 
 ## Required evidence before acceptance
 
@@ -128,10 +130,11 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 ## Actual evidence
 
 - Branch: `feat/r1-assessment-core`
-- Current implementation commit: `1ee4c82aca746bb1036d09e596f075334edfa0be`
+- Review PR: `#280`
+- Current implementation commit: `e5e052a12c7b16dbc9dbff2bb1bef320f3bbab50`
 - Stage 2B core test:
   - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts"`
-  - Result: `1 passed, 19 tests passed`
+  - Result: `1 passed, 23 tests passed`
 - Stage 1 regression tests:
   - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
   - Result: `4 passed, 9 tests passed`
@@ -155,7 +158,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
   - `git diff --name-status`
   - `git diff --check`
   - `git diff --cached --check`
-- Final worktree state: clean after final docs checkpoint
+- Final worktree state: pending final docs checkpoint
 
 ## Raw outcome summary
 
@@ -177,6 +180,11 @@ This is a forward reconstruction decision, not a claim about lost historic behav
   - carrier-varying shared-constraint rejection
   - missing template requirement evaluation rejection
   - duplicate fixture evaluation rejection
+- Added final hardening coverage for:
+  - duplicate selected-template requirement id rejection
+  - blank selected `programmeId` rejection
+  - blank selected `templateId` rejection
+  - blank selected `revision` rejection
 - Left Stage 1 boundary, shell, routes, stores, API code, and configuration unchanged.
 
 ## Remaining caveats
@@ -186,7 +194,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 
 ## Next safe action
 
-Implement the final hardening pass only in `evaluateAssessment.ts` and `evaluateAssessment.test.ts`, then gather the required evidence and request final Stage 2B review on PR `#280`.
+Request final Stage 2B review on PR `#280`. Do not begin another stage.
 
 ## Recovery instruction
 
