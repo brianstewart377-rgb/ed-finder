@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — Stage 3B correction required**
+**Implementing — Stage 3B correction evidence gathered**
 
 ## Baseline
 
@@ -16,6 +16,7 @@
 - Stage 2B merge commit: `220c870f89a5af7f98adb88578373dbc3a681a9c`.
 - Stage 3B implementation commit: `fe28827d0703e9fe1ca4d510fbb434e39f64bcf0`
 - Current head before correction: `e8e4ffed601ec3b0d952ee9a9c089c2c6fde4a4a`
+- Stage 3B correction implementation commit: `2c10872a82046949bc91cb53481b1cee2390a853`
 
 ## Active goal
 
@@ -107,6 +108,48 @@ No other files are authorised. Do not modify `R1AssessmentLabApp.tsx`, `App.tsx`
     - `compare_both`
 - explicit `git status --short`, `git diff --stat`, `git diff --name-status`, `git diff --check`, and `git diff --cached --check` evidence with a final clean worktree.
 
+## Actual evidence
+
+- Branch: `feat/r1-assessment-lab-presentation`
+- Review PR: `#282`
+- Current implementation commit: `2c10872a82046949bc91cb53481b1cee2390a853`
+- Correction evidence commit: `pending final docs checkpoint`
+- Stage 3B presentation test:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/R1AssessmentLabApp.test.tsx"`
+  - Result: `1 passed, 7 tests passed`
+- Stage 1 regression tests:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
+  - Result: `4 passed, 9 tests passed`
+- Stage 2B core regression test:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts"`
+  - Result: `1 passed, 23 tests passed`
+- Typecheck:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" typecheck`
+  - Result: passed
+- Production build:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" build`
+  - Result: passed
+- Production artifact scans:
+  - existing seven Stage 1 strings → no matches
+  - full Stage 3-only scan → no matches
+- Git checks executed before final docs update:
+  - `git status --short`
+  - `git diff --stat`
+  - `git diff --name-status`
+  - `git diff --check`
+  - `git diff --cached --check`
+- Final worktree state: pending final docs checkpoint
+
+## Raw outcome summary
+
+- Replaced the aggregate-only side-effect interaction proof with separate immediate no-call assertions after each individual control change.
+- Strengthened the default compact-fixture rendering test with scoped requirement-trace and frozen-evidence provenance assertions for `foundation_evidence` and `compact-foundation`.
+- Left `R1AssessmentLabApp.tsx`, Stage 1 tests, Stage 2B core files/tests, routes, stores, providers, APIs, configuration, and stylesheets unchanged.
+
+## Remaining caveats
+
+- The production build still emits the pre-existing Coalsack asset warnings and chunk-size warning; this correction did not change build policy or those asset paths.
+
 ## Explicit non-goals
 
 - `App.tsx`, `src/main.tsx`, route, normal navigation, provider, store, API, build/configuration, stylesheet, or package changes;
@@ -117,7 +160,7 @@ No other files are authorised. Do not modify `R1AssessmentLabApp.tsx`, `App.tsx`
 
 ## Next safe action
 
-Make the test-only correction in `R1AssessmentLabApp.test.tsx`, gather the required evidence again, and open the required PR against `work/r1-canonical-body-evidence`.
+Request final Stage 3B review on PR `#282`. Do not begin another stage.
 
 ## Recovery instruction
 
