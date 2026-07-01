@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — Stage 3B authorised**
+**Implementing — Stage 3B evidence gathered**
 
 ## Baseline
 
@@ -14,6 +14,7 @@
 - Last accepted implementation stage: Stage 2B pure R1 assessment-domain core.
 - Stage 2B PR: `#280`, merged.
 - Stage 2B merge commit: `220c870f89a5af7f98adb88578373dbc3a681a9c`.
+- Stage 3B implementation commit: `fe28827d0703e9fe1ca4d510fbb434e39f64bcf0`
 
 ## Active goal
 
@@ -157,6 +158,47 @@ Inside `compare_both`, render:
     - `compare_both`
 - explicit `git status --short`, `git diff --stat`, `git diff --name-status`, `git diff --check`, and `git diff --cached --check` evidence with a final clean worktree.
 
+## Actual evidence
+
+- Branch: `feat/r1-assessment-lab-presentation`
+- Current implementation commit: `fe28827d0703e9fe1ca4d510fbb434e39f64bcf0`
+- Stage 3B presentation test:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/R1AssessmentLabApp.test.tsx"`
+  - Result: `1 passed, 7 tests passed`
+- Stage 1 regression tests:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
+  - Result: `4 passed, 9 tests passed`
+- Stage 2B core regression test:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts"`
+  - Result: `1 passed, 23 tests passed`
+- Typecheck:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" typecheck`
+  - Result: passed
+- Production build:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" build`
+  - Result: passed
+- Production deployable `JS/CSS/HTML` scan:
+  - existing seven Stage 1 lab-only identifiers → no matches
+  - Stage 3-only strings and identifiers → no matches
+- Git checks executed before final docs update:
+  - `git status --short`
+  - `git diff --stat`
+  - `git diff --name-status`
+  - `git diff --check`
+  - `git diff --cached --check`
+
+## Raw outcome summary
+
+- Replaced the inert Stage 1 lab body with a closed local presentation surface using only local `useState` and synchronous direct `evaluateAssessment(...)` calls.
+- Added exactly four labelled `select` controls with the approved defaults and option order.
+- Preserved the Stage 1 boundary strings required by unchanged regression tests.
+- Rendered exact Stage 2B state labels neutrally, without winner framing, recommendations, or ranking language.
+- Added a dedicated UI test proving the mandatory context-only lens behavior and interaction-time network/persistence silence after each control change.
+
+## Remaining caveats
+
+- The production build still emits the pre-existing Coalsack asset warnings and chunk-size warning; Stage 3B did not change build policy or those asset paths.
+
 ## Explicit non-goals
 
 - `App.tsx`, `src/main.tsx`, route, normal navigation, provider, store, API, build/configuration, stylesheet, or package changes;
@@ -167,7 +209,7 @@ Inside `compare_both`, render:
 
 ## Next safe action
 
-Implement Stage 3B only in `R1AssessmentLabApp.tsx` and `R1AssessmentLabApp.test.tsx`, then gather the required evidence before requesting review of the DEV-only presentation slice.
+Push the branch with the Stage 3B implementation and request review of the DEV-only presentation slice. Do not begin another stage until this one is reviewed.
 
 ## Recovery instruction
 
