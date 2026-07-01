@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing**
+**Implementing — evidence gathered**
 
 ## Current branch and baseline
 
@@ -12,6 +12,7 @@
 - Base branch: `work/r1-canonical-body-evidence`
 - Base commit: `f1f6cb4a8f78a484d514f8153d6e7093602458bd`
 - Goal: Stage 1 DEV-only R1 Assessment Laboratory entry boundary and inert shell
+- Stage 1 implementation commit: `1800390a915918e9d82ca16d8aef8aa0ac35be42`
 
 ## Allowed files
 
@@ -78,6 +79,34 @@ It does **not** recreate:
 - `git diff --check`;
 - `git diff --cached --check`.
 
+## Actual evidence
+
+- Branch: `feat/r1-lab-entry-boundary`
+- Current implementation commit: `1800390a915918e9d82ca16d8aef8aa0ac35be42`
+- Stage 1 lab tests:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
+  - Result: `4 passed, 8 tests passed`
+- Typecheck:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" typecheck`
+  - Result: passed
+- Production build:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" build`
+  - Result: passed
+- Production artifact scan over deployable JS/CSS/HTML:
+  - `r1-assessment-lab` → no matches
+  - `R1 Assessment Laboratory` → no matches
+  - `DEV only — reconstruction shell` → no matches
+  - `No production scoring` → no matches
+  - `No network or persistence` → no matches
+  - `Assessment engine not yet reconstructed` → no matches
+  - `R1AssessmentLabApp` → no matches
+- Git checks executed before final docs update:
+  - `git status --short`
+  - `git diff --stat`
+  - `git diff --name-status`
+  - `git diff --check`
+  - `git diff --cached --check`
+
 ## Stage 1 acceptance contract
 
 - Production normal root owns QueryClientProvider, React Query devtools, and the ordinary app tree.
@@ -98,10 +127,17 @@ It does **not** recreate:
 - New implementation branch created from `f1f6cb4a8f78a484d514f8153d6e7093602458bd`.
 - Frontend root: `frontend-v2`.
 - No `frontend-v2/src/lab/r1-assessment-lab` directory exists before Stage 1 implementation.
+- Stage 1 implementation now exists only in the six authorised product/test files.
+
+## Remaining caveats
+
+- `sourceBoundary.test.ts` explicitly records that source structure does not prove dead-code elimination.
+- Final acceptance still depends on the production artifact scan outcome, which is currently clean for the Stage 1 lab-only identifiers.
+- The production build still emits existing non-blocking warnings about unresolved runtime Coalsack background paths and large chunks; these pre-date the lab shell contract and were not changed in this stage.
 
 ## Next safe action
 
-Implement only the Stage 1 DEV-only R1 Assessment Laboratory entry boundary and inert shell inside the six authorised product/test files, then gather the required evidence before any further stage is considered.
+Push the updated branch, open a PR against `work/r1-canonical-body-evidence`, and request review of the Stage 1 DEV-only entry boundary evidence before any Stage 2 reconstruction work is authorised.
 
 ## Recovery instruction
 
