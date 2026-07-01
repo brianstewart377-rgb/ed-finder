@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing**
+**Implementing — evidence gathered**
 
 ## Baseline
 
@@ -73,6 +73,10 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 
 `wregoe_dual_dodec_control` and `plateau_30_vs_60_case` are not part of Stage 2B.
 
+## Stage 2B implementation commit
+
+- `7a7249f5c17fa53616365a440bf5e95770b6f502` — `feat: add pure R1 assessment core`
+
 ## Required evidence before acceptance
 
 1. `evaluateAssessment.test.ts` proves every approved fixture/state mapping.
@@ -103,9 +107,60 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 - Live data, network activity, persistence, TanStack Query, routes, navigation, production integration, or bundle policy changes.
 - Any claim that historic R1 source or semantics were recovered.
 
+## Actual evidence
+
+- Branch: `feat/r1-assessment-core`
+- Current implementation commit: `7a7249f5c17fa53616365a440bf5e95770b6f502`
+- Stage 2B core test:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts"`
+  - Result: `1 passed, 13 tests passed`
+- Stage 1 regression tests:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
+  - Result: `4 passed, 9 tests passed`
+- Typecheck:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" typecheck`
+  - Result: passed
+- Production build:
+  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" build`
+  - Result: passed
+- Production artifact scan over deployable JS/CSS/HTML:
+  - `r1-assessment-lab` → no matches
+  - `R1 Assessment Laboratory` → no matches
+  - `DEV only — reconstruction shell` → no matches
+  - `No production scoring` → no matches
+  - `No network or persistence` → no matches
+  - `Assessment engine not yet reconstructed` → no matches
+  - `R1AssessmentLabApp` → no matches
+- Git checks executed before final docs update:
+  - `git status --short`
+  - `git diff --stat`
+  - `git diff --name-status`
+  - `git diff --check`
+  - `git diff --cached --check`
+
+## Raw outcome summary
+
+- Added a pure `AssessmentLens`-gated, deterministic evaluator with exact Stage 2B assessment states and carrier modes.
+- Added the approved minimal fixture set and exact approved fixture/state mapping coverage.
+- Added explicit tests for:
+  - missing evidence IDs
+  - contradictory evidence IDs
+  - invalid/missing lens rejection
+  - no score/rank/best/`plan_fit`
+  - deterministic deep equality and stable normalized JSON
+  - immutability
+  - singleton carrier behavior and `compare_both` ordering
+  - logistics-only carrier effects with identical frozen evidence/provenance across scenarios
+- Left Stage 1 boundary, shell, routes, stores, API code, and configuration unchanged.
+
+## Remaining caveats
+
+- The pure evaluator is fixture-backed only and does not claim to recover lost historical planner semantics.
+- The build still emits the pre-existing Coalsack asset warnings and chunk-size warning; Stage 2B did not change build policy or those runtime asset paths.
+
 ## Next safe action
 
-Implement only the allowed Stage 2B files: pure domain types, approved fixtures, deterministic evaluator, and required unit tests.
+Request Stage 2B review of the pure assessment-domain core. Do not begin any report/digest/export, strategy-selection, or UI-expansion stage until this slice is accepted.
 
 ## Recovery instruction
 
