@@ -13,6 +13,7 @@ Chats are disposable. Git history and the files in this directory are the source
 5. Stage explicit paths only. Do not use `git add -A` for AI-assisted work.
 6. Never put passwords, tokens, API keys, private prompts, or customer data in these files.
 7. A chat transcript is supporting context, not the specification. Record accepted decisions in `DECISIONS.md` and stage-specific facts in `CURRENT_STAGE.md`.
+8. Reviewer acceptance triggers the automatic documentation checkpoint described in `ACCEPTANCE_PROTOCOL.md`. Acceptance never silently merges or deploys work.
 
 ## Files
 
@@ -21,6 +22,7 @@ Chats are disposable. Git history and the files in this directory are the source
 - `DECISIONS.md` — append-only accepted decisions and invariants.
 - `RECOVERY.md` — what an agent must do after context loss or a crash.
 - `CHAT_HANDOFF_TEMPLATE.md` — a short prompt for starting a new chat without losing the working point.
+- `ACCEPTANCE_PROTOCOL.md` — automatic durable record created when reviewed work is accepted.
 
 ## Normal workflow
 
@@ -30,7 +32,8 @@ Chats are disposable. Git history and the files in this directory are the source
 4. Run the evidence listed in `CURRENT_STAGE.md`.
 5. Update `CURRENT_STAGE.md` with actual results, blockers, commit SHA, and the next safe action.
 6. Commit and push the stage before leaving it.
-7. Start a new chat with the template if the current conversation becomes unwieldy.
+7. On reviewer acceptance, create the automatic acceptance checkpoint before merge or deployment.
+8. Start a new chat with the template if the current conversation becomes unwieldy.
 
 ## When a chat is too large
 
