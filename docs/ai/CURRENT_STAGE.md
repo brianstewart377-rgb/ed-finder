@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — correction evidence gathered**
+**Implementing — final hardening required**
 
 ## Baseline
 
@@ -13,7 +13,7 @@
 - Required implementation branch: `feat/r1-assessment-core`
 - Stage 1 PR: `#277`, merged.
 - Stage 1 merge commit: `6b45e760f20f81a8b7673b412c139b3226caeb29`.
-- Current head before correction: `d02afa862fdf77b8090d2a7e7cae49d903df4bce`
+- Current head before correction: `769059d52f6301b95b429452c26ee041221ce7b6`
 
 ## Active goal
 
@@ -39,32 +39,15 @@ No other files are authorised. In particular, do not change the Stage 1 boundary
 
 ## Correction requirements
 
-1. Enforce the exclusive assessment lens at runtime.
-   Reject:
-   - no lens;
-   - non-object lens;
-   - unknown kind;
-   - role lens with blank `roleId`;
-   - question lens with blank `questionId`;
-   - role lens containing `questionId`;
-   - question lens containing `roleId`.
+1. Reject duplicate selected-template requirement IDs before fixture coverage is evaluated.
+   - a duplicated template requirement must not be collapsed by a `Map`
+   - a single fixture evaluation must not satisfy two template requirements with the same id
 
-2. Make the carrier invariant mechanically enforceable.
-   A requirement may vary by carrier only when all are true:
-   - template requirement has `carrierSensitive: true`;
-   - template requirement kind is `logistics`;
-   - template requirement sharedConstraint is `false`.
-
-3. Require complete, unique template coverage before evaluating scenarios.
-   - every selected template requirement must have exactly one fixture requirement evaluation;
-   - every fixture requirement evaluation must correspond to a selected template requirement;
-   - duplicate fixture evaluations must be rejected.
-
-4. Validate carrier mode at runtime.
-   Reject values other than:
-   - `no_carrier`
-   - `carrier_available`
-   - `compare_both`
+2. Require an explicit selected programme/template/revision at runtime.
+   Reject selected templates where any of these is absent, not a string, or blank after trim:
+   - `programmeId`
+   - `templateId`
+   - `revision`
 
 ## Fixed Stage 2B contract
 
@@ -128,12 +111,10 @@ This is a forward reconstruction decision, not a claim about lost historic behav
     - `R1AssessmentLabApp`
 11. Record branch, full commits, raw command results, artifact-scan result, `git status --short`, `git diff --stat`, `git diff --name-status`, `git diff --check`, and `git diff --cached --check` before final handoff.
 12. Add focused correction tests for:
-   - invalid exclusive lens runtime values;
-   - invalid carrier mode runtime values;
-   - carrier-varying capacity rejection;
-   - carrier-varying shared-constraint rejection;
-   - missing template requirement evaluation rejection;
-   - duplicate fixture evaluation rejection.
+   - duplicate template requirement id rejection;
+   - blank `programmeId` rejection;
+   - blank `templateId` rejection;
+   - blank `revision` rejection.
 
 ## Explicit non-goals
 
@@ -205,7 +186,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 
 ## Next safe action
 
-Commit and push this docs-only correction checkpoint, then implement the evaluator/test correction only in `evaluateAssessment.ts` and `evaluateAssessment.test.ts`.
+Implement the final hardening pass only in `evaluateAssessment.ts` and `evaluateAssessment.test.ts`, then gather the required evidence and request final Stage 2B review on PR `#280`.
 
 ## Recovery instruction
 
