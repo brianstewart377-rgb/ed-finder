@@ -9,8 +9,8 @@
 ## Baseline
 
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Current documentation branch: `docs/r1-stage4-plan-fit-contract`
-- Base SHA: `83f4e4bc9829c173979fce5aa0bda734174ca55a`
+- Current documentation branch: `docs/r1-stage4b-carrier-clarification`
+- Base SHA: `411ceb9232966bf27aa027d72aa5622c83ee0d03`
 - Stage 4B contract PR: `#284`, merged
 - Stage 4B contract merge commit: `411ceb9232966bf27aa027d72aa5622c83ee0d03`
 - Stage 3B PR: `#282` — `Stage 3B: DEV-only R1 assessment lab`, merged
