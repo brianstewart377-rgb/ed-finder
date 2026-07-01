@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — evidence gathered**
+**Implementing — correction evidence gathered**
 
 ## Current branch and baseline
 
@@ -13,6 +13,7 @@
 - Base commit: `f1f6cb4a8f78a484d514f8153d6e7093602458bd`
 - Goal: Stage 1 DEV-only R1 Assessment Laboratory entry boundary and inert shell
 - Stage 1 implementation commit: `1800390a915918e9d82ca16d8aef8aa0ac35be42`
+- Stage 1 correction implementation commit: `2f798006c0fc902432ce822588866130542c390b`
 
 ## Allowed files
 
@@ -82,10 +83,11 @@ It does **not** recreate:
 ## Actual evidence
 
 - Branch: `feat/r1-lab-entry-boundary`
-- Current implementation commit: `1800390a915918e9d82ca16d8aef8aa0ac35be42`
+- Current implementation commit: `2f798006c0fc902432ce822588866130542c390b`
+- Review PR: `#277`
 - Stage 1 lab tests:
   - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
-  - Result: `4 passed, 8 tests passed`
+  - Result: `4 passed, 9 tests passed`
 - Typecheck:
   - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" typecheck`
   - Result: passed
@@ -106,6 +108,21 @@ It does **not** recreate:
   - `git diff --name-status`
   - `git diff --check`
   - `git diff --cached --check`
+
+## Raw outcome summary
+
+- Correction 1 completed:
+  - exact lab hash declaration moved inside the compile-time `import.meta.env.DEV` branch in `frontend-v2/src/App.tsx`
+  - lazy lab import moved inside the same compile-time DEV branch
+  - production default path remains `ProductionNormalRoot`
+- Correction 2 completed:
+  - `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx` now proves a normal DEV non-lab hash mounts the normal provider/root path and Finder content while the lab shell remains absent
+- Correction 3 completed:
+  - `frontend-v2/src/lab/r1-assessment-lab/sourceBoundary.test.ts` now uses source assertions instead of placeholder tests
+  - the test source contains the exact required limitation text:
+    - `Source structure does not prove dead-code elimination.`
+  - the test source contains the exact required final-gate text:
+    - `Final acceptance requires production artifact scanning.`
 
 ## Stage 1 acceptance contract
 
@@ -137,7 +154,7 @@ It does **not** recreate:
 
 ## Next safe action
 
-Push the updated branch, open a PR against `work/r1-canonical-body-evidence`, and request review of the Stage 1 DEV-only entry boundary evidence before any Stage 2 reconstruction work is authorised.
+Request final Stage 1 review on PR `#277`. Do not begin Stage 2 reconstruction unless the correction pass is accepted.
 
 ## Recovery instruction
 
