@@ -4,19 +4,19 @@
 
 ## Status
 
-**Ready to implement — Stage 2B authorised**
+**Implementing**
 
 ## Baseline
 
 - Base branch: `work/r1-canonical-body-evidence`
-- Required implementation base: merge commit `6b45e760f20f81a8b7673b412c139b3226caeb29` or its current fast-forward descendant after `git pull --ff-only`.
+- Exact current base SHA: `cef563c569544089097e7b75f9f43ae62729097d`
 - Required implementation branch: `feat/r1-assessment-core`
 - Stage 1 PR: `#277`, merged.
 - Stage 1 merge commit: `6b45e760f20f81a8b7673b412c139b3226caeb29`.
 
 ## Active goal
 
-Implement the Stage 2B pure, local, deterministic, fixture-backed R1 assessment-domain core defined by `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`.
+Stage 2B pure R1 assessment-domain core.
 
 ## Read before editing
 
@@ -105,7 +105,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 
 ## Next safe action
 
-Create `feat/r1-assessment-core` from the current base branch, update this record with the exact base SHA, commit and push that documentation checkpoint, then implement only the allowed Stage 2B files.
+Implement only the allowed Stage 2B files: pure domain types, approved fixtures, deterministic evaluator, and required unit tests.
 
 ## Recovery instruction
 
