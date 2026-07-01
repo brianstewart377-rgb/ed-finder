@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — correction required**
+**Implementing — correction evidence gathered**
 
 ## Baseline
 
@@ -104,6 +104,8 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 ## Stage 2B implementation commit
 
 - `7a7249f5c17fa53616365a440bf5e95770b6f502` — `feat: add pure R1 assessment core`
+- Correction implementation commit: `1ee4c82aca746bb1036d09e596f075334edfa0be` — `fix: tighten R1 assessment core runtime validation`
+- Correction evidence commit: `pending final docs checkpoint`
 
 ## Required evidence before acceptance
 
@@ -145,10 +147,10 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 ## Actual evidence
 
 - Branch: `feat/r1-assessment-core`
-- Current implementation commit: `7a7249f5c17fa53616365a440bf5e95770b6f502`
+- Current implementation commit: `1ee4c82aca746bb1036d09e596f075334edfa0be`
 - Stage 2B core test:
   - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts"`
-  - Result: `1 passed, 13 tests passed`
+  - Result: `1 passed, 19 tests passed`
 - Stage 1 regression tests:
   - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
   - Result: `4 passed, 9 tests passed`
@@ -172,6 +174,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
   - `git diff --name-status`
   - `git diff --check`
   - `git diff --cached --check`
+- Final worktree state: pending final docs checkpoint
 
 ## Raw outcome summary
 
@@ -186,6 +189,13 @@ This is a forward reconstruction decision, not a claim about lost historic behav
   - immutability
   - singleton carrier behavior and `compare_both` ordering
   - logistics-only carrier effects with identical frozen evidence/provenance across scenarios
+- Added runtime correction coverage for:
+  - invalid exclusive lens runtime shapes
+  - invalid carrier mode rejection
+  - carrier-varying capacity rejection
+  - carrier-varying shared-constraint rejection
+  - missing template requirement evaluation rejection
+  - duplicate fixture evaluation rejection
 - Left Stage 1 boundary, shell, routes, stores, API code, and configuration unchanged.
 
 ## Remaining caveats
