@@ -4,19 +4,20 @@
 
 ## Status
 
-**Ready to implement — Stage 2B authorised**
+**Accepted — merge pending**
 
 ## Baseline
 
 - Base branch: `work/r1-canonical-body-evidence`
-- Required implementation base: merge commit `6b45e760f20f81a8b7673b412c139b3226caeb29` or its current fast-forward descendant after `git pull --ff-only`.
-- Required implementation branch: `feat/r1-assessment-core`
+- Exact current base SHA: `cef563c569544089097e7b75f9f43ae62729097d`
+- Implementation branch: `feat/r1-assessment-core`
+- Review PR: `#280`
 - Stage 1 PR: `#277`, merged.
 - Stage 1 merge commit: `6b45e760f20f81a8b7673b412c139b3226caeb29`.
 
 ## Active goal
 
-Implement the Stage 2B pure, local, deterministic, fixture-backed R1 assessment-domain core defined by `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`.
+Stage 2B pure R1 assessment-domain core — accepted pending merge.
 
 ## Read before editing
 
@@ -28,7 +29,7 @@ Implement the Stage 2B pure, local, deterministic, fixture-backed R1 assessment-
 - `docs/ai/ACCEPTANCE_PROTOCOL.md`
 - `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`
 
-## Allowed files
+## Allowed Stage 2B files
 
 - `docs/ai/CURRENT_STAGE.md`
 - `frontend-v2/src/lab/r1-assessment-lab/core/types.ts`
@@ -36,7 +37,7 @@ Implement the Stage 2B pure, local, deterministic, fixture-backed R1 assessment-
 - `frontend-v2/src/lab/r1-assessment-lab/core/evaluateAssessment.ts`
 - `frontend-v2/src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts`
 
-No other files are authorised. In particular, do not change the Stage 1 boundary or shell, `App.tsx`, routes, navigation, stores, APIs, configuration, build policy, or production behavior.
+No other files were authorised. The Stage 1 boundary and shell, `App.tsx`, routes, navigation, stores, APIs, configuration, build policy, and production behavior were not part of Stage 2B.
 
 ## Fixed Stage 2B contract
 
@@ -49,7 +50,7 @@ No other files are authorised. In particular, do not change the Stage 1 boundary
   - `no_carrier`
   - `carrier_available`
   - `compare_both`
-- Assessment must require an exclusive discriminated `AssessmentLens`:
+- Assessment requires an exclusive discriminated `AssessmentLens`:
   - `{ kind: 'role'; roleId: string }`, or
   - `{ kind: 'question'; questionId: string }`.
 - No score, rank, best-system result, or `plan_fit` may exist in code or output.
@@ -73,39 +74,45 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 
 `wregoe_dual_dodec_control` and `plateau_30_vs_60_case` are not part of Stage 2B.
 
-## Required evidence before acceptance
+## Commits
 
-1. `evaluateAssessment.test.ts` proves every approved fixture/state mapping.
-2. Tests prove missing and contradictory evidence IDs are explicit.
-3. Tests prove no score/rank/best/`plan_fit` fields exist in output.
-4. Tests prove invalid/missing assessment lenses are rejected.
-5. Tests prove deterministic deep equality and identical normalized JSON for identical input.
-6. Tests prove fixture/template inputs are not mutated.
-7. Tests prove singleton carrier mode behavior and `compare_both` ordering.
-8. Tests prove frozen evidence/provenance are identical across carrier scenarios and only logistics-sensitive outcomes may differ.
-9. Run the Stage 2B core test file, the four existing Stage 1 lab test files, typecheck, and production build.
-10. Re-run the Stage 1 production JS/CSS/HTML identifier scan for:
-    - `r1-assessment-lab`
-    - `R1 Assessment Laboratory`
-    - `DEV only — reconstruction shell`
-    - `No production scoring`
-    - `No network or persistence`
-    - `Assessment engine not yet reconstructed`
-    - `R1AssessmentLabApp`
-11. Record branch, full commits, raw command results, artifact-scan result, `git status --short`, `git diff --stat`, `git diff --name-status`, `git diff --check`, and `git diff --cached --check` before final handoff.
+- Initial implementation: `7a7249f5c17fa53616365a440bf5e95770b6f502` — `feat: add pure R1 assessment core`
+- Runtime-validation correction: `1ee4c82aca746bb1036d09e596f075334edfa0be` — `fix: tighten R1 assessment core runtime validation`
+- Final hardening implementation: `e5e052a12c7b16dbc9dbff2bb1bef320f3bbab50` — `fix: harden R1 assessment core template validation`
+- Final evidence handoff before acceptance: `6bbe663474b45d7bc73fea2529f5f737216ba878`
 
-## Explicit non-goals
+## Final acceptance checkpoint
 
-- UI expansion, reports, digests, exports, markdown/JSON report generation.
-- Strategy selection or Plan Fit.
-- Carrier comparison UI.
-- Additional fixtures beyond the approved mapping.
-- Live data, network activity, persistence, TanStack Query, routes, navigation, production integration, or bundle policy changes.
-- Any claim that historic R1 source or semantics were recovered.
-
-## Next safe action
-
-Create `feat/r1-assessment-core` from the current base branch, update this record with the exact base SHA, commit and push that documentation checkpoint, then implement only the allowed Stage 2B files.
+- Accepted code commit: `e5e052a12c7b16dbc9dbff2bb1bef320f3bbab50`
+- Accepted at: `2026-07-01T20:39:08Z`
+- Branch: `feat/r1-assessment-core`
+- Pull request: `#280`
+- Reviewed scope:
+  - pure local deterministic fixture-backed core only;
+  - exact four assessment states and three carrier modes;
+  - explicit fixture/state mapping;
+  - no UI expansion, reports, digests, exports, strategy selection, Plan Fit, API, persistence, or production integration;
+  - only the five authorised Stage 2B files changed.
+- Runtime protections reviewed:
+  - exclusive lens validation;
+  - non-empty programme/template/revision validation;
+  - carrier-mode validation;
+  - carrier variation limited to non-shared logistics requirements marked carrier-sensitive;
+  - complete and unique template/fixture requirement coverage;
+  - duplicate template requirement ID rejection.
+- Evidence reviewed:
+  - source and test review on PR `#280`;
+  - recorded local Stage 2B core test outcome: 23 tests passed;
+  - recorded local Stage 1 regression outcome: 9 tests passed;
+  - recorded local typecheck and production build outcomes: passed;
+  - recorded deployable JS/CSS/HTML scan: zero matches for all seven Stage 1 lab-only identifiers;
+  - clean final worktree reported.
+- Caveats:
+  - the evaluator remains fixture-backed only and does not claim recovery of lost historical planner semantics;
+  - no GitHub Actions status is attached to the final head, so the command outcomes above are recorded local evidence rather than independently executed CI evidence;
+  - existing Coalsack asset and chunk-size build warnings remain outside Stage 2B scope.
+- Next safe action:
+  - merge PR `#280`; do not start Stage 3 until a separate written contract is accepted.
 
 ## Recovery instruction
 
