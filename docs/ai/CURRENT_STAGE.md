@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — evidence gathered**
+**Implementing — correction required**
 
 ## Baseline
 
@@ -13,6 +13,7 @@
 - Required implementation branch: `feat/r1-assessment-core`
 - Stage 1 PR: `#277`, merged.
 - Stage 1 merge commit: `6b45e760f20f81a8b7673b412c139b3226caeb29`.
+- Current head before correction: `d02afa862fdf77b8090d2a7e7cae49d903df4bce`
 
 ## Active goal
 
@@ -31,12 +32,39 @@ Stage 2B pure R1 assessment-domain core.
 ## Allowed files
 
 - `docs/ai/CURRENT_STAGE.md`
-- `frontend-v2/src/lab/r1-assessment-lab/core/types.ts`
-- `frontend-v2/src/lab/r1-assessment-lab/core/fixtures.ts`
 - `frontend-v2/src/lab/r1-assessment-lab/core/evaluateAssessment.ts`
 - `frontend-v2/src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts`
 
 No other files are authorised. In particular, do not change the Stage 1 boundary or shell, `App.tsx`, routes, navigation, stores, APIs, configuration, build policy, or production behavior.
+
+## Correction requirements
+
+1. Enforce the exclusive assessment lens at runtime.
+   Reject:
+   - no lens;
+   - non-object lens;
+   - unknown kind;
+   - role lens with blank `roleId`;
+   - question lens with blank `questionId`;
+   - role lens containing `questionId`;
+   - question lens containing `roleId`.
+
+2. Make the carrier invariant mechanically enforceable.
+   A requirement may vary by carrier only when all are true:
+   - template requirement has `carrierSensitive: true`;
+   - template requirement kind is `logistics`;
+   - template requirement sharedConstraint is `false`.
+
+3. Require complete, unique template coverage before evaluating scenarios.
+   - every selected template requirement must have exactly one fixture requirement evaluation;
+   - every fixture requirement evaluation must correspond to a selected template requirement;
+   - duplicate fixture evaluations must be rejected.
+
+4. Validate carrier mode at runtime.
+   Reject values other than:
+   - `no_carrier`
+   - `carrier_available`
+   - `compare_both`
 
 ## Fixed Stage 2B contract
 
@@ -97,6 +125,13 @@ This is a forward reconstruction decision, not a claim about lost historic behav
     - `Assessment engine not yet reconstructed`
     - `R1AssessmentLabApp`
 11. Record branch, full commits, raw command results, artifact-scan result, `git status --short`, `git diff --stat`, `git diff --name-status`, `git diff --check`, and `git diff --cached --check` before final handoff.
+12. Add focused correction tests for:
+   - invalid exclusive lens runtime values;
+   - invalid carrier mode runtime values;
+   - carrier-varying capacity rejection;
+   - carrier-varying shared-constraint rejection;
+   - missing template requirement evaluation rejection;
+   - duplicate fixture evaluation rejection.
 
 ## Explicit non-goals
 
@@ -160,7 +195,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 
 ## Next safe action
 
-Request Stage 2B review of the pure assessment-domain core. Do not begin any report/digest/export, strategy-selection, or UI-expansion stage until this slice is accepted.
+Commit and push this docs-only correction checkpoint, then implement the evaluator/test correction only in `evaluateAssessment.ts` and `evaluateAssessment.test.ts`.
 
 ## Recovery instruction
 
