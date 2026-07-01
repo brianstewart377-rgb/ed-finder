@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState, type LazyExoticComponent, type ComponentType } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient } from '@/lib/queryClient';
@@ -41,10 +41,6 @@ import './index.css';
 const COALSACK_BG_VERSION = 'v=2';
 const COALSACK_BG_2560 = 'coalsack-2560.jpg';
 const COALSACK_BG_1600 = 'coalsack-1600.jpg';
-const DEV_R1_ASSESSMENT_LAB_HASH = '#r1-assessment-lab';
-const DevR1AssessmentLabApp = import.meta.env.DEV
-  ? lazy(() => import('@/lab/r1-assessment-lab/R1AssessmentLabApp'))
-  : null;
 
 type SavedSystemActionState = 'idle' | 'saving' | 'removing';
 
@@ -120,13 +116,27 @@ function setCoalsackBackgroundVariables(): () => void {
 
 export default function App() {
   if (import.meta.env.DEV) {
-    return <DevOnlyEntryBoundary />;
+    const DEV_R1_ASSESSMENT_LAB_HASH = '#r1-assessment-lab';
+    const DevR1AssessmentLabApp = lazy(() => import('@/lab/r1-assessment-lab/R1AssessmentLabApp'));
+
+    return (
+      <DevOnlyEntryBoundary
+        exactLabHash={DEV_R1_ASSESSMENT_LAB_HASH}
+        LabComponent={DevR1AssessmentLabApp}
+      />
+    );
   }
 
   return <ProductionNormalRoot />;
 }
 
-function DevOnlyEntryBoundary() {
+function DevOnlyEntryBoundary({
+  exactLabHash,
+  LabComponent,
+}: {
+  exactLabHash: string;
+  LabComponent: LazyExoticComponent<ComponentType>;
+}) {
   const [hash, setHash] = useState(() => window.location.hash);
 
   useEffect(() => {
@@ -135,10 +145,10 @@ function DevOnlyEntryBoundary() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  if (hash === DEV_R1_ASSESSMENT_LAB_HASH && DevR1AssessmentLabApp) {
+  if (hash === exactLabHash) {
     return (
       <Suspense fallback={null}>
-        <DevR1AssessmentLabApp />
+        <LabComponent />
       </Suspense>
     );
   }

@@ -156,6 +156,18 @@ describe('R1 assessment lab route boundary', () => {
     expect(screen.queryByTestId('finder-root')).toBeNull();
   });
 
+  it('mounts the normal application path for a non-lab DEV hash', async () => {
+    window.location.hash = '';
+    const App = await loadAppForEnv(true);
+
+    render(<App />);
+
+    expect(await screen.findByTestId('query-client-provider')).toBeTruthy();
+    expect(screen.getByTestId('normal-nav').textContent).toContain('route:finder');
+    expect(screen.getByTestId('finder-root')).toBeTruthy();
+    expect(screen.queryByText('R1 Assessment Laboratory')).toBeNull();
+  });
+
   it('treats the lab hash as an ordinary unknown hash in production and falls back to Finder', async () => {
     window.location.hash = '#r1-assessment-lab';
     const App = await loadAppForEnv(false);
