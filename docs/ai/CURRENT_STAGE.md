@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — Stage 3B evidence gathered**
+**Implementing — Stage 3B correction required**
 
 ## Baseline
 
@@ -15,6 +15,7 @@
 - Stage 2B PR: `#280`, merged.
 - Stage 2B merge commit: `220c870f89a5af7f98adb88578373dbc3a681a9c`.
 - Stage 3B implementation commit: `fe28827d0703e9fe1ca4d510fbb434e39f64bcf0`
+- Current head before correction: `e8e4ffed601ec3b0d952ee9a9c089c2c6fde4a4a`
 
 ## Active goal
 
@@ -34,86 +35,34 @@ DEV-only fixture-backed assessment-lab presentation.
 ## Allowed files
 
 - `docs/ai/CURRENT_STAGE.md`
-- `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabApp.tsx`
 - `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabApp.test.tsx`
 
-No other files are authorised. Do not modify `App.tsx`, `src/main.tsx`, Stage 1 tests, Stage 2B core files or tests, routes, navigation, providers, stores, APIs, build/configuration files, stylesheets, or package files.
+No other files are authorised. Do not modify `R1AssessmentLabApp.tsx`, `App.tsx`, `src/main.tsx`, Stage 1 tests, Stage 2B core files or tests, routes, navigation, providers, stores, APIs, build/configuration files, stylesheets, or package files.
 
-## Fixed controls and defaults
+## Correction requirements
 
-Use only local React `useState` and synchronous direct `evaluateAssessment(...)` calls.
+1. Replace the aggregate-only side-effect interaction check with explicit separate no-call proofs after each individual control change:
+   - fixture;
+   - lens kind;
+   - lens value;
+   - carrier mode.
 
-Render exactly four labelled HTML `select` controls, in this order:
+2. Strengthen the default compact-fixture rendering test to prove visible requirement trace and full frozen-evidence provenance in scoped assertions:
+   - requirement ID: `foundation_evidence`
+   - outcome: `met`
+   - matched evidence ID: `compact-foundation`
+   - evidence ID: `compact-foundation`
+   - fact key: `foundation-evidence`
+   - availability: `known`
+   - provenance fixture ID: `compact_sufficient_case`
+   - provenance fixture revision: `v1`
 
-1. `Fixture`
-   - default: `compact_sufficient_case`
-   - options, in order:
-     - `compact_sufficient_case`
-     - `incomplete_evidence_case`
-     - `contradictory_allocation_case`
-     - `fake_flexibility_case`
-     - `remote_materials_carrier_case`
-2. `Lens kind`
-   - default: `role`
-   - options, in order:
-     - `role`
-     - `question`
-3. `Lens value`
-   - when `Lens kind` is `role`:
-     - default: `expedition-lead`
-     - options, in order:
-       - `expedition-lead`
-       - `logistics-reviewer`
-   - when `Lens kind` is `question`:
-     - default: `baseline-assessment`
-     - options, in order:
-       - `baseline-assessment`
-       - `carrier-sensitivity-check`
-   - changing `Lens kind` resets `Lens value` to that kind’s default
-4. `Carrier mode`
-   - default: `no_carrier`
-   - options, in order:
-     - `no_carrier`
-     - `carrier_available`
-     - `compare_both`
+## Required evidence before acceptance
 
-There are exactly five selectable fixture IDs. The six Stage 2B fixture/scenario assertion rows are not six fixtures.
-
-There is no form submission, Evaluate button, reset button, URL state, free-text input, JSON input, checkbox, radio group, textarea, timer, promise, async function, `useEffect`, dynamic runtime import, error boundary, or evaluator-error UI.
-
-## Exact disclosures
-
-Render these exact lines, visibly and persistently:
-
-- `R1 Lab — DEV-only fixture-backed reconstruction.`
-- `R1 Lab — historic evaluator recovery is not claimed.`
-- `R1 Lab — no production scoring or live system advice.`
-- `R1 Lab — Lens context only: changing it does not alter fixture outcomes, requirement outcomes, conditions, assessment state, or ordering in Stage 3B.`
-- `R1 Lab — Lens labels are local presentation context, not rebuilt role or question semantics.`
-- `Template: r1_assessment_programme / core_assessment_template / r1-contract-v1 (fixed for Stage 3B)`
-
-## Context-only lens rule
-
-The selected role/question lens must be passed to the Stage 2B evaluator and shown as selected context, but it must not change fixture outcomes, requirement outcomes, conditions, assessment state, or ordering in Stage 3B.
-
-## Result order
-
-Render results in this exact order:
-
-1. `Assessment state`
-2. `Structured conditions`
-3. `Requirement trace`
-4. `Frozen evidence and provenance`
-5. `Carrier scenario comparison` where `compare_both` is selected
-
-Inside `compare_both`, render:
-
-1. `no_carrier`
-2. `carrier_available`
-
-## Required Stage 3B evidence to define before coding
-
-- `R1AssessmentLabApp.test.tsx` proves the exact controls/defaults, disclosures, fixed-template line, all five selectable fixture IDs, all three carrier modes, and exclusive lens selection with reset-to-default behavior.
+- `R1AssessmentLabApp.test.tsx` passes, including:
+  - separate immediate no-call proofs after each single control change
+  - scoped requirement-trace and frozen-evidence provenance assertions for the compact fixture
+  - the existing Stage 3B control/default/disclosure/state-coverage checks
 - `R1AssessmentLabApp.test.tsx` proves these exact state-coverage combinations:
   - `compact_sufficient_case` + `no_carrier` => `supported`
   - `incomplete_evidence_case` + `no_carrier` => `not_assessable`
@@ -158,47 +107,6 @@ Inside `compare_both`, render:
     - `compare_both`
 - explicit `git status --short`, `git diff --stat`, `git diff --name-status`, `git diff --check`, and `git diff --cached --check` evidence with a final clean worktree.
 
-## Actual evidence
-
-- Branch: `feat/r1-assessment-lab-presentation`
-- Current implementation commit: `fe28827d0703e9fe1ca4d510fbb434e39f64bcf0`
-- Stage 3B presentation test:
-  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/R1AssessmentLabApp.test.tsx"`
-  - Result: `1 passed, 7 tests passed`
-- Stage 1 regression tests:
-  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
-  - Result: `4 passed, 9 tests passed`
-- Stage 2B core regression test:
-  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts"`
-  - Result: `1 passed, 23 tests passed`
-- Typecheck:
-  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" typecheck`
-  - Result: passed
-- Production build:
-  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" build`
-  - Result: passed
-- Production deployable `JS/CSS/HTML` scan:
-  - existing seven Stage 1 lab-only identifiers → no matches
-  - Stage 3-only strings and identifiers → no matches
-- Git checks executed before final docs update:
-  - `git status --short`
-  - `git diff --stat`
-  - `git diff --name-status`
-  - `git diff --check`
-  - `git diff --cached --check`
-
-## Raw outcome summary
-
-- Replaced the inert Stage 1 lab body with a closed local presentation surface using only local `useState` and synchronous direct `evaluateAssessment(...)` calls.
-- Added exactly four labelled `select` controls with the approved defaults and option order.
-- Preserved the Stage 1 boundary strings required by unchanged regression tests.
-- Rendered exact Stage 2B state labels neutrally, without winner framing, recommendations, or ranking language.
-- Added a dedicated UI test proving the mandatory context-only lens behavior and interaction-time network/persistence silence after each control change.
-
-## Remaining caveats
-
-- The production build still emits the pre-existing Coalsack asset warnings and chunk-size warning; Stage 3B did not change build policy or those asset paths.
-
 ## Explicit non-goals
 
 - `App.tsx`, `src/main.tsx`, route, normal navigation, provider, store, API, build/configuration, stylesheet, or package changes;
@@ -209,7 +117,7 @@ Inside `compare_both`, render:
 
 ## Next safe action
 
-Push the branch with the Stage 3B implementation and request review of the DEV-only presentation slice. Do not begin another stage until this one is reviewed.
+Make the test-only correction in `R1AssessmentLabApp.test.tsx`, gather the required evidence again, and open the required PR against `work/r1-canonical-body-evidence`.
 
 ## Recovery instruction
 
