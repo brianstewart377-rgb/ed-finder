@@ -4,179 +4,108 @@
 
 ## Status
 
-**Accepted — merge pending**
+**Ready to implement — Stage 2B authorised**
 
-## Current branch and baseline
+## Baseline
 
-- Branch: `feat/r1-lab-entry-boundary`
 - Base branch: `work/r1-canonical-body-evidence`
-- Base commit: `f1f6cb4a8f78a484d514f8153d6e7093602458bd`
-- Goal: Stage 1 DEV-only R1 Assessment Laboratory entry boundary and inert shell
-- Stage 1 implementation commit: `1800390a915918e9d82ca16d8aef8aa0ac35be42`
-- Stage 1 correction implementation commit: `2f798006c0fc902432ce822588866130542c390b`
+- Required implementation base: merge commit `6b45e760f20f81a8b7673b412c139b3226caeb29` or its current fast-forward descendant after `git pull --ff-only`.
+- Required implementation branch: `feat/r1-assessment-core`
+- Stage 1 PR: `#277`, merged.
+- Stage 1 merge commit: `6b45e760f20f81a8b7673b412c139b3226caeb29`.
+
+## Active goal
+
+Implement the Stage 2B pure, local, deterministic, fixture-backed R1 assessment-domain core defined by `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`.
+
+## Read before editing
+
+- `docs/ai/README.md`
+- `docs/ai/PROJECT_CONTEXT.md`
+- `docs/ai/CURRENT_STAGE.md`
+- `docs/ai/DECISIONS.md`
+- `docs/ai/RECOVERY.md`
+- `docs/ai/ACCEPTANCE_PROTOCOL.md`
+- `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`
 
 ## Allowed files
 
-### Product / test files
-
-- `frontend-v2/src/App.tsx`
-- `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabApp.tsx`
-- `frontend-v2/src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx`
-- `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx`
-- `frontend-v2/src/lab/r1-assessment-lab/noNetwork.test.tsx`
-- `frontend-v2/src/lab/r1-assessment-lab/sourceBoundary.test.ts`
-
-### Control-file exception
-
 - `docs/ai/CURRENT_STAGE.md`
+- `frontend-v2/src/lab/r1-assessment-lab/core/types.ts`
+- `frontend-v2/src/lab/r1-assessment-lab/core/fixtures.ts`
+- `frontend-v2/src/lab/r1-assessment-lab/core/evaluateAssessment.ts`
+- `frontend-v2/src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts`
 
-No other product, test, route, config, provider, store, API, workflow, or deployment files are authorised in this stage.
+No other files are authorised. In particular, do not change the Stage 1 boundary or shell, `App.tsx`, routes, navigation, stores, APIs, configuration, build policy, or production behavior.
 
-## Fixed Stage 1 scope
+## Fixed Stage 2B contract
 
-Stage 1 is only the DEV-only laboratory entry boundary and an inert reconstruction shell.
+- Assessment states are exactly:
+  - `not_assessable`
+  - `not_supported`
+  - `conditionally_supported`
+  - `supported`
+- Carrier modes are exactly:
+  - `no_carrier`
+  - `carrier_available`
+  - `compare_both`
+- Assessment must require an exclusive discriminated `AssessmentLens`:
+  - `{ kind: 'role'; roleId: string }`, or
+  - `{ kind: 'question'; questionId: string }`.
+- No score, rank, best-system result, or `plan_fit` may exist in code or output.
+- Carrier can change logistics-sensitive requirement outcomes only. It must not alter frozen evidence, provenance, capacity facts, or shared constraints.
+- State precedence is `not_assessable`, `not_supported`, `conditionally_supported`, then `supported`.
+- `compare_both` returns `no_carrier` then `carrier_available`.
+- Output ordering must be deterministic and inputs must remain immutable.
 
-It does **not** recreate:
+## Approved fixture/state mapping
 
-- fixtures;
-- templates;
-- evaluation logic;
-- carrier comparison;
-- evidence snapshots;
-- digests;
-- strategies;
-- Plan Fit;
-- reports;
-- exports;
-- final lab UI beyond the inert shell;
-- invented assessment results.
+This is a forward reconstruction decision, not a claim about lost historic behavior:
+
+| Fixture | Scenario | Required state |
+|---|---|---|
+| `compact_sufficient_case` | default | `supported` |
+| `incomplete_evidence_case` | default | `not_assessable` |
+| `contradictory_allocation_case` | default | `not_assessable` |
+| `fake_flexibility_case` | default | `not_supported` |
+| `remote_materials_carrier_case` | `no_carrier` | `conditionally_supported` |
+| `remote_materials_carrier_case` | `carrier_available` | `supported` |
+
+`wregoe_dual_dodec_control` and `plateau_30_vs_60_case` are not part of Stage 2B.
+
+## Required evidence before acceptance
+
+1. `evaluateAssessment.test.ts` proves every approved fixture/state mapping.
+2. Tests prove missing and contradictory evidence IDs are explicit.
+3. Tests prove no score/rank/best/`plan_fit` fields exist in output.
+4. Tests prove invalid/missing assessment lenses are rejected.
+5. Tests prove deterministic deep equality and identical normalized JSON for identical input.
+6. Tests prove fixture/template inputs are not mutated.
+7. Tests prove singleton carrier mode behavior and `compare_both` ordering.
+8. Tests prove frozen evidence/provenance are identical across carrier scenarios and only logistics-sensitive outcomes may differ.
+9. Run the Stage 2B core test file, the four existing Stage 1 lab test files, typecheck, and production build.
+10. Re-run the Stage 1 production JS/CSS/HTML identifier scan for:
+    - `r1-assessment-lab`
+    - `R1 Assessment Laboratory`
+    - `DEV only — reconstruction shell`
+    - `No production scoring`
+    - `No network or persistence`
+    - `Assessment engine not yet reconstructed`
+    - `R1AssessmentLabApp`
+11. Record branch, full commits, raw command results, artifact-scan result, `git status --short`, `git diff --stat`, `git diff --name-status`, `git diff --check`, and `git diff --cached --check` before final handoff.
 
 ## Explicit non-goals
 
-- Do not modify `frontend-v2/src/main.tsx`.
-- Do not modify `frontend-v2/src/hooks/useHashRoute.ts`.
-- Do not add the lab hash to route enums or valid-route lists.
-- Do not modify normal navigation, production routing, app stores, API code, or configuration.
-- Do not add fixtures, scoring, assessment states, carrier modes, Plan Fit, reports, exports, or invented results.
-- Do not add any files outside the allowed file list.
-
-## Required evidence before Stage 1 can be accepted
-
-- exact branch name and full current commit SHA;
-- lab-entry tests;
-- typecheck;
-- production build;
-- production artifact scan over deployable JS, CSS, and HTML for:
-  - `r1-assessment-lab`
-  - `R1 Assessment Laboratory`
-  - `DEV only — reconstruction shell`
-  - `No production scoring`
-  - `No network or persistence`
-  - `Assessment engine not yet reconstructed`
-  - `R1AssessmentLabApp`
-- `git status --short`;
-- `git diff --stat`;
-- `git diff --name-status`;
-- `git diff --check`;
-- `git diff --cached --check`.
-
-## Actual evidence
-
-- Branch: `feat/r1-lab-entry-boundary`
-- Current implementation commit: `2f798006c0fc902432ce822588866130542c390b`
-- Review PR: `#277`
-- Stage 1 lab tests:
-  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" vitest run "src/lab/r1-assessment-lab/AppEntryIsolation.test.tsx" "src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx" "src/lab/r1-assessment-lab/noNetwork.test.tsx" "src/lab/r1-assessment-lab/sourceBoundary.test.ts"`
-  - Result: `4 passed, 9 tests passed`
-- Typecheck:
-  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" typecheck`
-  - Result: passed
-- Production build:
-  - `yarn --cwd "/data/user/work/ed-finder/frontend-v2" build`
-  - Result: passed
-- Production artifact scan over deployable JS/CSS/HTML:
-  - `r1-assessment-lab` → no matches
-  - `R1 Assessment Laboratory` → no matches
-  - `DEV only — reconstruction shell` → no matches
-  - `No production scoring` → no matches
-  - `No network or persistence` → no matches
-  - `Assessment engine not yet reconstructed` → no matches
-  - `R1AssessmentLabApp` → no matches
-- Git checks executed before final docs update:
-  - `git status --short`
-  - `git diff --stat`
-  - `git diff --name-status`
-  - `git diff --check`
-  - `git diff --cached --check`
-
-## Raw outcome summary
-
-- Correction 1 completed:
-  - exact lab hash declaration moved inside the compile-time `import.meta.env.DEV` branch in `frontend-v2/src/App.tsx`
-  - lazy lab import moved inside the same compile-time DEV branch
-  - production default path remains `ProductionNormalRoot`
-- Correction 2 completed:
-  - `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabRoute.test.tsx` now proves a normal DEV non-lab hash mounts the normal provider/root path and Finder content while the lab shell remains absent
-- Correction 3 completed:
-  - `frontend-v2/src/lab/r1-assessment-lab/sourceBoundary.test.ts` now uses source assertions instead of placeholder tests
-  - the test source contains the exact required limitation text:
-    - `Source structure does not prove dead-code elimination.`
-  - the test source contains the exact required final-gate text:
-    - `Final acceptance requires production artifact scanning.`
-
-## Stage 1 acceptance contract
-
-- Production normal root owns QueryClientProvider, React Query devtools, and the ordinary app tree.
-- Only inside a compile-time `import.meta.env.DEV` branch:
-  - define the exact `#r1-assessment-lab` hash;
-  - define the DEV-only hash listener/state;
-  - define the lazy lab component and dynamic import;
-  - render the lab outside the normal root when the exact hash matches;
-  - otherwise render the normal root.
-- Production must render only the normal root.
-- No conditional React hooks inside a component body.
-- The exact DEV lab hash must not mount the normal provider/bootstrap tree.
-- Production must treat `#r1-assessment-lab` as an ordinary unknown hash and fall back to Finder.
-
-## Acceptance checkpoint
-
-- Status: Accepted
-- Accepted code commit: `2f798006c0fc902432ce822588866130542c390b`
-- Acceptance checkpoint commit: `9352d933ca9bf43f1fb0d58ff2a359a00f2af862`
-- Branch: `feat/r1-lab-entry-boundary`
-- Pull request: `#277`
-- Evidence reviewed:
-  - review of the seven-file PR surface against the Stage 1 contract;
-  - DEV exact-hash isolation test;
-  - DEV normal-path test;
-  - production unknown-hash Finder fallback test;
-  - entry-time named network/persistence channel test;
-  - source-boundary assertions;
-  - reported typecheck and production build;
-  - reported zero-match production JS/CSS/HTML artifact scan.
-- Caveats:
-  - source assertions document intended boundary only; emitted artifact scanning is the actual production non-shipping proof.
-  - existing Coalsack-path and chunk-size build warnings were reported as pre-existing and are outside Stage 1 scope.
-- Next safe action:
-  - merge PR `#277`; do not start Stage 2 until a new stage contract is accepted.
-
-## Last verified state
-
-- Continuity baseline merged into `work/r1-canonical-body-evidence` before this stage.
-- New implementation branch created from `f1f6cb4a8f78a484d514f8153d6e7093602458bd`.
-- Frontend root: `frontend-v2`.
-- No `frontend-v2/src/lab/r1-assessment-lab` directory exists before Stage 1 implementation.
-- Stage 1 implementation now exists only in the six authorised product/test files.
-
-## Remaining caveats
-
-- `sourceBoundary.test.ts` explicitly records that source structure does not prove dead-code elimination.
-- Final acceptance depended on the production artifact scan outcome, which is reported clean for the Stage 1 lab-only identifiers.
-- The production build still emits existing non-blocking warnings about unresolved runtime Coalsack background paths and large chunks; these pre-date the lab shell contract and were not changed in this stage.
+- UI expansion, reports, digests, exports, markdown/JSON report generation.
+- Strategy selection or Plan Fit.
+- Carrier comparison UI.
+- Additional fixtures beyond the approved mapping.
+- Live data, network activity, persistence, TanStack Query, routes, navigation, production integration, or bundle policy changes.
+- Any claim that historic R1 source or semantics were recovered.
 
 ## Next safe action
 
-Merge PR `#277`. Stage 2 is not authorised until a separate written contract is accepted.
+Create `feat/r1-assessment-core` from the current base branch, update this record with the exact base SHA, commit and push that documentation checkpoint, then implement only the allowed Stage 2B files.
 
 ## Recovery instruction
 
