@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState, type LazyExoticComponent, type ComponentType } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient } from '@/lib/queryClient';
@@ -114,6 +114,48 @@ function setCoalsackBackgroundVariables(): () => void {
   };
 }
 
+export default function App() {
+  if (import.meta.env.DEV) {
+    const DEV_R1_ASSESSMENT_LAB_HASH = '#r1-assessment-lab';
+    const DevR1AssessmentLabApp = lazy(() => import('@/lab/r1-assessment-lab/R1AssessmentLabApp'));
+
+    return (
+      <DevOnlyEntryBoundary
+        exactLabHash={DEV_R1_ASSESSMENT_LAB_HASH}
+        LabComponent={DevR1AssessmentLabApp}
+      />
+    );
+  }
+
+  return <ProductionNormalRoot />;
+}
+
+function DevOnlyEntryBoundary({
+  exactLabHash,
+  LabComponent,
+}: {
+  exactLabHash: string;
+  LabComponent: LazyExoticComponent<ComponentType>;
+}) {
+  const [hash, setHash] = useState(() => window.location.hash);
+
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  if (hash === exactLabHash) {
+    return (
+      <Suspense fallback={null}>
+        <LabComponent />
+      </Suspense>
+    );
+  }
+
+  return <ProductionNormalRoot />;
+}
+
 /**
  * v2 root: NavBar + tab content + system-detail modal overlay.
  *
@@ -126,7 +168,7 @@ function setCoalsackBackgroundVariables(): () => void {
  * wrapped in QueryClientProvider so any descendant `useQuery`/`useMutation`
  * shares one cache. Devtools mount in dev only.
  */
-export default function App() {
+function ProductionNormalRoot() {
   return (
     <QueryClientProvider client={queryClient}>
       <AppInner />
