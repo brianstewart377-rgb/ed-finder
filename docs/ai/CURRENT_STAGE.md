@@ -4,7 +4,7 @@
 
 ## Status
 
-**Implementing — correction evidence gathered**
+**Accepted — merge pending**
 
 ## Current branch and baseline
 
@@ -138,6 +138,28 @@ It does **not** recreate:
 - The exact DEV lab hash must not mount the normal provider/bootstrap tree.
 - Production must treat `#r1-assessment-lab` as an ordinary unknown hash and fall back to Finder.
 
+## Acceptance checkpoint
+
+- Status: Accepted
+- Accepted code commit: `2f798006c0fc902432ce822588866130542c390b`
+- Acceptance checkpoint commit: pending creation by the acceptance automation
+- Branch: `feat/r1-lab-entry-boundary`
+- Pull request: `#277`
+- Evidence reviewed:
+  - review of the seven-file PR surface against the Stage 1 contract;
+  - DEV exact-hash isolation test;
+  - DEV normal-path test;
+  - production unknown-hash Finder fallback test;
+  - entry-time named network/persistence channel test;
+  - source-boundary assertions;
+  - reported typecheck and production build;
+  - reported zero-match production JS/CSS/HTML artifact scan.
+- Caveats:
+  - source assertions document intended boundary only; emitted artifact scanning is the actual production non-shipping proof.
+  - existing Coalsack-path and chunk-size build warnings were reported as pre-existing and are outside Stage 1 scope.
+- Next safe action:
+  - merge PR `#277`; do not start Stage 2 until a new stage contract is accepted.
+
 ## Last verified state
 
 - Continuity baseline merged into `work/r1-canonical-body-evidence` before this stage.
@@ -149,12 +171,12 @@ It does **not** recreate:
 ## Remaining caveats
 
 - `sourceBoundary.test.ts` explicitly records that source structure does not prove dead-code elimination.
-- Final acceptance still depends on the production artifact scan outcome, which is currently clean for the Stage 1 lab-only identifiers.
+- Final acceptance depended on the production artifact scan outcome, which is reported clean for the Stage 1 lab-only identifiers.
 - The production build still emits existing non-blocking warnings about unresolved runtime Coalsack background paths and large chunks; these pre-date the lab shell contract and were not changed in this stage.
 
 ## Next safe action
 
-Request final Stage 1 review on PR `#277`. Do not begin Stage 2 reconstruction unless the correction pass is accepted.
+Merge PR `#277`. Stage 2 is not authorised until a separate written contract is accepted.
 
 ## Recovery instruction
 
