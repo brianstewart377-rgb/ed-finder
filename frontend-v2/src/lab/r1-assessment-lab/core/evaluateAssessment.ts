@@ -14,6 +14,12 @@ import type {
 const SCENARIO_ORDER: CarrierScenarioMode[] = ['no_carrier', 'carrier_available'];
 const VALID_CARRIER_MODES: CarrierMode[] = ['no_carrier', 'carrier_available', 'compare_both'];
 
+function assertNonEmptyString(value: unknown, fieldName: 'programmeId' | 'templateId' | 'revision'): asserts value is string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`Selected template requires a non-empty ${fieldName}.`);
+  }
+}
+
 function assertValidLens(lens: AssessmentLens): asserts lens is AssessmentLens {
   if (!lens || typeof lens !== 'object' || !('kind' in lens)) {
     throw new Error('Assessment evaluation requires a valid assessment lens.');
@@ -124,10 +130,22 @@ function sortScenarioAssessment(value: ScenarioAssessment): ScenarioAssessment {
 
 export function evaluateAssessment(input: AssessmentEvaluationInput): AssessmentEvaluationResult {
   assertValidLens(input.lens);
+  assertNonEmptyString(input.template.programmeId, 'programmeId');
+  assertNonEmptyString(input.template.templateId, 'templateId');
+  assertNonEmptyString(input.template.revision, 'revision');
 
   const templateRequirements = new Map(
     input.template.requirements.map((requirement) => [requirement.id, requirement]),
   );
+  if (templateRequirements.size !== input.template.requirements.length) {
+    const seen = new Set<string>();
+    for (const requirement of input.template.requirements) {
+      if (seen.has(requirement.id)) {
+        throw new Error(`Duplicate template requirement id: ${requirement.id}`);
+      }
+      seen.add(requirement.id);
+    }
+  }
   const mandatoryRequirementIds = new Set(
     input.template.requirements.filter((requirement) => requirement.mandatory).map((requirement) => requirement.id),
   );

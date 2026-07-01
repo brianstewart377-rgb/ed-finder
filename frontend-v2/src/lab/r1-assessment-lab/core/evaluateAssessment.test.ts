@@ -213,4 +213,40 @@ describe('evaluateAssessment', () => {
       evaluateAssessment(buildInput('compact_sufficient_case', { fixture })),
     ).toThrow('Duplicate fixture evaluation found for requirement foundation_evidence.');
   });
+
+  it('rejects duplicate selected template requirement ids', () => {
+    const template = clone(R1_ASSESSMENT_TEMPLATE);
+    template.requirements.push(clone(template.requirements[0]));
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { template })),
+    ).toThrow('Duplicate template requirement id: foundation_evidence');
+  });
+
+  it('rejects a blank selected programmeId at runtime', () => {
+    const template = clone(R1_ASSESSMENT_TEMPLATE);
+    template.programmeId = '   ';
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { template })),
+    ).toThrow('Selected template requires a non-empty programmeId.');
+  });
+
+  it('rejects a blank selected templateId at runtime', () => {
+    const template = clone(R1_ASSESSMENT_TEMPLATE);
+    template.templateId = '   ';
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { template })),
+    ).toThrow('Selected template requires a non-empty templateId.');
+  });
+
+  it('rejects a blank selected revision at runtime', () => {
+    const template = clone(R1_ASSESSMENT_TEMPLATE);
+    template.revision = '   ';
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { template: template as ProgrammeTemplate })),
+    ).toThrow('Selected template requires a non-empty revision.');
+  });
 });
