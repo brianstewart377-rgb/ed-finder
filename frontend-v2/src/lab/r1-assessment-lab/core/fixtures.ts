@@ -1,0 +1,372 @@
+import type {
+  FixtureAssessmentScenario,
+  ProgrammeTemplate,
+} from '@/lab/r1-assessment-lab/core/types';
+
+export const R1_ASSESSMENT_TEMPLATE: ProgrammeTemplate = {
+  programmeId: 'r1_assessment_programme',
+  templateId: 'core_assessment_template',
+  revision: 'r1-contract-v1',
+  requirements: [
+    {
+      id: 'foundation_evidence',
+      label: 'Foundation evidence is complete enough to assess',
+      kind: 'eligibility',
+      mandatory: true,
+      sharedConstraint: true,
+      carrierSensitive: false,
+      evidenceKeys: ['foundation-evidence'],
+    },
+    {
+      id: 'allocation_consistency',
+      label: 'Allocation evidence is internally consistent',
+      kind: 'constraint',
+      mandatory: true,
+      sharedConstraint: true,
+      carrierSensitive: false,
+      evidenceKeys: ['allocation-record'],
+    },
+    {
+      id: 'capacity_floor',
+      label: 'Capacity floor is satisfied',
+      kind: 'capacity',
+      mandatory: true,
+      sharedConstraint: true,
+      carrierSensitive: false,
+      evidenceKeys: ['capacity-proof'],
+    },
+    {
+      id: 'remote_logistics',
+      label: 'Remote logistics are workable for the selected scenario',
+      kind: 'logistics',
+      mandatory: false,
+      sharedConstraint: false,
+      carrierSensitive: true,
+      evidenceKeys: ['remote-logistics'],
+    },
+  ],
+};
+
+function fixtureProvenance(fixtureId: string) {
+  return {
+    sourceKind: 'fixture' as const,
+    fixtureId,
+    fixtureRevision: 'v1',
+  };
+}
+
+export const R1_ASSESSMENT_FIXTURES: Record<string, FixtureAssessmentScenario> = {
+  compact_sufficient_case: {
+    fixtureId: 'compact_sufficient_case',
+    fixtureRevision: 'v1',
+    evidence: [
+      {
+        id: 'compact-foundation',
+        factKey: 'foundation-evidence',
+        value: { coverage: 'complete' },
+        availability: 'known',
+        provenance: fixtureProvenance('compact_sufficient_case'),
+      },
+      {
+        id: 'compact-allocation',
+        factKey: 'allocation-record',
+        value: { consistency: 'stable' },
+        availability: 'known',
+        provenance: fixtureProvenance('compact_sufficient_case'),
+      },
+      {
+        id: 'compact-capacity',
+        factKey: 'capacity-proof',
+        value: { capacityFloor: 'met' },
+        availability: 'known',
+        provenance: fixtureProvenance('compact_sufficient_case'),
+      },
+    ],
+    requirementEvaluations: [
+      {
+        requirementId: 'foundation_evidence',
+        matchedEvidenceIds: ['compact-foundation'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'allocation_consistency',
+        matchedEvidenceIds: ['compact-allocation'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'capacity_floor',
+        matchedEvidenceIds: ['compact-capacity'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'remote_logistics',
+        matchedEvidenceIds: [],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+    ],
+  },
+  incomplete_evidence_case: {
+    fixtureId: 'incomplete_evidence_case',
+    fixtureRevision: 'v1',
+    evidence: [
+      {
+        id: 'incomplete-foundation',
+        factKey: 'foundation-evidence',
+        value: null,
+        availability: 'missing',
+        provenance: fixtureProvenance('incomplete_evidence_case'),
+      },
+      {
+        id: 'incomplete-capacity',
+        factKey: 'capacity-proof',
+        value: { capacityFloor: 'met' },
+        availability: 'known',
+        provenance: fixtureProvenance('incomplete_evidence_case'),
+      },
+    ],
+    requirementEvaluations: [
+      {
+        requirementId: 'foundation_evidence',
+        matchedEvidenceIds: [],
+        missingEvidenceIds: ['incomplete-foundation'],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'unknown',
+        condition: {
+          id: 'foundation-missing-evidence',
+          kind: 'missing_evidence',
+          summary: 'Required foundation evidence is incomplete.',
+          blocking: true,
+        },
+      },
+      {
+        requirementId: 'allocation_consistency',
+        matchedEvidenceIds: [],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'capacity_floor',
+        matchedEvidenceIds: ['incomplete-capacity'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'remote_logistics',
+        matchedEvidenceIds: [],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+    ],
+  },
+  contradictory_allocation_case: {
+    fixtureId: 'contradictory_allocation_case',
+    fixtureRevision: 'v1',
+    evidence: [
+      {
+        id: 'contradictory-foundation',
+        factKey: 'foundation-evidence',
+        value: { coverage: 'complete' },
+        availability: 'known',
+        provenance: fixtureProvenance('contradictory_allocation_case'),
+      },
+      {
+        id: 'contradictory-allocation',
+        factKey: 'allocation-record',
+        value: { consistency: 'conflicting' },
+        availability: 'contradictory',
+        provenance: fixtureProvenance('contradictory_allocation_case'),
+      },
+      {
+        id: 'contradictory-capacity',
+        factKey: 'capacity-proof',
+        value: { capacityFloor: 'met' },
+        availability: 'known',
+        provenance: fixtureProvenance('contradictory_allocation_case'),
+      },
+    ],
+    requirementEvaluations: [
+      {
+        requirementId: 'foundation_evidence',
+        matchedEvidenceIds: ['contradictory-foundation'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'allocation_consistency',
+        matchedEvidenceIds: [],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: ['contradictory-allocation'],
+        baseOutcome: 'contradictory',
+        condition: {
+          id: 'allocation-contradictory-evidence',
+          kind: 'contradictory_evidence',
+          summary: 'Allocation evidence is contradictory.',
+          blocking: true,
+        },
+      },
+      {
+        requirementId: 'capacity_floor',
+        matchedEvidenceIds: ['contradictory-capacity'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'remote_logistics',
+        matchedEvidenceIds: [],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+    ],
+  },
+  fake_flexibility_case: {
+    fixtureId: 'fake_flexibility_case',
+    fixtureRevision: 'v1',
+    evidence: [
+      {
+        id: 'flex-foundation',
+        factKey: 'foundation-evidence',
+        value: { coverage: 'complete' },
+        availability: 'known',
+        provenance: fixtureProvenance('fake_flexibility_case'),
+      },
+      {
+        id: 'flex-allocation',
+        factKey: 'allocation-record',
+        value: { consistency: 'stable' },
+        availability: 'known',
+        provenance: fixtureProvenance('fake_flexibility_case'),
+      },
+      {
+        id: 'flex-capacity',
+        factKey: 'capacity-proof',
+        value: { capacityFloor: 'unmet' },
+        availability: 'known',
+        provenance: fixtureProvenance('fake_flexibility_case'),
+      },
+    ],
+    requirementEvaluations: [
+      {
+        requirementId: 'foundation_evidence',
+        matchedEvidenceIds: ['flex-foundation'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'allocation_consistency',
+        matchedEvidenceIds: ['flex-allocation'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'capacity_floor',
+        matchedEvidenceIds: ['flex-capacity'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'unmet',
+        condition: {
+          id: 'capacity-gap',
+          kind: 'requirement_gap',
+          summary: 'Capacity floor remains below the mandatory requirement.',
+          blocking: true,
+        },
+      },
+      {
+        requirementId: 'remote_logistics',
+        matchedEvidenceIds: [],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+    ],
+  },
+  remote_materials_carrier_case: {
+    fixtureId: 'remote_materials_carrier_case',
+    fixtureRevision: 'v1',
+    evidence: [
+      {
+        id: 'remote-foundation',
+        factKey: 'foundation-evidence',
+        value: { coverage: 'complete' },
+        availability: 'known',
+        provenance: fixtureProvenance('remote_materials_carrier_case'),
+      },
+      {
+        id: 'remote-allocation',
+        factKey: 'allocation-record',
+        value: { consistency: 'stable' },
+        availability: 'known',
+        provenance: fixtureProvenance('remote_materials_carrier_case'),
+      },
+      {
+        id: 'remote-capacity',
+        factKey: 'capacity-proof',
+        value: { capacityFloor: 'met' },
+        availability: 'known',
+        provenance: fixtureProvenance('remote_materials_carrier_case'),
+      },
+      {
+        id: 'remote-logistics-evidence',
+        factKey: 'remote-logistics',
+        value: { carrierResolvesBottleneck: true },
+        availability: 'known',
+        provenance: fixtureProvenance('remote_materials_carrier_case'),
+      },
+    ],
+    requirementEvaluations: [
+      {
+        requirementId: 'foundation_evidence',
+        matchedEvidenceIds: ['remote-foundation'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'allocation_consistency',
+        matchedEvidenceIds: ['remote-allocation'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'capacity_floor',
+        matchedEvidenceIds: ['remote-capacity'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'met',
+      },
+      {
+        requirementId: 'remote_logistics',
+        matchedEvidenceIds: ['remote-logistics-evidence'],
+        missingEvidenceIds: [],
+        contradictoryEvidenceIds: [],
+        baseOutcome: 'conditional',
+        outcomeByCarrier: {
+          no_carrier: 'conditional',
+          carrier_available: 'met',
+        },
+        condition: {
+          id: 'remote-logistics-dependency',
+          kind: 'logistics_dependency',
+          summary: 'Remote logistics remain conditionally supported without a carrier.',
+          blocking: false,
+        },
+      },
+    ],
+  },
+};
