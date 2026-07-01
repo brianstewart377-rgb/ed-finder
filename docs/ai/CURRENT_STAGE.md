@@ -90,7 +90,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 - Correction implementation commit: `1ee4c82aca746bb1036d09e596f075334edfa0be` — `fix: tighten R1 assessment core runtime validation`
 - Correction evidence commit: `ee86b05e6745d4dfe4efebd377e7322452d778f7` — `docs: record Stage 2B correction evidence`
 - Final hardening implementation commit: `e5e052a12c7b16dbc9dbff2bb1bef320f3bbab50` — `fix: harden R1 assessment core template validation`
-- Final hardening evidence commit: `pending final docs checkpoint`
+- Final hardening evidence commit: `6b00a9ee409a806b07d53a4fd48a641f1343fbc4` — `docs: record Stage 2B final hardening evidence`
 
 ## Required evidence before acceptance
 
@@ -158,7 +158,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
   - `git diff --name-status`
   - `git diff --check`
   - `git diff --cached --check`
-- Final worktree state: pending final docs checkpoint
+- Final worktree state: clean after final docs checkpoint
 
 ## Raw outcome summary
 
