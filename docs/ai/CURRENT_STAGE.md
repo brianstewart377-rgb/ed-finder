@@ -105,7 +105,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
 
 - `7a7249f5c17fa53616365a440bf5e95770b6f502` — `feat: add pure R1 assessment core`
 - Correction implementation commit: `1ee4c82aca746bb1036d09e596f075334edfa0be` — `fix: tighten R1 assessment core runtime validation`
-- Correction evidence commit: `pending final docs checkpoint`
+- Correction evidence commit: `ee86b05e6745d4dfe4efebd377e7322452d778f7` — `docs: record Stage 2B correction evidence`
 
 ## Required evidence before acceptance
 
@@ -174,7 +174,7 @@ This is a forward reconstruction decision, not a claim about lost historic behav
   - `git diff --name-status`
   - `git diff --check`
   - `git diff --cached --check`
-- Final worktree state: pending final docs checkpoint
+- Final worktree state: clean after final docs checkpoint
 
 ## Raw outcome summary
 
