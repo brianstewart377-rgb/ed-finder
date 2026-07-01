@@ -20,6 +20,66 @@ function scenarioState(mode: 'no_carrier' | 'carrier_available') {
   return screen.getByTestId(`scenario-state-${mode}`).textContent;
 }
 
+function setupSideEffectMocks() {
+  const fetchSpy = vi.fn();
+  const xhrOpenSpy = vi.fn();
+  const webSocketSpy = vi.fn();
+  const eventSourceSpy = vi.fn();
+  const sendBeaconSpy = vi.fn();
+  const localStorageSetSpy = vi.spyOn(Object.getPrototypeOf(window.localStorage), 'setItem');
+  const sessionStorageSetSpy = vi.spyOn(Object.getPrototypeOf(window.sessionStorage), 'setItem');
+  const indexedDbOpenSpy = vi.fn();
+
+  vi.stubGlobal('fetch', fetchSpy);
+  vi.stubGlobal('XMLHttpRequest', class {
+    open = xhrOpenSpy;
+    send = vi.fn();
+  });
+  vi.stubGlobal('WebSocket', webSocketSpy);
+  vi.stubGlobal('EventSource', eventSourceSpy);
+  Object.defineProperty(window.navigator, 'sendBeacon', {
+    configurable: true,
+    value: sendBeaconSpy,
+  });
+  Object.defineProperty(window, 'indexedDB', {
+    configurable: true,
+    value: { open: indexedDbOpenSpy },
+  });
+
+  return {
+    fetchSpy,
+    xhrOpenSpy,
+    webSocketSpy,
+    eventSourceSpy,
+    sendBeaconSpy,
+    localStorageSetSpy,
+    sessionStorageSetSpy,
+    indexedDbOpenSpy,
+  };
+}
+
+function resetSideEffectMocks(mocks: ReturnType<typeof setupSideEffectMocks>) {
+  mocks.fetchSpy.mockClear();
+  mocks.xhrOpenSpy.mockClear();
+  mocks.webSocketSpy.mockClear();
+  mocks.eventSourceSpy.mockClear();
+  mocks.sendBeaconSpy.mockClear();
+  mocks.localStorageSetSpy.mockClear();
+  mocks.sessionStorageSetSpy.mockClear();
+  mocks.indexedDbOpenSpy.mockClear();
+}
+
+function expectNoSideEffects(mocks: ReturnType<typeof setupSideEffectMocks>) {
+  expect(mocks.fetchSpy).not.toHaveBeenCalled();
+  expect(mocks.xhrOpenSpy).not.toHaveBeenCalled();
+  expect(mocks.webSocketSpy).not.toHaveBeenCalled();
+  expect(mocks.eventSourceSpy).not.toHaveBeenCalled();
+  expect(mocks.sendBeaconSpy).not.toHaveBeenCalled();
+  expect(mocks.localStorageSetSpy).not.toHaveBeenCalled();
+  expect(mocks.sessionStorageSetSpy).not.toHaveBeenCalled();
+  expect(mocks.indexedDbOpenSpy).not.toHaveBeenCalled();
+}
+
 describe('R1AssessmentLabApp', () => {
   it('renders the exact four labelled selects, defaults, options, and persistent disclosures', () => {
     render(<R1AssessmentLabApp />);
@@ -126,12 +186,29 @@ describe('R1AssessmentLabApp', () => {
     render(<R1AssessmentLabApp />);
     const scenario = screen.getByTestId('scenario-no_carrier');
     const scoped = within(scenario);
+    const tables = scoped.getAllByRole('table');
+    const requirementTraceTable = tables[0];
+    const frozenEvidenceTable = tables[1];
 
     expect(screen.getByText('No structured conditions.')).toBeTruthy();
     expect(scoped.getByText('Requirement trace')).toBeTruthy();
     expect(scoped.getByText('Frozen evidence and provenance')).toBeTruthy();
-    expect(scoped.getAllByText('compact-foundation').length).toBeGreaterThan(0);
-    expect(scoped.getAllByText('compact_sufficient_case').length).toBeGreaterThan(0);
+
+    const requirementRow = within(requirementTraceTable).getByText('foundation_evidence').closest('tr');
+    if (!requirementRow) throw new Error('foundation_evidence row not found');
+    const requirementRowScope = within(requirementRow);
+    expect(requirementRowScope.getByText('foundation_evidence')).toBeTruthy();
+    expect(requirementRowScope.getByText('met')).toBeTruthy();
+    expect(requirementRowScope.getByText('compact-foundation')).toBeTruthy();
+
+    const evidenceRow = within(frozenEvidenceTable).getByText('compact-foundation').closest('tr');
+    if (!evidenceRow) throw new Error('compact-foundation evidence row not found');
+    const evidenceRowScope = within(evidenceRow);
+    expect(evidenceRowScope.getByText('compact-foundation')).toBeTruthy();
+    expect(evidenceRowScope.getByText('foundation-evidence')).toBeTruthy();
+    expect(evidenceRowScope.getByText('known')).toBeTruthy();
+    expect(evidenceRowScope.getByText('compact_sufficient_case')).toBeTruthy();
+    expect(evidenceRowScope.getByText('v1')).toBeTruthy();
   });
 
   it('keeps scenario result content unchanged when only lens context changes', () => {
@@ -160,47 +237,26 @@ describe('R1AssessmentLabApp', () => {
       .toEqual(beforeOrder);
   });
 
-  it('does not perform network or persistence activity after each control change', () => {
-    const fetchSpy = vi.fn();
-    const xhrOpenSpy = vi.fn();
-    const webSocketSpy = vi.fn();
-    const eventSourceSpy = vi.fn();
-    const sendBeaconSpy = vi.fn();
-    const localStorageSetSpy = vi.spyOn(Object.getPrototypeOf(window.localStorage), 'setItem');
-    const sessionStorageSetSpy = vi.spyOn(Object.getPrototypeOf(window.sessionStorage), 'setItem');
-    const indexedDbOpenSpy = vi.fn();
-
-    vi.stubGlobal('fetch', fetchSpy);
-    vi.stubGlobal('XMLHttpRequest', class {
-      open = xhrOpenSpy;
-      send = vi.fn();
-    });
-    vi.stubGlobal('WebSocket', webSocketSpy);
-    vi.stubGlobal('EventSource', eventSourceSpy);
-    Object.defineProperty(window.navigator, 'sendBeacon', {
-      configurable: true,
-      value: sendBeaconSpy,
-    });
-    Object.defineProperty(window, 'indexedDB', {
-      configurable: true,
-      value: { open: indexedDbOpenSpy },
-    });
+  it('does not perform network or persistence activity after each separate control change', () => {
+    const mocks = setupSideEffectMocks();
 
     render(<R1AssessmentLabApp />);
 
+    resetSideEffectMocks(mocks);
     fireEvent.change(getSelect('Fixture'), { target: { value: 'remote_materials_carrier_case' } });
-    fireEvent.change(getSelect('Lens kind'), { target: { value: 'question' } });
-    fireEvent.change(getSelect('Lens value'), { target: { value: 'carrier-sensitivity-check' } });
-    fireEvent.change(getSelect('Carrier mode'), { target: { value: 'compare_both' } });
+    expectNoSideEffects(mocks);
 
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(xhrOpenSpy).not.toHaveBeenCalled();
-    expect(webSocketSpy).not.toHaveBeenCalled();
-    expect(eventSourceSpy).not.toHaveBeenCalled();
-    expect(sendBeaconSpy).not.toHaveBeenCalled();
-    expect(localStorageSetSpy).not.toHaveBeenCalled();
-    expect(sessionStorageSetSpy).not.toHaveBeenCalled();
-    expect(indexedDbOpenSpy).not.toHaveBeenCalled();
+    resetSideEffectMocks(mocks);
+    fireEvent.change(getSelect('Lens kind'), { target: { value: 'question' } });
+    expectNoSideEffects(mocks);
+
+    resetSideEffectMocks(mocks);
+    fireEvent.change(getSelect('Lens value'), { target: { value: 'carrier-sensitivity-check' } });
+    expectNoSideEffects(mocks);
+
+    resetSideEffectMocks(mocks);
+    fireEvent.change(getSelect('Carrier mode'), { target: { value: 'compare_both' } });
+    expectNoSideEffects(mocks);
   });
 
   it('renders no forbidden language in the DOM', () => {
