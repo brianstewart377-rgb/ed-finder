@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { R1_ASSESSMENT_FIXTURES, R1_ASSESSMENT_TEMPLATE } from '@/lab/r1-assessment-lab/core/fixtures';
 import { evaluateAssessment, normalizeAssessmentResult } from '@/lab/r1-assessment-lab/core/evaluateAssessment';
-import type { AssessmentEvaluationInput } from '@/lab/r1-assessment-lab/core/types';
+import type { AssessmentEvaluationInput, ProgrammeTemplate } from '@/lab/r1-assessment-lab/core/types';
 
 function buildInput(
   fixtureId: keyof typeof R1_ASSESSMENT_FIXTURES,
@@ -15,6 +15,10 @@ function buildInput(
     carrierMode: 'no_carrier',
     ...overrides,
   };
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function collectForbiddenKeys(value: unknown, found = new Set<string>()): Set<string> {
@@ -79,6 +83,36 @@ describe('evaluateAssessment', () => {
     ).toThrow('Assessment evaluation requires a valid assessment lens.');
   });
 
+  it('rejects invalid exclusive assessment lens runtime shapes', () => {
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { lens: 'role' as never })),
+    ).toThrow('Assessment evaluation requires a valid assessment lens.');
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { lens: { kind: 'unknown' } as never })),
+    ).toThrow('Assessment lens must be a role lens or a question lens.');
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { lens: { kind: 'role', roleId: '   ' } as never })),
+    ).toThrow('Role lens requires a non-empty roleId.');
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { lens: { kind: 'question', questionId: '   ' } as never })),
+    ).toThrow('Question lens requires a non-empty questionId.');
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', {
+        lens: { kind: 'role', roleId: 'expedition-lead', questionId: 'q1' } as never,
+      })),
+    ).toThrow('Role lens must not contain questionId.');
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', {
+        lens: { kind: 'question', questionId: 'q1', roleId: 'expedition-lead' } as never,
+      })),
+    ).toThrow('Question lens must not contain roleId.');
+  });
+
   it('is deterministic for identical input and stable JSON normalization', () => {
     const input = buildInput('remote_materials_carrier_case', { carrierMode: 'compare_both' });
     const resultA = evaluateAssessment(input);
@@ -99,6 +133,12 @@ describe('evaluateAssessment', () => {
       .toHaveLength(1);
     expect(evaluateAssessment(buildInput('compact_sufficient_case', { carrierMode: 'carrier_available' })).scenarioResults)
       .toHaveLength(1);
+  });
+
+  it('rejects invalid runtime carrier modes', () => {
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { carrierMode: 'fleet_train' as never })),
+    ).toThrow('Unsupported carrier mode: fleet_train');
   });
 
   it('returns compare_both scenarios in the required order', () => {
@@ -124,5 +164,53 @@ describe('evaluateAssessment', () => {
       .toBe(true);
     expect(carrierAvailable.requirementResults.find((result) => result.requirementId === 'remote_logistics')?.carrierLogisticsAffected)
       .toBe(true);
+  });
+
+  it('rejects carrier-varying capacity requirements', () => {
+    const template = clone(R1_ASSESSMENT_TEMPLATE);
+    const fixture = clone(R1_ASSESSMENT_FIXTURES.remote_materials_carrier_case);
+    const capacityRequirement = fixture.requirementEvaluations.find((item) => item.requirementId === 'capacity_floor');
+    if (!capacityRequirement) throw new Error('capacity fixture requirement missing in test setup');
+    capacityRequirement.outcomeByCarrier = {
+      no_carrier: 'conditional',
+      carrier_available: 'met',
+    };
+
+    expect(() =>
+      evaluateAssessment(buildInput('remote_materials_carrier_case', { template, fixture, carrierMode: 'compare_both' })),
+    ).toThrow(
+      'Requirement capacity_floor may vary by carrier only when it is carrier-sensitive logistics and not a shared constraint.',
+    );
+  });
+
+  it('rejects carrier-varying shared constraints', () => {
+    const template: ProgrammeTemplate = clone(R1_ASSESSMENT_TEMPLATE);
+    const logisticsRequirement = template.requirements.find((item) => item.id === 'remote_logistics');
+    if (!logisticsRequirement) throw new Error('logistics template requirement missing in test setup');
+    logisticsRequirement.sharedConstraint = true;
+
+    expect(() =>
+      evaluateAssessment(buildInput('remote_materials_carrier_case', { template, carrierMode: 'compare_both' })),
+    ).toThrow(
+      'Requirement remote_logistics may vary by carrier only when it is carrier-sensitive logistics and not a shared constraint.',
+    );
+  });
+
+  it('rejects a selected template with a missing fixture requirement evaluation', () => {
+    const fixture = clone(R1_ASSESSMENT_FIXTURES.compact_sufficient_case);
+    fixture.requirementEvaluations = fixture.requirementEvaluations.filter((item) => item.requirementId !== 'capacity_floor');
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { fixture })),
+    ).toThrow('Template requirement capacity_floor is missing fixture evaluation.');
+  });
+
+  it('rejects duplicate fixture requirement evaluations', () => {
+    const fixture = clone(R1_ASSESSMENT_FIXTURES.compact_sufficient_case);
+    fixture.requirementEvaluations.push(clone(fixture.requirementEvaluations[0]));
+
+    expect(() =>
+      evaluateAssessment(buildInput('compact_sufficient_case', { fixture })),
+    ).toThrow('Duplicate fixture evaluation found for requirement foundation_evidence.');
   });
 });

@@ -12,18 +12,25 @@ import type {
 } from '@/lab/r1-assessment-lab/core/types';
 
 const SCENARIO_ORDER: CarrierScenarioMode[] = ['no_carrier', 'carrier_available'];
+const VALID_CARRIER_MODES: CarrierMode[] = ['no_carrier', 'carrier_available', 'compare_both'];
 
 function assertValidLens(lens: AssessmentLens): asserts lens is AssessmentLens {
   if (!lens || typeof lens !== 'object' || !('kind' in lens)) {
     throw new Error('Assessment evaluation requires a valid assessment lens.');
   }
   if (lens.kind === 'role') {
+    if ('questionId' in lens) {
+      throw new Error('Role lens must not contain questionId.');
+    }
     if (typeof lens.roleId !== 'string' || lens.roleId.trim() === '') {
       throw new Error('Role lens requires a non-empty roleId.');
     }
     return;
   }
   if (lens.kind === 'question') {
+    if ('roleId' in lens) {
+      throw new Error('Question lens must not contain roleId.');
+    }
     if (typeof lens.questionId !== 'string' || lens.questionId.trim() === '') {
       throw new Error('Question lens requires a non-empty questionId.');
     }
@@ -33,6 +40,9 @@ function assertValidLens(lens: AssessmentLens): asserts lens is AssessmentLens {
 }
 
 function scenarioModesFor(carrierMode: CarrierMode): CarrierScenarioMode[] {
+  if (!VALID_CARRIER_MODES.includes(carrierMode)) {
+    throw new Error(`Unsupported carrier mode: ${String(carrierMode)}`);
+  }
   if (carrierMode === 'compare_both') return [...SCENARIO_ORDER];
   return [carrierMode];
 }
@@ -121,22 +131,50 @@ export function evaluateAssessment(input: AssessmentEvaluationInput): Assessment
   const mandatoryRequirementIds = new Set(
     input.template.requirements.filter((requirement) => requirement.mandatory).map((requirement) => requirement.id),
   );
+  const fixtureRequirementMap = new Map<string, FixtureRequirementEvaluation>();
 
   for (const fixtureRequirement of input.fixture.requirementEvaluations) {
     const templateRequirement = templateRequirements.get(fixtureRequirement.requirementId);
     if (!templateRequirement) {
       throw new Error(`Fixture requirement ${fixtureRequirement.requirementId} is not present in the selected template.`);
     }
-    if (fixtureRequirement.outcomeByCarrier && !templateRequirement.carrierSensitive) {
-      throw new Error(`Requirement ${fixtureRequirement.requirementId} cannot vary by carrier mode.`);
+    if (fixtureRequirementMap.has(fixtureRequirement.requirementId)) {
+      throw new Error(`Duplicate fixture evaluation found for requirement ${fixtureRequirement.requirementId}.`);
+    }
+    fixtureRequirementMap.set(fixtureRequirement.requirementId, fixtureRequirement);
+    if (
+      fixtureRequirement.outcomeByCarrier
+      && (
+        !templateRequirement.carrierSensitive
+        || templateRequirement.kind !== 'logistics'
+        || templateRequirement.sharedConstraint
+      )
+    ) {
+      throw new Error(
+        `Requirement ${fixtureRequirement.requirementId} may vary by carrier only when it is carrier-sensitive logistics and not a shared constraint.`,
+      );
+    }
+  }
+
+  for (const templateRequirement of input.template.requirements) {
+    if (!fixtureRequirementMap.has(templateRequirement.id)) {
+      throw new Error(`Template requirement ${templateRequirement.id} is missing fixture evaluation.`);
     }
   }
 
   const scenarioResults = scenarioModesFor(input.carrierMode).map((scenarioMode) => {
-    const requirementResults = input.fixture.requirementEvaluations.map((fixtureRequirement) =>
+    const orderedFixtureRequirements = input.template.requirements.map((templateRequirement) => {
+      const fixtureRequirement = fixtureRequirementMap.get(templateRequirement.id);
+      if (!fixtureRequirement) {
+        throw new Error(`Template requirement ${templateRequirement.id} is missing fixture evaluation.`);
+      }
+      return fixtureRequirement;
+    });
+
+    const requirementResults = orderedFixtureRequirements.map((fixtureRequirement) =>
       evaluateRequirement(fixtureRequirement, scenarioMode),
     );
-    const conditions = input.fixture.requirementEvaluations
+    const conditions = orderedFixtureRequirements
       .map((fixtureRequirement, index) => conditionFor(fixtureRequirement, requirementResults[index]))
       .filter((value): value is AssessmentCondition => value !== null);
 
