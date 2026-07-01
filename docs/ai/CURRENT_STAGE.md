@@ -4,24 +4,26 @@
 
 ## Status
 
-**Accepted — automatic merge pending**
+**Merged — Stage 3B complete**
 
 ## Baseline
 
-- Base branch: `work/r1-canonical-body-evidence`
+- Canonical base branch: `work/r1-canonical-body-evidence`
 - Stage 3B branch: `feat/r1-assessment-lab-presentation`
 - Base SHA: `b6529e70ddbdcc26d46ce742eea793273138c635`
-- Review PR: `#282` — `Stage 3B: DEV-only R1 assessment lab`
+- Stage 3B PR: `#282` — `Stage 3B: DEV-only R1 assessment lab`, merged
+- Stage 3B merge commit: `98b4bacf1d799e7937b449210046659b3e96615b`
 - Last accepted implementation stage: Stage 2B pure R1 assessment-domain core, merged by PR `#280` at `220c870f89a5af7f98adb88578373dbc3a681a9c`.
+- No deployment occurred.
 
-## Accepted Stage 3B implementation
+## Merged Stage 3B implementation
 
 - Original presentation implementation: `fe28827d0703e9fe1ca4d510fbb434e39f64bcf0`
 - Final presentation-test hardening: `2c10872a82046949bc91cb53481b1cee2390a853`
 - Pre-acceptance evidence records:
   - `0a664579163b7b14b08167dcd68ceaf94ffee3a5`
   - `373841a740bc9a48ccff6f1c7b981ea6c64fa69b`
-- This commit records final acceptance before automatic merge.
+- This record corrects the post-merge status after PR `#282` landed on the canonical base.
 
 ## Reviewed scope
 
@@ -32,6 +34,7 @@ The PR changes only:
 - `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabApp.test.tsx`
 
 Stage 3B is a DEV-only, fixture-backed assessment-lab presentation surface inside the existing Stage 1 entry boundary. It does not change `App.tsx`, production routing, normal application navigation, providers, stores, APIs, persistence, configuration, stylesheets, or Stage 2B evaluator semantics.
+It remains DEV-only, fixture-backed, and non-production after merge.
 
 ## Accepted behavior and invariants
 
@@ -59,10 +62,11 @@ Stage 3B is a DEV-only, fixture-backed assessment-lab presentation surface insid
 - The test, typecheck, build, and artifact-scan results are recorded local evidence. No GitHub Actions status is attached to the final pre-acceptance head.
 - Existing Coalsack asset-resolution and chunk-size build warnings remain outside Stage 3B scope.
 - The lab remains a fixture-backed reconstruction contract and does not claim recovery of the historic evaluator or provide live system advice.
+- No deployment occurred as part of Stage 3B acceptance or merge recording.
 
 ## Next safe action
 
-Merge PR `#282` automatically. Do not deploy. Do not begin Stage 4 until a separate written contract is accepted.
+Do not begin Stage 4 until a separate written technical contract is reviewed and accepted.
 
 ## Recovery instruction
 
