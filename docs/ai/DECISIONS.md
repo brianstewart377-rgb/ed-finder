@@ -77,3 +77,17 @@ The mapping is a forward reconstruction contract: `compact_sufficient_case` is `
 
 **Evidence / reference**
 `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`; owner approval in the 2026-07-01 Stage 2A review.
+
+## 2026-07-01 — Stage 3B lens selection is context-only
+
+**Decision**
+Stage 3B may show a Role/Question lens picker. The selected lens is visible, explicit assessment context and is passed to the accepted Stage 2B evaluator, but it does not alter fixture evaluation, requirement outcomes, conditions, or assessment state in Stage 3B.
+
+**Reason**
+The evaluator requires an exclusive lens, so the presentation layer must expose that context honestly. The accepted Stage 2B fixtures do not yet encode lens-specific semantics; presenting the selector as outcome-changing would falsely imply analysis that has not been reconstructed.
+
+**Invariant**
+The Stage 3B UI must display persistent plain language that lens selection is context-only in this slice. It must not use the selected lens to reinterpret results, offer lens-based recommendations, or add lens-specific fixtures or evaluator semantics without a later written contract.
+
+**Evidence / reference**
+Owner approval following the independent Stage 3A design review on 2026-07-01; `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`.
