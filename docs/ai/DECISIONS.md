@@ -91,3 +91,17 @@ The Stage 3B UI must display persistent plain language that lens selection is co
 
 **Evidence / reference**
 Owner approval following the independent Stage 3A design review on 2026-07-01; `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`.
+
+## 2026-07-01 — Stage 4B permits bounded provisional Plan Fit reconstruction
+
+**Decision**
+Plan Fit is now authorised only as a bounded, fixture-backed, pure-core forward reconstruction. It does not supersede assessment state. Stage 4B permits explicit selected strategies only and does not permit recommendation, score, rank, best result, or automatic strategy choice.
+
+**Reason**
+Stage 4A identified a narrow next slice for explicit strategy selection and provisional Plan Fit that can remain deterministic, local, and subordinate to the accepted Stage 2B assessment semantics without widening into planning UI or production behavior.
+
+**Invariant**
+Carrier remains limited to validated non-shared logistics dependencies. Lens remains context-only. The controlling reference for any later Stage 4B implementation is `docs/ai/R1_STAGE4_PLAN_FIT_CONTRACT_V1.md`.
+
+**Evidence / reference**
+`docs/ai/R1_STAGE4_PLAN_FIT_CONTRACT_V1.md`; owner approval to draft the Stage 4B contract on 2026-07-01.
