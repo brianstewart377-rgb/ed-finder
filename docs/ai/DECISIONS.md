@@ -63,3 +63,17 @@ Any future R1 lab work begins with a read-only inventory and written reconstruct
 
 **Evidence / reference**
 `docs/ai/CURRENT_STAGE.md` and the 2026-07-01 recovery inspection.
+
+## 2026-07-01 — R1 reconstruction semantics v1
+
+**Decision**
+Adopt the explicit Stage 2B assessment mapping and semantics in `docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`.
+
+**Reason**
+The historic R1 implementation and fixture meanings were lost. The rebuilt evaluator needs complete, testable state coverage without falsely presenting assumptions as recovered historic fact.
+
+**Invariant**
+The mapping is a forward reconstruction contract: `compact_sufficient_case` is `supported`; incomplete and contradictory cases are `not_assessable`; `fake_flexibility_case` is `not_supported`; `remote_materials_carrier_case` is `conditionally_supported` without a carrier and `supported` with one. Assessment requires a discriminated role-or-question lens, has no universal score/rank/best/Plan Fit, and permits carrier effects only on logistics-sensitive outcomes.
+
+**Evidence / reference**
+`docs/ai/R1_RECONSTRUCTION_CONTRACT_V1.md`; owner approval in the 2026-07-01 Stage 2A review.
