@@ -142,7 +142,7 @@ It does **not** recreate:
 
 - Status: Accepted
 - Accepted code commit: `2f798006c0fc902432ce822588866130542c390b`
-- Acceptance checkpoint commit: pending creation by the acceptance automation
+- Acceptance checkpoint commit: `9352d933ca9bf43f1fb0d58ff2a359a00f2af862`
 - Branch: `feat/r1-lab-entry-boundary`
 - Pull request: `#277`
 - Evidence reviewed:
