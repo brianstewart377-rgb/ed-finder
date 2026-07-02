@@ -2,10 +2,13 @@ import { useState } from 'react';
 
 import { R1_ASSESSMENT_FIXTURES, R1_ASSESSMENT_TEMPLATE } from '@/lab/r1-assessment-lab/core/fixtures';
 import { evaluateAssessment } from '@/lab/r1-assessment-lab/core/evaluateAssessment';
+import { evaluatePlanFit } from '@/lab/r1-assessment-lab/core/evaluatePlanFit';
+import type { PlanFitScenarioResult } from '@/lab/r1-assessment-lab/core/planFitTypes';
 import type {
   AssessmentEvaluationResult,
   AssessmentLens,
   CarrierMode,
+  CarrierScenarioMode,
   ScenarioAssessment,
 } from '@/lab/r1-assessment-lab/core/types';
 
@@ -21,11 +24,13 @@ const LENS_KIND_OPTIONS = ['role', 'question'] as const;
 const ROLE_OPTIONS = ['expedition-lead', 'logistics-reviewer'] as const;
 const QUESTION_OPTIONS = ['baseline-assessment', 'carrier-sensitivity-check'] as const;
 const CARRIER_MODE_OPTIONS = ['no_carrier', 'carrier_available', 'compare_both'] as const;
+const STRATEGY_OPTIONS = ['baseline_local_strategy', 'remote_logistics_strategy'] as const;
 
 type FixtureOption = typeof FIXTURE_OPTIONS[number];
 type LensKindOption = typeof LENS_KIND_OPTIONS[number];
 type RoleOption = typeof ROLE_OPTIONS[number];
 type QuestionOption = typeof QUESTION_OPTIONS[number];
+type StrategyOption = typeof STRATEGY_OPTIONS[number];
 
 function lensValueFor(kind: LensKindOption): RoleOption | QuestionOption {
   return kind === 'role' ? 'expedition-lead' : 'baseline-assessment';
@@ -112,22 +117,82 @@ function renderFrozenEvidence(scenario: ScenarioAssessment) {
   );
 }
 
-function ScenarioResultSection({ scenario }: { scenario: ScenarioAssessment }) {
+function renderPlanFitReasons(carrierMode: CarrierScenarioMode, planFitScenario: PlanFitScenarioResult) {
+  if (planFitScenario.reasons.length === 0) {
+    return <p data-testid={`plan-fit-reasons-${carrierMode}`}>No Plan Fit reasons.</p>;
+  }
+
+  return (
+    <table data-testid={`plan-fit-reasons-${carrierMode}`}>
+      <thead>
+        <tr>
+          <th scope="col">reasonId</th>
+          <th scope="col">reasonKind</th>
+          <th scope="col">summary</th>
+          <th scope="col">blocking</th>
+          <th scope="col">relatedRequirementIds</th>
+          <th scope="col">relatedEvidenceIds</th>
+        </tr>
+      </thead>
+      <tbody>
+        {planFitScenario.reasons.map((reason) => (
+          <tr key={reason.id}>
+            <td><code>{reason.id}</code></td>
+            <td><code>{reason.kind}</code></td>
+            <td>{reason.summary}</td>
+            <td><code>{String(reason.blocking)}</code></td>
+            <td><code>{reason.relatedRequirementIds.join(', ') || '[]'}</code></td>
+            <td><code>{reason.relatedEvidenceIds.join(', ') || '[]'}</code></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ScenarioResultSection(
+  { scenario, planFitScenario }: { scenario: ScenarioAssessment; planFitScenario: PlanFitScenarioResult },
+) {
   return (
     <section data-testid={`scenario-${scenario.carrierMode}`}>
       <h3><code>{scenario.carrierMode}</code></h3>
 
-      <h4>Assessment state</h4>
-      <p data-testid={`scenario-state-${scenario.carrierMode}`}><code>{scenario.state}</code></p>
+      <div data-testid={`assessment-content-${scenario.carrierMode}`}>
+        <h4>Assessment state</h4>
+        <p data-testid={`scenario-state-${scenario.carrierMode}`}><code>{scenario.state}</code></p>
 
-      <h4>Structured conditions</h4>
-      {renderConditions(scenario)}
+        <h4>Structured conditions</h4>
+        {renderConditions(scenario)}
 
-      <h4>Requirement trace</h4>
-      {renderRequirementTrace(scenario)}
+        <h4>Requirement trace</h4>
+        {renderRequirementTrace(scenario)}
 
-      <h4>Frozen evidence and provenance</h4>
-      {renderFrozenEvidence(scenario)}
+        <h4>Frozen evidence and provenance</h4>
+        {renderFrozenEvidence(scenario)}
+      </div>
+
+      <h4>Plan Fit state</h4>
+      <p data-testid={`plan-fit-state-${scenario.carrierMode}`}><code>{planFitScenario.planFitState}</code></p>
+
+      <h4>Selected strategy</h4>
+      <div data-testid={`selected-strategy-${scenario.carrierMode}`}>
+        <div>strategyId: <code>{planFitScenario.selectedStrategyId}</code></div>
+        <div>strategyRevision: <code>{planFitScenario.selectedStrategyRevision}</code></div>
+        <div>
+          strategyProvenance:
+          {' '}
+          <code>
+            {planFitScenario.selectedStrategyProvenance.sourceKind}
+            {' / '}
+            {planFitScenario.selectedStrategyProvenance.fixtureId}
+            {' / '}
+            {planFitScenario.selectedStrategyProvenance.fixtureRevision}
+          </code>
+        </div>
+      </div>
+
+      <h4>Plan Fit reasons</h4>
+      {renderPlanFitReasons(scenario.carrierMode, planFitScenario)}
     </section>
   );
 }
@@ -137,20 +202,25 @@ export default function R1AssessmentLabApp() {
   const [lensKind, setLensKind] = useState<LensKindOption>('role');
   const [lensValue, setLensValue] = useState<RoleOption | QuestionOption>('expedition-lead');
   const [carrierMode, setCarrierMode] = useState<CarrierMode>('no_carrier');
+  const [selectedStrategyId, setSelectedStrategyId] = useState<StrategyOption>('baseline_local_strategy');
 
   const selectedLens = buildLens(lensKind, lensValue);
-  const result: AssessmentEvaluationResult = evaluateAssessment({
+  const assessmentResult: AssessmentEvaluationResult = evaluateAssessment({
     fixture: R1_ASSESSMENT_FIXTURES[fixtureId],
     template: R1_ASSESSMENT_TEMPLATE,
     lens: selectedLens,
     carrierMode,
   });
+  const planFitResult = evaluatePlanFit(assessmentResult, selectedStrategyId);
 
   const selectedLensContext = selectedLens.kind === 'role'
     ? `role / ${selectedLens.roleId}`
     : `question / ${selectedLens.questionId}`;
 
   const lensOptions = lensKind === 'role' ? ROLE_OPTIONS : QUESTION_OPTIONS;
+  const assessmentScenarioByCarrierMode = new Map(
+    assessmentResult.scenarioResults.map((scenario) => [scenario.carrierMode, scenario]),
+  );
 
   return (
     <main className="min-h-screen px-4 py-8 text-slate-100 sm:px-6">
@@ -168,6 +238,7 @@ export default function R1AssessmentLabApp() {
           <p>R1 Lab — Lens context only: changing it does not alter fixture outcomes, requirement outcomes, conditions, assessment state, or ordering in Stage 3B.</p>
           <p>R1 Lab — Lens labels are local presentation context, not rebuilt role or question semantics.</p>
           <p>Template: r1_assessment_programme / core_assessment_template / r1-contract-v1 (fixed for Stage 3B)</p>
+          <p>Strategy is explicit local DEV-lab context only. It provides no selection guidance, comparison, or automatic choice.</p>
 
           <div>
             <label htmlFor="r1-fixture-select">Fixture</label>{' '}
@@ -225,19 +296,52 @@ export default function R1AssessmentLabApp() {
             </select>
           </div>
 
+          <div>
+            <label htmlFor="r1-strategy-select">Strategy</label>{' '}
+            <select
+              id="r1-strategy-select"
+              value={selectedStrategyId}
+              onChange={(event) => setSelectedStrategyId(event.currentTarget.value as StrategyOption)}
+            >
+              {STRATEGY_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+
           <p data-testid="selected-lens-context">Selected lens context: {selectedLensContext}</p>
 
           {carrierMode === 'compare_both' ? (
             <section>
               <h2>Carrier scenario comparison</h2>
-              {result.scenarioResults.map((scenario) => (
-                <ScenarioResultSection key={scenario.carrierMode} scenario={scenario} />
-              ))}
+              {planFitResult.scenarioResults.map((planFitScenario) => {
+                const scenario = assessmentScenarioByCarrierMode.get(planFitScenario.carrierMode);
+                if (!scenario) {
+                  throw new Error(`Missing Assessment scenario for carrier mode ${planFitScenario.carrierMode}.`);
+                }
+                return (
+                  <ScenarioResultSection
+                    key={planFitScenario.carrierMode}
+                    scenario={scenario}
+                    planFitScenario={planFitScenario}
+                  />
+                );
+              })}
             </section>
           ) : (
-            result.scenarioResults.map((scenario) => (
-              <ScenarioResultSection key={scenario.carrierMode} scenario={scenario} />
-            ))
+            planFitResult.scenarioResults.map((planFitScenario) => {
+              const scenario = assessmentScenarioByCarrierMode.get(planFitScenario.carrierMode);
+              if (!scenario) {
+                throw new Error(`Missing Assessment scenario for carrier mode ${planFitScenario.carrierMode}.`);
+              }
+              return (
+                <ScenarioResultSection
+                  key={planFitScenario.carrierMode}
+                  scenario={scenario}
+                  planFitScenario={planFitScenario}
+                />
+              );
+            })
           )}
         </div>
       </div>
