@@ -34,7 +34,7 @@ It records acceptance and provenance only. It does not alter R1 semantics, fixtu
 - **Acceptance date/time:** `2026-07-02`; owner acceptance occurred before PR `#290` merged at `2026-07-02T10:05:41Z`. The exact chat timestamp was not durably captured and is not fabricated here.
 - **Branch:** `docs/r1-stage5a-control-fixture-discovery`
 - **Pull request:** `#290`, merged at `dad3a99f4571428fcb517a13785be297f57e875a`
-- **Acceptance checkpoint commit:** Pending the final closeout SHA amendment.
+- **Acceptance checkpoint commit:** `2d9b6fb65dfb246618a9133098b5eda53ea41182`
 - **Evidence reviewed:** Independent read-only Stage 5A discovery review found no required corrections and returned “Ready for owner acceptance.”
 - **Caveat:** The acceptance checkpoint was omitted at the time of merge and is recorded post-merge by this documentation-only closeout. It does not reopen the Stage 5A review.
 - **Next safe action:** A separate docs-only Stage 5B evidence-discipline contract, subject to independent review and owner acceptance. That contract was subsequently completed and merged.
@@ -46,7 +46,7 @@ It records acceptance and provenance only. It does not alter R1 semantics, fixtu
 - **Acceptance date/time:** `2026-07-02`; owner acceptance occurred before PR `#291` merged at `2026-07-02T10:55:34Z`. The exact chat timestamp was not durably captured and is not fabricated here.
 - **Branch:** `docs/r1-stage5b-evidence-discipline`
 - **Pull request:** `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`
-- **Acceptance checkpoint commit:** Pending the final closeout SHA amendment.
+- **Acceptance checkpoint commit:** `2d9b6fb65dfb246618a9133098b5eda53ea41182`
 - **Evidence reviewed:** An independent Stage 5B review found one recovery-record correction. The subsequent correction verification at `b42d8cfa6d1ad453d6637ea7f24919d85950ec95` found it complete and returned “Correction accepted; Stage 5B is ready for owner acceptance.”
 - **Caveat:** The acceptance checkpoint and owner-intent provenance were omitted from PR `#291` and are recorded post-merge by this documentation-only closeout. The accepted Stage 5B rules are unchanged.
 - **Next safe action:** No external evidence inventory, fixture, implementation, or deployment is authorised. Any later programme-definition or evidence-inventory stage requires separate owner authorisation.
