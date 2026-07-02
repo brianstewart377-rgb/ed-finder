@@ -2,7 +2,7 @@
 
 **Status:** Drafted for independent review on 2026-07-02.
 
-This documentation-only closeout repairs missing durable acceptance records and records the provenance of the owner-provided forward-design input used by Stage 5B. It does not alter R1 fixture data, Assessment semantics, Plan Fit semantics, tests, UI, normal application behavior, external research authority, implementation authority, or deployment behavior.
+This documentation-only closeout repairs missing durable acceptance records and records the provenance of the owner-provided forward-design input used by Stage 5B. It is the limited, durable amendment for Stage 5B acceptance metadata and owner-intent provenance. It does not alter R1 fixture data, Assessment semantics, Plan Fit semantics, tests, UI, normal application behavior, external research authority, implementation authority, or deployment behavior.
 
 ## 1. Why this closeout exists
 
@@ -45,7 +45,7 @@ This closeout records those facts without reopening the reviewed Stage 5A discov
 
 - **Source class:** Owner-provided forward-design intent.
 - **Owner statement date:** `2026-07-02`.
-- **Source:** Owner statement in the project conversation, later summarized verbatim in `docs/ai/R1_STAGE5B_EVIDENCE_DISCIPLINE_CONTRACT_V1.md`.
+- **Source:** Owner statement in the project conversation, summarized in `docs/ai/R1_STAGE5B_EVIDENCE_DISCIPLINE_CONTRACT_V1.md` and recorded durably in this closeout.
 - **Intent:** Once a system meets every explicit requirement for a defined extraction/refining programme, additional bodies that do not satisfy an otherwise unmet requirement or resolve an otherwise present constraint are neutral for that programme. Raw total body count must not create a linear score, rank, recommendation, preference, or automatic conclusion.
 - **Scope:** This is a forward-design boundary for a possible later R1 capacity-sufficiency control. It is not a recovered historic R1 behavior and not an observed claim about any real system or general Elite Dangerous rule.
 - **Adopting decision:** `2026-07-02 — Stage 5B adopts evidence-first capacity-sufficiency discipline` in `docs/ai/DECISIONS.md`.
