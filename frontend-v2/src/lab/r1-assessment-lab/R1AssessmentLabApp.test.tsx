@@ -24,6 +24,14 @@ function planFitState(mode: 'no_carrier' | 'carrier_available') {
   return screen.getByTestId(`plan-fit-state-${mode}`).textContent;
 }
 
+function assessmentContent(mode: 'no_carrier' | 'carrier_available') {
+  return screen.getByTestId(`assessment-content-${mode}`).textContent;
+}
+
+function planFitReasons(mode: 'no_carrier' | 'carrier_available') {
+  return screen.getByTestId(`plan-fit-reasons-${mode}`);
+}
+
 function setupSideEffectMocks() {
   const fetchSpy = vi.fn();
   const xhrOpenSpy = vi.fn();
@@ -130,7 +138,7 @@ describe('R1AssessmentLabApp', () => {
     expect(screen.getByText('R1 Lab — Lens context only: changing it does not alter fixture outcomes, requirement outcomes, conditions, assessment state, or ordering in Stage 3B.')).toBeTruthy();
     expect(screen.getByText('R1 Lab — Lens labels are local presentation context, not rebuilt role or question semantics.')).toBeTruthy();
     expect(screen.getByText('Template: r1_assessment_programme / core_assessment_template / r1-contract-v1 (fixed for Stage 3B)')).toBeTruthy();
-    expect(screen.getByText('Strategy is explicit local context only. It is chosen only from this selector and is not inferred from fixture, assessment state, carrier mode, or lens.')).toBeTruthy();
+    expect(screen.getByText('Strategy is explicit local DEV-lab context only. It provides no selection guidance, comparison, or automatic choice.')).toBeTruthy();
 
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
@@ -201,27 +209,21 @@ describe('R1AssessmentLabApp', () => {
     fireEvent.change(fixture, { target: { value: 'remote_materials_carrier_case' } });
     fireEvent.change(carrierMode, { target: { value: 'compare_both' } });
 
-    const assessmentBefore = [
-      screen.getByTestId('scenario-no_carrier').querySelector('[data-testid="scenario-state-no_carrier"]')?.textContent,
-      screen.getByTestId('scenario-carrier_available').querySelector('[data-testid="scenario-state-carrier_available"]')?.textContent,
-    ];
-    const noCarrierPlanFitBefore = screen.getByTestId('scenario-no_carrier').textContent ?? '';
-    const carrierAvailableAssessmentStateBefore = scenarioState('carrier_available');
-    const carrierAvailablePlanFitStateBefore = planFitState('carrier_available');
-    expect(screen.getByTestId('selected-strategy-context').textContent).toContain('baseline_local_strategy');
+    const assessmentNoCarrierBefore = assessmentContent('no_carrier');
+    const assessmentCarrierAvailableBefore = assessmentContent('carrier_available');
+    const noCarrierReasonsBefore = planFitReasons('no_carrier').textContent ?? '';
+    const carrierAvailableReasonsBefore = planFitReasons('carrier_available').textContent ?? '';
 
     fireEvent.change(strategy, { target: { value: 'remote_logistics_strategy' } });
 
-    expect(screen.getByTestId('selected-strategy-context').textContent).toContain('remote_logistics_strategy');
-    expect([
-      screen.getByTestId('scenario-no_carrier').querySelector('[data-testid="scenario-state-no_carrier"]')?.textContent,
-      screen.getByTestId('scenario-carrier_available').querySelector('[data-testid="scenario-state-carrier_available"]')?.textContent,
-    ]).toEqual(assessmentBefore);
-    expect(screen.getByTestId('scenario-no_carrier').textContent).not.toBe(noCarrierPlanFitBefore);
-    expect(screen.getByTestId('scenario-no_carrier').textContent).toContain('dependency:remote_logistics');
-    expect(scenarioState('carrier_available')).toBe(carrierAvailableAssessmentStateBefore);
-    expect(planFitState('carrier_available')).toBe(carrierAvailablePlanFitStateBefore);
-    expect(screen.getByTestId('scenario-carrier_available').textContent).not.toContain('dependency:remote_logistics');
+    expect(assessmentContent('no_carrier')).toBe(assessmentNoCarrierBefore);
+    expect(assessmentContent('carrier_available')).toBe(assessmentCarrierAvailableBefore);
+
+    expect(planFitReasons('no_carrier').textContent).not.toBe(noCarrierReasonsBefore);
+    expect(planFitReasons('no_carrier').textContent).toContain('dependency:remote_logistics');
+
+    expect(planFitReasons('carrier_available').textContent).toBe(carrierAvailableReasonsBefore);
+    expect(planFitReasons('carrier_available').textContent).not.toContain('dependency:remote_logistics');
   });
 
   it('renders No structured conditions. for condition-free scenarios and shows requirement trace and frozen evidence/provenance', () => {
@@ -279,6 +281,37 @@ describe('R1AssessmentLabApp', () => {
     expect(screen.getByTestId('scenario-carrier_available').textContent).toBe(beforeCarrierAvailable);
     expect(screen.getAllByTestId(/scenario-(no_carrier|carrier_available)/).map((element) => element.getAttribute('data-testid')))
       .toEqual(beforeOrder);
+  });
+
+  it('renders the remote no_carrier Plan Fit reason with all required fields and the required logistics fields', () => {
+    render(<R1AssessmentLabApp />);
+
+    fireEvent.change(getSelect('Fixture'), { target: { value: 'remote_materials_carrier_case' } });
+    fireEvent.change(getSelect('Carrier mode'), { target: { value: 'compare_both' } });
+    fireEvent.change(getSelect('Strategy'), { target: { value: 'remote_logistics_strategy' } });
+
+    const reasonsTable = planFitReasons('no_carrier');
+    const scoped = within(reasonsTable);
+
+    expect(scoped.getByText('reasonId')).toBeTruthy();
+    expect(scoped.getByText('reasonKind')).toBeTruthy();
+    expect(scoped.getByText('summary')).toBeTruthy();
+    expect(scoped.getByText('blocking')).toBeTruthy();
+    expect(scoped.getByText('relatedRequirementIds')).toBeTruthy();
+    expect(scoped.getByText('relatedEvidenceIds')).toBeTruthy();
+
+    const row = scoped.getByText('dependency:remote_logistics').closest('tr');
+    if (!row) throw new Error('dependency:remote_logistics reason row not found');
+    const rowScope = within(row);
+    expect(rowScope.getByText('dependency:remote_logistics')).toBeTruthy();
+    expect(rowScope.getByText('logistics_dependency')).toBeTruthy();
+    expect(rowScope.getByText('false')).toBeTruthy();
+    expect(rowScope.getByText('remote_logistics')).toBeTruthy();
+
+    const evidenceCell = rowScope.getAllByRole('cell')[5].textContent ?? '';
+    expect(evidenceCell).not.toBe('[]');
+
+    expect(planFitReasons('carrier_available').textContent).not.toContain('dependency:remote_logistics');
   });
 
   it('renders the exact remote compare_both Assessment and Plan Fit pairing for remote_logistics_strategy', () => {

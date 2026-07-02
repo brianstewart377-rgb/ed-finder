@@ -8,6 +8,7 @@ import type {
   AssessmentEvaluationResult,
   AssessmentLens,
   CarrierMode,
+  CarrierScenarioMode,
   ScenarioAssessment,
 } from '@/lab/r1-assessment-lab/core/types';
 
@@ -116,13 +117,13 @@ function renderFrozenEvidence(scenario: ScenarioAssessment) {
   );
 }
 
-function renderPlanFitReasons(planFitScenario: PlanFitScenarioResult) {
+function renderPlanFitReasons(carrierMode: CarrierScenarioMode, planFitScenario: PlanFitScenarioResult) {
   if (planFitScenario.reasons.length === 0) {
-    return <p>No Plan Fit reasons.</p>;
+    return <p data-testid={`plan-fit-reasons-${carrierMode}`}>No Plan Fit reasons.</p>;
   }
 
   return (
-    <table>
+    <table data-testid={`plan-fit-reasons-${carrierMode}`}>
       <thead>
         <tr>
           <th scope="col">reasonId</th>
@@ -156,17 +157,19 @@ function ScenarioResultSection(
     <section data-testid={`scenario-${scenario.carrierMode}`}>
       <h3><code>{scenario.carrierMode}</code></h3>
 
-      <h4>Assessment state</h4>
-      <p data-testid={`scenario-state-${scenario.carrierMode}`}><code>{scenario.state}</code></p>
+      <div data-testid={`assessment-content-${scenario.carrierMode}`}>
+        <h4>Assessment state</h4>
+        <p data-testid={`scenario-state-${scenario.carrierMode}`}><code>{scenario.state}</code></p>
 
-      <h4>Structured conditions</h4>
-      {renderConditions(scenario)}
+        <h4>Structured conditions</h4>
+        {renderConditions(scenario)}
 
-      <h4>Requirement trace</h4>
-      {renderRequirementTrace(scenario)}
+        <h4>Requirement trace</h4>
+        {renderRequirementTrace(scenario)}
 
-      <h4>Frozen evidence and provenance</h4>
-      {renderFrozenEvidence(scenario)}
+        <h4>Frozen evidence and provenance</h4>
+        {renderFrozenEvidence(scenario)}
+      </div>
 
       <h4>Plan Fit state</h4>
       <p data-testid={`plan-fit-state-${scenario.carrierMode}`}><code>{planFitScenario.planFitState}</code></p>
@@ -189,7 +192,7 @@ function ScenarioResultSection(
       </div>
 
       <h4>Plan Fit reasons</h4>
-      {renderPlanFitReasons(planFitScenario)}
+      {renderPlanFitReasons(scenario.carrierMode, planFitScenario)}
     </section>
   );
 }
@@ -215,8 +218,8 @@ export default function R1AssessmentLabApp() {
     : `question / ${selectedLens.questionId}`;
 
   const lensOptions = lensKind === 'role' ? ROLE_OPTIONS : QUESTION_OPTIONS;
-  const planFitScenarioByCarrierMode = new Map(
-    planFitResult.scenarioResults.map((scenario) => [scenario.carrierMode, scenario]),
+  const assessmentScenarioByCarrierMode = new Map(
+    assessmentResult.scenarioResults.map((scenario) => [scenario.carrierMode, scenario]),
   );
 
   return (
@@ -235,7 +238,7 @@ export default function R1AssessmentLabApp() {
           <p>R1 Lab — Lens context only: changing it does not alter fixture outcomes, requirement outcomes, conditions, assessment state, or ordering in Stage 3B.</p>
           <p>R1 Lab — Lens labels are local presentation context, not rebuilt role or question semantics.</p>
           <p>Template: r1_assessment_programme / core_assessment_template / r1-contract-v1 (fixed for Stage 3B)</p>
-          <p>Strategy is explicit local context only. It is chosen only from this selector and is not inferred from fixture, assessment state, carrier mode, or lens.</p>
+          <p>Strategy is explicit local DEV-lab context only. It provides no selection guidance, comparison, or automatic choice.</p>
 
           <div>
             <label htmlFor="r1-fixture-select">Fixture</label>{' '}
@@ -307,19 +310,18 @@ export default function R1AssessmentLabApp() {
           </div>
 
           <p data-testid="selected-lens-context">Selected lens context: {selectedLensContext}</p>
-          <p data-testid="selected-strategy-context">Selected strategy context: {selectedStrategyId}</p>
 
           {carrierMode === 'compare_both' ? (
             <section>
               <h2>Carrier scenario comparison</h2>
-              {assessmentResult.scenarioResults.map((scenario) => {
-                const planFitScenario = planFitScenarioByCarrierMode.get(scenario.carrierMode);
-                if (!planFitScenario) {
-                  throw new Error(`Missing Plan Fit scenario for carrier mode ${scenario.carrierMode}.`);
+              {planFitResult.scenarioResults.map((planFitScenario) => {
+                const scenario = assessmentScenarioByCarrierMode.get(planFitScenario.carrierMode);
+                if (!scenario) {
+                  throw new Error(`Missing Assessment scenario for carrier mode ${planFitScenario.carrierMode}.`);
                 }
                 return (
                   <ScenarioResultSection
-                    key={scenario.carrierMode}
+                    key={planFitScenario.carrierMode}
                     scenario={scenario}
                     planFitScenario={planFitScenario}
                   />
@@ -327,39 +329,20 @@ export default function R1AssessmentLabApp() {
               })}
             </section>
           ) : (
-            assessmentResult.scenarioResults.map((scenario) => {
-              const planFitScenario = planFitScenarioByCarrierMode.get(scenario.carrierMode);
-              if (!planFitScenario) {
-                throw new Error(`Missing Plan Fit scenario for carrier mode ${scenario.carrierMode}.`);
+            planFitResult.scenarioResults.map((planFitScenario) => {
+              const scenario = assessmentScenarioByCarrierMode.get(planFitScenario.carrierMode);
+              if (!scenario) {
+                throw new Error(`Missing Assessment scenario for carrier mode ${planFitScenario.carrierMode}.`);
               }
               return (
                 <ScenarioResultSection
-                  key={scenario.carrierMode}
+                  key={planFitScenario.carrierMode}
                   scenario={scenario}
                   planFitScenario={planFitScenario}
                 />
               );
             })
           )}
-
-          <section>
-            <h2>Plan Fit context</h2>
-            <div>programmeId: <code>{planFitResult.context.programmeId}</code></div>
-            <div>templateId: <code>{planFitResult.context.templateId}</code></div>
-            <div>templateRevision: <code>{planFitResult.context.templateRevision}</code></div>
-            <div>originalCarrierMode: <code>{planFitResult.context.originalCarrierMode}</code></div>
-            <div>selectedStrategyId: <code>{planFitResult.context.selectedStrategyId}</code></div>
-            <div>selectedStrategyRevision: <code>{planFitResult.context.selectedStrategyRevision}</code></div>
-            <div>
-              lens:
-              {' '}
-              <code>
-                {planFitResult.context.lens.kind === 'role'
-                  ? `role / ${planFitResult.context.lens.roleId}`
-                  : `question / ${planFitResult.context.lens.questionId}`}
-              </code>
-            </div>
-          </section>
         </div>
       </div>
     </main>

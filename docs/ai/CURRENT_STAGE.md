@@ -104,6 +104,9 @@ Stage 4C does not add:
     - `no_plan_fit`
     - `blocked_plan_fit`
     - `provisional_plan_fit`
+    - `gate:not_assessable`
+    - `gate:not_supported`
+    - `dependency:`
 - The production build retained the pre-existing Coalsack asset-resolution warnings and the existing chunk-size warning.
 
 ## Next safe action
