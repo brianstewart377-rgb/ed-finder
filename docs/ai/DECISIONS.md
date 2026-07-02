@@ -119,3 +119,17 @@ Lens remains context-only. Carrier behavior remains entirely provided by accepte
 
 **Evidence / reference**
 `docs/ai/R1_STAGE4C_PLAN_FIT_LAB_PRESENTATION_CONTRACT_V1.md`; owner approval to draft the Stage 4C presentation contract on 2026-07-02.
+
+## 2026-07-02 — Stage 5A defers unsupported control-fixture semantics
+
+**Decision**
+`wregoe_dual_dodec_control` and `plateau_30_vs_60_case` remain absent from the active R1 fixture registry. Their names alone do not authorise fixture data, Assessment behavior, Plan Fit behavior, tests, UI controls, or an interpretation of lost historical R1 semantics.
+
+**Reason**
+The reconstruction contract named both controls only as deferred. Independent review confirmed that the current repository contains no recoverable fixture payload, expected outcome, condition definition, test assertion, or specific proof role for either name beyond that deferral.
+
+**Invariant**
+A later forward-reconstruction fixture for either name requires an explicit written contract defining its proof question, deterministic payload, evidence and provenance, requirement evaluations, expected outputs, tests, file boundary, independent review, and separate owner authorisation. No later work may infer semantics from the fixture name, lost-worktree recollection, chat history alone, unrelated Wregoe/Dodec uses elsewhere in the repository, or a numerical comparison.
+
+**Evidence / reference**
+`docs/ai/R1_STAGE5A_CONTROL_FIXTURE_DISCOVERY_V1.md`; Stage 5A reviewed head `36371887bf09dad420c86b6c6ca6faffb7cfa0cd`; PR `#290`, merged at `dad3a99f4571428fcb517a13785be297f57e875a`; owner acceptance on 2026-07-02.
