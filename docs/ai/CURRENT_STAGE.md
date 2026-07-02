@@ -4,7 +4,7 @@
 
 ## Status
 
-**Stage 5A and Stage 5B are accepted and merged. The documentation-only acceptance-and-provenance closeout merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d`.**
+**Stage 5A and Stage 5B are accepted and merged. The documentation-only acceptance-and-provenance closeout merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d`. The Stage 6A read-only evidence-and-architecture audit contract is drafted for independent review; no Stage 6A inspection is authorised until separate owner acceptance and merge.**
 
 ## Baseline
 
@@ -15,6 +15,11 @@
 - Stage 5A reviewed head: `36371887bf09dad420c86b6c6ca6faffb7cfa0cd`
 - Stage 5B evidence-discipline PR: `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`
 - Stage 5B reviewed head: `b42d8cfa6d1ad453d6637ea7f24919d85950ec95`
+- Stage 6A contract branch: `docs/r1-stage6a-audit-contract`
+- Stage 6A contract base: `work/r1-canonical-body-evidence` at `188e4ba16a65409b9c1042855f8af71b7e679e43`
+- Stage 6A contract-content checkpoint: `c18af13faf0758878e595e4146c5cfc9a329c4e4`; it identifies the contract correction content only and is not the current pull-request head.
+- For recovery, acceptance, or merge, fetch the live pull-request head from pull-request metadata; do not infer it from the contract-content checkpoint.
+- Stage 6A pull request: `#295`
 - No deployment occurred.
 
 ## Closeout scope
@@ -93,7 +98,7 @@ source record
 
 ## Next safe action
 
-No further work is authorised by this closeout. Do not collect external system evidence, create a fixture, edit R1 code/tests/UI, change the normal application, merge a later implementation, or deploy. Any later programme-definition or evidence-inventory stage requires separate owner authorisation.
+Obtain an independent read-only review of the targeted corrections in `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_CONTRACT_V1.md` and `docs/ai/CURRENT_STAGE.md`. Do not begin Stage 6A repository or database inspection, collect external evidence, create a fixture, edit R1 code/tests/UI, change the normal application, merge a later implementation, or deploy. The Stage 6A audit may begin only after separate owner acceptance and merge; any database inspection also requires owner-supplied, verified read-only access.
 
 ## Recovery instruction
 
