@@ -1,6 +1,6 @@
 # R1 Stage 5A and Stage 5B — Acceptance and Provenance Closeout v1
 
-**Status:** Drafted for independent review on 2026-07-02.
+**Status:** Accepted and merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d` on 2026-07-02.
 
 This documentation-only closeout repairs missing durable acceptance records and records the provenance of the owner-provided forward-design input used by Stage 5B. It is the limited, durable amendment for Stage 5B acceptance metadata and owner-intent provenance. It does not alter R1 fixture data, Assessment semantics, Plan Fit semantics, tests, UI, normal application behavior, external research authority, implementation authority, or deployment behavior.
 
@@ -54,6 +54,6 @@ This closeout records those facts without reopening the reviewed Stage 5A discov
 
 ## 5. Next safe action
 
-No external system research, fixture, code, test, UI, implementation, merge beyond this closeout, or deployment is authorised by this record.
+No external system research, fixture, code, test, UI, implementation, or deployment is authorised by this record. This closeout was merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d`; any later pull request or merge requires separate owner authorisation.
 
 A later stage must first be separately authorised. The next plausible stage would be a documentation-only programme-definition contract that makes explicit that a capacity plateau is programme-relative: surplus may be neutral for extraction/refining while the same evidence can remain relevant to separate named programmes or constraints. That later stage must not be inferred as authorised by this closeout.

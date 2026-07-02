@@ -4,7 +4,7 @@
 
 ## Status
 
-**Stage 5A and Stage 5B are accepted and merged. Documentation-only acceptance-and-provenance closeout is drafted — awaiting independent review and owner merge authorisation.**
+**Stage 5A and Stage 5B are accepted and merged. The documentation-only acceptance-and-provenance closeout merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d`; no later external research, fixture, code, test, UI, implementation, or deployment work is authorised.**
 
 ## Baseline
 
@@ -93,7 +93,7 @@ source record
 
 ## Next safe action
 
-Obtain an independent read-only review of this documentation-only acceptance-and-provenance closeout. Do not collect external system evidence, create a fixture, edit R1 code/tests/UI, change the normal application, merge a later implementation, or deploy. Merge of this closeout itself remains a separate owner decision after review.
+Await separate owner authorisation for a later bounded stage. Do not collect external system evidence, create a fixture, edit R1 code/tests/UI, change the normal application, or deploy. Any later documentation or implementation pull request requires its own scoped review and owner merge authorisation.
 
 ## Recovery instruction
 
