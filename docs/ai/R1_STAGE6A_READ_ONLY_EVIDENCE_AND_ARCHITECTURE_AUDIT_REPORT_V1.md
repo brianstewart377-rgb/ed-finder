@@ -20,11 +20,13 @@ The audit also read the Stage 6A contract and working-point record in `brianstew
 
 ### 1.2 Repositories actually available
 
-| Repository | Observed purpose / state | What this establishes | What it does not establish |
-|---|---|---|---|
-| `brianstewart377-rgb/ed-finder` | Main application repository; carries the Stage 6 governance records. | The R1 laboratory and its governance records have a separate home from CRE. | That it is already integrated with CRE or CPE. |
-| `brianstewart377-rgb/colonisation-research-engine` | Research-knowledge repository with mechanics, evidence, provenance, contradictions, experiments, schemas, and exports. | CRE is an evidence and knowledge foundation, not merely a rating UI. | A live service, deployed database, or production planner implementation. |
-| `brianstewart377-rgb/colony-planning-engine` | Public repository on `main`; metadata showed size `0` during this audit. | A separate CPE repository has been created. | Any CPE code, schema, storage, runtime, or integration behaviour. |
+| Repository | Observed purpose / state | Immutable reference or retrieval record | What this establishes | What it does not establish |
+|---|---|---|---|---|
+| `brianstewart377-rgb/ed-finder` | Main application repository; carries the Stage 6 governance records. | `work/r1-canonical-body-evidence` at `e599e7b6cc234f6bf631d0892a33dd890ac16354`; retrieved 2026-07-02. | The R1 laboratory and its governance records have a separate home from CRE. | That it is already integrated with CRE or CPE. |
+| `brianstewart377-rgb/colonisation-research-engine` | Research-knowledge repository with mechanics, evidence, provenance, contradictions, experiments, schemas, and exports. | `main` at `add9a51350e7754dadc09cd9712cd43e96499e33`; retrieved 2026-07-02. | CRE is an evidence and knowledge foundation, not merely a rating UI. | A live service, deployed database, or production planner implementation. |
+| `brianstewart377-rgb/colony-planning-engine` | Public repository with default branch `main`; GitHub metadata reported `size: 0` and no repository commit existed at audit retrieval. | GitHub repository metadata on 2026-07-02: repository ID `1287613646`, public visibility, `default_branch: main`, `size: 0`, `master_branch: null`. No immutable commit/ref could be recorded because the repository was empty. | A separate CPE repository existed but contained no committed implementation at that time. | Any CPE code, schema, storage, runtime, or integration behaviour; any later state of the repository. |
+
+The CPE entry is an observed empty-repository metadata state, not a claim about a permanent condition. Because no commit existed, future recovery must not infer this empty state from the repository name or current contents; it must retrieve the historical audit record and inspect the relevant repository state directly.
 
 ### 1.3 Access limits and excluded work
 
@@ -33,8 +35,10 @@ This audit did not:
 - inspect a CRE database, local filesystem, runtime process, deployment, secrets store, or cloud account;
 - run the CRE export script or validate generated artifacts locally;
 - perform web research, live game scouting, external-data collection, or database queries;
-- change any repository, branch, issue, pull request, source file, test, fixture, UI, configuration, schema, data record, or deployment;
+- change any CRE, CPE, or `ed-finder` source, test, fixture, UI, configuration, schema, data record, runtime, or deployment;
 - determine that any prospective CRE-to-CPE interface is implemented, correct, or ready for production.
+
+The durable Stage 6A report and checkpoint documentation branch/PR are permitted completion documentation under the accepted Stage 6A contract. Their current review head must always be read from live PR metadata before acceptance or merge; no static draft report-content commit is a merge target.
 
 ## 2. Evidence and data inventory
 
@@ -140,40 +144,73 @@ These require separately authorised work, external evidence, database inspection
 | “CPE will need integration with CRE.” | This is strong owner design intent, but the exact transport and operational form are not yet evidenced. | A bounded integration use case and accepted interface contract. | Record intent; do not implement yet. |
 | “A repository summary count is authoritative.” | CRE’s knowledge-base index and export manifest currently disagree. | A regenerated or corrected canonical summary. | Treat the index as stale. |
 
-## 5. Architecture options
+## 5. Architecture options required by the Stage 6A contract
 
-### Option A — Keep all planner-adjacent ownership in CRE
+The three options below are discovery alternatives only. They are not selected by this report, and none authorises a change to R1, CRE, CPE, `ed-finder`, a database, an API, or deployment.
+
+### Option A — Careful extension of the existing R1 laboratory
+
+Keep the accepted R1 laboratory as the only active planning-related surface. Any later extension would remain DEV-only, fixture-backed, deterministic, local, and bounded by the existing Stage 5 evidence discipline.
+
+- **Potential benefit:** Lowest structural change and the strongest continuity with existing R1 invariants.
+- **Risk:** The current R1 laboratory is not a substitute for CRE’s source/provenance/contradiction lifecycle or for a separate player-specific colony-planning engine.
+- **Migration cost:** Low initially; may defer rather than solve the evidence-to-planning boundary.
+- **Unanswered question:** Whether a bounded R1 extension can accommodate observed evidence and programme definition without weakening its fixture-backed model.
+- **R1 invariant:** Preserved directly; no external runtime or research-data dependency is introduced.
+
+### Option B — Separate observed-evidence and programme-definition layer that preserves R1
+
+Keep R1 unchanged. Treat CRE as the research/evidence layer and define a separately governed observed-state and programme/planning boundary for later CPE consumption. The boundary would publish only versioned, planner-safe material, leaving raw CRE evidence and R1’s deterministic fixture model isolated.
+
+- **Potential benefit:** Separates evidence evolution, observed colony facts, player-specific planning context, and future presentation concerns without changing R1.
+- **Risk:** Requires explicit ownership, contract-versioning, compatibility, provenance, unknown/withheld handling, and no-duplication rules.
+- **Migration cost:** Documentation and contract work first; implementation remains a later separately authorised decision.
+- **Unanswered question:** Whether the first transport should be a release bundle, API, event flow, or other mechanism.
+- **R1 invariant:** Preserved; R1 remains fixture-backed, deterministic, local, and not a runtime dependency of CRE/CPE.
+
+### Option C — Controlled wider re-baselining later
+
+After a separate owner-approved stage, redefine the broader system around a new evidence/programme/planning architecture. This could revisit how R1 relates to later engines, but only with explicit migration, test, provenance, and rollback decisions.
+
+- **Potential benefit:** Maximum long-term design freedom.
+- **Risk:** Highest scope, migration, and governance risk; can erase or blur accepted R1 semantics if attempted prematurely.
+- **Migration cost:** High and currently unbounded.
+- **Unanswered question:** What evidence, product, operational, and user requirements would justify re-baselining.
+- **R1 invariant:** Must be explicitly preserved, superseded, or retired only by a later accepted contract; this audit makes none of those choices.
+
+### Option B ownership and integration variants
+
+The following variants refine Option B only. They do not replace the three contract-required options above and are not selections.
+
+#### Variant B1 — Keep all planner-adjacent ownership in CRE
 
 CRE would continue to own research, planner rules, current-state structures, and plan-output structures. CPE would remain empty or become a thin presentation layer.
 
 - **Benefit:** Lowest immediate migration cost.
 - **Risk:** Conflicts with the owner’s separate CPE repository direction; leaves research ownership and player-plan ownership blurred.
-- **R1 invariant:** No effect on R1 if left documentation-only.
 - **Assessment:** Not preferred.
 
-### Option B — Separate ownership with a versioned CRE-to-CPE contract
+#### Variant B2 — Separate ownership with a versioned CRE-to-CPE contract
 
 CRE owns evidence, observations, mechanics, contradictions, unknowns, confidence, and versioned published knowledge/state releases. CPE owns player goals, preferences, planning constraints, candidate build layouts, sequencing, alternatives, and plan results. CPE reads only published CRE contracts, never raw CRE internals or a private CRE database.
 
 - **Benefit:** Clear compartmentalisation with a real integration path from day one.
 - **Risk:** Requires careful contract design and version management before implementation.
-- **R1 invariant:** Keeps R1 deterministic, fixture-backed, local, and unaffected.
-- **Assessment:** Best fit for the current three-repository direction.
+- **Assessment:** Best fit for the current three-repository discussion direction.
 
-### Option C — Shared operational runtime or database now
+#### Variant B3 — Shared operational runtime or database early
 
 CRE, CPE, and possibly `ed-finder` would use a shared database, API, event system, or common runtime early.
 
 - **Benefit:** May reduce later integration work if there is a proven high-frequency or transactional shared-data requirement.
 - **Risk:** Premature coupling; unclear data ownership; research-model changes could break planning behaviour; no audited requirement yet proves that this is needed now.
-- **R1 invariant:** Could remain preserved only with strict isolation, but adds needless governance and implementation risk at this stage.
 - **Assessment:** Do not select now. Reconsider only after an accepted contract and demonstrated operational need.
 
-### Recommended conceptual direction, not an accepted architecture decision
+### Discussion direction, not an accepted architecture decision
 
-Use **Option B as the ownership model**, while designing the future integration boundary now. Do not implement Option C’s shared runtime/storage until a later stage produces concrete operational requirements.
+The owner discussion favours **Variant B2 as an ownership model** while designing the future integration boundary now. The discussion does not select an architecture, does not approve Variant B2, and does not authorise implementation. It is a discussion record only until separately owner-accepted in a later contract stage.
 
-The intended boundary objects are:
+The intended boundary objects discussed are:
 
 1. **CRE Knowledge Release** — published mechanics, caveats, provenance, confidence, contradictions, unknowns, and version/patch context.
 2. **CRE Observed Colony-State Snapshot** — timestamped evidence-linked facts about a selected system/body/facility context; no player preferences or selected plan.
@@ -248,6 +285,8 @@ This report does **not** authorise code, tests, UI, fixtures, data, database acc
 - **Audit report branch:** `docs/r1-stage6a-cre-repo-audit-report`
 - **Audited CRE baseline:** `main` at `add9a51350e7754dadc09cd9712cd43e96499e33`
 - **Audited `ed-finder` baseline:** `work/r1-canonical-body-evidence` at `e599e7b6cc234f6bf631d0892a33dd890ac16354`
+- **Observed CPE audit state:** Metadata retrieval on 2026-07-02 reported public repository ID `1287613646`, default branch `main`, size `0`, and no commit/ref because the repository was empty.
 - **Database inspection:** None; no access was supplied or verified.
 - **Material caveats:** CRE summary index is stale; several CRE schemas are documentation-first drafts; live mechanics and database state were not independently verified.
+- **Current review reference:** Before any acceptance or merge, fetch PR `#297` metadata and use its live head SHA. The static report-document revision commit recorded in `CURRENT_STAGE.md` is provenance for this document revision, not a merge target.
 - **Next safe action:** Independent read-only review of this report and `CURRENT_STAGE.md`, then separate owner acceptance before merge. Do not start CPE design or implementation work until a later scope is expressly authorised.
