@@ -17,7 +17,8 @@
 - Stage 5B reviewed head: `b42d8cfa6d1ad453d6637ea7f24919d85950ec95`
 - Stage 6A contract branch: `docs/r1-stage6a-audit-contract`
 - Stage 6A contract base: `work/r1-canonical-body-evidence` at `188e4ba16a65409b9c1042855f8af71b7e679e43`
-- Stage 6A contract current review content commit: `c18af13faf0758878e595e4146c5cfc9a329c4e4`; verify the pull-request head before acceptance or merge.
+- Stage 6A contract-content checkpoint: `c18af13faf0758878e595e4146c5cfc9a329c4e4`; it identifies the contract correction content only and is not the current pull-request head.
+- For recovery, acceptance, or merge, fetch the live pull-request head from pull-request metadata; do not infer it from the contract-content checkpoint.
 - Stage 6A pull request: `#295`
 - No deployment occurred.
 
