@@ -4,31 +4,32 @@
 
 ## Status
 
-**Stage 4C DEV-only Plan Fit presentation contract drafted — awaiting independent review and owner approval**
+**Stage 4C bounded DEV-only Plan Fit presentation implementation complete — awaiting independent review and owner acceptance**
 
 ## Baseline
 
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Documentation branch: `docs/r1-stage4c-lab-presentation-contract`
-- Documentation base SHA: `0565a60428904c4fe234f500e05be9871adb5c6d`
+- Implementation branch: `feat/r1-stage4c-plan-fit-lab`
+- Implementation base SHA: `18464de5a204a109fe145eb4e64a8500b59eaee5`
 - Stage 4B contract PR: `#284`, merged
 - Stage 4B contract merge commit: `411ceb9232966bf27aa027d72aa5622c83ee0d03`
 - Stage 4B implementation PR: `#286`, merged
 - Stage 4B merge commit: `0565a60428904c4fe234f500e05be9871adb5c6d`
 - Stage 4B implementation head: `9f69061c3d625dc111864061166287407e6336c0`
 - Stage 4B was reviewed and owner-accepted before merge
+- Owner authorised bounded Stage 4C implementation on `2026-07-02`
 - Stage 3B PR: `#282` — `Stage 3B: DEV-only R1 assessment lab`, merged
 - Stage 3B merge commit: `98b4bacf1d799e7937b449210046659b3e96615b`
 - Last accepted implementation stage: Stage 2B pure R1 assessment-domain core, merged by PR `#280` at `220c870f89a5af7f98adb88578373dbc3a681a9c`.
 - No deployment occurred.
 
-## Active contract record
+## Active implementation record
 
 - Contract file: `docs/ai/R1_STAGE4C_PLAN_FIT_LAB_PRESENTATION_CONTRACT_V1.md`
-- Stage 4C is documentation-only at this point.
-- No Stage 4C implementation is authorised.
+- Stage 4C implementation is limited to the three-file allowlist below.
+- No Stage 2B core file, Stage 4B core file, production behavior, or deployment change is authorised or included.
 
-## Proposed later Stage 4C implementation allowlist
+## Stage 4C implementation allowlist
 
 - `docs/ai/CURRENT_STAGE.md`
 - `frontend-v2/src/lab/r1-assessment-lab/R1AssessmentLabApp.tsx`
@@ -36,7 +37,7 @@
 
 ## Scope summary
 
-Stage 4C is defined only as a DEV-only, fixture-backed, deterministic, local, presentation-only forward reconstruction for rendering already accepted Assessment and Plan Fit output inside the existing R1 Assessment Laboratory. The contract does not claim recovery of historic UI or planning semantics and does not alter accepted Stage 2B or Stage 4B semantics.
+Stage 4C is implemented only as a bounded DEV-only, fixture-backed, deterministic, local presentation slice for rendering already accepted Assessment and Plan Fit output inside the existing R1 Assessment Laboratory. It does not claim recovery of historic UI or planning semantics and does not alter accepted Stage 2B or Stage 4B semantics.
 
 ## Exact non-goals
 
@@ -88,11 +89,26 @@ Stage 4C does not add:
 
 - No deployment occurred.
 - Stage 4B is merged and accepted.
-- Stage 4C is documentation-only and introduces no implementation, validation run, or deployment.
+- Stage 4C introduces no production behavior, recommendation, ranking, scoring, strategy inference, or planning behavior.
+- Local validation completed on the implementation branch:
+  - `yarn test "src/lab/r1-assessment-lab/R1AssessmentLabApp.test.tsx"`
+  - `yarn test "src/lab/r1-assessment-lab/core/evaluateAssessment.test.ts"`
+  - `yarn test "src/lab/r1-assessment-lab/core/evaluatePlanFit.test.ts"`
+  - `yarn test`
+  - `yarn typecheck`
+  - `yarn lint`
+  - `yarn build`
+  - production deployable `JS/CSS/HTML` scan for existing DEV-only R1 identifiers plus:
+    - `baseline_local_strategy`
+    - `remote_logistics_strategy`
+    - `no_plan_fit`
+    - `blocked_plan_fit`
+    - `provisional_plan_fit`
+- The production build retained the pre-existing Coalsack asset-resolution warnings and the existing chunk-size warning.
 
 ## Next safe action
 
-Obtain an independent read-only review of the Stage 4C presentation contract. Do not create a Stage 4C implementation branch or edit laboratory UI code until the contract is merged and the owner explicitly authorises implementation.
+Obtain an independent read-only review of this Stage 4C implementation PR, followed by owner acceptance before merge.
 
 ## Recovery instruction
 
