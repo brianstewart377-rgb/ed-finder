@@ -226,7 +226,7 @@ A Planning Request must not:
 | Candidate-plan set | C | Derived CPE | Required only when disposition includes a candidate plan. |
 | Constraint-outcome set | R | Derived CPE | States each material hard constraint as satisfied, unsatisfied, conditional, or not assessable. |
 | Trade-off set | C | Derived CPE | Required when candidate plans differ materially or an objective is compromised. |
-| Confidence and limitations | R | Derived CPE | Must identify plan-level confidence, caveats, contradictions, unknowns, and limitations. |
+| Confidence and limitations | R | Derived CPE | Must identify plan-level confidence, caveats, contradictions, unknowns, and limitations. Plan-level confidence must not exceed what its most limiting material CRE confidence, contradiction, unknown, or pending-validation input supports. Where material inputs differ, the result must state the limiting qualification rather than mask it with an aggregate summary. |
 | Required validation steps | C | Derived CPE | Required when an irreversible or consequential action depends on an unverified input, model, or mechanic. |
 | Input-change sensitivity | C | Derived CPE | Required when a change in a pinned input, assumption, or verification result would materially alter the result. |
 | Presentation hints | O | Presentation only | Later display guidance may be included, but must not alter the plan's authoritative reasoning or data. |
@@ -239,7 +239,7 @@ A Planning Request must not:
 | Candidate role / intent | R | Derived CPE | States why the candidate exists relative to the request objective. It is not a CRE mechanic. |
 | Proposed actions | R | Derived CPE | Facility choices, sequencing, preservation, deferral, validation, or other plan actions. Every irreversible action must carry an applicable evidence/validation basis. |
 | Sequence / dependency order | C | Derived CPE | Required where order changes buildability, risk, verification, or expected effect. |
-| Expected effects | C | Derived CPE | Required when claimed. Each effect must be labelled as observed carry-forward, previewed, predicted, or conditional—not as a guaranteed outcome. |
+| Expected effects | C | Derived CPE | Required when claimed. Each expected effect must carry one primary Section 8 classification. “Observed carry-forward” is an Observed effect repeated unchanged from a pinned Snapshot. “Conditional” is not a sixth state; it must be expressed as a Predicted effect whose named assumptions, uncertainty, or validation gate state the condition. A proposed action remains Proposed rather than being relabelled as an effect. No expected effect may be stated as a guaranteed outcome. |
 | Supporting input references | R | Derived CPE | Pins each material candidate claim to CRE knowledge entries, state items, and CPE request constraints. |
 | Trade-offs | C | Derived CPE | Required where the candidate sacrifices or defers a stated objective, preference, coverage, time, or risk posture. |
 | Caveats / uncertainty | R | Derived CPE | Must retain all material CRE and CPE limitations relevant to this candidate. |
