@@ -74,8 +74,10 @@ Stage 5B does not add or change:
 
 - The R1 laboratory remains DEV-only, fixture-backed, deterministic, and local.
 - The lab exposes exactly five closed local select controls: Fixture, Lens kind, Lens value, Carrier mode, and Strategy.
+- The first four selector IDs, values, defaults, ordering, and semantics remain unchanged. Strategy is explicit local DEV-lab context only, with fixed `baseline_local_strategy` and `remote_logistics_strategy` options; it is not inferred.
+- Five fixture IDs and three carrier modes are selectable; the six approved fixture/scenario state rows are test assertions, not six fixtures.
+- The fixed template is displayed read-only.
 - Lens remains explicit context only; it does not alter accepted fixture outcomes, conditions, evidence, state, Plan Fit output, or ordering.
-- Strategy remains explicit local DEV-lab context only, with fixed `baseline_local_strategy` and `remote_logistics_strategy` options; it is not inferred.
 - Carrier behavior remains bounded to accepted logistics-sensitive outcomes. `compare_both` preserves `no_carrier` then `carrier_available` order.
 - Stage 4B Plan Fit remains subordinate to accepted Stage 2B Assessment output.
 - No production behavior, scoring, ranking, recommendation, strategy inference, planning behavior, or deployment is introduced.
