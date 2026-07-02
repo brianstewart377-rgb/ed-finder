@@ -4,21 +4,23 @@
 
 ## Status
 
-**Stage 5A and Stage 5B are accepted and merged. The Stage 6A read-only evidence-and-architecture audit contract was accepted by the owner and merged in PR `#295` at `7a4080363a23a0aefe9b68c795d621164b39c9e8`. The repository-only CRE audit is complete on a documentation branch. Its report has been amended to address review findings and remains drafted for independent review; it is not accepted or merged, and it makes no architecture or implementation decision. Database inspection remains conditional on owner-supplied, verified read-only access.**
+**Stage 5A and Stage 5B are accepted and merged. The Stage 6A read-only evidence-and-architecture audit contract was accepted and merged in PR `#295`; the repository-only CRE audit report was independently reviewed, owner-accepted, and merged in PR `#297` at `c50723e307566e0c008acf29a84e6dfa88d6ef29`. The owner has authorised a documentation-only Stage 6B CRE-to-CPE boundary-contract stage. Its contract is drafted for independent review only; it is not accepted or merged, and it does not authorise implementation, CPE scaffolding, integration, storage, database access, external research, or deployment.**
 
 ## Baseline
 
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Canonical Stage 6A contract merge: PR `#295` at `7a4080363a23a0aefe9b68c795d621164b39c9e8`
+- Canonical current baseline: `c50723e307566e0c008acf29a84e6dfa88d6ef29` — Stage 6A CRE repository audit report merge
+- Stage 6A contract merge: PR `#295` at `7a4080363a23a0aefe9b68c795d621164b39c9e8`
 - Stage 6A accepted review head: `3f6891d8bc82faed4ac66b8aef60eacecbc26db6`
 - Stage 6A contract branch: `docs/r1-stage6a-audit-contract` (historical merged branch)
-- Stage 6A contract base: `work/r1-canonical-body-evidence` at `188e4ba16a65409b9c1042855f8af71b7e679e43`
-- Stage 6A contract-content checkpoint: `c18af13faf0758878e595e4146c5cfc9a329c4e4`; it identifies contract correction content only and is not a pull-request head.
-- Stage 6A audit-report branch: `docs/r1-stage6a-cre-repo-audit-report`
+- Stage 6A audit report: PR `#297`, merged at `c50723e307566e0c008acf29a84e6dfa88d6ef29`
+- Stage 6A accepted audit-review head: `0d80c488c41a92ad0a9d78fae9b6573a89ef4d30`
+- Stage 6A audit-report branch: `docs/r1-stage6a-cre-repo-audit-report` (historical merged branch)
 - Stage 6A audited CRE repository: `brianstewart377-rgb/colonisation-research-engine`, `main` at `add9a51350e7754dadc09cd9712cd43e96499e33`
-- Stage 6A audit-report document revision commit: `1411b18bfb225ea4895d321a9346cd380a4f229d`
-- Stage 6A audit checkpoint is a draft PR record. Before any acceptance or merge, retrieve PR `#297` metadata and use its live head SHA. The static report-document revision commit is provenance for the report document, not the merge target.
-- Stage 6A observed CPE repository at audit retrieval on 2026-07-02: `brianstewart377-rgb/colony-planning-engine`, repository ID `1287613646`, public, default branch `main`, size `0`; no immutable commit/ref existed because the repository was empty.
+- Stage 6A observed CPE repository at audit retrieval on 2026-07-02: `brianstewart377-rgb/colony-planning-engine`, repository ID `1287613646`, public, default branch `main`, size `0`; no immutable commit/ref existed because the repository was empty at that time.
+- Stage 6B contract branch: `docs/r1-stage6b-cre-cpe-boundary-contract`
+- Stage 6B contract base: `work/r1-canonical-body-evidence` at `c50723e307566e0c008acf29a84e6dfa88d6ef29`
+- Stage 6B contract document initial revision: `e0e6c322cc86f51946051ac9504eacef0f2555ea`; this is document provenance only, not a review or merge target.
 - Stage 5A discovery PR: `#290`, merged at `dad3a99f4571428fcb517a13785be297f57e875a`
 - Stage 5A reviewed head: `36371887bf09dad420c86b6c6ca6faffb7cfa0cd`
 - Stage 5B evidence-discipline PR: `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`
@@ -26,18 +28,26 @@
 - No deployment occurred.
 - Recovery rule: for any open review, acceptance, or merge, fetch the live pull-request head from pull-request metadata; do not infer it from a content checkpoint or remembered commit.
 
-## Stage 6A audit checkpoint
+## Stage 6A accepted audit checkpoint
 
-- **Status:** Repository-only CRE audit complete; report amended for independent review and not merged.
+- **Status:** Accepted and merged in PR `#297`.
 - **Audit report:** `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_REPORT_V1.md`
-- **Audit scope:** Read-only committed-file and repository-metadata inspection of CRE only, plus the necessary Stage 6A governance documents in `ed-finder` and metadata confirmation that CPE was empty at audit retrieval.
+- **Audit scope:** Read-only committed-file and repository-metadata inspection of CRE, plus the necessary Stage 6A governance documents in `ed-finder` and metadata confirmation that CPE was empty at audit retrieval.
 - **Database access:** None supplied, verified, or used.
 - **External research / live game work:** None performed.
-- **Material finding:** CRE is an evidence and research knowledge repository with planner-adjacent draft contracts. The current summary index is stale against the export manifest and source-coverage register.
-- **Review amendment:** The report now records the CPE empty-repository metadata state and its lack of a commit/ref, distinguishes report-document provenance from a live PR head, and includes the three architecture options explicitly required by the Stage 6A contract before discussing CRE/CPE ownership variants.
-- **Discussion record:** The owner created a separate CPE repository and directed that CRE, CPE, and `ed-finder` remain compartmentalised while the future integration boundary is designed now. This is recorded as owner direction, not an accepted implementation architecture.
-- **Boundary discussion direction in report:** Within the separate-layer option, CRE publishes versioned knowledge and observed-state contracts; CPE would own player planning context and plan outputs; `ed-finder` would later integrate and present both. This is not accepted and does not authorise implementation.
-- **Next safe action:** Independent read-only review of the amended Stage 6A report and this checkpoint. Then obtain separate owner acceptance before merge. A later documentation-only CRE-to-CPE boundary-contract stage requires separate owner authorisation.
+- **Material finding:** CRE is an evidence and research knowledge repository with planner-adjacent draft contracts. The current CRE summary index was stale against its export manifest and source-coverage register at the inspected CRE commit.
+- **Architecture status:** Stage 6A recorded options and a boundary discussion direction; it did not select a runtime, storage, transport, or implementation architecture.
+- **Owner direction now authorised:** A separate documentation-only Stage 6B boundary-contract stage may define logical CRE/CPE/ed-finder ownership, four boundary objects, versioning, provenance, compatibility, uncertainty/withholding, no-duplication, and migration/non-goal rules.
+
+## Stage 6B boundary-contract checkpoint
+
+- **Status:** Drafted for independent review and not merged.
+- **Contract:** `docs/ai/R1_STAGE6B_CRE_CPE_BOUNDARY_CONTRACT_V1.md`
+- **Purpose:** Define the future logical ownership boundary and versioned exchange governance between CRE, CPE, and `ed-finder` before any implementation is considered.
+- **Permitted durable files:** This contract and `docs/ai/CURRENT_STAGE.md` only.
+- **No technical implementation:** No CPE scaffolding, code, tests, UI, schemas, APIs, shared storage, database access, external research, live-game work, deployment, product behaviour, or CRE material movement/copying/deletion is authorised.
+- **No architecture selection:** The contract does not choose a transport, runtime, storage, shared package, shared database, API, event system, or deployment model.
+- **Next safe action:** Independent read-only review of the Stage 6B contract and this checkpoint. Then obtain separate owner acceptance before merge.
 
 ## Closeout scope
 
@@ -115,7 +125,7 @@ source record
 
 ## Next safe action
 
-Obtain an independent read-only review of the amended `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_REPORT_V1.md` and this `CURRENT_STAGE.md` checkpoint. Do not start CPE design or implementation, change CRE/ed-finder code or data, supply or query a database, collect external evidence, create a fixture, change R1 tests/UI, integrate repositories, merge a later implementation, or deploy. The next documentation-only CRE-to-CPE boundary-contract stage may begin only after this report is independently reviewed, separately accepted by the owner, and merged, and only after the owner separately authorises that later stage.
+Obtain an independent read-only review of `docs/ai/R1_STAGE6B_CRE_CPE_BOUNDARY_CONTRACT_V1.md` and this `CURRENT_STAGE.md` checkpoint. Do not start CPE design or implementation, change CRE/ed-finder code or data, supply or query a database, collect external evidence, create a fixture, change R1 tests/UI, integrate repositories, select runtime/storage/transport, merge a later implementation, or deploy. This Stage 6B boundary contract may merge only after independent review and separate owner acceptance. Any later technical or migration stage requires separate owner authorisation.
 
 ## Recovery instruction
 
