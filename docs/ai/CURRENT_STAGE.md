@@ -4,27 +4,27 @@
 
 ## Status
 
-**Stage 4B contract merged — carrier-scenario clarification awaiting independent review; implementation remains blocked**
+**Stage 4B bounded pure-core implementation complete — awaiting independent review and owner acceptance**
 
 ## Baseline
 
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Carrier-scenario clarification branch: `docs/r1-stage4b-carrier-clarification`
-- Carrier-scenario clarification base SHA: `411ceb9232966bf27aa027d72aa5622c83ee0d03`
+- Implementation branch: `feat/r1-plan-fit-core`
+- Implementation base SHA: `5fa49ae2a8f538b2e3111524c27299290a082bf0`
 - Stage 4B contract PR: `#284`, merged
 - Stage 4B contract merge commit: `411ceb9232966bf27aa027d72aa5622c83ee0d03`
+- Owner authorised bounded Stage 4B implementation on `2026-07-02`
 - Stage 3B PR: `#282` — `Stage 3B: DEV-only R1 assessment lab`, merged
 - Stage 3B merge commit: `98b4bacf1d799e7937b449210046659b3e96615b`
 - Last accepted implementation stage: Stage 2B pure R1 assessment-domain core, merged by PR `#280` at `220c870f89a5af7f98adb88578373dbc3a681a9c`.
 - No deployment occurred.
 
-## Active contract record
+## Active implementation record
 
 - Contract file: `docs/ai/R1_STAGE4_PLAN_FIT_CONTRACT_V1.md`
-- This follow-up corrects documentation only.
-- No Stage 4B implementation is authorised.
-- The first independent review required deterministic-output and carrier-boundary wording corrections in the contract text.
-- No Stage 4B implementation is authorised while this carrier-scenario clarification is under review.
+- Stage 4B implementation is limited to the five-file allowlist below.
+- No UI, production behavior, deployment, or Stage 1–3 modification is authorised or included.
+- The implementation remains bounded pure-core work subordinate to accepted Stage 2B assessment results.
 
 ## Proposed later Stage 4B implementation allowlist
 
@@ -82,13 +82,21 @@ Stage 4B does not add:
 
 ## Caveats
 
-- This branch contains only documentation updates.
-- No implementation, test, configuration, or production change is authorised by the Stage 4B contract alone.
-- Any later Stage 4B implementation must use the new focused plan-fit files rather than modifying accepted Stage 2B or Stage 3B files.
+- No deployment occurred.
+- Validation completed locally on the implementation branch:
+  - new focused Stage 4B Plan Fit tests
+  - existing Stage 2B evaluator tests
+  - existing Stage 3B assessment-lab UI tests
+  - full test suite
+  - typecheck
+  - lint
+  - production build
+  - production artifact scan extended for Stage 4 identifiers
+- The production build retained the pre-existing Coalsack asset-resolution warnings and chunk-size warning.
 
 ## Next safe action
 
-Obtain an independent read-only review of the carrier-scenario clarification. Do not create a Stage 4B implementation branch or edit core code until this clarification is merged and the owner explicitly authorises implementation.
+Obtain an independent read-only review of this implementation PR, followed by owner acceptance before merge.
 
 ## Recovery instruction
 
