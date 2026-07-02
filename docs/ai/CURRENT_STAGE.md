@@ -15,6 +15,10 @@
 - Stage 5A reviewed head: `36371887bf09dad420c86b6c6ca6faffb7cfa0cd`
 - Stage 5B evidence-discipline PR: `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`
 - Stage 5B reviewed head: `b42d8cfa6d1ad453d6637ea7f24919d85950ec95`
+- Stage 6A contract branch: `docs/r1-stage6a-audit-contract`
+- Stage 6A contract base: `work/r1-canonical-body-evidence` at `188e4ba16a65409b9c1042855f8af71b7e679e43`
+- Stage 6A contract current review content commit: `c18af13faf0758878e595e4146c5cfc9a329c4e4`; verify the pull-request head before acceptance or merge.
+- Stage 6A pull request: `#295`
 - No deployment occurred.
 
 ## Closeout scope
@@ -93,7 +97,7 @@ source record
 
 ## Next safe action
 
-Obtain an independent read-only review of `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_CONTRACT_V1.md`. Do not begin Stage 6A repository or database inspection, collect external evidence, create a fixture, edit R1 code/tests/UI, change the normal application, merge a later implementation, or deploy. The Stage 6A audit may begin only after separate owner acceptance and merge; any database inspection also requires owner-supplied, verified read-only access.
+Obtain an independent read-only review of the targeted corrections in `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_CONTRACT_V1.md` and `docs/ai/CURRENT_STAGE.md`. Do not begin Stage 6A repository or database inspection, collect external evidence, create a fixture, edit R1 code/tests/UI, change the normal application, merge a later implementation, or deploy. The Stage 6A audit may begin only after separate owner acceptance and merge; any database inspection also requires owner-supplied, verified read-only access.
 
 ## Recovery instruction
 
