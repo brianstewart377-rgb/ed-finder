@@ -4,7 +4,7 @@
 
 ## Status
 
-**Stage 5A and Stage 5B are accepted and merged. The Stage 6A read-only evidence-and-architecture audit contract merged in PR `#295`; the repository-only CRE audit report was independently reviewed, owner-accepted, and merged in PR `#297`; and the Stage 6B CRE-to-CPE logical ownership and boundary-governance contract was independently reviewed, owner-accepted, and merged in PR `#298` at `dad29b1760e8291f8c48db665ed4be5e193d51db`. The owner has authorised a documentation-only Stage 6C CRE-to-CPE field-contract-detail stage. Its documentation is drafted for independent review only; it is not accepted or merged, and it does not authorise implementation, scaffolding, integration, storage, database access, external research, or deployment.**
+**Stage 5A and Stage 5B are accepted and merged. The Stage 6A read-only evidence-and-architecture audit contract merged in PR `#295`; the repository-only CRE audit report was independently reviewed, owner-accepted, and merged in PR `#297`; and the Stage 6B CRE-to-CPE logical ownership and boundary-governance contract was independently reviewed, owner-accepted, and merged in PR `#298` at `dad29b1760e8291f8c48db665ed4be5e193d51db`. The owner has authorised a documentation-only Stage 6C CRE-to-CPE field-contract-detail stage. Its documentation has been amended after independent architecture review and awaits renewed independent review; it is not accepted or merged, and it does not authorise implementation, scaffolding, integration, storage, database access, external research, or deployment.**
 
 ## Baseline
 
@@ -24,6 +24,7 @@
 - Stage 6C field-contract branch: `docs/r1-stage6c-contract-detail`
 - Stage 6C contract base: `work/r1-canonical-body-evidence` at `dad29b1760e8291f8c48db665ed4be5e193d51db`
 - Stage 6C contract document initial revision: `5c7dc41e617017e97e5c1e81f32a148ea28c98d5`; this is document provenance only, not a review or merge target.
+- Stage 6C architecture-review amendment revision: `34ed064aff32c1c5efc66ecc217a68c74f1ea968`; it corrects plan-level confidence handling and expected-effect state terminology only, and is document provenance only, not a review or merge target.
 - Stage 5A discovery PR: `#290`, merged at `dad3a99f4571428fcb517a13785be297f57e875a`
 - Stage 5A reviewed head: `36371887bf09dad420c86b6c6ca6faffb7cfa0cd`
 - Stage 5B evidence-discipline PR: `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`
@@ -52,14 +53,15 @@
 
 ## Stage 6C field-contract-detail checkpoint
 
-- **Status:** Drafted for independent review and not merged.
+- **Status:** Amended after independent architecture review; awaiting renewed independent review and not merged.
 - **Contract:** `docs/ai/R1_STAGE6C_CRE_CPE_FIELD_CONTRACT_DETAIL_V1.md`
 - **Purpose:** Define logical field-level meaning for the four Stage 6B objects: CRE Knowledge Release, CRE Observed Colony-State Snapshot, CPE Planning Request, and CPE Plan Result.
 - **Scope:** Required, optional, conditionally required, and prohibited fields; ownership class; object identity; release pinning; timestamps; supersession; compatibility; observed/previewed/predicted/proposed/completed state; uncertainty/withholding; provenance/caveat propagation; non-executable examples; and documentation validation checklists.
+- **Amendment scope:** Adds a non-strengthening rule for plan-level confidence and reconciles expected-effect terminology with the canonical Section 8 state taxonomy. It adds no implementation, field encoding, or architecture selection.
 - **Permitted durable files:** This contract and `docs/ai/CURRENT_STAGE.md` only.
 - **No technical implementation:** No CPE scaffolding, code, executable schemas, tests, UI, APIs, events, packages, shared storage, databases, credentials, external research, live-game work, deployment, product behaviour, or CRE material movement/copying/deletion is authorised.
 - **No architecture selection:** Stage 6C does not choose a physical encoding, runtime, transport, storage, shared-contract repository, shared package, API, event system, or deployment model.
-- **Next safe action:** Independent read-only review of the Stage 6C contract and this checkpoint. Then obtain separate owner acceptance before merge.
+- **Next safe action:** Fresh independent read-only re-review of the amended Stage 6C contract and this checkpoint. Then obtain separate owner acceptance before merge.
 
 ## Closeout scope
 
@@ -137,7 +139,7 @@ source record
 
 ## Next safe action
 
-Obtain an independent read-only review of `docs/ai/R1_STAGE6C_CRE_CPE_FIELD_CONTRACT_DETAIL_V1.md` and this `CURRENT_STAGE.md` checkpoint. Do not start CPE design or implementation, change CRE/ed-finder code or data, supply or query a database, collect external evidence, create a fixture, change R1 tests/UI, integrate repositories, select runtime/storage/transport, merge a later implementation, or deploy. This Stage 6C field-contract detail may merge only after independent review and separate owner acceptance. Any later readiness, technical, migration, or implementation stage requires separate owner authorisation.
+Obtain a fresh independent read-only re-review of the amended `docs/ai/R1_STAGE6C_CRE_CPE_FIELD_CONTRACT_DETAIL_V1.md` and this `CURRENT_STAGE.md` checkpoint. Do not start CPE design or implementation, change CRE/ed-finder code or data, supply or query a database, collect external evidence, create a fixture, change R1 tests/UI, integrate repositories, select runtime/storage/transport, merge a later implementation, or deploy. This Stage 6C field-contract detail may merge only after renewed independent review and separate owner acceptance. Any later readiness, technical, migration, or implementation stage requires separate owner authorisation.
 
 ## Recovery instruction
 
