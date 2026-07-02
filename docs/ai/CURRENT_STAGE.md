@@ -4,13 +4,15 @@
 
 ## Status
 
-**Stage 4B technical contract revised after independent review — awaiting final independent review and owner approval**
+**Stage 4B contract merged — carrier-scenario clarification awaiting independent review; implementation remains blocked**
 
 ## Baseline
 
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Current documentation branch: `docs/r1-stage4-plan-fit-contract`
-- Base SHA: `83f4e4bc9829c173979fce5aa0bda734174ca55a`
+- Carrier-scenario clarification branch: `docs/r1-stage4b-carrier-clarification`
+- Carrier-scenario clarification base SHA: `411ceb9232966bf27aa027d72aa5622c83ee0d03`
+- Stage 4B contract PR: `#284`, merged
+- Stage 4B contract merge commit: `411ceb9232966bf27aa027d72aa5622c83ee0d03`
 - Stage 3B PR: `#282` — `Stage 3B: DEV-only R1 assessment lab`, merged
 - Stage 3B merge commit: `98b4bacf1d799e7937b449210046659b3e96615b`
 - Last accepted implementation stage: Stage 2B pure R1 assessment-domain core, merged by PR `#280` at `220c870f89a5af7f98adb88578373dbc3a681a9c`.
@@ -19,9 +21,10 @@
 ## Active contract record
 
 - Contract file: `docs/ai/R1_STAGE4_PLAN_FIT_CONTRACT_V1.md`
-- This branch is documentation-only.
+- This follow-up corrects documentation only.
 - No Stage 4B implementation is authorised.
 - The first independent review required deterministic-output and carrier-boundary wording corrections in the contract text.
+- No Stage 4B implementation is authorised while this carrier-scenario clarification is under review.
 
 ## Proposed later Stage 4B implementation allowlist
 
@@ -85,7 +88,7 @@ Stage 4B does not add:
 
 ## Next safe action
 
-Obtain independent read-only review of `R1_STAGE4_PLAN_FIT_CONTRACT_V1.md`. Do not create a Stage 4B implementation branch or edit core code until the owner explicitly authorises implementation.
+Obtain an independent read-only review of the carrier-scenario clarification. Do not create a Stage 4B implementation branch or edit core code until this clarification is merged and the owner explicitly authorises implementation.
 
 ## Recovery instruction
 

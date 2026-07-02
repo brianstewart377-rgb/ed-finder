@@ -303,7 +303,8 @@ Require narrow guards for:
 - reject any scenario whose assessment state is not `not_assessable` but whose requirement results contain an `unknown` or `contradictory` outcome
 - per-scenario requirement results containing every accepted template requirement exactly once
 - no unknown, duplicate, or missing requirement IDs
-- requirement-result carrier modes matching their enclosing scenario
+- `RequirementAssessment` does not carry a carrier mode. Carrier identity is supplied only by its enclosing `ScenarioAssessment.carrierMode`. The Plan Fit evaluator must not require, infer, or invent a per-requirement carrier mode.
+- `carrierLogisticsAffected`, where present in the accepted Stage 2B type, must be boolean and must not be treated as a second carrier-mode field
 - selected strategy ID resolving exactly once in the fixed strategy registry
 
 The evaluator must not verify whether an assessment state was correctly derived from the full requirement outcomes. That is Stage 2B’s responsibility. The `unknown` / `contradictory` rule above is a narrow structural consistency guard only; it does not recompute Stage 2B assessment state.
@@ -313,6 +314,8 @@ The evaluator must not verify whether an assessment state was correctly derived 
 Plan Fit never applies, repairs, transforms, or independently calculates carrier effects.
 
 Any carrier difference originates solely from accepted Stage 2B per-scenario requirement outcomes.
+
+Plan Fit copies each accepted Stage 2B scenario assessment state unchanged into its matching Plan Fit scenario result. It does not calculate, suppress, or replace assessment-state changes caused upstream by accepted Stage 2B carrier evaluation.
 
 Carrier can affect only strategy dependencies that are both:
 
@@ -324,6 +327,13 @@ In `compare_both`, for each selected strategy requirement dependency, the evalua
 Where an outcome differs across scenarios, that requirement ID must be declared in the selected strategy’s `logisticsSensitiveRequirementIds`; otherwise reject the assessment result as incompatible with the selected strategy.
 
 Plan Fit’s only response to accepted carrier-specific outcomes is to map them through the fixed dependency-to-reason rules.
+
+In `compare_both`, a carrier-sensitive logistics outcome may produce both:
+
+- a different incoming `assessmentState`
+- a different Plan Fit dependency-reason set
+
+These are distinct effects. Plan Fit preserves the first and maps the second through the fixed dependency-to-reason rules.
 
 Carrier must never:
 
@@ -363,8 +373,15 @@ These are forward-reconstruction fixture combinations, not recovered historic st
 
 3. `remote_materials_carrier_case` + `remote_logistics_strategy` + `compare_both`
    - exact scenario order: `no_carrier` then `carrier_available`
-   - `no_carrier` retains the logistics reason
-   - `carrier_available` removes that permitted logistics reason
+   - `no_carrier`
+     - `assessmentState: conditionally_supported`
+     - `planFitState: provisional_plan_fit`
+     - includes non-blocking `dependency:remote_logistics`
+   - `carrier_available`
+     - `assessmentState: supported`
+     - `planFitState: provisional_plan_fit`
+     - has no `dependency:remote_logistics` reason
+   - these assessment states are accepted Stage 2B input preserved by Plan Fit, not recalculated by Plan Fit
    - no comparative recommendation language
 
 4. `fake_flexibility_case` + `baseline_local_strategy` + `no_carrier`
@@ -404,7 +421,14 @@ The later Stage 4B test suite must prove:
 - gate-first plus lexical ordering of all following dependency reasons
 - the exact reason-ID scheme is used
 - required fixture matrix passes
-- carrier changes only the permitted remote logistics reason
+- `compare_both` preserves accepted Stage 2B scenario states exactly:
+  - `no_carrier` remains `conditionally_supported`
+  - `carrier_available` remains `supported`
+- the only Plan Fit dependency-reason difference for the approved remote-logistics fixture is:
+  - `dependency:remote_logistics` exists in `no_carrier`
+  - `dependency:remote_logistics` is absent in `carrier_available`
+- the evaluator does not require or inspect a per-requirement carrier mode, because none exists in `RequirementAssessment`
+- the evaluator does not calculate carrier effects or assessment-state transitions; it preserves scenario states provided by Stage 2B and maps dependency outcomes only
 - carrier cannot repair missing evidence, contradiction, capacity, shared constraint, `not_assessable`, or `not_supported`
 - changing only lens changes only returned context lens
 - scenario order is exact
