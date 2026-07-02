@@ -133,3 +133,17 @@ A later forward-reconstruction fixture for either name requires an explicit writ
 
 **Evidence / reference**
 `docs/ai/R1_STAGE5A_CONTROL_FIXTURE_DISCOVERY_V1.md`; Stage 5A reviewed head `36371887bf09dad420c86b6c6ca6faffb7cfa0cd`; PR `#290`, merged at `dad3a99f4571428fcb517a13785be297f57e875a`; owner acceptance on 2026-07-02.
+
+## 2026-07-02 — Stage 5B adopts evidence-first capacity-sufficiency discipline
+
+**Decision**
+Adopt the Stage 5B evidence discipline as a forward-reconstruction boundary. No R1 conclusion may be stronger than its traceable evidence chain. A possible later capacity-sufficiency control may treat additional bodies as neutral only within a named programme and only where the additional bodies change no named requirement or constraint.
+
+**Reason**
+The project needs the galaxy database and other sources to test explicit model assertions rather than to emit opaque judgements. Without an evidence-chain rule, body count or an attractive narrative could be mistaken for capability. The owner provided the capacity-sufficiency intent as a forward-design boundary, not as recovered historical semantics.
+
+**Invariant**
+Every later claim must retain a traceable chain from source record through evidence fact and named requirement or constraint to a bounded consequence. Missing, contradictory, stale, incomplete, unsupported, or out-of-scope evidence limits the conclusion. Total body count is context, not an inherent score. The `30` and `60` labels are illustrative only; they are not universal thresholds. This decision does not authorise a fixture, external evidence collection, implementation, or deployment.
+
+**Evidence / reference**
+Owner-provided forward-design intent dated 2026-07-02, recorded as `owner_intent_capacity_sufficiency_plateau_2026-07-02` in `docs/ai/R1_STAGE5A_5B_ACCEPTANCE_CLOSEOUT_V1.md`; `docs/ai/R1_STAGE5B_EVIDENCE_DISCIPLINE_CONTRACT_V1.md`; Stage 5B reviewed head `b42d8cfa6d1ad453d6637ea7f24919d85950ec95`; PR `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`; owner acceptance on 2026-07-02.
