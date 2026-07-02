@@ -4,7 +4,7 @@
 
 ## Status
 
-**Stage 5A and Stage 5B are accepted and merged. The documentation-only acceptance-and-provenance closeout merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d`.**
+**Stage 5A and Stage 5B are accepted and merged. The documentation-only acceptance-and-provenance closeout merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d`. The Stage 6A read-only evidence-and-architecture audit contract is drafted for independent review; no Stage 6A inspection is authorised until separate owner acceptance and merge.**
 
 ## Baseline
 
@@ -93,7 +93,7 @@ source record
 
 ## Next safe action
 
-No further work is authorised by this closeout. Do not collect external system evidence, create a fixture, edit R1 code/tests/UI, change the normal application, merge a later implementation, or deploy. Any later programme-definition or evidence-inventory stage requires separate owner authorisation.
+Obtain an independent read-only review of `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_CONTRACT_V1.md`. Do not begin Stage 6A repository or database inspection, collect external evidence, create a fixture, edit R1 code/tests/UI, change the normal application, merge a later implementation, or deploy. The Stage 6A audit may begin only after separate owner acceptance and merge; any database inspection also requires owner-supplied, verified read-only access.
 
 ## Recovery instruction
 
