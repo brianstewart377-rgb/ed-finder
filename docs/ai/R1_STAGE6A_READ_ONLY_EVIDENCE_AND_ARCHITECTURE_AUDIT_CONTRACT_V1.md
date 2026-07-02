@@ -1,6 +1,6 @@
 # R1 Stage 6A — Read-Only Evidence and Architecture Audit Contract v1
 
-**Status:** Drafted for independent review on 2026-07-02.
+**Status:** Accepted by the owner and merged in PR `#295` at `7a4080363a23a0aefe9b68c795d621164b39c9e8` on 2026-07-02. Stage 6A is active within this contract's scope.
 
 ## 1. Purpose
 
