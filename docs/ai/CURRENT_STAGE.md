@@ -4,22 +4,21 @@
 
 ## Status
 
-**Stage 5A and Stage 5B are accepted and merged. The documentation-only acceptance-and-provenance closeout merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d`. The Stage 6A read-only evidence-and-architecture audit contract is drafted for independent review; no Stage 6A inspection is authorised until separate owner acceptance and merge.**
+**Stage 5A and Stage 5B are accepted and merged. The documentation-only acceptance-and-provenance closeout merged in PR `#292` at `1b7b36b4c411e50ad102adadd51339653476b68d`. The Stage 6A read-only evidence-and-architecture audit contract was accepted by the owner and merged in PR `#295` at `7a4080363a23a0aefe9b68c795d621164b39c9e8`. Repository-only Stage 6A audit work is authorised within that contract; database inspection remains conditional on owner-supplied, verified read-only access.**
 
 ## Baseline
 
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Canonical base SHA for this closeout: `f1b1e5b42859a42b0e651ad957c01d5261bec754`
-- Documentation closeout branch: `docs/r1-acceptance-closeout`
+- Canonical Stage 6A contract merge: PR `#295` at `7a4080363a23a0aefe9b68c795d621164b39c9e8`
+- Stage 6A accepted review head: `3f6891d8bc82faed4ac66b8aef60eacecbc26db6`
+- Stage 6A contract branch: `docs/r1-stage6a-audit-contract` (historical merged branch)
+- Stage 6A contract base: `work/r1-canonical-body-evidence` at `188e4ba16a65409b9c1042855f8af71b7e679e43`
+- Stage 6A contract-content checkpoint: `c18af13faf0758878e595e4146c5cfc9a329c4e4`; it identifies the contract correction content only and is not the current pull-request head.
+- Stage 6A pull request: `#295`, merged at `7a4080363a23a0aefe9b68c795d621164b39c9e8`
 - Stage 5A discovery PR: `#290`, merged at `dad3a99f4571428fcb517a13785be297f57e875a`
 - Stage 5A reviewed head: `36371887bf09dad420c86b6c6ca6faffb7cfa0cd`
 - Stage 5B evidence-discipline PR: `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`
 - Stage 5B reviewed head: `b42d8cfa6d1ad453d6637ea7f24919d85950ec95`
-- Stage 6A contract branch: `docs/r1-stage6a-audit-contract`
-- Stage 6A contract base: `work/r1-canonical-body-evidence` at `188e4ba16a65409b9c1042855f8af71b7e679e43`
-- Stage 6A contract-content checkpoint: `c18af13faf0758878e595e4146c5cfc9a329c4e4`; it identifies the contract correction content only and is not the current pull-request head.
-- For recovery, acceptance, or merge, fetch the live pull-request head from pull-request metadata; do not infer it from the contract-content checkpoint.
-- Stage 6A pull request: `#295`
 - No deployment occurred.
 
 ## Closeout scope
@@ -98,7 +97,7 @@ source record
 
 ## Next safe action
 
-Obtain an independent read-only review of the targeted corrections in `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_CONTRACT_V1.md` and `docs/ai/CURRENT_STAGE.md`. Do not begin Stage 6A repository or database inspection, collect external evidence, create a fixture, edit R1 code/tests/UI, change the normal application, merge a later implementation, or deploy. The Stage 6A audit may begin only after separate owner acceptance and merge; any database inspection also requires owner-supplied, verified read-only access.
+Begin the Stage 6A repository-only audit under `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_CONTRACT_V1.md`. Do not write code, tests, UI, fixtures, configuration, migrations, data, database records, documents, branches, pull requests, comments, or deployments except the controlled completion documentation allowed by Section 3.3. Do not begin database inspection until the owner supplies access that is verified to be read-only under Section 3.2. Do not perform external research, create rankings or recommendations, select an architecture, or implement anything.
 
 ## Recovery instruction
 
