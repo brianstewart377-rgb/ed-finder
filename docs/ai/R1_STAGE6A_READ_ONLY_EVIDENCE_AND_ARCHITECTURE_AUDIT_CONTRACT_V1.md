@@ -58,13 +58,20 @@ When such access is supplied, the audit may use bounded read-only queries to ins
 - representative limited samples needed to understand field meaning or source quality;
 - aggregate and filtered checks needed to determine whether an explicit research question is testable from the available data.
 
-Database access must remain limited to approved read-only endpoints and read-only metadata/catalog views. It must not use data-modification statements, schema changes, write locks, transactions intended to alter state, imports, exports, bulk extraction, credential changes, stored-procedure changes, scheduled jobs, or database administration actions.
+Database access must remain limited to approved read-only endpoints, approved data tables or views, and read-only metadata or catalog views. The analyst may use bounded read-only `SELECT` queries against those approved data tables or views. It must not use data-modification statements, schema changes, write locks, transactions intended to alter state, imports, exports, bulk extraction, credential changes, stored-procedure changes, scheduled jobs, or database administration actions.
 
 A database-derived audit claim must record the dataset or snapshot identity where available, query date/time, relevant tables or views, the query purpose, any material filters or limits, and the caveats needed to understand what the result does and does not prove. Secrets and connection details must never be recorded.
 
-### 3.3 Written reporting
+### 3.3 Durable audit report and recovery checkpoint
 
-The audit may produce written reports for the owner in the analyst session. Creating, editing, committing, or merging repository report files is not authorised by this contract; any durable report-file change requires a separate docs-only authorisation.
+After the audit work is complete, Stage 6A may create a durable documentation-only audit report and recovery checkpoint on a dedicated documentation branch. The allowed durable files are exactly:
+
+- `docs/ai/R1_STAGE6A_READ_ONLY_EVIDENCE_AND_ARCHITECTURE_AUDIT_REPORT_V1.md`
+- `docs/ai/CURRENT_STAGE.md`
+
+The report must contain the required audit outputs in Section 4. The checkpoint must record the audited repository branch and commit, database access verification and scope where database inspection occurred, report commit, material caveats, and the next safe action. The audit may create the dedicated documentation branch and its pull request only for these two files. It may not merge the report or checkpoint; independent review and separate owner acceptance remain required before any merge.
+
+No report or checkpoint conclusion becomes an accepted project rule, architecture decision, implementation authority, or permission for a later stage.
 
 ## 4. Required audit outputs
 
@@ -73,6 +80,7 @@ The Stage 6A report must contain these sections.
 1. **Baseline and access record**
    - branch and commit inspected;
    - documents, schemas, repositories, and databases actually available;
+   - read-only database-verification method and approved scope, or a statement that no database was inspected;
    - access limits and anything not inspected.
 
 2. **Evidence and data inventory**
@@ -106,7 +114,7 @@ The Stage 6A report must contain these sections.
 
 Stage 6A does not authorise:
 
-- edits to code, tests, UI, fixtures, configuration, migrations, data, documents, branches, pull requests, comments, merges, releases, or deployments;
+- edits to code, tests, UI, fixtures, configuration, migrations, data, or any documents, branches, or pull requests except the controlled Stage 6A completion documentation in Section 3.3;
 - any database write, schema change, data import, export, deletion, mutation, administration action, or persistent query artifact;
 - external web research, external data collection, game scouting, or live runtime dependence;
 - a new R1 fixture, Assessment behavior, Plan Fit behavior, ranking, score, best-system claim, recommendation, preference, winner, automatic selection, or planning behavior;
@@ -136,6 +144,6 @@ The audit must pause the relevant part of its work and report the limitation whe
 
 ## 8. Completion boundary
 
-A completed Stage 6A report is evidence and architecture discovery only. It does not accept an architecture, create a future stage, authorise a database connection beyond the supplied read-only scope, or permit any implementation work.
+A completed Stage 6A report and its allowed documentation-only checkpoint are evidence and architecture discovery only. They do not accept an architecture, create a future stage, authorise a database connection beyond the supplied read-only scope, or permit any implementation work.
 
 Any next stage requires separate owner authorisation, a written scope, independent review, and the normal acceptance and merge process.
