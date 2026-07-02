@@ -105,3 +105,17 @@ Carrier remains limited to validated non-shared logistics dependencies. Lens rem
 
 **Evidence / reference**
 `docs/ai/R1_STAGE4_PLAN_FIT_CONTRACT_V1.md`; owner approval to draft the Stage 4B contract on 2026-07-01.
+
+## 2026-07-02 — Stage 4C permits DEV-only Plan Fit presentation
+
+**Decision**
+Stage 4C may present accepted Stage 4B Plan Fit output inside the existing DEV-only R1 Assessment Laboratory. Selected strategy is always explicit and local. Stage 4C must not infer strategy, alter Assessment or Plan Fit semantics, recommend a strategy, rank scenarios, score outcomes, or create product behavior.
+
+**Reason**
+Stage 4B established the accepted bounded pure-core Plan Fit output. A later Stage 4C slice may present that accepted output within the existing DEV-only lab without widening into production behavior or changing the underlying Stage 2B or Stage 4B semantics.
+
+**Invariant**
+Lens remains context-only. Carrier behavior remains entirely provided by accepted Stage 2B and Stage 4B outputs. The controlling reference is `docs/ai/R1_STAGE4C_PLAN_FIT_LAB_PRESENTATION_CONTRACT_V1.md`.
+
+**Evidence / reference**
+`docs/ai/R1_STAGE4C_PLAN_FIT_LAB_PRESENTATION_CONTRACT_V1.md`; owner approval to draft the Stage 4C presentation contract on 2026-07-02.
