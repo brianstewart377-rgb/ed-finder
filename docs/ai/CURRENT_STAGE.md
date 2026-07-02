@@ -33,7 +33,7 @@
 - Acceptance date: `2026-07-02`
 - Branch: `feat/r1-stage4c-plan-fit-lab`
 - Pull request: `#288`, merged at `5017b713627600887cefc781066c3a6eacfdbcba`
-- Acceptance checkpoint commit: pending exact SHA after this documentation-only checkpoint is created.
+- Acceptance checkpoint commit: `2db42b27852f7cae19d0fa7754991cf530845b8c`
 - Evidence reviewed:
   - Independent read-only Stage 4C implementation review at `4eabc24ba9b428c2902fa2221c15b7d5371d0433`, verdict: ready for owner acceptance.
   - Reported focused UI test, unchanged Stage 2B and Stage 4B core tests, full test suite, typecheck, lint, and production build.
