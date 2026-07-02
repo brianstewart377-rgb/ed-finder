@@ -49,6 +49,8 @@ Repository claims in the audit report must identify the path, immutable commit o
 
 The database portion may begin only after the owner supplies access that is verified to be read-only. This contract does not authorise placing credentials in the repository, source code, project documents, chat transcripts, or generated reports.
 
+Before inspection begins, the analyst must verify the read-only restriction from the database role or permission record, or by another owner-approved technical check that does not attempt a write, and record the method in the audit's access record.
+
 When such access is supplied, the audit may use bounded read-only queries to inspect:
 
 - available schemas, tables, views, fields, and documented source metadata;
