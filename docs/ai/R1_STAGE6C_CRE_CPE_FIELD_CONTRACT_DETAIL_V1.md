@@ -132,7 +132,7 @@ A CRE Knowledge Release must not contain:
 **Owner:** CRE  
 **Purpose:** Publish a timestamped, evidence-linked snapshot of observed or explicitly modelled colony context.
 
-A snapshot may contain observed, previewed, predicted, or completed state-bearing items, but each state-bearing item must carry its own state classification. A snapshot may also contain a limitation-only Snapshot stub when CRE cannot publish a state-bearing item. A snapshot must never make an entire system appear observed simply because some items are observed. A CPE candidate action or design intent is recorded separately in a Plan Result, not as a Snapshot item.
+A snapshot may contain observed, previewed, predicted, proposed, or completed state-bearing items, but each state-bearing item must carry its own state classification. A proposed Snapshot item is CRE-recorded colony context from an identified evidence source; it is not a CPE candidate action, CPE design intent, selected plan, or player commitment. A snapshot may also contain a limitation-only Snapshot stub when CRE cannot publish a state-bearing item. A snapshot must never make an entire system appear observed simply because some items are observed. A CPE candidate action or design intent is recorded separately in a Plan Result, not as a Snapshot item.
 
 ### 5.1 Snapshot-level fields
 
@@ -155,7 +155,7 @@ A snapshot may contain observed, previewed, predicted, or completed state-bearin
 | Entity identity | R | CRE | Identifies the body, orbital, facility, market link, economy snapshot, service, or other declared entity. |
 | Entity category | R | CRE | Distinguishes physical body, orbital capacity, facility, station, market link, economy state, material observation, or another declared category. |
 | Primary state classification | C | CRE | Required for a state-bearing Snapshot item that CRE can publish for planning use. It must be exactly one of the Stage 6C state classifications in Section 8. A limitation-only Snapshot stub must not carry a Section 8 primary state classification. |
-| State-value content | C | CRE | Required for a state-bearing Snapshot item that CRE can publish for planning use. It is the fact, preview, projection, or completion record being stated, and its meaning must match the primary state classification. It is not required for a limitation-only Snapshot stub. |
+| State-value content | C | CRE | Required for a state-bearing Snapshot item that CRE can publish for planning use. It is the fact, preview, projection, proposal, or completion record being stated, and its meaning must match the primary state classification. It is not required for a limitation-only Snapshot stub. |
 | Evidence/model basis | C | CRE | Required for a state-bearing Snapshot item that CRE can publish for planning use. It is the provenance reference or named model/preview basis for that item. It is not required for a limitation-only Snapshot stub. |
 | Limitation-only Snapshot stub | C | CRE | Required when CRE cannot publish the state or evidence basis for an item, or when the item is Unknown, Missing, Withheld, or Out of scope rather than state-bearing. It must preserve entity identity, entity category, the applicable Section 9 limitation state, bounded reason, and any safe caveat needed to explain why the item cannot be used. It must not expose withheld state value, private evidence, raw storage, credentials, or unpublished material. |
 | Evidence capture / model time | C | CRE | Required when it differs materially from the snapshot capture time. |
@@ -240,7 +240,7 @@ A Planning Request must not:
 |---|---:|---|---|
 | Candidate identifier | R | Derived CPE | Stable identity for a specific plan alternative. |
 | Candidate role / intent | R | Derived CPE | States why the candidate exists relative to the request objective. It is not a CRE mechanic. |
-| Proposed actions | R | Derived CPE | Facility choices, sequencing, preservation, deferral, validation, or other plan actions. Proposed is a CPE action/design-intent classification, not a Snapshot-item or expected-effect classification. Every irreversible action must carry an applicable evidence/validation basis. |
+| Proposed actions | R | Derived CPE | Facility choices, sequencing, preservation, deferral, validation, or other plan actions. Proposed here is a CPE action/design-intent classification. It is distinct from an evidence-linked CRE Snapshot item classified Proposed under Section 8. Every irreversible action must carry an applicable evidence/validation basis. |
 | Sequence / dependency order | C | Derived CPE | Required where order changes buildability, risk, verification, or expected effect. |
 | Expected effects | C | Derived CPE | Required when claimed. Each expected effect must carry one primary Section 8 classification. “Observed carry-forward” is an Observed effect repeated unchanged from a pinned Snapshot. “Conditional” is not a sixth state; it must be expressed as a Predicted effect whose named assumptions, uncertainty, or validation gate state the condition. A proposed action remains Proposed rather than being relabelled as an effect. No expected effect may be stated as a guaranteed outcome. |
 | Supporting input references | R | Derived CPE | Links each material candidate claim to its relevant CPE Planning Request inputs. CRE Knowledge Release entries and/or Snapshot items are required where those CRE inputs exist and are material. A request-only conclusion must not invent CRE, Snapshot, or hard-constraint references. |
@@ -260,13 +260,14 @@ A Plan Result must not:
 
 ## 8. State-classification semantics
 
-Each state-bearing Snapshot item and each Plan Result expected effect must use one primary classification. Snapshot items and expected effects may use only **Observed**, **Previewed**, **Predicted**, or **Completed**. **Proposed** is reserved exclusively for CPE Plan Result action/design-intent content and is not valid for a CRE Snapshot item or an expected effect. A limitation-only Snapshot stub carries a Section 9 limitation rather than a primary state classification; it must not use a Section 8 classification. **Unknown** is a Section 9 limitation state, not a replacement primary state classification. The exact encoding is not selected here.
+Each state-bearing Snapshot item and each Plan Result expected effect must use one primary classification. Snapshot items may use only **Observed**, **Previewed**, **Predicted**, **Proposed**, or **Completed**. Plan Result expected effects may use only **Observed**, **Previewed**, **Predicted**, or **Completed**. In a Snapshot, **Proposed** is an evidence-linked CRE record that an identified source states a future colony context or state is proposed; it is not a CPE candidate action, CPE design intent, selected plan, player commitment, observed fact, or guaranteed outcome. In CPE Plan Result action/design-intent content, **Proposed** remains a distinct CPE classification defined below. A limitation-only Snapshot stub carries a Section 9 limitation rather than a primary state classification; it must not use a Section 8 classification. **Unknown** is a Section 9 limitation state, not a replacement primary state classification. The exact encoding is not selected here.
 
 | State classification | Meaning | Must not be interpreted as |
 |---|---|---|
 | **Observed** | A fact recorded from an identified evidence source at an identified or bounded capture time. | A universal mechanic, permanent state, or causal explanation not separately supported. |
 | **Previewed** | A result displayed by an identified trusted preview, construction interface, or stated preview method before the action is completed. | A completed build, a guaranteed live result, or proof that a previewed effect persists after later changes. |
 | **Predicted** | A modelled expectation produced from named assumptions, a stated method, or a known simulation. | An observed in-game result or a guarantee. |
+| **Proposed** | An evidence-linked CRE record that an identified source states a future colony context or state is proposed. | A CPE candidate action, CPE design intent, selected plan, player commitment, observed fact, completed action, or guaranteed outcome. |
 | **Completed** | A build, action, or milestone recorded as finished by identified evidence. | Verification that the intended economic, market, service, or material effect occurred. |
 
 A facility may be **Completed** while its expected consequence remains **Unknown**, **Predicted**, or **Pending live verification**. A later outcome observation must be represented separately rather than implied by completion.
@@ -275,7 +276,7 @@ For CPE Plan Result action/design-intent content only:
 
 | Action classification | Meaning | Must not be interpreted as |
 |---|---|---|
-| **Proposed** | A candidate plan action or design intent not yet verified as built or effective. | Existing facility state, a Snapshot item, an expected effect, player commitment, or research fact. |
+| **Proposed** | A candidate plan action or design intent not yet verified as built or effective. | Existing facility state, an evidence-linked CRE Snapshot proposed-state item, an expected effect, player commitment, or research fact. |
 
 ## 9. Uncertainty, withholding, and validation semantics
 
@@ -385,9 +386,10 @@ These are conceptual examples, not payloads, schemas, fixtures, or actual game f
 | Existing facility record | Observed | A facility is recorded as present by identified evidence. |
 | Candidate construction preview | Previewed | The preview may guide a conditional plan, but does not establish a completed outcome. |
 | Expected post-change material coverage | Predicted | A modelled effect under named assumptions, requiring a validation gate if consequential. |
+| Evidence-linked colony proposal record | Proposed | An identified source records a proposed future colony state; it is not a CPE candidate action or player commitment. |
 | Finished construction milestone | Completed | A build may be done, but its market/economy consequence still needs separate observation. |
 
-A future build action is recorded separately in a CPE Plan Result as `Proposed` action/design-intent content, not as a Snapshot item.
+A CPE candidate build action is recorded separately in a CPE Plan Result as `Proposed` action/design-intent content. That is distinct from an evidence-linked CRE Snapshot item whose source records a proposed colony state.
 
 ### 12.3 Example: a CPE Plan Result validation gate
 
@@ -419,7 +421,7 @@ These are review checklists, not executable validators.
 - When an economy state has a different primary classification from the facility, station, or other entity item that mentions it, is it represented as a separate or referenced Snapshot item with its own primary classification?
 - Are every applicable Section 9 item limitation, including Unknown, Missing, Contradictory, Stale, Incomplete, Unsupported, Withheld, Out of scope, and Pending live verification, carried explicitly?
 - Is completed construction kept distinct from verified outcome?
-- Are mixed observed/previewed/predicted/completed items separated rather than collapsed?
+- Are mixed observed/previewed/predicted/proposed/completed items separated rather than collapsed?
 - Are CPE candidate actions kept out of the Snapshot and recorded separately in a Plan Result?
 
 ### 13.3 CPE Planning Request checklist
