@@ -107,15 +107,15 @@ Each published knowledge entry is a CRE-owned statement, not a CPE plan rule.
 |---|---:|---|---|
 | Entry identifier | R | CRE | Stable identity for a published knowledge entry. |
 | Entry category | R | CRE | Identifies the entry as, for example, mechanic, observation, claim, guardrail, contradiction, unknown, or experiment outcome. It must not collapse these categories. |
-| Planner-safe statement | C | CRE | Required when Publication decision makes the entry publishable for planning. It must preserve qualification rather than overstate evidence. It is not required for a withheld or excluded entry that uses the safe stub below. |
+| Planner-safe statement | C | CRE | Required when Publication decision makes the entry publishable for planning, including a downgraded entry. It must preserve qualification rather than overstate evidence. It is not required for a withheld or excluded entry that uses the safe stub below. |
 | Applicability conditions | C | CRE | Required when the statement depends on body type, facility context, patch, link type, current state, or another stated condition. |
-| Evidence / provenance references | C | CRE | Required when Publication decision makes the entry publishable for planning. They must trace the entry to CRE-held evidence, claims, observations, or canonical records. They are not required for a withheld or excluded entry that uses the safe stub below. |
+| Evidence / provenance references | C | CRE | Required when Publication decision makes the entry publishable for planning, including a downgraded entry. They must trace the entry to CRE-held evidence, claims, observations, or canonical records. They are not required for a withheld or excluded entry that uses the safe stub below. |
 | Confidence status | R | CRE | CRE's confidence classification for the published statement or, for a withheld/excluded entry, the bounded safe limitation. CPE must not silently strengthen it. |
-| Caveat references | C | CRE | Required when material caveats exist. |
+| Caveat references | C | CRE | Required when material caveats exist and required for a downgraded entry to retain its explicit bounded limitations. |
 | Contradiction references | C | CRE | Required when CRE records a relevant unresolved conflict. |
 | Unknown / missing-evidence references | C | CRE | Required when absence or incompleteness limits the statement. |
 | Live-verification requirement | C | CRE | Required when an irreversible or consequential use must be checked in live state or a trusted preview before action. |
-| Publication decision | R | CRE | States whether the entry is publishable for planning, downgraded, withheld, or excluded. |
+| Publication decision | R | CRE | States whether the entry is publishable for planning, downgraded, withheld, or excluded. A downgraded entry remains publishable for planning only with explicit bounded limitations; it is not a withholding or exclusion decision. |
 | Withholding / exclusion stub | C | CRE | Required when Publication decision is withheld or excluded. It must preserve the entry identifier, entry category, publication decision, bounded reason, and any safe caveat or limitation needed to explain why the entry cannot be used. It must not expose private evidence, raw storage, credentials, or unpublished material. |
 
 ### 4.3 Prohibited Knowledge Release content
@@ -132,7 +132,7 @@ A CRE Knowledge Release must not contain:
 **Owner:** CRE  
 **Purpose:** Publish a timestamped, evidence-linked snapshot of observed or explicitly modelled colony context.
 
-A snapshot may contain observed, previewed, predicted, or completed items, but each item must carry its own state classification. A snapshot must never make an entire system appear observed simply because some items are observed. A CPE candidate action or design intent is recorded separately in a Plan Result, not as a Snapshot item.
+A snapshot may contain observed, previewed, predicted, or completed state-bearing items, but each state-bearing item must carry its own state classification. A snapshot may also contain a limitation-only Snapshot stub when CRE cannot publish a state-bearing item. A snapshot must never make an entire system appear observed simply because some items are observed. A CPE candidate action or design intent is recorded separately in a Plan Result, not as a Snapshot item.
 
 ### 5.1 Snapshot-level fields
 
@@ -143,7 +143,7 @@ A snapshot may contain observed, previewed, predicted, or completed items, but e
 | Snapshot capture time | R | CRE | When the snapshot was assembled or captured. |
 | Observation / model source time | C | CRE | Required when source evidence has a distinct capture time or when the snapshot contains modelled projection. |
 | Subject scope | R | CRE | Identifies the system, bodies, facilities, links, or other bounded context covered. |
-| Snapshot-item set | R | CRE | One or more separately classified state items. |
+| Snapshot-item set | R | CRE | One or more separately identified state-bearing items and/or limitation-only Snapshot stubs. |
 | Overall limitation statement | C | CRE | Required when the snapshot is materially incomplete, stale, partial, mixed-state, or dependent on unverified interpretation. |
 | Snapshot supersession reference | C | CRE | Required if a newer snapshot supersedes it or if it has been withdrawn. |
 
@@ -154,9 +154,10 @@ A snapshot may contain observed, previewed, predicted, or completed items, but e
 | Item identifier | R | CRE | Stable item-level identity within the snapshot scope. |
 | Entity identity | R | CRE | Identifies the body, orbital, facility, market link, economy snapshot, service, or other declared entity. |
 | Entity category | R | CRE | Distinguishes physical body, orbital capacity, facility, station, market link, economy state, material observation, or another declared category. |
-| Primary state classification | R | CRE | Exactly one of the Stage 6C state classifications in Section 8. |
-| State-value content | R | CRE | The fact, preview, projection, or completion record being stated. Its meaning must match the primary state classification. |
-| Evidence/model basis | R | CRE | Provenance reference or named model/preview basis for this item. |
+| Primary state classification | C | CRE | Required for a state-bearing Snapshot item that CRE can publish for planning use. It must be exactly one of the Stage 6C state classifications in Section 8. A limitation-only Snapshot stub must not carry a Section 8 primary state classification. |
+| State-value content | C | CRE | Required for a state-bearing Snapshot item that CRE can publish for planning use. It is the fact, preview, projection, or completion record being stated, and its meaning must match the primary state classification. It is not required for a limitation-only Snapshot stub. |
+| Evidence/model basis | C | CRE | Required for a state-bearing Snapshot item that CRE can publish for planning use. It is the provenance reference or named model/preview basis for that item. It is not required for a limitation-only Snapshot stub. |
+| Limitation-only Snapshot stub | C | CRE | Required when CRE cannot publish the state or evidence basis for an item, or when the item is Unknown, Missing, Withheld, or Out of scope rather than state-bearing. It must preserve entity identity, entity category, the applicable Section 9 limitation state, bounded reason, and any safe caveat needed to explain why the item cannot be used. It must not expose withheld state value, private evidence, raw storage, credentials, or unpublished material. |
 | Evidence capture / model time | C | CRE | Required when it differs materially from the snapshot capture time. |
 | Body capacity / slot context | C | CRE | Required when the item concerns buildability, capacity, or placement. It must not be inferred solely from a facility proposal. |
 | Realised facility state | C | CRE | Required when a facility is present, complete, under construction, demolished, or otherwise observed. |
@@ -165,7 +166,7 @@ A snapshot may contain observed, previewed, predicted, or completed items, but e
 | Economy state | C | CRE | Required when known or modelled. When its primary classification differs from the facility, station, or other entity item that mentions it, it must be represented as a separate identified Snapshot item or a referenced Snapshot item with its own primary classification and caveats. It must not introduce a second primary classification into the entity item. |
 | Market-link relationship | C | CRE | Required when a link is being asserted. Its evidence strength and state class must be visible. |
 | Contextual planning role | O | CRE | A non-canonical explanatory role may be included only when clearly marked contextual; it must not become a universal mechanic. |
-| Item caveats / uncertainty | C | CRE | Required when the item is unknown, contradictory, stale, incomplete, unsupported, withheld, or pending verification. |
+| Item caveats / uncertainty | C | CRE | Required when any applicable Section 9 limitation affects the item: unknown, missing, contradictory, stale, incomplete, unsupported, withheld, out of scope, or pending live verification. |
 | Verification status | C | CRE | Required when a claimed outcome is not independently verified. |
 
 ### 5.3 Prohibited Snapshot content
@@ -245,7 +246,7 @@ A Planning Request must not:
 | Supporting input references | R | Derived CPE | Links each material candidate claim to its relevant CPE Planning Request inputs. CRE Knowledge Release entries and/or Snapshot items are required where those CRE inputs exist and are material. A request-only conclusion must not invent CRE, Snapshot, or hard-constraint references. |
 | Trade-offs | C | Derived CPE | Required where the candidate sacrifices or defers a stated objective, preference, coverage, time, or risk posture. |
 | Caveats / uncertainty | R | Derived CPE | Must retain all material CRE and CPE limitations relevant to this candidate. |
-| Validation gate | C | Derived CPE | Required before irreversible action when evidence is incomplete, contradictory, preview-only, or pending live verification. |
+| Validation gate | C | Derived CPE | Required before irreversible action when material evidence is stale, incomplete, contradictory, preview-only, or pending live verification. |
 
 ### 7.3 Prohibited Plan Result content
 
@@ -259,7 +260,7 @@ A Plan Result must not:
 
 ## 8. State-classification semantics
 
-Each state-bearing Snapshot item and each Plan Result expected effect must use one primary classification. Snapshot items and expected effects may use only **Observed**, **Previewed**, **Predicted**, or **Completed**. **Proposed** is reserved exclusively for CPE Plan Result action/design-intent content and is not valid for a CRE Snapshot item or an expected effect. The exact encoding is not selected here.
+Each state-bearing Snapshot item and each Plan Result expected effect must use one primary classification. Snapshot items and expected effects may use only **Observed**, **Previewed**, **Predicted**, or **Completed**. **Proposed** is reserved exclusively for CPE Plan Result action/design-intent content and is not valid for a CRE Snapshot item or an expected effect. A limitation-only Snapshot stub carries a Section 9 limitation rather than a primary state classification; it must not use a Section 8 classification. **Unknown** is a Section 9 limitation state, not a replacement primary state classification. The exact encoding is not selected here.
 
 | State classification | Meaning | Must not be interpreted as |
 |---|---|---|
@@ -291,6 +292,8 @@ The following limitation states are preserved across all four objects when appli
 | **Withheld** | CRE or CPE intentionally does not publish a conclusion for stated reasons. | Respect the withholding; do not reconstruct it from private inputs. |
 | **Out of scope** | The question cannot be answered within the object's declared scope. | State the boundary and avoid implication. |
 | **Pending live verification** | A consequential claim requires in-game or other specified validation before reliance. | Carry a validation gate into the Plan Result. |
+
+A limitation-only Snapshot stub preserves the applicable Section 9 limitation and its bounded reason instead of presenting a state-bearing item. It does not convert an Unknown, Missing, Withheld, or Out of scope limitation into a Section 8 primary state classification.
 
 A plan result may use these states to produce conditional alternatives or a non-assessable result. It must not silently convert them to `false`, `zero`, `safe`, `available`, `resolved`, or `not relevant`.
 
@@ -336,7 +339,7 @@ CPE may add plan-specific caveats. It must not remove a material CRE caveat, con
 
 A CPE Planning Request must pin the exact Knowledge Release used. It must pin the exact State Snapshot only when an eligible Snapshot exists and is used. A CPE Plan Result must pin the exact Knowledge Release used and must pin the exact State Snapshot only when the Request pins one. Every present pin must include a stable identifier plus immutable revision/source information when available.
 
-A CPE Plan Result may use a newer compatible CRE Knowledge Release or State Snapshot than its Planning Request only where the update does not materially alter the request's planning scope, objective, hard constraint, protected asset, preference, risk-tolerance policy, declared programme requirement or its capacity/coverage implications, stated assumption, or applicable CRE semantic meaning. A material change to any of those matters, including to how a declared programme requirement is evaluated, requires a new Planning Request.
+A CPE Plan Result may use a newer compatible CRE Knowledge Release or State Snapshot than its Planning Request only where the update does not materially alter the request's planning scope, objective, hard constraint, protected asset, preference, risk-tolerance policy, declared programme requirement or its capacity/coverage implications, stated assumption, applicable CRE semantic meaning, or the material Snapshot state items and limitations that frame those matters. A material change to any of those matters, including to how a declared programme requirement is evaluated or to relevant facility presence, protected assets, body capacity, economy state, market-link state, or other Snapshot facts or limitations bearing on the planning problem, requires a new Planning Request.
 
 For a permitted update, the Plan Result must record the exact updated pin, the update reason, Input-change sensitivity, and every resulting limitation or validation gate. This is field-level governance only; it does not create or select an implementation, compatibility engine, or update mechanism.
 
@@ -402,7 +405,7 @@ These are review checklists, not executable validators.
 
 ### 13.1 CRE Knowledge Release checklist
 
-- Does every published entry have a stable identifier, category, publication decision, and—when publishable for planning—a bounded statement, provenance basis, and confidence?
+- Does every published entry have a stable identifier, category, publication decision, and—when publishable for planning, including a downgraded entry—a bounded statement, provenance basis, confidence, and explicit relevant limitation?
 - When an entry is withheld or excluded, does it retain a safe stub with its bounded reason and any safe caveat or limitation, without exposing private evidence or unpublished material?
 - Are caveats, contradictions, unknowns, and live-verification requirements carried where applicable?
 - Does the release avoid embedding player-specific objective or plan content?
@@ -411,8 +414,10 @@ These are review checklists, not executable validators.
 ### 13.2 CRE State Snapshot checklist
 
 - Does each state-bearing item have exactly one primary state classification?
+- Does every limitation-only Snapshot stub preserve entity identity, entity category, the applicable Section 9 limitation state, a bounded reason, and any safe caveat without exposing withheld state or private evidence; and does it avoid a Section 8 primary state classification?
 - Are facility class, station type, economy state, market links, body capacity, and planning role kept distinct where present?
 - When an economy state has a different primary classification from the facility, station, or other entity item that mentions it, is it represented as a separate or referenced Snapshot item with its own primary classification?
+- Are every applicable Section 9 item limitation, including Unknown, Missing, Contradictory, Stale, Incomplete, Unsupported, Withheld, Out of scope, and Pending live verification, carried explicitly?
 - Is completed construction kept distinct from verified outcome?
 - Are mixed observed/previewed/predicted/completed items separated rather than collapsed?
 - Are CPE candidate actions kept out of the Snapshot and recorded separately in a Plan Result?
@@ -433,7 +438,8 @@ These are review checklists, not executable validators.
 - Are caveats, contradictions, unknowns, and validation gates preserved?
 - Does plan-level confidence remain bounded by every material CRE confidence limitation and Section 9 limitation, including unknown, missing, contradictory, stale, incomplete, unsupported, withheld, out of scope, and pending live verification?
 - When withholding an answer, are all applicable limitation bases retained, including unknown, missing, contradictory, stale, incomplete, unsupported, withheld, out of scope, and pending live verification?
-- Where a Result uses a permitted updated CRE input, are the exact updated pin, reason, Input-change sensitivity, and each resulting limitation or validation gate recorded; and has a new Planning Request been used for a material change, including a material change to a declared programme requirement or its capacity/coverage evaluation?
+- Does an irreversible action that depends on materially stale, incomplete, contradictory, preview-only, or pending-live-verification evidence carry a validation gate?
+- Where a Result uses a permitted updated CRE input, are the exact updated pin, reason, Input-change sensitivity, and each resulting limitation or validation gate recorded; and has a new Planning Request been used for a material change, including a material change to a declared programme requirement or its capacity/coverage evaluation or to material Snapshot facts or limitations that alter the planning problem?
 - Do proposed actions trace to the relevant objective, hard constraint, preference, risk tolerance, declared programme requirement, or stated assumption, without inventing a CRE factual basis where none exists?
 - Is the result clearly a plan-specific decision-support output rather than observed reality or automatic player choice?
 
