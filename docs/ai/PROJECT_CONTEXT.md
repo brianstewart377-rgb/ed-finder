@@ -53,14 +53,16 @@ If the branch, commit, worktree status, or stage files do not match the expected
 
 ## R1 Assessment Laboratory boundary
 
-The historical R1 Assessment Laboratory was a DEV-only fixture-backed planning/evaluation tool, not a public ED-Finder feature. Its previous local worktree and commit were not recoverable from the current repository checkout as of 2026-07-01.
+The historical R1 Assessment Laboratory was a DEV-only fixture-backed planning/evaluation tool, not a public ED-Finder feature. Its original local worktree and the specific lost local commit were not recoverable from the available checkout as of 2026-07-01.
 
-Any future reconstruction must begin as a new, explicitly authorised stage. It must preserve these high-level boundaries:
+That loss remains a historical fact. The approved forward reconstruction now exists in the repository lineage on this branch through the accepted Stage 2B, Stage 3A, and Stage 3B recovery work plus the later continuity records. Treat the repository, not the lost worktree, as the durable R1 baseline.
+
+The reconstructed R1 line must preserve these high-level boundaries:
 
 - DEV-only access at an exact hash, never a normal route or navigation item.
 - No normal provider/bootstrap effects, app-data network activity, or persistence writes at that exact DEV entry.
 - Production must treat the hash as an ordinary unknown hash and fall back to Finder.
 - Production deployable JavaScript, CSS, and HTML must not contain laboratory-only identifiers or load a lab chunk.
-- Evaluation must be template/programme-specific; it must not create a universal score or public Finder ranking.
+- Evaluation must be template/programme-specific; it must not create a universal score, public Finder ranking, or public recommendation surface.
 
-Do not recreate this lab from partial memory. First create a written reconstruction contract and file inventory in `CURRENT_STAGE.md`.
+Do not recreate or reinterpret this lab from partial memory. Any later change still requires an explicit written contract, exact branch/base recording, and owner-authorised scope in `CURRENT_STAGE.md`.
