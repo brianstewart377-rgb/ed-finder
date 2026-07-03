@@ -147,3 +147,31 @@ Every later claim must retain a traceable chain from source record through evide
 
 **Evidence / reference**
 Owner-provided forward-design intent dated 2026-07-02, recorded as `owner_intent_capacity_sufficiency_plateau_2026-07-02` in `docs/ai/R1_STAGE5A_5B_ACCEPTANCE_CLOSEOUT_V1.md`; `docs/ai/R1_STAGE5B_EVIDENCE_DISCIPLINE_CONTRACT_V1.md`; Stage 5B reviewed head `b42d8cfa6d1ad453d6637ea7f24919d85950ec95`; PR `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`; owner acceptance on 2026-07-02.
+
+## 2026-07-03 — CPE / System Assessment Engine is the future assessment owner
+
+**Decision**
+Name and preserve **CPE / System Assessment Engine** as a first-class CPE pillar alongside **CPE / Colony Plan Construction**. The R1 Assessment Laboratory in `ed-finder` is the frozen DEV-only prototype and control-suite lineage for that future engine.
+
+**Reason**
+The R1 work evaluates candidate systems against an explicit programme, requirements, Carrier scenario, evidence status, and strategy context. That is player-specific planning and comparison work, not CRE research truth and not ed-finder presentation. A separate SRE repository would introduce a premature and duplicative source-of-truth boundary.
+
+**Invariant**
+CRE owns evidence, provenance, mechanics, observations, contradictions, confidence, planner-safe releases, and observed-state publications. CPE / System Assessment Engine owns programme-specific assessment, capacity-sufficiency, Carrier scenario evaluation, Plan Fit, and comparison-ready outputs. CPE / Colony Plan Construction owns player constraints, candidate plans, sequencing, alternatives, and validation steps. ed-finder presents but does not own research or planning truth. The R1 lab is reimplemented semantically in CPE only after an accepted contract and control migration; it is not copied as fixture truth.
+
+**Evidence / reference**
+Owner direction on 2026-07-03; `docs/ai/R1_STAGE6B_CRE_CPE_BOUNDARY_CONTRACT_V1.md`; `docs/ai/R1_STAGE5B_EVIDENCE_DISCIPLINE_CONTRACT_V1.md`; Programme A0 continuity audit.
+
+## 2026-07-03 — Every merge must leave a durable recovery trail
+
+**Decision**
+Every merged change must leave the repository self-explanatory for a new chat or agent. `CURRENT_STAGE.md` is updated after every merge. The roadmap, continuity ledger, and decision register are updated when their respective subject matter changes.
+
+**Reason**
+Project knowledge was already vulnerable to chat slowdown, lost local worktree state, stale stage records, and overlapping closeout PRs. Recovery depends on durable repository records, not on a surviving conversation.
+
+**Invariant**
+A merge is not fully closed until its exact reviewed head, merge commit, scope, caveats, superseded items, and next safe action are recorded. New chats begin read-only from `CURRENT_STAGE.md`, the continuity protocol, roadmap, ledger, decisions, and live repository/PR state. No document may describe a merged stage as pending; status corrections must be treated as first-class maintenance.
+
+**Evidence / reference**
+Owner direction on 2026-07-03; `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`; Programme A0 finding F-13 and stale-record register.
