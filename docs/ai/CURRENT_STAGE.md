@@ -4,14 +4,14 @@
 
 ## Status
 
-**D2a — Working-Point Hierarchy Enforcement and Historical Records Index is drafted for independent review on branch `docs/d2a-working-point-hierarchy-historical-index`. It is based on `work/r1-canonical-body-evidence` at exact base `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`, after D0 merged in PR `#304` and D1b merged in PR `#305`. This stage creates a mandatory preflight protocol and a logical historical-records index, updates the working-point hierarchy links, and hardens the rule that historical or frozen contracts cannot grant current execution authority. It is docs-only, not accepted or merged, and grants no archive, deletion, rename, implementation, API, database, CRE, CPE, or R1 authority.**
+**D2b — D2a Merge Working-Point Reconciliation is drafted for independent review on branch `docs/d2b-d2a-merge-working-point`. D2a — Working-Point Hierarchy Enforcement and Historical Records Index is accepted and merged in PR `#306 — docs: enforce working-point hierarchy and index historical records`, with reviewed head `986bf44fe61ba984b029722873c5ac9268e79809`, merge commit `70895524847527a603aea0f31aeda847ca4a51ba`, merge method `merge commit`, and merged time `2026-07-03T20:15:53Z`. The D2a two-pass preflight protocol and historical-records index are now canonical. D2a authorised no archive moves, deletions, renames, code, runtime, API, database, CRE, CPE, or R1 implementation. D2b is docs-only, not accepted or merged, and grants no new implementation or cleanup authority.**
 
 ## Branch and base
 
 - Repository: `brianstewart377-rgb/ed-finder`
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Required canonical base SHA: `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`
-- Working branch: `docs/d2a-working-point-hierarchy-historical-index`
+- Required canonical base SHA: `70895524847527a603aea0f31aeda847ca4a51ba`
+- Working branch: `docs/d2b-d2a-merge-working-point`
 
 The live head for this draft is not recorded statically here. Before any review, owner-acceptance wording, or merge decision, fetch live branch or PR metadata and verify the exact current head, changed-file scope, review state, and thread state.
 
@@ -38,6 +38,13 @@ At closeout preflight, `origin/work/r1-canonical-body-evidence` resolved to the 
 - Reviewed head SHA: `a8be0792bed7982d36e679ea1ba3961569510a23`
 - Merge commit SHA: `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`
 - Merged at: `2026-07-03T18:39:28Z`
+
+- PR: `#306 — docs: enforce working-point hierarchy and index historical records`
+- PR base SHA before merge: `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`
+- Reviewed head SHA: `986bf44fe61ba984b029722873c5ac9268e79809`
+- Merge commit SHA: `70895524847527a603aea0f31aeda847ca4a51ba`
+- Merge method: `merge commit`
+- Merged at: `2026-07-03T20:15:53Z`
 
 ## D2a scope
 
@@ -96,7 +103,8 @@ These merged facts correct stale wording that still described Stage 25C Slice 1 
 - The changed-file scope for that predecessor merge remained the approved ten-file D1a documentation allowlist.
 - PR `#304` was verified merged at `2d1472cc63f9c228e26796d68d7e75384fc0db61`.
 - PR `#305` was verified merged at `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`.
-- This D2a branch was created from the fetched canonical base only after the worktree was verified clean.
+- PR `#306` was verified merged at `70895524847527a603aea0f31aeda847ca4a51ba`.
+- This D2b branch was created from the fetched canonical base only after the worktree was verified clean.
 
 ## Remaining documentation debt
 
@@ -109,7 +117,8 @@ These merged facts correct stale wording that still described Stage 25C Slice 1 
 
 ## Next safe action
 
-Conduct an independent, read-only review of the live D2a draft against its exact current branch or PR head, changed-file scope, review state, and thread state. Do not treat historical or frozen contracts as current execution authority, and do not start D2, D1c, archive treatment, deletion review, code-boundary implementation, or API work without further explicit authorisation.
+No new archive, deletion, CRE, CPE, R1, API, runtime, or implementation work is authorised by this reconciliation.
+A separately owner-authorised next batch is required.
 
 ## Closeout rule
 

@@ -143,4 +143,4 @@ Explicitly excluded: new SRE repository, database, API, shared package, runtime/
 
 ## 10. Next safe action
 
-Conduct an independent, read-only review of D2a — Working-Point Hierarchy Enforcement and Historical Records Index — against the exact live branch or PR head, changed-file scope, and live review state. D0 is already recorded in merged PR `#304`, and D1b is already merged in PR `#305`. Do not change this ledger’s classifications further, and do not start D2, archive treatment, deletion review, or implementation work, until D2a is resolved and a separately authorised next batch supplies the evidence for any later lifecycle action.
+D2a is already merged in PR `#306`, making the working-point preflight protocol and historical-record index canonical. Do not change this ledger’s classifications further, and do not start D2, archive treatment, deletion review, CRE, CPE, R1, API, runtime, or implementation work, until a separately owner-authorised next batch supplies the evidence for any later lifecycle action.
